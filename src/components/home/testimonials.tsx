@@ -5,47 +5,47 @@ import { useState } from "react";
 
 const TESTIMONIALS = [
   {
-    text: "Remotiv matched us with a senior React engineer in under 18 hours. He integrated with our team seamlessly and shipped a critical feature within his first week.",
+    text: "Remotiv delivered a senior React developer within 18 hours. We were blown away by the quality and speed. This is how hiring should work.",
     name: "James Carter",
     role: "CTO, Stackflow",
   },
   {
-    text: "We needed three backend engineers for a tight deadline. Remotiv delivered exactly the calibre we needed — no compromises, no delays.",
+    text: "We've tried Upwork, Toptal, and others. Remotiv is the only platform that actually pre-vets talent properly. Saved us months of interviews.",
     name: "Sarah Mitchell",
     role: "Head of Engineering, Buildify",
   },
   {
-    text: "As a non-technical founder, I was nervous about hiring engineers remotely. Remotiv handled everything — vetting, onboarding, even the initial sprint planning.",
+    text: "Incredible value. The engineers we hired through Remotiv are among the best we've ever worked with — and at a fraction of the cost.",
     name: "Omar Farooq",
     role: "CEO, NovaSoft",
   },
   {
-    text: "The zero-risk guarantee gave us the confidence to try it. Three months in, our Remotiv engineers feel like full-time team members.",
+    text: "The AI matching is genuinely impressive. It didn't just find us candidates — it found us the right candidates for our specific stack.",
     name: "Priya Nair",
     role: "VP Product, Loopscale",
   },
   {
-    text: "We scaled from 2 to 8 engineers in a month without sacrificing quality. Remotiv's vetting process is genuinely best-in-class.",
+    text: "Our dedicated team from Remotiv has been with us for 8 months now. Zero turnover, full commitment. Exactly what a growing startup needs.",
     name: "David Lenz",
     role: "Founder, Growthdeck",
   },
   {
-    text: "What impressed me most was the speed. We went from first call to a fully onboarded engineer in 48 hours flat.",
+    text: "From job post to offer letter in under 24 hours. I thought it was a gimmick — it absolutely wasn't. Remotiv is the real deal.",
     name: "Layla Hassan",
     role: "COO, Fintrax",
   },
   {
-    text: "I've used three staffing platforms before. Remotiv is the only one where every single engineer exceeded expectations.",
+    text: "The talent quality is exceptional. We hired 4 engineers who all passed our internal technical bar — something that rarely happens.",
     name: "Tom Eriksson",
     role: "Engineering Manager, Claritex",
   },
   {
-    text: "Remotiv doesn't just fill seats — they genuinely match talent to culture. Our retention rate with their engineers is 95%.",
+    text: "Staff augmentation done right. Remotiv understood our culture and sent us people who actually fit our team, not just the job description.",
     name: "Amara Diallo",
     role: "People Lead, Basecamp Digital",
   },
   {
-    text: "We saved roughly 40% compared to local hiring, and the engineers are just as senior. It's a no-brainer for any startup watching burn.",
+    text: "We scaled our dev team from 3 to 12 in two months using Remotiv. The process was seamless and every hire has been a keeper.",
     name: "Kevin Walsh",
     role: "CTO, Shiplink",
   },
@@ -112,15 +112,14 @@ function ScrollColumn({ indices, duration }: { indices: number[]; duration: stri
 
 export function Testimonials() {
   return (
-    <section className="bg-white px-6 py-16 sm:px-14 sm:py-24">
+    <section className="bg-white px-6 pt-0 pb-20 sm:px-16">
       <div className="mx-auto max-w-7xl">
         <div className="mb-14 text-center">
           <h2 className="font-heading text-3xl font-bold tracking-tight text-remotiv-text-dark sm:text-4xl md:text-[42px] md:leading-[1.15]">
             What our clients say
           </h2>
           <p className="mt-4 text-base text-remotiv-text-mid">
-            Don&apos;t take our word for it — hear from the founders and engineering leaders who
-            trust Remotiv.
+            See what founders and engineering leaders say about hiring with Remotiv.
           </p>
         </div>
 

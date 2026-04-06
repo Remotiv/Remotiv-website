@@ -4,40 +4,40 @@ const CARDS = [
   {
     title: "Startups",
     description:
-      "Move fast without compromising quality. We match you with senior engineers who've built and scaled products before.",
+      "Build your team from the ground up with carefully vetted talent. Move fast, stay lean, and hire the right people from day one.",
     bullets: [
-      "Ship your MVP 2–3x faster",
-      "Access senior talent from day one",
-      "Flexible month-to-month contracts",
+      "Hire your first engineers or marketers",
+      "Flexible hiring, no long-term commitments",
+      "Fast turnaround — matched in 24 hours",
     ],
   },
   {
     title: "Agencies",
     description:
-      "Extend your delivery capacity on demand. Plug in pre-vetted engineers who integrate with your workflows instantly.",
+      "Scale your capacity with reliable, pre-vetted professionals. Take on more clients without hiring delays.",
     bullets: [
-      "White-label engineering teams",
-      "Scale up or down per project",
-      "Same-week onboarding",
+      "Quickly fill skill gaps on demand",
+      "On-demand talent for any project",
+      "Consistent quality & reliability",
     ],
   },
   {
     title: "Enterprises",
     description:
-      "De-risk hiring and reduce time-to-productivity. Our engineers come battle-tested with enterprise-grade experience.",
+      "Expand your team with top-tier talent while reducing hiring time and operational overhead. Built for scale.",
     bullets: [
-      "Dedicated team management",
-      "Compliance & IP protection built in",
-      "Long-term retention programs",
+      "Dedicated teams or long-term hires",
+      "Streamlined, low-friction hiring process",
+      "Global-ready talent pool",
     ],
   },
 ] as const;
 
 export function WhoWeHelp() {
   return (
-    <section className="bg-white px-6 py-12 sm:px-14 sm:py-12">
+    <section className="bg-white px-6 pt-12 pb-0 sm:px-14">
       <div className="mx-auto max-w-7xl">
-        <h2 className="font-heading text-3xl font-bold tracking-tight text-remotiv-text-dark sm:text-4xl md:text-[42px] md:leading-[1.15]">
+        <h2 className="mb-16 text-center font-heading text-3xl font-bold tracking-tight text-remotiv-text-dark sm:text-4xl md:text-[42px] md:leading-[1.15]">
           Built for{" "}
           <span className="relative inline-block">
             <span

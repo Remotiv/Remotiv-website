@@ -1,6 +1,5 @@
 "use client";
 
-import { ChevronDown } from "lucide-react";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
@@ -20,25 +19,44 @@ const NAV_ITEMS: readonly {
 const SERVICES = [
   {
     title: "Recruitment",
-    subtitle: "Find the perfect candidates for your team",
+    subtitle: "End-to-end hiring",
     href: "/services/recruitment",
   },
   {
     title: "Staff Augmentation",
-    subtitle: "Scale your team with skilled professionals",
+    subtitle: "Scale your team fast",
     href: "/services/staff-augmentation",
   },
   {
     title: "Dedicated Team",
-    subtitle: "Build a fully managed remote team",
+    subtitle: "Full team, your product",
     href: "/services/dedicated-team",
   },
   {
     title: "Payroll Services",
-    subtitle: "Streamline your global payroll operations",
+    subtitle: "Compliant & hassle-free",
     href: "/services/payroll",
   },
 ];
+
+const NAV_LINK_CLASS =
+  "flex items-center gap-1 whitespace-nowrap rounded-full px-3.5 py-[7px] text-[0.88rem] font-medium text-[#444] transition-colors hover:bg-black/[0.04] hover:text-[#111]";
+
+function ChevronSvg({ open }: { open: boolean }) {
+  return (
+    <svg
+      viewBox="0 0 10 10"
+      fill="none"
+      aria-hidden="true"
+      className={cn(
+        "size-2.5 shrink-0 opacity-45 transition-transform duration-200",
+        open && "rotate-180 opacity-70",
+      )}
+    >
+      <path d="M2 3.5L5 6.5L8 3.5" stroke="currentColor" strokeWidth="1.5" strokeLinecap="round" />
+    </svg>
+  );
+}
 
 function ServicesDropdown() {
   const [open, setOpen] = useState(false);
@@ -54,35 +72,36 @@ function ServicesDropdown() {
   }
 
   return (
-    // biome-ignore lint/a11y/noStaticElementInteractions: hover wrapper for dropdown menu
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover wrapper for dropdown
     <span className="relative" onMouseEnter={show} onMouseLeave={hide} onFocus={show} onBlur={hide}>
-      <button
-        type="button"
-        aria-expanded={open}
-        className="flex items-center gap-1 rounded-full px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100/80"
-      >
+      <button type="button" aria-expanded={open} className={NAV_LINK_CLASS}>
         Services
-        <ChevronDown
-          className={cn("size-4 transition-transform duration-200", open && "rotate-180")}
-        />
+        <ChevronSvg open={open} />
       </button>
       <div
         className={cn(
-          "pointer-events-none absolute left-1/2 top-full z-50 w-72 -translate-x-1/2 pt-2 opacity-0 transition-all duration-200",
+          "pointer-events-none absolute left-1/2 top-[calc(100%+14px)] z-[200] w-[400px] -translate-x-1/2 opacity-0 transition-all duration-200",
           open && "pointer-events-auto opacity-100",
         )}
       >
-        <div className="rounded-2xl border border-gray-100 bg-white p-2 shadow-xl">
-          {SERVICES.map((service) => (
-            <Link
-              key={service.href}
-              href={service.href}
-              className="block rounded-xl px-4 py-3 text-left transition-colors hover:bg-gray-50"
-            >
-              <span className="block text-sm font-semibold text-gray-900">{service.title}</span>
-              <span className="block text-xs text-gray-500">{service.subtitle}</span>
-            </Link>
-          ))}
+        <div className="relative rounded-[18px] border border-black/[0.08] bg-white/[0.98] p-2 shadow-[0_16px_48px_rgba(0,0,0,0.12)] backdrop-blur-[20px]">
+          <div className="absolute -top-[5px] left-1/2 size-2.5 -translate-x-1/2 rotate-45 border-l border-t border-black/[0.08] bg-white" />
+          <div className="grid grid-cols-2 gap-1">
+            {SERVICES.map((service) => (
+              <Link
+                key={service.href}
+                href={service.href}
+                className="block rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-remotiv-green/[0.09]"
+              >
+                <span className="block text-[0.82rem] font-bold text-[#111] leading-snug">
+                  {service.title}
+                </span>
+                <span className="block text-[0.73rem] font-normal text-[#aaa]">
+                  {service.subtitle}
+                </span>
+              </Link>
+            ))}
+          </div>
         </div>
       </div>
     </span>
@@ -99,40 +118,38 @@ export function Navbar({ variant = "default" }: NavbarProps) {
   return (
     <nav
       className={cn(
-        "w-full z-50",
+        "w-full z-[100]",
         isHome ? "absolute top-0 left-0" : "sticky top-0 bg-white shadow-sm",
       )}
     >
-      <div className="mx-auto flex max-w-7xl items-center justify-between px-6 py-5">
-        <Link href="/" className="font-heading text-2xl font-bold">
+      <div className="mx-auto flex items-center justify-between px-14 py-[22px]">
+        <Link href="/" className="font-heading text-[1.45rem] font-bold tracking-[0.01em]">
           <span className="text-remotiv-green">Remotiv.</span>
         </Link>
 
-        <div
+        <ul
           className={cn(
-            "hidden items-center gap-1 rounded-full border border-white/60 bg-white/80 px-2 py-1.5 shadow-lg backdrop-blur-md lg:flex",
+            "hidden list-none items-center gap-0.5 rounded-full border border-black/[0.08] bg-white/92 px-4 py-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.07)] backdrop-blur-[16px] md:flex",
             isHome && "-translate-y-[9px]",
           )}
         >
-          {NAV_ITEMS.map((item) =>
-            item.hasDropdown ? (
-              <ServicesDropdown key={item.label} />
-            ) : (
-              <Link
-                key={item.label}
-                href={item.href}
-                className="rounded-full px-4 py-2 text-sm font-medium text-gray-700 transition-colors hover:bg-gray-100/80"
-              >
-                {item.label}
-              </Link>
-            ),
-          )}
-        </div>
+          {NAV_ITEMS.map((item) => (
+            <li key={item.label}>
+              {item.hasDropdown ? (
+                <ServicesDropdown />
+              ) : (
+                <Link href={item.href} className={NAV_LINK_CLASS}>
+                  {item.label}
+                </Link>
+              )}
+            </li>
+          ))}
+        </ul>
 
         <Link
           href="/book-a-meeting"
           className={cn(
-            "rounded-full bg-remotiv-green px-6 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-remotiv-green-light",
+            "rounded-[14px] bg-remotiv-green px-6 py-[11px] text-[0.92rem] font-semibold text-[#111] transition-all hover:bg-remotiv-green-light hover:-translate-y-0.5",
             isHome && "-translate-y-[6px] translate-x-[14px]",
           )}
         >

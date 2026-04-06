@@ -56,19 +56,19 @@ type CircleColor = "purple" | "beige" | "green";
 
 const CIRCLE_STYLES: Record<CircleColor, { bg: string; ring: string; text: string }> = {
   purple: {
-    bg: "bg-remotiv-purple-light",
-    ring: "border-remotiv-purple-light/30",
+    bg: "bg-remotiv-purple",
+    ring: "border-remotiv-purple/25",
     text: "text-white",
   },
   beige: {
-    bg: "bg-[#f5f0eb]",
+    bg: "bg-[#EEEEE8]",
     ring: "border-[#e0d5c9]",
     text: "text-remotiv-text-dark",
   },
   green: {
-    bg: "bg-remotiv-green/15",
+    bg: "bg-remotiv-green",
     ring: "border-remotiv-green/30",
-    text: "text-remotiv-text-dark",
+    text: "text-[#0a3d2a]",
   },
 };
 
@@ -103,7 +103,9 @@ function StatCircle({
         <span className="font-heading text-4xl font-bold leading-none">
           {animate ? `${counter}${animate.suffix}` : value}
         </span>
-        <span className="mt-2 max-w-[140px] text-center text-sm font-medium leading-tight opacity-80">
+        <span
+          className={`mt-2 max-w-[140px] text-center text-sm font-medium leading-tight ${color === "green" ? "" : "opacity-80"}`}
+        >
           {label}
         </span>
       </div>
@@ -120,7 +122,7 @@ function AnimatedLine({
   color: "purple" | "green";
   visible: boolean;
 }) {
-  const lineColor = color === "purple" ? "#9886fe" : "#49D7A7";
+  const lineColor = color === "purple" ? "#7E47FF" : "#49D7A7";
 
   return (
     <div className="relative flex h-[2px] w-full items-center">
@@ -166,7 +168,7 @@ function SectionContent({
   description: string;
   accentWord: string;
 }) {
-  const colorClass = accentColor === "purple" ? "text-[#9886fe]" : "text-remotiv-green";
+  const colorClass = accentColor === "purple" ? "text-[#7E47FF]" : "text-remotiv-green";
 
   const parts = headline.split(accentWord);
 
@@ -189,7 +191,7 @@ export function StatsCircles() {
   const row3 = useInView(0.3);
 
   return (
-    <section className="bg-white px-6 py-20 md:px-16 lg:px-16 lg:py-20">
+    <section className="bg-white px-6 py-20 md:px-16">
       <div className="mx-auto max-w-6xl space-y-20 lg:space-y-24">
         <div ref={row1.ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_auto]">
           <SectionContent
@@ -197,7 +199,7 @@ export function StatsCircles() {
             headline="The world's most intelligent talent database"
             accentWord="intelligent"
             accentColor="purple"
-            description="Our proprietary AI engine indexes and ranks over a million engineering profiles, so you get the best match — not just the best resume."
+            description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
           />
           <div className="hidden md:block">
             <AnimatedLine direction="ltr" color="purple" visible={row1.visible} />
@@ -223,7 +225,7 @@ export function StatsCircles() {
               headline="Proven results, global reach"
               accentWord="global"
               accentColor="purple"
-              description="We've placed top-tier engineers across 30+ countries, building long-lasting partnerships with every hire."
+              description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
             />
           </div>
           <div className="flex justify-center md:justify-end">
@@ -254,7 +256,7 @@ export function StatsCircles() {
               headline="Your shortlist, in 24 hours"
               accentWord="24 hours"
               accentColor="green"
-              description="From brief to shortlist in a single day. Our AI pre-screens, ranks, and delivers qualified candidates while you focus on building."
+              description="Share your brief today. By tomorrow, a curated shortlist of pre-vetted, AI-matched candidates is in your inbox — ready to interview, ready to hire."
             />
           </div>
         </div>

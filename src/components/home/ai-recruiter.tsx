@@ -1,29 +1,6 @@
 import { Bot, BrainCircuit, Check, MessageSquare, Search, Sparkles, X } from "lucide-react";
 import Link from "next/link";
 
-const CANDIDATES = [
-  {
-    name: "Ahmed K.",
-    role: "Senior Full-Stack Engineer",
-    match: 97,
-    skills: ["React", "Node.js", "AWS"],
-  },
-  {
-    name: "Bilal M.",
-    role: "Staff Backend Engineer",
-    match: 94,
-    skills: ["Go", "Kubernetes", "PostgreSQL"],
-  },
-  {
-    name: "Sara N.",
-    role: "Senior Frontend Engineer",
-    match: 91,
-    skills: ["TypeScript", "Next.js", "Figma"],
-  },
-] as const;
-
-const SKILL_TAGS = ["React", "TypeScript", "Node.js", "AWS", "5+ years", "Remote-ready"];
-
 function Avatar({ name, color }: { name: string; color: string }) {
   const initials = name
     .split(" ")
@@ -68,57 +45,17 @@ function SearchingAnimation() {
   );
 }
 
-function matchColor(match: number): string {
-  if (match > 95) return "#49D7A7";
-  if (match > 92) return "#9886fe";
-  return "#f59e0b";
-}
-
-function CandidateCard({ candidate }: { candidate: (typeof CANDIDATES)[number] }) {
-  return (
-    <div className="flex items-center gap-3 rounded-xl bg-white/10 px-3 py-2.5">
-      <Avatar name={candidate.name} color={matchColor(candidate.match)} />
-      <div className="min-w-0 flex-1">
-        <div className="flex items-center gap-2">
-          <span className="text-sm font-semibold text-white">{candidate.name}</span>
-          <span className="rounded-full bg-remotiv-green/20 px-2 py-0.5 text-[10px] font-bold text-remotiv-green">
-            {candidate.match}% match
-          </span>
-        </div>
-        <p className="text-xs text-white/60">{candidate.role}</p>
-        <div className="mt-1 flex flex-wrap gap-1">
-          {candidate.skills.map((s) => (
-            <span key={s} className="rounded bg-white/10 px-1.5 py-0.5 text-[10px] text-white/70">
-              {s}
-            </span>
-          ))}
-        </div>
-      </div>
-      <div className="flex shrink-0 gap-1.5">
-        <button
-          type="button"
-          className="flex size-7 items-center justify-center rounded-lg bg-remotiv-green/20 text-remotiv-green transition-colors hover:bg-remotiv-green/30"
-          aria-label={`Accept ${candidate.name}`}
-        >
-          <Check className="size-3.5" />
-        </button>
-        <button
-          type="button"
-          className="flex size-7 items-center justify-center rounded-lg bg-white/10 text-white/50 transition-colors hover:bg-white/20"
-          aria-label={`Reject ${candidate.name}`}
-        >
-          <X className="size-3.5" />
-        </button>
-      </div>
-    </div>
-  );
-}
-
 export function AIRecruiter() {
+  const candidateRows = [
+    { name: "Ahmed K.", color: "#49D7A7", elevated: false },
+    { name: "Bilal M.", color: "#9886fe", elevated: true },
+    { name: "Sara N.", color: "#D9F972", elevated: false },
+  ];
+
   return (
-    <section className="bg-white px-6 py-20 md:px-16 lg:py-20">
+    <section className="bg-white px-6 py-0 md:px-10">
       <div className="mx-auto max-w-6xl">
-        <div className="overflow-hidden rounded-3xl bg-[#9886fe] px-6 py-12 md:px-12 lg:px-16 lg:py-16">
+        <div className="overflow-hidden rounded-3xl bg-[#9886fe] px-6 py-12 md:px-14 md:py-[72px]">
           <div className="grid items-start gap-10 lg:grid-cols-[1fr_auto_1fr]">
             <div className="flex flex-col">
               <span className="mb-4 inline-flex w-fit items-center gap-1.5 rounded-full bg-remotiv-green/20 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-remotiv-green">
@@ -132,16 +69,19 @@ export function AIRecruiter() {
               </h2>
 
               <p className="mt-4 max-w-md text-sm leading-relaxed text-white/70">
-                Our AI recruiter works 24/7, scanning and ranking candidates against your exact
-                requirements. It learns from every hire to deliver increasingly precise matches — so
-                you spend less time screening and more time building.
+                Just tell us the role. Our AI scans 1M+ verified profiles and delivers a shortlist
+                of pre-vetted candidates — within 24 hours.
+              </p>
+              <p className="mt-3 max-w-md text-sm leading-relaxed text-white/40">
+                At a fraction of what a traditional recruiter charges.
               </p>
 
               <Link
-                href="/ai-matching"
-                className="mt-8 inline-flex w-fit items-center rounded-full bg-white px-7 py-3 text-sm font-semibold text-[#9886fe] shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                href="/how-it-works"
+                className="mt-8 inline-flex w-fit items-center rounded-full px-7 py-3 text-sm font-semibold shadow-lg transition-all hover:-translate-y-0.5 hover:shadow-xl"
+                style={{ backgroundColor: "#49D7A7", color: "#453e40" }}
               >
-                Try AI Matching →
+                See How It Works →
               </Link>
             </div>
 
@@ -163,43 +103,92 @@ export function AIRecruiter() {
 
             <div className="flex flex-col gap-3">
               <div className="rounded-2xl rounded-tl-sm bg-white/15 px-4 py-3">
-                <p className="text-sm font-medium text-white">
-                  I need a senior full-stack engineer with React & Node.js experience, fluent
-                  English, and available to start within 2 weeks.
+                <p className="text-sm font-medium leading-relaxed text-white">
+                  Send me candidates interested in{" "}
+                  <span className="rounded-md bg-[#fbbf24]/90 px-1.5 py-0.5 font-medium text-[#453e40]">
+                    React Dev
+                  </span>{" "}
+                  with experience in{" "}
+                  <span className="rounded-md bg-indigo-500 px-1.5 py-0.5 font-medium text-white">
+                    Next.js
+                  </span>
                 </p>
-                <div className="mt-2 flex flex-wrap gap-1.5">
-                  {SKILL_TAGS.map((tag) => (
-                    <span
-                      key={tag}
-                      className="rounded-full bg-white/15 px-2.5 py-0.5 text-[11px] font-medium text-white/80"
-                    >
-                      {tag}
-                    </span>
-                  ))}
-                </div>
               </div>
 
               <div className="rounded-2xl rounded-tr-sm bg-remotiv-green/25 px-4 py-3">
                 <div className="flex items-center gap-2">
                   <Bot className="size-4 text-remotiv-green" />
-                  <span className="text-xs font-semibold text-remotiv-green">Remotiv AI</span>
+                  <span className="text-xs font-semibold text-remotiv-green">Remotiv:ai</span>
                 </div>
                 <p className="mt-1 text-sm text-white/90">
-                  Found <span className="font-semibold text-white">3 top matches</span> from 12,847
-                  profiles. All pre-vetted, English-fluent, and available immediately.
+                  Absolutely! Sending you a shortlist of top candidates now.
                 </p>
               </div>
 
               <SearchingAnimation />
 
-              <div className="rounded-2xl bg-white/10 p-3">
-                <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-white/50">
+              <div className="rounded-2xl bg-[#f8f4f1] p-3">
+                <p className="mb-2.5 text-xs font-semibold uppercase tracking-wider text-[#453e40]/50">
                   Your qualified candidate review list
                 </p>
                 <div className="space-y-2">
-                  {CANDIDATES.map((c) => (
-                    <CandidateCard key={c.name} candidate={c} />
-                  ))}
+                  {candidateRows.map((row) => {
+                    const cardInner = (
+                      <>
+                        <Avatar name={row.name} color={row.color} />
+                        <div className="min-w-0 flex-1">
+                          <div className="flex flex-wrap items-center gap-2">
+                            <span className="text-sm font-semibold text-[#453e40]">{row.name}</span>
+                            <span className="rounded-full bg-[#49D7A7]/20 px-2 py-0.5 text-[10px] font-bold text-[#2a8f6f]">
+                              Interested
+                            </span>
+                          </div>
+                          <span className="mt-1 inline-block rounded-md bg-[#453e40]/10 px-2 py-0.5 text-[11px] text-[#453e40]/80">
+                            Experience in Next.js
+                          </span>
+                        </div>
+                        <div className="flex shrink-0 gap-2">
+                          <button
+                            type="button"
+                            className="flex size-9 items-center justify-center rounded-full border-2 border-[#49D7A7] bg-transparent text-[#49D7A7] transition-colors hover:bg-[#49D7A7]/10"
+                            aria-label={`Accept ${row.name}`}
+                          >
+                            <Check className="size-4" strokeWidth={2.5} />
+                          </button>
+                          <button
+                            type="button"
+                            className="flex size-9 items-center justify-center rounded-full border-2 border-red-500 bg-transparent text-red-500 transition-colors hover:bg-red-500/10"
+                            aria-label={`Reject ${row.name}`}
+                          >
+                            <X className="size-4" strokeWidth={2.5} />
+                          </button>
+                        </div>
+                      </>
+                    );
+
+                    if (row.elevated) {
+                      return (
+                        <div
+                          key={row.name}
+                          className="relative rounded-xl bg-white px-3 py-2.5 shadow-lg ring-1 ring-black/5"
+                        >
+                          <span className="absolute -top-2 left-3 rounded bg-[#9886fe] px-2 py-0.5 text-[9px] font-bold uppercase tracking-wide text-white">
+                            Recruiter
+                          </span>
+                          <div className="mt-2 flex items-center gap-3">{cardInner}</div>
+                        </div>
+                      );
+                    }
+
+                    return (
+                      <div
+                        key={row.name}
+                        className="flex items-center gap-3 rounded-xl bg-[#f0ebe6] px-3 py-2.5"
+                      >
+                        {cardInner}
+                      </div>
+                    );
+                  })}
                 </div>
               </div>
             </div>

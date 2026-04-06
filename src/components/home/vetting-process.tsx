@@ -8,26 +8,26 @@ const STEPS = [
   {
     number: "01",
     title: "Instant AI Sourcing",
-    tag: "Automated Discovery",
-    body: "Our AI engine scans millions of profiles in seconds, identifying candidates who match your exact tech stack, seniority level, and culture requirements — before a human ever gets involved.",
+    tag: "Every applicant scanned instantly",
+    body: "Our AI analyzes thousands of data points across 1M+ profiles to find candidates matching your exact tech stack and seniority depth.",
   },
   {
     number: "02",
     title: "Fluent English & Async Communication Audit",
-    tag: "Communication Screening",
-    body: "Every candidate completes a rigorous written and verbal English assessment, plus a simulated async collaboration exercise that mirrors real remote work — Slack threads, PR reviews, and stand-up summaries.",
+    tag: "Shortlisted candidates only",
+    body: "We manually evaluate professional English fluency, async writing quality, and client-facing readiness. Weak communicators never make it to your inbox.",
   },
   {
     number: "03",
     title: "Live Peer-to-Peer Technical Testing",
-    tag: "Technical Validation",
-    body: "Candidates pair-program with senior engineers on real-world problems. We test system design, debugging under pressure, and code quality — not memorized algorithm puzzles.",
+    tag: "Only strong matches proceed",
+    body: "Candidates are grilled by senior practitioners on live coding problems, system architecture, and real-world edge cases.",
   },
   {
     number: "04",
     title: "Culture & Remote Alignment",
-    tag: "Soft Skills & Fit",
-    body: "A final deep-dive into work style, timezone flexibility, proactive communication habits, and alignment with your team's values. Only candidates who score in the top 1% advance.",
+    tag: "Final verified candidates only",
+    body: "We validate timezone discipline, remote tooling proficiency, and alignment with fast-paced startup environments. Only the top 1% are handed over to you.",
   },
 ] as const;
 
@@ -61,7 +61,7 @@ export function VettingProcess() {
   const progressPercent = ((activeIndex + 1) / STEPS.length) * 100;
 
   return (
-    <section ref={sectionRef} className="bg-white px-6 py-20 md:px-16 lg:py-20">
+    <section ref={sectionRef} className="bg-white px-6 pb-12 pt-0 md:px-[60px]">
       <div className="mx-auto max-w-[820px]">
         <span className="mb-4 inline-block rounded-full bg-remotiv-green/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-remotiv-green">
           Our Vetting Process
@@ -71,8 +71,8 @@ export function VettingProcess() {
           Next Hire
         </h2>
         <p className="mt-4 max-w-xl text-base leading-relaxed text-remotiv-text-light">
-          Every candidate passes through our four-stage AI-augmented vetting pipeline. The result:
-          only the highest-calibre engineers make it to your shortlist.
+          Every candidate goes through our AI-powered 4-stage vetting process. You only see
+          who&apos;s already passed.
         </p>
 
         <div className="relative mt-14">
@@ -143,17 +143,15 @@ export function VettingProcess() {
 
         <div className="mt-14 rounded-2xl border border-remotiv-green/20 bg-remotiv-green/5 px-6 py-5">
           <p className="text-sm leading-relaxed text-remotiv-text-mid">
-            <span className="font-semibold text-remotiv-green">Only the top 1%</span> of applicants
-            pass all four stages. That means every candidate in your shortlist has been technically
-            validated, communication-tested, and culture-screened — before you ever see their
-            profile.
+            Only the top 1% of candidates reach you — AI-matched, human-verified, and ready from day
+            one.
           </p>
         </div>
 
         <div className="mt-10">
           <Link
             href="/book-a-meeting"
-            className="inline-flex items-center rounded-full bg-remotiv-green px-8 py-3.5 text-base font-semibold text-white shadow-lg shadow-remotiv-green/30 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-remotiv-green/40"
+            className="inline-flex items-center rounded-lg bg-remotiv-green px-8 py-3.5 text-base font-semibold text-remotiv-text-dark shadow-lg shadow-remotiv-green/30 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-remotiv-green/40"
           >
             Get Your Shortlist Now →
           </Link>

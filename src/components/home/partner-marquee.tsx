@@ -31,9 +31,9 @@ function LogoTrack() {
 
 export function PartnerMarquee() {
   return (
-    <section className="w-full bg-white py-16">
-      <div className="mx-auto flex w-[75%] max-w-5xl flex-col items-center rounded-2xl bg-remotiv-bg px-8 py-12">
-        <h2 className="font-heading mb-10 text-center text-lg font-semibold text-remotiv-text-mid">
+    <section className="flex w-full justify-center bg-white pt-[52px] pb-8">
+      <div className="flex w-[75%] flex-col items-center overflow-hidden rounded-2xl bg-remotiv-bg py-[26px]">
+        <h2 className="mb-6 text-center text-[15px] font-medium text-remotiv-text-mid">
           Trusted by leading companies worldwide
         </h2>
 

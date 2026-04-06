@@ -5,49 +5,52 @@ const STEPS = [
     step: "01",
     title: "Tell Us Your Stack",
     description:
-      "Share your tech requirements, team culture, and timeline. Our AI matching engine starts filtering from 10,000+ vetted engineers instantly.",
+      "Share your role and tech requirements in 2 minutes. No long forms, no endless back-and-forth emails.",
     bullets: [
-      "Define role, stack & seniority",
-      "Set your budget and timeline",
-      "Describe team culture & work style",
+      "Define role, seniority & skills",
+      "Set budget and timezone",
+      "Choose remote or on-site preferences",
     ],
-    cta: "Get Started",
+    cta: "Start browsing now",
     reversed: false,
   },
   {
     step: "02",
     title: "Review Your Top 5 Matches",
-    description:
-      "Within 48 hours you'll receive a shortlist of five engineers — each pre-screened with live coding assessments and reference checks.",
+    description: "Within 24 hours, our AI and senior recruiters hand-pick the best-fit candidates.",
     bullets: [
-      "AI-ranked candidate profiles",
-      "Video intros & portfolio links",
-      "Skill-match confidence scores",
+      "AI scans thousands of profiles instantly",
+      "Human vetting ensures quality",
+      "Receive 5 curated candidates",
     ],
-    cta: "See Sample Profiles",
+    cta: "AI Matching",
     reversed: true,
   },
   {
     step: "03",
     title: "Interview & Ship Code",
     description:
-      "Run your own interviews, pick your favourite, and have them shipping production code within the first week.",
-    bullets: ["Zero onboarding friction", "Dedicated success manager", "14-day risk-free trial"],
-    cta: "Book A Call",
+      "Meet your shortlisted talent, conduct interviews, and hire. We handle all international contracts, payroll compliance, and onboarding.",
+    bullets: [
+      "We schedule interviews for you",
+      "Offer & contract support included",
+      "Replacement guarantee for peace of mind",
+    ],
+    cta: "Book a call now",
     reversed: false,
   },
 ] as const;
 
 export function HowItWorks() {
   return (
-    <section className="bg-white px-6 py-12 sm:px-14 sm:py-12">
+    <section className="bg-white px-6 py-12 sm:px-10">
       <div className="mx-auto max-w-7xl rounded-[28px] bg-remotiv-lime px-6 py-16 sm:px-12 md:px-16 md:py-20">
         <div className="mx-auto max-w-2xl text-center">
           <h2 className="font-heading text-3xl font-bold tracking-tight text-remotiv-text-dark sm:text-4xl md:text-[42px] md:leading-[1.15]">
             How Remotiv works
           </h2>
           <p className="mt-4 text-base leading-relaxed text-remotiv-text-mid sm:text-lg">
-            From brief to first commit in under two weeks — here's the playbook.
+            From browsing to building — find and hire top remote talent in days, not months.
           </p>
         </div>
 
