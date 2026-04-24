@@ -185,81 +185,86 @@ function SectionContent({
   );
 }
 
-export function StatsCircles() {
-  const row1 = useInView(0.3);
-  const row2 = useInView(0.3);
-  const row3 = useInView(0.3);
+function Row1() {
+  const { ref, visible } = useInView(0.3);
+  return (
+    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_auto]">
+      <SectionContent
+        label="AI-Powered Talent"
+        headline="The world's most intelligent talent database"
+        accentWord="intelligent"
+        accentColor="purple"
+        description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
+      />
+      <div className="hidden md:block">
+        <AnimatedLine direction="ltr" color="purple" visible={visible} />
+      </div>
+      <div className="flex justify-center md:justify-end">
+        <StatCircle value="1M+" label="Talent Profiles" color="purple" visible={visible} />
+      </div>
+    </div>
+  );
+}
 
+function Row2() {
+  const { ref, visible } = useInView(0.3);
+  return (
+    <div ref={ref} className="grid items-center gap-8 md:grid-cols-3">
+      <div className="flex justify-center md:justify-start">
+        <StatCircle
+          value=""
+          label="Successful Placements"
+          color="beige"
+          animate={{ target: 200, suffix: "+" }}
+          visible={visible}
+        />
+      </div>
+      <div className="flex justify-center">
+        <SectionContent
+          label="Track Record"
+          headline="Proven results, global reach"
+          accentWord="global"
+          accentColor="purple"
+          description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
+        />
+      </div>
+      <div className="flex justify-center md:justify-end">
+        <StatCircle value="85%" label="Client Retention Rate" color="beige" visible={visible} />
+      </div>
+    </div>
+  );
+}
+
+function Row3() {
+  const { ref, visible } = useInView(0.3);
+  return (
+    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[auto_1fr_1fr]">
+      <div className="flex justify-center md:justify-start">
+        <StatCircle value="24hrs" label="Shortlist Delivery" color="green" visible={visible} />
+      </div>
+      <div className="hidden md:block">
+        <AnimatedLine direction="rtl" color="green" visible={visible} />
+      </div>
+      <div className="flex justify-center md:justify-end">
+        <SectionContent
+          label="Speed of Hire"
+          headline="Your shortlist, in 24 hours"
+          accentWord="24 hours"
+          accentColor="green"
+          description="Share your brief today. By tomorrow, a curated shortlist of pre-vetted, AI-matched candidates is in your inbox — ready to interview, ready to hire."
+        />
+      </div>
+    </div>
+  );
+}
+
+export function StatsCircles() {
   return (
     <section className="bg-white px-6 py-20 md:px-16">
       <div className="mx-auto max-w-6xl space-y-20 lg:space-y-24">
-        <div ref={row1.ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_auto]">
-          <SectionContent
-            label="AI-Powered Talent"
-            headline="The world's most intelligent talent database"
-            accentWord="intelligent"
-            accentColor="purple"
-            description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
-          />
-          <div className="hidden md:block">
-            <AnimatedLine direction="ltr" color="purple" visible={row1.visible} />
-          </div>
-          <div className="flex justify-center md:justify-end">
-            <StatCircle value="1M+" label="Talent Profiles" color="purple" visible={row1.visible} />
-          </div>
-        </div>
-
-        <div ref={row2.ref} className="grid items-center gap-8 md:grid-cols-3">
-          <div className="flex justify-center md:justify-start">
-            <StatCircle
-              value=""
-              label="Successful Placements"
-              color="beige"
-              animate={{ target: 200, suffix: "+" }}
-              visible={row2.visible}
-            />
-          </div>
-          <div className="flex justify-center">
-            <SectionContent
-              label="Track Record"
-              headline="Proven results, global reach"
-              accentWord="global"
-              accentColor="purple"
-              description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
-            />
-          </div>
-          <div className="flex justify-center md:justify-end">
-            <StatCircle
-              value="85%"
-              label="Client Retention Rate"
-              color="beige"
-              visible={row2.visible}
-            />
-          </div>
-        </div>
-
-        <div ref={row3.ref} className="grid items-center gap-8 md:grid-cols-[auto_1fr_1fr]">
-          <div className="flex justify-center md:justify-start">
-            <StatCircle
-              value="24hrs"
-              label="Shortlist Delivery"
-              color="green"
-              visible={row3.visible}
-            />
-          </div>
-          <div className="hidden md:block">
-            <AnimatedLine direction="rtl" color="green" visible={row3.visible} />
-          </div>
-          <div className="flex justify-center md:justify-end">
-            <SectionContent
-              label="Speed of Hire"
-              headline="Your shortlist, in 24 hours"
-              accentWord="24 hours"
-              accentColor="green"
-              description="Share your brief today. By tomorrow, a curated shortlist of pre-vetted, AI-matched candidates is in your inbox — ready to interview, ready to hire."
-            />
-          </div>
-        </div>
+        <Row1 />
+        <Row2 />
+        <Row3 />
       </div>
     </section>
   );

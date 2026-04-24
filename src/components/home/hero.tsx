@@ -31,7 +31,11 @@ function useTypewriter(lines: string[]) {
       return () => clearTimeout(timer);
     }
 
-    setDone(true);
+    // Use a microtask to avoid synchronous setState in effect
+    const timeout = setTimeout(() => {
+      setDone(true);
+    }, 0);
+    return () => clearTimeout(timeout);
   }, [charIndex, lineIndex, lines, done]);
 
   const displayed = lines.map((line, i) => {

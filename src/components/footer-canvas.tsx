@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useRef } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 
 const SQUARE = 3;
 const GAP = 3;
@@ -9,10 +9,19 @@ const TEXT = "24hrs. Vetted. Ready.";
 const COLOR = [73, 215, 167] as const;
 const MAX_OP = 0.22;
 const FLICKER = 0.05;
+const TARGET_FPS = 30;
+const FRAME_INTERVAL = 1000 / TARGET_FPS;
+
+// Pre-build color strings to avoid template literal in hot loop
+const COLOR_STRINGS = Array.from({ length: 256 }, (_, i) => {
+  const opacity = i / 255;
+  return `rgba(${COLOR[0]},${COLOR[1]},${COLOR[2]},${opacity})`;
+});
 
 export function FooterCanvas() {
   const canvasRef = useRef<HTMLCanvasElement>(null);
   const wrapRef = useRef<HTMLDivElement>(null);
+  const [isVisible, setIsVisible] = useState(false);
   const stateRef = useRef<{
     squares: number[];
     cols: number;
@@ -20,7 +29,8 @@ export function FooterCanvas() {
     mask: ImageData | null;
     last: number;
     raf: number;
-  }>({ squares: [], cols: 0, rows: 0, mask: null, last: 0, raf: 0 });
+    lastFrameTime: number;
+  }>({ squares: [], cols: 0, rows: 0, mask: null, last: 0, raf: 0, lastFrameTime: 0 });
 
   const buildMask = useCallback((canvas: HTMLCanvasElement, dpr: number) => {
     const w = canvas.width / dpr;
@@ -40,6 +50,19 @@ export function FooterCanvas() {
     return oc.getImageData(0, 0, canvas.width, canvas.height);
   }, []);
 
+  // Visibility observer to pause animation when off-screen
+  useEffect(() => {
+    const wrap = wrapRef.current;
+    if (!wrap) return;
+
+    const observer = new IntersectionObserver(
+      ([entry]) => setIsVisible(entry.isIntersecting),
+      { threshold: 0.1 }
+    );
+    observer.observe(wrap);
+    return () => observer.disconnect();
+  }, []);
+
   useEffect(() => {
     const canvas = canvasRef.current;
     const wrap = wrapRef.current;
@@ -50,17 +73,21 @@ export function FooterCanvas() {
 
     const dpr = window.devicePixelRatio || 1;
     const state = stateRef.current;
+    let resizeTimeout: ReturnType<typeof setTimeout>;
 
     function resize() {
-      if (!canvas || !wrap) return;
-      canvas.width = wrap.offsetWidth * dpr;
-      canvas.height = wrap.offsetHeight * dpr;
-      canvas.style.width = `${wrap.offsetWidth}px`;
-      canvas.style.height = `${wrap.offsetHeight}px`;
-      state.cols = Math.ceil(wrap.offsetWidth / STEP);
-      state.rows = Math.ceil(wrap.offsetHeight / STEP);
-      state.squares = Array.from({ length: state.cols * state.rows }, () => Math.random() * MAX_OP);
-      state.mask = null;
+      clearTimeout(resizeTimeout);
+      resizeTimeout = setTimeout(() => {
+        if (!canvas || !wrap) return;
+        canvas.width = wrap.offsetWidth * dpr;
+        canvas.height = wrap.offsetHeight * dpr;
+        canvas.style.width = `${wrap.offsetWidth}px`;
+        canvas.style.height = `${wrap.offsetHeight}px`;
+        state.cols = Math.ceil(wrap.offsetWidth / STEP);
+        state.rows = Math.ceil(wrap.offsetHeight / STEP);
+        state.squares = Array.from({ length: state.cols * state.rows }, () => Math.random() * MAX_OP);
+        state.mask = null;
+      }, 100);
     }
 
     function draw() {
@@ -82,13 +109,29 @@ export function FooterCanvas() {
           const inText = mask.data[idx] > 10;
           let op = squares[i * rows + j];
           if (inText) op = Math.min(1, op * 5 + 0.55);
-          ctx.fillStyle = `rgba(${COLOR[0]},${COLOR[1]},${COLOR[2]},${op})`;
+          // Use pre-built color string instead of template literal
+          const colorIdx = Math.min(Math.floor(op * 255), 255);
+          ctx.fillStyle = COLOR_STRINGS[colorIdx];
           ctx.fillRect(x, y, sw, sw);
         }
       }
     }
 
     function animate(ts: number) {
+      // Frame rate limiting - cap at 30fps
+      const elapsed = ts - state.lastFrameTime;
+      if (elapsed < FRAME_INTERVAL) {
+        state.raf = requestAnimationFrame(animate);
+        return;
+      }
+      state.lastFrameTime = ts - (elapsed % FRAME_INTERVAL);
+
+      // Pause animation when not visible
+      if (!isVisible) {
+        state.raf = requestAnimationFrame(animate);
+        return;
+      }
+
       const dt = Math.min((ts - state.last) / 1000, 0.1);
       state.last = ts;
       for (let i = 0; i < state.squares.length; i++) {
@@ -106,9 +149,10 @@ export function FooterCanvas() {
 
     return () => {
       window.removeEventListener("resize", resize);
+      clearTimeout(resizeTimeout);
       cancelAnimationFrame(state.raf);
     };
-  }, [buildMask]);
+  }, [buildMask, isVisible]);
 
   return (
     <div ref={wrapRef} className="relative mt-2 h-[180px] w-full">

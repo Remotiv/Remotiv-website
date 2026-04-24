@@ -49,7 +49,7 @@ function ChevronSvg({ open }: { open: boolean }) {
       fill="none"
       aria-hidden="true"
       className={cn(
-        "size-2.5 shrink-0 opacity-45 transition-transform duration-200",
+        "size-2.5 shrink-0 opacity-[0.45] transition-transform duration-200",
         open && "rotate-180 opacity-70",
       )}
     >
@@ -91,9 +91,9 @@ function ServicesDropdown() {
               <Link
                 key={service.href}
                 href={service.href}
-                className="block rounded-xl px-3 py-2.5 text-left transition-colors hover:bg-remotiv-green/[0.09]"
+                className="block rounded-xl px-3 py-[9px] text-left transition-colors hover:bg-remotiv-green/[0.09]"
               >
-                <span className="block text-[0.82rem] font-bold text-[#111] leading-snug">
+                <span className="block text-[0.82rem] font-bold text-[#111] leading-[1.3]">
                   {service.title}
                 </span>
                 <span className="block text-[0.73rem] font-normal text-[#aaa]">
@@ -118,44 +118,48 @@ export function Navbar({ variant = "default" }: NavbarProps) {
   return (
     <nav
       className={cn(
-        "w-full z-[100]",
-        isHome ? "absolute top-0 left-0" : "sticky top-0 bg-white shadow-sm",
+        "flex items-center justify-between",
+        isHome
+          ? "relative z-[100] px-14 py-[22px] max-md:px-6 max-md:py-[18px]"
+          : "sticky top-0 z-[200] border-b border-black/[0.07] bg-white px-14 py-[18px] max-md:px-6",
       )}
     >
-      <div className="mx-auto flex items-center justify-between px-14 py-[22px]">
-        <Link href="/" className="font-heading text-[1.45rem] font-bold tracking-[0.01em]">
-          <span className="text-remotiv-green">Remotiv.</span>
-        </Link>
+      <Link
+        href="/"
+        className="inline-flex items-center font-heading text-[1.45rem] font-bold tracking-[0.01em] text-remotiv-green"
+      >
+        Remotiv<span className="font-extrabold">.</span>
+      </Link>
 
-        <ul
-          className={cn(
-            "hidden list-none items-center gap-0.5 rounded-full border border-black/[0.08] bg-white/92 px-4 py-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.07)] backdrop-blur-[16px] md:flex",
-            isHome && "-translate-y-[9px]",
-          )}
-        >
-          {NAV_ITEMS.map((item) => (
-            <li key={item.label}>
-              {item.hasDropdown ? (
-                <ServicesDropdown />
-              ) : (
-                <Link href={item.href} className={NAV_LINK_CLASS}>
-                  {item.label}
-                </Link>
-              )}
-            </li>
-          ))}
-        </ul>
+      <ul
+        className={cn(
+          "hidden list-none items-center gap-0.5 rounded-full border border-black/[0.08] px-4 py-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.07)] backdrop-blur-[16px] md:flex",
+          isHome ? "-translate-y-[9px] bg-white/[0.92]" : "bg-[rgba(238,238,232,0.95)]",
+        )}
+      >
+        {NAV_ITEMS.map((item) => (
+          <li key={item.label} className="list-none">
+            {item.hasDropdown ? (
+              <ServicesDropdown />
+            ) : (
+              <Link href={item.href} className={NAV_LINK_CLASS}>
+                {item.label}
+              </Link>
+            )}
+          </li>
+        ))}
+      </ul>
 
-        <Link
-          href="/book-a-meeting"
-          className={cn(
-            "rounded-[14px] bg-remotiv-green px-6 py-[11px] text-[0.92rem] font-semibold text-[#111] transition-all hover:bg-remotiv-green-light hover:-translate-y-0.5",
-            isHome && "-translate-y-[6px] translate-x-[14px]",
-          )}
-        >
-          Book A Meeting
-        </Link>
-      </div>
+      <Link
+        href="/book-a-meeting"
+        className={cn(
+          "rounded-[14px] bg-remotiv-green px-6 py-[11px] text-[0.92rem] font-semibold text-[#111] transition-all hover:bg-[#3bc495]",
+          isHome &&
+            "-translate-y-[6px] translate-x-[14px] hover:-translate-y-[8px] hover:translate-x-[14px]",
+        )}
+      >
+        Book A Meeting
+      </Link>
     </nav>
   );
 }
