@@ -2,6 +2,7 @@
 
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { submitContact } from "./actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
@@ -165,15 +166,10 @@ export default function ContactPage() {
     }
 
     setStatus("sending");
-    try {
-      const response = await fetch("https://formspree.io/f/xgvevgpl", {
-        method: "POST",
-        headers: { "Content-Type": "application/json", Accept: "application/json" },
-        body: JSON.stringify(form),
-      });
-      if (!response.ok) throw new Error("submit failed");
+    const result = await submitContact(form);
+    if (result.success) {
       setStatus("success");
-    } catch {
+    } else {
       setStatus("idle");
       alert("Something went wrong. Please email us directly at waleed@remotiv.work");
     }
