@@ -1,4 +1,5 @@
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { TopNav } from "../_components/top-nav";
 
 export const dynamic = "force-dynamic";
 
@@ -30,92 +31,103 @@ function fmt(iso: string) {
 }
 
 export default async function AdminBookingsPage() {
-  const supabase = createServiceClient();
-  const { data: bookings } = await supabase
-    .from("bookings")
-    .select("*")
-    .order("created_at", { ascending: false });
+  const [supabase, service] = await Promise.all([
+    createClient(),
+    Promise.resolve(createServiceClient()),
+  ]);
+
+  const [{ data: { user } }, { data: bookings }] = await Promise.all([
+    supabase.auth.getUser(),
+    service
+      .from("bookings")
+      .select("*")
+      .order("created_at", { ascending: false }),
+  ]);
 
   const rows = (bookings ?? []) as BookingRow[];
 
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="font-heading text-2xl font-bold text-gray-900">
-          Bookings
-        </h1>
-        <p className="mt-1 text-sm text-gray-400">
-          {rows.length} booking{rows.length !== 1 ? "s" : ""}
-        </p>
-      </div>
+    <div className="min-h-full bg-[#f8f4f1] font-sans">
+      <TopNav email={user?.email ?? ""} />
 
-      <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
-        <div className="overflow-x-auto">
-          <table className="w-full text-sm">
-            <thead>
-              <tr className="border-b border-gray-100">
-                {[
-                  "Name",
-                  "Email",
-                  "Company",
-                  "Service",
-                  "Preferred Date",
-                  "Time",
-                  "Status",
-                ].map((h) => (
-                  <th
-                    key={h}
-                    className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400"
-                  >
-                    {h}
-                  </th>
-                ))}
-              </tr>
-            </thead>
-            <tbody>
-              {rows.length === 0 ? (
-                <tr>
-                  <td
-                    colSpan={7}
-                    className="px-6 py-12 text-center text-sm text-gray-400"
-                  >
-                    No bookings yet
-                  </td>
+      <div className="p-5 lg:p-8">
+        <div className="mb-8">
+          <h1 className="font-heading text-2xl font-bold text-[#111]">
+            Bookings
+          </h1>
+          <p className="mt-1 text-sm text-gray-400">
+            {rows.length} booking{rows.length !== 1 ? "s" : ""}
+          </p>
+        </div>
+
+        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
+          <div className="overflow-x-auto">
+            <table className="w-full text-sm">
+              <thead>
+                <tr className="border-b border-gray-100">
+                  {[
+                    "Name",
+                    "Email",
+                    "Company",
+                    "Service",
+                    "Preferred Date",
+                    "Time",
+                    "Status",
+                  ].map((h) => (
+                    <th
+                      key={h}
+                      className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400"
+                    >
+                      {h}
+                    </th>
+                  ))}
                 </tr>
-              ) : (
-                rows.map((b) => (
-                  <tr
-                    key={b.id}
-                    className="border-b border-gray-50 last:border-0 hover:bg-gray-50"
-                  >
-                    <td className="px-6 py-3.5 font-medium text-gray-800">
-                      {b.full_name}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-500">{b.email}</td>
-                    <td className="px-6 py-3.5 text-gray-500">
-                      {b.company ?? "—"}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-500">
-                      {b.service ?? "—"}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-400">
-                      {b.preferred_date ? fmt(b.preferred_date) : "—"}
-                    </td>
-                    <td className="px-6 py-3.5 text-gray-400">
-                      {b.preferred_time ?? "—"}
-                    </td>
-                    <td className="px-6 py-3.5">
-                      <span
-                        className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_STYLES[b.status] ?? "bg-gray-100 text-gray-500"}`}
-                      >
-                        {b.status}
-                      </span>
+              </thead>
+              <tbody>
+                {rows.length === 0 ? (
+                  <tr>
+                    <td
+                      colSpan={7}
+                      className="px-6 py-12 text-center text-sm text-gray-400"
+                    >
+                      No bookings yet
                     </td>
                   </tr>
-                ))
-              )}
-            </tbody>
-          </table>
+                ) : (
+                  rows.map((b) => (
+                    <tr
+                      key={b.id}
+                      className="border-b border-gray-50 last:border-0 hover:bg-gray-50"
+                    >
+                      <td className="px-6 py-3.5 font-medium text-gray-800">
+                        {b.full_name}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-500">{b.email}</td>
+                      <td className="px-6 py-3.5 text-gray-500">
+                        {b.company ?? "—"}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-500">
+                        {b.service ?? "—"}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-400">
+                        {b.preferred_date ? fmt(b.preferred_date) : "—"}
+                      </td>
+                      <td className="px-6 py-3.5 text-gray-400">
+                        {b.preferred_time ?? "—"}
+                      </td>
+                      <td className="px-6 py-3.5">
+                        <span
+                          className={`inline-block rounded-full px-2.5 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_STYLES[b.status] ?? "bg-gray-100 text-gray-500"}`}
+                        >
+                          {b.status}
+                        </span>
+                      </td>
+                    </tr>
+                  ))
+                )}
+              </tbody>
+            </table>
+          </div>
         </div>
       </div>
     </div>

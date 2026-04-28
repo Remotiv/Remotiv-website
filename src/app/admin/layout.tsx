@@ -17,9 +17,12 @@ export default async function AdminLayout({
   if (!user) redirect("/login");
 
   return (
-    <div className="flex h-screen overflow-hidden bg-white font-sans">
-      <AdminSidebar email={user.email ?? ""} />
-      <main className="flex-1 overflow-y-auto bg-gray-50">{children}</main>
+    <div className="flex h-screen overflow-hidden font-sans">
+      {/* Sidebar — mobile only, hidden on desktop */}
+      <div className="lg:hidden shrink-0">
+        <AdminSidebar email={user.email ?? ""} />
+      </div>
+      <main className="flex-1 overflow-y-auto bg-[#f8f4f1]">{children}</main>
     </div>
   );
 }

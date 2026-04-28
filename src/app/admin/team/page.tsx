@@ -1,15 +1,28 @@
+import { createClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
+import { TeamDashboard } from "../_components/team-dashboard";
+import type { TeamMember } from "./actions";
+
 export const dynamic = "force-dynamic";
 
-export default function AdminTeamPage() {
+export default async function AdminTeamPage() {
+  const [supabase, service] = await Promise.all([
+    createClient(),
+    Promise.resolve(createServiceClient()),
+  ]);
+
+  const [{ data: { user } }, { data: members }] = await Promise.all([
+    supabase.auth.getUser(),
+    service
+      .from("team_members")
+      .select("*")
+      .order("joined_at", { ascending: false }),
+  ]);
+
   return (
-    <div className="p-8">
-      <div className="mb-8">
-        <h1 className="font-heading text-2xl font-bold text-gray-900">Team</h1>
-        <p className="mt-1 text-sm text-gray-400">Manage admin users</p>
-      </div>
-      <div className="rounded-2xl border border-gray-100 bg-white p-12 text-center shadow-sm">
-        <p className="text-sm text-gray-400">Team management coming soon.</p>
-      </div>
-    </div>
+    <TeamDashboard
+      email={user?.email ?? ""}
+      initialMembers={(members ?? []) as TeamMember[]}
+    />
   );
 }

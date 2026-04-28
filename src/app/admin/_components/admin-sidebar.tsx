@@ -1,6 +1,5 @@
 "use client";
 
-import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import {
@@ -28,22 +27,16 @@ export function AdminSidebar({ email }: { email: string }) {
   async function handleSignOut() {
     const supabase = createClient();
     await supabase.auth.signOut();
-    router.push("/admin/login");
+    router.push("/login");
     router.refresh();
   }
 
   return (
     <aside className="flex h-screen w-64 shrink-0 flex-col border-r border-gray-100 bg-white">
-      <div className="flex items-center gap-3 border-b border-gray-100 px-5 py-4">
-        <div className="rounded-xl bg-[#7E47FF] p-3">
-          <Image
-            src="/remotiv-logo.png"
-            alt="Remotiv"
-            width={96}
-            height={26}
-            className="h-[26px] w-auto"
-          />
-        </div>
+      <div className="flex items-center border-b border-gray-100 px-6 py-5">
+        <span style={{ fontFamily: "'Sora', sans-serif", color: "#7E47FF", fontSize: "1.375rem", fontWeight: 700, letterSpacing: "-0.02em" }}>
+          Remotiv.
+        </span>
       </div>
 
       <nav className="flex-1 overflow-y-auto px-3 py-4">

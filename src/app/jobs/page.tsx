@@ -11,264 +11,176 @@ import {
   Star,
   X,
 } from "lucide-react";
-import { useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
 
 interface Job {
-  id: number;
+  id: string;
   title: string;
   company: string;
-  rating: string;
+  company_rating: number;
   location: string;
-  salary: string;
-  tags: string[];
-  posted: string;
-  qualifications: string[];
-  responsibilities: string[];
+  salary_min: number | null;
+  salary_max: number | null;
+  contract_type: string;
+  work_type: string;
+  category: string;
+  experience_level: string;
+  language: string;
+  description: string | null;
+  status: string;
+  created_at: string;
 }
 
-const JOBS: Job[] = [
-  {
-    id: 1,
-    title: "UI/UX Designer",
-    company: "Pixel Plus",
-    rating: "4.3",
-    location: "Lahore, Pakistan",
-    salary: "$35,000–65,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "7 minutes ago",
-    qualifications: [
-      "Bachelor's degree in Design or related field",
-      "3+ years of UX/UI design experience",
-      "Proficiency in Figma and Adobe XD",
-      "Strong portfolio of design projects",
-    ],
-    responsibilities: [
-      "Lead end-to-end design for web and mobile products",
-      "Conduct user research and usability testing",
-      "Collaborate with product and engineering teams",
-      "Create wireframes, prototypes and design systems",
-    ],
-  },
-  {
-    id: 2,
-    title: "Digital Marketer",
-    company: "Hugo Boss",
-    rating: "5.0",
-    location: "Karachi, Pakistan",
-    salary: "$45,000–55,000/yr",
-    tags: ["Full time", "On-site"],
-    posted: "10 minutes ago",
-    qualifications: [
-      "Degree in Marketing or Communications",
-      "Experience with Google Ads, Meta Ads and SEO",
-      "Proficiency in HubSpot or similar CRM",
-      "Strong analytical and reporting skills",
-    ],
-    responsibilities: [
-      "Plan and execute digital marketing campaigns",
-      "Manage social media and content calendar",
-      "Analyse campaign performance and optimise ROI",
-      "Coordinate with design team on creative assets",
-    ],
-  },
-  {
-    id: 3,
-    title: "Senior React Developer",
-    company: "Cogent Labs",
-    rating: "4.8",
-    location: "Islamabad, Pakistan",
-    salary: "$50,000–80,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "1 hour ago",
-    qualifications: [
-      "5+ years of React and TypeScript experience",
-      "Strong knowledge of Node.js and REST APIs",
-      "Experience with AWS or similar cloud platforms",
-      "Excellent problem-solving skills",
-    ],
-    responsibilities: [
-      "Build scalable frontend applications with React",
-      "Collaborate with product and design teams",
-      "Conduct code reviews and mentor junior developers",
-      "Improve performance and maintainability of codebase",
-    ],
-  },
-  {
-    id: 4,
-    title: "Data Analyst",
-    company: "Atlas Copco",
-    rating: "4.5",
-    location: "Lahore, Pakistan",
-    salary: "$30,000–45,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "2 hours ago",
-    qualifications: [
-      "Degree in Statistics or related field",
-      "Advanced SQL and Python or R skills",
-      "Experience with Tableau or Power BI",
-      "Strong business communication skills",
-    ],
-    responsibilities: [
-      "Analyse large datasets to surface business insights",
-      "Build dashboards and automated reports",
-      "Collaborate with stakeholders to define KPIs",
-      "Present findings to senior leadership",
-    ],
-  },
-  {
-    id: 5,
-    title: "Customer Success Manager",
-    company: "Taskflow Pro",
-    rating: "4.2",
-    location: "Karachi, Pakistan",
-    salary: "$25,000–35,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "3 hours ago",
-    qualifications: [
-      "2+ years in customer success or account management",
-      "Experience with Intercom or Zendesk",
-      "Strong communication and empathy skills",
-      "Ability to manage multiple accounts simultaneously",
-    ],
-    responsibilities: [
-      "Onboard and retain B2B SaaS customers",
-      "Drive product adoption and reduce churn",
-      "Serve as voice of customer internally",
-      "Conduct regular check-ins and QBRs",
-    ],
-  },
-  {
-    id: 6,
-    title: "DevOps Engineer",
-    company: "CloudStack HQ",
-    rating: "4.7",
-    location: "Islamabad, Pakistan",
-    salary: "$55,000–75,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "5 hours ago",
-    qualifications: [
-      "Strong experience with AWS, Terraform and Kubernetes",
-      "Proficiency in CI/CD pipelines and GitHub Actions",
-      "Scripting skills in Python or Bash",
-      "Experience with monitoring tools like Datadog",
-    ],
-    responsibilities: [
-      "Manage cloud infrastructure and deployment pipelines",
-      "Ensure high availability and performance of systems",
-      "Automate operational tasks and reduce toil",
-      "Collaborate with engineering teams on releases",
-    ],
-  },
-  {
-    id: 7,
-    title: "Brand Designer",
-    company: "VisualCo",
-    rating: "4.4",
-    location: "Lahore, Pakistan",
-    salary: "$30,000–40,000/yr",
-    tags: ["Part time", "Remote"],
-    posted: "6 hours ago",
-    qualifications: [
-      "Degree in Graphic Design or Visual Arts",
-      "Proficiency in Adobe Creative Suite and Figma",
-      "Strong portfolio of brand identity work",
-      "Excellent typography and layout skills",
-    ],
-    responsibilities: [
-      "Create brand identities and visual systems",
-      "Design marketing assets and social content",
-      "Maintain brand consistency across all channels",
-      "Present concepts and iterate based on feedback",
-    ],
-  },
-  {
-    id: 8,
-    title: "Sales Development Rep",
-    company: "TechScale Inc.",
-    rating: "4.1",
-    location: "Karachi, Pakistan",
-    salary: "$22,000–28,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "8 hours ago",
-    qualifications: [
-      "Experience with CRM tools like HubSpot or Salesforce",
-      "Strong verbal and written communication skills",
-      "Ability to research and qualify leads",
-      "Self-motivated and target-driven mindset",
-    ],
-    responsibilities: [
-      "Drive outbound prospecting and pipeline generation",
-      "Conduct cold outreach via email and LinkedIn",
-      "Qualify inbound leads and book discovery calls",
-      "Collaborate with account executives on deals",
-    ],
-  },
-  {
-    id: 9,
-    title: "Python Backend Engineer",
-    company: "DataStream",
-    rating: "4.6",
-    location: "Islamabad, Pakistan",
-    salary: "$40,000–55,000/yr",
-    tags: ["Full time", "Remote"],
-    posted: "1 day ago",
-    qualifications: [
-      "4+ years of Python and FastAPI or Django experience",
-      "Strong PostgreSQL and database design skills",
-      "Experience with cloud services AWS or GCP",
-      "Familiarity with Docker and microservices",
-    ],
-    responsibilities: [
-      "Build data ingestion pipelines and API services",
-      "Design and optimise database schemas",
-      "Write clean, testable and well-documented code",
-      "Participate in architecture and design discussions",
-    ],
-  },
-];
-
 type ExperienceLevel = "Entry" | "Intermediate" | "Expert";
-type ContractType = "Permanent" | "Temporary" | "Project";
+type ContractType = "Full time" | "Part time" | "Contract";
 
-const EXPERIENCE_LEVELS: { label: ExperienceLevel; count: string }[] = [
-  { label: "Entry", count: "2,389" },
-  { label: "Intermediate", count: "8,281" },
-  { label: "Expert", count: "1,094" },
+const EXPERIENCE_LEVELS: ExperienceLevel[] = ["Entry", "Intermediate", "Expert"];
+const CONTRACT_TYPES: ContractType[] = ["Full time", "Part time", "Contract"];
+
+const CATEGORIES = [
+  "Engineering",
+  "Design",
+  "Sales",
+  "Marketing",
+  "Data",
+  "Support",
 ];
 
-const CONTRACT_TYPES: ContractType[] = ["Permanent", "Temporary", "Project"];
+const LANGUAGES = ["English", "Urdu", "Arabic"];
+
+function fmtSalary(min: number | null, max: number | null): string {
+  if (!min && !max) return "Salary not disclosed";
+  const fmt = (n: number) =>
+    n >= 1000 ? `$${(n / 1000).toFixed(0)}k` : `$${n}`;
+  if (min && max) return `${fmt(min)}–${fmt(max)}/yr`;
+  if (min) return `From ${fmt(min)}/yr`;
+  return `Up to ${fmt(max!)}/yr`;
+}
+
+function timeAgo(iso: string): string {
+  const diff = Date.now() - new Date(iso).getTime();
+  const mins = Math.floor(diff / 60000);
+  if (mins < 60) return `${mins}m ago`;
+  const hrs = Math.floor(mins / 60);
+  if (hrs < 24) return `${hrs}h ago`;
+  const days = Math.floor(hrs / 24);
+  return `${days}d ago`;
+}
 
 export default function JobsPage() {
-  const [activeId, setActiveId] = useState<number | null>(null);
-  const [experience, setExperience] = useState<Set<ExperienceLevel>>(
-    new Set(["Intermediate"]),
-  );
-  const [contract, setContract] = useState<Set<ContractType>>(
-    new Set(["Permanent", "Temporary"]),
-  );
+  const [jobs, setJobs] = useState<Job[]>([]);
+  const [loading, setLoading] = useState(true);
+  const [activeId, setActiveId] = useState<string | null>(null);
+
+  const [selectedCategory, setSelectedCategory] = useState("");
+  const [experience, setExperience] = useState<Set<ExperienceLevel>>(new Set());
+  const [contract, setContract] = useState<Set<ContractType>>(new Set());
+  const [selectedLanguage, setSelectedLanguage] = useState("");
   const [searchQuery, setSearchQuery] = useState("");
-  const [location, setLocation] = useState("");
+  const [locationFilter, setLocationFilter] = useState("");
   const [workMode, setWorkMode] = useState("");
 
-  const rows = useMemo(() => chunk(JOBS, 3), []);
+  const [pendingCategory, setPendingCategory] = useState("");
+  const [pendingExperience, setPendingExperience] = useState<Set<ExperienceLevel>>(new Set());
+  const [pendingContract, setPendingContract] = useState<Set<ContractType>>(new Set());
+  const [pendingLanguage, setPendingLanguage] = useState("");
 
-  const toggle = <T,>(set: Set<T>, setState: (s: Set<T>) => void, value: T) => {
-    const next = new Set(set);
-    if (next.has(value)) {
-      next.delete(value);
-    } else {
-      next.add(value);
-    }
-    setState(next);
+  const fetchJobs = useCallback(
+    async (
+      category: string,
+      experienceLevels: Set<ExperienceLevel>,
+      contractTypes: Set<ContractType>,
+      language: string,
+    ) => {
+      setLoading(true);
+      const params = new URLSearchParams();
+      if (category) params.set("category", category);
+      if (experienceLevels.size > 0)
+        params.set("experience_level", [...experienceLevels].join(","));
+      if (contractTypes.size > 0)
+        params.set("contract_type", [...contractTypes].join(","));
+      if (language) params.set("language", language);
+
+      try {
+        const res = await fetch(`/api/jobs?${params.toString()}`);
+        const data = await res.json();
+        setJobs(Array.isArray(data) ? data : []);
+      } catch {
+        setJobs([]);
+      } finally {
+        setLoading(false);
+      }
+    },
+    [],
+  );
+
+  useEffect(() => {
+    fetchJobs(selectedCategory, experience, contract, selectedLanguage);
+  }, [fetchJobs, selectedCategory, experience, contract, selectedLanguage]);
+
+  const applyFilters = () => {
+    setSelectedCategory(pendingCategory);
+    setExperience(pendingExperience);
+    setContract(pendingContract);
+    setSelectedLanguage(pendingLanguage);
+    setActiveId(null);
   };
 
   const resetFilters = () => {
+    setPendingCategory("");
+    setPendingExperience(new Set());
+    setPendingContract(new Set());
+    setPendingLanguage("");
+    setSelectedCategory("");
     setExperience(new Set());
     setContract(new Set());
+    setSelectedLanguage("");
+    setActiveId(null);
   };
+
+  const toggleExperience = (val: ExperienceLevel) => {
+    setPendingExperience((prev) => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val);
+      else next.add(val);
+      return next;
+    });
+  };
+
+  const toggleContract = (val: ContractType) => {
+    setPendingContract((prev) => {
+      const next = new Set(prev);
+      if (next.has(val)) next.delete(val);
+      else next.add(val);
+      return next;
+    });
+  };
+
+  const filteredJobs = useMemo(() => {
+    let result = jobs;
+    if (searchQuery.trim()) {
+      const q = searchQuery.toLowerCase();
+      result = result.filter(
+        (j) =>
+          j.title.toLowerCase().includes(q) ||
+          j.company.toLowerCase().includes(q),
+      );
+    }
+    if (locationFilter.trim()) {
+      const q = locationFilter.toLowerCase();
+      result = result.filter((j) => j.location.toLowerCase().includes(q));
+    }
+    if (workMode.trim()) {
+      const q = workMode.toLowerCase();
+      result = result.filter((j) => j.work_type.toLowerCase().includes(q));
+    }
+    return result;
+  }, [jobs, searchQuery, locationFilter, workMode]);
+
+  const rows = useMemo(() => chunk(filteredJobs, 3), [filteredJobs]);
 
   return (
     <>
@@ -296,7 +208,7 @@ export default function JobsPage() {
             <div className="flex min-h-[280px] max-h-[320px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] bg-[linear-gradient(135deg,#0e0e0e_0%,#1a1a2e_50%,#0e0e0e_100%)]">
               <Briefcase className="size-16 text-remotiv-green/40" strokeWidth={1.5} />
               <span className="text-xs uppercase tracking-[0.1em] text-white/30">
-                9 Open Positions
+                {loading ? "Loading…" : `${filteredJobs.length} Open Position${filteredJobs.length !== 1 ? "s" : ""}`}
               </span>
             </div>
           </section>
@@ -316,8 +228,8 @@ export default function JobsPage() {
               <SearchField
                 icon={<MapPin className="size-[11px]" strokeWidth={2} />}
                 placeholder="Location"
-                value={location}
-                onChange={setLocation}
+                value={locationFilter}
+                onChange={setLocationFilter}
                 size="sm"
               />
               <SearchField
@@ -347,27 +259,26 @@ export default function JobsPage() {
         <div className="grid grid-cols-1 items-start gap-6 px-6 pb-16 pt-4 lg:grid-cols-[280px_1fr]">
           <aside className="sticky top-20 rounded-[20px] border border-black/[0.08] bg-white p-7">
             <FilterGroup label="Category">
-              <FilterSelect>
-                <option>Select category</option>
-                <option>Engineering</option>
-                <option>Design</option>
-                <option>Sales</option>
-                <option>Marketing</option>
-                <option>Data</option>
-                <option>Support</option>
+              <FilterSelect
+                value={pendingCategory}
+                onChange={setPendingCategory}
+              >
+                <option value="">Select category</option>
+                {CATEGORIES.map((c) => (
+                  <option key={c} value={c}>{c}</option>
+                ))}
               </FilterSelect>
             </FilterGroup>
 
             <Divider />
 
             <FilterGroup label="Experience level">
-              {EXPERIENCE_LEVELS.map(({ label, count }) => (
+              {EXPERIENCE_LEVELS.map((label) => (
                 <CheckItem
                   key={label}
                   label={label}
-                  count={count}
-                  checked={experience.has(label)}
-                  onToggle={() => toggle(experience, setExperience, label)}
+                  checked={pendingExperience.has(label)}
+                  onToggle={() => toggleExperience(label)}
                 />
               ))}
             </FilterGroup>
@@ -379,8 +290,8 @@ export default function JobsPage() {
                 <CheckItem
                   key={label}
                   label={label}
-                  checked={contract.has(label)}
-                  onToggle={() => toggle(contract, setContract, label)}
+                  checked={pendingContract.has(label)}
+                  onToggle={() => toggleContract(label)}
                 />
               ))}
             </FilterGroup>
@@ -388,16 +299,20 @@ export default function JobsPage() {
             <Divider />
 
             <FilterGroup label="Language">
-              <FilterSelect>
-                <option>Select language</option>
-                <option>English</option>
-                <option>Urdu</option>
-                <option>Arabic</option>
+              <FilterSelect
+                value={pendingLanguage}
+                onChange={setPendingLanguage}
+              >
+                <option value="">Select language</option>
+                {LANGUAGES.map((l) => (
+                  <option key={l} value={l}>{l}</option>
+                ))}
               </FilterSelect>
             </FilterGroup>
 
             <button
               type="button"
+              onClick={applyFilters}
               className="w-full rounded-xl bg-[#111] px-3 py-3.5 font-heading text-[0.78rem] font-bold text-white"
             >
               Apply filter
@@ -429,35 +344,47 @@ export default function JobsPage() {
               </button>
             </div>
 
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-              {rows.map((row, rowIndex) => {
-                const activeJob = row.find((j) => j.id === activeId);
-                return (
-                  <div
-                    key={row.map((j) => j.id).join("-")}
-                    className="contents"
-                  >
-                    {row.map((job) => (
-                      <JobCard
-                        key={job.id}
-                        job={job}
-                        isActive={job.id === activeId}
-                        onSelect={() =>
-                          setActiveId((prev) => (prev === job.id ? null : job.id))
-                        }
-                      />
-                    ))}
-                    {activeJob ? (
-                      <JobDetail
-                        key={`detail-${rowIndex}`}
-                        job={activeJob}
-                        onClose={() => setActiveId(null)}
-                      />
-                    ) : null}
-                  </div>
-                );
-              })}
-            </div>
+            {loading ? (
+              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#aaa]">
+                Loading jobs…
+              </div>
+            ) : filteredJobs.length === 0 ? (
+              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#aaa]">
+                No open positions match your filters.
+              </div>
+            ) : (
+              <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
+                {rows.map((row) => {
+                  const activeJob = row.find((j) => j.id === activeId);
+                  return (
+                    <div
+                      key={row.map((j) => j.id).join("-")}
+                      className="contents"
+                    >
+                      {row.map((job) => (
+                        <JobCard
+                          key={job.id}
+                          job={job}
+                          isActive={job.id === activeId}
+                          onSelect={() =>
+                            setActiveId((prev) =>
+                              prev === job.id ? null : job.id,
+                            )
+                          }
+                        />
+                      ))}
+                      {activeJob ? (
+                        <JobDetail
+                          key={`detail-${activeJob.id}`}
+                          job={activeJob}
+                          onClose={() => setActiveId(null)}
+                        />
+                      ) : null}
+                    </div>
+                  );
+                })}
+              </div>
+            )}
           </div>
         </div>
       </main>
@@ -496,9 +423,19 @@ function Divider() {
 const SELECT_CHEVRON =
   "url(\"data:image/svg+xml,%3Csvg xmlns='http://www.w3.org/2000/svg' width='10' height='10' viewBox='0 0 24 24' fill='none' stroke='%23aaa' stroke-width='2.5' stroke-linecap='round' stroke-linejoin='round'%3E%3Cpolyline points='6,9 12,15 18,9'/%3E%3C/svg%3E\")";
 
-function FilterSelect({ children }: { children: React.ReactNode }) {
+function FilterSelect({
+  value,
+  onChange,
+  children,
+}: {
+  value: string;
+  onChange: (v: string) => void;
+  children: React.ReactNode;
+}) {
   return (
     <select
+      value={value}
+      onChange={(e) => onChange(e.target.value)}
       className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-2.5 pl-3.5 pr-8 text-[0.85rem] text-[#555] outline-none"
       style={{
         backgroundImage: SELECT_CHEVRON,
@@ -513,12 +450,10 @@ function FilterSelect({ children }: { children: React.ReactNode }) {
 
 function CheckItem({
   label,
-  count,
   checked,
   onToggle,
 }: {
   label: string;
-  count?: string;
   checked: boolean;
   onToggle: () => void;
 }) {
@@ -541,9 +476,6 @@ function CheckItem({
         ) : null}
       </span>
       <span className="text-[0.85rem] text-[#444]">{label}</span>
-      {count ? (
-        <span className="ml-auto text-[0.75rem] text-[#aaa]">{count}</span>
-      ) : null}
     </button>
   );
 }
@@ -649,28 +581,28 @@ function JobCard({
           </span>
         </div>
       ) : null}
-      <div className="mb-3 text-[0.72rem] text-[#aaa]">Posted {job.posted}</div>
+      <div className="mb-3 text-[0.72rem] text-[#aaa]">
+        Posted {timeAgo(job.created_at)}
+      </div>
       <div className="mb-1.5 font-heading text-[1.2rem] font-bold text-[#111]">
         {job.title}
       </div>
       <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-[#777]">
         <span>{job.company}</span>
         <Star className="size-3 fill-remotiv-green text-remotiv-green" />
-        <span>{job.rating}</span>
+        <span>{job.company_rating.toFixed(1)}</span>
       </div>
       <div className="mb-4 text-[0.82rem] text-[#777]">{job.location}</div>
       <div className="mb-4 text-[0.9rem] font-semibold text-[#444]">
-        Salary: {job.salary}
+        Salary: {fmtSalary(job.salary_min, job.salary_max)}
       </div>
       <div className="flex flex-wrap gap-1.5">
-        {job.tags.map((tag) => (
-          <span
-            key={tag}
-            className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]"
-          >
-            {tag}
-          </span>
-        ))}
+        <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
+          {job.contract_type}
+        </span>
+        <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
+          {job.work_type}
+        </span>
       </div>
     </button>
   );
@@ -689,18 +621,23 @@ function JobDetail({ job, onClose }: { job: Job; onClose: () => void }) {
       </button>
 
       <div>
-        <div className="mb-2.5 text-[0.72rem] text-white/55">Posted {job.posted}</div>
+        <div className="mb-2.5 text-[0.72rem] text-white/55">
+          Posted {timeAgo(job.created_at)}
+        </div>
         <div className="mb-1.5 font-heading text-[1.6rem] font-bold text-white">
           {job.title}
         </div>
         <div className="mb-1 flex items-center gap-1 text-[0.85rem] text-white/65">
           <span>{job.company}</span>
           <Star className="size-3.5 fill-remotiv-green text-remotiv-green" />
-          <span>{job.rating}</span>
+          <span>{job.company_rating.toFixed(1)}</span>
         </div>
-        <div className="mb-5 text-[0.85rem] text-white/55">{job.location}</div>
+        <div className="mb-2 text-[0.85rem] text-white/55">{job.location}</div>
+        <div className="mb-5 text-[0.85rem] font-semibold text-white/70">
+          {fmtSalary(job.salary_min, job.salary_max)}
+        </div>
         <div className="mb-6 flex flex-wrap gap-2">
-          {job.tags.map((tag) => (
+          {[job.contract_type, job.work_type, job.experience_level].map((tag) => (
             <span
               key={tag}
               className="rounded-full border-[1.5px] border-white/30 px-4 py-1.5 text-[0.75rem] font-semibold text-white"
@@ -730,29 +667,24 @@ function JobDetail({ job, onClose }: { job: Job; onClose: () => void }) {
         <div className="mb-4 font-heading text-base font-bold text-white">
           Position description
         </div>
-        <DetailSection title="Qualifications" items={job.qualifications} />
-        <DetailSection title="Key Responsibilities" items={job.responsibilities} />
+        {job.description ? (
+          <p className="text-[0.85rem] leading-[1.75] text-white/75 whitespace-pre-line">
+            {job.description}
+          </p>
+        ) : (
+          <p className="text-[0.85rem] text-white/45">
+            No description provided.
+          </p>
+        )}
+        <div className="mt-6 flex flex-wrap gap-2">
+          <span className="rounded-full bg-white/10 px-3 py-1 text-[0.72rem] text-white/60">
+            {job.category}
+          </span>
+          <span className="rounded-full bg-white/10 px-3 py-1 text-[0.72rem] text-white/60">
+            {job.language}
+          </span>
+        </div>
       </div>
-    </div>
-  );
-}
-
-function DetailSection({ title, items }: { title: string; items: string[] }) {
-  return (
-    <div className="mb-5">
-      <div className="mb-2.5 text-[0.78rem] font-bold uppercase tracking-[0.06em] text-white/70">
-        {title}
-      </div>
-      <ul className="list-none p-0">
-        {items.map((item) => (
-          <li
-            key={item}
-            className="relative mb-1.5 pl-4 text-[0.85rem] leading-[1.7] text-white/75 before:absolute before:left-0 before:font-bold before:text-remotiv-green before:content-['·']"
-          >
-            {item}
-          </li>
-        ))}
-      </ul>
     </div>
   );
 }
