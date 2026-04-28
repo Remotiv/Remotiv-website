@@ -14,7 +14,7 @@ export default async function AdminLayout({
     data: { user },
   } = await supabase.auth.getUser();
 
-  if (!user) redirect("/admin/login");
+  if (!user) redirect("/login");
 
   return (
     <div className="flex h-screen overflow-hidden bg-white font-sans">

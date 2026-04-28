@@ -2,6 +2,12 @@ import { createServerClient } from "@supabase/ssr";
 import { NextResponse, type NextRequest } from "next/server";
 
 export async function proxy(request: NextRequest) {
+  const { pathname } = request.nextUrl;
+
+  if (pathname === "/admin/login") {
+    return NextResponse.next({ request });
+  }
+
   let supabaseResponse = NextResponse.next({ request });
 
   const supabase = createServerClient(
@@ -25,21 +31,17 @@ export async function proxy(request: NextRequest) {
     },
   );
 
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  const { pathname } = request.nextUrl;
-
-  if (pathname.startsWith("/admin") && pathname !== "/admin/login" && !user) {
-    const url = request.nextUrl.clone();
-    url.pathname = "/admin/login";
-    return NextResponse.redirect(url);
+  let user = null;
+  try {
+    const { data } = await supabase.auth.getUser();
+    user = data.user;
+  } catch {
+    user = null;
   }
 
-  if (pathname === "/admin/login" && user) {
+  if (!user) {
     const url = request.nextUrl.clone();
-    url.pathname = "/admin";
+    url.pathname = "/admin/login";
     return NextResponse.redirect(url);
   }
 
