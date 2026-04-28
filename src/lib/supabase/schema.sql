@@ -76,3 +76,16 @@ create policy "public can insert bookings"
 
 -- Only service-role (admin) can read / update / delete
 -- (service_role bypasses RLS automatically — no explicit policy needed)
+
+-- ── Migration: Admin users ───────────────────────────────────
+create table if not exists admin_users (
+  id         uuid primary key default gen_random_uuid(),
+  user_id    uuid references auth.users(id) unique,
+  role       text not null default 'admin'
+               check (role in ('super_admin', 'admin', 'viewer')),
+  full_name  text,
+  created_at timestamptz not null default now()
+);
+
+alter table admin_users enable row level security;
+-- service_role has full access; no additional policies needed for MVP
