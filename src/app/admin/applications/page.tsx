@@ -5,7 +5,13 @@ import type { JobApplication, OpenJob } from "./actions";
 
 export const dynamic = "force-dynamic";
 
-export default async function ApplicationsPage() {
+export default async function ApplicationsPage({
+  searchParams,
+}: {
+  searchParams: Promise<{ search?: string }>;
+}) {
+  const { search: initialSearch } = await searchParams;
+
   const supabase = await createClient();
   const service = createServiceClient();
 
@@ -57,6 +63,7 @@ export default async function ApplicationsPage() {
       userRole={userRole}
       initialApplications={applications}
       openJobs={openJobs}
+      initialSearch={initialSearch ?? ""}
     />
   );
 }

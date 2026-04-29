@@ -1,0 +1,168 @@
+"use server";
+
+import { createServiceClient } from "@/lib/supabase/server";
+
+export type SearchSource = "application" | "talent";
+
+export type SearchHit = {
+  id: string;
+  source: SearchSource;
+  name: string;
+  email: string | null;
+  phone: string | null;
+  job_role: string | null;
+  status: string | null;
+  created_at: string;
+  matchedKeywords: string[];
+  matchCount: number;
+  // For UI rendering of small snippets
+  headline: string | null;
+};
+
+export type SearchResults = {
+  query: string;
+  keywords: string[];
+  applications: SearchHit[];
+  talent: SearchHit[];
+};
+
+const STOP_WORDS = new Set([
+  "the", "and", "for", "with", "from", "this", "that", "are", "was", "were",
+  "have", "has", "had", "you", "your", "but", "not", "any", "all", "can",
+]);
+
+function extractKeywords(query: string): string[] {
+  return query
+    .toLowerCase()
+    .split(/[\s,/|]+/)
+    .map((s) => s.trim())
+    .filter((s) => s.length >= 2 && !STOP_WORDS.has(s))
+    .slice(0, 12); // cap at 12 keywords to keep queries sane
+}
+
+function escapeIlike(value: string): string {
+  // Postgres OR-string treats commas/parens specially; strip them defensively.
+  return value.replace(/[,()]/g, " ").trim();
+}
+
+function countMatches(text: string | null | undefined, keywords: string[]): {
+  count: number; matched: string[];
+} {
+  if (!text) return { count: 0, matched: [] };
+  const lower = text.toLowerCase();
+  const matched: string[] = [];
+  for (const k of keywords) {
+    if (lower.includes(k)) matched.push(k);
+  }
+  return { count: matched.length, matched };
+}
+
+export async function searchCandidates(query: string): Promise<SearchResults> {
+  const trimmed = query.trim();
+  const keywords = extractKeywords(trimmed);
+
+  if (keywords.length === 0) {
+    return { query: trimmed, keywords: [], applications: [], talent: [] };
+  }
+
+  const supabase = createServiceClient();
+
+  // ── Applications search ─────────────────────────────────────
+  // Build OR filter across each keyword × each searchable column.
+  const APP_COLS = ["first_name", "last_name", "email", "cv_text", "notes"] as const;
+  const appOr = keywords.flatMap((k) =>
+    APP_COLS.map((c) => `${c}.ilike.%${escapeIlike(k)}%`),
+  ).join(",");
+
+  const appQuery = supabase
+    .from("job_applications")
+    .select("*, jobs(title)")
+    .or(appOr)
+    .order("created_at", { ascending: false })
+    .limit(200);
+
+  // ── Talent profiles search ──────────────────────────────────
+  // We don't know exactly which optional profile columns exist in this DB
+  // (skills/headline/bio/location/current_job_title). Fetch a slice of recent
+  // profiles and rank in JS — robust against missing columns and small N.
+  const talentQuery = supabase
+    .from("profiles")
+    .select("*")
+    .order("created_at", { ascending: false })
+    .limit(500);
+
+  const [appRes, talentRes] = await Promise.all([appQuery, talentQuery]);
+
+  const apps = (appRes.data ?? []) as Array<Record<string, unknown>>;
+  const talents = (talentRes.data ?? []) as Array<Record<string, unknown>>;
+
+  // ── Score & shape applications ──────────────────────────────
+  const applications: SearchHit[] = apps.map((a) => {
+    const fn = (a.first_name as string) ?? "";
+    const ln = (a.last_name as string) ?? "";
+    const blob = [
+      fn,
+      ln,
+      (a.email as string) ?? "",
+      (a.cv_text as string) ?? "",
+      (a.notes as string) ?? "",
+    ].join(" ");
+    const { count, matched } = countMatches(blob, keywords);
+    const hit: SearchHit = {
+      id: a.id as string,
+      source: "application",
+      name: `${fn} ${ln}`.trim() || "Unnamed",
+      email: (a.email as string | null) ?? null,
+      phone: (a.phone as string | null) ?? null,
+      job_role: (a.jobs as { title?: string } | null)?.title ?? null,
+      status: (a.status as string | null) ?? null,
+      created_at: a.created_at as string,
+      matchedKeywords: matched,
+      matchCount: count,
+      headline: null,
+    };
+    return hit;
+  }).filter((h) => h.matchCount > 0)
+    .sort((a, b) => b.matchCount - a.matchCount);
+
+  // ── Score & shape talent profiles ───────────────────────────
+  const talent: SearchHit[] = talents.map((p) => {
+    const fields: Array<string | string[] | null | undefined> = [
+      p.full_name as string | undefined,
+      p.email as string | undefined,
+      p.headline as string | undefined,
+      p.bio as string | undefined,
+      p.location as string | undefined,
+      p.current_job_title as string | undefined,
+      p.skills as string[] | undefined,
+    ];
+    const blob = fields
+      .map((v) => (Array.isArray(v) ? v.join(" ") : (v ?? "")))
+      .join(" ");
+    const { count, matched } = countMatches(blob, keywords);
+    const hit: SearchHit = {
+      id: p.id as string,
+      source: "talent",
+      name: ((p.full_name as string) ?? "").trim() || "Unnamed",
+      email: (p.email as string | null) ?? null,
+      phone: (p.phone as string | null) ?? null,
+      job_role: ((p.current_job_title as string | null)
+        ?? (p.headline as string | null)
+        ?? null),
+      status: (p.status as string | null) ?? null,
+      created_at: (p.created_at as string) ?? "",
+      matchedKeywords: matched,
+      matchCount: count,
+      headline: (p.headline as string | null) ?? null,
+    };
+    return hit;
+  }).filter((h) => h.matchCount > 0)
+    .sort((a, b) => b.matchCount - a.matchCount);
+
+  return {
+    query: trimmed,
+    keywords,
+    applications,
+    talent,
+  };
+}

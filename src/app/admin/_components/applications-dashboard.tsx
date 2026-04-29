@@ -368,11 +368,13 @@ export function ApplicationsDashboard({
   userRole = "viewer",
   initialApplications,
   openJobs,
+  initialSearch = "",
 }: {
   email: string;
   userRole?: UserRole;
   initialApplications: JobApplication[];
   openJobs: OpenJob[];
+  initialSearch?: string;
 }) {
   const canDel = canDelete(userRole);
   const canUpload = canEdit(userRole);
@@ -419,9 +421,13 @@ export function ApplicationsDashboard({
   }
 
   // ── Filters ───────────────────────────────────────────────
-  const [search, setSearch] = useState("");
+  // Pre-populate from `?search=` URL param when navigated from the Smart Search page.
+  const [search, setSearch] = useState(initialSearch);
   const [filterJob, setFilterJob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
+
+  // Lower-cased query the row highlight uses to flag matching rows.
+  const searchLower = search.trim().toLowerCase();
 
   const jobRoles = useMemo(() => {
     const roles = new Set(apps.map((a) => a.job_title).filter(Boolean) as string[]);
@@ -577,8 +583,21 @@ export function ApplicationsDashboard({
                 ) : (
                   filtered.map((app) => {
                     const meta = STATUS_META[app.status];
+                    const isHighlighted =
+                      searchLower.length > 0 &&
+                      (
+                        `${app.first_name} ${app.last_name}`.toLowerCase().includes(searchLower) ||
+                        (app.email ?? "").toLowerCase().includes(searchLower)
+                      );
                     return (
-                      <tr key={app.id} className="border-b border-gray-50 transition-colors hover:bg-gray-50/50">
+                      <tr
+                        key={app.id}
+                        className={`border-b border-gray-50 transition-colors hover:bg-gray-50/50 ${
+                          isHighlighted
+                            ? "bg-[#7E47FF]/5 outline outline-2 -outline-offset-2 outline-[#7E47FF]/40"
+                            : ""
+                        }`}
+                      >
                         <td className="px-6 py-4">
                           <span className="font-medium text-gray-800">
                             {app.first_name} {app.last_name}
@@ -667,13 +686,14 @@ export function ApplicationsDashboard({
         </div>
       </main>
 
-      {/* Upload CV Modal */}
+      {/* Bulk Upload CV Modal */}
       {showUpload && (
-        <UploadCVModal
+        <BulkUploadCVModal
           openJobs={openJobs}
           onClose={() => setShowUpload(false)}
-          onSuccess={() => {
+          onComplete={(msg) => {
             setShowUpload(false);
+            setToast(msg);
             router.refresh();
           }}
         />
@@ -763,18 +783,13 @@ type DuplicateApplicant = {
   job_title: string | null;
 };
 
-const EMPTY_PARSED: ParsedCv = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  linkedin: "",
-};
-
 async function extractPdfText(file: File): Promise<string> {
   const pdfjs = await import("pdfjs-dist");
-  // Worker via CDN — avoids bundler config for the worker file
-  pdfjs.GlobalWorkerOptions.workerSrc = `https://cdnjs.cloudflare.com/ajax/libs/pdf.js/${pdfjs.version}/pdf.worker.min.mjs`;
+  // Worker bundled locally from node_modules — avoids CDN failures
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
 
   const buffer = await file.arrayBuffer();
   const doc = await pdfjs.getDocument({ data: buffer }).promise;
@@ -800,15 +815,54 @@ async function extractPdfText(file: File): Promise<string> {
   return lines.join("\n");
 }
 
-function parseCvText(text: string): ParsedCv {
-  const emailMatch = text.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
-  const phoneMatch = text.match(/(\+?[\d\s\-().]{7,15})/);
-  const linkedinMatch = text.match(/linkedin\.com\/in\/[\w-]+/i);
+function parseCvText(rawText: string): ParsedCv {
+  console.log("RAW PDF TEXT:", rawText.substring(0, 2000));
 
-  const lines = text.split("\n").map((l) => l.trim()).filter(Boolean);
-  const firstLine = lines[0] ?? "";
-  const nameParts = firstLine.split(/\s+/).filter(Boolean);
+  // Some PDFs render each glyph with a space between it (a l i . s y e d).
+  // Collapse single-space gaps between word/email/URL characters; loop until
+  // the text stops changing so arbitrary-length runs are fully joined.
+  let cleanText = rawText;
+  let prev = "";
+  while (prev !== cleanText) {
+    prev = cleanText;
+    cleanText = cleanText.replace(
+      /([a-zA-Z0-9@._+\-:/]) ([a-zA-Z0-9@._+\-:/])/g,
+      "$1$2",
+    );
+  }
 
+  // Email
+  const emailMatch = cleanText.match(/[\w.+-]+@[\w-]+\.[a-z]{2,}/i);
+
+  // Phone — prefer Pakistani local (03xx-xxxxxxx), then +92, then +1, never the
+  // generic 10–15 digit fallback (it would match WhatsApp/foreign numbers).
+  const phoneMatch =
+    cleanText.match(/03[0-9]{2}[-\s]?[0-9]{7}/) ||
+    cleanText.match(/\+92[0-9]{10}/) ||
+    cleanText.match(/\+1[0-9]{10}/);
+  const phone = phoneMatch ? phoneMatch[0] : "";
+
+  // LinkedIn — full URL preferred, bare domain fallback
+  const linkedinMatch =
+    cleanText.match(/https?:\/\/(?:www\.)?linkedin\.com\/in\/[\w-]+\/?/i) ||
+    cleanText.match(/linkedin\.com\/in\/[\w-]+\/?/i);
+  const linkedinUrl = linkedinMatch
+    ? linkedinMatch[0].startsWith("http")
+      ? linkedinMatch[0]
+      : `https://${linkedinMatch[0]}`
+    : "";
+
+  // Name — use RAW first line so spaces between letters are preserved,
+  // then strip the spaces between consecutive uppercase glyphs only.
+  const rawLines = rawText.split("\n").map((l) => l.trim()).filter(Boolean);
+  const firstLine = rawLines[0] ?? "";
+  let cleanName = firstLine;
+  let prevName = "";
+  while (prevName !== cleanName) {
+    prevName = cleanName;
+    cleanName = cleanName.replace(/([A-Z]) ([A-Z])/g, "$1$2");
+  }
+  const nameParts = cleanName.trim().split(/\s+/).filter(Boolean);
   const firstName = nameParts[0] ?? "";
   const lastName = nameParts.slice(1).join(" ");
 
@@ -816,207 +870,323 @@ function parseCvText(text: string): ParsedCv {
     firstName,
     lastName,
     email: emailMatch?.[0] ?? "",
-    phone: phoneMatch?.[1]?.trim() ?? "",
-    linkedin: linkedinMatch ? `https://${linkedinMatch[0]}` : "",
+    phone,
+    linkedin: linkedinUrl,
   };
 }
 
-function UploadCVModal({
+// ── Bulk Upload CV Modal ─────────────────────────────────────
+
+type BulkStage = "upload" | "processing" | "review";
+
+type RowStatus = "ready" | "submitting" | "done" | "error" | "skipped";
+
+type BulkRow = {
+  id: string;
+  file: File;
+  filename: string;
+  selected: boolean;
+  // Editable parsed fields
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  linkedin: string;
+  // Raw cleaned CV text — saved server-side for full-text search
+  cvText: string;
+  // Job choice
+  jobChoice: string;   // "" | jobId | "__other__"
+  jobOther: string;
+  // Duplicate
+  duplicate: DuplicateApplicant | null;
+  // Submit state
+  status: RowStatus;
+  errorMsg: string | null;
+};
+
+const MAX_BULK = 50;
+const MAX_FILE_SIZE = 5 * 1024 * 1024;
+
+function uid(): string {
+  return Math.random().toString(36).slice(2, 11);
+}
+
+function BulkUploadCVModal({
   openJobs,
   onClose,
-  onSuccess,
+  onComplete,
 }: {
   openJobs: OpenJob[];
   onClose: () => void;
-  onSuccess: () => void;
+  onComplete: (msg: string) => void;
 }) {
-  const [stage, setStage] = useState<UploadStage>("upload");
-  const [cvFile, setCvFile] = useState<File | null>(null);
-  const [parsed, setParsed] = useState<ParsedCv>(EMPTY_PARSED);
-  const [duplicate, setDuplicate] = useState<DuplicateApplicant | null>(null);
-  const [duplicateAccepted, setDuplicateAccepted] = useState(false);
+  const [stage, setStage] = useState<BulkStage>("upload");
+  const [files, setFiles] = useState<File[]>([]);
   const [error, setError] = useState<string | null>(null);
-  const fileRef = useRef<HTMLInputElement>(null);
   const [dragOver, setDragOver] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
 
-  const [form, setForm] = useState({
-    firstName: "",
-    lastName: "",
-    email: "",
-    phone: "",
-    linkedin: "",
-    jobChoice: "" as string,        // "" | jobId | "__other__"
-    jobOther: "",
-    notes: "",
-  });
+  // Processing progress
+  const [processedCount, setProcessedCount] = useState(0);
 
+  // Review rows
+  const [rows, setRows] = useState<BulkRow[]>([]);
+
+  // Submitting
   const [submitting, setSubmitting] = useState(false);
-  const [success, setSuccess] = useState(false);
-
-  // Auto-close on success
-  useEffect(() => {
-    if (!success) return;
-    const t = setTimeout(onSuccess, 2000);
-    return () => clearTimeout(t);
-  }, [success, onSuccess]);
+  const [submittedCount, setSubmittedCount] = useState(0);
+  const [submitTotal, setSubmitTotal] = useState(0);
 
   // Escape closes
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !submitting) onClose();
     }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  }, [onClose, submitting]);
 
-  async function handleFile(file: File | null) {
-    if (!file) return;
+  function addFiles(picked: FileList | File[] | null) {
+    if (!picked) return;
     setError(null);
-    if (file.type !== "application/pdf") {
-      setError("Only PDF files are accepted.");
-      return;
-    }
-    if (file.size > 5 * 1024 * 1024) {
-      setError("File must be under 5 MB.");
-      return;
-    }
-    setCvFile(file);
-    setStage("parsing");
+    const incoming = Array.from(picked);
 
-    try {
-      const [text, dupResp] = await Promise.all([
-        extractPdfText(file),
-        Promise.resolve(null), // placeholder — duplicate check runs after we have email/phone
-      ]);
-      void dupResp;
-      const p = parseCvText(text);
-      setParsed(p);
-      setForm((prev) => ({
-        ...prev,
-        firstName: p.firstName,
-        lastName: p.lastName,
-        email: p.email,
-        phone: p.phone,
-        linkedin: p.linkedin,
-      }));
-
-      // Duplicate check
-      const dupRes = await fetch("/api/check-duplicate", {
-        method: "POST",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: p.email, phone: p.phone }),
-      });
-      const dupJson = await dupRes.json() as {
-        exists?: boolean;
-        applicant?: DuplicateApplicant | null;
-        error?: string;
-      };
-
-      if (dupJson.exists && dupJson.applicant) {
-        setDuplicate(dupJson.applicant);
-        setStage("duplicate");
-      } else {
-        setStage("review");
+    const accepted: File[] = [];
+    const rejected: string[] = [];
+    for (const f of incoming) {
+      if (f.type !== "application/pdf") {
+        rejected.push(`${f.name}: not a PDF`);
+        continue;
       }
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Failed to read CV.");
-      setStage("upload");
-      setCvFile(null);
+      if (f.size > MAX_FILE_SIZE) {
+        rejected.push(`${f.name}: over 5 MB`);
+        continue;
+      }
+      accepted.push(f);
+    }
+
+    setFiles((prev) => {
+      const combined = [...prev, ...accepted];
+      if (combined.length > MAX_BULK) {
+        setError(`Maximum ${MAX_BULK} CVs allowed. Trimmed to first ${MAX_BULK}.`);
+        return combined.slice(0, MAX_BULK);
+      }
+      return combined;
+    });
+
+    if (rejected.length > 0) {
+      setError((prev) => {
+        const prefix = prev ? `${prev}\n` : "";
+        return `${prefix}${rejected.length} file(s) skipped: ${rejected.slice(0, 3).join("; ")}${rejected.length > 3 ? "…" : ""}`;
+      });
     }
   }
 
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!cvFile) return;
-    if (!form.firstName || !form.lastName || !form.email || !form.phone) {
-      setError("First name, last name, email, and phone are required.");
-      return;
+  async function processFiles() {
+    if (files.length === 0) return;
+    setStage("processing");
+    setProcessedCount(0);
+
+    const built: BulkRow[] = [];
+    for (let i = 0; i < files.length; i++) {
+      const file = files[i];
+      try {
+        const text = await extractPdfText(file);
+        const parsed = parseCvText(text);
+
+        // Duplicate check
+        let duplicate: DuplicateApplicant | null = null;
+        if (parsed.email || parsed.phone) {
+          try {
+            const dupRes = await fetch("/api/check-duplicate", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ email: parsed.email, phone: parsed.phone }),
+            });
+            const dupJson = await dupRes.json() as {
+              exists?: boolean;
+              applicant?: DuplicateApplicant | null;
+            };
+            if (dupJson.exists && dupJson.applicant) duplicate = dupJson.applicant;
+          } catch {
+            // ignore duplicate check failures
+          }
+        }
+
+        built.push({
+          id: uid(),
+          file,
+          filename: file.name,
+          selected: !duplicate,
+          firstName: parsed.firstName,
+          lastName: parsed.lastName,
+          email: parsed.email,
+          phone: parsed.phone,
+          linkedin: parsed.linkedin,
+          cvText: text,
+          jobChoice: "",
+          jobOther: "",
+          duplicate,
+          status: "ready",
+          errorMsg: null,
+        });
+      } catch {
+        built.push({
+          id: uid(),
+          file,
+          filename: file.name,
+          selected: false,
+          firstName: "",
+          lastName: "",
+          email: "",
+          phone: "",
+          linkedin: "",
+          cvText: "",
+          jobChoice: "",
+          jobOther: "",
+          duplicate: null,
+          status: "error",
+          errorMsg: "Failed to read PDF",
+        });
+      }
+      setProcessedCount(i + 1);
     }
-    if (!form.jobChoice) {
-      setError("Please select or type a job role.");
-      return;
-    }
-    if (form.jobChoice === "__other__" && !form.jobOther.trim()) {
-      setError("Please type the job role.");
-      return;
-    }
+
+    setRows(built);
+    setStage("review");
+  }
+
+  function updateRow(id: string, patch: Partial<BulkRow>) {
+    setRows((prev) => prev.map((r) => (r.id === id ? { ...r, ...patch } : r)));
+  }
+
+  function removeRow(id: string) {
+    setRows((prev) => prev.filter((r) => r.id !== id));
+  }
+
+  function setAllSelected(value: boolean) {
+    setRows((prev) => prev.map((r) => ({ ...r, selected: value })));
+  }
+
+  async function submitSelected() {
+    const selectedRows = rows.filter((r) => r.selected && r.status !== "done");
+    if (selectedRows.length === 0) return;
 
     setSubmitting(true);
-    setError(null);
+    setSubmittedCount(0);
+    setSubmitTotal(selectedRows.length);
 
-    try {
-      const fd = new FormData();
-      if (form.jobChoice === "__other__") {
-        fd.append("job_title_manual", form.jobOther.trim());
-      } else {
-        fd.append("job_id", form.jobChoice);
+    let successCount = 0;
+    let errorCount = 0;
+
+    for (const row of selectedRows) {
+      updateRow(row.id, { status: "submitting", errorMsg: null });
+
+      if (!row.firstName.trim()) {
+        updateRow(row.id, { status: "error", errorMsg: "First name required" });
+        errorCount++;
+        setSubmittedCount((p) => p + 1);
+        continue;
       }
-      fd.append("first_name",   form.firstName);
-      fd.append("last_name",    form.lastName);
-      fd.append("email",        form.email);
-      fd.append("phone",        form.phone);
-      if (form.linkedin.trim()) fd.append("linkedin_url", form.linkedin.trim());
-      if (form.notes.trim())    fd.append("notes",        form.notes.trim());
-      fd.append("source", "manual_upload");
-      fd.append("cv", cvFile);
+      if (row.jobChoice === "__other__" && !row.jobOther.trim()) {
+        updateRow(row.id, { status: "error", errorMsg: "Type a job role" });
+        errorCount++;
+        setSubmittedCount((p) => p + 1);
+        continue;
+      }
 
-      const res = await fetch("/api/apply", { method: "POST", body: fd });
-      const json = await res.json() as { success?: boolean; error?: string };
+      try {
+        const fd = new FormData();
+        if (row.jobChoice === "__other__") {
+          fd.append("job_title_manual", row.jobOther.trim());
+        } else if (row.jobChoice) {
+          fd.append("job_id", row.jobChoice);
+        }
+        fd.append("first_name", row.firstName.trim());
+        if (row.lastName.trim()) fd.append("last_name",    row.lastName.trim());
+        if (row.email.trim())    fd.append("email",        row.email.trim());
+        if (row.phone.trim())    fd.append("phone",        row.phone.trim());
+        if (row.linkedin.trim()) fd.append("linkedin_url", row.linkedin.trim());
+        if (row.cvText.trim())   fd.append("cv_text",      row.cvText);
+        fd.append("source", "manual_upload");
+        fd.append("cv", row.file);
 
-      if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
+        const res = await fetch("/api/apply", { method: "POST", body: fd });
+        const json = await res.json() as { success?: boolean; error?: string };
 
-      setSuccess(true);
-    } catch (err) {
-      setError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setSubmitting(false);
+        if (!res.ok || json.error) {
+          updateRow(row.id, { status: "error", errorMsg: json.error ?? "Failed" });
+          errorCount++;
+        } else {
+          updateRow(row.id, { status: "done" });
+          successCount++;
+        }
+      } catch (err) {
+        updateRow(row.id, {
+          status: "error",
+          errorMsg: err instanceof Error ? err.message : "Network error",
+        });
+        errorCount++;
+      }
+      setSubmittedCount((p) => p + 1);
+    }
+
+    setSubmitting(false);
+
+    const summary =
+      errorCount === 0
+        ? `${successCount} added successfully`
+        : `${successCount} added, ${errorCount} error${errorCount === 1 ? "" : "s"}`;
+
+    if (errorCount === 0) {
+      onComplete(summary);
+    } else {
+      // keep modal open so user can retry the failed rows
+      setError(summary);
     }
   }
 
-  function setField<K extends keyof typeof form>(key: K, value: typeof form[K]) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
+  // ── Derived for review summary ─────────────────────────────
+  const totalRows      = rows.length;
+  const dupRows        = rows.filter((r) => r.duplicate).length;
+  const selectedRows   = rows.filter((r) => r.selected).length;
+  const skippedDupRows = rows.filter((r) => r.duplicate && !r.selected).length;
+  const allSelected    = totalRows > 0 && rows.every((r) => r.selected);
 
-  const INPUT_CLS_LOCAL =
-    "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
-  const LABEL_CLS_LOCAL =
-    "mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
+  // ── Modal width depends on stage ───────────────────────────
+  const modalWidth = stage === "review" ? "max-w-6xl" : "max-w-lg";
+
+  const ROW_INPUT_CLS =
+    "w-full rounded border border-transparent bg-transparent px-2 py-1 text-xs text-gray-800 outline-none transition-colors hover:border-gray-200 focus:border-[#7E47FF] focus:ring-1 focus:ring-[#7E47FF]/20";
+
+  const headerSubtitle = (() => {
+    if (stage === "upload")     return "Drop up to 50 CV PDFs to get started";
+    if (stage === "processing") return `Processing CVs… ${processedCount}/${files.length}`;
+    return `${totalRows} CV${totalRows === 1 ? "" : "s"} ready · ${dupRows} duplicate${dupRows === 1 ? "" : "s"} found`;
+  })();
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
-      <div className="relative mx-auto my-12 flex w-full max-w-lg flex-col rounded-2xl bg-white shadow-2xl">
+      <div className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}>
         {/* Header */}
         <div className="relative shrink-0 rounded-t-2xl bg-[#7E47FF] px-7 py-6 pr-16">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute right-4 top-6 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
-          >
-            <X className="size-4" strokeWidth={2.5} />
-          </button>
-          <p className="font-heading text-xl font-bold text-white">Manual CV Upload</p>
-          <p className="mt-0.5 text-sm text-white/70">
-            {stage === "upload"    && "Drop a CV PDF to get started"}
-            {stage === "parsing"   && "Reading CV…"}
-            {stage === "duplicate" && "Possible duplicate found"}
-            {stage === "review"    && "Review and submit"}
-          </p>
+          {!submitting && (
+            <button
+              type="button"
+              onClick={onClose}
+              aria-label="Close"
+              className="absolute right-4 top-6 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
+            >
+              <X className="size-4" strokeWidth={2.5} />
+            </button>
+          )}
+          <p className="font-heading text-xl font-bold text-white">Bulk CV Upload</p>
+          <p className="mt-0.5 text-sm text-white/70">{headerSubtitle}</p>
         </div>
 
         {/* Body */}
         <div className="flex-1 px-7 py-6">
-          {success ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-10 text-center">
-              <div className="flex size-16 items-center justify-center rounded-full bg-[#49D7A7]/15">
-                <CheckCircle className="size-8 text-[#49D7A7]" strokeWidth={2} />
-              </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">
-                Applicant added successfully!
-              </h3>
-              <p className="text-sm text-gray-500">This window will close automatically.</p>
-            </div>
-          ) : stage === "upload" ? (
+          {stage === "upload" ? (
             <>
               <button
                 type="button"
@@ -1026,7 +1196,7 @@ function UploadCVModal({
                 onDrop={(e) => {
                   e.preventDefault();
                   setDragOver(false);
-                  void handleFile(e.dataTransfer.files?.[0] ?? null);
+                  addFiles(e.dataTransfer.files);
                 }}
                 className={`flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-14 transition-colors ${
                   dragOver
@@ -1038,207 +1208,285 @@ function UploadCVModal({
                   <Upload className="size-5 text-[#7E47FF]" strokeWidth={2} />
                 </div>
                 <p className="font-heading text-sm font-semibold text-gray-800">
-                  Drop CV here or click to browse
+                  Drop up to {MAX_BULK} CV PDFs here or click to browse
                 </p>
-                <p className="text-xs text-gray-400">PDF only · max 5 MB</p>
+                <p className="text-xs text-gray-400">PDF only · max 5 MB each</p>
+                {files.length > 0 && (
+                  <p className="mt-2 text-sm font-semibold text-[#7E47FF]">
+                    {files.length} file{files.length === 1 ? "" : "s"} selected
+                  </p>
+                )}
               </button>
               <input
                 ref={fileRef}
                 type="file"
                 accept="application/pdf"
-                onChange={(e) => handleFile(e.target.files?.[0] ?? null)}
+                multiple
+                onChange={(e) => addFiles(e.target.files)}
                 className="hidden"
               />
-              {error && (
-                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
-              )}
-            </>
-          ) : stage === "parsing" ? (
-            <div className="flex flex-col items-center justify-center gap-4 py-12 text-center">
-              <Loader2 className="size-10 animate-spin text-[#7E47FF]" strokeWidth={2} />
-              <p className="font-heading text-sm font-semibold text-gray-800">Reading CV…</p>
-              <p className="text-xs text-gray-400">Extracting contact details and checking for duplicates</p>
-            </div>
-          ) : stage === "duplicate" && duplicate ? (
-            <div className="flex flex-col gap-5">
-              <div className="rounded-2xl border border-amber-200 bg-amber-50 p-5">
-                <div className="mb-3 flex items-center gap-2">
-                  <AlertTriangle className="size-5 text-amber-600" strokeWidth={2} />
-                  <p className="font-heading text-sm font-bold text-amber-800">
-                    This applicant may already exist
-                  </p>
-                </div>
-                <div className="space-y-2 text-sm text-amber-900">
-                  <p><span className="font-semibold">Name:</span> {duplicate.first_name} {duplicate.last_name}</p>
-                  <p><span className="font-semibold">Email:</span> {duplicate.email}</p>
-                  <p><span className="font-semibold">Phone:</span> {duplicate.phone}</p>
-                  <p><span className="font-semibold">Job Role:</span> {duplicate.job_title ?? "—"}</p>
-                  <p><span className="font-semibold">Date Applied:</span> {fmtDate(duplicate.created_at)}</p>
-                  <p className="flex items-center gap-2">
-                    <span className="font-semibold">Status:</span>
-                    <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${STATUS_META[duplicate.status].badge}`}>
-                      <span className={`size-1.5 rounded-full ${STATUS_META[duplicate.status].dot}`} />
-                      {STATUS_META[duplicate.status].label}
-                    </span>
-                  </p>
-                </div>
-              </div>
 
-              <div className="flex gap-3">
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
-                >
-                  View Existing
-                </button>
-                <button
-                  type="button"
-                  onClick={() => { setDuplicateAccepted(true); setStage("review"); }}
-                  className="flex-1 rounded-xl bg-[#7E47FF] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
-                >
-                  Continue Anyway
-                </button>
-              </div>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit}>
-              {duplicateAccepted && (
-                <div className="mb-5 flex items-start gap-2 rounded-xl bg-amber-50 px-4 py-3">
-                  <AlertTriangle className="mt-0.5 size-4 shrink-0 text-amber-600" strokeWidth={2} />
-                  <p className="text-xs leading-relaxed text-amber-800">
-                    Similar applicant found — verify this is a different application.
-                  </p>
-                </div>
-              )}
-
-              <div className="mb-4 flex items-center gap-2">
-                <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2.5 py-1 text-xs font-semibold text-blue-600">
-                  <span className="size-1.5 rounded-full bg-blue-500" />
-                  Manual Upload
-                </span>
-              </div>
-
-              <div className="grid grid-cols-2 gap-4">
-                <div>
-                  <label className={LABEL_CLS_LOCAL}>First Name</label>
-                  <input
-                    required
-                    type="text"
-                    value={form.firstName}
-                    onChange={(e) => setField("firstName", e.target.value)}
-                    className={INPUT_CLS_LOCAL}
-                  />
-                </div>
-                <div>
-                  <label className={LABEL_CLS_LOCAL}>Last Name</label>
-                  <input
-                    required
-                    type="text"
-                    value={form.lastName}
-                    onChange={(e) => setField("lastName", e.target.value)}
-                    className={INPUT_CLS_LOCAL}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS_LOCAL}>Email</label>
-                <input
-                  required
-                  type="email"
-                  value={form.email}
-                  onChange={(e) => setField("email", e.target.value)}
-                  className={INPUT_CLS_LOCAL}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS_LOCAL}>Phone Number</label>
-                <input
-                  required
-                  type="tel"
-                  value={form.phone}
-                  onChange={(e) => setField("phone", e.target.value)}
-                  className={INPUT_CLS_LOCAL}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS_LOCAL}>LinkedIn URL <span className="text-gray-300 normal-case">(optional)</span></label>
-                <input
-                  type="url"
-                  value={form.linkedin}
-                  placeholder={parsed.linkedin ? "" : "Not found in CV"}
-                  onChange={(e) => setField("linkedin", e.target.value)}
-                  className={INPUT_CLS_LOCAL}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS_LOCAL}>Job Role</label>
-                <select
-                  required
-                  value={form.jobChoice}
-                  onChange={(e) => setField("jobChoice", e.target.value)}
-                  className={INPUT_CLS_LOCAL}
-                >
-                  <option value="">Select job role…</option>
-                  {openJobs.map((j) => (
-                    <option key={j.id} value={j.id}>{j.title}</option>
+              {files.length > 0 && (
+                <div className="mt-4 max-h-40 overflow-y-auto rounded-xl border border-gray-100 bg-gray-50 px-3 py-2">
+                  {files.map((f, idx) => (
+                    <div key={`${f.name}-${idx}`} className="flex items-center justify-between py-1 text-xs">
+                      <span className="truncate text-gray-600">{f.name}</span>
+                      <button
+                        type="button"
+                        onClick={() => setFiles((prev) => prev.filter((_, i) => i !== idx))}
+                        className="ml-2 shrink-0 text-gray-400 hover:text-red-500"
+                        aria-label={`Remove ${f.name}`}
+                      >
+                        <X className="size-3.5" strokeWidth={2} />
+                      </button>
+                    </div>
                   ))}
-                  <option value="__other__">Other (type manually)</option>
-                </select>
-                {form.jobChoice === "__other__" && (
-                  <input
-                    type="text"
-                    placeholder="Type the job title…"
-                    value={form.jobOther}
-                    onChange={(e) => setField("jobOther", e.target.value)}
-                    className={`${INPUT_CLS_LOCAL} mt-2`}
-                  />
-                )}
-              </div>
+                </div>
+              )}
 
-              <div className="mt-4">
-                <label className={LABEL_CLS_LOCAL}>Notes <span className="text-gray-300 normal-case">(optional)</span></label>
-                <textarea
-                  rows={3}
-                  value={form.notes}
-                  onChange={(e) => setField("notes", e.target.value)}
-                  className={`${INPUT_CLS_LOCAL} resize-none`}
-                />
-              </div>
-
-              {cvFile && (
-                <p className="mt-4 truncate text-xs text-gray-400">
-                  CV: <span className="font-medium text-gray-600">{cvFile.name}</span>
+              {error && (
+                <p className="mt-4 whitespace-pre-line rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-700">
+                  {error}
                 </p>
               )}
 
-              {error && (
-                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-sm text-red-600">{error}</p>
-              )}
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-6 w-full rounded-xl bg-gray-900 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-              >
-                {submitting ? "Submitting…" : "Add Applicant"}
-              </button>
-
               <button
                 type="button"
-                onClick={() => { setStage("upload"); setCvFile(null); setDuplicateAccepted(false); setDuplicate(null); }}
-                className="mt-2 w-full py-2 text-xs font-medium text-gray-400 transition-colors hover:text-gray-600"
+                onClick={processFiles}
+                disabled={files.length === 0}
+                className="mt-6 w-full rounded-xl bg-gray-900 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
               >
-                ← Back
+                Process CVs
               </button>
-            </form>
+            </>
+          ) : stage === "processing" ? (
+            <div className="flex flex-col items-center justify-center gap-5 py-12">
+              <Loader2 className="size-10 animate-spin text-[#7E47FF]" strokeWidth={2} />
+              <p className="font-heading text-sm font-semibold text-gray-800">
+                Processing CVs… {processedCount}/{files.length}
+              </p>
+              <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-gray-100">
+                <div
+                  className="h-full rounded-full bg-[#7E47FF] transition-all duration-200"
+                  style={{ width: `${(processedCount / Math.max(files.length, 1)) * 100}%` }}
+                />
+              </div>
+              <p className="text-xs text-gray-400">Extracting fields and checking for duplicates</p>
+            </div>
+          ) : (
+            <div className="flex flex-col gap-4">
+              {/* Top toolbar */}
+              <div className="flex items-center justify-between">
+                <div className="flex items-center gap-3 text-xs text-gray-500">
+                  <button
+                    type="button"
+                    onClick={() => setAllSelected(!allSelected)}
+                    className="rounded-lg border border-gray-200 px-3 py-1.5 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                  >
+                    {allSelected ? "Deselect All" : "Select All"}
+                  </button>
+                  <span>
+                    {totalRows} total · {dupRows} duplicate{dupRows === 1 ? "" : "s"}
+                  </span>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => { setStage("upload"); setRows([]); setError(null); }}
+                  disabled={submitting}
+                  className="text-xs font-medium text-gray-400 transition-colors hover:text-gray-600 disabled:opacity-50"
+                >
+                  ← Back
+                </button>
+              </div>
+
+              {/* Review table */}
+              <div className="max-h-[60vh] overflow-auto rounded-xl border border-gray-100">
+                <table className="w-full text-sm">
+                  <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur">
+                    <tr className="border-b border-gray-100">
+                      <th className="w-10 px-3 py-3"></th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">CV File</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">First Name</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Last Name</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Email</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Phone</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Job Role</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Dup</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Status</th>
+                      <th className="w-10 px-3 py-3"></th>
+                    </tr>
+                  </thead>
+                  <tbody>
+                    {rows.length === 0 ? (
+                      <tr>
+                        <td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-400">
+                          No rows
+                        </td>
+                      </tr>
+                    ) : (
+                      rows.map((row) => (
+                        <tr
+                          key={row.id}
+                          className={`border-b border-gray-50 transition-colors ${
+                            row.duplicate ? "bg-amber-50/50" : ""
+                          }`}
+                        >
+                          <td className="px-3 py-2">
+                            <input
+                              type="checkbox"
+                              checked={row.selected}
+                              onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
+                              className="size-4 rounded border-gray-300 text-[#7E47FF] focus:ring-[#7E47FF]"
+                            />
+                          </td>
+                          <td className="px-3 py-2 max-w-[180px]">
+                            <p className="truncate text-xs text-gray-600" title={row.filename}>
+                              {row.filename}
+                            </p>
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={row.firstName}
+                              onChange={(e) => updateRow(row.id, { firstName: e.target.value })}
+                              className={ROW_INPUT_CLS}
+                            />
+                          </td>
+                          <td className="px-3 py-2">
+                            <input
+                              type="text"
+                              value={row.lastName}
+                              onChange={(e) => updateRow(row.id, { lastName: e.target.value })}
+                              className={ROW_INPUT_CLS}
+                            />
+                          </td>
+                          <td className="px-3 py-2 min-w-[180px]">
+                            <input
+                              type="email"
+                              value={row.email}
+                              onChange={(e) => updateRow(row.id, { email: e.target.value })}
+                              className={ROW_INPUT_CLS}
+                            />
+                          </td>
+                          <td className="px-3 py-2 min-w-[140px]">
+                            <input
+                              type="tel"
+                              value={row.phone}
+                              onChange={(e) => updateRow(row.id, { phone: e.target.value })}
+                              className={ROW_INPUT_CLS}
+                            />
+                          </td>
+                          <td className="px-3 py-2 min-w-[160px]">
+                            <select
+                              value={row.jobChoice}
+                              onChange={(e) => updateRow(row.id, { jobChoice: e.target.value })}
+                              className={ROW_INPUT_CLS}
+                            >
+                              <option value="">—</option>
+                              {openJobs.map((j) => (
+                                <option key={j.id} value={j.id}>{j.title}</option>
+                              ))}
+                              <option value="__other__">Other (type)</option>
+                            </select>
+                            {row.jobChoice === "__other__" && (
+                              <input
+                                type="text"
+                                placeholder="Type job…"
+                                value={row.jobOther}
+                                onChange={(e) => updateRow(row.id, { jobOther: e.target.value })}
+                                className={`${ROW_INPUT_CLS} mt-1`}
+                              />
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.duplicate ? (
+                              <span
+                                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                                title={`Existing: ${row.duplicate.first_name} ${row.duplicate.last_name}`}
+                              >
+                                ⚠ Exists
+                              </span>
+                            ) : (
+                              <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                                New
+                              </span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            {row.status === "ready" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">⏳ Ready</span>
+                            )}
+                            {row.status === "submitting" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#7E47FF]">
+                                <Loader2 className="size-3 animate-spin" strokeWidth={2} /> Sending
+                              </span>
+                            )}
+                            {row.status === "done" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-green-600">
+                                <CheckCircle className="size-3" strokeWidth={2} /> Done
+                              </span>
+                            )}
+                            {row.status === "error" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[10px] font-medium text-red-500"
+                                title={row.errorMsg ?? ""}
+                              >
+                                ✕ Error
+                              </span>
+                            )}
+                            {row.status === "skipped" && (
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">— Skipped</span>
+                            )}
+                          </td>
+                          <td className="px-3 py-2">
+                            <button
+                              type="button"
+                              onClick={() => removeRow(row.id)}
+                              disabled={submitting}
+                              className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-30"
+                              aria-label="Remove row"
+                            >
+                              <X className="size-3.5" strokeWidth={2} />
+                            </button>
+                          </td>
+                        </tr>
+                      ))
+                    )}
+                  </tbody>
+                </table>
+              </div>
+
+              {/* Bottom bar */}
+              <div className="flex items-center justify-between gap-4 border-t border-gray-100 pt-4">
+                <p className="text-xs text-gray-500">
+                  {submitting ? (
+                    <>Uploading {submittedCount}/{submitTotal}…</>
+                  ) : (
+                    <>
+                      {selectedRows} selected
+                      {skippedDupRows > 0 && ` · ${skippedDupRows} duplicate${skippedDupRows === 1 ? "" : "s"} will be skipped`}
+                    </>
+                  )}
+                </p>
+
+                <button
+                  type="button"
+                  onClick={submitSelected}
+                  disabled={submitting || selectedRows === 0}
+                  className="rounded-xl bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                >
+                  {submitting ? "Uploading…" : `Submit Selected (${selectedRows})`}
+                </button>
+              </div>
+
+              {error && !submitting && (
+                <p className="rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800">{error}</p>
+              )}
+            </div>
           )}
         </div>
       </div>
+
     </div>
   );
 }

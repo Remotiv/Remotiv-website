@@ -1,38 +1,49 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 
+function nullable(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+function slug(value: string): string {
+  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
+}
+
 export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
 
-    const jobId       = (form.get("job_id") as string | null) || null;
-    const jobTitle    = (form.get("job_title_manual") as string | null) || null;
-    const firstName   = form.get("first_name")  as string;
-    const lastName    = form.get("last_name")   as string;
-    const email       = form.get("email")       as string;
-    const phone       = form.get("phone")       as string;
-    const linkedinRaw = form.get("linkedin_url") as string | null;
-    const linkedin    = linkedinRaw && linkedinRaw.trim() ? linkedinRaw.trim() : null;
-    const source      = ((form.get("source") as string) || "job_application") as
+    const jobId     = nullable(form.get("job_id"));
+    const jobTitle  = nullable(form.get("job_title_manual"));
+    const firstName = nullable(form.get("first_name"));
+    const lastName  = nullable(form.get("last_name"));
+    const email     = nullable(form.get("email"));
+    const phone     = nullable(form.get("phone"));
+    const linkedin  = nullable(form.get("linkedin_url"));
+    const notes     = nullable(form.get("notes"));
+    const cvText    = nullable(form.get("cv_text"));
+    const source    = ((form.get("source") as string) || "job_application") as
       | "job_application"
       | "manual_upload";
-    const notesRaw    = form.get("notes") as string | null;
-    const notes       = notesRaw && notesRaw.trim() ? notesRaw.trim() : null;
-    const cvFile      = form.get("cv") as File | null;
+    const cvFile    = form.get("cv") as File | null;
 
-    if (!firstName || !lastName || !email || !phone || !cvFile) {
+    if (!firstName || !cvFile) {
       return NextResponse.json(
-        { error: "First name, last name, email, phone, and CV are required." },
+        { error: "First name and CV are required." },
         { status: 400 },
       );
     }
 
     const supabase = createServiceClient();
 
-    // 1. Upload CV to storage
+    // 1. Upload CV to storage — use email when present, otherwise a slug of the
+    //    first name; the timestamp keeps every path unique.
     const timestamp = Date.now();
     const folder = jobId ?? "manual";
-    const path = `${folder}/${email}-${timestamp}.pdf`;
+    const filename = email ? slug(email) : slug(firstName);
+    const path = `${folder}/${filename}-${timestamp}.pdf`;
     const bytes = await cvFile.arrayBuffer();
 
     const { error: uploadError } = await supabase.storage
@@ -79,6 +90,7 @@ export async function POST(request: NextRequest) {
       phone,
       linkedin_url: linkedin,
       cv_url: cvUrl,
+      cv_text: cvText,
       status: "new",
       source,
       notes,
