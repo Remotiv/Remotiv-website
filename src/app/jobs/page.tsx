@@ -527,7 +527,6 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
   const [duplicateMsg, setDuplicateMsg] = useState(false);
-  const [duplicateCountdown, setDuplicateCountdown] = useState(4);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Auto-close after success
@@ -536,20 +535,6 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [success, onClose]);
-
-  // Auto-close after duplicate (4s with visible countdown)
-  useEffect(() => {
-    if (!duplicateMsg) return;
-    setDuplicateCountdown(4);
-    const tick = setInterval(() => {
-      setDuplicateCountdown((n) => (n > 0 ? n - 1 : 0));
-    }, 1000);
-    const close = setTimeout(onClose, 4000);
-    return () => {
-      clearInterval(tick);
-      clearTimeout(close);
-    };
-  }, [duplicateMsg, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -643,19 +628,49 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto rounded-b-[20px]">
           {duplicateMsg ? (
-            <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
-              <div className="flex size-16 items-center justify-center rounded-full bg-[#7E47FF]/15">
-                <CheckCircle className="size-8 text-[#7E47FF]" strokeWidth={2} />
+            <div className="flex flex-col items-center gap-6 px-8 py-10 text-center">
+              <div className="flex size-20 items-center justify-center rounded-full bg-[#7E47FF]/10">
+                <CheckCircle className="size-10 text-[#7E47FF]" strokeWidth={1.5} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-[#111]">
-                Already in our system!
-              </h3>
-              <p className="text-[0.88rem] leading-relaxed text-[#777]">
-                Your profile and CV already exist. We&apos;ll be in touch soon!
-              </p>
-              <p className="mt-2 text-[0.78rem] font-medium text-[#7E47FF]">
-                Closing in {duplicateCountdown}…
-              </p>
+
+              <div>
+                <h3 className="font-heading text-xl font-bold text-[#111]">
+                  You&apos;re already in our talent pool! 🎉
+                </h3>
+                <p className="mt-3 text-[0.9rem] leading-relaxed text-[#666]">
+                  It looks like your profile and CV are already with us. Our team
+                  reviews every application carefully and will reach out when the
+                  right opportunity comes along.
+                </p>
+              </div>
+
+              <div className="w-full rounded-2xl bg-[#F8F4F1] px-6 py-5 text-left">
+                <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#999]">
+                  Want to apply for a specific role or update your details?
+                </p>
+                <a
+                  href="mailto:talent@remotiv.work"
+                  className="flex items-center gap-2 text-[0.9rem] font-medium text-[#7E47FF] hover:underline"
+                >
+                  📧 talent@remotiv.work
+                </a>
+                <a
+                  href="https://www.linkedin.com/company/remotiv-inc/"
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 flex items-center gap-2 text-[0.9rem] font-medium text-[#7E47FF] hover:underline"
+                >
+                  🔗 linkedin.com/company/remotiv-inc
+                </a>
+              </div>
+
+              <button
+                type="button"
+                onClick={onClose}
+                className="w-full rounded-xl bg-[#111] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#333]"
+              >
+                Got it
+              </button>
             </div>
           ) : success ? (
             <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
