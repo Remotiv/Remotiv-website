@@ -3,7 +3,6 @@
 import {
   Bookmark,
   Briefcase,
-  ChevronDown,
   Globe,
   MapPin,
   MoreHorizontal,
@@ -51,6 +50,19 @@ const CATEGORIES = [
 
 const LANGUAGES = ["English", "Urdu", "Arabic"];
 
+const LS_FAVORITES = "favoriteJobs";
+const LS_SAVED_SEARCH = "savedJobSearch";
+
+type SavedSearch = {
+  searchQuery: string;
+  locationFilter: string;
+  workMode: string;
+  pendingCategory: string;
+  pendingExperience: ExperienceLevel[];
+  pendingContract: ContractType[];
+  pendingLanguage: string;
+};
+
 function fmtSalary(min: number | null, max: number | null): string {
   if (!min && !max) return "Salary not disclosed";
   const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
@@ -89,6 +101,67 @@ export default function JobsPage() {
   const [pendingExperience, setPendingExperience] = useState<Set<ExperienceLevel>>(new Set());
   const [pendingContract, setPendingContract] = useState<Set<ContractType>>(new Set());
   const [pendingLanguage, setPendingLanguage] = useState("");
+
+  const [favorites, setFavorites] = useState<Set<string>>(new Set());
+  const [showFavorites, setShowFavorites] = useState(false);
+  const [saveToast, setSaveToast] = useState(false);
+
+  // Restore favorites + saved search from localStorage on mount
+  useEffect(() => {
+    try {
+      const raw = localStorage.getItem(LS_FAVORITES);
+      if (raw) setFavorites(new Set(JSON.parse(raw) as string[]));
+    } catch {}
+
+    try {
+      const raw = localStorage.getItem(LS_SAVED_SEARCH);
+      if (raw) {
+        const s = JSON.parse(raw) as SavedSearch;
+        setSearchQuery(s.searchQuery ?? "");
+        setLocationFilter(s.locationFilter ?? "");
+        setWorkMode(s.workMode ?? "");
+        setPendingCategory(s.pendingCategory ?? "");
+        setPendingExperience(new Set(s.pendingExperience ?? []));
+        setPendingContract(new Set(s.pendingContract ?? []));
+        setPendingLanguage(s.pendingLanguage ?? "");
+      }
+    } catch {}
+  }, []);
+
+  // Auto-dismiss save toast
+  useEffect(() => {
+    if (!saveToast) return;
+    const t = setTimeout(() => setSaveToast(false), 2500);
+    return () => clearTimeout(t);
+  }, [saveToast]);
+
+  const toggleFavorite = useCallback((id: string) => {
+    setFavorites((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) next.delete(id);
+      else next.add(id);
+      try {
+        localStorage.setItem(LS_FAVORITES, JSON.stringify([...next]));
+      } catch {}
+      return next;
+    });
+  }, []);
+
+  const handleSaveSearch = () => {
+    const payload: SavedSearch = {
+      searchQuery,
+      locationFilter,
+      workMode,
+      pendingCategory,
+      pendingExperience: [...pendingExperience],
+      pendingContract: [...pendingContract],
+      pendingLanguage,
+    };
+    try {
+      localStorage.setItem(LS_SAVED_SEARCH, JSON.stringify(payload));
+    } catch {}
+    setSaveToast(true);
+  };
 
   const fetchJobs = useCallback(
     async (
@@ -162,7 +235,7 @@ export default function JobsPage() {
   };
 
   const filteredJobs = useMemo(() => {
-    let result = jobs;
+    let result = showFavorites ? jobs.filter((j) => favorites.has(j.id)) : jobs;
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
@@ -180,7 +253,7 @@ export default function JobsPage() {
       result = result.filter((j) => j.work_type.toLowerCase().includes(q));
     }
     return result;
-  }, [jobs, searchQuery, locationFilter, workMode]);
+  }, [jobs, searchQuery, locationFilter, workMode, showFavorites, favorites]);
 
   const rows = useMemo(() => chunk(filteredJobs, 3), [filteredJobs]);
 
@@ -249,7 +322,8 @@ export default function JobsPage() {
               </button>
               <button
                 type="button"
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-white/35 bg-transparent px-3.5 py-[5px] text-xs font-semibold text-white"
+                onClick={handleSaveSearch}
+                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-white/35 bg-transparent px-3.5 py-[5px] text-xs font-semibold text-white transition-colors hover:border-white/60"
               >
                 Save search
                 <Bookmark className="size-3.5" strokeWidth={2} />
@@ -330,19 +404,30 @@ export default function JobsPage() {
 
           <div>
             <div className="mb-5 flex flex-wrap items-center gap-2.5">
-              <TopButton icon={<Bookmark className="size-3.5" strokeWidth={2} />}>
-                Favorites
-              </TopButton>
-              <TopButton>
-                <SavedSearchIcon />
-                Saved search results
-              </TopButton>
               <button
                 type="button"
-                className="ml-auto flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] border-black/10 bg-white px-4 py-2.5 text-[0.82rem] font-semibold text-[#555]"
+                onClick={() => setShowFavorites((p) => !p)}
+                className={cn(
+                  "flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] px-4 py-2.5 text-[0.82rem] font-semibold transition-colors",
+                  showFavorites
+                    ? "border-remotiv-green/30 bg-remotiv-green/10 text-remotiv-green"
+                    : "border-black/10 bg-white text-[#555]",
+                )}
               >
-                Sort by
-                <ChevronDown className="size-3.5" strokeWidth={2} />
+                <Bookmark
+                  className="size-3.5"
+                  strokeWidth={2}
+                  fill={showFavorites ? "currentColor" : "none"}
+                />
+                Favorites
+                {favorites.size > 0 && (
+                  <span className={cn(
+                    "flex size-4 items-center justify-center rounded-full text-[10px] font-bold",
+                    showFavorites ? "bg-remotiv-green text-[#111]" : "bg-gray-100 text-gray-500",
+                  )}>
+                    {favorites.size}
+                  </span>
+                )}
               </button>
             </div>
 
@@ -352,7 +437,9 @@ export default function JobsPage() {
               </div>
             ) : filteredJobs.length === 0 ? (
               <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#aaa]">
-                No open positions match your filters.
+                {showFavorites
+                  ? "No favorited jobs yet. Click the bookmark icon on any job to save it."
+                  : "No open positions match your filters."}
               </div>
             ) : (
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
@@ -368,17 +455,24 @@ export default function JobsPage() {
                           key={job.id}
                           job={job}
                           isActive={job.id === activeId}
+                          isFavorited={favorites.has(job.id)}
                           onSelect={() =>
                             setActiveId((prev) =>
                               prev === job.id ? null : job.id,
                             )
                           }
+                          onToggleFavorite={(e) => {
+                            e.stopPropagation();
+                            toggleFavorite(job.id);
+                          }}
                         />
                       ))}
                       {activeJob ? (
                         <JobDetail
                           key={`detail-${activeJob.id}`}
                           job={activeJob}
+                          isFavorited={favorites.has(activeJob.id)}
+                          onToggleFavorite={() => toggleFavorite(activeJob.id)}
                           onClose={() => setActiveId(null)}
                         />
                       ) : null}
@@ -391,6 +485,18 @@ export default function JobsPage() {
         </div>
       </main>
       <Footer />
+
+      {/* Save search toast */}
+      {saveToast && (
+        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3 shadow-xl">
+          <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-remotiv-green">
+            <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+              <polyline points="1.5 6.5 4.5 9.5 10.5 2.5" />
+            </svg>
+          </span>
+          <p className="text-sm font-medium text-gray-700">Search saved!</p>
+        </div>
+      )}
     </>
   );
 }
@@ -516,53 +622,18 @@ function SearchField({
   );
 }
 
-function TopButton({
-  icon,
-  children,
-}: {
-  icon?: React.ReactNode;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      className="flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] border-black/10 bg-white px-4 py-2.5 text-[0.82rem] font-semibold text-[#555]"
-    >
-      {icon}
-      {children}
-    </button>
-  );
-}
-
-function SavedSearchIcon() {
-  return (
-    <svg
-      viewBox="0 0 24 24"
-      fill="none"
-      stroke="currentColor"
-      strokeWidth={2}
-      strokeLinecap="round"
-      strokeLinejoin="round"
-      className="size-3.5"
-      role="img"
-      aria-label="Saved searches"
-    >
-      <title>Saved searches</title>
-      <path d="M19 21H5a2 2 0 0 1-2-2V5a2 2 0 0 1 2-2h11l5 5v11a2 2 0 0 1-2 2z" />
-      <polyline points="17 21 17 13 7 13 7 21" />
-      <polyline points="7 3 7 8 15 8" />
-    </svg>
-  );
-}
-
 function JobCard({
   job,
   isActive,
+  isFavorited,
   onSelect,
+  onToggleFavorite,
 }: {
   job: Job;
   isActive: boolean;
+  isFavorited: boolean;
   onSelect: () => void;
+  onToggleFavorite: (e: React.MouseEvent) => void;
 }) {
   return (
     <button
@@ -575,8 +646,20 @@ function JobCard({
     >
       {!isActive ? (
         <div className="absolute right-5 top-5 flex gap-1.5">
-          <span className="flex size-[30px] items-center justify-center rounded-full border border-black/[0.08] bg-white">
-            <Bookmark className="size-3.5 text-[#aaa]" strokeWidth={2} />
+          <span
+            onClick={onToggleFavorite}
+            className={cn(
+              "flex size-[30px] cursor-pointer items-center justify-center rounded-full border transition-colors",
+              isFavorited
+                ? "border-remotiv-green/30 bg-remotiv-green/10 text-remotiv-green"
+                : "border-black/[0.08] bg-white text-[#aaa] hover:border-remotiv-green/20 hover:text-remotiv-green/60",
+            )}
+          >
+            <Bookmark
+              className="size-3.5"
+              strokeWidth={2}
+              fill={isFavorited ? "currentColor" : "none"}
+            />
           </span>
           <span className="flex size-[30px] items-center justify-center rounded-full border border-black/[0.08] bg-white">
             <MoreHorizontal className="size-3.5 text-[#aaa]" strokeWidth={2} />
@@ -610,7 +693,17 @@ function JobCard({
   );
 }
 
-function JobDetail({ job, onClose }: { job: Job; onClose: () => void }) {
+function JobDetail({
+  job,
+  isFavorited,
+  onToggleFavorite,
+  onClose,
+}: {
+  job: Job;
+  isFavorited: boolean;
+  onToggleFavorite: () => void;
+  onClose: () => void;
+}) {
   return (
     <div className="relative col-span-full grid grid-cols-1 gap-10 rounded-[20px] bg-remotiv-purple p-9 md:grid-cols-2 md:p-10">
       <button
@@ -657,10 +750,18 @@ function JobDetail({ job, onClose }: { job: Job; onClose: () => void }) {
           </button>
           <button
             type="button"
-            aria-label="Save job"
-            className="flex size-11 items-center justify-center rounded-full bg-white/15"
+            onClick={onToggleFavorite}
+            aria-label={isFavorited ? "Remove from favorites" : "Save job"}
+            className={cn(
+              "flex size-11 items-center justify-center rounded-full transition-colors",
+              isFavorited ? "bg-remotiv-green/20" : "bg-white/15 hover:bg-white/25",
+            )}
           >
-            <Bookmark className="size-[18px] text-white" strokeWidth={2} />
+            <Bookmark
+              className={cn("size-[18px]", isFavorited ? "text-remotiv-green" : "text-white")}
+              strokeWidth={2}
+              fill={isFavorited ? "currentColor" : "none"}
+            />
           </button>
         </div>
       </div>
@@ -670,7 +771,7 @@ function JobDetail({ job, onClose }: { job: Job; onClose: () => void }) {
           Position description
         </div>
         {job.description ? (
-          <p className="text-[0.85rem] leading-[1.75] text-white/75 whitespace-pre-line">
+          <p className="whitespace-pre-line text-[0.85rem] leading-[1.75] text-white/75">
             {job.description}
           </p>
         ) : (
