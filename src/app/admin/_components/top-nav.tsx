@@ -1,10 +1,10 @@
 "use client";
 
-import { useState, useRef, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import Image from "next/image";
-import { Bell, Search, LogOut } from "lucide-react";
+import { Bell, KeyRound, LogOut, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 
 const TOP_NAV = [
@@ -16,12 +16,40 @@ const TOP_NAV = [
   { label: "Team", href: "/admin/team" },
 ];
 
+const WALEED_EMAIL = "waleednzm@gmail.com";
+
+const INITIALS_COLORS = [
+  "#7E47FF", "#49D7A7", "#F59E0B", "#EF4444",
+  "#3B82F6", "#EC4899", "#10B981", "#F97316",
+];
+
+function getInitials(email: string): string {
+  const local = email.split("@")[0] ?? "";
+  const parts = local.split(/[._-]/).filter(Boolean);
+  if (parts.length >= 2) {
+    return (parts[0][0] + parts[1][0]).toUpperCase();
+  }
+  return local.slice(0, 2).toUpperCase();
+}
+
+function getInitialsColor(email: string): string {
+  let hash = 0;
+  for (let i = 0; i < email.length; i++) {
+    hash = (hash * 31 + email.charCodeAt(i)) >>> 0;
+  }
+  return INITIALS_COLORS[hash % INITIALS_COLORS.length];
+}
+
 export function TopNav({ email }: { email: string }) {
   const pathname = usePathname();
   const router = useRouter();
 
   const [avatarOpen, setAvatarOpen] = useState(false);
   const avatarRef = useRef<HTMLDivElement>(null);
+
+  const isWaleed = email === WALEED_EMAIL;
+  const initials = isWaleed ? "" : getInitials(email);
+  const initialsColor = isWaleed ? "" : getInitialsColor(email);
 
   useEffect(() => {
     function onOutside(e: MouseEvent) {
@@ -41,7 +69,7 @@ export function TopNav({ email }: { email: string }) {
 
   return (
     <header className="sticky top-0 z-20 hidden h-16 items-center justify-between border-b border-gray-100 bg-white px-8 lg:flex">
-      <span className="font-heading text-xl font-bold tracking-tight text-[#7E47FF]">
+      <span className="font-heading text-xl font-bold tracking-tight text-remotiv-purple">
         Remotiv.
       </span>
 
@@ -54,7 +82,7 @@ export function TopNav({ email }: { email: string }) {
               href={href}
               className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
               }`}
             >
@@ -76,24 +104,44 @@ export function TopNav({ email }: { email: string }) {
           <Bell className="size-5 text-gray-500" strokeWidth={2} />
           <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500" />
         </button>
+
         <div ref={avatarRef} className="relative">
           <button
             type="button"
             onClick={() => setAvatarOpen((p) => !p)}
-            className="relative size-9 overflow-hidden rounded-full ring-2 ring-transparent transition-all hover:ring-[#7E47FF]/40"
+            className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all hover:ring-remotiv-purple/40"
           >
-            <Image
-              src="/avatars/Waleed.png"
-              alt="Profile"
-              fill
-              className="object-cover"
-            />
+            {isWaleed ? (
+              <Image
+                src="/avatars/Waleed.png"
+                alt="Profile"
+                fill
+                className="object-cover"
+              />
+            ) : (
+              <span
+                className="flex size-full items-center justify-center text-[0.7rem] font-bold text-white"
+                style={{ background: initialsColor }}
+              >
+                {initials}
+              </span>
+            )}
           </button>
+
           {avatarOpen && (
             <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
               <div className="px-4 py-3">
                 <p className="truncate text-xs text-gray-400">{email}</p>
               </div>
+              <div className="border-t border-gray-100" />
+              <Link
+                href="/admin/change-password"
+                onClick={() => setAvatarOpen(false)}
+                className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
+              >
+                <KeyRound className="size-4" strokeWidth={2} />
+                Change Password
+              </Link>
               <div className="border-t border-gray-100" />
               <button
                 type="button"
