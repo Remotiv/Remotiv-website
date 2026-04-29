@@ -1,5 +1,7 @@
 export type UserRole = "super_admin" | "admin" | "viewer";
 
+export const SUPER_ADMIN_EMAIL = "waleednzm@gmail.com";
+
 export const ROLE_LABELS: Record<UserRole, string> = {
   super_admin: "Super Admin",
   admin: "Admin",

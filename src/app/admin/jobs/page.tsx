@@ -1,7 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { JobsDashboard } from "../_components/jobs-dashboard";
 import type { Job } from "./actions";
-import type { UserRole } from "../lib/roles";
+import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -10,6 +10,7 @@ export default async function AdminJobsPage() {
   const service = createServiceClient();
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? "";
+  const userEmail = user?.email ?? "";
 
   const [{ data: jobs }, { data: roleRow }] = await Promise.all([
     service
@@ -19,11 +20,16 @@ export default async function AdminJobsPage() {
     service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
   ]);
 
-  const userRole = (roleRow?.role ?? "viewer") as UserRole;
+  let userRole: UserRole = "viewer";
+  if (userEmail === SUPER_ADMIN_EMAIL) {
+    userRole = "super_admin";
+  } else if (roleRow?.role) {
+    userRole = roleRow.role as UserRole;
+  }
 
   return (
     <JobsDashboard
-      email={user?.email ?? ""}
+      email={userEmail}
       userRole={userRole}
       initialJobs={(jobs ?? []) as Job[]}
     />

@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { OverviewDashboard } from "./_components/overview-dashboard";
-import type { UserRole } from "./lib/roles";
+import { type UserRole, SUPER_ADMIN_EMAIL } from "./lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -9,6 +9,7 @@ export default async function AdminOverviewPage() {
   const service = createServiceClient();
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? "";
+  const userEmail = user?.email ?? "";
 
   const [
     { count: totalApplications },
@@ -24,11 +25,16 @@ export default async function AdminOverviewPage() {
     service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
   ]);
 
-  const userRole = (roleRow?.role ?? "viewer") as UserRole;
+  let userRole: UserRole = "viewer";
+  if (userEmail === SUPER_ADMIN_EMAIL) {
+    userRole = "super_admin";
+  } else if (roleRow?.role) {
+    userRole = roleRow.role as UserRole;
+  }
 
   return (
     <OverviewDashboard
-      email={user?.email ?? ""}
+      email={userEmail}
       userRole={userRole}
       stats={{
         totalApplications: totalApplications ?? 0,

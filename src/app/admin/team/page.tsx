@@ -1,11 +1,9 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TeamDashboard } from "../_components/team-dashboard";
 import type { TeamMember } from "./actions";
-import type { UserRole } from "../lib/roles";
+import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
-
-const SUPER_ADMIN_EMAIL = "waleednzm@gmail.com";
 
 export default async function AdminTeamPage() {
   const supabase = await createClient();
@@ -14,7 +12,7 @@ export default async function AdminTeamPage() {
   const userId = user?.id ?? "";
   const userEmail = user?.email ?? "";
 
-  const [{ data: members }, { data: roleRow, error: roleError }] = await Promise.all([
+  const [{ data: members }, { data: roleRow }] = await Promise.all([
     service
       .from("team_members")
       .select("*")
@@ -26,18 +24,12 @@ export default async function AdminTeamPage() {
       .maybeSingle(),
   ]);
 
-  // ── DEBUG: log everything so we can see exactly what Supabase returns ──
-  console.log("[team/page] userEmail:", JSON.stringify(userEmail));
-  console.log("[team/page] SUPER_ADMIN_EMAIL:", JSON.stringify(SUPER_ADMIN_EMAIL));
-  console.log("[team/page] emailsMatch:", userEmail === SUPER_ADMIN_EMAIL);
-  console.log("[team/page] userId:", userId);
-  console.log("[team/page] roleRow:", roleRow);
-  console.log("[team/page] roleError:", roleError);
-
-  // TEMPORARY HARDCODE — proves the display layer works independently of the fetch
-  const resolvedRole: UserRole = "super_admin";
-
-  console.log("[team/page] resolvedRole (hardcoded):", resolvedRole);
+  let resolvedRole: UserRole = "viewer";
+  if (userEmail === SUPER_ADMIN_EMAIL) {
+    resolvedRole = "super_admin";
+  } else if (roleRow?.role) {
+    resolvedRole = roleRow.role as UserRole;
+  }
 
   return (
     <TeamDashboard

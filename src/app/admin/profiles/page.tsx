@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TopNav } from "../_components/top-nav";
-import type { UserRole } from "../lib/roles";
+import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -33,6 +33,7 @@ export default async function AdminProfilesPage() {
   const service = createServiceClient();
   const { data: { user } } = await supabase.auth.getUser();
   const userId = user?.id ?? "";
+  const userEmail = user?.email ?? "";
 
   const [{ data: profiles }, { data: roleRow }] = await Promise.all([
     service
@@ -43,11 +44,16 @@ export default async function AdminProfilesPage() {
   ]);
 
   const rows = (profiles ?? []) as ProfileRow[];
-  const userRole = (roleRow?.role ?? "viewer") as UserRole;
+  let userRole: UserRole = "viewer";
+  if (userEmail === SUPER_ADMIN_EMAIL) {
+    userRole = "super_admin";
+  } else if (roleRow?.role) {
+    userRole = roleRow.role as UserRole;
+  }
 
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
-      <TopNav email={user?.email ?? ""} userRole={userRole} />
+      <TopNav email={userEmail} userRole={userRole} />
 
       <div className="p-5 lg:p-8">
         <div className="mb-8">
