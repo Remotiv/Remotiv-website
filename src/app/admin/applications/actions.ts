@@ -4,6 +4,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
+export type ApplicationSource = "job_application" | "manual_upload";
 
 export type JobApplication = {
   id: string;
@@ -12,12 +13,16 @@ export type JobApplication = {
   last_name: string;
   email: string;
   phone: string;
-  linkedin_url: string;
+  linkedin_url: string | null;
   cv_url: string;
   status: ApplicationStatus;
+  source: ApplicationSource;
+  notes: string | null;
   created_at: string;
   job_title?: string | null;
 };
+
+export type OpenJob = { id: string; title: string };
 
 export type ApplicationComment = {
   id: string;
