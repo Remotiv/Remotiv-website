@@ -78,6 +78,13 @@ export async function addMember(
     return { success: false, error: error.message };
   }
 
+  // 3. Sync role into admin_users so the permission system picks it up
+  await supabase.from("admin_users").insert({
+    user_id: authData.user.id,
+    role: input.permission,
+    full_name: input.full_name,
+  });
+
   revalidatePath("/admin/team");
   return { success: true, data: data as TeamMember };
 }
@@ -105,8 +112,18 @@ export async function updateMember(
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  // Sync updated permission into admin_users
+  const member = data as TeamMember;
+  if (member.auth_user_id) {
+    await supabase
+      .from("admin_users")
+      .update({ role: input.permission })
+      .eq("user_id", member.auth_user_id);
+  }
+
   revalidatePath("/admin/team");
-  return { success: true, data: data as TeamMember };
+  return { success: true, data: member };
 }
 
 export async function toggleMemberStatus(
@@ -141,9 +158,12 @@ export async function removeMember(
 
   if (error) return { success: false, error: error.message };
 
-  // 3. Delete auth user if we have a reference
+  // 3. Delete auth user + admin_users row if we have a reference
   if (member?.auth_user_id) {
-    await supabase.auth.admin.deleteUser(member.auth_user_id);
+    await Promise.all([
+      supabase.auth.admin.deleteUser(member.auth_user_id),
+      supabase.from("admin_users").delete().eq("user_id", member.auth_user_id),
+    ]);
   }
 
   revalidatePath("/admin/team");
