@@ -16,7 +16,6 @@ import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
-import { createClient } from "@/lib/supabase/client";
 
 interface Job {
   id: string;
@@ -574,31 +573,19 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     setSubmitError(null);
 
     try {
-      const supabase = createClient();
-      const timestamp = Date.now();
-      const path = `${job.id}/${form.email}-${timestamp}.pdf`;
+      const fd = new FormData();
+      fd.append("job_id",       job.id);
+      fd.append("first_name",   form.firstName);
+      fd.append("last_name",    form.lastName);
+      fd.append("email",        form.email);
+      fd.append("phone",        form.phone);
+      fd.append("linkedin_url", form.linkedin);
+      fd.append("cv",           cvFile);
 
-      const { error: uploadError } = await supabase.storage
-        .from("cvs")
-        .upload(path, cvFile, { contentType: "application/pdf", upsert: false });
+      const res = await fetch("/api/apply", { method: "POST", body: fd });
+      const json = await res.json() as { success?: boolean; error?: string };
 
-      if (uploadError) throw new Error(uploadError.message);
-
-      const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
-      const cvUrl = urlData.publicUrl;
-
-      const { error: insertError } = await supabase.from("job_applications").insert({
-        job_id: job.id,
-        first_name: form.firstName,
-        last_name: form.lastName,
-        email: form.email,
-        phone: form.phone,
-        linkedin_url: form.linkedin,
-        cv_url: cvUrl,
-        status: "new",
-      });
-
-      if (insertError) throw new Error(insertError.message);
+      if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
 
       setSuccess(true);
     } catch (err) {
@@ -617,12 +604,12 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
       <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl">
         {/* Header */}
-        <div className="shrink-0 bg-remotiv-purple px-7 py-6">
+        <div className="relative shrink-0 bg-remotiv-purple px-7 pb-5 pt-5 pr-16">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
+            className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
           >
             <X className="size-4" strokeWidth={2.5} />
           </button>
