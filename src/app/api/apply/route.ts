@@ -2,6 +2,10 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizePhone } from "@/lib/normalizePhone";
 
+// PDF text extraction needs the Node runtime — pdfjs-dist legacy build pulls in
+// Node APIs that aren't available on Edge.
+export const runtime = "nodejs";
+
 function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -10,6 +14,27 @@ function nullable(value: FormDataEntryValue | null): string | null {
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
+}
+
+/**
+ * Extract plain text from a PDF buffer using the legacy (Node-friendly) build
+ * of pdfjs-dist. Returns the concatenated text of every page joined by
+ * newlines. Imported dynamically so the heavy module is only loaded when the
+ * route actually runs.
+ */
+async function extractTextFromPdf(buffer: ArrayBuffer): Promise<string> {
+  const pdfjs = await import("pdfjs-dist/legacy/build/pdf.mjs");
+  const doc = await pdfjs.getDocument({ data: new Uint8Array(buffer) }).promise;
+  const pages: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    const text = (content.items as Array<{ str?: string }>)
+      .map((item) => ("str" in item ? (item.str ?? "") : ""))
+      .join(" ");
+    pages.push(text);
+  }
+  return pages.join("\n");
 }
 
 export async function POST(request: NextRequest) {
@@ -24,7 +49,7 @@ export async function POST(request: NextRequest) {
     const phone     = nullable(form.get("phone"));
     const linkedin  = nullable(form.get("linkedin_url"));
     const notes     = nullable(form.get("notes"));
-    const cvText    = nullable(form.get("cv_text"));
+    let   cvText    = nullable(form.get("cv_text"));
     const source    = ((form.get("source") as string) || "job_application") as
       | "job_application"
       | "manual_upload";
@@ -104,6 +129,17 @@ export async function POST(request: NextRequest) {
     // 2. Get public URL
     const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
     const cvUrl = urlData.publicUrl;
+
+    // 2b. If the client didn't already send extracted text (public job
+    //     applications don't), extract it server-side so search still works.
+    //     Failures here are silent — cv_text is optional and shouldn't block.
+    if (!cvText) {
+      try {
+        cvText = await extractTextFromPdf(bytes);
+      } catch {
+        // ignore — leave cv_text as null
+      }
+    }
 
     // 3. If a manual job title was typed, create a placeholder job and link it.
     //    Job title from a dropdown is referenced via job_id directly.
