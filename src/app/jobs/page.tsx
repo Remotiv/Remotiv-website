@@ -526,6 +526,8 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
+  const [duplicateMsg, setDuplicateMsg] = useState(false);
+  const [duplicateCountdown, setDuplicateCountdown] = useState(4);
   const fileRef = useRef<HTMLInputElement>(null);
 
   // Auto-close after success
@@ -534,6 +536,20 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [success, onClose]);
+
+  // Auto-close after duplicate (4s with visible countdown)
+  useEffect(() => {
+    if (!duplicateMsg) return;
+    setDuplicateCountdown(4);
+    const tick = setInterval(() => {
+      setDuplicateCountdown((n) => (n > 0 ? n - 1 : 0));
+    }, 1000);
+    const close = setTimeout(onClose, 4000);
+    return () => {
+      clearInterval(tick);
+      clearTimeout(close);
+    };
+  }, [duplicateMsg, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -583,8 +599,13 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
       fd.append("cv",           cvFile);
 
       const res = await fetch("/api/apply", { method: "POST", body: fd });
-      const json = await res.json() as { success?: boolean; error?: string };
 
+      if (res.status === 409) {
+        setDuplicateMsg(true);
+        return;
+      }
+
+      const json = await res.json() as { success?: boolean; error?: string };
       if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
 
       setSuccess(true);
@@ -621,7 +642,22 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
 
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto rounded-b-[20px]">
-          {success ? (
+          {duplicateMsg ? (
+            <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
+              <div className="flex size-16 items-center justify-center rounded-full bg-[#7E47FF]/15">
+                <CheckCircle className="size-8 text-[#7E47FF]" strokeWidth={2} />
+              </div>
+              <h3 className="font-heading text-lg font-bold text-[#111]">
+                Already in our system!
+              </h3>
+              <p className="text-[0.88rem] leading-relaxed text-[#777]">
+                Your profile and CV already exist. We&apos;ll be in touch soon!
+              </p>
+              <p className="mt-2 text-[0.78rem] font-medium text-[#7E47FF]">
+                Closing in {duplicateCountdown}…
+              </p>
+            </div>
+          ) : success ? (
             <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
               <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
                 <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />

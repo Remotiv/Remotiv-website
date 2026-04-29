@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { normalizePhone } from "@/lib/normalizePhone";
 
 function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
@@ -37,6 +38,52 @@ export async function POST(request: NextRequest) {
     }
 
     const supabase = createServiceClient();
+
+    // 0. Hard duplicate check — only for public job applications. The admin
+    //    "Manual Upload" flow already shows a soft warning panel and lets the
+    //    admin opt in, so we don't want to block submissions there.
+    if (source !== "manual_upload") {
+      const normalizedPhone = normalizePhone(phone ?? "");
+
+      // Email match — direct equality on a (presumably) unique column
+      let emailMatch: { id: string } | null = null;
+      if (email) {
+        const { data } = await supabase
+          .from("job_applications")
+          .select("id")
+          .eq("email", email)
+          .maybeSingle();
+        emailMatch = (data as { id: string } | null) ?? null;
+      }
+
+      // Phone match — fetch a slice of recent rows and normalise in JS,
+      // since we can't apply normalizePhone in SQL without a generated column.
+      let phoneMatch: { id: string } | null = null;
+      if (normalizedPhone.length >= 7) {
+        const { data: phoneRecords } = await supabase
+          .from("job_applications")
+          .select("id, phone")
+          .not("phone", "is", null)
+          .order("created_at", { ascending: false })
+          .limit(5000);
+
+        const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
+        const found = records.find(
+          (r) => normalizePhone(r.phone ?? "") === normalizedPhone,
+        );
+        phoneMatch = found ? { id: found.id } : null;
+      }
+
+      if (emailMatch || phoneMatch) {
+        return NextResponse.json(
+          {
+            error: "duplicate",
+            message: "Your profile and CV already exist in our system. We will be in touch soon!",
+          },
+          { status: 409 },
+        );
+      }
+    }
 
     // 1. Upload CV to storage — use email when present, otherwise a slug of the
     //    first name; the timestamp keeps every path unique.
