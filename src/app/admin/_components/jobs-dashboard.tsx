@@ -24,6 +24,11 @@ import {
   type Job,
   type JobInput,
 } from "@/app/admin/jobs/actions";
+import {
+  type UserRole,
+  canEdit,
+  canDelete,
+} from "@/app/admin/lib/roles";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -95,11 +100,16 @@ function timeAgo(iso: string): string {
 
 export function JobsDashboard({
   email,
+  userRole = "viewer",
   initialJobs,
 }: {
   email: string;
+  userRole?: UserRole;
   initialJobs: Job[];
 }) {
+  const canEditJobs = canEdit(userRole);
+  const canDeleteJobs = canDelete(userRole);
+
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [mutating, setMutating] = useState(false);
   const [mutError, setMutError] = useState<string | null>(null);
@@ -212,7 +222,7 @@ export function JobsDashboard({
 
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
-      <TopNav email={email} />
+      <TopNav email={email} userRole={userRole} />
 
       <div className="p-5 lg:p-8">
         {/* Page header */}
@@ -221,14 +231,16 @@ export function JobsDashboard({
             <h1 className="font-heading text-2xl font-bold text-[#111]">Jobs</h1>
             <p className="mt-0.5 text-sm text-gray-400">Manage open positions</p>
           </div>
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
-          >
-            <Plus className="size-4" strokeWidth={2.5} />
-            Post Job
-          </button>
+          {canEditJobs && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              Post Job
+            </button>
+          )}
         </div>
 
         {/* Stat cards */}
@@ -259,7 +271,7 @@ export function JobsDashboard({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
-                  {["Title", "Company", "Category", "Location", "Salary", "Type", "Status", "Posted", ""].map((h) => (
+                  {["Title", "Company", "Category", "Location", "Salary", "Type", "Status", "Posted"].map((h) => (
                     <th
                       key={h}
                       className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400"
@@ -267,13 +279,14 @@ export function JobsDashboard({
                       {h}
                     </th>
                   ))}
+                  {(canEditJobs || canDeleteJobs) && <th className="px-6 py-3.5" />}
                 </tr>
               </thead>
               <tbody>
                 {jobs.length === 0 ? (
                   <tr>
-                    <td colSpan={9} className="px-6 py-12 text-center text-sm text-gray-400">
-                      No jobs posted yet. Click "Post Job" to get started.
+                    <td colSpan={canEditJobs || canDeleteJobs ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-400">
+                      No jobs posted yet.{canEditJobs ? " Click \"Post Job\" to get started." : ""}
                     </td>
                   </tr>
                 ) : (
@@ -318,65 +331,71 @@ export function JobsDashboard({
                         <td className="px-6 py-4 text-xs text-gray-400">
                           {timeAgo(job.created_at)}
                         </td>
-                        <td className="px-6 py-4">
-                          <div className="relative">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                setOpenMenuId(openMenuId === job.id ? null : job.id);
-                              }}
-                              className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
-                            >
-                              <MoreHorizontal className="size-4" strokeWidth={2} />
-                            </button>
-                            {openMenuId === job.id && (
-                              <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openEditModal(job); }}
-                                  className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                                >
-                                  Edit
-                                </button>
-                                {job.status !== "on_hold" && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "on_hold"); }}
-                                    className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                                  >
-                                    Put On Hold
-                                  </button>
-                                )}
-                                {job.status !== "open" && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "open"); }}
-                                    className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                                  >
-                                    Reopen
-                                  </button>
-                                )}
-                                {job.status !== "closed" && (
-                                  <button
-                                    type="button"
-                                    onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "closed"); }}
-                                    className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                                  >
-                                    Close
-                                  </button>
-                                )}
-                                <button
-                                  type="button"
-                                  onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(job.id); }}
-                                  className="w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
-                                >
-                                  Delete
-                                </button>
-                              </div>
-                            )}
-                          </div>
-                        </td>
+                        {(canEditJobs || canDeleteJobs) && (
+                          <td className="px-6 py-4">
+                            <div className="relative">
+                              <button
+                                type="button"
+                                onClick={(e) => {
+                                  e.stopPropagation();
+                                  setOpenMenuId(openMenuId === job.id ? null : job.id);
+                                }}
+                                className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+                              >
+                                <MoreHorizontal className="size-4" strokeWidth={2} />
+                              </button>
+                              {openMenuId === job.id && (
+                                <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
+                                  {canEditJobs && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openEditModal(job); }}
+                                      className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                                    >
+                                      Edit
+                                    </button>
+                                  )}
+                                  {canEditJobs && job.status !== "on_hold" && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "on_hold"); }}
+                                      className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                                    >
+                                      Put On Hold
+                                    </button>
+                                  )}
+                                  {canEditJobs && job.status !== "open" && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "open"); }}
+                                      className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                                    >
+                                      Reopen
+                                    </button>
+                                  )}
+                                  {canEditJobs && job.status !== "closed" && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "closed"); }}
+                                      className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                                    >
+                                      Close
+                                    </button>
+                                  )}
+                                  {canDeleteJobs && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(job.id); }}
+                                      className="w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
+                                    >
+                                      Delete
+                                    </button>
+                                  )}
+                                </div>
+                              )}
+                            </div>
+                          </td>
+                        )}
                       </tr>
                     );
                   })

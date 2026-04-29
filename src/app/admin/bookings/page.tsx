@@ -1,5 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TopNav } from "../_components/top-nav";
+import type { UserRole } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -31,24 +32,25 @@ function fmt(iso: string) {
 }
 
 export default async function AdminBookingsPage() {
-  const [supabase, service] = await Promise.all([
-    createClient(),
-    Promise.resolve(createServiceClient()),
-  ]);
+  const supabase = await createClient();
+  const service = createServiceClient();
+  const { data: { user } } = await supabase.auth.getUser();
+  const userId = user?.id ?? "";
 
-  const [{ data: { user } }, { data: bookings }] = await Promise.all([
-    supabase.auth.getUser(),
+  const [{ data: bookings }, { data: roleRow }] = await Promise.all([
     service
       .from("bookings")
       .select("*")
       .order("created_at", { ascending: false }),
+    service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
   ]);
 
   const rows = (bookings ?? []) as BookingRow[];
+  const userRole = (roleRow?.role ?? "viewer") as UserRole;
 
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
-      <TopNav email={user?.email ?? ""} />
+      <TopNav email={user?.email ?? ""} userRole={userRole} />
 
       <div className="p-5 lg:p-8">
         <div className="mb-8">

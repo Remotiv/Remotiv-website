@@ -6,6 +6,11 @@ import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
 import { Bell, KeyRound, LogOut, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import {
+  type UserRole,
+  ROLE_LABELS,
+  ROLE_BADGE_STYLES,
+} from "@/app/admin/lib/roles";
 
 const TOP_NAV = [
   { label: "Dashboard", href: "/admin" },
@@ -40,7 +45,13 @@ function getInitialsColor(email: string): string {
   return INITIALS_COLORS[hash % INITIALS_COLORS.length];
 }
 
-export function TopNav({ email }: { email: string }) {
+export function TopNav({
+  email,
+  userRole = "viewer",
+}: {
+  email: string;
+  userRole?: UserRole;
+}) {
   const pathname = usePathname();
   const router = useRouter();
 
@@ -132,6 +143,11 @@ export function TopNav({ email }: { email: string }) {
             <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
               <div className="px-4 py-3">
                 <p className="truncate text-xs text-gray-400">{email}</p>
+                <span
+                  className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${ROLE_BADGE_STYLES[userRole]}`}
+                >
+                  {ROLE_LABELS[userRole]}
+                </span>
               </div>
               <div className="border-t border-gray-100" />
               <Link

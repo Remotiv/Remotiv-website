@@ -12,6 +12,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import type { UserRole } from "@/app/admin/lib/roles";
 import {
   AreaChart,
   Area,
@@ -169,7 +170,15 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
 
 // ── Main component ───────────────────────────────────────────
 
-export function OverviewDashboard({ email, stats }: { email: string; stats: DashboardStats }) {
+export function OverviewDashboard({
+  email,
+  userRole = "viewer",
+  stats,
+}: {
+  email: string;
+  userRole?: UserRole;
+  stats: DashboardStats;
+}) {
   const weekDays = getWeekDays();
 
   const today = new Date().toLocaleDateString("en-GB", {
@@ -188,7 +197,7 @@ export function OverviewDashboard({ email, stats }: { email: string; stats: Dash
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
 
-      <TopNav email={email} />
+      <TopNav email={email} userRole={userRole} />
 
       {/* ── Page content ── */}
       <div className="p-5 lg:p-8">

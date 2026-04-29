@@ -26,6 +26,10 @@ import {
   type TeamMember,
   type MemberInput,
 } from "@/app/admin/team/actions";
+import {
+  type UserRole,
+  canManageTeam,
+} from "@/app/admin/lib/roles";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -115,11 +119,14 @@ function fmtDate(iso: string): string {
 
 export function TeamDashboard({
   email,
+  userRole = "viewer",
   initialMembers,
 }: {
   email: string;
+  userRole?: UserRole;
   initialMembers: TeamMember[];
 }) {
+  const canManage = canManageTeam(userRole);
 
   // ── Local state (optimistic) ──────────────────────────────
   const [members, setMembers] = useState<TeamMember[]>(initialMembers);
@@ -263,7 +270,7 @@ export function TeamDashboard({
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
 
-      <TopNav email={email} />
+      <TopNav email={email} userRole={userRole} />
 
       {/* ── Page content ── */}
       <div className="p-5 lg:p-8">
@@ -274,14 +281,16 @@ export function TeamDashboard({
             <h1 className="font-heading text-2xl font-bold text-[#111]">Team</h1>
             <p className="mt-0.5 text-sm text-gray-400">Manage your team</p>
           </div>
-          <button
-            type="button"
-            onClick={openAddModal}
-            className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
-          >
-            <Plus className="size-4" strokeWidth={2.5} />
-            Add Member
-          </button>
+          {canManage && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              Add Member
+            </button>
+          )}
         </div>
 
         {/* ── Stat cards ── */}
@@ -316,44 +325,46 @@ export function TeamDashboard({
             {members.map((member) => (
               <div key={member.id} className="relative rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
 
-                {/* Three-dot menu */}
-                <div className="absolute right-4 top-4">
-                  <button
-                    type="button"
-                    onClick={(e) => {
-                      e.stopPropagation();
-                      setOpenMenuId(openMenuId === member.id ? null : member.id);
-                    }}
-                    className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
-                  >
-                    <MoreHorizontal className="size-4" strokeWidth={2} />
-                  </button>
-                  {openMenuId === member.id && (
-                    <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openEditModal(member); }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                      >
-                        Edit
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleToggleStatus(member); }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
-                      >
-                        {member.status === "active" ? "Deactivate" : "Activate"}
-                      </button>
-                      <button
-                        type="button"
-                        onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(member.id); }}
-                        className="w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
-                      >
-                        Remove
-                      </button>
-                    </div>
-                  )}
-                </div>
+                {/* Three-dot menu — super_admin only */}
+                {canManage && (
+                  <div className="absolute right-4 top-4">
+                    <button
+                      type="button"
+                      onClick={(e) => {
+                        e.stopPropagation();
+                        setOpenMenuId(openMenuId === member.id ? null : member.id);
+                      }}
+                      className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-700"
+                    >
+                      <MoreHorizontal className="size-4" strokeWidth={2} />
+                    </button>
+                    {openMenuId === member.id && (
+                      <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openEditModal(member); }}
+                          className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                        >
+                          Edit
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleToggleStatus(member); }}
+                          className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                        >
+                          {member.status === "active" ? "Deactivate" : "Activate"}
+                        </button>
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(member.id); }}
+                          className="w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
+                        >
+                          Remove
+                        </button>
+                      </div>
+                    )}
+                  </div>
+                )}
 
                 {/* Avatar + name */}
                 <div className="mb-4 flex items-center gap-3.5">
