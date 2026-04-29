@@ -16,6 +16,7 @@ const TOP_NAV = [
   { label: "Dashboard", href: "/admin" },
   { label: "Talent", href: "/admin/profiles" },
   { label: "Jobs", href: "/admin/jobs" },
+  { label: "Applications", href: "/admin/applications" },
   { label: "Contacts", href: "/admin/contacts" },
   { label: "Bookings", href: "/admin/bookings" },
   { label: "Team", href: "/admin/team" },
