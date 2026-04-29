@@ -76,6 +76,42 @@ function fmtSalary(min: number | null, max: number | null): string {
   return `Up to ${fmt(max!)}/yr`;
 }
 
+/**
+ * Extract plain text from a PDF in the browser via PDF.js. Mirrors the helper
+ * used by the admin bulk-upload modal. Worker is bundled from node_modules so
+ * we avoid CDN fetches at runtime.
+ */
+async function extractPdfText(file: File): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const buffer = await file.arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buffer }).promise;
+
+  const lines: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    let lastY: number | null = null;
+    let line = "";
+    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        if (line.trim()) lines.push(line.trim());
+        line = item.str;
+      } else {
+        line += (line ? " " : "") + item.str;
+      }
+      lastY = y;
+    }
+    if (line.trim()) lines.push(line.trim());
+  }
+  return lines.join("\n");
+}
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -574,6 +610,15 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     setSubmitError(null);
 
     try {
+      // Extract CV text in the browser — PDF.js works flawlessly here, so the
+      // server doesn't need to parse PDFs at all.
+      let cvText = "";
+      try {
+        cvText = await extractPdfText(cvFile);
+      } catch {
+        // silent — the application still submits without searchable text
+      }
+
       const fd = new FormData();
       fd.append("job_id",       job.id);
       fd.append("first_name",   form.firstName);
@@ -582,6 +627,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
       fd.append("phone",        form.phone);
       fd.append("linkedin_url", form.linkedin);
       fd.append("cv",           cvFile);
+      if (cvText.trim()) fd.append("cv_text", cvText);
 
       const res = await fetch("/api/apply", { method: "POST", body: fd });
 
