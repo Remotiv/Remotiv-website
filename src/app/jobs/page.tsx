@@ -9,11 +9,14 @@ import {
   Search,
   Star,
   X,
+  CheckCircle,
+  Upload,
 } from "lucide-react";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
+import { createClient } from "@/lib/supabase/client";
 
 interface Job {
   id: string;
@@ -105,6 +108,7 @@ export default function JobsPage() {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [showFavorites, setShowFavorites] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
+  const [applyJob, setApplyJob] = useState<Job | null>(null);
 
   // Restore favorites + saved search from localStorage on mount
   useEffect(() => {
@@ -474,6 +478,7 @@ export default function JobsPage() {
                           isFavorited={favorites.has(activeJob.id)}
                           onToggleFavorite={() => toggleFavorite(activeJob.id)}
                           onClose={() => setActiveId(null)}
+                          onApply={() => setApplyJob(activeJob)}
                         />
                       ) : null}
                     </div>
@@ -485,6 +490,10 @@ export default function JobsPage() {
         </div>
       </main>
       <Footer />
+
+      {applyJob && (
+        <ApplyModal job={applyJob} onClose={() => setApplyJob(null)} />
+      )}
 
       {/* Save search toast */}
       {saveToast && (
@@ -498,6 +507,261 @@ export default function JobsPage() {
         </div>
       )}
     </>
+  );
+}
+
+// ── Apply Modal ──────────────────────────────────────────────
+
+const EMPTY_APPLY = {
+  firstName: "",
+  lastName: "",
+  email: "",
+  phone: "",
+  linkedin: "",
+};
+
+function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const [form, setForm] = useState(EMPTY_APPLY);
+  const [cvFile, setCvFile] = useState<File | null>(null);
+  const [cvError, setCvError] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [submitError, setSubmitError] = useState<string | null>(null);
+  const [success, setSuccess] = useState(false);
+  const fileRef = useRef<HTMLInputElement>(null);
+
+  // Auto-close after success
+  useEffect(() => {
+    if (!success) return;
+    const t = setTimeout(onClose, 3000);
+    return () => clearTimeout(t);
+  }, [success, onClose]);
+
+  // Close on Escape
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  function setField(key: keyof typeof EMPTY_APPLY, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
+    const file = e.target.files?.[0] ?? null;
+    setCvError(null);
+    if (!file) { setCvFile(null); return; }
+    if (file.type !== "application/pdf") {
+      setCvError("Only PDF files are accepted.");
+      setCvFile(null);
+      return;
+    }
+    if (file.size > 5 * 1024 * 1024) {
+      setCvError("File must be under 5 MB.");
+      setCvFile(null);
+      return;
+    }
+    setCvFile(file);
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (!cvFile) { setCvError("Please upload your CV (PDF)."); return; }
+
+    setSubmitting(true);
+    setSubmitError(null);
+
+    try {
+      const supabase = createClient();
+      const timestamp = Date.now();
+      const path = `${job.id}/${form.email}-${timestamp}.pdf`;
+
+      const { error: uploadError } = await supabase.storage
+        .from("cvs")
+        .upload(path, cvFile, { contentType: "application/pdf", upsert: false });
+
+      if (uploadError) throw new Error(uploadError.message);
+
+      const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
+      const cvUrl = urlData.publicUrl;
+
+      const { error: insertError } = await supabase.from("job_applications").insert({
+        job_id: job.id,
+        first_name: form.firstName,
+        last_name: form.lastName,
+        email: form.email,
+        phone: form.phone,
+        linkedin_url: form.linkedin,
+        cv_url: cvUrl,
+        status: "new",
+      });
+
+      if (insertError) throw new Error(insertError.message);
+
+      setSuccess(true);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  const INPUT_CLS =
+    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3 text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
+  const LABEL_CLS =
+    "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
+
+  return (
+    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
+      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl">
+        {/* Header */}
+        <div className="shrink-0 bg-remotiv-purple px-7 py-6">
+          <button
+            type="button"
+            onClick={onClose}
+            aria-label="Close"
+            className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/15 text-white transition-colors hover:bg-white/25"
+          >
+            <X className="size-4" strokeWidth={2.5} />
+          </button>
+          <p className="mb-0.5 font-heading text-[1.25rem] font-bold leading-tight text-white">
+            {job.title}
+          </p>
+          <p className="text-[0.82rem] text-white/65">{job.company}</p>
+        </div>
+
+        {/* Body */}
+        <div className="flex-1 overflow-y-auto">
+          {success ? (
+            <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
+              <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
+                <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
+              </div>
+              <h3 className="font-heading text-lg font-bold text-[#111]">Application Submitted!</h3>
+              <p className="text-[0.88rem] leading-relaxed text-[#777]">
+                We&apos;ll be in touch soon. This window will close automatically.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="px-7 py-6">
+              <div className="grid grid-cols-2 gap-4">
+                <div>
+                  <label className={LABEL_CLS}>First Name</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Jane"
+                    value={form.firstName}
+                    onChange={(e) => setField("firstName", e.target.value)}
+                    className={INPUT_CLS}
+                  />
+                </div>
+                <div>
+                  <label className={LABEL_CLS}>Last Name</label>
+                  <input
+                    required
+                    type="text"
+                    placeholder="Smith"
+                    value={form.lastName}
+                    onChange={(e) => setField("lastName", e.target.value)}
+                    className={INPUT_CLS}
+                  />
+                </div>
+              </div>
+
+              <div className="mt-4">
+                <label className={LABEL_CLS}>Email</label>
+                <input
+                  required
+                  type="email"
+                  placeholder="jane@example.com"
+                  value={form.email}
+                  onChange={(e) => setField("email", e.target.value)}
+                  className={INPUT_CLS}
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className={LABEL_CLS}>Phone Number</label>
+                <input
+                  required
+                  type="tel"
+                  placeholder="+1 555 000 0000"
+                  value={form.phone}
+                  onChange={(e) => setField("phone", e.target.value)}
+                  className={INPUT_CLS}
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className={LABEL_CLS}>LinkedIn URL</label>
+                <input
+                  required
+                  type="url"
+                  placeholder="https://linkedin.com/in/yourname"
+                  value={form.linkedin}
+                  onChange={(e) => setField("linkedin", e.target.value)}
+                  className={INPUT_CLS}
+                />
+              </div>
+
+              <div className="mt-4">
+                <label className={LABEL_CLS}>CV / Resume (PDF, max 5 MB)</label>
+                <button
+                  type="button"
+                  onClick={() => fileRef.current?.click()}
+                  className={cn(
+                    "flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3.5 text-left transition-colors",
+                    cvFile
+                      ? "border-remotiv-green/40 bg-remotiv-green/5"
+                      : "border-black/10 bg-[#FAFAFA] hover:border-remotiv-purple/30",
+                  )}
+                >
+                  <Upload
+                    className={cn("size-4 shrink-0", cvFile ? "text-remotiv-green" : "text-[#aaa]")}
+                    strokeWidth={2}
+                  />
+                  <span
+                    className={cn(
+                      "truncate text-[0.85rem]",
+                      cvFile ? "font-medium text-[#111]" : "text-[#bbb]",
+                    )}
+                  >
+                    {cvFile ? cvFile.name : "Click to upload your CV…"}
+                  </span>
+                </button>
+                <input
+                  ref={fileRef}
+                  type="file"
+                  accept="application/pdf"
+                  onChange={handleFileChange}
+                  className="hidden"
+                />
+                {cvError && (
+                  <p className="mt-1.5 text-[0.78rem] text-red-500">{cvError}</p>
+                )}
+              </div>
+
+              {submitError && (
+                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-[0.82rem] text-red-600">
+                  {submitError}
+                </p>
+              )}
+
+              <button
+                type="submit"
+                disabled={submitting}
+                className="mt-6 w-full rounded-xl bg-[#111] py-4 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
+              >
+                {submitting ? "Submitting…" : "Submit Application"}
+              </button>
+            </form>
+          )}
+        </div>
+      </div>
+    </div>
   );
 }
 
@@ -698,11 +962,13 @@ function JobDetail({
   isFavorited,
   onToggleFavorite,
   onClose,
+  onApply,
 }: {
   job: Job;
   isFavorited: boolean;
   onToggleFavorite: () => void;
   onClose: () => void;
+  onApply: () => void;
 }) {
   return (
     <div className="relative col-span-full grid grid-cols-1 gap-10 rounded-[20px] bg-remotiv-purple p-9 md:grid-cols-2 md:p-10">
@@ -744,6 +1010,7 @@ function JobDetail({
         <div className="flex items-center gap-2.5">
           <button
             type="button"
+            onClick={onApply}
             className="rounded-xl bg-[#111] px-8 py-3.5 font-heading text-[0.78rem] font-bold text-white"
           >
             Apply now
