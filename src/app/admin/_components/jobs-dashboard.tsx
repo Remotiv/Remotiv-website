@@ -81,10 +81,13 @@ const LABEL_CLS =
 
 function fmtSalary(min: number | null, max: number | null): string {
   if (!min && !max) return "—";
-  const fmt = (n: number) => n >= 1000 ? `$${Math.round(n / 1000)}K` : `$${n}`;
-  if (min && max) return `${fmt(min)} – ${fmt(max)}`;
-  if (min) return `From ${fmt(min)}`;
-  return `Up to ${fmt(max!)}`;
+  const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
+  if (min && max) {
+    if (min === max) return `${fmt(min)}/yr`;
+    return `${fmt(min)} – ${fmt(max)}/yr`;
+  }
+  if (min) return `From ${fmt(min)}/yr`;
+  return `Up to ${fmt(max!)}/yr`;
 }
 
 function timeAgo(iso: string): string {
@@ -488,12 +491,12 @@ export function JobsDashboard({
                   {/* Salary */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smin">Salary Min ($)</label>
-                      <input id="jb-smin" type="number" min="0" placeholder="e.g. 40000" className={INPUT_CLS} value={form.salary_min} onChange={(e) => set("salary_min", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-smin">Salary Min (USD)</label>
+                      <input id="jb-smin" type="number" min="0" placeholder="e.g. 50000" className={INPUT_CLS} value={form.salary_min} onChange={(e) => set("salary_min", e.target.value)} />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smax">Salary Max ($)</label>
-                      <input id="jb-smax" type="number" min="0" placeholder="e.g. 70000" className={INPUT_CLS} value={form.salary_max} onChange={(e) => set("salary_max", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-smax">Salary Max (USD)</label>
+                      <input id="jb-smax" type="number" min="0" placeholder="e.g. 80000" className={INPUT_CLS} value={form.salary_max} onChange={(e) => set("salary_max", e.target.value)} />
                     </div>
                   </div>
 
