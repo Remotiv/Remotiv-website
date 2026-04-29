@@ -601,26 +601,26 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
 
   return (
-    <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/50 p-4 backdrop-blur-sm">
-      <div className="relative flex max-h-[90vh] w-full max-w-lg flex-col overflow-hidden rounded-[20px] bg-white shadow-2xl">
-        {/* Header */}
-        <div className="relative shrink-0 bg-remotiv-purple px-7 pb-5 pt-5 pr-16">
+    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
+      <div className="relative mx-auto my-16 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl">
+        {/* Header — sticky, never scrolls away */}
+        <div className="relative shrink-0 rounded-t-[20px] bg-[#7E47FF] px-7 py-8 pr-16">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
+            className="absolute right-4 top-6 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
           >
             <X className="size-4" strokeWidth={2.5} />
           </button>
-          <p className="mb-0.5 font-heading text-[1.25rem] font-bold leading-tight text-white">
+          <p className="mb-1 font-heading text-xl font-bold leading-tight text-white">
             {job.title}
           </p>
-          <p className="text-[0.82rem] text-white/65">{job.company}</p>
+          <p className="text-sm text-white/65">{job.company}</p>
         </div>
 
-        {/* Body */}
-        <div className="flex-1 overflow-y-auto">
+        {/* Body — scrollable */}
+        <div className="flex-1 overflow-y-auto rounded-b-[20px]">
           {success ? (
             <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
               <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
