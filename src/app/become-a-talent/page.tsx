@@ -5,6 +5,51 @@ import { useEffect, useRef, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
+// ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
+async function extractPdfText(file: File): Promise<string> {
+  const pdfjs = await import("pdfjs-dist");
+  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+    "pdfjs-dist/build/pdf.worker.min.mjs",
+    import.meta.url,
+  ).toString();
+
+  const buffer = await file.arrayBuffer();
+  const doc = await pdfjs.getDocument({ data: buffer }).promise;
+
+  const lines: string[] = [];
+  for (let i = 1; i <= doc.numPages; i++) {
+    const page = await doc.getPage(i);
+    const content = await page.getTextContent();
+    let lastY: number | null = null;
+    let line = "";
+    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
+      const y = item.transform[5];
+      if (lastY !== null && Math.abs(y - lastY) > 2) {
+        if (line.trim()) lines.push(line.trim());
+        line = item.str;
+      } else {
+        line += (line ? " " : "") + item.str;
+      }
+      lastY = y;
+    }
+    if (line.trim()) lines.push(line.trim());
+  }
+  return lines.join("\n");
+}
+
+const WORK_TYPE_LABEL: Record<string, string> = {
+  fullTime: "Full-time", partTime: "Part-time", contract: "Contract", any: "Any",
+};
+const NOTICE_PERIOD_LABEL: Record<string, string> = {
+  immediate: "Immediate", "2weeks": "2 Weeks", "1month": "1 Month", negotiable: "Negotiable",
+};
+const WORK_LOCATION_LABEL: Record<string, string> = {
+  remote: "Remote", hybrid: "Hybrid", onsite: "Onsite",
+};
+const AVAILABILITY_LABEL: Record<string, string> = {
+  available: "Available Now", unavailable: "Not Available",
+};
+
 type WorkExperience = {
   id: number;
   title: string;
@@ -208,9 +253,31 @@ export default function BecomeATalentPage() {
   const [workLocation, setWorkLocation] = useState<WorkLocation>("remote");
 
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
+  const [photoFile, setPhotoFile] = useState<File | null>(null);
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvDragOver, setCvDragOver] = useState(false);
   const cvInputRef = useRef<HTMLInputElement>(null);
+
+  // Form state — every text/select input is now controlled so values survive
+  // step switches (each step unmounts when the user moves on).
+  const [firstName, setFirstName] = useState("");
+  const [lastName, setLastName] = useState("");
+  const [email, setEmail] = useState("");
+  const [phone, setPhone] = useState("");
+  const [city, setCity] = useState("");
+  const [country, setCountry] = useState("");
+  const [linkedinUrl, setLinkedinUrl] = useState("");
+  const [jobTitle, setJobTitle] = useState("");
+  const [roleCategory, setRoleCategory] = useState("");
+  const [yearsExperience, setYearsExperience] = useState("");
+  const [industry, setIndustry] = useState("");
+  const [degree, setDegree] = useState("");
+  const [institution, setInstitution] = useState("");
+  const [summary, setSummary] = useState("");
+  const [githubUrl, setGithubUrl] = useState("");
+
+  const [submitState, setSubmitState] = useState<"form" | "success" | "duplicate">("form");
+  const [submitError, setSubmitError] = useState<string | null>(null);
 
   const goToStep = (target: number) => {
     if (target < 1 || target > 4) return;
@@ -252,6 +319,7 @@ export default function BecomeATalentPage() {
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    setPhotoFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => setPhotoPreview(ev.target?.result as string);
     reader.readAsDataURL(file);
@@ -269,12 +337,64 @@ export default function BecomeATalentPage() {
     setCvFile(file);
   };
 
-  const handleSubmit = () => {
+  const handleSubmit = async () => {
     setSubmitting(true);
-    setTimeout(() => {
-      setSubmitting(false);
+    setSubmitError(null);
+
+    try {
+      // Extract CV text in the browser when a PDF is attached.
+      let cvText = "";
+      if (cvFile && cvFile.type === "application/pdf") {
+        try {
+          cvText = await extractPdfText(cvFile);
+        } catch {
+          // silent — submission still proceeds without searchable text
+        }
+      }
+
+      const fd = new FormData();
+      fd.append("first_name",     firstName);
+      fd.append("last_name",      lastName);
+      fd.append("email",          email);
+      fd.append("phone",          phone);
+      fd.append("city",           city);
+      fd.append("country",        country);
+      fd.append("linkedin_url",   linkedinUrl);
+      fd.append("github_url",     githubUrl);
+      fd.append("job_title",      jobTitle);
+      fd.append("role_category",  roleCategory);
+      fd.append("years_experience", yearsExperience);
+      fd.append("industry",       industry);
+      fd.append("degree",         degree);
+      fd.append("institution",    institution);
+      fd.append("summary",        summary);
+      fd.append("skills",         JSON.stringify(skills));
+      fd.append("availability",   AVAILABILITY_LABEL[availability]   ?? availability);
+      fd.append("work_type",      WORK_TYPE_LABEL[workType]          ?? workType);
+      fd.append("notice_period",  NOTICE_PERIOD_LABEL[noticePeriod]  ?? noticePeriod);
+      fd.append("work_location",  WORK_LOCATION_LABEL[workLocation]  ?? workLocation);
+      if (cvText.trim()) fd.append("cv_text", cvText);
+      if (cvFile)        fd.append("cv",      cvFile);
+      if (photoFile)     fd.append("photo",   photoFile);
+
+      const res = await fetch("/api/talent", { method: "POST", body: fd });
+
+      if (res.status === 409) {
+        setSubmitState("duplicate");
+        setSubmitted(true);
+        return;
+      }
+
+      const json = await res.json() as { success?: boolean; error?: string };
+      if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
+
+      setSubmitState("success");
       setSubmitted(true);
-    }, 900);
+    } catch (err) {
+      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+    } finally {
+      setSubmitting(false);
+    }
   };
 
   return (
@@ -307,17 +427,50 @@ export default function BecomeATalentPage() {
           <div>
             <div className="bta-form-card">
               {submitted ? (
-                <div className="bta-success" style={{ display: "block" }}>
-                  <div className="bta-success-ico">✅</div>
-                  <div className="bta-success-title">Profile Submitted!</div>
-                  <p className="bta-success-sub">
-                    Your talent profile is now live on Remotiv. Our AI matching engine will start
-                    connecting you with relevant opportunities from US and global companies.
-                  </p>
-                  <Link href="/" className="bta-success-btn">
-                    Back to Home →
-                  </Link>
-                </div>
+                submitState === "duplicate" ? (
+                  <div className="bta-success" style={{ display: "block" }}>
+                    <div className="bta-success-ico">👋</div>
+                    <div className="bta-success-title">Already in our network</div>
+                    <p className="bta-success-sub">
+                      You&apos;re already in our talent network! We&apos;ll reach out when the right
+                      opportunity comes along.
+                    </p>
+                    <a
+                      href="https://www.linkedin.com/company/remotiv-inc/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bta-success-btn"
+                      style={{ background: "#7E47FF", color: "#fff" }}
+                    >
+                      Follow us on LinkedIn →
+                    </a>
+                  </div>
+                ) : (
+                  <div className="bta-success" style={{ display: "block" }}>
+                    <div className="bta-success-ico">🎉</div>
+                    <div className="bta-success-title">You&apos;re in the Network!</div>
+                    <p className="bta-success-sub">
+                      Your profile is under review. We&apos;ll notify you once approved and matched.
+                    </p>
+                    <a
+                      href="https://www.linkedin.com/company/remotiv-inc/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      style={{
+                        display: "block",
+                        marginTop: 16,
+                        fontSize: ".82rem",
+                        color: "#7E47FF",
+                        fontWeight: 600,
+                      }}
+                    >
+                      🔗 Follow Remotiv on LinkedIn
+                    </a>
+                    <Link href="/jobs" className="bta-success-btn">
+                      Browse Open Jobs →
+                    </Link>
+                  </div>
+                )
               ) : (
                 <>
                   {step === 1 && (
@@ -356,14 +509,26 @@ export default function BecomeATalentPage() {
                                   <circle cx="12" cy="7" r="4" />
                                 </svg>
                               </span>
-                              <input type="text" className="bta-input" placeholder="e.g. Sarah" />
+                              <input
+                                type="text"
+                                className="bta-input"
+                                placeholder="e.g. Sarah"
+                                value={firstName}
+                                onChange={(e) => setFirstName(e.target.value)}
+                              />
                             </div>
                           </div>
                           <div className="bta-form-group">
                             <div className="bta-label">
                               Last Name <span className="bta-req">*</span>
                             </div>
-                            <input type="text" className="bta-input" placeholder="e.g. Khan" />
+                            <input
+                              type="text"
+                              className="bta-input"
+                              placeholder="e.g. Khan"
+                              value={lastName}
+                              onChange={(e) => setLastName(e.target.value)}
+                            />
                           </div>
                         </div>
                         <div className="bta-grid-2">
@@ -393,6 +558,8 @@ export default function BecomeATalentPage() {
                                 type="email"
                                 className="bta-input"
                                 placeholder="you@example.com"
+                                value={email}
+                                onChange={(e) => setEmail(e.target.value)}
                               />
                             </div>
                           </div>
@@ -421,6 +588,8 @@ export default function BecomeATalentPage() {
                                 type="tel"
                                 className="bta-input"
                                 placeholder="+92 300 0000000"
+                                value={phone}
+                                onChange={(e) => setPhone(e.target.value)}
                               />
                             </div>
                           </div>
@@ -430,13 +599,23 @@ export default function BecomeATalentPage() {
                             <div className="bta-label">
                               City <span className="bta-req">*</span>
                             </div>
-                            <input type="text" className="bta-input" placeholder="e.g. Lahore" />
+                            <input
+                              type="text"
+                              className="bta-input"
+                              placeholder="e.g. Lahore"
+                              value={city}
+                              onChange={(e) => setCity(e.target.value)}
+                            />
                           </div>
                           <div className="bta-form-group">
                             <div className="bta-label">
                               Country <span className="bta-req">*</span>
                             </div>
-                            <select className="bta-select" defaultValue="">
+                            <select
+                              className="bta-select"
+                              value={country}
+                              onChange={(e) => setCountry(e.target.value)}
+                            >
                               <option value="" disabled>
                                 Select country
                               </option>
@@ -476,6 +655,8 @@ export default function BecomeATalentPage() {
                                 type="url"
                                 className="bta-input"
                                 placeholder="linkedin.com/in/yourname"
+                                value={linkedinUrl}
+                                onChange={(e) => setLinkedinUrl(e.target.value)}
                               />
                             </div>
                           </div>
@@ -550,13 +731,19 @@ export default function BecomeATalentPage() {
                               type="text"
                               className="bta-input"
                               placeholder="e.g. Senior React Developer"
+                              value={jobTitle}
+                              onChange={(e) => setJobTitle(e.target.value)}
                             />
                           </div>
                           <div className="bta-form-group">
                             <div className="bta-label">
                               Role Category <span className="bta-req">*</span>
                             </div>
-                            <select className="bta-select" defaultValue="">
+                            <select
+                              className="bta-select"
+                              value={roleCategory}
+                              onChange={(e) => setRoleCategory(e.target.value)}
+                            >
                               <option value="" disabled>
                                 Select category
                               </option>
@@ -579,13 +766,19 @@ export default function BecomeATalentPage() {
                               placeholder="e.g. 7"
                               min={0}
                               max={50}
+                              value={yearsExperience}
+                              onChange={(e) => setYearsExperience(e.target.value)}
                             />
                           </div>
                           <div className="bta-form-group">
                             <div className="bta-label">
                               Industry / Domain <span className="bta-req">*</span>
                             </div>
-                            <select className="bta-select" defaultValue="">
+                            <select
+                              className="bta-select"
+                              value={industry}
+                              onChange={(e) => setIndustry(e.target.value)}
+                            >
                               <option value="" disabled>
                                 Select industry
                               </option>
@@ -609,6 +802,8 @@ export default function BecomeATalentPage() {
                               type="text"
                               className="bta-input"
                               placeholder="e.g. BS Computer Science"
+                              value={degree}
+                              onChange={(e) => setDegree(e.target.value)}
                             />
                           </div>
                           <div className="bta-form-group">
@@ -619,6 +814,8 @@ export default function BecomeATalentPage() {
                               type="text"
                               className="bta-input"
                               placeholder="e.g. University"
+                              value={institution}
+                              onChange={(e) => setInstitution(e.target.value)}
                             />
                           </div>
                         </div>
@@ -760,6 +957,8 @@ export default function BecomeATalentPage() {
                           <textarea
                             className="bta-textarea"
                             placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for."
+                            value={summary}
+                            onChange={(e) => setSummary(e.target.value)}
                           />
                         </div>
                       </div>
@@ -1034,6 +1233,8 @@ export default function BecomeATalentPage() {
                               type="url"
                               className="bta-input"
                               placeholder="github.com/yourusername"
+                              value={githubUrl}
+                              onChange={(e) => setGithubUrl(e.target.value)}
                             />
                           </div>
                         </div>
@@ -1061,6 +1262,18 @@ export default function BecomeATalentPage() {
                           >
                             ← Back
                           </button>
+                          {submitError && (
+                            <span
+                              style={{
+                                fontSize: ".75rem",
+                                color: "#ef4444",
+                                marginRight: 12,
+                                alignSelf: "center",
+                              }}
+                            >
+                              {submitError}
+                            </span>
+                          )}
                           <button
                             type="button"
                             className="bta-btn-submit"

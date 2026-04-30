@@ -14,7 +14,7 @@ import {
 
 const TOP_NAV = [
   { label: "Dashboard", href: "/admin" },
-  { label: "Talent", href: "/admin/profiles" },
+  { label: "Talent", href: "/admin/talent" },
   { label: "Jobs", href: "/admin/jobs" },
   { label: "Applications", href: "/admin/applications" },
   { label: "Search", href: "/admin/search" },

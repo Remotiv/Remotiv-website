@@ -62,12 +62,10 @@ function ResultCard({
   keywords: string[];
 }) {
   const isApp = hit.source === "application";
-  const searchParam = encodeURIComponent(
-    isApp ? (hit.email ?? hit.name) : hit.name,
-  );
+  // Applications search by name/email; talent links open the drawer directly via id.
   const href = isApp
-    ? `/admin/applications?search=${searchParam}`
-    : `/admin/profiles?search=${searchParam}`;
+    ? `/admin/applications?search=${encodeURIComponent(hit.email ?? hit.name)}`
+    : `/admin/talent?id=${encodeURIComponent(hit.id)}`;
 
   return (
     <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white p-5 shadow-sm transition-shadow hover:shadow-md">

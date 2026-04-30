@@ -57,6 +57,33 @@ function countMatches(text: string | null | undefined, keywords: string[]): {
   return { count: matched.length, matched };
 }
 
+/**
+ * Score a talent profile across plain text fields + the skills array.
+ * Each keyword is checked against:
+ *   - the joined text blob (name, email, job_title, summary, city, etc.)
+ *   - any individual skill via case-insensitive substring match
+ * Returns total unique keyword matches and the list of matched keywords.
+ */
+function scoreTalent(
+  blob: string,
+  skills: string[],
+  keywords: string[],
+): { count: number; matched: string[] } {
+  const lowerBlob = blob.toLowerCase();
+  const lowerSkills = skills.map((s) => s.toLowerCase());
+  const matched = new Set<string>();
+  for (const k of keywords) {
+    if (lowerBlob.includes(k)) {
+      matched.add(k);
+      continue;
+    }
+    if (lowerSkills.some((s) => s.includes(k))) {
+      matched.add(k);
+    }
+  }
+  return { count: matched.size, matched: [...matched] };
+}
+
 export async function searchCandidates(query: string): Promise<SearchResults> {
   const trimmed = query.trim();
   const keywords = extractKeywords(trimmed);
@@ -82,11 +109,12 @@ export async function searchCandidates(query: string): Promise<SearchResults> {
     .limit(200);
 
   // ── Talent profiles search ──────────────────────────────────
-  // We don't know exactly which optional profile columns exist in this DB
-  // (skills/headline/bio/location/current_job_title). Fetch a slice of recent
-  // profiles and rank in JS — robust against missing columns and small N.
+  // We pull a slice of recent talent_profiles rows and rank in JS so we can
+  // walk the skills array element-by-element with substring matching rather
+  // than relying on Postgres array-contains semantics (which only matches
+  // exact tokens, not partial words).
   const talentQuery = supabase
-    .from("profiles")
+    .from("talent_profiles")
     .select("*")
     .order("created_at", { ascending: false })
     .limit(500);
@@ -127,33 +155,31 @@ export async function searchCandidates(query: string): Promise<SearchResults> {
 
   // ── Score & shape talent profiles ───────────────────────────
   const talent: SearchHit[] = talents.map((p) => {
-    const fields: Array<string | string[] | null | undefined> = [
-      p.full_name as string | undefined,
-      p.email as string | undefined,
-      p.headline as string | undefined,
-      p.bio as string | undefined,
-      p.location as string | undefined,
-      p.current_job_title as string | undefined,
-      p.skills as string[] | undefined,
-    ];
-    const blob = fields
-      .map((v) => (Array.isArray(v) ? v.join(" ") : (v ?? "")))
-      .join(" ");
-    const { count, matched } = countMatches(blob, keywords);
+    const fn = (p.first_name as string) ?? "";
+    const ln = (p.last_name as string) ?? "";
+    const fullName = `${fn} ${ln}`.trim();
+    const skills = Array.isArray(p.skills) ? (p.skills as string[]) : [];
+    const blob = [
+      fullName,
+      (p.email as string) ?? "",
+      (p.job_title as string) ?? "",
+      (p.summary as string) ?? "",
+      (p.city as string) ?? "",
+      (p.country as string) ?? "",
+    ].join(" ");
+    const { count, matched } = scoreTalent(blob, skills, keywords);
     const hit: SearchHit = {
       id: p.id as string,
       source: "talent",
-      name: ((p.full_name as string) ?? "").trim() || "Unnamed",
+      name: fullName || "Unnamed",
       email: (p.email as string | null) ?? null,
       phone: (p.phone as string | null) ?? null,
-      job_role: ((p.current_job_title as string | null)
-        ?? (p.headline as string | null)
-        ?? null),
+      job_role: (p.job_title as string | null) ?? null,
       status: (p.status as string | null) ?? null,
       created_at: (p.created_at as string) ?? "",
       matchedKeywords: matched,
       matchCount: count,
-      headline: (p.headline as string | null) ?? null,
+      headline: (p.summary as string | null) ?? null,
     };
     return hit;
   }).filter((h) => h.matchCount > 0)
