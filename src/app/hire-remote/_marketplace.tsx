@@ -26,6 +26,7 @@ type Project = {
   title: string;
   role: string;
   description: string;
+  url?: string;
 };
 
 type Language = { name: string; level: string };
@@ -52,297 +53,142 @@ type Candidate = {
   portfolio: Project[];
 };
 
-// ── 8 dummy candidates (Hire Remote demo set) ────────────────
+// ── Real-profile row shape (from hire_remote_profiles) ───────
 
-const DUMMY_CANDIDATES: Candidate[] = [
-  {
-    id: "1",
-    initials: "AR",
-    maskedName: "Ahmed R.",
-    location: "Karachi, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "Full Stack Developer | Backend Developer | Web Developer",
-    bio: "Experienced full stack developer specialising in scalable web applications and cloud infrastructure. Has delivered multiple production-grade SaaS products for US and UK clients.",
-    hourlyRate: 35,
-    availability: "Available Now",
-    hours: "More than 30 hrs/week",
-    workType: "Open to contract-to-hire",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Phone Verified", "Email Verified"],
-    skills: ["React", "Node.js", "TypeScript", "Python", "AWS", "Docker", "PostgreSQL", "Redis"],
-    employmentHistory: [
-      {
-        title: "Senior Engineer",
-        company: "US-based SaaS Startup",
-        dates: "Jan 2021 — Present",
-        description:
-          "Led backend architecture for a platform serving 2M+ daily API requests, owning the migration to microservices, reducing latency by 60%, and mentoring a team of junior engineers.",
-      },
-      {
-        title: "Backend Developer",
-        company: "Fintech Company",
-        dates: "Mar 2018 — Dec 2020",
-        description:
-          "Built microservices infrastructure handling real-time payment processing, integrating with third-party banking APIs and ensuring PCI-DSS compliance throughout.",
-      },
-    ],
-    education: { institution: "FAST University", degree: "BSc Computer Science", dates: "2013–2017" },
-    portfolio: [
-      {
-        title: "E-commerce Platform",
-        role: "Full Stack Dev | React",
-        description:
-          "Built a web and mobile platform for a US retail brand handling 50k+ monthly orders, integrating payment gateways, inventory management, and real-time analytics.",
-      },
-      {
-        title: "HealthTech Dashboard",
-        role: "Backend Dev | Python",
-        description: "Built dashboard infrastructure for healthcare data analytics with HIPAA compliance.",
-      },
-    ],
-  },
-  {
-    id: "2",
-    initials: "SK",
-    maskedName: "Sara K.",
-    location: "Lahore, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "UI/UX Designer | Product Designer | Visual Designer",
-    bio: "Product designer with a strong eye for detail and a passion for user-centred design systems. Shipped redesigns for multiple US SaaS products.",
-    hourlyRate: 25,
-    availability: "Available Now",
-    hours: "20–30 hrs/week",
-    workType: "Open to contract",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Email Verified"],
-    skills: ["Figma", "User Research", "Prototyping", "Design Systems", "Webflow"],
-    employmentHistory: [
-      {
-        title: "Senior Product Designer",
-        company: "Zeal (Remote, US)",
-        dates: "Jun 2021 — Present",
-        description:
-          "Owned end-to-end design for a B2B SaaS dashboard used by 15k+ teams. Built and maintained the design system, reducing engineering rework by 40%.",
-      },
-      {
-        title: "UI Designer",
-        company: "Tkxel",
-        dates: "Aug 2019 — May 2021",
-        description: "Shipped marketing sites and product UIs for early-stage US clients.",
-      },
-    ],
-    education: { institution: "NCA Lahore", degree: "BFA Visual Design", dates: "2015–2019" },
-    portfolio: [
-      {
-        title: "Banking App Redesign",
-        role: "Lead Designer | Figma",
-        description: "Re-imagined the onboarding and dashboard flows, improving activation by 35%.",
-      },
-    ],
-  },
-  {
-    id: "3",
-    initials: "UT",
-    maskedName: "Usman T.",
-    location: "Islamabad, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "Backend Engineer | API Developer | DevOps Engineer",
-    bio: "Backend engineer focused on high-performance APIs and reliable cloud deployments. Built infrastructure handling 50K req/sec at peak.",
-    hourlyRate: 30,
-    availability: "Available from May 2026",
-    hours: "30+ hrs/week",
-    workType: "Full-time",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Phone Verified"],
-    skills: ["Python", "Django", "PostgreSQL", "Docker", "Redis", "AWS", "Kubernetes"],
-    employmentHistory: [
-      {
-        title: "Backend Engineer",
-        company: "Bazaar Technologies",
-        dates: "Feb 2021 — Present",
-        description:
-          "Designed and operates payments and inventory APIs serving 200k+ retailers, with a 99.95% SLA.",
-      },
-    ],
-    education: { institution: "NUST", degree: "BE Computer Engineering", dates: "2014–2018" },
-    portfolio: [],
-  },
-  {
-    id: "4",
-    initials: "FM",
-    maskedName: "Fatima M.",
-    location: "Lahore, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "Senior Data Scientist | ML Engineer",
-    bio: "Data scientist with 6 years building ML models that ship to production. Domain expertise in fintech, logistics, and ad-tech.",
-    hourlyRate: 45,
-    availability: "Available Now",
-    hours: "More than 30 hrs/week",
-    workType: "Full-time",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Phone Verified", "Email Verified"],
-    skills: ["Python", "TensorFlow", "PyTorch", "SQL", "Pandas", "Airflow", "MLOps"],
-    employmentHistory: [
-      {
-        title: "Senior Data Scientist",
-        company: "Jazz (Veon)",
-        dates: "Apr 2021 — Present",
-        description:
-          "Owns the recommendation and churn-prediction ML stack used by 70M subscribers. Saved $2M+ annually via model-driven retention.",
-      },
-      {
-        title: "Data Analyst",
-        company: "Inbox Health",
-        dates: "Sep 2018 — Mar 2021",
-        description: "Built reporting and analytics tools for healthcare workflows used by US clinics.",
-      },
-    ],
-    education: { institution: "LUMS", degree: "MS Data Science", dates: "2016–2018" },
-    portfolio: [
-      {
-        title: "Churn Prediction Model",
-        role: "Lead DS | Python",
-        description: "Reduced 30-day churn by 22% via a real-time scoring pipeline on 70M users.",
-      },
-    ],
-  },
-  {
-    id: "5",
-    initials: "AH",
-    maskedName: "Ali H.",
-    location: "Lahore, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "Product Designer | Brand & Marketing Designer",
-    bio: "Senior product designer comfortable across product UI, brand systems, and motion. Has shipped end-to-end design for two YC-backed startups.",
-    hourlyRate: 38,
-    availability: "Available Now",
-    hours: "20–30 hrs/week",
-    workType: "Open to contract",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Email Verified"],
-    skills: ["Figma", "Framer", "Prototyping", "Branding", "Motion", "Webflow"],
-    employmentHistory: [
-      {
-        title: "Senior Product Designer",
-        company: "Tajir (YC S20)",
-        dates: "Jul 2022 — Present",
-        description: "Owned design for the merchant app used by 200k+ small retailers across Pakistan.",
-      },
-    ],
-    education: { institution: "NCA Lahore", degree: "BFA Visual Design", dates: "2014–2018" },
-    portfolio: [
-      {
-        title: "Merchant App",
-        role: "Lead Designer | Figma",
-        description: "Redesigned the daily-use mobile app, lifting weekly active retailers by 28%.",
-      },
-    ],
-  },
-  {
-    id: "6",
-    initials: "ZH",
-    maskedName: "Zara H.",
-    location: "Lahore, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "Senior Customer Success Manager",
-    bio: "8 years in customer success across fintech and logistics SaaS. Specialises in enterprise onboarding and reducing churn at scale.",
-    hourlyRate: 32,
-    availability: "Available Now",
-    hours: "More than 30 hrs/week",
-    workType: "Full-time",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Phone Verified", "Email Verified"],
-    skills: ["Gainsight", "Intercom", "QBRs", "Onboarding", "NPS", "Executive Relations"],
-    employmentHistory: [
-      {
-        title: "Senior CSM",
-        company: "Airlift Technologies",
-        dates: "Jan 2020 — Present",
-        description: "Owns $2M+ ARR portfolio. Lifted NPS from 32 → 67 over 18 months.",
-      },
-    ],
-    education: { institution: "LSE", degree: "MSc Management", dates: "2014–2016" },
-    portfolio: [],
-  },
-  {
-    id: "7",
-    initials: "BQ",
-    maskedName: "Bilal Q.",
-    location: "Karachi, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "SDR Team Lead | Outbound Sales",
-    bio: "Built and led SDR teams at two US-funded startups, generating $1.2M+ in annual pipeline through repeatable outbound playbooks.",
-    hourlyRate: 28,
-    availability: "Available Now",
-    hours: "More than 30 hrs/week",
-    workType: "Full-time",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Email Verified"],
-    skills: ["Salesloft", "Apollo.io", "HubSpot", "Pipeline Mgmt", "Coaching", "RevOps"],
-    employmentHistory: [
-      {
-        title: "SDR Team Lead",
-        company: "Podium (Remote)",
-        dates: "Mar 2022 — Present",
-        description:
-          "Hired, trained, and coached a team of 8 SDRs targeting US enterprise. 140% of team quota for 4 consecutive quarters.",
-      },
-    ],
-    education: { institution: "University of Karachi", degree: "MBA", dates: "2015–2017" },
-    portfolio: [],
-  },
-  {
-    id: "8",
-    initials: "KI",
-    maskedName: "Kamran I.",
-    location: "Karachi, Pakistan",
-    localTime: "5:48 pm",
-    jobTitle: "DevOps Engineer | Cloud Architect",
-    bio: "DevOps engineer who reduced infrastructure costs by 40% while improving deployment frequency 3x at a regional ride-hailing leader.",
-    hourlyRate: 40,
-    availability: "Available Now",
-    hours: "More than 30 hrs/week",
-    workType: "Full-time",
-    languages: [
-      { name: "English", level: "Fluent" },
-      { name: "Urdu", level: "Native" },
-    ],
-    verifications: ["ID Verified", "Phone Verified", "Email Verified"],
-    skills: ["AWS", "Kubernetes", "Terraform", "CI/CD", "Jenkins", "Ansible"],
-    employmentHistory: [
-      {
-        title: "DevOps Engineer",
-        company: "Careem (Uber)",
-        dates: "May 2021 — Present",
-        description:
-          "Owns the platform infrastructure for a multi-region payments stack. Designed zero-downtime deploys and AWS Solutions Architect certified.",
-      },
-    ],
-    education: { institution: "NED University", degree: "BS Computer Systems", dates: "2014–2018" },
-    portfolio: [],
-  },
-];
+export type RemoteProfileRow = {
+  id: string;
+  first_name: string;
+  last_name: string;
+  email?: string;
+  city: string | null;
+  country: string | null;
+  time_zone: string | null;
+  job_titles: string | null;
+  bio: string | null;
+  hourly_rate: number | null;
+  hours_per_week: string | null;
+  work_type: string | null;
+  availability: string | null;
+  available_from_date: string | null;
+  languages: unknown;
+  email_verified: boolean | null;
+  id_verified: boolean | null;
+  phone_verified: boolean | null;
+  skills: unknown;
+  employment_history: unknown;
+  education: unknown;
+  portfolio: unknown;
+};
+
+function localTimeIn(tz: string | null): string {
+  if (!tz) return "";
+  try {
+    return new Intl.DateTimeFormat("en-US", {
+      hour: "numeric",
+      minute: "2-digit",
+      hour12: true,
+      timeZone: tz,
+    })
+      .format(new Date())
+      .toLowerCase();
+  } catch {
+    return "";
+  }
+}
+
+function rowToCandidate(row: RemoteProfileRow): Candidate {
+  const firstInitial = (row.first_name?.[0] ?? "").toUpperCase();
+  const lastInitial = (row.last_name?.[0] ?? "").toUpperCase();
+
+  const fmtAvailability = (() => {
+    const av = row.availability ?? "";
+    if (av.toLowerCase().includes("future") && row.available_from_date) {
+      return `Available from ${row.available_from_date}`;
+    }
+    return av || "Available Now";
+  })();
+
+  const verifications: string[] = [];
+  if (row.email_verified) verifications.push("Email Verified");
+  if (row.id_verified) verifications.push("ID Verified");
+  if (row.phone_verified) verifications.push("Phone Verified");
+
+  const languages: Language[] = Array.isArray(row.languages)
+    ? (row.languages as Array<Record<string, unknown>>)
+        .filter((l) => l && typeof l === "object")
+        .map((l) => ({
+          name: typeof l.name === "string" ? l.name : "",
+          level: typeof l.level === "string" ? l.level : "",
+        }))
+        .filter((l) => l.name)
+    : [];
+
+  const skills: string[] = Array.isArray(row.skills)
+    ? (row.skills as unknown[]).filter((s): s is string => typeof s === "string")
+    : [];
+
+  const employmentHistory: Job[] = Array.isArray(row.employment_history)
+    ? (row.employment_history as Array<Record<string, unknown>>)
+        .filter((e) => e && typeof e === "object")
+        .map((e) => ({
+          title:       typeof e.title       === "string" ? e.title       : "",
+          company:     typeof e.company     === "string" ? e.company     : "",
+          dates:       typeof e.dates       === "string" ? e.dates       : "",
+          description: typeof e.description === "string" ? e.description : "",
+        }))
+    : [];
+
+  const eduRaw = row.education;
+  const education: Education =
+    eduRaw && typeof eduRaw === "object"
+      ? {
+          institution:
+            typeof (eduRaw as Record<string, unknown>).institution === "string"
+              ? ((eduRaw as Record<string, unknown>).institution as string)
+              : "",
+          degree:
+            typeof (eduRaw as Record<string, unknown>).degree === "string"
+              ? ((eduRaw as Record<string, unknown>).degree as string)
+              : "",
+          dates:
+            typeof (eduRaw as Record<string, unknown>).dates === "string"
+              ? ((eduRaw as Record<string, unknown>).dates as string)
+              : "",
+        }
+      : { institution: "", degree: "", dates: "" };
+
+  const portfolio: Project[] = Array.isArray(row.portfolio)
+    ? (row.portfolio as Array<Record<string, unknown>>)
+        .filter((p) => p && typeof p === "object")
+        .map((p) => ({
+          title: typeof p.title === "string" ? p.title : "",
+          role: typeof p.role === "string" ? p.role : "",
+          description: typeof p.description === "string" ? p.description : "",
+          url: typeof p.url === "string" ? p.url : undefined,
+        }))
+    : [];
+
+  return {
+    id: row.id,
+    initials: `${firstInitial}${lastInitial}` || "?",
+    maskedName: `${row.first_name} ${lastInitial}.`.trim(),
+    location: [row.city, row.country].filter(Boolean).join(", "),
+    localTime: localTimeIn(row.time_zone),
+    jobTitle: row.job_titles ?? "",
+    bio: row.bio ?? "",
+    hourlyRate: row.hourly_rate ?? 0,
+    availability: fmtAvailability,
+    hours: row.hours_per_week ?? "",
+    workType: row.work_type ?? "",
+    languages,
+    verifications,
+    skills,
+    employmentHistory,
+    education,
+    portfolio,
+  };
+}
+
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -682,6 +528,16 @@ function ProfileDrawer({
                 <p className="font-heading text-sm font-bold text-[#111]">{p.title}</p>
                 <p className="text-[11px] text-[#888]">{p.role}</p>
                 <p className="mt-1 text-[12px] leading-[1.65] text-[#555]">{p.description}</p>
+                {p.url && (
+                  <a
+                    href={p.url}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#7E47FF] hover:underline"
+                  >
+                    Visit Project →
+                  </a>
+                )}
               </div>
             ))}
           </div>
@@ -836,12 +692,19 @@ function Toast({ msg }: { msg: string }) {
 
 const PAGE_SIZE = 6;
 
-export function HireMarketplace() {
-  const data = DUMMY_CANDIDATES;
+export function HireMarketplace({
+  realProfiles,
+}: {
+  realProfiles?: RemoteProfileRow[];
+} = {}) {
+  const data = useMemo<Candidate[]>(
+    () => (realProfiles ?? []).map(rowToCandidate),
+    [realProfiles],
+  );
 
   const [role,    setRole]    = useState<string>("All Roles");
   const [skills,  setSkills]  = useState<string>("");
-  const [rate,    setRate]    = useState<number>(60);
+  const [rate,    setRate]    = useState<number>(10);
   const [exp,     setExp]     = useState<string>("Any");
   const [avail,   setAvail]   = useState<string>("Any");
   const [english, setEnglish] = useState<string>("Any");
@@ -947,9 +810,16 @@ export function HireMarketplace() {
         >
           <div className={listGridCls}>
             {visible.length === 0 ? (
-              <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">
-                No candidates match your filters.
-              </div>
+              data.length === 0 ? (
+                <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center">
+                  <p className="text-sm font-medium text-[#666]">No talent available right now.</p>
+                  <p className="mt-1 text-xs text-[#999]">Check back soon — new candidates are added regularly.</p>
+                </div>
+              ) : (
+                <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">
+                  No candidates match your filters.
+                </div>
+              )
             ) : (
               visible.map((c) => (
                 <CandidateCard

@@ -1,7 +1,10 @@
 import Link from "next/link";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
-import { HireMarketplace } from "./_marketplace";
+import { createServiceClient } from "@/lib/supabase/server";
+import { HireMarketplace, type RemoteProfileRow } from "./_marketplace";
+
+export const dynamic = "force-dynamic";
 
 const HERO_STATS = [
   "10K+ Experts",
@@ -10,13 +13,23 @@ const HERO_STATS = [
   "98% client satisfaction",
 ] as const;
 
-export default function HireRemotePage() {
+export default async function HireRemotePage() {
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("hire_remote_profiles")
+    .select("*")
+    .eq("status", "approved")
+    .not("approved_at", "is", null)
+    .order("approved_at", { ascending: false });
+
+  const realProfiles = (data ?? []) as RemoteProfileRow[];
+
   return (
     <>
       <Navbar />
       <main className="bg-remotiv-bg">
         <HeroSection />
-        <HireMarketplace />
+        <HireMarketplace realProfiles={realProfiles} />
         <HowItWorks />
         <QuoteCta />
       </main>
