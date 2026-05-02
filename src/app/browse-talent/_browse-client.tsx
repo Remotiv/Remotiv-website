@@ -30,6 +30,14 @@ export type TalentRow = {
   avatar_url: string | null;
   linkedin_url: string | null;
   github_url: string | null;
+  experience: Array<{
+    title?: string;
+    company?: string;
+    start?: string;
+    end?: string;
+    dates?: string;
+    skills?: string[];
+  }> | null;
   approved_at: string | null;
   created_at: string | null;
 };
@@ -63,6 +71,9 @@ type Card = {
   fullTime: boolean;
   partTime: boolean;
   remote: boolean;
+  contract?: boolean;
+  hybrid?: boolean;
+  onsite?: boolean;
   education?: string;             // demo data only ("Degree — Institution")
   degree?: string | null;         // real-DB form
   institution?: string | null;    // real-DB form
@@ -142,23 +153,68 @@ function isRoleType(value: string | null | undefined): value is RoleType {
   return !!value && value in ROLE_CFG;
 }
 
+/** Pull a 4-digit year out of "2021", "Jan 2021", "2021 – 2024", etc. */
+function extractYear(value: string | undefined | null): number | null {
+  if (!value) return null;
+  const m = value.match(/(19|20)\d{2}/);
+  return m ? Number.parseInt(m[0], 10) : null;
+}
+
+/**
+ * Derive total years of experience from a JSONB experience array.
+ *   - Earliest start year → latest end year
+ *   - "Present" or empty end falls back to current year
+ *   - Returns null when no usable years can be parsed
+ */
+function deriveYears(
+  experience: Array<{ start?: string; end?: string; dates?: string }> | null | undefined,
+): number | null {
+  if (!experience || experience.length === 0) return null;
+  const now = new Date().getFullYear();
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const e of experience) {
+    const s = extractYear(e.start) ?? extractYear(e.dates?.split(/[–\-]/)[0]);
+    if (s !== null) starts.push(s);
+    if (e.end && /present/i.test(e.end)) {
+      ends.push(now);
+    } else {
+      const en = extractYear(e.end) ?? extractYear(e.dates?.split(/[–\-]/)[1]) ?? now;
+      ends.push(en);
+    }
+  }
+  if (starts.length === 0) return null;
+  const earliest = Math.min(...starts);
+  const latest   = ends.length > 0 ? Math.max(...ends) : now;
+  return Math.max(0, latest - earliest);
+}
+
 function rowToCard(r: TalentRow): Card {
   const fullName = `${r.first_name} ${r.last_name ?? ""}`.trim();
   const type: RoleType = isRoleType(r.role_category) ? r.role_category : "Engineer";
   const skills = (r.skills ?? []).slice(0, 8);
-  const score = Math.min(99, 70 + (r.years_experience ?? 0) * 2 + skills.length);
+
+  // Derive role + years from the experience JSONB array (the form no longer
+  // collects standalone job_title / years_experience / industry).
+  // Latest entry = first item (form lists them top-to-bottom newest first).
+  const expArr = Array.isArray(r.experience) ? r.experience : [];
+  const latestExp = expArr[0];
+  const derivedRole = latestExp?.title?.trim() || r.job_title || "—";
+  const derivedYears = deriveYears(expArr) ?? r.years_experience ?? null;
+
+  const score = Math.min(99, 70 + (derivedYears ?? 0) * 2 + skills.length);
   const available = (r.availability ?? "").toLowerCase().includes("available");
   const highlights = [r.work_type, r.notice_period, r.work_location].filter(Boolean) as string[];
   return {
     id: r.id,
     name: fullName || "Unnamed",
     initials: getInitials(fullName),
-    role: r.job_title ?? "—",
+    role: derivedRole,
     type,
     skills,
     location: [r.city, r.country].filter(Boolean).join(", ") || "—",
-    exp: r.years_experience != null ? `${r.years_experience} years` : "—",
-    yearsExperience: r.years_experience,
+    exp: derivedYears != null ? `${derivedYears} years` : "—",
+    yearsExperience: derivedYears,
     industry: r.industry,
     available,
     score,
@@ -166,13 +222,23 @@ function rowToCard(r: TalentRow): Card {
     bio: r.summary ?? "",
     fullTime: (r.work_type ?? "").toLowerCase().includes("full"),
     partTime: (r.work_type ?? "").toLowerCase().includes("part"),
+    contract: (r.work_type ?? "").toLowerCase().includes("contract"),
     remote:   (r.work_location ?? "").toLowerCase().includes("remote"),
+    hybrid:   (r.work_location ?? "").toLowerCase().includes("hybrid"),
+    onsite:   (r.work_location ?? "").toLowerCase().includes("onsite"),
     degree: r.degree,
     institution: r.institution,
     lastActive: fmtDaysAgo(r.created_at),
     github: r.github_url,
     linkedin: r.linkedin_url,
-    // experience array intentionally omitted — real DB profiles don't have one
+    experience: Array.isArray(r.experience) && r.experience.length > 0
+      ? r.experience.map((e) => ({
+          title:   typeof e.title   === "string" ? e.title   : "",
+          company: typeof e.company === "string" ? e.company : "",
+          dates:   typeof e.dates   === "string" ? e.dates   : "",
+          skills:  Array.isArray(e.skills) ? e.skills : [],
+        }))
+      : undefined,
   };
 }
 
@@ -338,11 +404,9 @@ function ProfileModal({
   }
   const hasEducation = Boolean(degree || school);
   const eduInline = c.education ?? [c.degree, c.institution].filter(Boolean).join(" — ");
-  const hasDemoExperience = !!c.experience && c.experience.length > 0;
-  const dbExperienceLine =
-    !hasDemoExperience && c.yearsExperience != null
-      ? `${c.yearsExperience} year${c.yearsExperience === 1 ? "" : "s"} experience${c.industry ? ` in ${c.industry}` : ""}`
-      : null;
+  // Experience: always render the JSONB array if present. Empty array →
+  // explicit "No work experience added" empty state.
+  const hasExperienceArray = !!c.experience && c.experience.length > 0;
 
   return (
     <div
@@ -406,43 +470,41 @@ function ProfileModal({
             </>
           )}
 
-          {hasDemoExperience ? (
-            <>
-              <div className="bt-modal-sec-title">Experience</div>
-              <div style={{ marginBottom: 20 }}>
-                {c.experience?.map((e, i) => (
-                  <div key={`${e.company}-${i}`} className="bt-exp-item">
-                    <div className="bt-exp-logo">🏢</div>
-                    <div style={{ flex: 1 }}>
-                      <div className="bt-exp-title">{e.title}</div>
-                      <div className="bt-exp-company">{e.company}</div>
-                      <div className="bt-exp-dates">{e.dates}</div>
-                      <div className="bt-exp-skills">
-                        {e.skills.map((s) => (
-                          <span key={s} className="bt-exp-skill">{s}</span>
-                        ))}
-                      </div>
+          <div className="bt-modal-sec-title">Experience</div>
+          <div style={{ marginBottom: 20 }}>
+            {hasExperienceArray ? (
+              c.experience?.map((exp, i) => (
+                <div key={`${exp.company}-${i}`} className="bt-exp-item">
+                  <div className="bt-exp-logo">🏢</div>
+                  <div style={{ flex: 1 }}>
+                    <div className="bt-exp-title">{exp.title}</div>
+                    <div className="bt-exp-company">{exp.company}</div>
+                    <div className="bt-exp-dates">{exp.dates}</div>
+                    <div className="bt-exp-skills">
+                      {(exp.skills ?? []).map((s, j) => (
+                        <span key={`${s}-${j}`} className="bt-exp-skill">{s}</span>
+                      ))}
                     </div>
                   </div>
-                ))}
-              </div>
-            </>
-          ) : dbExperienceLine ? (
-            <>
-              <div className="bt-modal-sec-title">Experience</div>
+                </div>
+              ))
+            ) : (
               <p
                 style={{
-                  margin: "0 0 20px",
+                  margin: 0,
+                  padding: "16px 18px",
+                  border: "1px dashed rgba(0,0,0,0.1)",
+                  borderRadius: 12,
                   fontFamily: "'DM Sans',sans-serif",
-                  fontSize: "0.85rem",
-                  color: "#555",
-                  lineHeight: 1.7,
+                  fontSize: "0.82rem",
+                  color: "#aaa",
+                  textAlign: "center",
                 }}
               >
-                {dbExperienceLine}
+                No work experience added
               </p>
-            </>
-          ) : null}
+            )}
+          </div>
 
           {hasEducation && (
             <>
@@ -475,9 +537,24 @@ function ProfileModal({
                 Part-time
               </span>
             )}
+            {c.contract && (
+              <span className="bt-ot-tag" style={{ color: "#a78bfa", borderColor: "rgba(167,139,250,.3)", background: "rgba(167,139,250,.07)" }}>
+                Contract
+              </span>
+            )}
             {c.remote && (
               <span className="bt-ot-tag" style={{ color: "#a78bfa", borderColor: "rgba(167,139,250,.3)", background: "rgba(167,139,250,.07)" }}>
                 Remote
+              </span>
+            )}
+            {c.hybrid && (
+              <span className="bt-ot-tag" style={{ color: "#fb923c", borderColor: "rgba(251,146,60,.3)", background: "rgba(251,146,60,.07)" }}>
+                Hybrid
+              </span>
+            )}
+            {c.onsite && (
+              <span className="bt-ot-tag" style={{ color: "#60a5fa", borderColor: "rgba(96,165,250,.3)", background: "rgba(96,165,250,.07)" }}>
+                Onsite
               </span>
             )}
           </div>

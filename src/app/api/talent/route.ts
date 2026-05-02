@@ -3,6 +3,14 @@ import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "nodejs";
 
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
+
 const MALE_AVATARS = [
   "/avatars/male 1.png", "/avatars/male 2.png", "/avatars/male 3.png", "/avatars/male 4.png",
   "/avatars/male 5.png", "/avatars/male 6.png", "/avatars/male 7.png", "/avatars/male 8.png",
@@ -85,6 +93,41 @@ export async function POST(request: NextRequest) {
       }
     }
 
+    // Work history — JSON-encoded array of { title, company, start, end, dates, skills[] }.
+    // Stored as jsonb on talent_profiles.experience.
+    type ExperienceItem = {
+      title: string;
+      company: string;
+      start: string;
+      end: string;
+      dates: string;
+      skills: string[];
+    };
+    const experienceRaw = form.get("experience");
+    let experience: ExperienceItem[] = [];
+    if (typeof experienceRaw === "string" && experienceRaw.trim()) {
+      try {
+        const parsed = JSON.parse(experienceRaw);
+        if (Array.isArray(parsed)) {
+          experience = parsed
+            .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+            .map((e) => ({
+              title:   typeof e.title   === "string" ? e.title   : "",
+              company: typeof e.company === "string" ? e.company : "",
+              start:   typeof e.start   === "string" ? e.start   : "",
+              end:     typeof e.end     === "string" ? e.end     : "",
+              dates:   typeof e.dates   === "string" ? e.dates   : "",
+              skills:  Array.isArray(e.skills)
+                ? (e.skills as unknown[]).filter((s): s is string => typeof s === "string")
+                : [],
+            }))
+            .filter((e) => e.title || e.company);
+        }
+      } catch {
+        // ignore — leave experience empty
+      }
+    }
+
     const cvFile    = form.get("cv")    as File | null;
     const photoFile = form.get("photo") as File | null;
 
@@ -120,12 +163,24 @@ export async function POST(request: NextRequest) {
     // 2. Upload photo if provided, otherwise pick a random avatar from /avatars
     let avatarUrl: string;
     if (photoFile && photoFile.size > 0) {
+      // Reject anything that isn't a common image type. We accept jpeg/jpg/png/webp/gif.
+      if (photoFile.type && !ALLOWED_IMAGE_TYPES.includes(photoFile.type)) {
+        return NextResponse.json(
+          { error: `Unsupported photo type: ${photoFile.type}. Use JPG, PNG, WEBP, or GIF.` },
+          { status: 400 },
+        );
+      }
       const ext = fileExt(photoFile.name);
       const path = `talent/photos/${filenameSlug}-${timestamp}.${ext}`;
       const buf = await photoFile.arrayBuffer();
+      // Always send the explicit MIME from the upload (falling back to image/jpeg
+      // when the browser didn't set one) so Supabase doesn't infer it as octet-stream.
+      const contentType = photoFile.type && ALLOWED_IMAGE_TYPES.includes(photoFile.type)
+        ? photoFile.type
+        : "image/jpeg";
       const { error: photoErr } = await supabase.storage
         .from("cvs")
-        .upload(path, buf, { contentType: photoFile.type || "image/jpeg", upsert: false });
+        .upload(path, buf, { contentType, upsert: false });
       if (photoErr) {
         return NextResponse.json({ error: photoErr.message }, { status: 500 });
       }
@@ -167,6 +222,7 @@ export async function POST(request: NextRequest) {
       degree,
       institution,
       skills,
+      experience,
       summary,
       availability,
       work_type: workType,

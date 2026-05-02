@@ -267,10 +267,8 @@ export default function BecomeATalentPage() {
   const [city, setCity] = useState("");
   const [country, setCountry] = useState("");
   const [linkedinUrl, setLinkedinUrl] = useState("");
-  const [jobTitle, setJobTitle] = useState("");
-  const [roleCategory, setRoleCategory] = useState("");
-  const [yearsExperience, setYearsExperience] = useState("");
-  const [industry, setIndustry] = useState("");
+  // jobTitle / roleCategory / yearsExperience / industry intentionally removed —
+  // these are now derived from the Work Experience entries in Step 2.
   const [degree, setDegree] = useState("");
   const [institution, setInstitution] = useState("");
   const [summary, setSummary] = useState("");
@@ -278,6 +276,30 @@ export default function BecomeATalentPage() {
 
   const [submitState, setSubmitState] = useState<"form" | "success" | "duplicate">("form");
   const [submitError, setSubmitError] = useState<string | null>(null);
+  const [step1Error, setStep1Error] = useState<string | null>(null);
+
+  const handleStep1Next = () => {
+    setStep1Error(null);
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    const phoneDigits = phone.replace(/\D/g, "");
+    const linkedinValid = linkedinUrl.toLowerCase().includes("linkedin.com");
+
+    if (!firstName.trim()) { setStep1Error("First name is required"); return; }
+    if (!lastName.trim())  { setStep1Error("Last name is required"); return; }
+    if (!email.trim() || !emailRegex.test(email)) {
+      setStep1Error("Please enter a valid email address"); return;
+    }
+    if (!phone.trim() || phoneDigits.length < 7) {
+      setStep1Error("Please enter a valid phone number"); return;
+    }
+    if (!city.trim())    { setStep1Error("City is required"); return; }
+    if (!country.trim()) { setStep1Error("Country is required"); return; }
+    if (!linkedinUrl.trim() || !linkedinValid) {
+      setStep1Error("Please enter a valid LinkedIn URL (linkedin.com/in/...)");
+      return;
+    }
+    goToStep(2);
+  };
 
   const goToStep = (target: number) => {
     if (target < 1 || target > 4) return;
@@ -316,9 +338,24 @@ export default function BecomeATalentPage() {
     setSkills((prev) => prev.filter((s) => s !== tag));
   };
 
+  const ALLOWED_IMAGE_TYPES = [
+    "image/jpeg",
+    "image/jpg",
+    "image/png",
+    "image/webp",
+    "image/gif",
+  ];
+
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
+    if (file.type && !ALLOWED_IMAGE_TYPES.includes(file.type)) {
+      setSubmitError(
+        "Photo must be a JPG, PNG, WEBP, or GIF image.",
+      );
+      return;
+    }
+    setSubmitError(null);
     setPhotoFile(file);
     const reader = new FileReader();
     reader.onload = (ev) => setPhotoPreview(ev.target?.result as string);
@@ -338,8 +375,14 @@ export default function BecomeATalentPage() {
   };
 
   const handleSubmit = async () => {
-    setSubmitting(true);
     setSubmitError(null);
+
+    if (!cvFile) {
+      setSubmitError("Please upload your CV to continue");
+      return;
+    }
+
+    setSubmitting(true);
 
     try {
       // Extract CV text in the browser when a PDF is attached.
@@ -361,14 +404,29 @@ export default function BecomeATalentPage() {
       fd.append("country",        country);
       fd.append("linkedin_url",   linkedinUrl);
       fd.append("github_url",     githubUrl);
-      fd.append("job_title",      jobTitle);
-      fd.append("role_category",  roleCategory);
-      fd.append("years_experience", yearsExperience);
-      fd.append("industry",       industry);
+      // job_title / role_category / years_experience / industry are no longer
+      // collected directly — the API derives them from the experience array.
       fd.append("degree",         degree);
       fd.append("institution",    institution);
       fd.append("summary",        summary);
       fd.append("skills",         JSON.stringify(skills));
+      // Serialize work history — strip the local `id`, derive a "dates" string
+      // ("2021–Present · 3 yrs"-style format) and split the comma-separated
+      // skills string into an array so the modal can render them as tags.
+      const expPayload = experiences
+        .filter((e) => e.title?.trim() || e.company?.trim())
+        .map((e) => ({
+          title:   e.title?.trim()   ?? "",
+          company: e.company?.trim() ?? "",
+          start:   e.start?.trim()   ?? "",
+          end:     e.end?.trim()     ?? "",
+          dates:   [e.start?.trim(), e.end?.trim()].filter(Boolean).join(" – "),
+          skills:  (e.skills ?? "")
+            .split(",")
+            .map((s: string) => s.trim())
+            .filter(Boolean),
+        }));
+      fd.append("experience", JSON.stringify(expPayload));
       fd.append("availability",   AVAILABILITY_LABEL[availability]   ?? availability);
       fd.append("work_type",      WORK_TYPE_LABEL[workType]          ?? workType);
       fd.append("notice_period",  NOTICE_PERIOD_LABEL[noticePeriod]  ?? noticePeriod);
@@ -691,6 +749,24 @@ export default function BecomeATalentPage() {
                           </div>
                         </div>
                       </div>
+                      {step1Error && (
+                        <div
+                          role="alert"
+                          style={{
+                            margin: "0 32px 16px",
+                            padding: "10px 14px",
+                            background: "rgba(239,68,68,0.08)",
+                            border: "1px solid rgba(239,68,68,0.25)",
+                            borderRadius: 10,
+                            color: "#dc2626",
+                            fontSize: "0.78rem",
+                            fontFamily: "'DM Sans',sans-serif",
+                            fontWeight: 500,
+                          }}
+                        >
+                          {step1Error}
+                        </div>
+                      )}
                       <div className="bta-form-footer">
                         <FooterNote />
                         <div className="bta-form-actions">
@@ -700,7 +776,7 @@ export default function BecomeATalentPage() {
                           <button
                             type="button"
                             className="bta-btn-next"
-                            onClick={() => goToStep(2)}
+                            onClick={handleStep1Next}
                           >
                             Next: Professional Info →
                           </button>
@@ -721,77 +797,6 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">Role & Experience</div>
-                        <div className="bta-grid-2">
-                          <div className="bta-form-group">
-                            <div className="bta-label">
-                              Job Title / Role <span className="bta-req">*</span>
-                            </div>
-                            <input
-                              type="text"
-                              className="bta-input"
-                              placeholder="e.g. Senior React Developer"
-                              value={jobTitle}
-                              onChange={(e) => setJobTitle(e.target.value)}
-                            />
-                          </div>
-                          <div className="bta-form-group">
-                            <div className="bta-label">
-                              Role Category <span className="bta-req">*</span>
-                            </div>
-                            <select
-                              className="bta-select"
-                              value={roleCategory}
-                              onChange={(e) => setRoleCategory(e.target.value)}
-                            >
-                              <option value="" disabled>
-                                Select category
-                              </option>
-                              {ROLE_CATEGORIES.map((r) => (
-                                <option key={r.value} value={r.value}>
-                                  {r.label}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-                        <div className="bta-grid-2">
-                          <div className="bta-form-group">
-                            <div className="bta-label">
-                              Years of Experience <span className="bta-req">*</span>
-                            </div>
-                            <input
-                              type="number"
-                              className="bta-input"
-                              placeholder="e.g. 7"
-                              min={0}
-                              max={50}
-                              value={yearsExperience}
-                              onChange={(e) => setYearsExperience(e.target.value)}
-                            />
-                          </div>
-                          <div className="bta-form-group">
-                            <div className="bta-label">
-                              Industry / Domain <span className="bta-req">*</span>
-                            </div>
-                            <select
-                              className="bta-select"
-                              value={industry}
-                              onChange={(e) => setIndustry(e.target.value)}
-                            >
-                              <option value="" disabled>
-                                Select industry
-                              </option>
-                              {INDUSTRIES.map((i) => (
-                                <option key={i} value={i}>
-                                  {i}
-                                </option>
-                              ))}
-                            </select>
-                          </div>
-                        </div>
-
-                        <div className="bta-spacer" />
                         <div className="bta-sec-title">Education</div>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
@@ -1011,7 +1016,7 @@ export default function BecomeATalentPage() {
                           >
                             This shows the Available / Unavailable indicator on your profile card.
                           </p>
-                          <div className="bta-avail-toggle-wrap">
+                          <div className="bta-radio-group">
                             <label
                               className={`bta-radio-opt ${availability === "available" ? "sel" : ""}`}
                             >
@@ -1022,7 +1027,7 @@ export default function BecomeATalentPage() {
                                 onChange={() => setAvailability("available")}
                               />
                               <span className="bta-rdot" />
-                              <span style={{ color: "#49D7A7" }}>●</span> Available Now
+                              Available Now
                             </label>
                             <label
                               className={`bta-radio-opt ${availability === "unavailable" ? "sel" : ""}`}
@@ -1034,7 +1039,7 @@ export default function BecomeATalentPage() {
                                 onChange={() => setAvailability("unavailable")}
                               />
                               <span className="bta-rdot" />
-                              <span style={{ color: "#aaa" }}>○</span> Not Currently Available
+                              Not Currently Available
                             </label>
                           </div>
                         </div>
@@ -1163,7 +1168,9 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">Upload Your CV</div>
+                        <div className="bta-sec-title">
+                          Upload your CV <span className="bta-req">*</span>
+                        </div>
                         {/** biome-ignore lint/a11y/noStaticElementInteractions: drag handlers on drop zone */}
                         <div
                           className={`bta-upload-zone ${cvDragOver ? "drag-over" : ""}`}
@@ -1206,7 +1213,7 @@ export default function BecomeATalentPage() {
                               </>
                             )}
                           </div>
-                          <div className="bta-upload-fmt">PDF, DOC, DOCX · Max 5MB</div>
+                          <div className="bta-upload-fmt">Required — PDF, DOC, or DOCX (max 5 MB)</div>
                         </div>
 
                         <div className="bta-spacer" />

@@ -28,6 +28,14 @@ export type TalentProfile = {
   degree: string | null;
   institution: string | null;
   skills: string[];
+  experience: Array<{
+    title?: string;
+    company?: string;
+    start?: string;
+    end?: string;
+    dates?: string;
+    skills?: string[];
+  }>;
   summary: string | null;
   availability: string | null;
   work_type: string | null;
@@ -127,6 +135,16 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
     degree: (r.degree as string | null) ?? null,
     institution: (r.institution as string | null) ?? null,
     skills: Array.isArray(r.skills) ? (r.skills as string[]) : [],
+    experience: Array.isArray(r.experience)
+      ? (r.experience as Array<{
+          title?: string;
+          company?: string;
+          start?: string;
+          end?: string;
+          dates?: string;
+          skills?: string[];
+        }>)
+      : [],
     summary: (r.summary as string | null) ?? null,
     availability: (r.availability as string | null) ?? null,
     work_type: (r.work_type as string | null) ?? null,

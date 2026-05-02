@@ -82,6 +82,37 @@ const WORK_TYPE_FILTERS    = ["All", "Full-time", "Part-time", "Contract"] as co
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/** Pull a 4-digit year out of "2021" / "Jan 2021" / "2021 – 2024". */
+function extractYear(value: string | undefined | null): number | null {
+  if (!value) return null;
+  const m = value.match(/(19|20)\d{2}/);
+  return m ? Number.parseInt(m[0], 10) : null;
+}
+
+/** Earliest start → latest end (Present ⇒ current year). */
+function deriveYears(experience: TalentProfile["experience"]): number | null {
+  if (!experience || experience.length === 0) return null;
+  const now = new Date().getFullYear();
+  const starts: number[] = [];
+  const ends: number[] = [];
+  for (const e of experience) {
+    const s = extractYear(e.start) ?? extractYear(e.dates?.split(/[–\-]/)[0]);
+    if (s !== null) starts.push(s);
+    if (e.end && /present/i.test(e.end)) {
+      ends.push(now);
+    } else {
+      ends.push(extractYear(e.end) ?? extractYear(e.dates?.split(/[–\-]/)[1]) ?? now);
+    }
+  }
+  if (starts.length === 0) return null;
+  return Math.max(0, Math.max(...ends) - Math.min(...starts));
+}
+
+/** Job title from latest experience entry; falls back to job_title column. */
+function deriveTitle(profile: TalentProfile): string | null {
+  return profile.experience?.[0]?.title?.trim() || profile.job_title || null;
+}
+
 function fmtDaysAgo(iso: string): string {
   if (!iso) return "";
   const diff = Date.now() - new Date(iso).getTime();
@@ -206,9 +237,10 @@ function ProfileCard({
         <Avatar profile={profile} size={48} />
         <div className="min-w-0 flex-1">
           <p className="truncate font-heading text-base font-bold text-gray-900">{fullName}</p>
-          {profile.job_title && (
-            <p className="truncate text-xs text-gray-500">{profile.job_title}</p>
-          )}
+          {(() => {
+            const t = deriveTitle(profile);
+            return t ? <p className="truncate text-xs text-gray-500">{t}</p> : null;
+          })()}
           <p className="mt-1 flex items-center gap-2 text-[11px] text-gray-400">
             {profile.city && (
               <span className="flex items-center gap-1">
@@ -216,9 +248,10 @@ function ProfileCard({
                 {profile.city}
               </span>
             )}
-            {profile.years_experience != null && (
-              <span>· {profile.years_experience} yrs</span>
-            )}
+            {(() => {
+              const y = deriveYears(profile.experience) ?? profile.years_experience;
+              return y != null ? <span>· {y} yrs</span> : null;
+            })()}
           </p>
         </div>
       </div>
@@ -359,9 +392,10 @@ function ProfileDrawer({
             <Avatar profile={profile} size={80} />
             <div className="min-w-0 flex-1 pr-8">
               <p className="truncate font-heading text-xl font-bold text-gray-900">{fullName}</p>
-              {profile.job_title && (
-                <p className="truncate text-sm text-gray-500">{profile.job_title}</p>
-              )}
+              {(() => {
+                const t = deriveTitle(profile);
+                return t ? <p className="truncate text-sm text-gray-500">{t}</p> : null;
+              })()}
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
@@ -436,8 +470,10 @@ function ProfileDrawer({
           <DrawerSection title="Profile">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
               <DrawerKv label="Category" value={profile.role_category ? (CATEGORY_LABELS[profile.role_category] ?? profile.role_category) : null} />
-              <DrawerKv label="Experience" value={profile.years_experience != null ? `${profile.years_experience} years` : null} />
-              <DrawerKv label="Industry" value={profile.industry} />
+              {(() => {
+                const y = deriveYears(profile.experience) ?? profile.years_experience;
+                return <DrawerKv label="Experience" value={y != null ? `${y} years` : null} />;
+              })()}
               <DrawerKv
                 label="Education"
                 value={
@@ -448,6 +484,43 @@ function ProfileDrawer({
               />
               <DrawerKv label="Location" value={[profile.city, profile.country].filter(Boolean).join(", ") || null} />
             </div>
+          </DrawerSection>
+
+          {/* Work Experience — full list from JSONB */}
+          <DrawerSection title="Work Experience">
+            {profile.experience && profile.experience.length > 0 ? (
+              <div className="flex flex-col gap-3">
+                {profile.experience.map((exp, i) => (
+                  <div
+                    key={`${exp.company ?? "exp"}-${i}`}
+                    className="flex gap-3 rounded-xl border border-gray-100 bg-gray-50/40 p-3"
+                  >
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-xs">🏢</div>
+                    <div className="min-w-0 flex-1 text-xs">
+                      {exp.title && <p className="font-semibold text-gray-800">{exp.title}</p>}
+                      {exp.company && <p className="text-gray-500">{exp.company}</p>}
+                      {exp.dates && <p className="mt-0.5 text-[10px] text-gray-400">{exp.dates}</p>}
+                      {exp.skills && exp.skills.length > 0 && (
+                        <div className="mt-1.5 flex flex-wrap gap-1">
+                          {exp.skills.map((s, j) => (
+                            <span
+                              key={`${s}-${j}`}
+                              className="rounded border border-gray-200 bg-white px-1.5 py-0.5 text-[10px] text-gray-600"
+                            >
+                              {s}
+                            </span>
+                          ))}
+                        </div>
+                      )}
+                    </div>
+                  </div>
+                ))}
+              </div>
+            ) : (
+              <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
+                No work experience added
+              </p>
+            )}
           </DrawerSection>
 
           {/* Skills */}
