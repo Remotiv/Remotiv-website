@@ -12,10 +12,19 @@ import {
   ROLE_BADGE_STYLES,
 } from "@/app/admin/lib/roles";
 
-const TOP_NAV = [
+type NavItem = {
+  label: string;
+  href: string;
+  /** When true, only super_admin sees this link in the nav. */
+  superAdminOnly?: boolean;
+};
+
+const TOP_NAV: ReadonlyArray<NavItem> = [
   { label: "Dashboard", href: "/admin" },
   { label: "Talent", href: "/admin/talent" },
   { label: "Remote Talent", href: "/admin/remote-talent" },
+  { label: "Clients", href: "/admin/clients", superAdminOnly: true },
+  { label: "Client Batches", href: "/admin/client-batches" },
   { label: "Jobs", href: "/admin/jobs" },
   { label: "Applications", href: "/admin/applications" },
   { label: "Search", href: "/admin/search" },
@@ -88,22 +97,24 @@ export function TopNav({
       </span>
 
       <nav className="flex items-center gap-1">
-        {TOP_NAV.map(({ label, href }) => {
-          const active = pathname === href;
-          return (
-            <Link
-              key={href}
-              href={href}
-              className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
-                active
-                  ? "bg-remotiv-purple text-white"
-                  : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-              }`}
-            >
-              {label}
-            </Link>
-          );
-        })}
+        {TOP_NAV.filter((item) => !item.superAdminOnly || userRole === "super_admin").map(
+          ({ label, href }) => {
+            const active = pathname === href;
+            return (
+              <Link
+                key={href}
+                href={href}
+                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                  active
+                    ? "bg-remotiv-purple text-white"
+                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
+                }`}
+              >
+                {label}
+              </Link>
+            );
+          },
+        )}
       </nav>
 
       <div className="flex items-center gap-3">

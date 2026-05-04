@@ -3,6 +3,8 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
 
+export type AdminLoginStatus = "active" | "paused" | "archived";
+
 export type TeamMember = {
   id: string;
   auth_user_id: string | null;
@@ -11,6 +13,8 @@ export type TeamMember = {
   email: string;
   phone: string | null;
   status: "active" | "inactive";
+  /** admin_users.status — the auth-gate column. */
+  auth_status: AdminLoginStatus;
   permission: "super_admin" | "admin" | "viewer";
   candidates_assigned: number;
   clients_assigned: number;
@@ -137,6 +141,68 @@ export async function toggleMemberStatus(
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
+  revalidatePath("/admin/team");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Fetch all team members enriched with their admin_users.status. This is
+ * the auth-gate status — distinct from team_members.status (HR display).
+ */
+export async function fetchTeamMembersWithAuthStatus(): Promise<TeamMember[]> {
+  const supabase = createServiceClient();
+
+  const { data: members } = await supabase
+    .from("team_members")
+    .select("*")
+    .order("joined_at", { ascending: false });
+
+  const rows = (members ?? []) as Array<Record<string, unknown>>;
+  const userIds = rows
+    .map((r) => r.auth_user_id as string | null)
+    .filter((id): id is string => !!id);
+
+  let statusMap = new Map<string, AdminLoginStatus>();
+  if (userIds.length > 0) {
+    const { data: adminRows } = await supabase
+      .from("admin_users")
+      .select("user_id, status")
+      .in("user_id", userIds);
+    statusMap = new Map(
+      ((adminRows ?? []) as Array<{ user_id: string; status: string | null }>).map((r) => [
+        r.user_id,
+        ((r.status as AdminLoginStatus) ?? "active"),
+      ]),
+    );
+  }
+
+  return rows.map((r) => ({
+    ...(r as TeamMember),
+    auth_status: r.auth_user_id
+      ? statusMap.get(r.auth_user_id as string) ?? "active"
+      : "active",
+  }));
+}
+
+/**
+ * Pause / unpause / archive a team member's auth login by updating
+ * admin_users.status. The admin layout reads this on every request and
+ * force-logs-out anyone with status != 'active'.
+ */
+export async function setAdminLoginStatus(
+  authUserId: string,
+  status: AdminLoginStatus,
+): Promise<MutationResult<undefined>> {
+  if (!authUserId) return { success: false, error: "Missing auth user id." };
+
+  const supabase = createServiceClient();
+  const { error } = await supabase
+    .from("admin_users")
+    .update({ status })
+    .eq("user_id", authUserId);
+
+  if (error) return { success: false, error: error.message };
+
   revalidatePath("/admin/team");
   return { success: true, data: undefined };
 }

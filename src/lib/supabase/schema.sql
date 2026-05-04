@@ -89,3 +89,43 @@ create table if not exists admin_users (
 
 alter table admin_users enable row level security;
 -- service_role has full access; no additional policies needed for MVP
+
+-- ── Migration: admin_users.status ────────────────────────────
+-- Auth-gate column. The admin layout looks this up on every request and
+-- forces signOut + redirect to /login when status != 'active'. This is
+-- how super admin "pauses" a team member without deleting them.
+alter table admin_users
+  add column if not exists status text not null default 'active'
+    check (status in ('active', 'paused', 'archived'));
+
+-- ── Migration: candidate_notes (chat-style thread per candidate) ─
+-- Both clients and admins post into this thread; client browser-side
+-- reads use RLS, admin server actions use the service role.
+create table if not exists candidate_notes (
+  id           uuid primary key default gen_random_uuid(),
+  candidate_id uuid not null references client_batch_candidates(id) on delete cascade,
+  author_type  text not null check (author_type in ('client', 'admin')),
+  author_id    uuid references auth.users(id),
+  author_name  text,
+  note_text    text not null,
+  created_at   timestamptz not null default now()
+);
+
+alter table candidate_notes enable row level security;
+
+-- Clients see notes only for candidates in batches they own. Admin paths
+-- bypass RLS via service role.
+drop policy if exists "candidate_notes_select_own" on candidate_notes;
+create policy "candidate_notes_select_own" on candidate_notes
+  for select to authenticated
+  using (
+    candidate_id in (
+      select cbc.id from client_batch_candidates cbc
+      join client_batches cb on cb.id = cbc.batch_id
+      join clients c on c.id = cb.client_id
+      where c.user_id = auth.uid()
+    )
+  );
+
+create index if not exists idx_candidate_notes_candidate_id on candidate_notes(candidate_id);
+create index if not exists idx_candidate_notes_created_at on candidate_notes(created_at desc);

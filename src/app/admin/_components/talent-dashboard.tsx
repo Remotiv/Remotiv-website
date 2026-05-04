@@ -19,11 +19,13 @@ import {
   Save,
   PauseCircle,
   RotateCcw,
+  Send,
   Trash2,
   AlertTriangle,
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
 import {
   updateTalentStatus,
   saveTalentNote,
@@ -332,6 +334,7 @@ function ProfileDrawer({
   onClose,
   onSetStatus,
   onReset,
+  onAddToBatch,
   onDelete,
   onToast,
 }: {
@@ -340,6 +343,7 @@ function ProfileDrawer({
   onClose: () => void;
   onSetStatus: (status: TalentStatus) => Promise<void>;
   onReset: () => Promise<void>;
+  onAddToBatch: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -617,6 +621,18 @@ function ProfileDrawer({
             </DrawerSection>
           )}
 
+          {/* Client Batch — open the picker to file this candidate into a batch */}
+          <DrawerSection title="Client Batch">
+            <button
+              type="button"
+              onClick={onAddToBatch}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#7E47FF]/30 bg-[#7E47FF]/10 px-3 py-2.5 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+            >
+              <Send className="size-3.5" strokeWidth={2} />
+              Add to Client Batch
+            </button>
+          </DrawerSection>
+
           {/* Stage — available to all admins viewing this drawer */}
           <DrawerSection title="Stage">
             {canReset && (
@@ -805,6 +821,7 @@ export function TalentDashboard({
   const openProfile = openId ? profiles.find((p) => p.id === openId) ?? null : null;
 
   const [deleteTarget, setDeleteTarget] = useState<TalentProfile | null>(null);
+  const [addToBatchTarget, setAddToBatchTarget] = useState<TalentProfile | null>(null);
   const [deleting, setDeleting] = useState(false);
 
   async function handleSetStatus(profile: TalentProfile, status: TalentStatus) {
@@ -969,10 +986,54 @@ export function TalentDashboard({
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}
           onReset={() => handleResetToApproved(openProfile)}
+          onAddToBatch={() => setAddToBatchTarget(openProfile)}
           onDelete={() => setDeleteTarget(openProfile)}
           onToast={setToast}
         />
       )}
+
+      {/* Add-to-Batch modal */}
+      {addToBatchTarget && (() => {
+        const t = addToBatchTarget;
+        const latest = Array.isArray(t.experience) ? t.experience[0] : null;
+        const salary = (() => {
+          if (t.salary_min && t.salary_max) return `${t.salary_min}-${t.salary_max}`;
+          if (t.salary_min) return `${t.salary_min}+`;
+          if (t.salary_max) return `up to ${t.salary_max}`;
+          return null;
+        })();
+        const snapshot: AddToBatchSnapshot & { full_name: string } = {
+          source_type: "talent",
+          source_id: t.id,
+          first_name: t.first_name,
+          last_name: t.last_name ?? "",
+          email: t.email,
+          phone: t.phone ?? null,
+          linkedin_url: t.linkedin_url ?? null,
+          cv_url: t.cv_url ?? null,
+          location: [t.city, t.country].filter(Boolean).join(", ") || null,
+          university: [t.degree, t.institution].filter(Boolean).join(" — ") || null,
+          position_applied: t.job_title ?? null,
+          total_experience: null,
+          current_role: latest?.title ?? t.job_title ?? null,
+          current_company: latest?.company ?? null,
+          current_salary: salary,
+          salary_expectations: null,
+          notice_period: t.notice_period ?? null,
+          full_name: `${t.first_name} ${t.last_name ?? ""}`.trim(),
+        };
+        return (
+          <AddToBatchModal
+            candidate={snapshot}
+            onClose={() => setAddToBatchTarget(null)}
+            onToast={(msg) => {
+              setAddToBatchTarget(null);
+              setToast(msg);
+              router.refresh();
+            }}
+          />
+        );
+      })()}
 
       {/* Delete confirm */}
       {deleteTarget && (

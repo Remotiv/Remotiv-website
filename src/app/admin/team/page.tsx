@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TeamDashboard } from "../_components/team-dashboard";
-import type { TeamMember } from "./actions";
+import { fetchTeamMembersWithAuthStatus } from "./actions";
 import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
@@ -12,11 +12,8 @@ export default async function AdminTeamPage() {
   const userId = user?.id ?? "";
   const userEmail = user?.email ?? "";
 
-  const [{ data: members }, { data: roleRow }] = await Promise.all([
-    service
-      .from("team_members")
-      .select("*")
-      .order("joined_at", { ascending: false }),
+  const [members, { data: roleRow }] = await Promise.all([
+    fetchTeamMembersWithAuthStatus(),
     service
       .from("admin_users")
       .select("role")
@@ -35,7 +32,7 @@ export default async function AdminTeamPage() {
     <TeamDashboard
       email={userEmail}
       userRole={resolvedRole}
-      initialMembers={(members ?? []) as TeamMember[]}
+      initialMembers={members}
     />
   );
 }

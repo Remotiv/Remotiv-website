@@ -25,6 +25,7 @@ import {
 } from "lucide-react";
 import { TopNav } from "./top-nav";
 import { MoveToTalentModal } from "./move-to-talent-modal";
+import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
 import {
   updateApplicationStatus,
   addComment,
@@ -124,6 +125,7 @@ function AppPanel({
   onClose,
   onSetStatus,
   onMoveToTalent,
+  onAddToBatch,
   onDelete,
   onToast,
 }: {
@@ -133,6 +135,7 @@ function AppPanel({
   onClose: () => void;
   onSetStatus: (status: ApplicationStatus) => void;
   onMoveToTalent: () => void;
+  onAddToBatch: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -253,6 +256,17 @@ function AppPanel({
             </button>
 
             <div className="my-2 h-px bg-gray-100" />
+
+            <button
+              type="button"
+              onClick={() => { onAddToBatch(); handleClose(); }}
+              className={`${actionBtn} text-[#7E47FF] hover:bg-[#7E47FF]/5`}
+            >
+              <span className="flex size-7 items-center justify-center rounded-lg bg-[#7E47FF]/10">
+                <Send className="size-3.5 text-[#7E47FF]" strokeWidth={2} />
+              </span>
+              Add to Client Batch
+            </button>
 
             <button
               type="button"
@@ -406,6 +420,9 @@ export function ApplicationsDashboard({
 
   // ── Move-to-Talent modal ──────────────────────────────────
   const [moveTarget, setMoveTarget] = useState<JobApplication | null>(null);
+
+  // ── Add-to-Batch modal ────────────────────────────────────
+  const [addToBatchTarget, setAddToBatchTarget] = useState<JobApplication | null>(null);
 
   // ── Toast ─────────────────────────────────────────────────
   useEffect(() => {
@@ -723,6 +740,7 @@ export function ApplicationsDashboard({
           onClose={() => setPanelApp(null)}
           onSetStatus={(status) => handleSetStatus(panelApp, status)}
           onMoveToTalent={() => setMoveTarget(panelApp)}
+          onAddToBatch={() => setAddToBatchTarget(panelApp)}
           onDelete={() => setDeleteTarget(panelApp)}
           onToast={setToast}
         />
@@ -741,6 +759,43 @@ export function ApplicationsDashboard({
           }}
         />
       )}
+
+      {/* Add-to-Batch Modal */}
+      {addToBatchTarget && (() => {
+        const a = addToBatchTarget;
+        const snapshot: AddToBatchSnapshot & { full_name: string } = {
+          source_type: "application",
+          source_id: a.id,
+          first_name: a.first_name,
+          last_name: a.last_name,
+          email: a.email,
+          phone: a.phone ?? null,
+          linkedin_url: a.linkedin_url ?? null,
+          cv_url: a.cv_url ?? null,
+          location: null,
+          university: null,
+          position_applied: a.job_title ?? null,
+          total_experience: null,
+          current_role: null,
+          current_company: null,
+          current_salary: null,
+          salary_expectations: null,
+          notice_period: null,
+          full_name: `${a.first_name} ${a.last_name}`.trim(),
+        };
+        return (
+          <AddToBatchModal
+            candidate={snapshot}
+            onClose={() => setAddToBatchTarget(null)}
+            onToast={(msg) => {
+              setAddToBatchTarget(null);
+              setPanelApp(null);
+              setToast(msg);
+              router.refresh();
+            }}
+          />
+        );
+      })()}
 
       {/* Delete Confirm Modal */}
       {deleteTarget && (

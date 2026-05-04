@@ -1,15 +1,42 @@
 "use client";
 
-import { useState } from "react";
-import { useRouter } from "next/navigation";
+import { Suspense, useState } from "react";
+import { useRouter, useSearchParams } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 
+const REASON_MESSAGES: Record<string, string> = {
+  removed:  "Your admin access has been revoked. Contact a super admin if you think this is a mistake.",
+  paused:   "Your account has been paused. Contact super admin.",
+  archived: "Your account has been archived. Contact super admin.",
+};
+
 export default function AdminLoginPage() {
+  return (
+    <Suspense fallback={<LoginFallback />}>
+      <LoginForm />
+    </Suspense>
+  );
+}
+
+function LoginFallback() {
+  return (
+    <div className="flex min-h-screen items-center justify-center bg-[#7E47FF] p-4 font-sans">
+      <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
+        <p className="text-center text-sm text-gray-400">Loading…</p>
+      </div>
+    </div>
+  );
+}
+
+function LoginForm() {
   const [email, setEmail] = useState("");
   const [password, setPassword] = useState("");
   const [error, setError] = useState<string | null>(null);
   const [loading, setLoading] = useState(false);
   const router = useRouter();
+  const searchParams = useSearchParams();
+  const reason = searchParams.get("reason");
+  const reasonMessage = reason ? REASON_MESSAGES[reason] ?? null : null;
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -78,6 +105,12 @@ export default function AdminLoginPage() {
               className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#49D7A7] focus:ring-2 focus:ring-[#49D7A7]/20"
             />
           </div>
+
+          {reasonMessage && !error && (
+            <p className="rounded-lg bg-amber-50 px-3.5 py-2.5 text-sm text-amber-700">
+              {reasonMessage}
+            </p>
+          )}
 
           {error && (
             <p className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-500">

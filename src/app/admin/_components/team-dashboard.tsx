@@ -23,6 +23,7 @@ import {
   updateMember,
   toggleMemberStatus,
   removeMember,
+  setAdminLoginStatus,
   type TeamMember,
   type MemberInput,
 } from "@/app/admin/team/actions";
@@ -234,6 +235,16 @@ export function TeamDashboard({
     await toggleMemberStatus(member.id, newStatus);
   }
 
+  // ── Pause / Resume Login (admin_users.status) ────────────
+  async function handleToggleLoginPaused(member: TeamMember) {
+    if (!member.auth_user_id) return;
+    const newAuthStatus = member.auth_status === "active" ? "paused" : "active";
+    setMembers((prev) =>
+      prev.map((m) => (m.id === member.id ? { ...m, auth_status: newAuthStatus } : m)),
+    );
+    await setAdminLoginStatus(member.auth_user_id, newAuthStatus);
+  }
+
   // ── Remove ────────────────────────────────────────────────
   const [confirmDeleteId, setConfirmDeleteId] = useState<string | null>(null);
 
@@ -354,6 +365,15 @@ export function TeamDashboard({
                         >
                           {member.status === "active" ? "Deactivate" : "Activate"}
                         </button>
+                        {member.auth_user_id && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleToggleLoginPaused(member); }}
+                            className="w-full px-4 py-2.5 text-left text-sm text-amber-600 transition-colors hover:bg-amber-50"
+                          >
+                            {member.auth_status === "active" ? "Pause Login" : "Resume Login"}
+                          </button>
+                        )}
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(member.id); }}
@@ -405,8 +425,8 @@ export function TeamDashboard({
                   )}
                 </div>
 
-                {/* Status badge */}
-                <div className="mb-4">
+                {/* Status badges */}
+                <div className="mb-4 flex flex-wrap items-center gap-1.5">
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${
                       member.status === "active"
@@ -417,6 +437,14 @@ export function TeamDashboard({
                     <span className={`size-1.5 rounded-full ${member.status === "active" ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
                     {member.status === "active" ? "Active" : "Inactive"}
                   </span>
+                  {member.auth_status !== "active" && (
+                    <span
+                      className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700"
+                      title="This member can't log in until a super admin resumes their account."
+                    >
+                      🔒 Login {member.auth_status === "paused" ? "Paused" : member.auth_status}
+                    </span>
+                  )}
                 </div>
 
                 {/* Assigned pills */}
