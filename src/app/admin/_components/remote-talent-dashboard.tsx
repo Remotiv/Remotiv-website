@@ -17,6 +17,7 @@ import {
   MapPin,
   PauseCircle,
   Phone,
+  RotateCcw,
   Save,
   Search as SearchIcon,
   ShieldCheck,
@@ -286,6 +287,7 @@ function ProfileDrawer({
   isSuperAdmin,
   onClose,
   onSetStatus,
+  onReset,
   onDelete,
   onToast,
 }: {
@@ -293,6 +295,7 @@ function ProfileDrawer({
   isSuperAdmin: boolean;
   onClose: () => void;
   onSetStatus: (status: RemoteTalentStatus) => Promise<void>;
+  onReset: () => Promise<void>;
   onDelete: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -318,6 +321,18 @@ function ProfileDrawer({
     await onSetStatus(s);
     setBusyStatus(null);
   }
+
+  async function handleReset() {
+    setBusyStatus("approved");
+    await onReset();
+    setBusyStatus(null);
+  }
+
+  const canReset =
+    profile.status === "paused" ||
+    profile.status === "archived" ||
+    profile.status === "shortlisted" ||
+    profile.status === "placed";
 
   async function handleSaveNote() {
     setSavingNote(true);
@@ -672,6 +687,17 @@ function ProfileDrawer({
 
           {/* Stage */}
           <DrawerSection title="Stage">
+            {canReset && (
+              <button
+                type="button"
+                disabled={busyStatus !== null}
+                onClick={handleReset}
+                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#49D7A7]/30 bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+              >
+                <RotateCcw className="size-3.5" strokeWidth={2} />
+                {busyStatus === "approved" ? "Resetting…" : "Reset to Approved"}
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-2">
               {STAGE_ACTIONS.map((a) => {
                 const Icon = a.icon;
@@ -887,6 +913,21 @@ export function RemoteTalentDashboard({
     }
   }
 
+  async function handleResetToApproved(profile: RemoteTalentProfile) {
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === profile.id ? { ...p, status: "approved" } : p)),
+    );
+
+    const result = await updateRemoteTalentStatus(profile.id, "approved");
+    if (result.success) {
+      setToast("Profile reactivated as Approved");
+      router.refresh();
+    } else {
+      setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
+      setToast(`Reset failed: ${result.error}`);
+    }
+  }
+
   async function handleDelete(profile: RemoteTalentProfile) {
     setDeleting(true);
     const result = await deleteRemoteTalentProfile(profile.id);
@@ -1007,6 +1048,7 @@ export function RemoteTalentDashboard({
           isSuperAdmin={isSuperAdmin}
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}
+          onReset={() => handleResetToApproved(openProfile)}
           onDelete={() => setDeleteTarget(openProfile)}
           onToast={setToast}
         />

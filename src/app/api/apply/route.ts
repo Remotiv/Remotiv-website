@@ -1,6 +1,11 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { normalizePhone } from "@/lib/normalizePhone";
+import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+
+// LinkedIn URL gate — applied to every submission regardless of `source`.
+// Defense in depth: the bulk-upload UI already blocks invalid rows, but a
+// direct API call (e.g. from a script) must not be able to slip through.
+const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
 
 function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
@@ -20,7 +25,8 @@ export async function POST(request: NextRequest) {
     const jobTitle  = nullable(form.get("job_title_manual"));
     const firstName = nullable(form.get("first_name"));
     const lastName  = nullable(form.get("last_name"));
-    const email     = nullable(form.get("email"));
+    const rawEmail  = nullable(form.get("email"));
+    const email     = rawEmail ? normalizeEmail(rawEmail) : null;
     const phone     = nullable(form.get("phone"));
     const linkedin  = nullable(form.get("linkedin_url"));
     const notes     = nullable(form.get("notes"));
@@ -38,6 +44,13 @@ export async function POST(request: NextRequest) {
     if (!firstName || !cvFile) {
       return NextResponse.json(
         { error: "First name and CV are required." },
+        { status: 400 },
+      );
+    }
+
+    if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
+      return NextResponse.json(
+        { error: "Valid LinkedIn URL required" },
         { status: 400 },
       );
     }

@@ -95,8 +95,19 @@ export async function updateRemoteTalentStatus(
   const supabase = createServiceClient();
 
   const patch: Record<string, unknown> = { status };
+
+  // Stamp approved_at the FIRST time a profile transitions to "approved".
+  // Re-approving a paused/archived/shortlisted/placed profile must NOT
+  // overwrite the original approval date.
   if (status === "approved") {
-    patch.approved_at = new Date().toISOString();
+    const { data: existing } = await supabase
+      .from("hire_remote_profiles")
+      .select("approved_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing?.approved_at) {
+      patch.approved_at = new Date().toISOString();
+    }
   }
 
   const { error } = await supabase

@@ -18,6 +18,7 @@ import {
   Download,
   Save,
   PauseCircle,
+  RotateCcw,
   Trash2,
   AlertTriangle,
   type LucideIcon,
@@ -275,7 +276,7 @@ function ProfileCard({
       )}
 
       <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
-        {profile.work_type    && <span>{profile.work_type}</span>}
+        {profile.work_type && profile.work_type !== "Any" && <span>{profile.work_type}</span>}
         {profile.work_location && <span>· {profile.work_location}</span>}
         {profile.notice_period  && <span>· {profile.notice_period}</span>}
       </div>
@@ -330,6 +331,7 @@ function ProfileDrawer({
   isSuperAdmin,
   onClose,
   onSetStatus,
+  onReset,
   onDelete,
   onToast,
 }: {
@@ -337,6 +339,7 @@ function ProfileDrawer({
   isSuperAdmin: boolean;
   onClose: () => void;
   onSetStatus: (status: TalentStatus) => Promise<void>;
+  onReset: () => Promise<void>;
   onDelete: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -357,6 +360,18 @@ function ProfileDrawer({
     await onSetStatus(s);
     setBusyStatus(null);
   }
+
+  async function handleReset() {
+    setBusyStatus("approved");
+    await onReset();
+    setBusyStatus(null);
+  }
+
+  const canReset =
+    profile.status === "paused" ||
+    profile.status === "archived" ||
+    profile.status === "shortlisted" ||
+    profile.status === "placed";
 
   async function handleSaveNote() {
     setSavingNote(true);
@@ -549,10 +564,16 @@ function ProfileDrawer({
           {/* Preferences */}
           <DrawerSection title="Preferences">
             <div className="grid grid-cols-2 gap-x-4 gap-y-3 text-xs">
-              <DrawerKv label="Work Type" value={profile.work_type} />
-              <DrawerKv label="Notice Period" value={profile.notice_period} />
-              <DrawerKv label="Work Location" value={profile.work_location} />
-              <DrawerKv label="Salary" value={salary} />
+              {profile.work_type && profile.work_type !== "Any" && (
+                <DrawerKv label="Work Type" value={profile.work_type} />
+              )}
+              {profile.notice_period && (
+                <DrawerKv label="Notice Period" value={profile.notice_period} />
+              )}
+              {profile.work_location && (
+                <DrawerKv label="Work Location" value={profile.work_location} />
+              )}
+              {salary && <DrawerKv label="Salary" value={salary} />}
             </div>
           </DrawerSection>
 
@@ -598,6 +619,17 @@ function ProfileDrawer({
 
           {/* Stage — available to all admins viewing this drawer */}
           <DrawerSection title="Stage">
+            {canReset && (
+              <button
+                type="button"
+                disabled={busyStatus !== null}
+                onClick={handleReset}
+                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#49D7A7]/30 bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+              >
+                <RotateCcw className="size-3.5" strokeWidth={2} />
+                {busyStatus === "approved" ? "Resetting…" : "Reset to Approved"}
+              </button>
+            )}
             <div className="grid grid-cols-2 gap-2">
               {STAGE_ACTIONS.map((a) => {
                 const Icon = a.icon;
@@ -796,6 +828,21 @@ export function TalentDashboard({
     }
   }
 
+  async function handleResetToApproved(profile: TalentProfile) {
+    setProfiles((prev) =>
+      prev.map((p) => (p.id === profile.id ? { ...p, status: "approved" } : p)),
+    );
+
+    const result = await updateTalentStatus(profile.id, "approved");
+    if (result.success) {
+      setToast("Profile reactivated as Approved");
+      router.refresh();
+    } else {
+      setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
+      setToast(`Reset failed: ${result.error}`);
+    }
+  }
+
   async function handleDelete(profile: TalentProfile) {
     setDeleting(true);
     const result = await deleteTalentProfile(profile.id);
@@ -921,6 +968,7 @@ export function TalentDashboard({
           isSuperAdmin={isSuperAdmin}
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}
+          onReset={() => handleResetToApproved(openProfile)}
           onDelete={() => setDeleteTarget(openProfile)}
           onToast={setToast}
         />

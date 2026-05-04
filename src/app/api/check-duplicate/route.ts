@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
-import { normalizePhone } from "@/lib/normalizePhone";
+import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 
 type ApplicantRow = {
   id: string;
@@ -29,7 +29,7 @@ function shape(row: ApplicantRow) {
 export async function POST(request: NextRequest) {
   try {
     const body = await request.json() as { email?: string; phone?: string };
-    const email = (body.email ?? "").trim();
+    const email = normalizeEmail(body.email ?? "");
     const phone = (body.phone ?? "").trim();
     const normalizedPhone = normalizePhone(phone);
 

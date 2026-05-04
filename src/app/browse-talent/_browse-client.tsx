@@ -19,6 +19,9 @@ export type TalentRow = {
   institution: string | null;
   city: string | null;
   country: string | null;
+  email: string | null;
+  phone: string | null;
+  cv_url: string | null;
   skills: string[] | null;
   summary: string | null;
   availability: string | null;
@@ -80,6 +83,9 @@ type Card = {
   lastActive: string;
   github: string | null;
   linkedin: string | null;
+  email?: string | null;          // admin preview only
+  phone?: string | null;          // admin preview only
+  cvUrl?: string | null;          // admin preview only
   experience?: ExperienceItem[];  // demo data only
 };
 
@@ -204,7 +210,11 @@ function rowToCard(r: TalentRow): Card {
 
   const score = Math.min(99, 70 + (derivedYears ?? 0) * 2 + skills.length);
   const available = (r.availability ?? "").toLowerCase().includes("available");
-  const highlights = [r.work_type, r.notice_period, r.work_location].filter(Boolean) as string[];
+  const highlights = [
+    r.work_type && r.work_type !== "Any" ? r.work_type : null,
+    r.notice_period,
+    r.work_location,
+  ].filter(Boolean) as string[];
   return {
     id: r.id,
     name: fullName || "Unnamed",
@@ -231,6 +241,9 @@ function rowToCard(r: TalentRow): Card {
     lastActive: fmtDaysAgo(r.created_at),
     github: r.github_url,
     linkedin: r.linkedin_url,
+    email: r.email,
+    phone: r.phone,
+    cvUrl: r.cv_url,
     experience: Array.isArray(r.experience) && r.experience.length > 0
       ? r.experience.map((e) => ({
           title:   typeof e.title   === "string" ? e.title   : "",
@@ -375,15 +388,24 @@ function CardItem({
 
 // ── Profile modal (matches .bt-modal-overlay structure) ──────
 
+function ensureHttpUrl(url: string | null | undefined): string | null {
+  if (!url) return null;
+  return url.startsWith("http://") || url.startsWith("https://")
+    ? url
+    : `https://${url}`;
+}
+
 function ProfileModal({
   c,
   saved,
+  isAdminPreview,
   onSave,
   onClose,
   onLocked,
 }: {
   c: Card;
   saved: boolean;
+  isAdminPreview: boolean;
   onSave: () => void;
   onClose: () => void;
   onLocked: () => void;
@@ -415,6 +437,12 @@ function ProfileModal({
       role="presentation"
     >
       <div className="bt-modal-panel" onClick={(e) => e.stopPropagation()} role="presentation">
+        {isAdminPreview && (
+          <div className="bt-admin-banner" role="status">
+            <span aria-hidden>🔓</span>
+            Admin Preview — viewing unlocked content
+          </div>
+        )}
         <div className="bt-modal-header">
           <div>
             <div
@@ -435,10 +463,43 @@ function ProfileModal({
             </div>
             <div className="bt-profile-links">
               {c.github && (
-                <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
+                isAdminPreview ? (
+                  <a
+                    className="bt-plink"
+                    href={ensureHttpUrl(c.github) ?? "#"}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                  >
+                    GitHub
+                  </a>
+                ) : (
+                  <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
+                )
               )}
-              <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
-              <button type="button" className="bt-plink" onClick={onLocked}>Resume ✦</button>
+              {isAdminPreview && c.linkedin ? (
+                <a
+                  className="bt-plink"
+                  href={ensureHttpUrl(c.linkedin) ?? "#"}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  LinkedIn
+                </a>
+              ) : (
+                <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
+              )}
+              {isAdminPreview && c.cvUrl ? (
+                <a
+                  className="bt-plink"
+                  href={c.cvUrl}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                >
+                  Resume ✦
+                </a>
+              ) : (
+                <button type="button" className="bt-plink" onClick={onLocked}>Resume ✦</button>
+              )}
             </div>
           </div>
           <button
@@ -559,22 +620,76 @@ function ProfileModal({
             )}
           </div>
 
-          <div className="bt-locked-box">
-            <div className="bt-locked-icon">🔒</div>
-            <div>
-              <div className="bt-locked-title">Unlock Full Contact Details</div>
-              <div className="bt-locked-sub">Subscribe to view phone, email, LinkedIn, and references</div>
+          {isAdminPreview ? (
+            <div className="bt-unlocked-box">
+              <div className="bt-unlocked-head">
+                <span aria-hidden>🔓</span>
+                <div>
+                  <div className="bt-unlocked-title">Contact Details</div>
+                  <div className="bt-unlocked-sub">Visible to admins only</div>
+                </div>
+              </div>
+              <div className="bt-unlocked-rows">
+                {c.email && (
+                  <div className="bt-unlocked-row">
+                    <span className="bt-unlocked-label">Email</span>
+                    <a href={`mailto:${c.email}`} className="bt-unlocked-link">{c.email}</a>
+                  </div>
+                )}
+                {c.phone && (
+                  <div className="bt-unlocked-row">
+                    <span className="bt-unlocked-label">Phone</span>
+                    <a href={`tel:${c.phone}`} className="bt-unlocked-link">{c.phone}</a>
+                  </div>
+                )}
+                {c.linkedin && (
+                  <div className="bt-unlocked-row">
+                    <span className="bt-unlocked-label">LinkedIn</span>
+                    <a
+                      href={ensureHttpUrl(c.linkedin) ?? "#"}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bt-unlocked-link"
+                    >
+                      {c.linkedin}
+                    </a>
+                  </div>
+                )}
+                {c.cvUrl && (
+                  <div className="bt-unlocked-row">
+                    <span className="bt-unlocked-label">CV</span>
+                    <a
+                      href={c.cvUrl}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bt-unlocked-link"
+                    >
+                      View CV
+                    </a>
+                  </div>
+                )}
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="bt-locked-box">
+              <div className="bt-locked-icon">🔒</div>
+              <div>
+                <div className="bt-locked-title">Unlock Full Contact Details</div>
+                <div className="bt-locked-sub">Subscribe to view phone, email, LinkedIn, and references</div>
+              </div>
+            </div>
+          )}
 
           <div className="bt-modal-actions">
-            <button
-              type="button"
-              className="bt-btn-unlock"
-              onClick={() => { onClose(); onLocked(); }}
-            >
-              Unlock &amp; Contact
-            </button>
+            {!isAdminPreview && (
+              <button
+                type="button"
+                className="bt-btn-unlock"
+                onClick={() => { onClose(); onLocked(); }}
+              >
+                Unlock &amp; Contact
+              </button>
+            )}
             <button
               type="button"
               className={cn("bt-btn-save-modal", saved && "saved")}
@@ -699,7 +814,13 @@ function Hero() {
 
 // ── Main client component ────────────────────────────────────
 
-export function BrowseClient({ realProfiles }: { realProfiles: TalentRow[] }) {
+export function BrowseClient({
+  realProfiles,
+  isAdminPreview = false,
+}: {
+  realProfiles: TalentRow[];
+  isAdminPreview?: boolean;
+}) {
   const cards: Card[] = useMemo(() => {
     if (realProfiles.length === 0) return DEMO_CARDS;
     return realProfiles.map(rowToCard);
@@ -887,6 +1008,7 @@ export function BrowseClient({ realProfiles }: { realProfiles: TalentRow[] }) {
         <ProfileModal
           c={openCard}
           saved={savedIds.has(openCard.id)}
+          isAdminPreview={isAdminPreview}
           onSave={() => toggleSave(openCard.id)}
           onClose={() => setOpenCard(null)}
           onLocked={lockedAction}
@@ -1162,6 +1284,18 @@ export function BrowseClient({ realProfiles }: { realProfiles: TalentRow[] }) {
         .bt-locked-icon { font-size: 1.5rem; flex-shrink: 0; }
         .bt-locked-title { font-family: "Sora",sans-serif; font-size: 0.82rem; font-weight: 700; color: #49D7A7; margin-bottom: 3px; }
         .bt-locked-sub { font-family: "DM Sans",sans-serif; font-size: 0.75rem; color: #888; }
+
+        .bt-admin-banner { display: flex; align-items: center; gap: 8px; padding: 10px 18px; font-family: "DM Sans",sans-serif; font-size: 0.78rem; font-weight: 600; color: #1a4f3a; background: linear-gradient(90deg, rgba(73,215,167,0.18), rgba(73,215,167,0.08)); border-bottom: 1px solid rgba(73,215,167,0.3); }
+        .bt-unlocked-box { border: 1px solid rgba(73,215,167,0.35); background: rgba(73,215,167,0.05); padding: 16px 18px; border-radius: 12px; margin-bottom: 18px; }
+        .bt-unlocked-head { display: flex; gap: 10px; align-items: center; margin-bottom: 12px; padding-bottom: 10px; border-bottom: 1px dashed rgba(73,215,167,0.3); }
+        .bt-unlocked-head > span { font-size: 1.25rem; }
+        .bt-unlocked-title { font-family: "Sora",sans-serif; font-size: 0.82rem; font-weight: 700; color: #1a9e73; }
+        .bt-unlocked-sub { font-family: "DM Sans",sans-serif; font-size: 0.7rem; color: #888; margin-top: 2px; }
+        .bt-unlocked-rows { display: flex; flex-direction: column; gap: 8px; }
+        .bt-unlocked-row { display: flex; gap: 14px; align-items: baseline; font-family: "DM Sans",sans-serif; font-size: 0.78rem; }
+        .bt-unlocked-label { flex: 0 0 64px; font-size: 0.66rem; font-weight: 700; letter-spacing: 0.1em; text-transform: uppercase; color: #999; }
+        .bt-unlocked-link { color: #1a9e73; font-weight: 600; word-break: break-all; }
+        .bt-unlocked-link:hover { text-decoration: underline; }
         .bt-modal-actions { display: flex; gap: 8px; }
         .bt-btn-unlock { flex: 1; padding: 13px; font-family: "DM Sans",sans-serif; font-size: 0.82rem; font-weight: 700; background: #49D7A7; color: #111; border: none; border-radius: 10px; cursor: pointer; transition: background 0.2s; }
         .bt-btn-unlock:hover { background: #3bc495; }

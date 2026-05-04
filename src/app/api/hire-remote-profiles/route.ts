@@ -1,5 +1,6 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 
 export const runtime = "nodejs";
 
@@ -58,14 +59,16 @@ export async function POST(request: NextRequest) {
     const form = await request.formData();
 
     // Personal
-    const firstName   = nullable(form.get("first_name"));
-    const lastName    = nullable(form.get("last_name"));
-    const email       = nullable(form.get("email"));
-    const phone       = nullable(form.get("phone"));
-    const city        = nullable(form.get("city"));
-    const country     = nullable(form.get("country"));
-    const timeZone    = nullable(form.get("time_zone"));
-    const linkedinUrl = nullable(form.get("linkedin_url"));
+    const firstName       = nullable(form.get("first_name"));
+    const lastName        = nullable(form.get("last_name"));
+    const email           = nullable(form.get("email"));
+    const rawPhone        = nullable(form.get("phone"));
+    const normalisedPhone = rawPhone ? normalizePhone(rawPhone) : "";
+    const phone           = normalisedPhone || null;
+    const city            = nullable(form.get("city"));
+    const country         = nullable(form.get("country"));
+    const timeZone        = nullable(form.get("time_zone"));
+    const linkedinUrl     = nullable(form.get("linkedin_url"));
 
     // Professional
     const jobTitles = nullable(form.get("job_titles"));
@@ -193,15 +196,35 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // 1. Duplicate-by-email
-    const normalisedEmail = email.toLowerCase();
-    const { data: existing } = await supabase
+    // 1. Duplicate-by-email — exact match on canonical lowercased email.
+    const normalisedEmail = normalizeEmail(email);
+    const { data: emailRow } = await supabase
       .from("hire_remote_profiles")
       .select("id")
       .eq("email", normalisedEmail)
       .maybeSingle();
+    const emailMatch = (emailRow as { id: string } | null) ?? null;
 
-    if (existing) {
+    // 2. Duplicate-by-phone — fetch the latest 5,000 phone-bearing rows and
+    //    normalise both sides in JS. Same pattern as /api/apply and
+    //    /api/talent (no SQL-side normalisation without a generated column).
+    let phoneMatch: { id: string } | null = null;
+    if (normalisedPhone.length >= 7) {
+      const { data: phoneRecords } = await supabase
+        .from("hire_remote_profiles")
+        .select("id, phone")
+        .not("phone", "is", null)
+        .order("created_at", { ascending: false })
+        .limit(5000);
+
+      const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
+      const found = records.find(
+        (r) => normalizePhone(r.phone ?? "") === normalisedPhone,
+      );
+      phoneMatch = found ? { id: found.id } : null;
+    }
+
+    if (emailMatch || phoneMatch) {
       return NextResponse.json(
         {
           error: "duplicate",

@@ -24,6 +24,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { MoveToTalentModal } from "./move-to-talent-modal";
 import {
   updateApplicationStatus,
   addComment,
@@ -60,6 +61,15 @@ const STATUS_META: Record<
 
 const INPUT_CLS =
   "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+
+// LinkedIn URL gate — used by the bulk-upload row UI and as a defensive
+// guard right before each row hits /api/apply. Case-insensitive: any
+// casing of "linkedin.com" passes (https://LinkedIn.com/... etc.).
+const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
+function isValidLinkedInUrl(url: string): boolean {
+  if (!url || !url.trim()) return false;
+  return LINKEDIN_URL_PATTERN.test(url.trim());
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -113,6 +123,7 @@ function AppPanel({
   canDel,
   onClose,
   onSetStatus,
+  onMoveToTalent,
   onDelete,
   onToast,
 }: {
@@ -121,6 +132,7 @@ function AppPanel({
   canDel: boolean;
   onClose: () => void;
   onSetStatus: (status: ApplicationStatus) => void;
+  onMoveToTalent: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
 }) {
@@ -244,7 +256,7 @@ function AppPanel({
 
             <button
               type="button"
-              onClick={() => { onToast("Coming soon!"); handleClose(); }}
+              onClick={() => { onMoveToTalent(); handleClose(); }}
               className={`${actionBtn} text-[#7E47FF] hover:bg-[#7E47FF]/5`}
             >
               <span className="flex size-7 items-center justify-center rounded-lg bg-[#7E47FF]/10">
@@ -391,6 +403,9 @@ export function ApplicationsDashboard({
 
   // ── Slide-in panel ────────────────────────────────────────
   const [panelApp, setPanelApp] = useState<JobApplication | null>(null);
+
+  // ── Move-to-Talent modal ──────────────────────────────────
+  const [moveTarget, setMoveTarget] = useState<JobApplication | null>(null);
 
   // ── Toast ─────────────────────────────────────────────────
   useEffect(() => {
@@ -707,8 +722,23 @@ export function ApplicationsDashboard({
           canDel={canDel}
           onClose={() => setPanelApp(null)}
           onSetStatus={(status) => handleSetStatus(panelApp, status)}
+          onMoveToTalent={() => setMoveTarget(panelApp)}
           onDelete={() => setDeleteTarget(panelApp)}
           onToast={setToast}
+        />
+      )}
+
+      {/* Move-to-Talent Modal */}
+      {moveTarget && (
+        <MoveToTalentModal
+          app={moveTarget}
+          onClose={() => setMoveTarget(null)}
+          onSuccess={(msg) => {
+            setMoveTarget(null);
+            setPanelApp(null);
+            setToast(msg);
+            router.refresh();
+          }}
         />
       )}
 
@@ -1017,7 +1047,10 @@ function BulkUploadCVModal({
           id: uid(),
           file,
           filename: file.name,
-          selected: !duplicate,
+          // Auto-select only when not a duplicate AND LinkedIn was extracted
+          // successfully. Rows missing LinkedIn stay unselected until the
+          // admin pastes a valid URL into the inline field.
+          selected: !duplicate && isValidLinkedInUrl(parsed.linkedin),
           firstName: parsed.firstName,
           lastName: parsed.lastName,
           email: parsed.email,
@@ -1065,7 +1098,14 @@ function BulkUploadCVModal({
   }
 
   function setAllSelected(value: boolean) {
-    setRows((prev) => prev.map((r) => ({ ...r, selected: value })));
+    // Only rows with a valid LinkedIn URL can ever be selected. Toggling
+    // "Select All" still respects that gate.
+    setRows((prev) =>
+      prev.map((r) => ({
+        ...r,
+        selected: value && isValidLinkedInUrl(r.linkedin),
+      })),
+    );
   }
 
   async function submitSelected() {
@@ -1088,6 +1128,12 @@ function BulkUploadCVModal({
         setSubmittedCount((p) => p + 1);
         continue;
       }
+      if (!isValidLinkedInUrl(row.linkedin)) {
+        updateRow(row.id, { status: "error", errorMsg: "Valid LinkedIn URL required" });
+        errorCount++;
+        setSubmittedCount((p) => p + 1);
+        continue;
+      }
       if (row.jobChoice === "__other__" && !row.jobOther.trim()) {
         updateRow(row.id, { status: "error", errorMsg: "Type a job role" });
         errorCount++;
@@ -1106,7 +1152,7 @@ function BulkUploadCVModal({
         if (row.lastName.trim()) fd.append("last_name",    row.lastName.trim());
         if (row.email.trim())    fd.append("email",        row.email.trim());
         if (row.phone.trim())    fd.append("phone",        row.phone.trim());
-        if (row.linkedin.trim()) fd.append("linkedin_url", row.linkedin.trim());
+        fd.append("linkedin_url", row.linkedin.trim());
         if (row.cvText.trim())   fd.append("cv_text",      row.cvText);
         fd.append("source", "manual_upload");
         fd.append("cv", row.file);
@@ -1147,11 +1193,13 @@ function BulkUploadCVModal({
   }
 
   // ── Derived for review summary ─────────────────────────────
-  const totalRows      = rows.length;
-  const dupRows        = rows.filter((r) => r.duplicate).length;
-  const selectedRows   = rows.filter((r) => r.selected).length;
-  const skippedDupRows = rows.filter((r) => r.duplicate && !r.selected).length;
-  const allSelected    = totalRows > 0 && rows.every((r) => r.selected);
+  const totalRows         = rows.length;
+  const dupRows           = rows.filter((r) => r.duplicate).length;
+  const selectedRows      = rows.filter((r) => r.selected).length;
+  const skippedDupRows    = rows.filter((r) => r.duplicate && !r.selected).length;
+  const invalidLiRows     = rows.filter((r) => !isValidLinkedInUrl(r.linkedin)).length;
+  const eligibleRows      = rows.filter((r) => isValidLinkedInUrl(r.linkedin));
+  const allSelected       = eligibleRows.length > 0 && eligibleRows.every((r) => r.selected);
 
   // ── Modal width depends on stage ───────────────────────────
   const modalWidth = stage === "review" ? "max-w-6xl" : "max-w-lg";
@@ -1310,6 +1358,9 @@ function BulkUploadCVModal({
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Last Name</th>
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Email</th>
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Phone</th>
+                      <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                        LinkedIn <span className="text-red-500">*</span>
+                      </th>
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Job Role</th>
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Dup</th>
                       <th className="px-3 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Status</th>
@@ -1319,7 +1370,7 @@ function BulkUploadCVModal({
                   <tbody>
                     {rows.length === 0 ? (
                       <tr>
-                        <td colSpan={10} className="px-6 py-12 text-center text-sm text-gray-400">
+                        <td colSpan={11} className="px-6 py-12 text-center text-sm text-gray-400">
                           No rows
                         </td>
                       </tr>
@@ -1335,8 +1386,14 @@ function BulkUploadCVModal({
                             <input
                               type="checkbox"
                               checked={row.selected}
+                              disabled={!isValidLinkedInUrl(row.linkedin)}
+                              title={
+                                !isValidLinkedInUrl(row.linkedin)
+                                  ? "Add a valid LinkedIn URL to enable upload"
+                                  : ""
+                              }
                               onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
-                              className="size-4 rounded border-gray-300 text-[#7E47FF] focus:ring-[#7E47FF]"
+                              className="size-4 rounded border-gray-300 text-[#7E47FF] focus:ring-[#7E47FF] disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           </td>
                           <td className="px-3 py-2 max-w-[180px]">
@@ -1375,6 +1432,30 @@ function BulkUploadCVModal({
                               onChange={(e) => updateRow(row.id, { phone: e.target.value })}
                               className={ROW_INPUT_CLS}
                             />
+                          </td>
+                          <td className="px-3 py-2 min-w-[200px]">
+                            <input
+                              type="url"
+                              value={row.linkedin}
+                              placeholder="https://linkedin.com/in/…"
+                              onChange={(e) => {
+                                updateRow(row.id, { linkedin: e.target.value });
+                                // If the row was selected and the new value is
+                                // invalid, force-deselect to keep the upload
+                                // count honest.
+                                if (row.selected && !isValidLinkedInUrl(e.target.value)) {
+                                  updateRow(row.id, { selected: false });
+                                }
+                              }}
+                              className={ROW_INPUT_CLS}
+                            />
+                            {!isValidLinkedInUrl(row.linkedin) && (
+                              <p className="mt-1 text-[10px] font-medium leading-tight text-red-500">
+                                {row.linkedin.trim()
+                                  ? "⚠ Please enter a valid LinkedIn URL"
+                                  : "⚠ LinkedIn URL missing — add manually"}
+                              </p>
+                            )}
                           </td>
                           <td className="px-3 py-2 min-w-[160px]">
                             <select
@@ -1465,6 +1546,11 @@ function BulkUploadCVModal({
                     <>
                       {selectedRows} selected
                       {skippedDupRows > 0 && ` · ${skippedDupRows} duplicate${skippedDupRows === 1 ? "" : "s"} will be skipped`}
+                      {invalidLiRows > 0 && (
+                        <span className="text-red-500">
+                          {" "}· {invalidLiRows} row{invalidLiRows === 1 ? "" : "s"} blocked — LinkedIn URL required
+                        </span>
+                      )}
                     </>
                   )}
                 </p>

@@ -71,11 +71,20 @@ export async function updateTalentStatus(
 ): Promise<MutationResult<undefined>> {
   const supabase = createServiceClient();
 
-  // When transitioning to "approved", stamp the approval timestamp so the
-  // green "Approved" badge stays visible even after subsequent status changes.
   const patch: Record<string, unknown> = { status };
+
+  // Stamp approved_at only on the FIRST transition into "approved" so the
+  // original approval date is preserved across pause/archive → re-approve
+  // cycles. Subsequent re-approvals leave approved_at untouched.
   if (status === "approved") {
-    patch.approved_at = new Date().toISOString();
+    const { data: existing } = await supabase
+      .from("talent_profiles")
+      .select("approved_at")
+      .eq("id", id)
+      .maybeSingle();
+    if (!existing?.approved_at) {
+      patch.approved_at = new Date().toISOString();
+    }
   }
 
   const { error } = await supabase
@@ -85,6 +94,7 @@ export async function updateTalentStatus(
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/talent");
+  revalidatePath("/browse-talent");
   return { success: true, data: undefined };
 }
 
