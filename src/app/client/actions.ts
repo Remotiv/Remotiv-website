@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { BATCH_STAGES } from "@/app/admin/_components/batch-stages";
 import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { notifyAllAdmins } from "@/lib/notifications";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -368,11 +369,17 @@ export async function saveClientFeedback(
   // Security check: the candidate must belong to a batch owned by this client.
   const { data: candRow } = await service
     .from("client_batch_candidates")
-    .select("id, batch:client_batches(client_id)")
+    .select("id, first_name, last_name, batch_id, batch:client_batches(client_id)")
     .eq("id", candidateId)
     .maybeSingle();
 
-  type CandRow = { id: string; batch: { client_id: string } | null };
+  type CandRow = {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    batch_id: string;
+    batch: { client_id: string } | null;
+  };
   const cand = candRow as CandRow | null;
   if (!cand || cand.batch?.client_id !== client.id) {
     return { success: false, error: "Candidate not found in your batches." };
@@ -389,6 +396,33 @@ export async function saveClientFeedback(
     .eq("id", candidateId);
 
   if (error) return { success: false, error: error.message };
+
+  // Bell notification to all admins. Fire-and-forget; never blocks success.
+  if (decision) {
+    const decisionLabels: Record<string, string> = {
+      approve: "✅ approved",
+      reject: "❌ rejected",
+      request_interview: "📞 requested interview for",
+    };
+    const candidateName =
+      `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
+    const decisionLabel = decisionLabels[decision] ?? decision;
+
+    await notifyAllAdmins({
+      event_type: "client_decision",
+      title: `Client ${decisionLabel} ${candidateName}`,
+      message: trimmed
+        ? `${client.company_name}: "${trimmed.slice(0, 100)}${trimmed.length > 100 ? "…" : ""}"`
+        : `${client.company_name} made a decision on this candidate.`,
+      link: `/admin/client-batches/${cand.batch_id}`,
+      metadata: {
+        candidate_id: candidateId,
+        decision,
+        client_id: client.id,
+        client_name: client.company_name,
+      },
+    });
+  }
 
   revalidatePath("/client/dashboard");
   // The dynamic batch route can't be revalidated by literal path here
@@ -424,11 +458,17 @@ export async function updateClientStage(
   // Security check: candidate must belong to a batch owned by this client.
   const { data: candRow } = await service
     .from("client_batch_candidates")
-    .select("id, batch:client_batches(client_id)")
+    .select("id, first_name, last_name, batch_id, batch:client_batches(client_id)")
     .eq("id", candidateId)
     .maybeSingle();
 
-  type CandRow = { id: string; batch: { client_id: string } | null };
+  type CandRow = {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    batch_id: string;
+    batch: { client_id: string } | null;
+  };
   const cand = candRow as CandRow | null;
   if (!cand || cand.batch?.client_id !== client.id) {
     return { success: false, error: "Not authorized to update this candidate" };
@@ -440,6 +480,20 @@ export async function updateClientStage(
     .eq("id", candidateId);
 
   if (error) return { success: false, error: error.message };
+
+  const candidateName =
+    `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
+  await notifyAllAdmins({
+    event_type: "stage_change",
+    title: `Stage changed for ${candidateName}`,
+    message: `${client.company_name} moved candidate to "${newStage}"`,
+    link: `/admin/client-batches/${cand.batch_id}`,
+    metadata: {
+      candidate_id: candidateId,
+      new_stage: newStage,
+      client_id: client.id,
+    },
+  });
 
   revalidatePath("/client/dashboard");
   return { success: true, data: undefined };
@@ -515,11 +569,17 @@ export async function addCandidateNote(
 
   const { data: candRow } = await service
     .from("client_batch_candidates")
-    .select("id, batch:client_batches(client_id)")
+    .select("id, first_name, last_name, batch_id, batch:client_batches(client_id)")
     .eq("id", candidateId)
     .maybeSingle();
 
-  type CandRow = { id: string; batch: { client_id: string } | null };
+  type CandRow = {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    batch_id: string;
+    batch: { client_id: string } | null;
+  };
   const cand = candRow as CandRow | null;
   if (!cand || cand.batch?.client_id !== client.id) {
     return { success: false, error: "Not authorized" };
@@ -538,6 +598,17 @@ export async function addCandidateNote(
     .single();
 
   if (error) return { success: false, error: error.message };
+
+  const candidateName =
+    `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
+  await notifyAllAdmins({
+    event_type: "client_note",
+    title: `New note from ${client.company_name}`,
+    message: `On ${candidateName}: "${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}"`,
+    link: `/admin/client-batches/${cand.batch_id}`,
+    metadata: { candidate_id: candidateId, client_id: client.id },
+  });
+
   return { success: true, data: data as CandidateNote };
 }
 

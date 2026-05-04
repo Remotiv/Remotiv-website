@@ -4,8 +4,9 @@ import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { usePathname, useRouter } from "next/navigation";
-import { Bell, KeyRound, LogOut, Search } from "lucide-react";
+import { KeyRound, LogOut, Search } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { NotificationsBell } from "./notifications-bell";
 import {
   type UserRole,
   ROLE_LABELS,
@@ -125,10 +126,7 @@ export function TopNav({
           <Search className="size-4 text-gray-400" strokeWidth={2} />
           <span className="text-gray-400">Search</span>
         </Link>
-        <button type="button" className="relative rounded-xl p-2 hover:bg-gray-50">
-          <Bell className="size-5 text-gray-500" strokeWidth={2} />
-          <span className="absolute right-1.5 top-1.5 size-2 rounded-full bg-red-500" />
-        </button>
+        <NotificationsBell />
 
         <div ref={avatarRef} className="relative">
           <button

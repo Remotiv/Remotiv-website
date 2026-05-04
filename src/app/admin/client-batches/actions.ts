@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { notifyAllAdmins } from "@/lib/notifications";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -484,6 +485,37 @@ export async function addCandidateToBatch(
   if (error || !data) {
     return { success: false, error: error?.message ?? "Failed to add candidate." };
   }
+
+  // Bell notification for the rest of the admin team — fire-and-forget.
+  const candidateName =
+    `${candidate.first_name?.trim() ?? ""} ${candidate.last_name?.trim() ?? ""}`.trim() ||
+    "A candidate";
+
+  const { data: batchInfo } = await supabase
+    .from("client_batches")
+    .select("batch_name, position_title, client:clients(company_name)")
+    .eq("id", batchId)
+    .maybeSingle();
+
+  type BatchInfoRow = {
+    batch_name: string | null;
+    position_title: string | null;
+    client: { company_name: string | null } | null;
+  };
+  const info = batchInfo as unknown as BatchInfoRow | null;
+  const batchName = info?.batch_name ?? "batch";
+  const clientName = info?.client?.company_name ?? "a client";
+
+  await notifyAllAdmins({
+    event_type: "candidate_added",
+    title: `${candidateName} added to batch`,
+    message: `Added to "${batchName}" for ${clientName}`,
+    link: `/admin/client-batches/${batchId}`,
+    metadata: {
+      candidate_id: (data as { id: string }).id,
+      batch_id: batchId,
+    },
+  });
 
   revalidatePath(`/admin/client-batches/${batchId}`);
   revalidatePath("/admin/client-batches");

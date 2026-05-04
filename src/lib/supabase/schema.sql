@@ -129,3 +129,41 @@ create policy "candidate_notes_select_own" on candidate_notes
 
 create index if not exists idx_candidate_notes_candidate_id on candidate_notes(candidate_id);
 create index if not exists idx_candidate_notes_created_at on candidate_notes(created_at desc);
+
+-- ── Migration: in-app admin notifications (bell dropdown) ────
+-- One row per recipient per event. Notifications are written by the same
+-- service client that performs the underlying mutation; reads/marks-read
+-- are done as the authenticated admin via RLS.
+create table if not exists notifications (
+  id                uuid primary key default gen_random_uuid(),
+  recipient_user_id uuid not null references auth.users(id) on delete cascade,
+  event_type        text not null check (event_type in (
+    'client_decision',
+    'client_note',
+    'stage_change',
+    'candidate_added'
+  )),
+  title             text not null,
+  message           text not null,
+  link              text,
+  metadata          jsonb default '{}'::jsonb,
+  read_at           timestamptz,
+  created_at        timestamptz not null default now()
+);
+
+alter table notifications enable row level security;
+
+drop policy if exists "notifications_select_own" on notifications;
+create policy "notifications_select_own" on notifications
+  for select to authenticated
+  using (recipient_user_id = auth.uid());
+
+drop policy if exists "notifications_update_own" on notifications;
+create policy "notifications_update_own" on notifications
+  for update to authenticated
+  using (recipient_user_id = auth.uid());
+
+create index if not exists idx_notifications_recipient
+  on notifications(recipient_user_id, created_at desc);
+create index if not exists idx_notifications_unread
+  on notifications(recipient_user_id, read_at) where read_at is null;
