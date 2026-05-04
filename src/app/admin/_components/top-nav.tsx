@@ -12,6 +12,7 @@ import {
   ROLE_LABELS,
   ROLE_BADGE_STYLES,
 } from "@/app/admin/lib/roles";
+import { getAvatarUrl } from "@/lib/avatars";
 
 type NavItem = {
   label: string;
@@ -134,21 +135,7 @@ export function TopNav({
             onClick={() => setAvatarOpen((p) => !p)}
             className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all hover:ring-remotiv-purple/40"
           >
-            {isWaleed ? (
-              <Image
-                src="/avatars/Waleed.png"
-                alt="Profile"
-                fill
-                className="object-cover"
-              />
-            ) : (
-              <span
-                className="flex size-full items-center justify-center text-[0.7rem] font-bold text-white"
-                style={{ background: initialsColor }}
-              >
-                {initials}
-              </span>
-            )}
+            <UserAvatar isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
           </button>
 
           {avatarOpen && (
@@ -184,5 +171,45 @@ export function TopNav({
         </div>
       </div>
     </header>
+  );
+}
+
+/**
+ * Top-right user avatar. Super-admin gets a deterministic image from the
+ * /public/avatars pool via the shared util; everyone else gets a colored
+ * initials chip derived from their email. The pool image falls back to
+ * the initials chip on load failure so missing files never render broken.
+ */
+function UserAvatar({
+  isWaleed,
+  initials,
+  initialsColor,
+}: {
+  isWaleed: boolean;
+  initials: string;
+  initialsColor: string;
+}) {
+  const [imgFailed, setImgFailed] = useState(false);
+
+  if (isWaleed && !imgFailed) {
+    return (
+      <Image
+        src={getAvatarUrl("Waleed", "Khan")}
+        alt="Profile"
+        fill
+        sizes="36px"
+        className="object-cover"
+        onError={() => setImgFailed(true)}
+      />
+    );
+  }
+
+  return (
+    <span
+      className="flex size-full items-center justify-center text-[0.7rem] font-bold text-white"
+      style={{ background: isWaleed ? "#7E47FF" : initialsColor }}
+    >
+      {isWaleed ? "WK" : initials}
+    </span>
   );
 }

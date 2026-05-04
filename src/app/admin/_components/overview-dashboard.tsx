@@ -1,5 +1,6 @@
 "use client";
 
+import { useState } from "react";
 import Image from "next/image";
 import {
   Users,
@@ -13,6 +14,7 @@ import {
 } from "lucide-react";
 import { TopNav } from "./top-nav";
 import type { UserRole } from "@/app/admin/lib/roles";
+import { getAvatarUrl, getInitials } from "@/lib/avatars";
 import {
   AreaChart,
   Area,
@@ -59,12 +61,19 @@ const LEADS_DATA = [
 ];
 const LEAD_COLORS = ["#7E47FF", "#49D7A7", "#f59e0b"];
 
-const ACTIVITY_LOG = [
-  { name: "Sarah Ahmed",  role: "Talent Acquisition", time: "10:00 AM", avatar: "/avatars/female 2.png" },
-  { name: "Waleed Khan",  role: "Operations Manager", time: "10:50 AM", avatar: "/avatars/Waleed.png"   },
-  { name: "Bilal Rana",   role: "HR Manager",         time: "12:30 PM", avatar: "/avatars/male 3.png"   },
-  { name: "Fatima Malik", role: "Recruiter",           time: "2:15 PM",  avatar: "/avatars/female 3.png" },
-  { name: "Omar Sheikh",  role: "Engineering Lead",    time: "3:45 PM",  avatar: "/avatars/male 4.png"   },
+// Demo activity feed. Avatars resolve via @/lib/avatars at render time so
+// the URL always matches what's actually present in /public/avatars.
+const ACTIVITY_LOG: Array<{
+  firstName: string;
+  lastName: string;
+  role: string;
+  time: string;
+}> = [
+  { firstName: "Sarah",  lastName: "Ahmed",  role: "Talent Acquisition", time: "10:00 AM" },
+  { firstName: "Waleed", lastName: "Khan",   role: "Operations Manager", time: "10:50 AM" },
+  { firstName: "Bilal",  lastName: "Rana",   role: "HR Manager",         time: "12:30 PM" },
+  { firstName: "Fatima", lastName: "Malik",  role: "Recruiter",          time: "2:15 PM"  },
+  { firstName: "Omar",   lastName: "Sheikh", role: "Engineering Lead",   time: "3:45 PM"  },
 ];
 
 const MEETINGS = [
@@ -164,6 +173,44 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
           <span className="ml-auto text-xs font-bold text-white">{p.value}</span>
         </div>
       ))}
+    </div>
+  );
+}
+
+function ActivityRow({
+  entry,
+}: {
+  entry: { firstName: string; lastName: string; role: string; time: string };
+}) {
+  const [errored, setErrored] = useState(false);
+  const fullName = `${entry.firstName} ${entry.lastName}`.trim();
+  const url = getAvatarUrl(entry.firstName, entry.lastName);
+  return (
+    <div className="flex items-center gap-3">
+      <div className="relative size-10 shrink-0 overflow-hidden rounded-full bg-[#7E47FF]/10">
+        {errored ? (
+          <span className="flex size-full items-center justify-center text-xs font-bold text-[#7E47FF]">
+            {getInitials(entry.firstName, entry.lastName)}
+          </span>
+        ) : (
+          <Image
+            src={url}
+            alt={fullName}
+            fill
+            sizes="40px"
+            className="object-cover"
+            onError={() => setErrored(true)}
+          />
+        )}
+      </div>
+      <div className="min-w-0 flex-1">
+        <p className="truncate text-sm font-semibold text-[#111]">{fullName}</p>
+        <p className="truncate text-xs text-gray-400">{entry.role}</p>
+      </div>
+      <div className="flex shrink-0 items-center gap-1 text-xs text-gray-400">
+        <Clock className="size-3" strokeWidth={2} />
+        {entry.time}
+      </div>
     </div>
   );
 }
@@ -406,25 +453,8 @@ export function OverviewDashboard({
               </button>
             </div>
             <div className="flex flex-col gap-4">
-              {ACTIVITY_LOG.map(({ name, role, time, avatar }) => (
-                <div key={name} className="flex items-center gap-3">
-                  <div className="relative size-10 shrink-0 overflow-hidden rounded-full">
-                    <Image
-                      src={avatar}
-                      alt={name}
-                      fill
-                      className="object-cover"
-                    />
-                  </div>
-                  <div className="min-w-0 flex-1">
-                    <p className="truncate text-sm font-semibold text-[#111]">{name}</p>
-                    <p className="truncate text-xs text-gray-400">{role}</p>
-                  </div>
-                  <div className="flex shrink-0 items-center gap-1 text-xs text-gray-400">
-                    <Clock className="size-3" strokeWidth={2} />
-                    {time}
-                  </div>
-                </div>
+              {ACTIVITY_LOG.map((entry) => (
+                <ActivityRow key={`${entry.firstName}-${entry.lastName}`} entry={entry} />
               ))}
             </div>
           </div>
