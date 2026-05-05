@@ -8,6 +8,7 @@ import {
   Archive,
   Briefcase,
   CheckCircle,
+  ChevronRight,
   Clock,
   Download,
   ExternalLink,
@@ -21,6 +22,7 @@ import {
   Save,
   Search as SearchIcon,
   ShieldCheck,
+  SlidersHorizontal,
   Star,
   Trash2,
   Trophy,
@@ -369,22 +371,24 @@ function ProfileDrawer({
 
   return (
     <div className="fixed inset-0 z-40 flex">
+      {/* Backdrop — desktop only. On mobile the panel covers the full viewport
+          so a separate dim layer would be invisible. */}
       <button
         type="button"
         aria-label="Close drawer"
-        className="flex-1 bg-black/30 backdrop-blur-sm"
+        className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-[460px] shrink-0 flex-col bg-white shadow-2xl">
+      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]">
         {/* Header */}
-        <div className="relative shrink-0 border-b border-gray-100 px-6 py-6">
+        <div className="relative shrink-0 border-b border-gray-100 px-5 py-5 lg:px-6 lg:py-6">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 lg:right-4 lg:top-4 lg:size-8"
           >
-            <X className="size-4" strokeWidth={2.5} />
+            <X className="size-5 lg:size-4" strokeWidth={2.5} />
           </button>
           <div className="flex items-start gap-4">
             <Avatar profile={profile} size={80} />
@@ -823,6 +827,166 @@ function FilterGroup({ title, children }: { title: string; children: React.React
   );
 }
 
+// ── Mobile card (tighter, larger touch targets) ──────────────
+
+/**
+ * Compact remote-talent card optimized for phone widths (375–414px).
+ * Renders only on `<lg`; the desktop ProfileCard is hidden on mobile.
+ * The whole surface is one tappable button — quick actions live inside
+ * the profile drawer so the row stays a single touch target.
+ *
+ * Key Hire-Remote fields surfaced up front: hourly rate, work type,
+ * verification status (email/ID/phone trust marks).
+ */
+function RemoteTalentCardMobile({
+  profile,
+  onView,
+}: {
+  profile: RemoteTalentProfile;
+  onView: () => void;
+}) {
+  const available = isAvailableNow(profile);
+  const visibleSkills = profile.skills.slice(0, 3);
+  const extraSkills = Math.max(0, profile.skills.length - visibleSkills.length);
+  const verifCount =
+    Number(profile.email_verified) +
+    Number(profile.id_verified) +
+    Number(profile.phone_verified);
+  const fullyVerified = verifCount >= 2;
+
+  return (
+    <button
+      type="button"
+      onClick={onView}
+      className="flex w-full flex-col gap-3 rounded-2xl border border-black/[0.05] bg-white p-4 text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="flex items-start gap-3">
+        <Avatar profile={profile} size={48} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {fullName(profile)}
+            </p>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}
+            >
+              {STATUS_LABELS[profile.status] ?? profile.status}
+            </span>
+          </div>
+          {profile.job_titles && (
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {profile.job_titles}
+            </p>
+          )}
+          <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
+            {(profile.city || profile.country) && (
+              <span className="flex items-center gap-1">
+                <MapPin className="size-3" strokeWidth={2} />
+                {[profile.city, profile.country].filter(Boolean).join(", ")}
+              </span>
+            )}
+          </p>
+        </div>
+      </div>
+
+      {/* Tag row — emphasize hourly rate + verification + work type */}
+      <div className="flex flex-wrap items-center gap-1.5">
+        <span
+          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+            available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+          }`}
+        >
+          <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+          {available ? "Available" : "Later"}
+        </span>
+        {profile.hourly_rate != null && (
+          <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-bold text-[#7E47FF]">
+            ${profile.hourly_rate}/hr
+          </span>
+        )}
+        {fullyVerified && (
+          <span className="inline-flex items-center gap-1 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-700">
+            <ShieldCheck className="size-3" strokeWidth={2.5} />
+            Verified
+          </span>
+        )}
+        {profile.work_type && (
+          <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+            {profile.work_type}
+          </span>
+        )}
+        {profile.hours_per_week && (
+          <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+            {profile.hours_per_week}
+          </span>
+        )}
+      </div>
+
+      {visibleSkills.length > 0 && (
+        <div className="flex flex-wrap gap-1.5">
+          {visibleSkills.map((s) => (
+            <span
+              key={s}
+              className="rounded-full bg-[#7E47FF]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+            >
+              {s}
+            </span>
+          ))}
+          {extraSkills > 0 && (
+            <span className="rounded-full bg-gray-100 px-2.5 py-0.5 text-[10px] font-medium text-gray-400">
+              +{extraSkills}
+            </span>
+          )}
+        </div>
+      )}
+
+      <div className="-mx-4 -mb-4 mt-auto flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View profile
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </button>
+  );
+}
+
+// ── Mobile filter bottom sheet ───────────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main Dashboard ───────────────────────────────────────────
 
 export function RemoteTalentDashboard({
@@ -853,6 +1017,39 @@ export function RemoteTalentDashboard({
 
   const [deleteTarget, setDeleteTarget] = useState<RemoteTalentProfile | null>(null);
   const [deleting, setDeleting] = useState(false);
+
+  // Mobile-only UI state. The profile drawer's structural mobile/desktop
+  // difference is handled with Tailwind `lg:` classes inside ProfileDrawer
+  // (full-width panel on <lg, 460px side drawer on lg+) — no JS branch needed.
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+
+  // Body-scroll lock for the mobile filter drawer + ESC to close.
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+
+  function clearAllFilters() {
+    setFilterStatus("All");
+    setFilterAvailability("All");
+    setFilterWorkType("All");
+    setFilterHours("All");
+  }
+
+  const activeFilterCount =
+    (filterStatus !== "All" ? 1 : 0) +
+    (filterAvailability !== "All" ? 1 : 0) +
+    (filterWorkType !== "All" ? 1 : 0) +
+    (filterHours !== "All" ? 1 : 0);
 
   useEffect(() => {
     setProfiles(initialProfiles);
@@ -955,7 +1152,7 @@ export function RemoteTalentDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-2xl px-8 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs text-gray-400">Remote Talent</p>
@@ -965,7 +1162,8 @@ export function RemoteTalentDashboard({
             </p>
           </div>
 
-          <div className="flex flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:max-w-md">
+          {/* Search bar — desktop only; mobile gets the search+filter row below */}
+          <div className="hidden flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:flex lg:max-w-md">
             <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
             <input
               type="text"
@@ -977,8 +1175,39 @@ export function RemoteTalentDashboard({
           </div>
         </div>
 
+        {/* Mobile search + filter trigger */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <div className="relative flex-1">
+            <SearchIcon
+              className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+              strokeWidth={2}
+            />
+            <input
+              type="text"
+              placeholder="Search by name, skill…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
         <div className="grid grid-cols-1 gap-6 lg:grid-cols-[220px_1fr]">
-          <aside className="lg:sticky lg:top-20 lg:self-start">
+          {/* Filter sidebar — desktop only */}
+          <aside className="hidden lg:sticky lg:top-20 lg:block lg:self-start">
             <div className="rounded-2xl border border-black/[0.05] bg-white p-5 shadow-sm">
               <FilterGroup title="Status">
                 {STATUS_FILTERS.map((s) => (
@@ -1035,7 +1264,8 @@ export function RemoteTalentDashboard({
               </div>
             ) : (
               <>
-                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                {/* Desktop card grid — unchanged */}
+                <div className="hidden gap-4 lg:grid lg:grid-cols-1 xl:grid-cols-2">
                   {pageItems.map((p) => (
                     <ProfileCard
                       key={p.id}
@@ -1046,6 +1276,18 @@ export function RemoteTalentDashboard({
                     />
                   ))}
                 </div>
+
+                {/* Mobile card list */}
+                <div className="flex flex-col gap-3 lg:hidden">
+                  {pageItems.map((p) => (
+                    <RemoteTalentCardMobile
+                      key={p.id}
+                      profile={p}
+                      onView={() => setOpenId(p.id)}
+                    />
+                  ))}
+                </div>
+
                 <div className="mt-6">
                   <PaginationControls page={page} setPage={setPage} total={filtered.length} />
                 </div>
@@ -1054,6 +1296,90 @@ export function RemoteTalentDashboard({
           </div>
         </div>
       </main>
+
+      {/* Mobile filter bottom sheet — slides up from bottom on <lg */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <FilterSheetGroup
+            label="Status"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={STATUS_FILTERS.map((s) => ({
+              value: s,
+              label: STATUS_LABELS[s] ?? s,
+            }))}
+          />
+          <FilterSheetGroup
+            label="Availability"
+            value={filterAvailability}
+            onChange={setFilterAvailability}
+            options={AVAILABILITY_FILTERS.map((a) => ({ value: a, label: a }))}
+          />
+          <FilterSheetGroup
+            label="Work Type"
+            value={filterWorkType}
+            onChange={setFilterWorkType}
+            options={WORK_TYPE_FILTERS.map((w) => ({ value: w, label: w }))}
+          />
+          <FilterSheetGroup
+            label="Hours"
+            value={filterHours}
+            onChange={setFilterHours}
+            options={HOURS_FILTERS.map((h) => ({ value: h, label: h }))}
+          />
+        </div>
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear all
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
 
       {openProfile && (
         <ProfileDrawer
