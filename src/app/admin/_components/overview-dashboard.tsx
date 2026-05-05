@@ -1,5 +1,6 @@
 "use client";
 
+import { useEffect, useState } from "react";
 import Link from "next/link";
 import {
   Briefcase,
@@ -225,7 +226,7 @@ function StatCard({
   return (
     <Link
       href={def.href}
-      className="group relative block overflow-hidden rounded-2xl p-6 text-white transition-transform hover:-translate-y-0.5 hover:shadow-xl"
+      className="group relative block min-h-[44px] overflow-hidden rounded-2xl p-5 text-white transition-transform hover:-translate-y-0.5 hover:shadow-xl lg:p-6"
       style={{ background: `linear-gradient(135deg, ${def.from}, ${def.to})` }}
     >
       <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
@@ -326,11 +327,24 @@ export function OverviewDashboard({
   );
   const totalPipeline = pipelineStats.reduce((s, d) => s + d.value, 0);
 
+  // Responsive tick density for the 30-day submissions chart. Recharts
+  // doesn't take CSS breakpoints, so we listen to the same lg media query
+  // (≥1024px) Tailwind uses and increase tick interval on narrow screens.
+  const [isMobileBreak, setIsMobileBreak] = useState(false);
+  useEffect(() => {
+    const mq = window.matchMedia("(max-width: 1023px)");
+    const update = () => setIsMobileBreak(mq.matches);
+    update();
+    mq.addEventListener("change", update);
+    return () => mq.removeEventListener("change", update);
+  }, []);
+  const chartTickInterval = isMobileBreak ? 6 : 4;
+
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
       <TopNav email={email} userRole={userRole} />
 
-      <div className="p-5 lg:p-8">
+      <div className="p-4 lg:p-8">
         <div className="mb-6">
           <p className="mb-0.5 text-xs font-medium text-gray-400">Dashboard</p>
           <div className="flex items-baseline justify-between">
@@ -393,7 +407,7 @@ export function OverviewDashboard({
                   tick={{ fontSize: 10, fill: "#bbb" }}
                   axisLine={false}
                   tickLine={false}
-                  interval={4}
+                  interval={chartTickInterval}
                 />
                 <YAxis
                   tick={{ fontSize: 11, fill: "#bbb" }}
@@ -754,9 +768,16 @@ function MeetingSchedule({ schedule }: { schedule: MeetingDay[] }) {
           Nothing scheduled this week.
         </p>
       ) : (
-        <div className="grid grid-cols-7 gap-2 sm:gap-3">
+        // Mobile: horizontal scroll with snap points so the week-view metaphor
+        // survives narrow screens. lg+: fixed 7-column grid (no scroll).
+        <div className="-mx-6 flex snap-x snap-mandatory gap-3 overflow-x-auto px-6 pb-2 lg:mx-0 lg:grid lg:grid-cols-7 lg:gap-3 lg:overflow-visible lg:px-0 lg:pb-0">
           {schedule.map((day) => (
-            <MeetingDayCell key={day.date} day={day} />
+            <div
+              key={day.date}
+              className="w-[140px] shrink-0 snap-start lg:w-auto lg:shrink"
+            >
+              <MeetingDayCell day={day} />
+            </div>
           ))}
         </div>
       )}

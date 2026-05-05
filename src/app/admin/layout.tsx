@@ -1,7 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
-import { AdminSidebar } from "./_components/admin-sidebar";
 
 export const metadata = { title: "Admin — Remotiv" };
 
@@ -46,13 +45,9 @@ export default async function AdminLayout({
     }
   }
 
+  // The mobile drawer + hamburger now live in TopNav (rendered by each
+  // dashboard component). The layout is just a scrollable main pane.
   return (
-    <div className="flex h-screen overflow-hidden font-sans">
-      {/* Sidebar — mobile only, hidden on desktop */}
-      <div className="lg:hidden shrink-0">
-        <AdminSidebar email={user.email ?? ""} />
-      </div>
-      <main className="flex-1 overflow-y-auto bg-[#f8f4f1]">{children}</main>
-    </div>
+    <main className="min-h-screen bg-[#f8f4f1] font-sans">{children}</main>
   );
 }
