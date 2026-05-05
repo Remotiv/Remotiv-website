@@ -7,9 +7,17 @@ import {
   UserCheck,
   UserMinus,
   BarChart2,
+  ChevronRight,
   Mail,
   Phone,
   MoreHorizontal,
+  PauseCircle,
+  PlayCircle,
+  Pencil,
+  PowerOff,
+  Power,
+  SlidersHorizontal,
+  Trash2,
   X,
   Plus,
   AlertTriangle,
@@ -152,6 +160,148 @@ function MemberAvatar({ member }: { member: TeamMember }) {
   );
 }
 
+// ── Mobile member card ──────────────────────────────────────
+
+const STATUS_BADGE_MOBILE: Record<TeamMember["status"], string> = {
+  active: "bg-[#49D7A7]/15 text-[#1a9e73]",
+  inactive: "bg-gray-100 text-gray-500",
+};
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.max(0, Math.floor(diffMs / 60_000));
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 30) return `${day}d ago`;
+  return fmtDate(iso);
+}
+
+/**
+ * Compact team-member card for phone widths (375–414px).
+ * The card body is one tappable button (opens the edit modal); the
+ * trailing kebab (`⋯`) opens a bottom-sheet of admin actions so the
+ * 3-dot popover from the desktop card doesn't have to fit in 32px.
+ *
+ * Note: TeamMember has no `last_sign_in_at` field — we surface
+ * `joined_at` as "Joined Nd ago" instead.
+ */
+function MemberCardMobile({
+  member,
+  canManage,
+  onEdit,
+  onActions,
+}: {
+  member: TeamMember;
+  canManage: boolean;
+  onEdit: () => void;
+  onActions: () => void;
+}) {
+  return (
+    <div className="overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-sm">
+      <button
+        type="button"
+        onClick={onEdit}
+        className="flex w-full items-start gap-3 p-4 text-left"
+      >
+        <MemberAvatar member={member} />
+        <div className="min-w-0 flex-1">
+          <div className="flex items-center justify-between gap-2">
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {member.full_name}
+            </p>
+            <span
+              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${STATUS_BADGE_MOBILE[member.status]}`}
+            >
+              {member.status}
+            </span>
+          </div>
+          <p className="mt-0.5 truncate text-sm text-gray-500">{member.role}</p>
+          <p className="mt-0.5 truncate text-[11px] text-gray-400">
+            {member.email}
+          </p>
+          <div className="mt-2 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+              {member.permission.replace("_", " ")}
+            </span>
+            {member.auth_status !== "active" && (
+              <span className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-amber-700">
+                Login {member.auth_status}
+              </span>
+            )}
+          </div>
+        </div>
+      </button>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3">
+        <span className="text-[11px] text-gray-400">
+          Joined {relativeTime(member.joined_at)}
+        </span>
+        <div className="flex items-center gap-2">
+          <button
+            type="button"
+            onClick={onEdit}
+            className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]"
+          >
+            View
+            <ChevronRight className="size-4" strokeWidth={2.5} />
+          </button>
+          {canManage && (
+            <button
+              type="button"
+              onClick={onActions}
+              aria-label="More actions"
+              className="flex size-9 items-center justify-center rounded-lg bg-white text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+            >
+              <MoreHorizontal className="size-4" strokeWidth={2} />
+            </button>
+          )}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+// ── Mobile filter bottom-sheet group ─────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────
 
 export function TeamDashboard({
@@ -183,6 +333,47 @@ export function TeamDashboard({
     const t = setTimeout(() => setSuccessMsg(null), 7000);
     return () => clearTimeout(t);
   }, [successMsg]);
+
+  // ── Mobile-only state (filters + actions sheet) ──────────
+  const [filterStatus, setFilterStatus] = useState<string>("All");
+  const [filterPermission, setFilterPermission] = useState<string>("All");
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [actionsMenuMember, setActionsMenuMember] =
+    useState<TeamMember | null>(null);
+
+  const filteredMembers = members.filter((m) => {
+    if (filterStatus !== "All" && m.status !== filterStatus) return false;
+    if (filterPermission !== "All" && m.permission !== filterPermission)
+      return false;
+    return true;
+  });
+
+  const activeFilterCount =
+    (filterStatus !== "All" ? 1 : 0) + (filterPermission !== "All" ? 1 : 0);
+
+  function clearAllFilters() {
+    setFilterStatus("All");
+    setFilterPermission("All");
+  }
+
+  // Body-scroll lock + Escape close — applies to whichever sheet is open
+  useEffect(() => {
+    const open = filterDrawerOpen || actionsMenuMember !== null;
+    if (!open) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setFilterDrawerOpen(false);
+        setActionsMenuMember(null);
+      }
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen, actionsMenuMember]);
 
   // ── Three-dot menus ───────────────────────────────────────
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -351,7 +542,7 @@ export function TeamDashboard({
       <TopNav email={email} userRole={userRole} />
 
       {/* ── Page content ── */}
-      <div className="p-5 lg:p-8">
+      <div className="p-4 lg:p-8">
 
         {/* Page header */}
         <div className="mb-6 flex items-center justify-between">
@@ -359,11 +550,12 @@ export function TeamDashboard({
             <h1 className="font-heading text-2xl font-bold text-[#111]">Team</h1>
             <p className="mt-0.5 text-sm text-gray-400">Manage your team</p>
           </div>
+          {/* Desktop "Add Member" — mobile uses the FAB */}
           {canManage && (
             <button
               type="button"
               onClick={openAddModal}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+              className="hidden items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               Add Member
@@ -371,31 +563,86 @@ export function TeamDashboard({
           )}
         </div>
 
+        {/* Mobile filter trigger row */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <p className="flex-1 text-sm text-gray-500">
+            {filteredMembers.length} of {members.length} members
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            aria-label="Open filters"
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {canManage && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              aria-label="Add team member"
+              className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              Add
+            </button>
+          )}
+        </div>
+
         {/* ── Stat cards ── */}
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           {STAT_CARDS.map(({ label, value, from, to, icon: Icon }) => (
             <div
               key={label}
-              className="relative overflow-hidden rounded-2xl p-6 text-white"
+              className="relative overflow-hidden rounded-2xl p-4 text-white lg:p-6"
               style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
             >
               <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
-              <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
-              <p className="font-heading text-[2.6rem] font-bold leading-none">{value}</p>
-              <p className="mt-2 text-sm font-medium opacity-80">{label}</p>
-              <p className="mt-3 text-[11px] opacity-50">Update: {updateDate}</p>
+              <Icon className="mb-3 size-6 opacity-90 lg:mb-4 lg:size-7" strokeWidth={1.8} />
+              <p className="font-heading text-3xl font-bold leading-none lg:text-[2.6rem]">{value}</p>
+              <p className="mt-1.5 text-xs font-medium opacity-80 lg:mt-2 lg:text-sm">{label}</p>
+              <p className="mt-2 hidden text-[11px] opacity-50 lg:mt-3 lg:block">Update: {updateDate}</p>
             </div>
           ))}
         </div>
 
-        {/* ── Member cards grid ── */}
+        {/* ── Mobile card list (replaces desktop grid on <lg) ── */}
+        {filteredMembers.length === 0 ? (
+          <div className="rounded-2xl border border-gray-100 bg-white py-16 text-center shadow-sm lg:hidden">
+            <p className="text-sm text-gray-400">
+              {members.length === 0
+                ? "No team members yet."
+                : "No members match your filters."}
+            </p>
+          </div>
+        ) : (
+          <div className="mb-6 flex flex-col gap-3 lg:hidden">
+            {filteredMembers.map((member) => (
+              <MemberCardMobile
+                key={member.id}
+                member={member}
+                canManage={canManage}
+                onEdit={() => openEditModal(member)}
+                onActions={() => setActionsMenuMember(member)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* ── Desktop member grid ── */}
         {members.length === 0 ? (
-          <div className="rounded-2xl border border-gray-100 bg-white py-16 text-center shadow-sm">
+          <div className="hidden rounded-2xl border border-gray-100 bg-white py-16 text-center shadow-sm lg:block">
             <p className="text-sm text-gray-400">No team members yet. Add your first member to get started.</p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-2 xl:grid-cols-3">
+          <div className="hidden gap-4 lg:grid lg:grid-cols-2 xl:grid-cols-3">
             {members.map((member) => (
               <div key={member.id} className="relative rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
 
@@ -524,27 +771,28 @@ export function TeamDashboard({
         )}
       </div>
 
-      {/* ── Add / Edit modal ── */}
+      {/* ── Add / Edit modal ── full-screen sheet on mobile, centered card on desktop */}
       {showModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-stretch justify-center overflow-y-auto bg-black/40 lg:items-start lg:p-4"
           onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
         >
-          <div className="w-full max-w-md rounded-2xl bg-white shadow-xl">
-            <div className="flex items-center justify-between border-b border-gray-100 px-6 py-5">
+          <div className="flex h-full w-full max-w-full flex-col bg-white shadow-xl lg:my-4 lg:h-auto lg:max-w-md lg:rounded-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-4 lg:px-6 lg:py-5">
               <h2 className="font-heading text-base font-bold text-[#111]">
                 {editingMember ? "Edit Team Member" : "Add Team Member"}
               </h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                aria-label="Close"
+                className="flex size-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600 lg:size-8"
               >
-                <X className="size-4" strokeWidth={2} />
+                <X className="size-5 lg:size-4" strokeWidth={2} />
               </button>
             </div>
 
-            <form onSubmit={handleSubmit} className="px-6 py-5">
+            <form onSubmit={handleSubmit} className="flex-1 overflow-y-auto px-4 py-5 lg:px-6">
               <div className="flex flex-col gap-4">
                 <div>
                   <label className={LABEL_CLS} htmlFor="tm-name">Full Name</label>
@@ -672,6 +920,214 @@ export function TeamDashboard({
             <X className="size-3.5" strokeWidth={2.5} />
           </button>
         </div>
+      )}
+
+      {/* ── Mobile filter bottom sheet ── */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <FilterSheetGroup
+            label="Status"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={[
+              { value: "All",      label: "All" },
+              { value: "active",   label: "Active" },
+              { value: "inactive", label: "Inactive" },
+            ]}
+          />
+          <FilterSheetGroup
+            label="Permission"
+            value={filterPermission}
+            onChange={setFilterPermission}
+            options={[
+              { value: "All",         label: "All" },
+              { value: "super_admin", label: "Super Admin" },
+              { value: "admin",       label: "Admin" },
+              { value: "viewer",      label: "Viewer" },
+            ]}
+          />
+        </div>
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+
+      {/* ── Mobile actions bottom sheet (3-dot menu equivalent) ── */}
+      {actionsMenuMember && (
+        <>
+          <div
+            className="fixed inset-0 z-40 bg-black/50 lg:hidden"
+            onClick={() => setActionsMenuMember(null)}
+            aria-hidden="true"
+          />
+          <div className="fixed inset-x-0 bottom-0 z-50 rounded-t-3xl bg-white p-6 shadow-2xl lg:hidden">
+            <div className="mx-auto mb-4 h-1 w-12 rounded-full bg-gray-200" />
+
+            <h3 className="mb-1 truncate font-heading text-base font-bold text-[#111]">
+              {actionsMenuMember.full_name}
+            </h3>
+            <p className="mb-4 truncate text-xs text-gray-500">
+              {actionsMenuMember.email}
+            </p>
+
+            <div className="flex flex-col gap-2">
+              <button
+                type="button"
+                onClick={() => {
+                  const m = actionsMenuMember;
+                  setActionsMenuMember(null);
+                  if (m) openEditModal(m);
+                }}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+              >
+                <Pencil className="size-5 text-gray-600" strokeWidth={2} />
+                Edit Member
+              </button>
+
+              <button
+                type="button"
+                onClick={() => {
+                  const m = actionsMenuMember;
+                  setActionsMenuMember(null);
+                  if (m) handleToggleStatus(m);
+                }}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-gray-50 px-4 py-3 text-left text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-100"
+              >
+                {actionsMenuMember.status === "active" ? (
+                  <>
+                    <PowerOff className="size-5 text-gray-600" strokeWidth={2} />
+                    Deactivate
+                  </>
+                ) : (
+                  <>
+                    <Power className="size-5 text-gray-600" strokeWidth={2} />
+                    Activate
+                  </>
+                )}
+              </button>
+
+              {actionsMenuMember.auth_user_id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const m = actionsMenuMember;
+                    setActionsMenuMember(null);
+                    if (m) handleToggleLoginPaused(m);
+                  }}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-amber-50 px-4 py-3 text-left text-sm font-semibold text-amber-800 transition-colors hover:bg-amber-100"
+                >
+                  {actionsMenuMember.auth_status === "active" ? (
+                    <>
+                      <PauseCircle className="size-5 text-amber-700" strokeWidth={2} />
+                      Pause Login
+                    </>
+                  ) : (
+                    <>
+                      <PlayCircle className="size-5 text-amber-700" strokeWidth={2} />
+                      Resume Login
+                    </>
+                  )}
+                </button>
+              )}
+
+              {actionsMenuMember.auth_user_id && (
+                <button
+                  type="button"
+                  onClick={() => {
+                    const m = actionsMenuMember;
+                    setActionsMenuMember(null);
+                    if (m) handleResetPassword(m);
+                  }}
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-[#7E47FF]/10 px-4 py-3 text-left text-sm font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                >
+                  <KeyRound className="size-5" strokeWidth={2} />
+                  Reset Password
+                </button>
+              )}
+
+              <button
+                type="button"
+                onClick={() => {
+                  const m = actionsMenuMember;
+                  setActionsMenuMember(null);
+                  if (m) setConfirmDeleteId(m.id);
+                }}
+                className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-red-50 px-4 py-3 text-left text-sm font-semibold text-red-700 transition-colors hover:bg-red-100"
+              >
+                <Trash2 className="size-5 text-red-600" strokeWidth={2} />
+                Remove from Team
+              </button>
+            </div>
+
+            <button
+              type="button"
+              onClick={() => setActionsMenuMember(null)}
+              className="mt-4 flex min-h-11 w-full items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+            >
+              Cancel
+            </button>
+          </div>
+        </>
+      )}
+
+      {/* ── Floating "Add Member" FAB — mobile only ── */}
+      {canManage && (
+        <button
+          type="button"
+          onClick={openAddModal}
+          aria-label="Add team member"
+          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-[#7E47FF] text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
+        >
+          <Plus className="size-7 text-white" strokeWidth={2.5} />
+        </button>
       )}
 
       {/* ── Remove confirmation modal ── */}
