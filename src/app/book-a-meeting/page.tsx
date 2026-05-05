@@ -1,9 +1,33 @@
 "use client";
 
 import { Check, Lock } from "lucide-react";
-import { cloneElement, type ReactElement, useId, useState } from "react";
+import { cloneElement, type ReactElement, useEffect, useId, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
+import { submitBooking } from "./actions";
+
+const CALENDLY_URL =
+  "https://calendly.com/waleed-izww/intro-call?hide_event_type_details=1&hide_gdpr_banner=1";
+
+function CalendlyEmbed() {
+  useEffect(() => {
+    const id = "calendly-widget-script";
+    if (document.getElementById(id)) return;
+    const s = document.createElement("script");
+    s.id = id;
+    s.src = "https://assets.calendly.com/assets/external/widget.js";
+    s.async = true;
+    document.body.appendChild(s);
+  }, []);
+
+  return (
+    <div
+      className="calendly-inline-widget overflow-hidden rounded-3xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
+      data-url={CALENDLY_URL}
+      style={{ minWidth: 320, height: 700 }}
+    />
+  );
+}
 
 type DayKind = "green" | "orange" | "red" | "plain" | "empty";
 type CalendarDay = { num: number | null; kind: DayKind };
@@ -62,13 +86,53 @@ const DAY_STYLES: Record<DayKind, string> = {
   empty: "pointer-events-none opacity-0",
 };
 
+type BookingFormState = {
+  full_name: string;
+  company: string;
+  email: string;
+  service: string;
+  message: string;
+  preferred_time: string;
+};
+
+const EMPTY_BOOKING: BookingFormState = {
+  full_name: "",
+  company: "",
+  email: "",
+  service: "",
+  message: "",
+  preferred_time: "",
+};
+
 export default function BookAMeetingPage() {
   const [submitted, setSubmitted] = useState(false);
+  const [submitting, setSubmitting] = useState(false);
+  const [errorMsg, setErrorMsg] = useState<string | null>(null);
+  const [form, setForm] = useState<BookingFormState>(EMPTY_BOOKING);
 
-  const handleSubmit = (e: React.FormEvent) => {
+  function setField<K extends keyof BookingFormState>(
+    key: K,
+    value: BookingFormState[K],
+  ) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+  }
+
+  async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    setErrorMsg(null);
+    if (!form.full_name.trim() || !form.email.trim()) {
+      setErrorMsg("Name and work email are required.");
+      return;
+    }
+    setSubmitting(true);
+    const result = await submitBooking(form);
+    setSubmitting(false);
+    if (!result.success) {
+      setErrorMsg(result.error);
+      return;
+    }
     setSubmitted(true);
-  };
+  }
 
   return (
     <div className="min-h-screen bg-[#f8f4f1] font-sans">
@@ -227,6 +291,150 @@ export default function BookAMeetingPage() {
         </div>
       </section>
 
+      <section className="bg-[#f8f4f1] py-16 md:py-24">
+        <div className="mx-auto max-w-7xl px-6 lg:px-8">
+          <div className="grid grid-cols-1 items-start gap-12 lg:grid-cols-5">
+            <div className="lg:sticky lg:top-24 lg:col-span-2">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#7E47FF]/20 bg-[#7E47FF]/10 px-4 py-1.5">
+                <span className="size-2 animate-pulse rounded-full bg-[#49D7A7]" />
+                <span className="text-xs font-bold uppercase tracking-widest text-[#7E47FF]">
+                  Available Now
+                </span>
+              </div>
+
+              <h2 className="mb-4 font-heading text-4xl font-bold leading-tight text-[#111] md:text-5xl">
+                Schedule a call{" "}
+                <span className="text-[#7E47FF]">that fits your timezone</span>
+              </h2>
+
+              <p className="mb-8 text-lg leading-relaxed text-gray-600">
+                Pick a slot that works for you. We&apos;ll discuss your hiring
+                needs, share pre-vetted candidate profiles, and outline next
+                steps — no pressure, no commitments.
+              </p>
+
+              <div className="mb-8 space-y-4">
+                {[
+                  {
+                    icon: "⚡",
+                    title: "30-minute discovery call",
+                    desc: "Quick, focused, no fluff",
+                  },
+                  {
+                    icon: "🎯",
+                    title: "Tailored to your roles",
+                    desc: "We come prepared with candidate matches",
+                  },
+                  {
+                    icon: "🌍",
+                    title: "Any timezone works",
+                    desc: "Mon-Fri, 9am-9pm PKT availability",
+                  },
+                  {
+                    icon: "🔒",
+                    title: "100% confidential",
+                    desc: "NDAs available on request",
+                  },
+                ].map((item) => (
+                  <div key={item.title} className="flex items-start gap-3">
+                    <div className="flex size-10 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white text-xl shadow-sm">
+                      {item.icon}
+                    </div>
+                    <div>
+                      <p className="text-sm font-semibold text-[#111]">
+                        {item.title}
+                      </p>
+                      <p className="mt-0.5 text-xs text-gray-500">
+                        {item.desc}
+                      </p>
+                    </div>
+                  </div>
+                ))}
+              </div>
+
+              <div className="border-t border-gray-200 pt-6">
+                <p className="mb-3 text-xs font-semibold uppercase tracking-wider text-gray-500">
+                  Trusted by founders at
+                </p>
+                <div className="flex flex-wrap items-center gap-4">
+                  <div className="-space-x-2 flex">
+                    <div className="flex size-8 items-center justify-center rounded-full bg-[#7E47FF] text-xs font-bold text-white ring-2 ring-white">
+                      JC
+                    </div>
+                    <div className="flex size-8 items-center justify-center rounded-full bg-[#49D7A7] text-xs font-bold text-white ring-2 ring-white">
+                      SM
+                    </div>
+                    <div className="flex size-8 items-center justify-center rounded-full bg-[#9886FE] text-xs font-bold text-white ring-2 ring-white">
+                      OF
+                    </div>
+                    <div className="flex size-8 items-center justify-center rounded-full bg-gray-700 text-[10px] font-bold text-white ring-2 ring-white">
+                      +97
+                    </div>
+                  </div>
+                  <p className="text-xs text-gray-600">
+                    100+ companies hiring through Remotiv
+                  </p>
+                </div>
+              </div>
+            </div>
+
+            <div className="lg:col-span-3">
+              <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-xl">
+                <div className="bg-gradient-to-r from-[#7E47FF] to-[#9886FE] px-6 py-4 text-white">
+                  <p className="mb-1 text-xs font-bold uppercase tracking-widest opacity-80">
+                    Book your slot
+                  </p>
+                  <p className="text-lg font-semibold">
+                    Pick a date that works for you
+                  </p>
+                </div>
+                <div className="bg-white">
+                  <CalendlyEmbed />
+                </div>
+              </div>
+
+              <div className="mt-6 grid grid-cols-3 gap-4 text-center">
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <p className="font-heading text-2xl font-bold text-[#7E47FF]">
+                    48hr
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
+                    Response Time
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <p className="font-heading text-2xl font-bold text-[#49D7A7]">
+                    100+
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
+                    Active Clients
+                  </p>
+                </div>
+                <div className="rounded-2xl border border-gray-100 bg-white p-4">
+                  <p className="font-heading text-2xl font-bold text-[#111]">
+                    60%
+                  </p>
+                  <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
+                    Cost Savings
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </div>
+      </section>
+
+      {/* Divider — sends user down to the email form alternative */}
+      <section className="px-6 py-8 md:px-10">
+        <div className="mx-auto flex max-w-[1100px] items-center gap-4">
+          <span className="h-px flex-1 bg-black/10" />
+          <span className="font-heading text-xs font-semibold uppercase tracking-[0.18em] text-[#666]">
+            Prefer email? Fill out the form below
+          </span>
+          <span className="h-px flex-1 bg-black/10" />
+        </div>
+      </section>
+
       {/* Booking form */}
       <section id="booking-form" className="px-6 pt-4 pb-12 md:px-10">
         <div className="mx-auto max-w-[1100px]">
@@ -302,6 +510,8 @@ export default function BookAMeetingPage() {
                         required
                         placeholder="Your name"
                         className={inputClass}
+                        value={form.full_name}
+                        onChange={(e) => setField("full_name", e.target.value)}
                       />
                     </Field>
                     <Field label="Company">
@@ -309,6 +519,8 @@ export default function BookAMeetingPage() {
                         type="text"
                         placeholder="Company name"
                         className={inputClass}
+                        value={form.company}
+                        onChange={(e) => setField("company", e.target.value)}
                       />
                     </Field>
                   </div>
@@ -318,10 +530,17 @@ export default function BookAMeetingPage() {
                       required
                       placeholder="you@company.com"
                       className={inputClass}
+                      value={form.email}
+                      onChange={(e) => setField("email", e.target.value)}
                     />
                   </Field>
                   <Field label="What Are You Looking For?">
-                    <select required defaultValue="" className={selectClass}>
+                    <select
+                      required
+                      className={selectClass}
+                      value={form.service}
+                      onChange={(e) => setField("service", e.target.value)}
+                    >
                       <option value="" disabled>
                         Select a service
                       </option>
@@ -336,10 +555,17 @@ export default function BookAMeetingPage() {
                     <textarea
                       placeholder="Describe the role, tech stack, seniority level, and timeline..."
                       className={`${inputClass} h-24 resize-none leading-relaxed`}
+                      value={form.message}
+                      onChange={(e) => setField("message", e.target.value)}
                     />
                   </Field>
                   <Field label="Preferred Call Time">
-                    <select required defaultValue="" className={selectClass}>
+                    <select
+                      required
+                      className={selectClass}
+                      value={form.preferred_time}
+                      onChange={(e) => setField("preferred_time", e.target.value)}
+                    >
                       <option value="" disabled>
                         Select a time
                       </option>
@@ -347,11 +573,17 @@ export default function BookAMeetingPage() {
                       <option>Next week</option>
                     </select>
                   </Field>
+                  {errorMsg && (
+                    <p className="rounded-lg bg-red-500/15 px-3 py-2 text-xs font-medium text-white">
+                      {errorMsg}
+                    </p>
+                  )}
                   <button
                     type="submit"
-                    className="mt-1.5 w-full rounded-xl bg-[#111] px-4 py-[17px] font-heading text-[15px] font-bold tracking-wide text-white transition-colors hover:bg-[#222] active:scale-[0.985]"
+                    disabled={submitting}
+                    className="mt-1.5 w-full rounded-xl bg-[#111] px-4 py-[17px] font-heading text-[15px] font-bold tracking-wide text-white transition-colors hover:bg-[#222] active:scale-[0.985] disabled:opacity-60"
                   >
-                    Book My Call →
+                    {submitting ? "Booking…" : "Book My Call →"}
                   </button>
                   <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-xs text-white/50">
                     <Lock className="size-3" />

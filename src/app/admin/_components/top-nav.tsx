@@ -31,7 +31,6 @@ const TOP_NAV: ReadonlyArray<NavItem> = [
   { label: "Applications", href: "/admin/applications" },
   { label: "Search", href: "/admin/search" },
   { label: "Contacts", href: "/admin/contacts" },
-  { label: "Bookings", href: "/admin/bookings" },
   { label: "Team", href: "/admin/team" },
 ];
 

@@ -167,3 +167,41 @@ create index if not exists idx_notifications_recipient
   on notifications(recipient_user_id, created_at desc);
 create index if not exists idx_notifications_unread
   on notifications(recipient_user_id, read_at) where read_at is null;
+
+-- Migration: extend notifications.event_type to allow 'new_inquiry'
+alter table notifications drop constraint if exists notifications_event_type_check;
+alter table notifications add constraint notifications_event_type_check
+  check (event_type in (
+    'client_decision',
+    'client_note',
+    'stage_change',
+    'candidate_added',
+    'new_inquiry'
+  ));
+
+-- Migration: contact_submissions / bookings — admin_notes + unified status
+alter table contact_submissions add column if not exists admin_notes text;
+alter table bookings add column if not exists admin_notes text;
+
+alter table contact_submissions alter column status set default 'new';
+alter table bookings alter column status set default 'new';
+
+update contact_submissions set status = 'new' where status is null;
+update bookings set status = 'new' where status is null;
+
+-- Map legacy statuses to the unified vocabulary BEFORE tightening the
+-- check constraint, otherwise rows with old values would block the
+-- ALTER TABLE.
+update contact_submissions set status = 'in_progress' where status in ('read');
+update contact_submissions set status = 'closed'      where status in ('replied');
+update bookings set status = 'in_progress' where status in ('confirmed');
+update bookings set status = 'closed'      where status in ('completed');
+update bookings set status = 'archived'    where status in ('cancelled');
+
+alter table contact_submissions drop constraint if exists contact_submissions_status_check;
+alter table contact_submissions add constraint contact_submissions_status_check
+  check (status in ('new', 'in_progress', 'closed', 'archived'));
+
+alter table bookings drop constraint if exists bookings_status_check;
+alter table bookings add constraint bookings_status_check
+  check (status in ('new', 'in_progress', 'closed', 'archived'));

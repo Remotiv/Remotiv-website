@@ -12,7 +12,7 @@ const INQUIRY_CARDS = [
     description:
       "Looking to hire top remote talent from Pakistan? Our recruitment team will match you with vetted professionals in days.",
     cta: "Contact recruitment",
-    href: "mailto:recruitment@remotiv.work",
+    targetService: "Recruitment",
     illustration: (
       <svg
         viewBox="0 0 120 120"
@@ -40,7 +40,7 @@ const INQUIRY_CARDS = [
     description:
       "We're here to help! Whether you have a question about Remotiv's services, pricing, or partnerships — reach out anytime.",
     cta: "Contact sales",
-    href: "mailto:sales@remotiv.work",
+    targetService: "General Inquiry",
     illustration: (
       <svg
         viewBox="0 0 120 120"
@@ -157,6 +157,17 @@ export default function ContactPage() {
     }
   }
 
+  function jumpToForm(targetService: string) {
+    if (SERVICE_OPTIONS.includes(targetService)) {
+      setForm((prev) => ({ ...prev, service: targetService }));
+    }
+    if (typeof document !== "undefined") {
+      document
+        .getElementById("contact-form")
+        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+    }
+  }
+
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
     const nextErrors = { name: !form.name.trim(), email: !form.email.trim() };
@@ -166,12 +177,21 @@ export default function ContactPage() {
     }
 
     setStatus("sending");
-    const result = await submitContact(form);
-    if (result.success) {
-      setStatus("success");
-    } else {
+    try {
+      const result = await submitContact(form);
+      if (result.success) {
+        setStatus("success");
+      } else {
+        setStatus("idle");
+        alert(
+          `Submission failed: ${result.error}\n\nIf this keeps happening, email waleed@remotiv.work directly.`,
+        );
+      }
+    } catch (err) {
       setStatus("idle");
-      alert("Something went wrong. Please email us directly at waleed@remotiv.work");
+      alert(
+        `Submission failed: ${err instanceof Error ? err.message : "Unknown error"}\n\nIf this keeps happening, email waleed@remotiv.work directly.`,
+      );
     }
   }
 
@@ -209,18 +229,19 @@ export default function ContactPage() {
               <p className="mb-7 max-w-[280px] text-[0.92rem] leading-[1.65] text-remotiv-text-light">
                 {card.description}
               </p>
-              <a
-                href={card.href}
+              <button
+                type="button"
+                onClick={() => jumpToForm(card.targetService)}
                 className="inline-flex items-center gap-2 rounded-full bg-[#111] px-7 py-[13px] text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-[#333]"
               >
                 {card.cta}
                 <ArrowRight className="size-3.5" />
-              </a>
+              </button>
             </div>
           ))}
         </section>
 
-        <section className="mx-auto mb-20 grid max-w-[1200px] items-center gap-10 px-6 md:px-14 lg:grid-cols-2 lg:gap-16">
+        <section id="contact-form" className="mx-auto mb-20 grid max-w-[1200px] items-center gap-10 px-6 md:px-14 lg:grid-cols-2 lg:gap-16 scroll-mt-24">
           <div>
             <div className="mb-5 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-remotiv-green">
               <span className="h-0.5 w-5 rounded-sm bg-remotiv-green" />
