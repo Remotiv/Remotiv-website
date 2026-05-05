@@ -9,6 +9,7 @@ import {
   Briefcase,
   Building2,
   CheckCircle,
+  ChevronRight,
   Copy,
   Eye,
   EyeOff,
@@ -20,6 +21,7 @@ import {
   RefreshCcw,
   Save,
   Search as SearchIcon,
+  SlidersHorizontal,
   Trash2,
   Users,
   X,
@@ -204,6 +206,116 @@ function ClientCard({
   );
 }
 
+// ── Mobile card (replaces the desktop ClientCard on <lg) ────
+
+/**
+ * Compact client card for phone widths (375–414px).
+ * Whole surface is one tappable button; account actions live inside
+ * the now-full-screen ClientDrawer so the row stays a single touch
+ * target.
+ */
+function ClientCardMobile({
+  client,
+  onManage,
+}: {
+  client: Client;
+  onManage: () => void;
+}) {
+  const meta = STATUS_BADGE[client.status];
+  return (
+    <button
+      type="button"
+      onClick={onManage}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <Avatar company={client.company_name} size={40} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate font-heading text-base font-bold text-gray-900">
+                {client.company_name}
+              </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${meta.badge}`}
+              >
+                {STATUS_LABELS[client.status] ?? client.status}
+              </span>
+            </div>
+            {client.contact_name && (
+              <p className="mt-0.5 truncate text-xs text-gray-500">
+                {client.contact_name}
+              </p>
+            )}
+            <p className="mt-0.5 truncate text-[11px] text-gray-400">
+              {client.email}
+            </p>
+          </div>
+        </div>
+
+        <div className="mt-3 grid grid-cols-2 gap-2 text-xs">
+          <div>
+            <p className="text-gray-400">Batches</p>
+            <p className="font-heading text-sm font-bold text-[#111]">
+              {client.batch_count}
+            </p>
+          </div>
+          <div>
+            <p className="text-gray-400">Candidates</p>
+            <p className="font-heading text-sm font-bold text-[#111]">
+              {client.candidate_count}
+            </p>
+          </div>
+        </div>
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View / Manage
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </button>
+  );
+}
+
+// ── Mobile filter bottom-sheet group ─────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Drawer ───────────────────────────────────────────────────
 
 function ClientDrawer({
@@ -266,21 +378,23 @@ function ClientDrawer({
 
   return (
     <div className="fixed inset-0 z-40 flex">
+      {/* Backdrop — desktop only. On mobile the panel covers the full
+          viewport so a separate dim layer would be invisible. */}
       <button
         type="button"
         aria-label="Close drawer"
-        className="flex-1 bg-black/30 backdrop-blur-sm"
+        className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-[420px] shrink-0 flex-col bg-white shadow-2xl">
-        <div className="relative shrink-0 border-b border-gray-100 px-6 py-6">
+      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[420px]">
+        <div className="relative shrink-0 border-b border-gray-100 px-4 py-5 lg:px-6 lg:py-6">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 lg:right-4 lg:top-4 lg:size-8"
           >
-            <X className="size-4" strokeWidth={2.5} />
+            <X className="size-5 lg:size-4" strokeWidth={2.5} />
           </button>
           <div className="flex items-start gap-4">
             <Avatar company={client.company_name} size={68} />
@@ -807,6 +921,24 @@ export function ClientsDashboard({
   const [search, setSearch] = useState("");
   const [filterStatus, setFilterStatus] = useState<string>("All");
 
+  // Mobile-only UI state. Drawer responsiveness uses Tailwind `lg:` classes
+  // (full-width panel on <lg, 420px side drawer on lg+) — no JS branch needed.
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+  const activeFilterCount = filterStatus !== "All" ? 1 : 0;
+
   const [openId, setOpenId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createdCreds, setCreatedCreds] = useState<
@@ -900,6 +1032,20 @@ export function ClientsDashboard({
                 className="h-10 min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
               />
             </div>
+            {/* Mobile filters trigger — desktop uses the inline pill row */}
+            <button
+              type="button"
+              onClick={() => setFilterDrawerOpen(true)}
+              aria-label="Open filters"
+              className="relative flex min-h-11 shrink-0 items-center justify-center rounded-xl border border-gray-200 bg-white px-3 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 lg:hidden"
+            >
+              <SlidersHorizontal className="size-4" strokeWidth={2} />
+              {activeFilterCount > 0 && (
+                <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                  {activeFilterCount}
+                </span>
+              )}
+            </button>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
@@ -920,7 +1066,7 @@ export function ClientsDashboard({
           <StatCard label="Archived" value={archivedCount} tint="text-gray-500" />
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-2">
+        <div className="mb-6 hidden flex-wrap gap-2 lg:flex">
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
@@ -950,17 +1096,95 @@ export function ClientsDashboard({
             </p>
           </div>
         ) : (
-          <div className="grid grid-cols-1 gap-4 lg:grid-cols-2">
-            {filtered.map((c) => (
-              <ClientCard
-                key={c.id}
-                client={c}
-                onManage={() => setOpenId(c.id)}
-              />
-            ))}
-          </div>
+          <>
+            {/* Desktop card grid — unchanged */}
+            <div className="hidden gap-4 lg:grid lg:grid-cols-1 xl:grid-cols-2">
+              {filtered.map((c) => (
+                <ClientCard
+                  key={c.id}
+                  client={c}
+                  onManage={() => setOpenId(c.id)}
+                />
+              ))}
+            </div>
+
+            {/* Mobile card list */}
+            <div className="flex flex-col gap-3 lg:hidden">
+              {filtered.map((c) => (
+                <ClientCardMobile
+                  key={c.id}
+                  client={c}
+                  onManage={() => setOpenId(c.id)}
+                />
+              ))}
+            </div>
+          </>
         )}
       </main>
+
+      {/* Mobile filter bottom sheet */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <FilterSheetGroup
+          label="Status"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={STATUS_FILTERS.map((s) => ({
+            value: s,
+            label: STATUS_LABELS[s] ?? s,
+          }))}
+        />
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={() => setFilterStatus("All")}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
 
       {openClient && (
         <ClientDrawer
