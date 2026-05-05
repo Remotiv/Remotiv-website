@@ -9,6 +9,7 @@ import {
   Mail,
   Phone,
   Briefcase,
+  ChevronRight,
   ExternalLink,
   Loader2,
 } from "lucide-react";
@@ -149,6 +150,100 @@ function ResultCard({
   );
 }
 
+/**
+ * Compact result card for phone widths (375–414px). Whole surface is a
+ * tappable Link — no inline "View" button competing for horizontal space.
+ * Deep-link logic mirrors the desktop ResultCard.
+ */
+function ResultCardMobile({
+  hit,
+  keywords,
+}: {
+  hit: SearchHit;
+  keywords: string[];
+}) {
+  const isApp = hit.source === "application";
+  const href = isApp
+    ? `/admin/applications?search=${encodeURIComponent(hit.email ?? hit.name)}`
+    : `/admin/talent?id=${encodeURIComponent(hit.id)}`;
+
+  return (
+    <Link
+      href={href}
+      className="flex flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="mb-2 flex items-center justify-between gap-2">
+          {isApp ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+              <span className="size-1.5 rounded-full bg-blue-500" />
+              Application
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
+              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+              Talent
+            </span>
+          )}
+          <span className="text-[10px] uppercase tracking-widest text-gray-300">
+            {hit.matchCount} match{hit.matchCount === 1 ? "" : "es"}
+          </span>
+        </div>
+
+        <p className="truncate font-heading text-base font-bold text-gray-900">
+          {highlight(hit.name, keywords)}
+        </p>
+
+        {hit.job_role && (
+          <p className="mt-0.5 flex items-center gap-1.5 truncate text-xs text-gray-500">
+            <Briefcase className="size-3 shrink-0" strokeWidth={2} />
+            {highlight(hit.job_role, keywords)}
+          </p>
+        )}
+
+        {hit.headline && (
+          <p className="mt-1.5 line-clamp-2 text-xs leading-relaxed text-gray-500">
+            {highlight(hit.headline, keywords)}
+          </p>
+        )}
+
+        <div className="mt-2 flex flex-wrap items-center gap-x-3 gap-y-1 text-[11px] text-gray-500">
+          {hit.email && (
+            <span className="flex max-w-full items-center gap-1.5">
+              <Mail className="size-3 shrink-0" strokeWidth={2} />
+              <span className="truncate">{highlight(hit.email, keywords)}</span>
+            </span>
+          )}
+          {hit.phone && (
+            <span className="flex items-center gap-1.5">
+              <Phone className="size-3" strokeWidth={2} />
+              {hit.phone}
+            </span>
+          )}
+        </div>
+
+        {hit.matchedKeywords.length > 0 && (
+          <div className="mt-2 flex flex-wrap gap-1">
+            {hit.matchedKeywords.map((k) => (
+              <span
+                key={k}
+                className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+              >
+                {k}
+              </span>
+            ))}
+          </div>
+        )}
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View profile
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </Link>
+  );
+}
+
 export function SearchClient({
   email,
   userRole,
@@ -181,7 +276,7 @@ export function SearchClient({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-xl px-8 py-8">
+      <main className="mx-auto max-w-screen-xl px-4 py-6 lg:px-8 lg:py-8">
         <div className="mb-6">
           <p className="text-xs text-gray-400">Smart Search</p>
           <h1 className="font-heading text-2xl font-bold text-gray-900">
@@ -192,10 +287,10 @@ export function SearchClient({
           </p>
         </div>
 
-        {/* Search bar */}
+        {/* Search bar — stacked on mobile, side-by-side on desktop */}
         <form
           onSubmit={handleSearch}
-          className="mb-8 flex gap-3 rounded-2xl bg-white p-3 shadow-sm"
+          className="mb-6 flex flex-col gap-2 rounded-2xl bg-white p-3 shadow-sm lg:mb-8 lg:flex-row lg:gap-3"
         >
           <div className="flex flex-1 items-center gap-3 rounded-xl bg-gray-50 px-4">
             <SearchIcon className="size-4 shrink-0 text-gray-400" strokeWidth={2} />
@@ -205,13 +300,13 @@ export function SearchClient({
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder={`Search candidates… e.g. ${PLACEHOLDER}`}
-              className="h-12 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
+              className="h-12 min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
             />
           </div>
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-[#7E47FF] px-6 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7E47FF] px-6 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {loading ? (
               <>
@@ -233,7 +328,7 @@ export function SearchClient({
 
         {/* Initial / empty state */}
         {!loading && !results && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-20 text-center">
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center lg:py-20">
             <SearchIcon className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
             <p className="font-heading text-sm font-semibold text-gray-700">
               Type a search query to begin
@@ -246,7 +341,7 @@ export function SearchClient({
 
         {/* Loading skeleton */}
         {loading && !results && (
-          <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-100 bg-white py-20 text-center">
+          <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-100 bg-white py-16 text-center lg:py-20">
             <Loader2 className="mb-3 size-8 animate-spin text-[#7E47FF]" strokeWidth={2} />
             <p className="text-sm text-gray-500">Scanning applications and profiles…</p>
           </div>
@@ -256,7 +351,7 @@ export function SearchClient({
         {results && (
           <>
             {results.applications.length === 0 && results.talent.length === 0 ? (
-              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-20 text-center">
+              <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center lg:py-20">
                 <SearchIcon className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
                 <p className="font-heading text-sm font-semibold text-gray-700">
                   No candidates found for your search
@@ -266,7 +361,7 @@ export function SearchClient({
                 </p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-8 lg:grid-cols-2">
+              <div className="grid grid-cols-1 gap-6 lg:grid-cols-2 lg:gap-8">
                 {/* Applications column */}
                 <section>
                   <div className="mb-4 flex items-center gap-2">
@@ -280,11 +375,20 @@ export function SearchClient({
                       No matching applications
                     </p>
                   ) : (
-                    <div className="flex flex-col gap-3">
-                      {results.applications.map((hit) => (
-                        <ResultCard key={`app-${hit.id}`} hit={hit} keywords={results.keywords} />
-                      ))}
-                    </div>
+                    <>
+                      {/* Desktop: existing card with inline View button */}
+                      <div className="hidden flex-col gap-3 lg:flex">
+                        {results.applications.map((hit) => (
+                          <ResultCard key={`app-${hit.id}`} hit={hit} keywords={results.keywords} />
+                        ))}
+                      </div>
+                      {/* Mobile: full-card-tappable variant */}
+                      <div className="flex flex-col gap-3 lg:hidden">
+                        {results.applications.map((hit) => (
+                          <ResultCardMobile key={`app-${hit.id}`} hit={hit} keywords={results.keywords} />
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
 
@@ -301,11 +405,20 @@ export function SearchClient({
                       No matching profiles
                     </p>
                   ) : (
-                    <div className="flex flex-col gap-3">
-                      {results.talent.map((hit) => (
-                        <ResultCard key={`talent-${hit.id}`} hit={hit} keywords={results.keywords} />
-                      ))}
-                    </div>
+                    <>
+                      {/* Desktop: existing card with inline View button */}
+                      <div className="hidden flex-col gap-3 lg:flex">
+                        {results.talent.map((hit) => (
+                          <ResultCard key={`talent-${hit.id}`} hit={hit} keywords={results.keywords} />
+                        ))}
+                      </div>
+                      {/* Mobile: full-card-tappable variant */}
+                      <div className="flex flex-col gap-3 lg:hidden">
+                        {results.talent.map((hit) => (
+                          <ResultCardMobile key={`talent-${hit.id}`} hit={hit} keywords={results.keywords} />
+                        ))}
+                      </div>
+                    </>
                   )}
                 </section>
               </div>
