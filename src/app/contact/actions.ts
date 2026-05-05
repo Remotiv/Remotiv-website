@@ -36,13 +36,16 @@ export async function submitContact(data: ContactInput): Promise<Result> {
     return { success: false, error: error.message };
   }
 
-  // Fire-and-forget notification to all admins.
-  await notifyAllAdmins({
+  // Fire-and-forget notification to all admins. Don't block the user
+  // response on the listUsers + insert round-trip.
+  notifyAllAdmins({
     event_type: "new_inquiry",
     title: `New inquiry from ${data.name}`,
     message: `${data.service || "General inquiry"}${data.company ? ` · ${data.company}` : ""} — "${data.message.slice(0, 120)}${data.message.length > 120 ? "…" : ""}"`,
     link: "/admin/contacts",
     metadata: { kind: "inquiry", email: data.email, service: data.service },
+  }).catch((err) => {
+    console.error("[submitContact] notifyAllAdmins failed:", err);
   });
 
   return { success: true };

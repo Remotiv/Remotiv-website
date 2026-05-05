@@ -46,10 +46,10 @@ function toInsert(input: JobInput) {
   return {
     title: input.title,
     company: input.company,
-    company_rating: parseFloat(input.company_rating) || 4.5,
+    company_rating: Number.parseFloat(input.company_rating) || 4.5,
     location: input.location,
-    salary_min: input.salary_min ? parseInt(input.salary_min) : null,
-    salary_max: input.salary_max ? parseInt(input.salary_max) : null,
+    salary_min: input.salary_min ? Number.parseInt(input.salary_min, 10) : null,
+    salary_max: input.salary_max ? Number.parseInt(input.salary_max, 10) : null,
     contract_type: input.contract_type,
     work_type: input.work_type,
     category: input.category,

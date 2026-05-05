@@ -486,7 +486,8 @@ export async function addCandidateToBatch(
   const batchName = info?.batch_name ?? "batch";
   const clientName = info?.client?.company_name ?? "a client";
 
-  await notifyAllAdmins({
+  // Fire-and-forget — don't block the admin's response on the broadcast.
+  notifyAllAdmins({
     event_type: "candidate_added",
     title: `${candidateName} added to batch`,
     message: `Added to "${batchName}" for ${clientName}`,
@@ -495,6 +496,8 @@ export async function addCandidateToBatch(
       candidate_id: (data as { id: string }).id,
       batch_id: batchId,
     },
+  }).catch((err) => {
+    console.error("[addBatchCandidate] notifyAllAdmins failed:", err);
   });
 
   revalidatePath(`/admin/client-batches/${batchId}`);

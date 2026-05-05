@@ -7,6 +7,12 @@ import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 // direct API call (e.g. from a script) must not be able to slip through.
 const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
 
+// Defensive bounds against weaponised inputs:
+//   - 10 MB raw PDF
+//   - 100 KB extracted text (more than any real CV)
+const MAX_CV_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_CV_TEXT_LENGTH = 100_000;
+
 function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
@@ -36,17 +42,25 @@ export async function POST(request: NextRequest) {
       | "manual_upload";
     const cvFile    = form.get("cv") as File | null;
 
-    console.log(
-      "[apply] cv_text from client:",
-      cvText ? `${cvText.length} chars` : "none",
-    );
-
     if (!firstName || !cvFile) {
       return NextResponse.json(
         { error: "First name and CV are required." },
         { status: 400 },
       );
     }
+
+    if (cvFile.size > MAX_CV_FILE_BYTES) {
+      return NextResponse.json(
+        { error: "CV file is too large (max 10 MB)." },
+        { status: 413 },
+      );
+    }
+
+    // Truncate parsed CV text before it ends up in Postgres / search blobs.
+    const boundedCvText =
+      cvText && cvText.length > MAX_CV_TEXT_LENGTH
+        ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
+        : cvText;
 
     if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
       return NextResponse.json(
@@ -147,10 +161,6 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Insert application (service role bypasses RLS)
-    console.log(
-      "[apply] inserting with cv_text:",
-      cvText ? `${cvText.substring(0, 100)}...` : "null",
-    );
     const { error: insertError } = await supabase.from("job_applications").insert({
       job_id: resolvedJobId,
       first_name: firstName,
@@ -159,7 +169,7 @@ export async function POST(request: NextRequest) {
       phone,
       linkedin_url: linkedin,
       cv_url: cvUrl,
-      cv_text: cvText,
+      cv_text: boundedCvText,
       status: "new",
       source,
       notes,

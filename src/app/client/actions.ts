@@ -408,7 +408,8 @@ export async function saveClientFeedback(
       `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
     const decisionLabel = decisionLabels[decision] ?? decision;
 
-    await notifyAllAdmins({
+    // Fire-and-forget — don't block the client's response.
+    notifyAllAdmins({
       event_type: "client_decision",
       title: `Client ${decisionLabel} ${candidateName}`,
       message: trimmed
@@ -421,6 +422,8 @@ export async function saveClientFeedback(
         client_id: client.id,
         client_name: client.company_name,
       },
+    }).catch((err) => {
+      console.error("[submitClientDecision] notifyAllAdmins failed:", err);
     });
   }
 
@@ -483,7 +486,8 @@ export async function updateClientStage(
 
   const candidateName =
     `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
-  await notifyAllAdmins({
+  // Fire-and-forget — don't block the client's response.
+  notifyAllAdmins({
     event_type: "stage_change",
     title: `Stage changed for ${candidateName}`,
     message: `${client.company_name} moved candidate to "${newStage}"`,
@@ -493,6 +497,8 @@ export async function updateClientStage(
       new_stage: newStage,
       client_id: client.id,
     },
+  }).catch((err) => {
+    console.error("[updateClientStage] notifyAllAdmins failed:", err);
   });
 
   revalidatePath("/client/dashboard");
@@ -601,12 +607,15 @@ export async function addCandidateNote(
 
   const candidateName =
     `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
-  await notifyAllAdmins({
+  // Fire-and-forget — don't block the client's response.
+  notifyAllAdmins({
     event_type: "client_note",
     title: `New note from ${client.company_name}`,
     message: `On ${candidateName}: "${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}"`,
     link: `/admin/client-batches/${cand.batch_id}`,
     metadata: { candidate_id: candidateId, client_id: client.id },
+  }).catch((err) => {
+    console.error("[submitClientNote] notifyAllAdmins failed:", err);
   });
 
   return { success: true, data: data as CandidateNote };

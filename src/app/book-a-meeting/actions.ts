@@ -35,7 +35,8 @@ export async function submitBooking(data: BookingInput): Promise<Result> {
     return { success: false, error: error.message };
   }
 
-  await notifyAllAdmins({
+  // Fire-and-forget — don't block the user response.
+  notifyAllAdmins({
     event_type: "new_inquiry",
     title: `New booking request from ${data.full_name.trim()}`,
     message: `${data.service || "Discovery call"}${data.preferred_time ? ` · ${data.preferred_time}` : ""}${data.company ? ` · ${data.company}` : ""}`,
@@ -46,6 +47,8 @@ export async function submitBooking(data: BookingInput): Promise<Result> {
       service: data.service,
       preferred_time: data.preferred_time,
     },
+  }).catch((err) => {
+    console.error("[submitBooking] notifyAllAdmins failed:", err);
   });
 
   return { success: true };

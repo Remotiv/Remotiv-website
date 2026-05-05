@@ -278,12 +278,24 @@ export async function removeMember(
 
   if (error) return { success: false, error: error.message };
 
-  // 3. Delete auth user + admin_users row if we have a reference
+  // 3. Best-effort auth cleanup. The team_members row is already gone,
+  // so we treat this as detached cleanup — log on failure but don't
+  // propagate the error to the user. Manual cleanup may be needed for
+  // any orphaned auth.users / admin_users row.
   if (member?.auth_user_id) {
-    await Promise.all([
-      supabase.auth.admin.deleteUser(member.auth_user_id),
-      supabase.from("admin_users").delete().eq("user_id", member.auth_user_id),
-    ]);
+    const authUserId = member.auth_user_id;
+    try {
+      await Promise.all([
+        supabase.auth.admin.deleteUser(authUserId),
+        supabase.from("admin_users").delete().eq("user_id", authUserId),
+      ]);
+    } catch (authErr) {
+      console.error(
+        "[team] auth/admin_users cleanup failed for",
+        authUserId,
+        authErr,
+      );
+    }
   }
 
   revalidatePath("/admin/team");

@@ -82,10 +82,15 @@ type MutationResult<T = undefined> =
 export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]> {
   await requireAdmin();
   const supabase = createServiceClient();
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("hire_remote_profiles")
     .select("*")
     .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[hire_remote_profiles] read failed:", error);
+    return [];
+  }
 
   return ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
 }

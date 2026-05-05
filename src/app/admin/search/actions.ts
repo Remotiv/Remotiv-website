@@ -42,8 +42,15 @@ function extractKeywords(query: string): string[] {
 }
 
 function escapeIlike(value: string): string {
-  // Postgres OR-string treats commas/parens specially; strip them defensively.
-  return value.replace(/[,()]/g, " ").trim();
+  // Two passes:
+  //   1. Strip OR-string metacharacters (commas, parens) that PostgREST
+  //      itself parses — replace with spaces so the keyword still tokenises.
+  //   2. Escape ILIKE wildcards (% _ \) so an admin typing "100%" matches
+  //      literally instead of glob-matching every row.
+  return value
+    .replace(/[,()]/g, " ")
+    .replace(/[\\%_]/g, "\\$&")
+    .trim();
 }
 
 function countMatches(text: string | null | undefined, keywords: string[]): {

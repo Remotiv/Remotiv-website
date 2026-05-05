@@ -69,10 +69,15 @@ export async function fetchContactSubmissions(): Promise<Inquiry[]> {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("contact_submissions")
     .select("id, name, email, company, service, message, status, admin_notes, created_at")
     .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[contact_submissions] read failed:", error);
+    return [];
+  }
 
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.id as string,
@@ -91,10 +96,15 @@ export async function fetchBookings(): Promise<Inquiry[]> {
   await requireAdmin();
   const supabase = createServiceClient();
 
-  const { data } = await supabase
+  const { data, error } = await supabase
     .from("bookings")
     .select("id, full_name, email, company, service, message, preferred_date, preferred_time, status, admin_notes, created_at")
     .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[bookings] read failed:", error);
+    return [];
+  }
 
   return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.id as string,

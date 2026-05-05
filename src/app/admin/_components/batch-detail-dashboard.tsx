@@ -107,7 +107,10 @@ function RowAvatar({
       className="relative inline-block shrink-0 overflow-hidden rounded-full bg-[#7E47FF]/10"
       style={{ width: size, height: size }}
     >
-      {/* eslint-disable-next-line @next/next/no-img-element -- failing image is hidden via onError; svg fallback shows initials */}
+      {/* Plain <img> chosen so the onError handler can hide a missing avatar
+          without next/image's loader getting in the way; the initials span
+          underneath remains visible. */}
+      {/* biome-ignore lint/performance/noImgElement: see comment above */}
       <img
         src={getAvatarUrl(candidate.first_name, candidate.last_name)}
         alt=""
@@ -504,9 +507,14 @@ function CandidateDrawer({
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  // Re-seed form ONLY when a different candidate is opened. Listing
+  // `candidate` (a fresh object from the parent's `find()` on every
+  // render) would wipe in-progress edits whenever the parent re-renders
+  // for an unrelated reason (toast tick, pagination change, etc).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: see comment above
   useEffect(() => {
     setForm(candidate);
-  }, [candidate.id, candidate]);
+  }, [candidate.id]);
 
   function setField<K extends keyof BatchCandidate>(key: K, value: BatchCandidate[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));

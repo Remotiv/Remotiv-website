@@ -51,12 +51,6 @@ function LoginForm() {
       password,
     });
 
-    // TEMP DIAGNOSTIC LOGS — remove once "valid client rejected" is confirmed
-    // resolved. Browser-side: open DevTools → Console.
-    console.log("[client login] signIn data:", authData);
-    console.log("[client login] signIn error:", authError);
-    console.log("[client login] user.id:", authData?.user?.id);
-
     if (authError || !authData.user) {
       setError("Invalid email or password");
       setLoading(false);
@@ -71,9 +65,9 @@ function LoginForm() {
       .eq("user_id", authData.user.id)
       .maybeSingle();
 
-    console.log("[client login] client lookup user_id query:", authData.user.id);
-    console.log("[client login] clientRow:", clientRow);
-    console.log("[client login] clientErr:", clientErr);
+    if (clientErr) {
+      console.error("[client login] client lookup failed:", clientErr);
+    }
 
     if (!clientRow) {
       await supabase.auth.signOut();

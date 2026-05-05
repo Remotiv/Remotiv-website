@@ -13,6 +13,12 @@ const ALLOWED_IMAGE_TYPES = [
   "image/gif",
 ];
 
+// Defensive bounds against weaponised inputs:
+//   - 10 MB raw CV file
+//   - 100 KB extracted text (more than any real CV)
+const MAX_CV_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_CV_TEXT_LENGTH = 100_000;
+
 function nullable(v: FormDataEntryValue | null): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
@@ -202,6 +208,12 @@ export async function POST(request: NextRequest) {
     // 3. Upload CV (optional — talent profile can exist without a CV early on)
     let cvUrl: string | null = null;
     if (cvFile && cvFile.size > 0) {
+      if (cvFile.size > MAX_CV_FILE_BYTES) {
+        return NextResponse.json(
+          { error: "CV file is too large (max 10 MB)." },
+          { status: 413 },
+        );
+      }
       const path = `talent/cvs/${filenameSlug}-${timestamp}.pdf`;
       const buf = await cvFile.arrayBuffer();
       const { error: cvErr } = await supabase.storage
@@ -241,7 +253,10 @@ export async function POST(request: NextRequest) {
       salary_max: salaryMax,
       avatar_url: avatarUrl,
       cv_url: cvUrl,
-      cv_text: cvText,
+      cv_text:
+        cvText && cvText.length > MAX_CV_TEXT_LENGTH
+          ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
+          : cvText,
       status: "pending",
     });
 

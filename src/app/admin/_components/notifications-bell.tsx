@@ -44,13 +44,20 @@ export function NotificationsBell() {
   const [unreadCount, setUnreadCount] = useState(0);
   const [marking, setMarking] = useState(false);
   const dropdownRef = useRef<HTMLDivElement>(null);
+  // Tracks "user is currently mark-all-read'ing" so an in-flight 30s
+  // poll can't wholesale-replace optimistic state and flicker the
+  // unread count back up before the server acks.
+  const markingRef = useRef(false);
 
   // Initial fetch + 30s polling for new notifications.
   useEffect(() => {
     let cancelled = false;
     async function load() {
+      // Skip the poll while the user is mid-mark-all so we don't undo
+      // the optimistic state.
+      if (markingRef.current) return;
       const result = await fetchNotifications(20);
-      if (cancelled) return;
+      if (cancelled || markingRef.current) return;
       setNotifications(result.notifications);
       setUnreadCount(result.unreadCount);
     }
@@ -91,13 +98,18 @@ export function NotificationsBell() {
 
   async function handleMarkAllRead() {
     setMarking(true);
+    markingRef.current = true;
     const stamped = new Date().toISOString();
     setNotifications((prev) =>
       prev.map((n) => ({ ...n, read_at: n.read_at ?? stamped })),
     );
     setUnreadCount(0);
-    await markAllAsRead();
-    setMarking(false);
+    try {
+      await markAllAsRead();
+    } finally {
+      setMarking(false);
+      markingRef.current = false;
+    }
   }
 
   return (

@@ -24,22 +24,33 @@ export async function fetchNotifications(limit = 20): Promise<{
 
   const service = createServiceClient();
 
-  const { data: notifications } = await service
-    .from("notifications")
-    .select("id, event_type, title, message, link, metadata, read_at, created_at")
-    .eq("recipient_user_id", user.id)
-    .order("created_at", { ascending: false })
-    .limit(limit);
+  // Run the two queries in parallel — they're independent reads against
+  // the same table, so the bell pays one round-trip instead of two on
+  // every 30s poll.
+  const [notifRes, countRes] = await Promise.all([
+    service
+      .from("notifications")
+      .select("id, event_type, title, message, link, metadata, read_at, created_at")
+      .eq("recipient_user_id", user.id)
+      .order("created_at", { ascending: false })
+      .limit(limit),
+    service
+      .from("notifications")
+      .select("*", { count: "exact", head: true })
+      .eq("recipient_user_id", user.id)
+      .is("read_at", null),
+  ]);
 
-  const { count: unreadCount } = await service
-    .from("notifications")
-    .select("*", { count: "exact", head: true })
-    .eq("recipient_user_id", user.id)
-    .is("read_at", null);
+  if (notifRes.error) {
+    console.error("[notifications] read failed:", notifRes.error);
+  }
+  if (countRes.error) {
+    console.error("[notifications] unread count failed:", countRes.error);
+  }
 
   return {
-    notifications: (notifications ?? []) as AdminNotification[],
-    unreadCount: unreadCount ?? 0,
+    notifications: (notifRes.data ?? []) as AdminNotification[],
+    unreadCount: countRes.count ?? 0,
   };
 }
 
