@@ -879,7 +879,7 @@ export function ClientsDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-2xl px-8 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs text-gray-400">Clients</p>
@@ -889,24 +889,26 @@ export function ClientsDashboard({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
-            <div className="flex flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:w-[360px]">
+          <div className="flex min-w-0 items-center gap-2 sm:gap-3">
+            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:w-[360px]">
               <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
               <input
                 type="text"
                 placeholder="Search by company name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
-                className="h-10 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
+                className="h-10 min-w-0 flex-1 bg-transparent text-sm text-gray-800 outline-none placeholder:text-gray-400"
               />
             </div>
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="flex shrink-0 items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+              aria-label="New client"
+              className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:px-4"
             >
               <Plus className="size-4" strokeWidth={2.5} />
-              New Client
+              <span className="hidden sm:inline">New Client</span>
+              <span className="sm:hidden">New</span>
             </button>
           </div>
         </div>

@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Calendar,
   Check,
+  ChevronRight,
   Copy,
   Edit2,
   ExternalLink,
@@ -140,6 +142,108 @@ function StarRating({ value }: { value: number | null }) {
         />
       ))}
     </span>
+  );
+}
+
+// ── Mobile candidate card (replaces the wide desktop table on <lg) ──
+
+const DECISION_STYLE: Record<string, string> = {
+  approve:           "bg-green-50 text-green-700",
+  reject:            "bg-red-50 text-red-600",
+  request_interview: "bg-[#7E47FF]/10 text-[#7E47FF]",
+};
+
+function CandidateCardMobile({
+  candidate,
+  onClick,
+}: {
+  candidate: BatchCandidate;
+  onClick: () => void;
+}) {
+  const decisionLabel = candidate.client_decision
+    ? CLIENT_DECISION_LABEL[candidate.client_decision]
+    : "Awaiting client";
+  const decisionCls = candidate.client_decision
+    ? DECISION_STYLE[candidate.client_decision] ?? "bg-gray-100 text-gray-500"
+    : "bg-gray-100 text-gray-500";
+
+  // Surface the most recent interview URL (priority: 2nd → 1st → initial → loom).
+  const interviewUrl =
+    candidate.second_interview_url ||
+    candidate.first_interview_url ||
+    candidate.initial_interview_url ||
+    candidate.loom_video_url ||
+    null;
+
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <RowAvatar candidate={candidate} size={40} />
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate font-heading text-base font-bold text-gray-900">
+                {fullName(candidate)}
+              </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${stageBadgeClass(candidate.stage)}`}
+              >
+                {candidate.stage}
+              </span>
+            </div>
+            {candidate.position_applied && (
+              <p className="mt-0.5 truncate text-xs text-gray-500">
+                {candidate.position_applied}
+              </p>
+            )}
+            {(candidate.current_role || candidate.current_company) && (
+              <p className="mt-0.5 truncate text-[11px] text-gray-400">
+                {[candidate.current_role, candidate.current_company]
+                  .filter(Boolean)
+                  .join(" · ")}
+              </p>
+            )}
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span
+            className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${decisionCls}`}
+          >
+            {candidate.client_decision &&
+              CLIENT_DECISION_ICON[candidate.client_decision]}
+            {decisionLabel}
+          </span>
+          {candidate.note_by_remotiv && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-amber-50 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+              Internal note
+            </span>
+          )}
+        </div>
+
+        {interviewUrl && (
+          <a
+            href={interviewUrl}
+            target="_blank"
+            rel="noopener noreferrer"
+            onClick={(e) => e.stopPropagation()}
+            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#7E47FF] hover:underline"
+          >
+            <Calendar className="size-3" strokeWidth={2.5} />
+            Open interview link
+          </a>
+        )}
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View details
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </button>
   );
 }
 
@@ -451,21 +555,23 @@ function CandidateDrawer({
 
   return (
     <div className="fixed inset-0 z-40 flex">
+      {/* Backdrop — desktop only. On mobile the panel covers the full
+          viewport so a separate dim layer would be invisible. */}
       <button
         type="button"
         aria-label="Close drawer"
-        className="flex-1 bg-black/30 backdrop-blur-sm"
+        className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-[520px] shrink-0 flex-col bg-white shadow-2xl">
-        <div className="relative shrink-0 border-b border-gray-100 px-6 py-5">
+      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[520px]">
+        <div className="relative shrink-0 border-b border-gray-100 px-4 py-4 lg:px-6 lg:py-5">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:right-4 lg:top-4 lg:size-8"
           >
-            <X className="size-4" strokeWidth={2.5} />
+            <X className="size-5 lg:size-4" strokeWidth={2.5} />
           </button>
           <div className="flex items-start gap-3">
             <RowAvatar candidate={form} size={56} />
@@ -698,18 +804,18 @@ function AddCandidatePicker({
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="flex h-full w-[460px] shrink-0 flex-col bg-white shadow-2xl">
-        <div className="relative shrink-0 border-b border-gray-100 px-5 py-4">
+      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]">
+        <div className="relative shrink-0 border-b border-gray-100 px-4 py-4 lg:px-5">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-3 top-3 flex size-8 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 lg:size-8"
           >
-            <X className="size-4" strokeWidth={2.5} />
+            <X className="size-5 lg:size-4" strokeWidth={2.5} />
           </button>
-          <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Add Candidate</p>
-          <p className="mt-1 font-heading text-lg font-bold text-gray-900 pr-8">Pick from existing pool</p>
+          <p className="pr-12 text-[10px] font-semibold uppercase tracking-widest text-gray-400">Add Candidate</p>
+          <p className="mt-1 font-heading text-lg font-bold text-gray-900 pr-12 lg:pr-8">Pick from existing pool</p>
           <div className="mt-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
             <SearchIcon className="size-4 shrink-0 text-gray-400" strokeWidth={2} />
             <input
@@ -903,12 +1009,12 @@ export function BatchDetailDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-2xl px-8 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         <Link
           href="/admin/client-batches"
-          className="mb-3 inline-flex items-center gap-1 text-xs text-gray-400 hover:text-[#7E47FF]"
+          className="mb-3 inline-flex min-h-11 items-center gap-1 text-xs text-gray-400 hover:text-[#7E47FF] lg:min-h-0"
         >
-          <ArrowLeft className="size-3" strokeWidth={2} />
+          <ArrowLeft className="size-4 lg:size-3" strokeWidth={2} />
           Back to Batches
         </Link>
 
@@ -958,10 +1064,10 @@ export function BatchDetailDashboard({
           <button
             type="button"
             onClick={() => setShowPicker(true)}
-            className="flex shrink-0 items-center gap-2 rounded-xl bg-[#49D7A7] px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90"
+            className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#49D7A7] px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
           >
             <Plus className="size-4" strokeWidth={2.5} />
-            Add Candidate
+            <span className="lg:inline">Add Candidate</span>
           </button>
         </div>
 
@@ -988,7 +1094,26 @@ export function BatchDetailDashboard({
             <p className="mt-1 text-xs text-gray-400">Click &quot;Add Candidate&quot; to pick from your applications or talent network.</p>
           </div>
         ) : (
-          <div className="overflow-x-auto rounded-2xl border border-black/[0.05] bg-white shadow-sm">
+          <>
+            {/* Mobile card list — replaces the wide desktop table on <lg */}
+            <div className="flex flex-col gap-3 lg:hidden">
+              {pageItems.map((c) => (
+                <CandidateCardMobile
+                  key={c.id}
+                  candidate={c}
+                  onClick={() => setOpenId(c.id)}
+                />
+              ))}
+              <div className="mt-3">
+                <PaginationControls
+                  page={page}
+                  setPage={setPage}
+                  total={candidates.length}
+                />
+              </div>
+            </div>
+
+            <div className="hidden overflow-x-auto rounded-2xl border border-black/[0.05] bg-white shadow-sm lg:block">
             <table className="w-full text-sm">
               <thead className="border-b border-gray-100 bg-gray-50/60">
                 <tr>
@@ -1116,7 +1241,8 @@ export function BatchDetailDashboard({
                 <PaginationControls page={page} setPage={setPage} total={candidates.length} />
               </div>
             )}
-          </div>
+            </div>
+          </>
         )}
       </main>
 

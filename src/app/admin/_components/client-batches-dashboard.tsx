@@ -8,6 +8,7 @@ import {
   Briefcase,
   Plus,
   Search as SearchIcon,
+  SlidersHorizontal,
   Users,
   X,
 } from "lucide-react";
@@ -264,6 +265,23 @@ export function ClientBatchesDashboard({
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [showCreate, setShowCreate] = useState(false);
 
+  // Mobile filter drawer state
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+  const activeFilterCount = filterStatus !== "All" ? 1 : 0;
+
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return batches.filter((b) => {
@@ -285,7 +303,7 @@ export function ClientBatchesDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-2xl px-8 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         {filterClientId && (
           <p className="mb-3 flex items-center gap-2 text-xs text-gray-400">
             <Link href="/admin/clients" className="inline-flex items-center gap-1 hover:text-[#7E47FF]">
@@ -310,7 +328,8 @@ export function ClientBatchesDashboard({
             </p>
           </div>
 
-          <div className="flex items-center gap-3">
+          {/* Desktop search + New Batch */}
+          <div className="hidden items-center gap-3 lg:flex">
             <div className="flex flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:w-[360px]">
               <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
               <input
@@ -332,6 +351,45 @@ export function ClientBatchesDashboard({
           </div>
         </div>
 
+        {/* Mobile search + Filters + New Batch row */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <div className="relative flex-1">
+            <SearchIcon
+              className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+              strokeWidth={2}
+            />
+            <input
+              type="text"
+              placeholder="Search batches…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            aria-label="Open filters"
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={() => setShowCreate(true)}
+            aria-label="New batch"
+            className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-3 text-sm font-semibold text-white hover:opacity-90"
+          >
+            <Plus className="size-4" strokeWidth={2.5} />
+            New
+          </button>
+        </div>
+
         <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
           <StatCard label="Total Batches" value={totalCount}    tint="text-gray-400" />
           <StatCard label="Active"        value={activeCount}   tint="text-green-600" />
@@ -339,7 +397,7 @@ export function ClientBatchesDashboard({
           <StatCard label="Archived"      value={archivedCount} tint="text-gray-500" />
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-2">
+        <div className="mb-6 hidden flex-wrap gap-2 lg:flex">
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
@@ -376,6 +434,83 @@ export function ClientBatchesDashboard({
           </div>
         )}
       </main>
+
+      {/* Mobile filter bottom sheet */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div>
+          <p className="mb-2 text-sm font-bold text-[#111]">Status</p>
+          <div className="flex flex-wrap gap-2">
+            {STATUS_FILTERS.map((s) => {
+              const active = filterStatus === s;
+              return (
+                <button
+                  key={s}
+                  type="button"
+                  onClick={() => setFilterStatus(s)}
+                  className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                    active
+                      ? "bg-[#7E47FF] text-white"
+                      : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+                  }`}
+                >
+                  {STATUS_LABEL[s] ?? s}
+                </button>
+              );
+            })}
+          </div>
+        </div>
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={() => setFilterStatus("All")}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
 
       {showCreate && (
         <CreateBatchModal
