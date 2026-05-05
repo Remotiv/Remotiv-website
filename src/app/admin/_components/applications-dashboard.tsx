@@ -13,7 +13,10 @@ import {
   MessageSquare,
   Trash2,
   AlertTriangle,
+  Search as SearchIcon,
   Send,
+  SlidersHorizontal,
+  ChevronRight,
   X,
   UserCheck,
   Building2,
@@ -175,36 +178,38 @@ function AppPanel({
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      {/* Overlay */}
+      {/* Overlay — desktop only. On mobile the panel covers the full viewport
+          so a separate dim layer would be invisible. */}
       <button
         type="button"
         aria-label="Close panel"
         onClick={handleClose}
-        className="flex-1 bg-black/30 transition-opacity"
+        className="hidden flex-1 bg-black/30 transition-opacity lg:block"
         style={{ opacity: visible ? 1 : 0 }}
       />
 
-      {/* Panel */}
+      {/* Panel — full-width on mobile, 320px side drawer on desktop */}
       <div
-        className="flex h-full w-80 shrink-0 flex-col bg-white shadow-2xl transition-transform duration-300"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl transition-transform duration-300 lg:w-80"
         style={{ transform: visible ? "translateX(0)" : "translateX(100%)" }}
       >
         {/* Panel header */}
-        <div className="flex items-start justify-between border-b border-gray-100 px-5 py-4">
-          <div>
-            <p className="font-heading text-sm font-semibold text-gray-900">
+        <div className="flex items-start justify-between border-b border-gray-100 px-4 py-4 lg:px-5">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-heading text-sm font-semibold text-gray-900">
               {app.first_name} {app.last_name}
             </p>
-            <p className="mt-0.5 text-xs text-gray-400">
+            <p className="mt-0.5 truncate text-xs text-gray-400">
               {app.job_title ?? "No job linked"}
             </p>
           </div>
           <button
             type="button"
             onClick={handleClose}
-            className="ml-2 shrink-0 rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            aria-label="Close"
+            className="ml-2 flex size-11 shrink-0 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 lg:size-8 lg:p-1.5"
           >
-            <X className="size-4" strokeWidth={2} />
+            <X className="size-5 lg:size-4" strokeWidth={2} />
           </button>
         </div>
 
@@ -381,6 +386,156 @@ function AppPanel({
   );
 }
 
+// ── Mobile card (replaces the desktop table on <lg) ──────────
+
+const STATUS_DOT: Record<ApplicationStatus, string> = {
+  new:         "bg-gray-100 text-gray-500",
+  shortlisted: "bg-[#49D7A7]/10 text-[#1a9e73]",
+  not_a_fit:   "bg-red-50 text-red-500",
+  maybe:       "bg-amber-50 text-amber-600",
+};
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.max(0, Math.floor(diffMs / 60_000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function appInitials(first: string, last: string): string {
+  const f = first?.[0] ?? "";
+  const l = last?.[0] ?? "";
+  return (f + l).toUpperCase() || "?";
+}
+
+/**
+ * Compact application card for phone widths (375–414px).
+ * Renders only on `<lg`; the desktop table is hidden on mobile.
+ * Whole surface is one tappable button — actions live inside the
+ * full-screen detail panel so the row stays a single touch target.
+ */
+function ApplicationCardMobile({
+  app,
+  onView,
+}: {
+  app: JobApplication;
+  onView: () => void;
+}) {
+  const meta = STATUS_META[app.status];
+  return (
+    <button
+      type="button"
+      onClick={onView}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start gap-3">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-heading text-xs font-bold text-[#7E47FF]">
+            {appInitials(app.first_name, app.last_name)}
+          </span>
+          <div className="min-w-0 flex-1">
+            <div className="flex items-center justify-between gap-2">
+              <p className="truncate font-heading text-base font-bold text-gray-900">
+                {app.first_name} {app.last_name}
+              </p>
+              <span
+                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_DOT[app.status]}`}
+              >
+                {meta.label}
+              </span>
+            </div>
+            <p className="mt-0.5 truncate text-sm font-semibold text-[#7E47FF]">
+              {app.job_title || "No job linked"}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-400">{app.email}</p>
+          </div>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          {app.source === "manual_upload" ? (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-blue-50 px-2 py-0.5 text-[10px] font-semibold text-blue-600">
+              <span className="size-1.5 rounded-full bg-blue-500" />
+              Manual upload
+            </span>
+          ) : (
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
+              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+              Job post
+            </span>
+          )}
+          {app.linkedin_url && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-[#0A66C2]/10 px-2 py-0.5 text-[10px] font-semibold text-[#0A66C2]">
+              LinkedIn
+            </span>
+          )}
+          {app.cv_url && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
+              <FileText className="size-2.5" strokeWidth={2.5} />
+              CV
+            </span>
+          )}
+        </div>
+
+        <p className="mt-3 text-[11px] text-gray-400">
+          Applied {relativeTime(app.created_at)}
+        </p>
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View application
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </button>
+  );
+}
+
+// ── Mobile filter bottom-sheet group ─────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────
 
 export function ApplicationsDashboard({
@@ -452,6 +607,32 @@ export function ApplicationsDashboard({
   const [filterJob, setFilterJob] = useState("all");
   const [filterStatus, setFilterStatus] = useState("all");
 
+  // Mobile-only UI state. Detail panel responsiveness is handled with
+  // Tailwind `lg:` classes inside AppPanel — no JS branch needed.
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+
+  function clearAllFilters() {
+    setFilterJob("all");
+    setFilterStatus("all");
+  }
+
+  const activeFilterCount =
+    (filterJob !== "all" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
+
   // Lower-cased query the row highlight uses to flag matching rows.
   const searchLower = search.trim().toLowerCase();
 
@@ -521,21 +702,93 @@ export function ApplicationsDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-xl px-8 py-8">
-        <div className="mb-6">
-          <p className="text-xs text-gray-400">Applications</p>
-          <h1 className="font-heading text-2xl font-bold text-gray-900">Applications</h1>
+      <main className="mx-auto max-w-screen-xl px-4 py-6 lg:px-8 lg:py-8">
+        <div className="mb-6 flex items-center justify-between gap-3">
+          <div>
+            <p className="text-xs text-gray-400">Applications</p>
+            <h1 className="font-heading text-2xl font-bold text-gray-900">Applications</h1>
+            <p className="mt-1 text-sm text-gray-500 lg:hidden">
+              {filtered.length} of {apps.length} applications
+            </p>
+          </div>
+          {canUpload && (
+            <button
+              type="button"
+              onClick={() => setShowUpload(true)}
+              aria-label="Upload CV"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-[#7E47FF] px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 lg:hidden"
+            >
+              <Upload className="size-4" strokeWidth={2} />
+              Upload
+            </button>
+          )}
         </div>
 
-        {/* Stat Cards */}
-        <div className="mb-8 grid grid-cols-4 gap-5">
+        {/* Mobile search + filter trigger */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <div className="relative flex-1">
+            <SearchIcon
+              className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+              strokeWidth={2}
+            />
+            <input
+              type="text"
+              placeholder="Search by name or email…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Stat Cards — 2-col on phones, 4-col on desktop */}
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:mb-8 lg:grid-cols-4 lg:gap-5">
           {statCards.map((c) => (
             <StatCard key={c.label} card={c} />
           ))}
         </div>
 
-        {/* Table Card */}
-        <div className="overflow-hidden rounded-2xl bg-white shadow-sm">
+        {/* Mobile card list (replaces desktop table on <lg) */}
+        <div className="lg:hidden">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
+              <FileText className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
+              <p className="font-heading text-sm font-semibold text-gray-700">No applications found</p>
+              <p className="mt-1 text-xs text-gray-400">Try clearing a filter or broadening your search.</p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {pageItems.map((app) => (
+                  <ApplicationCardMobile
+                    key={app.id}
+                    app={app}
+                    onView={() => setPanelApp(app)}
+                  />
+                ))}
+              </div>
+              <div className="mt-6">
+                <PaginationControls page={page} setPage={setPage} total={filtered.length} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Desktop table card */}
+        <div className="hidden overflow-hidden rounded-2xl bg-white shadow-sm lg:block">
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-6 py-4">
             <input
@@ -715,6 +968,84 @@ export function ApplicationsDashboard({
           )}
         </div>
       </main>
+
+      {/* Mobile filter bottom sheet — slides up from bottom on <lg */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <FilterSheetGroup
+            label="Status"
+            value={filterStatus}
+            onChange={setFilterStatus}
+            options={[
+              { value: "all",         label: "All" },
+              { value: "new",         label: "New" },
+              { value: "shortlisted", label: "Shortlisted" },
+              { value: "maybe",       label: "Maybe" },
+              { value: "not_a_fit",   label: "Not a Good Fit" },
+            ]}
+          />
+          <FilterSheetGroup
+            label="Job Role"
+            value={filterJob}
+            onChange={setFilterJob}
+            options={[
+              { value: "all", label: "All roles" },
+              ...jobRoles.map((r) => ({ value: r, label: r })),
+            ]}
+          />
+        </div>
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear all
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
 
       {/* Bulk Upload CV Modal */}
       {showUpload && (
