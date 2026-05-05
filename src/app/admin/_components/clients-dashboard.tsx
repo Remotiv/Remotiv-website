@@ -8,6 +8,7 @@ import {
   Archive,
   Briefcase,
   Building2,
+  Check,
   CheckCircle,
   ChevronRight,
   Copy,
@@ -342,12 +343,41 @@ function ClientDrawer({
 
   const [busyStatus, setBusyStatus] = useState<ClientStatus | null>(null);
 
+  // Copy-to-clipboard feedback for the credentials section. `copiedField`
+  // tracks which row's check icon should flash; `copiedAll` covers the
+  // header "Copy All" button.
+  const [copiedField, setCopiedField] = useState<"email" | "url" | null>(null);
+  const [copiedAll, setCopiedAll] = useState(false);
+
   useEffect(() => {
     setShowResetForm(false);
     setNewPassword("");
     setShowNewPassword(false);
     setResetError(null);
+    setCopiedField(null);
+    setCopiedAll(false);
   }, [client.id]);
+
+  async function handleCopyField(text: string, field: "email" | "url") {
+    try {
+      await navigator.clipboard.writeText(text);
+      setCopiedField(field);
+      setTimeout(() => setCopiedField(null), 1500);
+    } catch {
+      // Clipboard write blocked — leave the user to copy manually.
+    }
+  }
+
+  async function handleCopyAllCreds() {
+    const blob = `Email: ${client.email}\nLogin URL: ${CLIENT_LOGIN_URL}`;
+    try {
+      await navigator.clipboard.writeText(blob);
+      setCopiedAll(true);
+      setTimeout(() => setCopiedAll(false), 1500);
+    } catch {
+      // Clipboard write blocked — leave the user to copy manually.
+    }
+  }
 
   async function handleSetStatus(s: ClientStatus) {
     setBusyStatus(s);
@@ -421,6 +451,95 @@ function ClientDrawer({
         </div>
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
+          {/* Login Credentials — always visible at the top of the panel. */}
+          <section className="mb-5 rounded-2xl border border-[#7E47FF]/15 bg-[#7E47FF]/5 p-4">
+            <div className="mb-3 flex items-center justify-between gap-2">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#7E47FF]">
+                Login Credentials
+              </h3>
+              <button
+                type="button"
+                onClick={handleCopyAllCreds}
+                className="flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/10"
+              >
+                {copiedAll ? (
+                  <>
+                    <Check className="size-3.5" strokeWidth={2.5} />
+                    Copied!
+                  </>
+                ) : (
+                  <>
+                    <Copy className="size-3.5" strokeWidth={2} />
+                    Copy All
+                  </>
+                )}
+              </button>
+            </div>
+
+            <div className="space-y-2.5">
+              {/* Email */}
+              <div className="rounded-xl border border-[#7E47FF]/10 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      Login Email
+                    </p>
+                    <p className="mt-0.5 truncate text-sm font-semibold text-[#111]">
+                      {client.email}
+                    </p>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyField(client.email, "email")}
+                    aria-label={copiedField === "email" ? "Copied email" : "Copy email"}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#7E47FF]/10 text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                  >
+                    {copiedField === "email" ? (
+                      <Check className="size-4 text-green-600" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="size-4" strokeWidth={2} />
+                    )}
+                  </button>
+                </div>
+              </div>
+
+              {/* Login URL */}
+              <div className="rounded-xl border border-[#7E47FF]/10 bg-white p-3">
+                <div className="flex items-center justify-between gap-2">
+                  <div className="min-w-0 flex-1">
+                    <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+                      Login URL
+                    </p>
+                    <a
+                      href={CLIENT_LOGIN_URL}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="mt-0.5 block truncate font-mono text-xs text-[#7E47FF] underline hover:text-[#6c39e0]"
+                    >
+                      {CLIENT_LOGIN_URL}
+                    </a>
+                  </div>
+                  <button
+                    type="button"
+                    onClick={() => handleCopyField(CLIENT_LOGIN_URL, "url")}
+                    aria-label={copiedField === "url" ? "Copied URL" : "Copy URL"}
+                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#7E47FF]/10 text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                  >
+                    {copiedField === "url" ? (
+                      <Check className="size-4 text-green-600" strokeWidth={2.5} />
+                    ) : (
+                      <Copy className="size-4" strokeWidth={2} />
+                    )}
+                  </button>
+                </div>
+              </div>
+            </div>
+
+            <p className="mt-3 text-[10px] text-gray-500">
+              Use &quot;Reset Password&quot; below to generate a new password for this client.
+            </p>
+          </section>
+
           <DrawerSection title="Account Details">
             <div className="grid grid-cols-1 gap-2 text-xs">
               <DrawerKv label="Created" value={fmtDateTime(client.created_at)} />
