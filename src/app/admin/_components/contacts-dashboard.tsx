@@ -4,11 +4,14 @@ import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  CalendarDays,
   CheckCircle,
+  ChevronRight,
   Mail,
   MessageSquare,
   Save,
   Search as SearchIcon,
+  SlidersHorizontal,
   Trash2,
   X,
 } from "lucide-react";
@@ -174,21 +177,23 @@ function InquiryDrawer({
 
   return (
     <div className="fixed inset-0 z-40 flex">
+      {/* Backdrop — desktop only. On mobile the panel covers the full
+          viewport so a separate dim layer would be invisible. */}
       <button
         type="button"
         aria-label="Close drawer"
         onClick={onClose}
-        className="flex-1 bg-black/30 backdrop-blur-sm"
+        className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
       />
-      <div className="flex h-full w-[460px] shrink-0 flex-col bg-white shadow-2xl">
-        <div className="relative shrink-0 border-b border-gray-100 px-6 py-5">
+      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]">
+        <div className="relative shrink-0 border-b border-gray-100 px-4 py-5 lg:px-6">
           <button
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-4 flex size-8 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
+            className="absolute right-3 top-3 flex size-11 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 lg:right-4 lg:top-4 lg:size-8"
           >
-            <X className="size-4" strokeWidth={2.5} />
+            <X className="size-5 lg:size-4" strokeWidth={2.5} />
           </button>
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
             {type === "booking" ? "Booking request" : "Inquiry"}
@@ -335,6 +340,194 @@ function DrawerSection({ title, children }: { title: string; children: React.Rea
   );
 }
 
+// ── Mobile cards (replace the wide desktop table on <lg) ────
+
+function relativeTime(iso: string): string {
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.max(0, Math.floor(diffMs / 60_000));
+  if (min < 1) return "just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function InquiryCardMobile({
+  inquiry,
+  onClick,
+}: {
+  inquiry: Inquiry;
+  onClick: () => void;
+}) {
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {inquiry.name || "No name"}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {inquiry.email}
+            </p>
+            {inquiry.company && (
+              <p className="mt-0.5 truncate text-[11px] text-gray-400">
+                {inquiry.company}
+              </p>
+            )}
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[inquiry.status]}`}
+          >
+            {STATUS_LABEL[inquiry.status] ?? inquiry.status}
+          </span>
+        </div>
+
+        {inquiry.service && (
+          <span className="mt-2 inline-block rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+            {inquiry.service}
+          </span>
+        )}
+
+        {inquiry.message && (
+          <p className="mt-3 line-clamp-2 text-sm text-gray-600">
+            {inquiry.message}
+          </p>
+        )}
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-xs text-gray-500">
+        {relativeTime(inquiry.created_at)}
+        <span className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]">
+          View
+          <ChevronRight className="size-4" strokeWidth={2.5} />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+function BookingCardMobile({
+  booking,
+  onClick,
+}: {
+  booking: Inquiry;
+  onClick: () => void;
+}) {
+  // Bookings store the requested slot in `preferred_date` + `preferred_time`
+  // (free-text "morning" / "afternoon" / etc. — there's no exact timestamp).
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {booking.name || "No name"}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {booking.email}
+            </p>
+            {booking.company && (
+              <p className="mt-0.5 truncate text-[11px] text-gray-400">
+                {booking.company}
+              </p>
+            )}
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[booking.status]}`}
+          >
+            {STATUS_LABEL[booking.status] ?? booking.status}
+          </span>
+        </div>
+
+        {(booking.preferred_date || booking.preferred_time) && (
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#7E47FF]/5 p-2.5">
+            <CalendarDays className="size-4 shrink-0 text-[#7E47FF]" strokeWidth={2} />
+            <div className="min-w-0 flex-1">
+              {booking.preferred_date && (
+                <p className="truncate text-xs font-semibold text-[#111]">
+                  {fmtDate(booking.preferred_date)}
+                </p>
+              )}
+              {booking.preferred_time && (
+                <p className="truncate text-[11px] text-gray-600">
+                  {booking.preferred_time}
+                </p>
+              )}
+            </div>
+          </div>
+        )}
+
+        {booking.service && (
+          <span className="mt-2 inline-block rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+            {booking.service}
+          </span>
+        )}
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-xs text-gray-500">
+        Booked {relativeTime(booking.created_at)}
+        <span className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]">
+          View
+          <ChevronRight className="size-4" strokeWidth={2.5} />
+        </span>
+      </div>
+    </button>
+  );
+}
+
+// ── Mobile filter bottom-sheet group ─────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Main dashboard ──────────────────────────────────────────
 
 export function ContactsDashboard({
@@ -360,6 +553,24 @@ export function ContactsDashboard({
   const [openId, setOpenId] = useState<string | null>(null);
   const [openType, setOpenType] = useState<InquiryType>("inquiry");
   const [toast, setToast] = useState<string | null>(null);
+
+  // Mobile-only filter drawer. The detail drawer's structural mobile/desktop
+  // difference is handled with Tailwind `lg:` classes inside InquiryDrawer.
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+  const activeFilterCount = filterStatus !== "All" ? 1 : 0;
 
   useEffect(() => setInquiries(initialInquiries), [initialInquiries]);
   useEffect(() => setBookings(initialBookings), [initialBookings]);
@@ -429,7 +640,7 @@ export function ContactsDashboard({
     <div className="min-h-screen bg-[#f8f4f1]">
       <TopNav email={email} userRole={userRole} />
 
-      <main className="mx-auto max-w-screen-2xl px-8 py-8">
+      <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         <div className="mb-6">
           <p className="text-xs text-gray-400">Contacts</p>
           <h1 className="font-heading text-2xl font-bold text-gray-900">Inquiries & Bookings</h1>
@@ -438,14 +649,91 @@ export function ContactsDashboard({
           </p>
         </div>
 
-        <div className="mb-6 grid grid-cols-2 gap-4 lg:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           <StatCard label="Total" value={totalCount} tint="text-gray-400" />
           <StatCard label="New" value={newCount} tint="text-blue-600" />
           <StatCard label="This Week" value={thisWeekCount} tint="text-[#7E47FF]" />
           <StatCard label="Conversion" value={conversion} tint="text-[#1a9e73]" />
         </div>
 
-        <div className="mb-6 flex flex-wrap items-center justify-between gap-4">
+        {/* Mobile: iOS-style segmented toggle */}
+        <div className="mb-4 lg:hidden">
+          <div className="flex gap-1 rounded-2xl bg-gray-100 p-1">
+            <button
+              type="button"
+              onClick={() => { setTab("inquiries"); setFilterStatus("All"); }}
+              className={`flex min-h-[40px] flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all ${
+                tab === "inquiries"
+                  ? "bg-white text-[#111] shadow-sm"
+                  : "text-gray-500"
+              }`}
+            >
+              Inquiries
+              {inquiries.length > 0 && (
+                <span
+                  className={`inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    tab === "inquiries" ? "bg-[#7E47FF] text-white" : "bg-gray-200 text-gray-600"
+                  }`}
+                >
+                  {inquiries.length}
+                </span>
+              )}
+            </button>
+            <button
+              type="button"
+              onClick={() => { setTab("bookings"); setFilterStatus("All"); }}
+              className={`flex min-h-[40px] flex-1 items-center justify-center gap-2 rounded-xl py-2.5 text-sm font-semibold transition-all ${
+                tab === "bookings"
+                  ? "bg-white text-[#111] shadow-sm"
+                  : "text-gray-500"
+              }`}
+            >
+              Bookings
+              {bookings.length > 0 && (
+                <span
+                  className={`inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
+                    tab === "bookings" ? "bg-[#7E47FF] text-white" : "bg-gray-200 text-gray-600"
+                  }`}
+                >
+                  {bookings.length}
+                </span>
+              )}
+            </button>
+          </div>
+        </div>
+
+        {/* Mobile: search + Filters trigger row */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <div className="relative flex-1">
+            <SearchIcon
+              className="absolute left-3 top-1/2 size-4 -translate-y-1/2 text-gray-400"
+              strokeWidth={2}
+            />
+            <input
+              type="text"
+              placeholder="Search…"
+              value={search}
+              onChange={(e) => setSearch(e.target.value)}
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+            />
+          </div>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            aria-label="Open filters"
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+        </div>
+
+        {/* Desktop: tabs + search row */}
+        <div className="mb-6 hidden flex-wrap items-center justify-between gap-4 lg:flex">
           <div className="inline-flex rounded-2xl bg-white p-1 shadow-sm">
             <button
               type="button"
@@ -489,7 +777,8 @@ export function ContactsDashboard({
           </div>
         </div>
 
-        <div className="mb-6 flex flex-wrap gap-2">
+        {/* Desktop: status pill row */}
+        <div className="mb-6 hidden flex-wrap gap-2 lg:flex">
           {STATUS_FILTERS.map((s) => (
             <button
               key={s}
@@ -506,7 +795,40 @@ export function ContactsDashboard({
           ))}
         </div>
 
-        <div className="overflow-x-auto rounded-2xl border border-black/[0.05] bg-white shadow-sm">
+        {/* Mobile card list — replaces the wide desktop table on <lg */}
+        <div className="lg:hidden">
+          {filtered.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
+              <MessageSquare className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
+              <p className="font-heading text-sm font-semibold text-gray-700">
+                {activeRows.length === 0
+                  ? `No ${tab === "bookings" ? "bookings" : "inquiries"} yet`
+                  : "No rows match your filters"}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {pageItems.map((row) => {
+                  const onClick = () => {
+                    setOpenType(tab === "bookings" ? "booking" : "inquiry");
+                    setOpenId(row.id);
+                  };
+                  return tab === "bookings" ? (
+                    <BookingCardMobile key={row.id} booking={row} onClick={onClick} />
+                  ) : (
+                    <InquiryCardMobile key={row.id} inquiry={row} onClick={onClick} />
+                  );
+                })}
+              </div>
+              <div className="mt-4">
+                <PaginationControls page={page} setPage={setPage} total={filtered.length} />
+              </div>
+            </>
+          )}
+        </div>
+
+        <div className="hidden overflow-x-auto rounded-2xl border border-black/[0.05] bg-white shadow-sm lg:block">
           <table className="w-full text-sm">
             <thead className="border-b border-gray-100 bg-gray-50/60">
               <tr>
@@ -591,6 +913,70 @@ export function ContactsDashboard({
           )}
         </div>
       </main>
+
+      {/* Mobile filter bottom sheet */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <FilterSheetGroup
+          label="Status"
+          value={filterStatus}
+          onChange={setFilterStatus}
+          options={STATUS_FILTERS.map((s) => ({
+            value: s,
+            label: STATUS_LABEL[s] ?? s,
+          }))}
+        />
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={() => setFilterStatus("All")}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
 
       {openInquiry && (
         <InquiryDrawer
