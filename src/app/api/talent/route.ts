@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getAvatarUrl } from "@/lib/avatars";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 
 export const runtime = "nodejs";
@@ -10,21 +11,6 @@ const ALLOWED_IMAGE_TYPES = [
   "image/png",
   "image/webp",
   "image/gif",
-];
-
-const MALE_AVATARS = [
-  "/avatars/male 1.png", "/avatars/male 2.png", "/avatars/male 3.png", "/avatars/male 4.png",
-  "/avatars/male 5.png", "/avatars/male 6.png", "/avatars/male 7.png", "/avatars/male 8.png",
-  "/avatars/male 9.png", "/avatars/male 10.png", "/avatars/male 11.png", "/avatars/male 12.png",
-  "/avatars/male 16.png", "/avatars/male 17.png", "/avatars/male 18.png", "/avatars/male 19.png",
-];
-
-const FEMALE_AVATARS = [
-  "/avatars/female 2.png", "/avatars/female 3.png", "/avatars/female 4.png", "/avatars/female 5.png",
-  "/avatars/female 6.png", "/avatars/female 7.png", "/avatars/female 8.png", "/avatars/female 9.png",
-  "/avatars/female 10.png", "/avatars/female 11.png", "/avatars/female 12.png", "/avatars/female 13.png",
-  "/avatars/female 15.png", "/avatars/female 16.png", "/avatars/female 17.png", "/avatars/female 18.png",
-  "/avatars/female 19.png",
 ];
 
 function nullable(v: FormDataEntryValue | null): string | null {
@@ -41,11 +27,6 @@ function intOrNull(v: FormDataEntryValue | null): number | null {
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
-}
-
-function pickAvatar(): string {
-  const pool = MALE_AVATARS;
-  return pool[Math.floor(Math.random() * pool.length)] ?? MALE_AVATARS[0];
 }
 
 function fileExt(name: string): string {
@@ -214,7 +195,8 @@ export async function POST(request: NextRequest) {
       const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       avatarUrl = pUrl.publicUrl;
     } else {
-      avatarUrl = pickAvatar();
+      // Deterministic gender-aware fallback. Same name → same avatar.
+      avatarUrl = getAvatarUrl(firstName, lastName);
     }
 
     // 3. Upload CV (optional — talent profile can exist without a CV early on)

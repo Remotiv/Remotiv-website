@@ -31,10 +31,15 @@ import {
   YAxis,
 } from "recharts";
 import type { UserRole } from "@/app/admin/lib/roles";
+import { ROLE_LABELS } from "@/app/admin/lib/roles";
 import type {
   ActivityItem,
   ActivityKind,
   DashboardStats,
+  LoginActivityItem,
+  MeetingDay,
+  MeetingItem,
+  MeetingKind,
   MetricResult,
   PipelineSlice,
   StatusSlice,
@@ -295,6 +300,8 @@ export function OverviewDashboard({
   applicationsByStatus,
   pipelineStats,
   activity,
+  loginActivity,
+  meetingSchedule,
 }: {
   email: string;
   userRole?: UserRole;
@@ -303,6 +310,8 @@ export function OverviewDashboard({
   applicationsByStatus: StatusSlice[];
   pipelineStats: PipelineSlice[];
   activity: ActivityItem[];
+  loginActivity: LoginActivityItem[];
+  meetingSchedule: MeetingDay[];
 }) {
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
@@ -595,8 +604,223 @@ export function OverviewDashboard({
             )}
           </div>
         </div>
+
+        {/* Login Activity */}
+        <div className="mb-4 rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+          <div className="mb-5 flex items-center justify-between">
+            <div>
+              <h2 className="font-heading text-base font-semibold text-[#111]">
+                Login Activity
+              </h2>
+              <p className="mt-0.5 text-xs text-gray-400">
+                Admin team last sign-ins
+              </p>
+            </div>
+            <Link
+              href="/admin/team"
+              className="text-xs font-semibold text-[#7E47FF] hover:underline"
+            >
+              Manage Team →
+            </Link>
+          </div>
+          {loginActivity.length === 0 ? (
+            <p className="py-8 text-center text-sm text-gray-400">
+              No active admins
+            </p>
+          ) : (
+            <div className="flex flex-col gap-1.5">
+              {loginActivity.map((u) => (
+                <LoginActivityRow key={u.user_id} item={u} />
+              ))}
+            </div>
+          )}
+        </div>
+
+        {/* Meeting & Interview Schedule */}
+        <MeetingSchedule schedule={meetingSchedule} />
       </div>
     </div>
+  );
+}
+
+// ── Login activity row ───────────────────────────────────────
+
+const ROLE_GRADIENT: Record<LoginActivityItem["role"], string> = {
+  super_admin: "linear-gradient(135deg, #7E47FF, #9886FE)",
+  admin: "linear-gradient(135deg, #49D7A7, #3bc494)",
+  viewer: "linear-gradient(135deg, #93c5fd, #3b82f6)",
+};
+
+function fullNameInitials(name: string): string {
+  const parts = name.split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return "?";
+  if (parts.length === 1) return parts[0].slice(0, 2).toUpperCase();
+  return (parts[0][0] + parts[parts.length - 1][0]).toUpperCase();
+}
+
+function formatLastSignIn(iso: string | null): string {
+  if (!iso) return "Never logged in";
+  const diffMs = Date.now() - new Date(iso).getTime();
+  const min = Math.max(0, Math.floor(diffMs / 60_000));
+  if (min < 1) return "Just now";
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.floor(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.floor(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function LoginActivityRow({ item }: { item: LoginActivityItem }) {
+  const initials = fullNameInitials(item.full_name);
+  const isActive = item.status === "active";
+  return (
+    <div className="-mx-2 flex items-center justify-between rounded-xl px-2 py-2 transition-colors hover:bg-gray-50">
+      <div className="flex min-w-0 items-center gap-3">
+        <div
+          className="flex size-10 shrink-0 items-center justify-center rounded-full font-heading text-sm font-bold text-white"
+          style={{ background: ROLE_GRADIENT[item.role] }}
+        >
+          {initials}
+        </div>
+        <div className="min-w-0">
+          <p className="truncate text-sm font-semibold text-[#111]">
+            {item.full_name}
+          </p>
+          <p className="truncate text-xs text-gray-400">
+            {item.role_label} · {ROLE_LABELS[item.role]}
+          </p>
+        </div>
+      </div>
+      <div className="ml-4 shrink-0 text-right">
+        <div className="flex items-center justify-end gap-1.5">
+          <span
+            className={`size-1.5 rounded-full ${isActive ? "bg-emerald-500" : "bg-gray-300"}`}
+          />
+          <span className="text-[11px] font-semibold capitalize text-gray-600">
+            {item.status}
+          </span>
+        </div>
+        <p className="mt-0.5 text-[11px] text-gray-400">
+          {formatLastSignIn(item.last_sign_in_at)}
+        </p>
+      </div>
+    </div>
+  );
+}
+
+// ── Meeting schedule ─────────────────────────────────────────
+
+const MEETING_COLOR: Record<MeetingKind, { bg: string; label: string }> = {
+  booking: { bg: "#7E47FF", label: "Discovery Call" },
+  interview: { bg: "#49D7A7", label: "Client Interview" },
+};
+
+function fmtMeetingTime(iso: string): string {
+  return new Date(iso).toLocaleTimeString("en-US", {
+    hour: "numeric",
+    minute: "2-digit",
+  });
+}
+
+function MeetingSchedule({ schedule }: { schedule: MeetingDay[] }) {
+  const monthLabel = new Date().toLocaleDateString("en-GB", {
+    month: "long",
+    year: "numeric",
+  });
+  const totalCount = schedule.reduce((s, d) => s + d.meetings.length, 0);
+
+  return (
+    <div className="rounded-2xl border border-gray-100 bg-white p-6 shadow-sm">
+      <div className="mb-5 flex items-center justify-between">
+        <div>
+          <h2 className="font-heading text-base font-semibold text-[#111]">
+            Meeting &amp; Interview Schedule
+          </h2>
+          <p className="mt-0.5 text-xs text-gray-400">
+            Next 7 days · Discovery calls + client interviews
+          </p>
+        </div>
+        <span className="rounded-lg bg-gray-50 px-3 py-1 text-xs text-gray-400">
+          {monthLabel}
+        </span>
+      </div>
+
+      {totalCount === 0 ? (
+        <p className="py-8 text-center text-sm text-gray-400">
+          Nothing scheduled this week.
+        </p>
+      ) : (
+        <div className="grid grid-cols-7 gap-2 sm:gap-3">
+          {schedule.map((day) => (
+            <MeetingDayCell key={day.date} day={day} />
+          ))}
+        </div>
+      )}
+
+      <div className="mt-5 flex items-center gap-5 border-t border-gray-100 pt-4">
+        <div className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-[#7E47FF]" />
+          <span className="text-xs text-gray-500">Discovery Call</span>
+        </div>
+        <div className="flex items-center gap-2">
+          <span className="size-2.5 rounded-full bg-[#49D7A7]" />
+          <span className="text-xs text-gray-500">Client Interview</span>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function MeetingDayCell({ day }: { day: MeetingDay }) {
+  return (
+    <div className="flex min-h-[180px] flex-col gap-2.5">
+      <div className="text-center">
+        <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
+          {day.dayName}
+        </p>
+        {day.isToday ? (
+          <p className="mx-auto mt-1 flex size-8 items-center justify-center rounded-full bg-[#7E47FF] font-heading text-sm font-bold text-white">
+            {day.dayNum}
+          </p>
+        ) : (
+          <p className="mt-1 font-heading text-lg font-bold text-[#111]">
+            {day.dayNum}
+          </p>
+        )}
+      </div>
+      <div className="flex flex-col gap-1.5">
+        {day.meetings.length === 0 ? (
+          <p className="text-center text-xs text-gray-300">—</p>
+        ) : (
+          day.meetings.map((m) => <MeetingCard key={m.id} meeting={m} />)
+        )}
+      </div>
+    </div>
+  );
+}
+
+function MeetingCard({ meeting }: { meeting: MeetingItem }) {
+  const color = MEETING_COLOR[meeting.type];
+  return (
+    <Link
+      href={meeting.link}
+      className="block rounded-xl p-2.5 text-white transition-opacity hover:opacity-90"
+      style={{ background: color.bg }}
+    >
+      <p className="truncate text-[11px] font-bold leading-tight">
+        {meeting.title}
+      </p>
+      <p className="mt-0.5 truncate text-[10px] opacity-85">
+        {meeting.subtitle}
+      </p>
+      <p className="mt-1 text-[10px] font-medium opacity-90">
+        {fmtMeetingTime(meeting.date)}
+      </p>
+    </Link>
   );
 }
 

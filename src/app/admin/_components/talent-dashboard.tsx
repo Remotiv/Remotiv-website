@@ -1,5 +1,11 @@
 "use client";
 
+// AVATARS: We always recompute avatar URL via getAvatarUrl(first, last) at
+// render time instead of trusting profile.avatar_url, because legacy DB
+// rows may contain broken URL formats from older insert paths
+// (e.g. "/avatars/male 1.png" with spaces — those files don't exist on
+// disk; only the dash + zero-padded format does). Reader is self-healing.
+
 import { useState, useEffect, useMemo } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -35,6 +41,7 @@ import {
   type TalentStatus,
 } from "@/app/admin/talent/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
+import { getAvatarUrl } from "@/lib/avatars";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -159,28 +166,37 @@ function Avatar({
   profile: TalentProfile;
   size: number;
 }) {
-  const url = profile.avatar_url;
-  const isImg = url && (url.startsWith("/avatars/") || url.startsWith("http"));
+  // Self-healing: we always recompute via getAvatarUrl rather than trust the
+  // stored avatar_url. See file header comment.
   const fullName = `${profile.first_name} ${profile.last_name ?? ""}`.trim();
+  const [errored, setErrored] = useState(false);
+  const url = getAvatarUrl(profile.first_name, profile.last_name);
 
-  if (isImg && url) {
+  if (errored) {
     return (
-      <div
-        className="relative shrink-0 overflow-hidden rounded-full"
-        style={{ width: size, height: size }}
+      <span
+        className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF]"
+        style={{ width: size, height: size, fontSize: Math.max(10, size / 3) }}
       >
-        <Image src={url} alt={fullName} fill className="object-cover" sizes={`${size}px`} />
-      </div>
+        {getInitials(fullName) || "?"}
+      </span>
     );
   }
 
   return (
-    <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF]"
-      style={{ width: size, height: size, fontSize: Math.max(10, size / 3) }}
+    <div
+      className="relative shrink-0 overflow-hidden rounded-full"
+      style={{ width: size, height: size }}
     >
-      {getInitials(fullName) || "?"}
-    </span>
+      <Image
+        src={url}
+        alt={fullName}
+        fill
+        className="object-cover"
+        sizes={`${size}px`}
+        onError={() => setErrored(true)}
+      />
+    </div>
   );
 }
 

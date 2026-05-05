@@ -33,6 +33,7 @@ import {
   type UserRole,
   canManageTeam,
 } from "@/app/admin/lib/roles";
+import { getAvatarUrl } from "@/lib/avatars";
 
 const ADMIN_LOGIN_URL =
   process.env.NEXT_PUBLIC_ADMIN_LOGIN_URL ??
@@ -54,22 +55,16 @@ const PERMISSIONS: { value: MemberInput["permission"]; label: string }[] = [
   { value: "viewer", label: "Viewer" },
 ];
 
-// ── Avatar pools (clean filenames only) ───────────────────────
-const MALE_AVATARS = [
-  "male 2.png","male 3.png","male 4.png","male 5.png","male 6.png",
-  "male 7.png","male 8.png","male 9.png","male 10.png","male 11.png",
-  "male 12.png","male 16.png","male 17.png","male 18.png","male 19.png",
-];
-const FEMALE_AVATARS = [
-  "female 2.png","female 3.png","female 4.png","female 5.png","female 6.png",
-  "female 7.png","female 8.png","female 9.png","female 10.png","female 11.png",
-  "female 12.png","female 13.png","female 15.png","female 16.png","female 17.png",
-  "female 18.png","female 19.png",
-];
+// Avatar selection now flows through getAvatarUrl(first, last) from
+// @/lib/avatars — see addMember handler below. Reads are also self-healing
+// (we recompute the URL at render time and ignore member.avatar_url) so any
+// legacy rows from the old hardcoded pool render correctly today.
 
-function pickAvatar(gender: string): string {
-  const pool = gender === "female" ? FEMALE_AVATARS : MALE_AVATARS;
-  return pool[Math.floor(Math.random() * pool.length)];
+function splitFullName(fullName: string): { first: string; last: string } {
+  const parts = fullName.trim().split(/\s+/).filter(Boolean);
+  if (parts.length === 0) return { first: "", last: "" };
+  if (parts.length === 1) return { first: parts[0], last: "" };
+  return { first: parts[0], last: parts.slice(1).join(" ") };
 }
 
 type StatCardDef = {
@@ -118,6 +113,43 @@ function fmtDate(iso: string): string {
     month: "short",
     year: "numeric",
   });
+}
+
+/**
+ * Self-healing avatar for a team member. We always recompute the URL via
+ * getAvatarUrl(first, last) — never trust member.avatar_url — because
+ * legacy rows may store broken "male 2.png" strings (the old hardcoded
+ * pool used filenames that don't exist on disk). Initials chip fallback
+ * if the image still fails to load.
+ */
+function MemberAvatar({ member }: { member: TeamMember }) {
+  const { first, last } = splitFullName(member.full_name);
+  const url = getAvatarUrl(first, last);
+  const [errored, setErrored] = useState(false);
+
+  if (errored) {
+    return (
+      <div
+        className="flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
+        style={{ background: memberColor(member.email) }}
+      >
+        {getInitials(member.full_name)}
+      </div>
+    );
+  }
+
+  return (
+    <div className="relative size-12 shrink-0 overflow-hidden rounded-full">
+      <Image
+        src={url}
+        alt={member.full_name}
+        fill
+        sizes="48px"
+        className="object-cover"
+        onError={() => setErrored(true)}
+      />
+    </div>
+  );
 }
 
 // ── Component ────────────────────────────────────────────────
@@ -218,9 +250,10 @@ export function TeamDashboard({
         prev.map((m) => (m.id === editingMember.id ? result.data : m)),
       );
     } else {
+      const { first, last } = splitFullName(form.full_name);
       const result = await addMember({
         ...form,
-        avatar_url: pickAvatar(form.gender),
+        avatar_url: getAvatarUrl(first, last),
       });
       if (!result.success) {
         setMutError(result.error);
@@ -428,23 +461,7 @@ export function TeamDashboard({
 
                 {/* Avatar + name */}
                 <div className="mb-4 flex items-center gap-3.5">
-                  {member.avatar_url ? (
-                    <div className="relative size-12 shrink-0 overflow-hidden rounded-full">
-                      <Image
-                        src={`/avatars/${encodeURIComponent(member.avatar_url)}`}
-                        alt={member.full_name}
-                        fill
-                        className="object-cover"
-                      />
-                    </div>
-                  ) : (
-                    <div
-                      className="flex size-12 shrink-0 items-center justify-center rounded-full text-sm font-bold text-white"
-                      style={{ background: memberColor(member.email) }}
-                    >
-                      {getInitials(member.full_name)}
-                    </div>
-                  )}
+                  <MemberAvatar member={member} />
                   <div className="min-w-0 pr-8">
                     <p className="font-heading font-bold text-[#111]">{member.full_name}</p>
                     <p className="text-sm text-gray-400">{member.role}</p>

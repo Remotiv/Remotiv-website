@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
+import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
@@ -102,18 +103,6 @@ export async function fetchComments(
 
 // ── Move application → Talent profile ────────────────────────
 
-const MALE_AVATARS = [
-  "/avatars/male 1.png",  "/avatars/male 2.png",  "/avatars/male 3.png",  "/avatars/male 4.png",
-  "/avatars/male 5.png",  "/avatars/male 6.png",  "/avatars/male 7.png",  "/avatars/male 8.png",
-  "/avatars/male 9.png",  "/avatars/male 10.png", "/avatars/male 11.png", "/avatars/male 12.png",
-  "/avatars/male 16.png", "/avatars/male 17.png", "/avatars/male 18.png", "/avatars/male 19.png",
-];
-
-function pickAvatar(): string {
-  const pool = MALE_AVATARS;
-  return pool[Math.floor(Math.random() * pool.length)] ?? MALE_AVATARS[0];
-}
-
 export type MoveToTalentInput = {
   job_title: string;
   role_category: string;
@@ -205,7 +194,10 @@ export async function moveApplicationToTalent(
       salary_min:       additionalData.salary_min,
       salary_max:       additionalData.salary_max,
 
-      avatar_url: pickAvatar(),
+      avatar_url: getAvatarUrl(
+        typeof row.first_name === "string" ? row.first_name : null,
+        typeof row.last_name === "string" ? row.last_name : null,
+      ),
       status: "pending",
       approved_at: null,
     })

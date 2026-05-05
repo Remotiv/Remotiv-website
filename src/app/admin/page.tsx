@@ -53,6 +53,37 @@ export type ActivityItem = {
   link: string;
 };
 
+export type LoginActivityItem = {
+  user_id: string;
+  full_name: string;
+  email: string;
+  /** admin_users.role — system permission */
+  role: "super_admin" | "admin" | "viewer";
+  /** team_members.role — human label e.g. "Founder", "Recruiter" */
+  role_label: string;
+  status: string;
+  last_sign_in_at: string | null;
+};
+
+export type MeetingKind = "booking" | "interview";
+
+export type MeetingItem = {
+  id: string;
+  type: MeetingKind;
+  title: string;
+  subtitle: string;
+  date: string;
+  link: string;
+};
+
+export type MeetingDay = {
+  date: string;
+  dayName: string;
+  dayNum: number;
+  isToday: boolean;
+  meetings: MeetingItem[];
+};
+
 // ── Query helpers ────────────────────────────────────────────
 
 const DAY_MS = 24 * 60 * 60 * 1000;
@@ -336,6 +367,165 @@ async function fetchActivityFeed(
     .slice(0, 15);
 }
 
+async function fetchLoginActivity(
+  supabase: SupabaseClient,
+): Promise<LoginActivityItem[]> {
+  type AdminRow = {
+    user_id: string;
+    role: string;
+    status: string;
+    created_at: string;
+  };
+  type TeamRow = {
+    auth_user_id: string;
+    full_name: string | null;
+    email: string | null;
+    role: string | null;
+  };
+
+  const { data: adminUsers } = await supabase
+    .from("admin_users")
+    .select("user_id, role, status, created_at")
+    .eq("status", "active")
+    .order("created_at", { ascending: false });
+
+  const admins = (adminUsers ?? []) as AdminRow[];
+  if (admins.length === 0) return [];
+
+  const userIds = admins.map((a) => a.user_id);
+
+  const { data: teamMembers } = await supabase
+    .from("team_members")
+    .select("auth_user_id, full_name, email, role")
+    .in("auth_user_id", userIds);
+
+  const teamLookup = new Map<string, TeamRow>(
+    ((teamMembers ?? []) as TeamRow[]).map((m) => [m.auth_user_id, m]),
+  );
+
+  // Resolve last_sign_in_at via auth.admin.getUserById per user. Parallel
+  // so the fan-out cost is one round-trip even with ~10 admins.
+  const signInResults = await Promise.all(
+    admins.map(async (a) => {
+      try {
+        const { data } = await supabase.auth.admin.getUserById(a.user_id);
+        return data?.user?.last_sign_in_at ?? null;
+      } catch {
+        return null;
+      }
+    }),
+  );
+
+  const items: LoginActivityItem[] = admins.map((a, i) => {
+    const tm = teamLookup.get(a.user_id);
+    return {
+      user_id: a.user_id,
+      full_name: tm?.full_name?.trim() || tm?.email?.split("@")[0] || "Unknown",
+      email: tm?.email ?? "",
+      role: (a.role as LoginActivityItem["role"]) ?? "viewer",
+      role_label: tm?.role || a.role,
+      status: a.status,
+      last_sign_in_at: signInResults[i],
+    };
+  });
+
+  return items.sort((a, b) => {
+    if (!a.last_sign_in_at && !b.last_sign_in_at) return 0;
+    if (!a.last_sign_in_at) return 1;
+    if (!b.last_sign_in_at) return -1;
+    return (
+      new Date(b.last_sign_in_at).getTime() -
+      new Date(a.last_sign_in_at).getTime()
+    );
+  });
+}
+
+async function fetchMeetingSchedule(
+  supabase: SupabaseClient,
+): Promise<MeetingDay[]> {
+  const now = new Date();
+  const startOfWeek = new Date(now);
+  startOfWeek.setHours(0, 0, 0, 0);
+  const sevenDaysLater = new Date(startOfWeek);
+  sevenDaysLater.setDate(sevenDaysLater.getDate() + 7);
+
+  type BookingRow = {
+    id: string;
+    full_name: string | null;
+    created_at: string;
+  };
+  type InterviewRow = {
+    id: string;
+    first_name: string | null;
+    last_name: string | null;
+    client_decision_at: string | null;
+    batch_id: string;
+  };
+
+  // The schema does not yet expose a dedicated start_time for bookings or an
+  // interview_at on candidates — we fall back to created_at / client_decision_at
+  // until those columns ship. The window is "next 7 days" by created/decided
+  // timestamp, which lines up with how new bookings + interview requests show
+  // up on the bell as they happen.
+  const [bookingsRes, interviewsRes] = await Promise.all([
+    supabase
+      .from("bookings")
+      .select("id, full_name, created_at")
+      .gte("created_at", startOfWeek.toISOString())
+      .lt("created_at", sevenDaysLater.toISOString())
+      .order("created_at", { ascending: true }),
+    supabase
+      .from("client_batch_candidates")
+      .select("id, first_name, last_name, client_decision_at, batch_id")
+      .eq("client_decision", "request_interview")
+      .gte("client_decision_at", startOfWeek.toISOString())
+      .lt("client_decision_at", sevenDaysLater.toISOString())
+      .order("client_decision_at", { ascending: true }),
+  ]);
+
+  const meetings: MeetingItem[] = [];
+
+  for (const b of (bookingsRes.data ?? []) as BookingRow[]) {
+    meetings.push({
+      id: `b-${b.id}`,
+      type: "booking",
+      title: b.full_name || "Booking",
+      subtitle: "Discovery Call",
+      date: b.created_at,
+      link: "/admin/contacts?tab=bookings",
+    });
+  }
+  for (const i of (interviewsRes.data ?? []) as InterviewRow[]) {
+    if (!i.client_decision_at) continue;
+    const name = `${i.first_name ?? ""} ${i.last_name ?? ""}`.trim() || "Candidate";
+    meetings.push({
+      id: `i-${i.id}`,
+      type: "interview",
+      title: name,
+      subtitle: "Client Interview",
+      date: i.client_decision_at,
+      link: `/admin/client-batches/${i.batch_id}`,
+    });
+  }
+
+  const days: MeetingDay[] = [];
+  for (let i = 0; i < 7; i++) {
+    const d = new Date(startOfWeek);
+    d.setDate(d.getDate() + i);
+    const dayKey = d.toISOString().slice(0, 10);
+    days.push({
+      date: dayKey,
+      dayName: d
+        .toLocaleDateString("en-GB", { weekday: "short" })
+        .toUpperCase(),
+      dayNum: d.getDate(),
+      isToday: d.toDateString() === now.toDateString(),
+      meetings: meetings.filter((m) => m.date.slice(0, 10) === dayKey),
+    });
+  }
+  return days;
+}
+
 // ── Page ─────────────────────────────────────────────────────
 
 export default async function AdminOverviewPage() {
@@ -360,6 +550,8 @@ export default async function AdminOverviewPage() {
     applicationsByStatus,
     pipelineStats,
     activity,
+    loginActivity,
+    meetingSchedule,
     { data: roleRow },
   ] = await Promise.all([
     calculateMetric(service, "talent_profiles"),
@@ -377,6 +569,8 @@ export default async function AdminOverviewPage() {
     fetchApplicationsByStatus(service),
     fetchPipelineStats(service),
     fetchActivityFeed(service),
+    fetchLoginActivity(service),
+    fetchMeetingSchedule(service),
     service
       .from("admin_users")
       .select("role")
@@ -409,6 +603,8 @@ export default async function AdminOverviewPage() {
       applicationsByStatus={applicationsByStatus}
       pipelineStats={pipelineStats}
       activity={activity}
+      loginActivity={loginActivity}
+      meetingSchedule={meetingSchedule}
     />
   );
 }
