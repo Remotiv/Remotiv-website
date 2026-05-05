@@ -901,8 +901,6 @@ async function extractPdfText(file: File): Promise<string> {
 }
 
 function parseCvText(rawText: string): ParsedCv {
-  console.log("RAW PDF TEXT:", rawText.substring(0, 2000));
-
   // Some PDFs render each glyph with a space between it (a l i . s y e d).
   // Collapse single-space gaps between word/email/URL characters; loop until
   // the text stops changing so arbitrary-length runs are fully joined.

@@ -1,6 +1,7 @@
 "use server";
 
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin } from "@/app/admin/lib/role-guards";
 
 export type SearchSource = "application" | "talent";
 
@@ -85,6 +86,8 @@ function scoreTalent(
 }
 
 export async function searchCandidates(query: string): Promise<SearchResults> {
+  await requireAdmin();
+
   const trimmed = query.trim();
   const keywords = extractKeywords(trimmed);
 

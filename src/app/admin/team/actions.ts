@@ -1,7 +1,8 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type AdminLoginStatus = "active" | "paused" | "archived";
 
@@ -46,6 +47,7 @@ const DEFAULT_PASSWORD = "Remotiv@2026";
 export async function addMember(
   input: MemberInput,
 ): Promise<MutationResult<TeamMember>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
 
   // 1. Create Supabase auth account (skip email verification)
@@ -97,6 +99,7 @@ export async function updateMember(
   id: string,
   input: MemberInput,
 ): Promise<MutationResult<TeamMember>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("team_members")
@@ -134,6 +137,7 @@ export async function toggleMemberStatus(
   id: string,
   newStatus: "active" | "inactive",
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("team_members")
@@ -150,6 +154,7 @@ export async function toggleMemberStatus(
  * the auth-gate status — distinct from team_members.status (HR display).
  */
 export async function fetchTeamMembersWithAuthStatus(): Promise<TeamMember[]> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
 
   const { data: members } = await supabase
@@ -193,6 +198,7 @@ export async function setAdminLoginStatus(
   authUserId: string,
   status: AdminLoginStatus,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   if (!authUserId) return { success: false, error: "Missing auth user id." };
 
   const supabase = createServiceClient();
@@ -210,6 +216,7 @@ export async function setAdminLoginStatus(
 export async function removeMember(
   id: string,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
 
   // 1. Fetch auth_user_id before deleting the row

@@ -1,7 +1,8 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -40,6 +41,7 @@ export async function updateApplicationStatus(
   id: string,
   status: ApplicationStatus,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("job_applications")
@@ -56,6 +58,7 @@ export async function addComment(
   comment: string,
   authorName: string,
 ): Promise<MutationResult<ApplicationComment>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("application_comments")
@@ -71,6 +74,7 @@ export async function addComment(
 export async function deleteApplication(
   id: string,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("job_applications")
@@ -85,6 +89,7 @@ export async function deleteApplication(
 export async function fetchComments(
   applicationId: string,
 ): Promise<ApplicationComment[]> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("application_comments")
@@ -136,6 +141,7 @@ export async function moveApplicationToTalent(
   applicationId: string,
   additionalData: MoveToTalentInput,
 ): Promise<MutationResult<{ talent_id: string }>> {
+  await requireAdmin();
   const supabase = createServiceClient();
 
   // 1. Fetch the source application (select * to pick up columns the typed

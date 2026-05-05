@@ -5,7 +5,6 @@ import { usePathname, useRouter } from "next/navigation";
 import {
   LayoutDashboard,
   MessageSquare,
-  UserCircle,
   CalendarDays,
   Users,
   LogOut,
@@ -15,7 +14,6 @@ import { createClient } from "@/lib/supabase/client";
 const NAV_LINKS = [
   { href: "/admin", label: "Overview", icon: LayoutDashboard },
   { href: "/admin/contacts", label: "Contacts", icon: MessageSquare },
-  { href: "/admin/profiles", label: "Profiles", icon: UserCircle },
   { href: "/admin/bookings", label: "Bookings", icon: CalendarDays },
   { href: "/admin/team", label: "Team", icon: Users },
 ];

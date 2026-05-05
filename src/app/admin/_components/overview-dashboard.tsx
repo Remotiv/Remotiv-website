@@ -1,159 +1,182 @@
 "use client";
 
-import { useState } from "react";
-import Image from "next/image";
+import Link from "next/link";
 import {
-  Users,
   Briefcase,
-  MessageSquare,
+  Building2,
   CalendarDays,
-  TrendingUp,
-  TrendingDown,
-  Clock,
+  CheckCircle2,
+  FileText,
+  Layers,
   type LucideIcon,
+  MessageCircle,
+  MessageSquare,
+  TrendingDown,
+  TrendingUp,
+  UserPlus,
+  Users,
 } from "lucide-react";
-import { TopNav } from "./top-nav";
-import type { UserRole } from "@/app/admin/lib/roles";
-import { getAvatarUrl, getInitials } from "@/lib/avatars";
 import {
-  AreaChart,
   Area,
+  AreaChart,
+  Bar,
+  BarChart,
+  CartesianGrid,
+  Cell,
+  Pie,
+  PieChart,
+  ResponsiveContainer,
+  Tooltip,
   XAxis,
   YAxis,
-  CartesianGrid,
-  Tooltip,
-  ResponsiveContainer,
-  PieChart,
-  Pie,
-  Cell,
 } from "recharts";
+import type { UserRole } from "@/app/admin/lib/roles";
+import type {
+  ActivityItem,
+  ActivityKind,
+  DashboardStats,
+  MetricResult,
+  PipelineSlice,
+  StatusSlice,
+  SubmissionsDay,
+} from "../page";
+import { TopNav } from "./top-nav";
 
-// ── Types ────────────────────────────────────────────────────
+// ── Stat card config ─────────────────────────────────────────
 
-export type DashboardStats = {
-  totalApplications: number;
-  totalContacts: number;
-  totalBookings: number;
-  pendingReview: number;
-};
-
-// ── Mock data ────────────────────────────────────────────────
-
-const MONTHS = ["Jan", "Feb", "Mar", "Apr", "May", "Jun", "Jul", "Aug", "Sep", "Oct", "Nov", "Dec"];
-
-const APPLICATION_DATA = MONTHS.map((month, i) => ({
-  month,
-  applications: [12, 19, 15, 28, 22, 31, 25, 18, 24, 29, 35, 40][i],
-  approved: [8, 12, 10, 18, 15, 20, 16, 12, 16, 19, 23, 28][i],
-}));
-
-const JOBS_DATA = MONTHS.map((month, i) => ({
-  month,
-  open: [8, 12, 10, 14, 11, 16, 13, 9, 12, 15, 18, 20][i],
-  closed: [4, 5, 6, 8, 7, 9, 8, 5, 7, 8, 10, 12][i],
-  onHold: [2, 1, 3, 2, 1, 2, 3, 2, 1, 2, 3, 2][i],
-}));
-
-const LEADS_DATA = [
-  { name: "Recruitment", value: 45 },
-  { name: "Staff Augmentation", value: 30 },
-  { name: "Dedicated Team", value: 25 },
-];
-const LEAD_COLORS = ["#7E47FF", "#49D7A7", "#f59e0b"];
-
-// Demo activity feed. Avatars resolve via @/lib/avatars at render time so
-// the URL always matches what's actually present in /public/avatars.
-const ACTIVITY_LOG: Array<{
-  firstName: string;
-  lastName: string;
-  role: string;
-  time: string;
-}> = [
-  { firstName: "Sarah",  lastName: "Ahmed",  role: "Talent Acquisition", time: "10:00 AM" },
-  { firstName: "Waleed", lastName: "Khan",   role: "Operations Manager", time: "10:50 AM" },
-  { firstName: "Bilal",  lastName: "Rana",   role: "HR Manager",         time: "12:30 PM" },
-  { firstName: "Fatima", lastName: "Malik",  role: "Recruiter",          time: "2:15 PM"  },
-  { firstName: "Omar",   lastName: "Sheikh", role: "Engineering Lead",   time: "3:45 PM"  },
-];
-
-const MEETINGS = [
-  { title: "Team Standup", time: "9:00 AM", attendees: 8, accent: "#7E47FF" },
-  { title: "Candidate Interview", time: "9:30 AM", attendees: 3, accent: "#111" },
-  { title: "Client Onboarding", time: "11:00 AM", attendees: 5, accent: "#49D7A7" },
-  { title: "Weekly HR Review", time: "2:00 PM", attendees: 12, accent: "#7E47FF" },
-  { title: "Recruitment Drive", time: "3:30 PM", attendees: 20, accent: "#111" },
-];
-
-function getWeekDays() {
-  const today = new Date();
-  const dow = today.getDay();
-  const monday = new Date(today);
-  monday.setDate(today.getDate() - (dow === 0 ? 6 : dow - 1));
-  return Array.from({ length: 5 }, (_, i) => {
-    const d = new Date(monday);
-    d.setDate(monday.getDate() + i);
-    return {
-      label: d.toLocaleDateString("en-GB", { weekday: "short" }),
-      day: String(d.getDate()).padStart(2, "0"),
-      isToday: d.toDateString() === today.toDateString(),
-    };
-  });
-}
-
-// ── Stat cards ───────────────────────────────────────────────
+type CardKey = keyof DashboardStats;
 
 type StatCardDef = {
+  key: CardKey;
   label: string;
-  key: keyof DashboardStats | null;
-  mockValue?: number;
-  trend: string;
-  up: boolean;
+  icon: LucideIcon;
+  href: string;
   from: string;
   to: string;
-  icon: LucideIcon;
 };
 
 const STAT_CARDS: StatCardDef[] = [
   {
-    label: "Total Talent Applications",
-    key: "totalApplications",
-    trend: "+8%",
-    up: true,
+    key: "talent",
+    label: "Total Talent",
+    icon: Users,
+    href: "/admin/talent",
     from: "#c084fc",
     to: "#7E47FF",
-    icon: Users,
   },
   {
-    label: "Active Jobs",
-    key: null,
-    mockValue: 24,
-    trend: "-10.5%",
-    up: false,
+    key: "remote",
+    label: "Remote Talent",
+    icon: UserPlus,
+    href: "/admin/remote-talent",
     from: "#6ee7c7",
     to: "#49D7A7",
-    icon: Briefcase,
   },
   {
-    label: "Total Contacts",
-    key: "totalContacts",
-    trend: "-10.5%",
-    up: false,
-    from: "#fdba74",
-    to: "#f97316",
-    icon: MessageSquare,
-  },
-  {
-    label: "Meetings Booked",
-    key: "totalBookings",
-    trend: "+2.5%",
-    up: true,
+    key: "applications",
+    label: "Applications",
+    icon: FileText,
+    href: "/admin/applications",
     from: "#93c5fd",
     to: "#3b82f6",
+  },
+  {
+    key: "jobs",
+    label: "Active Jobs",
+    icon: Briefcase,
+    href: "/admin/jobs",
+    from: "#fdba74",
+    to: "#f97316",
+  },
+  {
+    key: "clients",
+    label: "Active Clients",
+    icon: Building2,
+    href: "/admin/clients",
+    from: "#f9a8d4",
+    to: "#ec4899",
+  },
+  {
+    key: "batches",
+    label: "Active Batches",
+    icon: Layers,
+    href: "/admin/client-batches",
+    from: "#a5b4fc",
+    to: "#7E47FF",
+  },
+  {
+    key: "bookings",
+    label: "Bookings",
     icon: CalendarDays,
+    href: "/admin/contacts?tab=bookings",
+    from: "#86efac",
+    to: "#22c55e",
+  },
+  {
+    key: "contacts",
+    label: "Contact Submissions",
+    icon: MessageSquare,
+    href: "/admin/contacts",
+    from: "#d1d5db",
+    to: "#6b7280",
   },
 ];
 
-// ── Custom tooltip ───────────────────────────────────────────
+const STATUS_COLORS = [
+  "#7E47FF",
+  "#49D7A7",
+  "#9886FE",
+  "#f59e0b",
+  "#3b82f6",
+  "#FF6B6B",
+  "#ec4899",
+];
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function formatRelativeTime(iso: string): string {
+  const then = new Date(iso).getTime();
+  const diffMs = Date.now() - then;
+  const sec = Math.max(0, Math.round(diffMs / 1000));
+  if (sec < 60) return `${sec}s ago`;
+  const min = Math.round(sec / 60);
+  if (min < 60) return `${min}m ago`;
+  const hr = Math.round(min / 60);
+  if (hr < 24) return `${hr}h ago`;
+  const day = Math.round(hr / 24);
+  if (day < 7) return `${day}d ago`;
+  const wk = Math.round(day / 7);
+  if (wk < 5) return `${wk}w ago`;
+  return new Date(iso).toLocaleDateString("en-GB", {
+    day: "numeric",
+    month: "short",
+  });
+}
+
+function activityIcon(kind: ActivityKind): LucideIcon {
+  switch (kind) {
+    case "talent":
+      return UserPlus;
+    case "application":
+      return FileText;
+    case "decision":
+      return CheckCircle2;
+    case "booking":
+      return CalendarDays;
+    case "inquiry":
+      return MessageCircle;
+  }
+}
+
+const ACTIVITY_BADGE: Record<ActivityKind, { label: string; cls: string }> = {
+  talent: { label: "Talent", cls: "bg-[#7E47FF]/10 text-[#7E47FF]" },
+  application: { label: "Application", cls: "bg-blue-100 text-blue-700" },
+  decision: { label: "Decision", cls: "bg-[#49D7A7]/15 text-emerald-700" },
+  booking: { label: "Booking", cls: "bg-amber-100 text-amber-700" },
+  inquiry: { label: "Inquiry", cls: "bg-gray-200 text-gray-700" },
+};
+
+// ── Tooltip ──────────────────────────────────────────────────
 
 type ChartTooltipProps = {
   active?: boolean;
@@ -165,53 +188,100 @@ function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
   if (!active || !payload?.length) return null;
   return (
     <div className="rounded-xl bg-[#111] px-4 py-3 shadow-xl">
-      <p className="mb-2 text-[11px] font-semibold text-white/60">{label}</p>
+      {label && (
+        <p className="mb-2 text-[11px] font-semibold text-white/60">{label}</p>
+      )}
       {payload.map((p) => (
         <div key={p.name} className="flex items-center gap-2">
-          <span className="size-2 rounded-full" style={{ background: p.color }} />
+          <span
+            className="size-2 rounded-full"
+            style={{ background: p.color }}
+          />
           <span className="text-xs text-white/80">{p.name}</span>
-          <span className="ml-auto text-xs font-bold text-white">{p.value}</span>
+          <span className="ml-auto pl-3 text-xs font-bold text-white">
+            {p.value}
+          </span>
         </div>
       ))}
     </div>
   );
 }
 
-function ActivityRow({
-  entry,
+// ── Stat card ────────────────────────────────────────────────
+
+function StatCard({
+  def,
+  metric,
 }: {
-  entry: { firstName: string; lastName: string; role: string; time: string };
+  def: StatCardDef;
+  metric: MetricResult;
 }) {
-  const [errored, setErrored] = useState(false);
-  const fullName = `${entry.firstName} ${entry.lastName}`.trim();
-  const url = getAvatarUrl(entry.firstName, entry.lastName);
+  const Icon = def.icon;
   return (
-    <div className="flex items-center gap-3">
-      <div className="relative size-10 shrink-0 overflow-hidden rounded-full bg-[#7E47FF]/10">
-        {errored ? (
-          <span className="flex size-full items-center justify-center text-xs font-bold text-[#7E47FF]">
-            {getInitials(entry.firstName, entry.lastName)}
-          </span>
+    <Link
+      href={def.href}
+      className="group relative block overflow-hidden rounded-2xl p-6 text-white transition-transform hover:-translate-y-0.5 hover:shadow-xl"
+      style={{ background: `linear-gradient(135deg, ${def.from}, ${def.to})` }}
+    >
+      <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
+      <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
+
+      <div
+        className={`absolute right-4 top-4 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
+          metric.up ? "bg-white/20 text-white" : "bg-black/20 text-white"
+        }`}
+      >
+        {metric.up ? (
+          <TrendingUp className="size-3" strokeWidth={2.5} />
         ) : (
-          <Image
-            src={url}
-            alt={fullName}
-            fill
-            sizes="40px"
-            className="object-cover"
-            onError={() => setErrored(true)}
-          />
+          <TrendingDown className="size-3" strokeWidth={2.5} />
         )}
+        {metric.up ? "+" : "-"}
+        {metric.trend}%
+      </div>
+
+      <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
+      <p className="font-heading text-[2.6rem] font-bold leading-none">
+        {metric.current.toLocaleString()}
+      </p>
+      <p className="mt-2 text-sm font-medium opacity-85">{def.label}</p>
+      <p className="mt-3 text-[11px] opacity-50">
+        {metric.up ? "↑" : "↓"} vs prior 30 days
+      </p>
+    </Link>
+  );
+}
+
+// ── Activity row ─────────────────────────────────────────────
+
+function ActivityRow({ item }: { item: ActivityItem }) {
+  const Icon = activityIcon(item.type);
+  const badge = ACTIVITY_BADGE[item.type];
+  return (
+    <Link
+      href={item.link}
+      className="-mx-2 flex items-start gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50"
+    >
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#f5f3ff]">
+        <Icon className="size-4 text-[#7E47FF]" strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
-        <p className="truncate text-sm font-semibold text-[#111]">{fullName}</p>
-        <p className="truncate text-xs text-gray-400">{entry.role}</p>
+        <div className="flex flex-wrap items-center gap-2">
+          <span
+            className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${badge.cls}`}
+          >
+            {badge.label}
+          </span>
+          <p className="truncate text-sm font-semibold text-[#111]">
+            {item.title}
+          </p>
+        </div>
+        <p className="mt-0.5 truncate text-xs text-gray-400">{item.subtitle}</p>
       </div>
-      <div className="flex shrink-0 items-center gap-1 text-xs text-gray-400">
-        <Clock className="size-3" strokeWidth={2} />
-        {entry.time}
-      </div>
-    </div>
+      <p className="shrink-0 text-[11px] text-gray-400">
+        {formatRelativeTime(item.time)}
+      </p>
+    </Link>
   );
 }
 
@@ -221,13 +291,19 @@ export function OverviewDashboard({
   email,
   userRole = "viewer",
   stats,
+  submissionsByDay,
+  applicationsByStatus,
+  pipelineStats,
+  activity,
 }: {
   email: string;
   userRole?: UserRole;
   stats: DashboardStats;
+  submissionsByDay: SubmissionsDay[];
+  applicationsByStatus: StatusSlice[];
+  pipelineStats: PipelineSlice[];
+  activity: ActivityItem[];
 }) {
-  const weekDays = getWeekDays();
-
   const today = new Date().toLocaleDateString("en-GB", {
     weekday: "long",
     day: "numeric",
@@ -235,21 +311,17 @@ export function OverviewDashboard({
     year: "numeric",
   });
 
-  const updateDate = new Date().toLocaleDateString("en-GB", {
-    day: "2-digit",
-    month: "short",
-    year: "numeric",
-  });
+  const totalApplications = applicationsByStatus.reduce(
+    (s, d) => s + d.value,
+    0,
+  );
+  const totalPipeline = pipelineStats.reduce((s, d) => s + d.value, 0);
 
   return (
     <div className="min-h-full bg-[#f8f4f1] font-sans">
-
       <TopNav email={email} userRole={userRole} />
 
-      {/* ── Page content ── */}
       <div className="p-5 lg:p-8">
-
-        {/* Page header */}
         <div className="mb-6">
           <p className="mb-0.5 text-xs font-medium text-gray-400">Dashboard</p>
           <div className="flex items-baseline justify-between">
@@ -260,268 +332,278 @@ export function OverviewDashboard({
           </div>
         </div>
 
-        {/* ── Stat cards ── */}
+        {/* Stat cards — 8 in a 4-col grid */}
         <div className="mb-5 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {STAT_CARDS.map(({ label, key, mockValue, trend, up, from, to, icon: Icon }) => {
-            const value = key != null ? stats[key] : (mockValue ?? 0);
-            return (
-              <div
-                key={label}
-                className="relative overflow-hidden rounded-2xl p-6 text-white"
-                style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
-              >
-                {/* Circle decorations */}
-                <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
-                <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
-
-                {/* Trend badge */}
-                <div
-                  className={`absolute right-4 top-4 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${
-                    up ? "bg-white/20 text-white" : "bg-black/15 text-white"
-                  }`}
-                >
-                  {up ? (
-                    <TrendingUp className="size-3" strokeWidth={2.5} />
-                  ) : (
-                    <TrendingDown className="size-3" strokeWidth={2.5} />
-                  )}
-                  {trend}
-                </div>
-
-                <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
-                <p className="font-heading text-[2.6rem] font-bold leading-none">{value}</p>
-                <p className="mt-2 text-sm font-medium opacity-80">{label}</p>
-                <p className="mt-3 text-[11px] opacity-50">Update: {updateDate}</p>
-              </div>
-            );
-          })}
+          {STAT_CARDS.map((def) => (
+            <StatCard key={def.key} def={def} metric={stats[def.key]} />
+          ))}
         </div>
 
-        {/* ── Chart row 1: Applications + Donut ── */}
+        {/* Row 1: Submissions over 30 days + Applications by status */}
         <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-
-          {/* Applications area chart */}
           <div className="rounded-2xl bg-white p-6 shadow-sm lg:col-span-3">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="font-heading text-base font-semibold text-[#111]">
-                Talent Applications
-              </h2>
+              <div>
+                <h2 className="font-heading text-base font-semibold text-[#111]">
+                  Submissions — last 30 days
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-400">
+                  Talent, Remote Ready, and Job Applications by day
+                </p>
+              </div>
               <span className="rounded-lg bg-gray-50 px-3 py-1 text-xs text-gray-400">
-                Monthly
+                Daily
               </span>
             </div>
-            <ResponsiveContainer width="100%" height={230}>
-              <AreaChart data={APPLICATION_DATA} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
+            <ResponsiveContainer width="100%" height={240}>
+              <AreaChart
+                data={submissionsByDay}
+                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
+              >
                 <defs>
-                  <linearGradient id="appFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#7E47FF" stopOpacity={0.18} />
+                  <linearGradient id="talentFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#7E47FF" stopOpacity={0.22} />
                     <stop offset="95%" stopColor="#7E47FF" stopOpacity={0} />
                   </linearGradient>
-                  <linearGradient id="apprvFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#49D7A7" stopOpacity={0.18} />
+                  <linearGradient id="remoteFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#49D7A7" stopOpacity={0.22} />
                     <stop offset="95%" stopColor="#49D7A7" stopOpacity={0} />
                   </linearGradient>
+                  <linearGradient id="appsFill" x1="0" y1="0" x2="0" y2="1">
+                    <stop offset="5%" stopColor="#9886FE" stopOpacity={0.22} />
+                    <stop offset="95%" stopColor="#9886FE" stopOpacity={0} />
+                  </linearGradient>
                 </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#bbb" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#bbb" }} axisLine={false} tickLine={false} />
+                <CartesianGrid
+                  strokeDasharray="3 3"
+                  stroke="#f0f0f0"
+                  vertical={false}
+                />
+                <XAxis
+                  dataKey="label"
+                  tick={{ fontSize: 10, fill: "#bbb" }}
+                  axisLine={false}
+                  tickLine={false}
+                  interval={4}
+                />
+                <YAxis
+                  tick={{ fontSize: 11, fill: "#bbb" }}
+                  axisLine={false}
+                  tickLine={false}
+                  allowDecimals={false}
+                />
                 <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="applications" name="Applications" stroke="#7E47FF" strokeWidth={2.5} fill="url(#appFill)" dot={false} activeDot={{ r: 5, fill: "#7E47FF" }} />
-                <Area type="monotone" dataKey="approved" name="Approved" stroke="#49D7A7" strokeWidth={2.5} fill="url(#apprvFill)" dot={false} activeDot={{ r: 5, fill: "#49D7A7" }} />
+                <Area
+                  type="monotone"
+                  dataKey="talent"
+                  name="Talent"
+                  stroke="#7E47FF"
+                  strokeWidth={2.5}
+                  fill="url(#talentFill)"
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#7E47FF" }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="remote"
+                  name="Remote Ready"
+                  stroke="#49D7A7"
+                  strokeWidth={2.5}
+                  fill="url(#remoteFill)"
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#49D7A7" }}
+                />
+                <Area
+                  type="monotone"
+                  dataKey="applications"
+                  name="Applications"
+                  stroke="#9886FE"
+                  strokeWidth={2.5}
+                  fill="url(#appsFill)"
+                  dot={false}
+                  activeDot={{ r: 5, fill: "#9886FE" }}
+                />
               </AreaChart>
             </ResponsiveContainer>
             <div className="mt-3 flex items-center gap-5">
               <div className="flex items-center gap-2">
                 <span className="size-2.5 rounded-full bg-[#7E47FF]" />
-                <span className="text-xs text-gray-400">Applications</span>
+                <span className="text-xs text-gray-400">Talent</span>
               </div>
               <div className="flex items-center gap-2">
                 <span className="size-2.5 rounded-full bg-[#49D7A7]" />
-                <span className="text-xs text-gray-400">Approved</span>
+                <span className="text-xs text-gray-400">Remote Ready</span>
+              </div>
+              <div className="flex items-center gap-2">
+                <span className="size-2.5 rounded-full bg-[#9886FE]" />
+                <span className="text-xs text-gray-400">Applications</span>
               </div>
             </div>
           </div>
 
-          {/* Donut chart */}
+          {/* Applications by status — donut */}
           <div className="rounded-2xl bg-white p-6 shadow-sm lg:col-span-2">
             <div className="mb-4 flex items-center justify-between">
               <h2 className="font-heading text-base font-semibold text-[#111]">
-                Leads by Service
+                Applications by Status
               </h2>
               <span className="rounded-lg bg-gray-50 px-3 py-1 text-xs text-gray-400">
-                2025
+                All time
               </span>
             </div>
 
-            <div className="relative flex items-center justify-center">
-              <PieChart width={190} height={190}>
-                <Pie
-                  data={LEADS_DATA}
-                  cx={95}
-                  cy={95}
-                  innerRadius={58}
-                  outerRadius={88}
-                  paddingAngle={4}
-                  dataKey="value"
-                  startAngle={90}
-                  endAngle={-270}
-                >
-                  {LEADS_DATA.map((_, i) => (
-                    <Cell key={i} fill={LEAD_COLORS[i]} strokeWidth={0} />
-                  ))}
-                </Pie>
-              </PieChart>
-              {/* Center label */}
-              <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
-                <span className="text-[11px] text-gray-400">Total</span>
-                <span className="font-heading text-2xl font-bold text-[#111]">
-                  {LEADS_DATA.reduce((s, d) => s + d.value, 0)}
-                </span>
-              </div>
-            </div>
-
-            <div className="mt-4 flex flex-col gap-2.5">
-              {LEADS_DATA.map((item, i) => (
-                <div key={item.name} className="flex items-center justify-between">
-                  <div className="flex items-center gap-2.5">
-                    <span
-                      className="size-2.5 shrink-0 rounded-full"
-                      style={{ background: LEAD_COLORS[i] }}
-                    />
-                    <span className="text-xs text-gray-500">{item.name}</span>
+            {totalApplications === 0 ? (
+              <EmptyChart label="No applications yet" />
+            ) : (
+              <>
+                <div className="relative flex items-center justify-center">
+                  <PieChart width={190} height={190}>
+                    <Pie
+                      data={applicationsByStatus}
+                      cx={95}
+                      cy={95}
+                      innerRadius={58}
+                      outerRadius={88}
+                      paddingAngle={4}
+                      dataKey="value"
+                      startAngle={90}
+                      endAngle={-270}
+                    >
+                      {applicationsByStatus.map((slice, i) => (
+                        <Cell
+                          key={slice.name}
+                          fill={STATUS_COLORS[i % STATUS_COLORS.length]}
+                          strokeWidth={0}
+                        />
+                      ))}
+                    </Pie>
+                    <Tooltip content={<ChartTooltip />} />
+                  </PieChart>
+                  <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
+                    <span className="text-[11px] text-gray-400">Total</span>
+                    <span className="font-heading text-2xl font-bold text-[#111]">
+                      {totalApplications}
+                    </span>
                   </div>
-                  <span className="text-xs font-semibold text-gray-700">{item.value}%</span>
                 </div>
-              ))}
-            </div>
+                <div className="mt-4 flex flex-col gap-2.5">
+                  {applicationsByStatus.map((item, i) => (
+                    <div
+                      key={item.name}
+                      className="flex items-center justify-between"
+                    >
+                      <div className="flex items-center gap-2.5">
+                        <span
+                          className="size-2.5 shrink-0 rounded-full"
+                          style={{
+                            background:
+                              STATUS_COLORS[i % STATUS_COLORS.length],
+                          }}
+                        />
+                        <span className="text-xs text-gray-500">
+                          {item.name}
+                        </span>
+                      </div>
+                      <span className="text-xs font-semibold text-gray-700">
+                        {item.value}
+                      </span>
+                    </div>
+                  ))}
+                </div>
+              </>
+            )}
           </div>
         </div>
 
-        {/* ── Chart row 2: Jobs + Activity Log ── */}
+        {/* Row 2: Pipeline + Activity feed */}
         <div className="mb-4 grid grid-cols-1 gap-4 lg:grid-cols-5">
-
-          {/* Jobs area chart */}
           <div className="rounded-2xl bg-white p-6 shadow-sm lg:col-span-3">
             <div className="mb-5 flex items-center justify-between">
-              <h2 className="font-heading text-base font-semibold text-[#111]">
-                Jobs by Status
-              </h2>
+              <div>
+                <h2 className="font-heading text-base font-semibold text-[#111]">
+                  Client Pipeline
+                </h2>
+                <p className="mt-0.5 text-xs text-gray-400">
+                  Decisions across all batch candidates
+                </p>
+              </div>
               <span className="rounded-lg bg-gray-50 px-3 py-1 text-xs text-gray-400">
-                Monthly
+                {totalPipeline} total
               </span>
             </div>
-            <ResponsiveContainer width="100%" height={190}>
-              <AreaChart data={JOBS_DATA} margin={{ top: 4, right: 4, left: -20, bottom: 0 }}>
-                <defs>
-                  <linearGradient id="openFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#49D7A7" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#49D7A7" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="closedFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#6b7280" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#6b7280" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="holdFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#f59e0b" stopOpacity={0.18} />
-                    <stop offset="95%" stopColor="#f59e0b" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid strokeDasharray="3 3" stroke="#f0f0f0" vertical={false} />
-                <XAxis dataKey="month" tick={{ fontSize: 11, fill: "#bbb" }} axisLine={false} tickLine={false} />
-                <YAxis tick={{ fontSize: 11, fill: "#bbb" }} axisLine={false} tickLine={false} />
-                <Tooltip content={<ChartTooltip />} />
-                <Area type="monotone" dataKey="open" name="Open" stroke="#49D7A7" strokeWidth={2.5} fill="url(#openFill)" dot={false} activeDot={{ r: 5, fill: "#49D7A7" }} />
-                <Area type="monotone" dataKey="closed" name="Closed" stroke="#6b7280" strokeWidth={2.5} fill="url(#closedFill)" dot={false} activeDot={{ r: 5, fill: "#6b7280" }} />
-                <Area type="monotone" dataKey="onHold" name="On Hold" stroke="#f59e0b" strokeWidth={2.5} fill="url(#holdFill)" dot={false} activeDot={{ r: 5, fill: "#f59e0b" }} />
-              </AreaChart>
-            </ResponsiveContainer>
-            <div className="mt-3 flex items-center gap-5">
-              <div className="flex items-center gap-2"><span className="size-2.5 rounded-full bg-[#49D7A7]" /><span className="text-xs text-gray-400">Open</span></div>
-              <div className="flex items-center gap-2"><span className="size-2.5 rounded-full bg-gray-400" /><span className="text-xs text-gray-400">Closed</span></div>
-              <div className="flex items-center gap-2"><span className="size-2.5 rounded-full bg-amber-400" /><span className="text-xs text-gray-400">On Hold</span></div>
-            </div>
+            {totalPipeline === 0 ? (
+              <EmptyChart label="No pipeline activity yet" />
+            ) : (
+              <ResponsiveContainer width="100%" height={240}>
+                <BarChart
+                  data={pipelineStats}
+                  layout="vertical"
+                  margin={{ top: 4, right: 16, left: 8, bottom: 0 }}
+                >
+                  <CartesianGrid
+                    strokeDasharray="3 3"
+                    stroke="#f0f0f0"
+                    horizontal={false}
+                  />
+                  <XAxis
+                    type="number"
+                    tick={{ fontSize: 11, fill: "#bbb" }}
+                    axisLine={false}
+                    tickLine={false}
+                    allowDecimals={false}
+                  />
+                  <YAxis
+                    type="category"
+                    dataKey="name"
+                    tick={{ fontSize: 12, fill: "#666" }}
+                    axisLine={false}
+                    tickLine={false}
+                    width={140}
+                  />
+                  <Tooltip content={<ChartTooltip />} />
+                  <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={22}>
+                    {pipelineStats.map((slice) => (
+                      <Cell key={slice.name} fill={slice.color} />
+                    ))}
+                  </Bar>
+                </BarChart>
+              </ResponsiveContainer>
+            )}
           </div>
 
-          {/* Activity log */}
+          {/* Activity feed */}
           <div className="rounded-2xl bg-white p-6 shadow-sm lg:col-span-2">
             <div className="mb-5 flex items-center justify-between">
               <h2 className="font-heading text-base font-semibold text-[#111]">
-                Activity Log
+                Recent Activity
               </h2>
-              <button type="button" className="text-xs font-semibold text-[#49D7A7] hover:opacity-75">
-                See All
-              </button>
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-emerald-50 px-2.5 py-1 text-[10px] font-bold text-emerald-700">
+                <span className="size-1.5 animate-pulse rounded-full bg-emerald-500" />
+                Live
+              </span>
             </div>
-            <div className="flex flex-col gap-4">
-              {ACTIVITY_LOG.map((entry) => (
-                <ActivityRow key={`${entry.firstName}-${entry.lastName}`} entry={entry} />
-              ))}
-            </div>
+            {activity.length === 0 ? (
+              <p className="py-8 text-center text-sm text-gray-400">
+                Nothing happening yet — submissions will show up here.
+              </p>
+            ) : (
+              <div className="flex max-h-[460px] flex-col gap-1 overflow-y-auto pr-1">
+                {activity.map((item) => (
+                  <ActivityRow key={item.id} item={item} />
+                ))}
+              </div>
+            )}
           </div>
         </div>
-
-        {/* ── Meeting schedule ── */}
-        <div className="rounded-2xl bg-white p-6 shadow-sm">
-          <div className="mb-5 flex items-center justify-between">
-            <h2 className="font-heading text-base font-semibold text-[#111]">
-              Meeting &amp; Interview Schedule
-            </h2>
-            <span className="rounded-lg bg-gray-50 px-3 py-1 text-xs text-gray-400">
-              {new Date().toLocaleDateString("en-GB", { month: "long", year: "numeric" })}
-            </span>
-          </div>
-
-          <div className="grid grid-cols-5 gap-3">
-            {weekDays.map(({ label, day, isToday }, i) => {
-              const meeting = MEETINGS[i];
-              return (
-                <div key={label} className="flex flex-col gap-2.5">
-                  {/* Day header */}
-                  <div className="text-center">
-                    <p className="text-[11px] font-medium uppercase tracking-wider text-gray-400">
-                      {label}
-                    </p>
-                    <p
-                      className={`mx-auto mt-1 flex size-7 items-center justify-center rounded-full text-sm font-bold ${
-                        isToday
-                          ? "bg-[#7E47FF] text-white"
-                          : "text-gray-600"
-                      }`}
-                    >
-                      {day}
-                    </p>
-                  </div>
-                  {/* Meeting card */}
-                  <div
-                    className="flex-1 rounded-xl p-3 text-white"
-                    style={{ background: meeting.accent }}
-                  >
-                    <p className="truncate text-xs font-semibold leading-tight">
-                      {meeting.title}
-                    </p>
-                    <p className="mt-1.5 text-[11px] opacity-70">{meeting.time}</p>
-                    <div className="mt-2 flex items-center gap-1.5">
-                      {/* Mini avatar stack */}
-                      {Array.from({ length: Math.min(3, meeting.attendees) }).map((_, ai) => (
-                        <div
-                          key={ai}
-                          className="-ml-1 first:ml-0 flex size-5 items-center justify-center rounded-full border border-white/30 bg-white/25 text-[8px] font-bold text-white"
-                        >
-                          {String.fromCharCode(65 + ai)}
-                        </div>
-                      ))}
-                      {meeting.attendees > 3 && (
-                        <span className="text-[10px] opacity-60">+{meeting.attendees - 3}</span>
-                      )}
-                    </div>
-                  </div>
-                </div>
-              );
-            })}
-          </div>
-        </div>
-
       </div>
+    </div>
+  );
+}
+
+function EmptyChart({ label }: { label: string }) {
+  return (
+    <div className="flex h-[240px] items-center justify-center text-sm text-gray-400">
+      {label}
     </div>
   );
 }

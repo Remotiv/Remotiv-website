@@ -1,7 +1,8 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type Job = {
   id: string;
@@ -62,6 +63,7 @@ function toInsert(input: JobInput) {
 export async function createJob(
   input: JobInput,
 ): Promise<MutationResult<Job>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("jobs")
@@ -78,6 +80,7 @@ export async function updateJob(
   id: string,
   input: JobInput,
 ): Promise<MutationResult<Job>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("jobs")
@@ -95,6 +98,7 @@ export async function updateJobStatus(
   id: string,
   status: "open" | "on_hold" | "closed",
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("jobs")
@@ -109,6 +113,7 @@ export async function updateJobStatus(
 export async function deleteJob(
   id: string,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase.from("jobs").delete().eq("id", id);
 

@@ -1,7 +1,8 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
 import { revalidatePath } from "next/cache";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type TalentStatus =
   | "pending"
@@ -56,6 +57,7 @@ type MutationResult<T = undefined> =
   | { success: false; error: string };
 
 export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("talent_profiles")
@@ -69,6 +71,7 @@ export async function updateTalentStatus(
   id: string,
   status: TalentStatus,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
 
   const patch: Record<string, unknown> = { status };
@@ -101,6 +104,7 @@ export async function updateTalentStatus(
 export async function deleteTalentProfile(
   id: string,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("talent_profiles")
@@ -116,6 +120,7 @@ export async function saveTalentNote(
   id: string,
   note: string,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("talent_profiles")

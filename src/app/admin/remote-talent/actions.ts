@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 export type RemoteTalentStatus =
   | "pending"
@@ -79,6 +80,7 @@ type MutationResult<T = undefined> =
   | { success: false; error: string };
 
 export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("hire_remote_profiles")
@@ -92,6 +94,7 @@ export async function updateRemoteTalentStatus(
   id: string,
   status: RemoteTalentStatus,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
 
   const patch: Record<string, unknown> = { status };
@@ -126,6 +129,7 @@ export async function updateRemoteTalentVerification(
   idVerified: boolean,
   phoneVerified: boolean,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("hire_remote_profiles")
@@ -145,6 +149,7 @@ export async function saveRemoteTalentNote(
   id: string,
   note: string,
 ): Promise<MutationResult<undefined>> {
+  await requireAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("hire_remote_profiles")
@@ -159,6 +164,7 @@ export async function saveRemoteTalentNote(
 export async function deleteRemoteTalentProfile(
   id: string,
 ): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("hire_remote_profiles")
