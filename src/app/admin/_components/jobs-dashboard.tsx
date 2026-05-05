@@ -4,10 +4,12 @@ import { useState, useEffect } from "react";
 import {
   Briefcase,
   CheckCircle,
+  ChevronRight,
   PauseCircle,
   XCircle,
   Plus,
   MoreHorizontal,
+  SlidersHorizontal,
   X,
   AlertTriangle,
   MapPin,
@@ -96,6 +98,117 @@ function timeAgo(iso: string): string {
   return `${Math.floor(h / 24)}d ago`;
 }
 
+// ── Mobile card (replaces the desktop table on <lg) ──────────
+
+/**
+ * Compact job card for phone widths (375–414px).
+ * Whole surface is one tappable button — opens the edit modal so the
+ * three-dot menu actions (Put On Hold / Reopen / Close / Delete) live
+ * inside that sheet on mobile.
+ */
+function JobCardMobile({
+  job,
+  onClick,
+}: {
+  job: Job;
+  onClick: () => void;
+}) {
+  const meta = STATUS_META[job.status];
+  return (
+    <button
+      type="button"
+      onClick={onClick}
+      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
+    >
+      <div className="p-4">
+        <div className="flex items-start justify-between gap-3">
+          <div className="min-w-0 flex-1">
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {job.title}
+            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">
+              {job.company} · {job.experience_level}
+            </p>
+          </div>
+          <span
+            className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider ${meta.badge}`}
+          >
+            {meta.label}
+          </span>
+        </div>
+
+        <div className="mt-3 flex flex-wrap items-center gap-1.5">
+          <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+            {job.work_type}
+          </span>
+          <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
+            {job.contract_type}
+          </span>
+          <span className="rounded-full bg-gray-50 px-2 py-0.5 text-[10px] font-medium text-gray-500">
+            {job.category}
+          </span>
+        </div>
+
+        <div className="mt-3 flex items-center justify-between text-[11px] text-gray-500">
+          <span className="flex items-center gap-1">
+            <MapPin className="size-3" strokeWidth={2} />
+            {job.location}
+          </span>
+          <span>Posted {timeAgo(job.created_at)}</span>
+        </div>
+
+        <p className="mt-1.5 text-xs font-semibold text-gray-700">
+          {fmtSalary(job.salary_min, job.salary_max)}
+        </p>
+      </div>
+
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+        View / Edit job
+        <ChevronRight className="size-4" strokeWidth={2.5} />
+      </div>
+    </button>
+  );
+}
+
+// ── Mobile filter bottom-sheet group ─────────────────────────
+
+function FilterSheetGroup({
+  label,
+  options,
+  value,
+  onChange,
+}: {
+  label: string;
+  options: ReadonlyArray<{ value: string; label: string }>;
+  value: string;
+  onChange: (next: string) => void;
+}) {
+  return (
+    <div>
+      <p className="mb-2 text-sm font-bold text-[#111]">{label}</p>
+      <div className="flex flex-wrap gap-2">
+        {options.map((opt) => {
+          const active = value === opt.value;
+          return (
+            <button
+              key={opt.value}
+              type="button"
+              onClick={() => onChange(opt.value)}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+                active
+                  ? "bg-[#7E47FF] text-white"
+                  : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
+              }`}
+            >
+              {opt.label}
+            </button>
+          );
+        })}
+      </div>
+    </div>
+  );
+}
+
 // ── Component ────────────────────────────────────────────────
 
 export function JobsDashboard({
@@ -113,6 +226,40 @@ export function JobsDashboard({
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [mutating, setMutating] = useState(false);
   const [mutError, setMutError] = useState<string | null>(null);
+
+  // Mobile-only UI state. Modal responsiveness is handled with Tailwind
+  // `lg:` classes on the modal container — no JS branch needed.
+  const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
+  const [filterStatus, setFilterStatus] = useState<"all" | Job["status"]>("all");
+  const [filterWorkType, setFilterWorkType] = useState<string>("all");
+
+  useEffect(() => {
+    if (!filterDrawerOpen) return;
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFilterDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.removeEventListener("keydown", onKey);
+      document.body.style.overflow = prev;
+    };
+  }, [filterDrawerOpen]);
+
+  function clearAllFilters() {
+    setFilterStatus("all");
+    setFilterWorkType("all");
+  }
+
+  const activeFilterCount =
+    (filterStatus !== "all" ? 1 : 0) + (filterWorkType !== "all" ? 1 : 0);
+
+  const filteredJobs = jobs.filter((j) => {
+    if (filterStatus !== "all" && j.status !== filterStatus) return false;
+    if (filterWorkType !== "all" && j.work_type !== filterWorkType) return false;
+    return true;
+  });
 
   // ── Three-dot menus ───────────────────────────────────────
   const [openMenuId, setOpenMenuId] = useState<string | null>(null);
@@ -211,7 +358,10 @@ export function JobsDashboard({
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
-  const pageItems = paginate(jobs, page);
+  useEffect(() => {
+    setPage(1);
+  }, [filterStatus, filterWorkType]);
+  const pageItems = paginate(filteredJobs, page);
 
   const updateDate = new Date().toLocaleDateString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
@@ -228,18 +378,19 @@ export function JobsDashboard({
     <div className="min-h-full bg-[#f8f4f1] font-sans">
       <TopNav email={email} userRole={userRole} />
 
-      <div className="p-5 lg:p-8">
+      <div className="p-4 lg:p-8">
         {/* Page header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
             <h1 className="font-heading text-2xl font-bold text-[#111]">Jobs</h1>
             <p className="mt-0.5 text-sm text-gray-400">Manage open positions</p>
           </div>
+          {/* Desktop "Post Job" button — mobile uses the FAB instead */}
           {canEditJobs && (
             <button
               type="button"
               onClick={openAddModal}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+              className="hidden items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               Post Job
@@ -247,26 +398,85 @@ export function JobsDashboard({
           )}
         </div>
 
+        {/* Mobile filter trigger + inline "+ New" pill (backup for the FAB) */}
+        <div className="mb-4 flex items-center gap-2 lg:hidden">
+          <p className="flex-1 text-sm text-gray-500">
+            {filteredJobs.length} of {jobs.length} jobs
+          </p>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(true)}
+            className="relative flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            <SlidersHorizontal className="size-4" strokeWidth={2} />
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                {activeFilterCount}
+              </span>
+            )}
+          </button>
+          {canEditJobs && (
+            <button
+              type="button"
+              onClick={openAddModal}
+              aria-label="Post a new job"
+              className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              New
+            </button>
+          )}
+        </div>
+
         {/* Stat cards */}
-        <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
+        <div className="mb-6 grid grid-cols-2 gap-3 sm:grid-cols-2 lg:gap-4 xl:grid-cols-4">
           {STAT_CARDS.map(({ label, value, from, to, icon: Icon }) => (
             <div
               key={label}
-              className="relative overflow-hidden rounded-2xl p-6 text-white"
+              className="relative overflow-hidden rounded-2xl p-4 text-white lg:p-6"
               style={{ background: `linear-gradient(135deg, ${from}, ${to})` }}
             >
               <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
-              <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
-              <p className="font-heading text-[2.6rem] font-bold leading-none">{value}</p>
-              <p className="mt-2 text-sm font-medium opacity-80">{label}</p>
-              <p className="mt-3 text-[11px] opacity-50">Update: {updateDate}</p>
+              <Icon className="mb-3 size-6 opacity-90 lg:mb-4 lg:size-7" strokeWidth={1.8} />
+              <p className="font-heading text-3xl font-bold leading-none lg:text-[2.6rem]">{value}</p>
+              <p className="mt-1.5 text-xs font-medium opacity-80 lg:mt-2 lg:text-sm">{label}</p>
+              <p className="mt-2 hidden text-[11px] opacity-50 lg:mt-3 lg:block">Update: {updateDate}</p>
             </div>
           ))}
         </div>
 
-        {/* Jobs table */}
-        <div className="rounded-2xl border border-gray-100 bg-white shadow-sm">
+        {/* Mobile card list (replaces desktop table on <lg) */}
+        <div className="lg:hidden">
+          {filteredJobs.length === 0 ? (
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
+              <Briefcase className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
+              <p className="font-heading text-sm font-semibold text-gray-700">No jobs match your filters</p>
+              <p className="mt-1 text-xs text-gray-400">
+                {canEditJobs ? "Tap the + button to post a job." : "Try clearing a filter."}
+              </p>
+            </div>
+          ) : (
+            <>
+              <div className="flex flex-col gap-3">
+                {pageItems.map((job) => (
+                  <JobCardMobile
+                    key={job.id}
+                    job={job}
+                    onClick={() => (canEditJobs ? openEditModal(job) : undefined)}
+                  />
+                ))}
+              </div>
+              <div className="mt-6">
+                <PaginationControls page={page} setPage={setPage} total={filteredJobs.length} />
+              </div>
+            </>
+          )}
+        </div>
+
+        {/* Desktop table */}
+        <div className="hidden rounded-2xl border border-gray-100 bg-white shadow-sm lg:block">
           <div className="overflow-x-auto">
             <table className="w-full text-sm">
               <thead>
@@ -283,10 +493,12 @@ export function JobsDashboard({
                 </tr>
               </thead>
               <tbody>
-                {jobs.length === 0 ? (
+                {filteredJobs.length === 0 ? (
                   <tr>
                     <td colSpan={canEditJobs || canDeleteJobs ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-400">
-                      No jobs posted yet.{canEditJobs ? " Click \"Post Job\" to get started." : ""}
+                      {jobs.length === 0
+                        ? `No jobs posted yet.${canEditJobs ? " Click \"Post Job\" to get started." : ""}`
+                        : "No jobs match the current filters."}
                     </td>
                   </tr>
                 ) : (
@@ -403,36 +615,37 @@ export function JobsDashboard({
               </tbody>
             </table>
           </div>
-          {jobs.length > 0 && (
+          {filteredJobs.length > 0 && (
             <div className="border-t border-gray-100 px-6 py-4">
-              <PaginationControls page={page} setPage={setPage} total={jobs.length} />
+              <PaginationControls page={page} setPage={setPage} total={filteredJobs.length} />
             </div>
           )}
         </div>
       </div>
 
-      {/* ── Add / Edit modal ── */}
+      {/* ── Add / Edit modal ── full-screen on mobile, centered card on desktop */}
       {showModal && (
         <div
-          className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
+          className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 lg:items-center lg:p-4"
           onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
         >
-          <div className="flex max-h-[92vh] w-full max-w-lg flex-col overflow-hidden rounded-2xl bg-white shadow-xl">
-            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-6 py-5">
+          <div className="flex h-full w-full max-w-full flex-col overflow-hidden bg-white shadow-xl lg:h-auto lg:max-h-[92vh] lg:max-w-lg lg:rounded-2xl">
+            <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-4 lg:px-6 lg:py-5">
               <h2 className="font-heading text-base font-bold text-[#111]">
                 {editingJob ? "Edit Job" : "Post a Job"}
               </h2>
               <button
                 type="button"
                 onClick={closeModal}
-                className="flex size-8 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600"
+                aria-label="Close"
+                className="flex size-11 items-center justify-center rounded-lg text-gray-400 transition-colors hover:bg-gray-50 hover:text-gray-600 lg:size-8"
               >
-                <X className="size-4" strokeWidth={2} />
+                <X className="size-5 lg:size-4" strokeWidth={2} />
               </button>
             </div>
 
             <form onSubmit={handleSubmit} className="flex flex-1 flex-col overflow-hidden">
-              <div className="flex-1 overflow-y-auto px-6 py-5">
+              <div className="flex-1 overflow-y-auto px-4 py-5 lg:px-6">
                 <div className="flex flex-col gap-4">
                   {/* Title */}
                   <div>
@@ -530,17 +743,113 @@ export function JobsDashboard({
                 </div>
               </div>
 
-              <div className="shrink-0 border-t border-gray-100 px-6 py-4 flex items-center justify-end gap-3">
-                <button type="button" onClick={closeModal} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
+              <div className="shrink-0 border-t border-gray-100 px-4 py-3 flex items-center justify-end gap-3 lg:px-6 lg:py-4">
+                <button type="button" onClick={closeModal} className="min-h-11 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
                   Cancel
                 </button>
-                <button type="submit" disabled={mutating} className="rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60">
+                <button type="submit" disabled={mutating} className="min-h-11 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60">
                   {mutating ? "Saving…" : editingJob ? "Save Changes" : "Post Job"}
                 </button>
               </div>
             </form>
           </div>
         </div>
+      )}
+
+      {/* ── Mobile filter bottom sheet ── */}
+      <div
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+          filterDrawerOpen
+            ? "pointer-events-auto opacity-100"
+            : "pointer-events-none opacity-0"
+        }`}
+        onClick={() => setFilterDrawerOpen(false)}
+        aria-hidden="true"
+      />
+      <div
+        className={`fixed inset-x-0 bottom-0 z-50 max-h-[85vh] overflow-y-auto rounded-t-3xl bg-white p-6 shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+          filterDrawerOpen ? "translate-y-0" : "translate-y-full"
+        }`}
+        aria-hidden={!filterDrawerOpen}
+      >
+        <div className="mb-6 flex items-center justify-between">
+          <h3 className="font-heading text-lg font-bold text-[#111]">
+            Filters
+            {activeFilterCount > 0 && (
+              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+                {activeFilterCount}
+              </span>
+            )}
+          </h3>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            aria-label="Close filters"
+            className="flex size-11 items-center justify-center rounded-xl bg-gray-50 text-gray-500 transition-colors hover:bg-gray-100 hover:text-gray-800"
+          >
+            <X className="size-5" strokeWidth={2} />
+          </button>
+        </div>
+
+        <div className="flex flex-col gap-5">
+          <FilterSheetGroup
+            label="Status"
+            value={filterStatus}
+            onChange={(v) => setFilterStatus(v as "all" | Job["status"])}
+            options={[
+              { value: "all",     label: "All" },
+              { value: "open",    label: "Open" },
+              { value: "on_hold", label: "On Hold" },
+              { value: "closed",  label: "Closed" },
+            ]}
+          />
+          <FilterSheetGroup
+            label="Work Type"
+            value={filterWorkType}
+            onChange={setFilterWorkType}
+            options={[
+              { value: "all",     label: "All" },
+              { value: "Remote",  label: "Remote" },
+              { value: "On-site", label: "On-site" },
+              { value: "Hybrid",  label: "Hybrid" },
+            ]}
+          />
+        </div>
+
+        <div className="mt-6 flex gap-3 border-t border-gray-100 pt-6">
+          <button
+            type="button"
+            onClick={clearAllFilters}
+            disabled={activeFilterCount === 0}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl border border-gray-200 py-3 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 disabled:cursor-not-allowed disabled:opacity-50"
+          >
+            Clear all
+          </button>
+          <button
+            type="button"
+            onClick={() => setFilterDrawerOpen(false)}
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          >
+            Apply
+          </button>
+        </div>
+      </div>
+
+      {/* ── Floating "Create Job" FAB — mobile only ──
+          Gating intentionally minimal: when a modal opens its higher
+          z-index covers the FAB, so we don't need to unmount it. The
+          simpler condition also rules out any race where one of the
+          `!showModal/!filterDrawerOpen/!confirmDeleteId` flags gets
+          stuck and silently hides the button. */}
+      {canEditJobs && (
+        <button
+          type="button"
+          onClick={openAddModal}
+          aria-label="Post a new job"
+          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-[#7E47FF] text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
+        >
+          <Plus className="size-7 text-white" strokeWidth={2.5} />
+        </button>
       )}
 
       {/* ── Delete confirmation modal ── */}
