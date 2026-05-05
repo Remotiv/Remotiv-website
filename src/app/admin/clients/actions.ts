@@ -1,8 +1,8 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { createServiceClient } from "@/lib/supabase/server";
+import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -23,26 +23,6 @@ export type Client = {
 type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
-
-// ── Auth gate — every export below funnels through this ─────
-
-async function requireSuperAdmin(): Promise<void> {
-  const auth = await createAuthClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-
-  if (user.email === SUPER_ADMIN_EMAIL) return;
-
-  const supabase = createServiceClient();
-  const { data: roleRow } = await supabase
-    .from("admin_users")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const role = (roleRow?.role as UserRole | undefined) ?? "viewer";
-  if (role !== "super_admin") throw new Error("Forbidden");
-}
 
 // ── Helpers ──────────────────────────────────────────────────
 

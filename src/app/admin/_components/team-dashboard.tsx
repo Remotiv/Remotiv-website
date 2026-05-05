@@ -7,14 +7,15 @@ import {
   UserCheck,
   UserMinus,
   BarChart2,
-  TrendingUp,
-  TrendingDown,
   Mail,
   Phone,
   MoreHorizontal,
   X,
   Plus,
   AlertTriangle,
+  CheckCircle,
+  Copy,
+  KeyRound,
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
@@ -23,6 +24,7 @@ import {
   updateMember,
   toggleMemberStatus,
   removeMember,
+  resetMemberPassword,
   setAdminLoginStatus,
   type TeamMember,
   type MemberInput,
@@ -31,6 +33,10 @@ import {
   type UserRole,
   canManageTeam,
 } from "@/app/admin/lib/roles";
+
+const ADMIN_LOGIN_URL =
+  process.env.NEXT_PUBLIC_ADMIN_LOGIN_URL ??
+  "http://localhost:3000/login";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -69,8 +75,6 @@ function pickAvatar(gender: string): string {
 type StatCardDef = {
   label: string;
   value: number;
-  trend: string;
-  up: boolean;
   from: string;
   to: string;
   icon: LucideIcon;
@@ -134,6 +138,13 @@ export function TeamDashboard({
   const [mutating, setMutating] = useState(false);
   const [mutError, setMutError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
+  const [credentials, setCredentials] = useState<{
+    full_name: string;
+    email: string;
+    password: string;
+    title: string;
+    description: string;
+  } | null>(null);
 
   useEffect(() => {
     if (!successMsg) return;
@@ -216,14 +227,37 @@ export function TeamDashboard({
         setMutating(false);
         return;
       }
-      setMembers((prev) => [result.data, ...prev]);
-      setSuccessMsg(
-        "✅ Account created! They can log in at /login with password: Remotiv@2026",
-      );
+      setMembers((prev) => [result.data.member, ...prev]);
+      setCredentials({
+        full_name: result.data.member.full_name,
+        email: result.data.member.email,
+        password: result.data.password,
+        title: "Team Member Added",
+        description: "Send these credentials to",
+      });
     }
 
     setMutating(false);
     closeModal();
+  }
+
+  // ── Reset password (super_admin only) ─────────────────────
+  async function handleResetPassword(member: TeamMember) {
+    if (!member.auth_user_id) return;
+    setMutating(true);
+    const result = await resetMemberPassword(member.auth_user_id);
+    setMutating(false);
+    if (!result.success) {
+      setSuccessMsg(`Failed to reset password: ${result.error}`);
+      return;
+    }
+    setCredentials({
+      full_name: member.full_name,
+      email: member.email,
+      password: result.data.password,
+      title: "Password Reset",
+      description: "The previous password is now invalid. Send the new credentials to",
+    });
   }
 
   // ── Deactivate (optimistic) ───────────────────────────────
@@ -272,10 +306,10 @@ export function TeamDashboard({
   });
 
   const STAT_CARDS: StatCardDef[] = [
-    { label: "Total Members", value: members.length, trend: "+2", up: true, from: "#c084fc", to: "#7E47FF", icon: Users },
-    { label: "Active", value: activeCount, trend: "+1", up: true, from: "#6ee7c7", to: "#49D7A7", icon: UserCheck },
-    { label: "Inactive", value: inactiveCount, trend: "-1", up: false, from: "#fdba74", to: "#f97316", icon: UserMinus },
-    { label: "Avg Placements / Month", value: avgPlacements, trend: "+12.5%", up: true, from: "#93c5fd", to: "#3b82f6", icon: BarChart2 },
+    { label: "Total Members", value: members.length, from: "#c084fc", to: "#7E47FF", icon: Users },
+    { label: "Active", value: activeCount, from: "#6ee7c7", to: "#49D7A7", icon: UserCheck },
+    { label: "Inactive", value: inactiveCount, from: "#fdba74", to: "#f97316", icon: UserMinus },
+    { label: "Avg Placements / Month", value: avgPlacements, from: "#93c5fd", to: "#3b82f6", icon: BarChart2 },
   ];
 
   return (
@@ -306,7 +340,7 @@ export function TeamDashboard({
 
         {/* ── Stat cards ── */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {STAT_CARDS.map(({ label, value, trend, up, from, to, icon: Icon }) => (
+          {STAT_CARDS.map(({ label, value, from, to, icon: Icon }) => (
             <div
               key={label}
               className="relative overflow-hidden rounded-2xl p-6 text-white"
@@ -314,10 +348,6 @@ export function TeamDashboard({
             >
               <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
-              <div className={`absolute right-4 top-4 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${up ? "bg-white/20" : "bg-black/15"}`}>
-                {up ? <TrendingUp className="size-3" strokeWidth={2.5} /> : <TrendingDown className="size-3" strokeWidth={2.5} />}
-                {trend}
-              </div>
               <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
               <p className="font-heading text-[2.6rem] font-bold leading-none">{value}</p>
               <p className="mt-2 text-sm font-medium opacity-80">{label}</p>
@@ -372,6 +402,16 @@ export function TeamDashboard({
                             className="w-full px-4 py-2.5 text-left text-sm text-amber-600 transition-colors hover:bg-amber-50"
                           >
                             {member.auth_status === "active" ? "Pause Login" : "Resume Login"}
+                          </button>
+                        )}
+                        {member.auth_user_id && (
+                          <button
+                            type="button"
+                            onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleResetPassword(member); }}
+                            className="flex w-full items-center gap-2 px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
+                          >
+                            <KeyRound className="size-3.5" strokeWidth={2} />
+                            Reset Password
                           </button>
                         )}
                         <button
@@ -650,6 +690,128 @@ export function TeamDashboard({
           </div>
         </div>
       )}
+
+      {credentials && (
+        <CredentialsModal
+          creds={credentials}
+          onClose={() => setCredentials(null)}
+        />
+      )}
+    </div>
+  );
+}
+
+// ── Credentials modal — shown after addMember + resetPassword ────
+// The plaintext password is visible exactly once. Once this modal closes
+// it is gone forever — there is no read endpoint and no DB column.
+
+function CredentialsModal({
+  creds,
+  onClose,
+}: {
+  creds: {
+    full_name: string;
+    email: string;
+    password: string;
+    title: string;
+    description: string;
+  };
+  onClose: () => void;
+}) {
+  const [copied, setCopied] = useState(false);
+
+  const blob = `Email: ${creds.email}\nPassword: ${creds.password}\nURL: ${ADMIN_LOGIN_URL}`;
+
+  async function copyAll() {
+    try {
+      await navigator.clipboard.writeText(blob);
+      setCopied(true);
+      setTimeout(() => setCopied(false), 1500);
+    } catch {
+      // Clipboard write blocked — leave the user to copy manually.
+    }
+  }
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  return (
+    <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
+      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+        <div className="px-6 py-5 text-center">
+          <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-green-100">
+            <CheckCircle className="size-6 text-green-600" strokeWidth={2} />
+          </div>
+          <h3 className="font-heading text-lg font-bold text-gray-900">
+            {creds.title}
+          </h3>
+          <p className="mt-1 text-xs text-gray-500">
+            {creds.description}{" "}
+            <span className="font-semibold text-gray-700">{creds.full_name}</span>
+            :
+          </p>
+        </div>
+
+        <div className="mx-6 mb-4 flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50 p-4 font-mono text-[12px] text-gray-700">
+          <div>
+            <span className="text-gray-400">Email:</span>{" "}
+            <span className="font-semibold">{creds.email}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">Password:</span>{" "}
+            <span className="font-semibold">{creds.password}</span>
+          </div>
+          <div>
+            <span className="text-gray-400">URL:</span>{" "}
+            <a
+              href={ADMIN_LOGIN_URL}
+              target="_blank"
+              rel="noopener noreferrer"
+              className="font-semibold text-[#7E47FF] hover:underline"
+            >
+              {ADMIN_LOGIN_URL}
+            </a>
+          </div>
+        </div>
+
+        <p className="mx-6 mb-4 rounded-lg bg-amber-50 px-3 py-2 text-[11px] text-amber-700">
+          This password is shown <strong>once</strong>. Copy it now — there is
+          no way to retrieve it later.
+        </p>
+
+        <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
+          <button
+            type="button"
+            onClick={copyAll}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl border border-gray-200 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+          >
+            {copied ? (
+              <>
+                <CheckCircle className="size-4 text-green-600" strokeWidth={2.5} />
+                Copied
+              </>
+            ) : (
+              <>
+                <Copy className="size-4" strokeWidth={2} />
+                Copy All
+              </>
+            )}
+          </button>
+          <button
+            type="button"
+            onClick={onClose}
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
+          >
+            <CheckCircle className="size-4" strokeWidth={2.5} />
+            Done
+          </button>
+        </div>
+      </div>
     </div>
   );
 }

@@ -1,7 +1,15 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
-import { Bell, X } from "lucide-react";
+import {
+  ArrowRight,
+  Bell,
+  CheckCircle,
+  type LucideIcon,
+  MessageSquare,
+  UserPlus,
+  X,
+} from "lucide-react";
 import { useRouter } from "next/navigation";
 import {
   fetchNotifications,
@@ -21,15 +29,13 @@ function formatTime(iso: string): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-function eventIcon(type: string): string {
-  switch (type) {
-    case "client_decision": return "✅";
-    case "client_note":     return "💬";
-    case "stage_change":    return "🔄";
-    case "candidate_added": return "👤";
-    default:                return "🔔";
-  }
-}
+const EVENT_ICON: Record<string, { Icon: LucideIcon; color: string; bg: string }> = {
+  client_decision: { Icon: CheckCircle,   color: "text-emerald-600", bg: "bg-emerald-50" },
+  client_note:     { Icon: MessageSquare, color: "text-blue-600",    bg: "bg-blue-50"    },
+  stage_change:    { Icon: ArrowRight,    color: "text-[#7E47FF]",   bg: "bg-[#7E47FF]/10" },
+  candidate_added: { Icon: UserPlus,      color: "text-orange-600",  bg: "bg-orange-50"  },
+};
+const EVENT_ICON_DEFAULT = { Icon: Bell, color: "text-gray-500", bg: "bg-gray-100" };
 
 export function NotificationsBell() {
   const router = useRouter();
@@ -146,7 +152,10 @@ export function NotificationsBell() {
                 </p>
               </div>
             ) : (
-              notifications.map((n) => (
+              notifications.map((n) => {
+                const meta = EVENT_ICON[n.event_type] ?? EVENT_ICON_DEFAULT;
+                const { Icon, color, bg } = meta;
+                return (
                 <button
                   type="button"
                   key={n.id}
@@ -155,8 +164,10 @@ export function NotificationsBell() {
                     !n.read_at ? "bg-[#7E47FF]/[0.04]" : ""
                   }`}
                 >
-                  <span aria-hidden className="shrink-0 text-xl leading-none">
-                    {eventIcon(n.event_type)}
+                  <span
+                    className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}
+                  >
+                    <Icon className={`size-4 ${color}`} strokeWidth={2} />
                   </span>
                   <div className="min-w-0 flex-1">
                     <p
@@ -175,7 +186,8 @@ export function NotificationsBell() {
                     <span className="mt-2 size-2 shrink-0 rounded-full bg-[#7E47FF]" />
                   )}
                 </button>
-              ))
+                );
+              })
             )}
           </div>
         </div>

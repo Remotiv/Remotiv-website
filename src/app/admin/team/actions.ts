@@ -42,19 +42,40 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-const DEFAULT_PASSWORD = "Remotiv@2026";
+/**
+ * Cryptographically random password generator. Same alphabet/style as
+ * src/app/admin/_components/clients-dashboard.tsx — letters + digits +
+ * a small symbol set, ambiguous characters (l/I/O/0/1) excluded.
+ *
+ * Each invocation produces a fresh password. The plaintext is returned
+ * once via the action's MutationResult and surfaced in the credentials
+ * modal — never stored, never logged.
+ */
+function generatePassword(length = 12): string {
+  const chars =
+    "abcdefghijkmnopqrstuvwxyzABCDEFGHJKLMNPQRSTUVWXYZ23456789!@$%&*";
+  const bytes = new Uint32Array(length);
+  crypto.getRandomValues(bytes);
+  let out = "";
+  for (let i = 0; i < length; i++) {
+    out += chars[bytes[i] % chars.length];
+  }
+  return out;
+}
 
 export async function addMember(
   input: MemberInput,
-): Promise<MutationResult<TeamMember>> {
+): Promise<MutationResult<{ member: TeamMember; password: string }>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
+
+  const password = generatePassword(12);
 
   // 1. Create Supabase auth account (skip email verification)
   const { data: authData, error: authError } =
     await supabase.auth.admin.createUser({
       email: input.email,
-      password: DEFAULT_PASSWORD,
+      password,
       email_confirm: true,
     });
 
@@ -92,7 +113,33 @@ export async function addMember(
   });
 
   revalidatePath("/admin/team");
-  return { success: true, data: data as TeamMember };
+  return {
+    success: true,
+    data: { member: data as TeamMember, password },
+  };
+}
+
+/**
+ * Generate a new random password for an existing team member's auth
+ * account. Returns the plaintext once so the UI can surface it in the
+ * credentials modal — the previous password is invalidated immediately.
+ */
+export async function resetMemberPassword(
+  authUserId: string,
+): Promise<MutationResult<{ password: string }>> {
+  await requireSuperAdmin();
+  if (!authUserId) return { success: false, error: "Missing auth user id." };
+
+  const password = generatePassword(12);
+  const supabase = createServiceClient();
+  const { error } = await supabase.auth.admin.updateUserById(authUserId, {
+    password,
+  });
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/admin/team");
+  return { success: true, data: { password } };
 }
 
 export async function updateMember(

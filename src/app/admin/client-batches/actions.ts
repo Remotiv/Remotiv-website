@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { notifyAllAdmins } from "@/lib/notifications";
 
 // ── Types ────────────────────────────────────────────────────
@@ -115,26 +115,6 @@ export type ActiveClient = {
 type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
-
-// ── Auth gate (super_admin OR admin) ─────────────────────────
-
-async function requireAdmin(): Promise<void> {
-  const auth = await createAuthClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-
-  if (user.email === SUPER_ADMIN_EMAIL) return;
-
-  const supabase = createServiceClient();
-  const { data: roleRow } = await supabase
-    .from("admin_users")
-    .select("role")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  const role = (roleRow?.role as UserRole | undefined) ?? "viewer";
-  if (role !== "super_admin" && role !== "admin") throw new Error("Forbidden");
-}
 
 // Common SELECT for client_batch_candidates that aliases the reserved
 // column name candidate_current_role → current_role so JS code stays clean.

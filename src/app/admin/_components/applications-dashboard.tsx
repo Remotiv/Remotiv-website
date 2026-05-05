@@ -7,7 +7,6 @@ import {
   Star,
   XCircle,
   HelpCircle,
-  TrendingUp,
   MoreHorizontal,
   Download,
   ExternalLink,
@@ -26,6 +25,7 @@ import {
 import { TopNav } from "./top-nav";
 import { MoveToTalentModal } from "./move-to-talent-modal";
 import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
+import { PaginationControls, paginate } from "./pagination-controls";
 import {
   updateApplicationStatus,
   addComment,
@@ -43,8 +43,6 @@ import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
 type StatCardDef = {
   label: string;
   value: number;
-  trend: string;
-  up: boolean;
   from: string;
   to: string;
   icon: LucideIcon;
@@ -107,10 +105,6 @@ function StatCard({ card }: { card: StatCardDef }) {
         <div className="rounded-xl bg-white/20 p-2.5">
           <Icon className="size-5" strokeWidth={2} />
         </div>
-      </div>
-      <div className="relative mt-4 flex items-center gap-1.5">
-        <TrendingUp className="size-3.5" strokeWidth={2} />
-        <span className="text-xs font-medium text-white/90">{card.trend}</span>
       </div>
     </div>
   );
@@ -479,6 +473,13 @@ export function ApplicationsDashboard({
     });
   }, [apps, search, filterJob, filterStatus]);
 
+  // Client-side pagination — see pagination-controls.tsx for rationale.
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterJob, filterStatus]);
+  const pageItems = paginate(filtered, page);
+
   // ── Stats ─────────────────────────────────────────────────
   const totalApps   = apps.length;
   const shortlisted = apps.filter((a) => a.status === "shortlisted").length;
@@ -489,8 +490,6 @@ export function ApplicationsDashboard({
     {
       label: "Total Applications",
       value: totalApps,
-      trend: "+12% this month",
-      up: true,
       from: "from-[#7E47FF]",
       to: "to-[#9886fe]",
       icon: FileText,
@@ -498,8 +497,6 @@ export function ApplicationsDashboard({
     {
       label: "Shortlisted",
       value: shortlisted,
-      trend: "+8% this month",
-      up: true,
       from: "from-[#49D7A7]",
       to: "to-[#3bc494]",
       icon: Star,
@@ -507,8 +504,6 @@ export function ApplicationsDashboard({
     {
       label: "Not a Good Fit",
       value: notAFit,
-      trend: "-5% this month",
-      up: false,
       from: "from-[#F97316]",
       to: "to-[#FB923C]",
       icon: XCircle,
@@ -516,8 +511,6 @@ export function ApplicationsDashboard({
     {
       label: "Maybe",
       value: maybe,
-      trend: "+3% this month",
-      up: true,
       from: "from-[#3B82F6]",
       to: "to-[#60A5FA]",
       icon: HelpCircle,
@@ -613,7 +606,7 @@ export function ApplicationsDashboard({
                     </td>
                   </tr>
                 ) : (
-                  filtered.map((app) => {
+                  pageItems.map((app) => {
                     const meta = STATUS_META[app.status];
                     const isHighlighted =
                       searchLower.length > 0 &&
@@ -715,6 +708,11 @@ export function ApplicationsDashboard({
               </tbody>
             </table>
           </div>
+          {filtered.length > 0 && (
+            <div className="border-t border-gray-100 px-6 py-4">
+              <PaginationControls page={page} setPage={setPage} total={filtered.length} />
+            </div>
+          )}
         </div>
       </main>
 

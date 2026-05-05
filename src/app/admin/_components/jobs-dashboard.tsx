@@ -6,8 +6,6 @@ import {
   CheckCircle,
   PauseCircle,
   XCircle,
-  TrendingUp,
-  TrendingDown,
   Plus,
   MoreHorizontal,
   X,
@@ -16,6 +14,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { PaginationControls, paginate } from "./pagination-controls";
 import {
   createJob,
   updateJob,
@@ -49,8 +48,6 @@ const STATUS_META: Record<
 type StatCardDef = {
   label: string;
   value: number;
-  trend: string;
-  up: boolean;
   from: string;
   to: string;
   icon: LucideIcon;
@@ -212,15 +209,19 @@ export function JobsDashboard({
   const onHoldCount  = jobs.filter((j) => j.status === "on_hold").length;
   const closedCount  = jobs.filter((j) => j.status === "closed").length;
 
+  // Client-side pagination — see pagination-controls.tsx for rationale.
+  const [page, setPage] = useState(1);
+  const pageItems = paginate(jobs, page);
+
   const updateDate = new Date().toLocaleDateString("en-GB", {
     day: "2-digit", month: "short", year: "numeric",
   });
 
   const STAT_CARDS: StatCardDef[] = [
-    { label: "Total Jobs",  value: totalJobs,   trend: "+3",  up: true,  from: "#c084fc", to: "#7E47FF", icon: Briefcase   },
-    { label: "Open",        value: openCount,   trend: "+2",  up: true,  from: "#6ee7c7", to: "#49D7A7", icon: CheckCircle },
-    { label: "On Hold",     value: onHoldCount, trend: "—",   up: false, from: "#fdba74", to: "#f97316", icon: PauseCircle },
-    { label: "Closed",      value: closedCount, trend: "+1",  up: false, from: "#93c5fd", to: "#3b82f6", icon: XCircle     },
+    { label: "Total Jobs",  value: totalJobs,   from: "#c084fc", to: "#7E47FF", icon: Briefcase   },
+    { label: "Open",        value: openCount,   from: "#6ee7c7", to: "#49D7A7", icon: CheckCircle },
+    { label: "On Hold",     value: onHoldCount, from: "#fdba74", to: "#f97316", icon: PauseCircle },
+    { label: "Closed",      value: closedCount, from: "#93c5fd", to: "#3b82f6", icon: XCircle     },
   ];
 
   return (
@@ -248,7 +249,7 @@ export function JobsDashboard({
 
         {/* Stat cards */}
         <div className="mb-6 grid grid-cols-1 gap-4 sm:grid-cols-2 xl:grid-cols-4">
-          {STAT_CARDS.map(({ label, value, trend, up, from, to, icon: Icon }) => (
+          {STAT_CARDS.map(({ label, value, from, to, icon: Icon }) => (
             <div
               key={label}
               className="relative overflow-hidden rounded-2xl p-6 text-white"
@@ -256,10 +257,6 @@ export function JobsDashboard({
             >
               <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
-              <div className={`absolute right-4 top-4 flex items-center gap-1 rounded-full px-2.5 py-1 text-[10px] font-bold ${up ? "bg-white/20" : "bg-black/15"}`}>
-                {up ? <TrendingUp className="size-3" strokeWidth={2.5} /> : <TrendingDown className="size-3" strokeWidth={2.5} />}
-                {trend}
-              </div>
               <Icon className="mb-4 size-7 opacity-90" strokeWidth={1.8} />
               <p className="font-heading text-[2.6rem] font-bold leading-none">{value}</p>
               <p className="mt-2 text-sm font-medium opacity-80">{label}</p>
@@ -293,7 +290,7 @@ export function JobsDashboard({
                     </td>
                   </tr>
                 ) : (
-                  jobs.map((job) => {
+                  pageItems.map((job) => {
                     const meta = STATUS_META[job.status];
                     return (
                       <tr key={job.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
@@ -406,6 +403,11 @@ export function JobsDashboard({
               </tbody>
             </table>
           </div>
+          {jobs.length > 0 && (
+            <div className="border-t border-gray-100 px-6 py-4">
+              <PaginationControls page={page} setPage={setPage} total={jobs.length} />
+            </div>
+          )}
         </div>
       </div>
 

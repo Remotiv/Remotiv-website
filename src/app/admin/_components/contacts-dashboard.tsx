@@ -13,6 +13,7 @@ import {
   X,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { PaginationControls, paginate } from "./pagination-controls";
 import {
   deleteInquiry,
   updateInquiryNotes,
@@ -383,6 +384,13 @@ export function ContactsDashboard({
     });
   }, [activeRows, search, filterStatus]);
 
+  // Client-side pagination — see pagination-controls.tsx for rationale.
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search, filterStatus]);
+  const pageItems = paginate(filtered, page);
+
   const allRows = useMemo(() => [...inquiries, ...bookings], [inquiries, bookings]);
 
   const totalCount = allRows.length;
@@ -448,7 +456,7 @@ export function ContactsDashboard({
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
               }`}
             >
-              📧 Inquiries
+              Inquiries
               <span className={`rounded-full px-1.5 text-[10px] ${tab === "inquiries" ? "bg-white/20" : "bg-gray-100 text-gray-500"}`}>
                 {inquiries.length}
               </span>
@@ -462,7 +470,7 @@ export function ContactsDashboard({
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
               }`}
             >
-              📅 Bookings
+              Bookings
               <span className={`rounded-full px-1.5 text-[10px] ${tab === "bookings" ? "bg-white/20" : "bg-gray-100 text-gray-500"}`}>
                 {bookings.length}
               </span>
@@ -521,7 +529,7 @@ export function ContactsDashboard({
                   </td>
                 </tr>
               ) : (
-                filtered.map((row) => (
+                pageItems.map((row) => (
                   <tr
                     key={row.id}
                     className="cursor-pointer border-b border-gray-50 hover:bg-gray-50/50"
@@ -576,6 +584,11 @@ export function ContactsDashboard({
               )}
             </tbody>
           </table>
+          {filtered.length > 0 && (
+            <div className="border-t border-gray-100 px-6 py-4">
+              <PaginationControls page={page} setPage={setPage} total={filtered.length} />
+            </div>
+          )}
         </div>
       </main>
 

@@ -52,7 +52,9 @@ const STATUS_BADGE: Record<ClientStatus, { badge: string; dot: string }> = {
   archived: { badge: "bg-gray-100 text-gray-500",      dot: "bg-gray-400"  },
 };
 
-const CLIENT_LOGIN_URL = "https://remotiv-website-m3jo.vercel.app/client/login";
+const CLIENT_LOGIN_URL =
+  process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL ??
+  "http://localhost:3000/client/login";
 
 // ── Helpers ──────────────────────────────────────────────────
 

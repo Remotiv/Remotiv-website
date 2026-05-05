@@ -26,6 +26,7 @@ import {
 } from "lucide-react";
 import { TopNav } from "./top-nav";
 import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
+import { PaginationControls, paginate } from "./pagination-controls";
 import {
   updateTalentStatus,
   saveTalentNote,
@@ -818,6 +819,13 @@ export function TalentDashboard({
   const availableCount = profiles.filter(isAvailable).length;
   const pendingCount   = profiles.filter((p) => p.status === "pending").length;
 
+  // ── Pagination (client-side, against the filtered set) ────
+  const [page, setPage] = useState(1);
+  useEffect(() => {
+    setPage(1);
+  }, [search, filterCategory, filterStatus, filterAvailability, filterWorkType]);
+  const pageItems = paginate(filtered, page);
+
   const openProfile = openId ? profiles.find((p) => p.id === openId) ?? null : null;
 
   const [deleteTarget, setDeleteTarget] = useState<TalentProfile | null>(null);
@@ -962,17 +970,22 @@ export function TalentDashboard({
                 <p className="mt-1 text-xs text-gray-400">Try clearing a filter or broadening your search.</p>
               </div>
             ) : (
-              <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
-                {filtered.map((p) => (
-                  <ProfileCard
-                    key={p.id}
-                    profile={p}
-                    canApprove={isSuperAdmin}
-                    onView={() => setOpenId(p.id)}
-                    onApprove={() => handleSetStatus(p, "approved")}
-                  />
-                ))}
-              </div>
+              <>
+                <div className="grid grid-cols-1 gap-4 xl:grid-cols-2">
+                  {pageItems.map((p) => (
+                    <ProfileCard
+                      key={p.id}
+                      profile={p}
+                      canApprove={isSuperAdmin}
+                      onView={() => setOpenId(p.id)}
+                      onApprove={() => handleSetStatus(p, "approved")}
+                    />
+                  ))}
+                </div>
+                <div className="mt-6">
+                  <PaginationControls page={page} setPage={setPage} total={filtered.length} />
+                </div>
+              </>
             )}
           </div>
         </div>

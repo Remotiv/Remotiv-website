@@ -21,6 +21,7 @@ import {
   X,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { PaginationControls, paginate } from "./pagination-controls";
 import {
   BATCH_STAGES,
   CLIENT_DECISION_ICON,
@@ -45,7 +46,9 @@ import {
 } from "@/app/admin/client-batches/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
 
-const CLIENT_LOGIN_URL = "https://remotiv-website-m3jo.vercel.app/client/login";
+const CLIENT_LOGIN_URL =
+  process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL ??
+  "http://localhost:3000/client/login";
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -839,6 +842,10 @@ export function BatchDetailDashboard({
   const [toast, setToast] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
 
+  // Client-side pagination — see pagination-controls.tsx for rationale.
+  const [page, setPage] = useState(1);
+  const pageItems = paginate(candidates, page);
+
   useEffect(() => setCandidates(initialCandidates), [initialCandidates]);
 
   useEffect(() => {
@@ -1003,7 +1010,7 @@ export function BatchDetailDashboard({
                 </tr>
               </thead>
               <tbody>
-                {candidates.map((c) => (
+                {pageItems.map((c) => (
                   <tr
                     key={c.id}
                     className="cursor-pointer border-b border-gray-50 hover:bg-gray-50/50"
@@ -1104,6 +1111,11 @@ export function BatchDetailDashboard({
                 ))}
               </tbody>
             </table>
+            {candidates.length > 0 && (
+              <div className="border-t border-gray-100 px-6 py-4">
+                <PaginationControls page={page} setPage={setPage} total={candidates.length} />
+              </div>
+            )}
           </div>
         )}
       </main>
