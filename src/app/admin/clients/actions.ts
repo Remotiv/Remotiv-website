@@ -128,6 +128,9 @@ export async function createClient(input: {
 
   // 2. Insert the clients row. If this fails, clean up the orphaned auth user
   //    so the email can be reused without manual intervention.
+  //    must_change_password=true marks the client as needing to set their
+  //    own password on first login. (No /client/change-password page yet —
+  //    flag is dormant on the client side; admins re-set it on resets.)
   const { data: row, error: insertError } = await supabase
     .from("clients")
     .insert({
@@ -136,6 +139,7 @@ export async function createClient(input: {
       contact_name,
       email,
       status: "active",
+      must_change_password: true,
     })
     .select("id")
     .single();
@@ -206,6 +210,13 @@ export async function resetClientPassword(
     password: newPassword,
   });
   if (updateErr) return { success: false, error: updateErr.message };
+
+  // Re-arm the must-change gate so the client is asked to pick their own
+  // password the next time they sign in.
+  await supabase
+    .from("clients")
+    .update({ must_change_password: true })
+    .eq("id", id);
 
   revalidatePath("/admin/clients");
   return { success: true, data: undefined };

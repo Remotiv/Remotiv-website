@@ -56,8 +56,7 @@ const STATUS_BADGE: Record<ClientStatus, { badge: string; dot: string }> = {
 };
 
 const CLIENT_LOGIN_URL =
-  process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL ??
-  "http://localhost:3000/client/login";
+  process.env.NEXT_PUBLIC_CLIENT_PORTAL_URL ?? "/client/login";
 
 // ── Helpers ──────────────────────────────────────────────────
 

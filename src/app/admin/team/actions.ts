@@ -105,11 +105,14 @@ export async function addMember(
     return { success: false, error: error.message };
   }
 
-  // 3. Sync role into admin_users so the permission system picks it up
+  // 3. Sync role into admin_users so the permission system picks it up.
+  //    must_change_password=true forces them through /admin/change-password
+  //    on first login (gated in admin/layout.tsx).
   await supabase.from("admin_users").insert({
     user_id: authData.user.id,
     role: input.permission,
     full_name: input.full_name,
+    must_change_password: true,
   });
 
   revalidatePath("/admin/team");
@@ -137,6 +140,13 @@ export async function resetMemberPassword(
   });
 
   if (error) return { success: false, error: error.message };
+
+  // Re-arm the must-change gate so the member is forced through
+  // /admin/change-password the next time they sign in.
+  await supabase
+    .from("admin_users")
+    .update({ must_change_password: true })
+    .eq("user_id", authUserId);
 
   revalidatePath("/admin/team");
   return { success: true, data: { password } };

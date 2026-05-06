@@ -3,7 +3,7 @@
 import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
-import { usePathname, useRouter } from "next/navigation";
+import { usePathname } from "next/navigation";
 import {
   Briefcase,
   Building2,
@@ -20,7 +20,6 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
 import { NotificationsBell } from "./notifications-bell";
 import {
   type UserRole,
@@ -83,7 +82,6 @@ export function TopNav({
   userRole?: UserRole;
 }) {
   const pathname = usePathname();
-  const router = useRouter();
 
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -127,12 +125,6 @@ export function TopNav({
   useEffect(() => {
     setMobileOpen(false);
   }, [pathname]);
-
-  async function handleSignOut() {
-    const supabase = createClient();
-    await supabase.auth.signOut();
-    router.push("/login");
-  }
 
   return (
     <>
@@ -203,14 +195,15 @@ export function TopNav({
                   Change Password
                 </Link>
                 <div className="border-t border-gray-100" />
-                <button
-                  type="button"
-                  onClick={handleSignOut}
-                  className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
-                >
-                  <LogOut className="size-4" strokeWidth={2} />
-                  Sign Out
-                </button>
+                <form action="/admin/logout" method="post">
+                  <button
+                    type="submit"
+                    className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
+                  >
+                    <LogOut className="size-4" strokeWidth={2} />
+                    Sign Out
+                  </button>
+                </form>
               </div>
             )}
           </div>
@@ -323,14 +316,15 @@ export function TopNav({
             <KeyRound className="size-4 text-gray-400" strokeWidth={2} />
             Change Password
           </Link>
-          <button
-            type="button"
-            onClick={handleSignOut}
-            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
-          >
-            <LogOut className="size-4 text-gray-400" strokeWidth={2} />
-            Sign Out
-          </button>
+          <form action="/admin/logout" method="post">
+            <button
+              type="submit"
+              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
+            >
+              <LogOut className="size-4 text-gray-400" strokeWidth={2} />
+              Sign Out
+            </button>
+          </form>
         </div>
       </aside>
     </>

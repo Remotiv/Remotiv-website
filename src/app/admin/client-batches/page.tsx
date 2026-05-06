@@ -17,7 +17,7 @@ export default async function AdminClientBatchesPage({
   const service = createServiceClient();
 
   const { data: { user } } = await supabase.auth.getUser();
-  if (!user) redirect("/admin/login");
+  if (!user) redirect("/login");
 
   const userId = user.id;
   const userEmail = user.email ?? "";

@@ -17,6 +17,12 @@ import { SUPER_ADMIN_EMAIL, type UserRole } from "./roles";
 export type AdminContext = {
   user: { id: string; email: string };
   role: UserRole;
+  /**
+   * True for newly-invited admins or anyone whose password was reset by a
+   * super admin — admin/layout.tsx redirects them to /admin/change-password
+   * until they pick their own. Super-admins always read false.
+   */
+  mustChangePassword: boolean;
 };
 
 /**
@@ -36,17 +42,25 @@ export async function getAdminContext(): Promise<AdminContext> {
   }
 
   if (user.email === SUPER_ADMIN_EMAIL) {
-    return { user: { id: user.id, email: user.email }, role: "super_admin" };
+    return {
+      user: { id: user.id, email: user.email },
+      role: "super_admin",
+      mustChangePassword: false,
+    };
   }
 
   const supabase = createServiceClient();
   const { data: adminRow } = await supabase
     .from("admin_users")
-    .select("role, status")
+    .select("role, status, must_change_password")
     .eq("user_id", user.id)
     .maybeSingle();
 
-  const row = adminRow as { role: string | null; status: string | null } | null;
+  const row = adminRow as {
+    role: string | null;
+    status: string | null;
+    must_change_password: boolean | null;
+  } | null;
   if (!row || !row.role) {
     throw new Error("Forbidden: not an admin");
   }
@@ -57,6 +71,7 @@ export async function getAdminContext(): Promise<AdminContext> {
   return {
     user: { id: user.id, email: user.email },
     role: row.role as UserRole,
+    mustChangePassword: row.must_change_password === true,
   };
 }
 

@@ -5,13 +5,13 @@ export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
 
 /**
- * Logout is POST-only — a GET handler would let any third-party page sign
- * the user out via `<img src="/client/logout">`. The client top-nav posts
- * a hidden form, never a link.
+ * POST-only admin sign-out. Mirrors /client/logout. The admin top-nav
+ * posts a hidden form rather than calling supabase.auth.signOut() inline,
+ * so a network failure on the auth call still surfaces a redirect.
  */
 export async function POST(request: Request) {
   const supabase = await createClient();
   await supabase.auth.signOut();
   const origin = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(request.url).origin;
-  return NextResponse.redirect(new URL("/client/login", origin), { status: 303 });
+  return NextResponse.redirect(new URL("/login", origin), { status: 303 });
 }

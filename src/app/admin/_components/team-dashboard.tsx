@@ -45,8 +45,7 @@ import {
 import { getAvatarUrl } from "@/lib/avatars";
 
 const ADMIN_LOGIN_URL =
-  process.env.NEXT_PUBLIC_ADMIN_LOGIN_URL ??
-  "http://localhost:3000/login";
+  process.env.NEXT_PUBLIC_ADMIN_LOGIN_URL ?? "/login";
 
 // ── Constants ────────────────────────────────────────────────
 
