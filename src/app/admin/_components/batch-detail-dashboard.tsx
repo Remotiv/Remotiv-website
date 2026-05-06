@@ -30,7 +30,7 @@ import {
   CLIENT_DECISION_LABEL,
   stageBadgeClass,
 } from "./batch-stages";
-import { getAvatarUrl, getInitials } from "@/lib/avatars";
+import { getClientAvatarUrl, getInitials } from "@/lib/client-avatars";
 import {
   addAdminCandidateNote,
   addCandidateToBatch,
@@ -111,7 +111,7 @@ function RowAvatar({
           underneath remains visible. */}
       {/* biome-ignore lint/performance/noImgElement: see comment above */}
       <img
-        src={getAvatarUrl(candidate.first_name, candidate.last_name)}
+        src={getClientAvatarUrl(candidate.first_name, candidate.last_name)}
         alt=""
         className="absolute inset-0 size-full object-cover"
         onError={(e) => {

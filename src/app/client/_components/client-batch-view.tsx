@@ -34,7 +34,7 @@ import {
   type CandidateNote,
   type ClientCandidate,
 } from "@/app/client/actions";
-import { getAvatarUrl, getInitials } from "@/lib/avatars";
+import { getClientAvatarUrl, getInitials } from "@/lib/client-avatars";
 
 const DECISION_LABEL: Record<NonNullable<ClientCandidate["client_decision"]>, string> = {
   approve: "Approved",
@@ -269,7 +269,7 @@ function CandidateAvatar({
   size: number;
 }) {
   const [errored, setErrored] = useState(false);
-  const url = getAvatarUrl(candidate.first_name, candidate.last_name);
+  const url = getClientAvatarUrl(candidate.first_name, candidate.last_name);
 
   if (errored) {
     return (

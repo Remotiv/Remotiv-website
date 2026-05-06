@@ -1,6 +1,6 @@
 // Available avatar counts (stored in /public/avatars/)
-const MALE_AVATAR_COUNT = 42;
-const FEMALE_AVATAR_COUNT = 36;
+const MALE_AVATAR_COUNT = 20;
+const FEMALE_AVATAR_COUNT = 15;
 
 // Common names for gender detection
 const FEMALE_NAMES = new Set([
