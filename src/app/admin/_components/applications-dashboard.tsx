@@ -27,8 +27,20 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
-import { MoveToTalentModal } from "./move-to-talent-modal";
-import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
+import dynamic from "next/dynamic";
+import type { AddToBatchSnapshot } from "./add-to-batch-modal";
+
+// Both modals are click-to-open — defer their JS until the user actually
+// triggers them. AddToBatchModal pulls a candidate-search subtree;
+// MoveToTalentModal is the talent-profile mapping form.
+const MoveToTalentModal = dynamic(
+  () => import("./move-to-talent-modal").then((m) => ({ default: m.MoveToTalentModal })),
+  { ssr: false },
+);
+const AddToBatchModal = dynamic(
+  () => import("./add-to-batch-modal").then((m) => ({ default: m.AddToBatchModal })),
+  { ssr: false },
+);
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   updateApplicationStatus,

@@ -35,7 +35,15 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
-import { AddToBatchModal, type AddToBatchSnapshot } from "./add-to-batch-modal";
+import dynamic from "next/dynamic";
+import type { AddToBatchSnapshot } from "./add-to-batch-modal";
+
+// Modal is opened from a row action — defer the JS until the user actually
+// clicks Add to Batch. Keeps it out of the initial talent-page chunk.
+const AddToBatchModal = dynamic(
+  () => import("./add-to-batch-modal").then((m) => ({ default: m.AddToBatchModal })),
+  { ssr: false },
+);
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   updateTalentStatus,

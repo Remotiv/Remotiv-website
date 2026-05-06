@@ -2,6 +2,7 @@
 
 import { useEffect, useState } from "react";
 import Link from "next/link";
+import dynamic from "next/dynamic";
 import {
   Briefcase,
   Building2,
@@ -17,22 +18,43 @@ import {
   UserPlus,
   Users,
 } from "lucide-react";
-import {
-  Area,
-  AreaChart,
-  Bar,
-  BarChart,
-  CartesianGrid,
-  Cell,
-  Pie,
-  PieChart,
-  ResponsiveContainer,
-  Tooltip,
-  XAxis,
-  YAxis,
-} from "recharts";
 import type { UserRole } from "@/app/admin/lib/roles";
 import { ROLE_LABELS } from "@/app/admin/lib/roles";
+
+// Recharts ships ~120 KB gzipped — keep it out of the initial /admin chunk
+// and load each chart lazily. ssr:false because charts measure the DOM.
+const SubmissionsChart = dynamic(
+  () => import("./overview-charts").then((m) => ({ default: m.SubmissionsChart })),
+  {
+    ssr: false,
+    loading: () => <ChartSkeleton h={240} />,
+  },
+);
+const ApplicationsStatusChart = dynamic(
+  () => import("./overview-charts").then((m) => ({ default: m.ApplicationsStatusChart })),
+  {
+    ssr: false,
+    loading: () => <ChartSkeleton h={190} />,
+  },
+);
+const PipelineChart = dynamic(
+  () => import("./overview-charts").then((m) => ({ default: m.PipelineChart })),
+  {
+    ssr: false,
+    loading: () => <ChartSkeleton h={240} />,
+  },
+);
+
+function ChartSkeleton({ h }: { h: number }) {
+  return (
+    <div
+      className="flex items-center justify-center text-xs text-gray-300"
+      style={{ height: h }}
+    >
+      Loading chart…
+    </div>
+  );
+}
 import type {
   ActivityItem,
   ActivityKind,
@@ -181,37 +203,6 @@ const ACTIVITY_BADGE: Record<ActivityKind, { label: string; cls: string }> = {
   booking: { label: "Booking", cls: "bg-amber-100 text-amber-700" },
   inquiry: { label: "Inquiry", cls: "bg-gray-200 text-gray-700" },
 };
-
-// ── Tooltip ──────────────────────────────────────────────────
-
-type ChartTooltipProps = {
-  active?: boolean;
-  payload?: Array<{ name: string; value: number; color: string }>;
-  label?: string;
-};
-
-function ChartTooltip({ active, payload, label }: ChartTooltipProps) {
-  if (!active || !payload?.length) return null;
-  return (
-    <div className="rounded-xl bg-[#111] px-4 py-3 shadow-xl">
-      {label && (
-        <p className="mb-2 text-[11px] font-semibold text-white/60">{label}</p>
-      )}
-      {payload.map((p) => (
-        <div key={p.name} className="flex items-center gap-2">
-          <span
-            className="size-2 rounded-full"
-            style={{ background: p.color }}
-          />
-          <span className="text-xs text-white/80">{p.name}</span>
-          <span className="ml-auto pl-3 text-xs font-bold text-white">
-            {p.value}
-          </span>
-        </div>
-      ))}
-    </div>
-  );
-}
 
 // ── Stat card ────────────────────────────────────────────────
 
@@ -378,76 +369,10 @@ export function OverviewDashboard({
                 Daily
               </span>
             </div>
-            <ResponsiveContainer width="100%" height={240}>
-              <AreaChart
-                data={submissionsByDay}
-                margin={{ top: 4, right: 4, left: -20, bottom: 0 }}
-              >
-                <defs>
-                  <linearGradient id="talentFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#7E47FF" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#7E47FF" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="remoteFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#49D7A7" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#49D7A7" stopOpacity={0} />
-                  </linearGradient>
-                  <linearGradient id="appsFill" x1="0" y1="0" x2="0" y2="1">
-                    <stop offset="5%" stopColor="#9886FE" stopOpacity={0.22} />
-                    <stop offset="95%" stopColor="#9886FE" stopOpacity={0} />
-                  </linearGradient>
-                </defs>
-                <CartesianGrid
-                  strokeDasharray="3 3"
-                  stroke="#f0f0f0"
-                  vertical={false}
-                />
-                <XAxis
-                  dataKey="label"
-                  tick={{ fontSize: 10, fill: "#bbb" }}
-                  axisLine={false}
-                  tickLine={false}
-                  interval={chartTickInterval}
-                />
-                <YAxis
-                  tick={{ fontSize: 11, fill: "#bbb" }}
-                  axisLine={false}
-                  tickLine={false}
-                  allowDecimals={false}
-                />
-                <Tooltip content={<ChartTooltip />} />
-                <Area
-                  type="monotone"
-                  dataKey="talent"
-                  name="Talent"
-                  stroke="#7E47FF"
-                  strokeWidth={2.5}
-                  fill="url(#talentFill)"
-                  dot={false}
-                  activeDot={{ r: 5, fill: "#7E47FF" }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="remote"
-                  name="Remote Ready"
-                  stroke="#49D7A7"
-                  strokeWidth={2.5}
-                  fill="url(#remoteFill)"
-                  dot={false}
-                  activeDot={{ r: 5, fill: "#49D7A7" }}
-                />
-                <Area
-                  type="monotone"
-                  dataKey="applications"
-                  name="Applications"
-                  stroke="#9886FE"
-                  strokeWidth={2.5}
-                  fill="url(#appsFill)"
-                  dot={false}
-                  activeDot={{ r: 5, fill: "#9886FE" }}
-                />
-              </AreaChart>
-            </ResponsiveContainer>
+            <SubmissionsChart
+              data={submissionsByDay}
+              tickInterval={chartTickInterval}
+            />
             <div className="mt-3 flex items-center gap-5">
               <div className="flex items-center gap-2">
                 <span className="size-2.5 rounded-full bg-remotiv-purple" />
@@ -480,28 +405,10 @@ export function OverviewDashboard({
             ) : (
               <>
                 <div className="relative flex items-center justify-center">
-                  <PieChart width={190} height={190}>
-                    <Pie
-                      data={applicationsByStatus}
-                      cx={95}
-                      cy={95}
-                      innerRadius={58}
-                      outerRadius={88}
-                      paddingAngle={4}
-                      dataKey="value"
-                      startAngle={90}
-                      endAngle={-270}
-                    >
-                      {applicationsByStatus.map((slice, i) => (
-                        <Cell
-                          key={slice.name}
-                          fill={STATUS_COLORS[i % STATUS_COLORS.length]}
-                          strokeWidth={0}
-                        />
-                      ))}
-                    </Pie>
-                    <Tooltip content={<ChartTooltip />} />
-                  </PieChart>
+                  <ApplicationsStatusChart
+                    data={applicationsByStatus}
+                    colors={STATUS_COLORS}
+                  />
                   <div className="pointer-events-none absolute inset-0 flex flex-col items-center justify-center">
                     <span className="text-[11px] text-gray-400">Total</span>
                     <span className="font-heading text-2xl font-bold text-[#111]">
@@ -557,40 +464,7 @@ export function OverviewDashboard({
             {totalPipeline === 0 ? (
               <EmptyChart label="No pipeline activity yet" />
             ) : (
-              <ResponsiveContainer width="100%" height={240}>
-                <BarChart
-                  data={pipelineStats}
-                  layout="vertical"
-                  margin={{ top: 4, right: 16, left: 8, bottom: 0 }}
-                >
-                  <CartesianGrid
-                    strokeDasharray="3 3"
-                    stroke="#f0f0f0"
-                    horizontal={false}
-                  />
-                  <XAxis
-                    type="number"
-                    tick={{ fontSize: 11, fill: "#bbb" }}
-                    axisLine={false}
-                    tickLine={false}
-                    allowDecimals={false}
-                  />
-                  <YAxis
-                    type="category"
-                    dataKey="name"
-                    tick={{ fontSize: 12, fill: "#666" }}
-                    axisLine={false}
-                    tickLine={false}
-                    width={140}
-                  />
-                  <Tooltip content={<ChartTooltip />} />
-                  <Bar dataKey="value" radius={[0, 8, 8, 0]} barSize={22}>
-                    {pipelineStats.map((slice) => (
-                      <Cell key={slice.name} fill={slice.color} />
-                    ))}
-                  </Bar>
-                </BarChart>
-              </ResponsiveContainer>
+              <PipelineChart data={pipelineStats} />
             )}
           </div>
 
