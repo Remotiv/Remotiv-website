@@ -205,6 +205,9 @@ function AppPanel({
 
       {/* Panel — full-width on mobile, 320px side drawer on desktop */}
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Application details"
         className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl transition-transform duration-300 lg:w-80"
         style={{ transform: visible ? "translateX(0)" : "translateX(100%)" }}
       >
@@ -747,7 +750,8 @@ export function ApplicationsDashboard({
               strokeWidth={2}
             />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search by name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -807,7 +811,8 @@ export function ApplicationsDashboard({
           {/* Filters */}
           <div className="flex flex-wrap items-center gap-3 border-b border-gray-100 px-6 py-4">
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search by name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1536,7 +1541,12 @@ function BulkUploadCVModal({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
-      <div className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}>
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-upload-title"
+        className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}
+      >
         {/* Header */}
         <div className="relative shrink-0 rounded-t-2xl bg-remotiv-purple px-7 py-6 pr-16">
           {!submitting && (
@@ -1549,7 +1559,7 @@ function BulkUploadCVModal({
               <X className="size-4" strokeWidth={2.5} />
             </button>
           )}
-          <p className="font-heading text-xl font-bold text-white">Bulk CV Upload</p>
+          <p id="bulk-upload-title" className="font-heading text-xl font-bold text-white">Bulk CV Upload</p>
           <p className="mt-0.5 text-sm text-white/70">{headerSubtitle}</p>
         </div>
 

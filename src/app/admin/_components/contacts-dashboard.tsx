@@ -186,7 +186,12 @@ function InquiryDrawer({
         onClick={onClose}
         className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
       />
-      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="inquiry-drawer-title"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]"
+      >
         <div className="relative shrink-0 border-b border-gray-100 px-4 py-5 lg:px-6">
           <button
             type="button"
@@ -199,7 +204,10 @@ function InquiryDrawer({
           <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
             {type === "booking" ? "Booking request" : "Inquiry"}
           </p>
-          <p className="mt-1 truncate font-heading text-lg font-bold text-gray-900 pr-8">
+          <p
+            id="inquiry-drawer-title"
+            className="mt-1 truncate font-heading text-lg font-bold text-gray-900 pr-8"
+          >
             {inquiry.name || "—"}
           </p>
           {inquiry.company && (
@@ -711,7 +719,8 @@ export function ContactsDashboard({
               strokeWidth={2}
             />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -769,7 +778,8 @@ export function ContactsDashboard({
           <div className="flex flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:max-w-md">
             <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search by name, email, company, or message…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}

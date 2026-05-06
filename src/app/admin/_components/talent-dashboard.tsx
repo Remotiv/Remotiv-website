@@ -445,7 +445,12 @@ function ProfileDrawer({
         className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[420px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Talent profile"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[420px]"
+      >
         {/* Header */}
         <div className="relative shrink-0 border-b border-gray-100 px-5 py-5 lg:px-6 lg:py-6">
           <button
@@ -1142,7 +1147,8 @@ export function TalentDashboard({
           <div className="hidden flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:flex lg:max-w-md">
             <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search by name, skill, location…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1159,7 +1165,8 @@ export function TalentDashboard({
               strokeWidth={2}
             />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search by name, skill…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
@@ -1422,12 +1429,17 @@ export function TalentDashboard({
       {/* Delete confirm */}
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-talent-title"
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <AlertTriangle className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">Remove this talent?</h3>
+              <h3 id="delete-talent-title" className="font-heading text-lg font-bold text-gray-900">Remove this talent?</h3>
               <p className="mt-2 text-sm text-gray-500">
                 This permanently removes{" "}
                 <span className="font-semibold text-gray-700">

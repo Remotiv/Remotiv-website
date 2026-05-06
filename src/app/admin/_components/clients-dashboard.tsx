@@ -28,6 +28,7 @@ import {
   X,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { useFocusTrap } from "./_shared/use-focus-trap";
 import {
   createClient,
   deleteClient,
@@ -426,7 +427,12 @@ function ClientDrawer({
         className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[420px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Client details"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[420px]"
+      >
         <div className="relative shrink-0 border-b border-gray-100 px-4 py-5 lg:px-6 lg:py-6">
           <button
             type="button"
@@ -967,22 +973,27 @@ function CredentialsModal({
     }
   }
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  // Replaces the previous standalone Escape-handler effect with a focus
+  // trap that also handles keyboard cycling and focus-restore on close.
+  const credsTrapRef = useFocusTrap<HTMLDivElement>(true, onClose);
 
   return (
     <div className="fixed inset-0 z-[60] flex items-center justify-center bg-black/40 p-4 backdrop-blur-sm">
-      <div className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl">
+      <div
+        ref={credsTrapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="credentials-modal-title"
+        className="w-full max-w-md overflow-hidden rounded-2xl bg-white shadow-2xl"
+      >
         <div className="px-6 py-5 text-center">
           <div className="mx-auto mb-3 flex size-12 items-center justify-center rounded-full bg-green-100">
             <CheckCircle className="size-6 text-green-600" strokeWidth={2} />
           </div>
-          <h3 className="font-heading text-lg font-bold text-gray-900">
+          <h3
+            id="credentials-modal-title"
+            className="font-heading text-lg font-bold text-gray-900"
+          >
             Client Created Successfully
           </h3>
           <p className="mt-1 text-xs text-gray-500">
@@ -1165,7 +1176,8 @@ export function ClientsDashboard({
             <div className="flex min-w-0 flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:w-[360px]">
               <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
               <input
-                type="text"
+                type="search"
+                aria-label="Search"
                 placeholder="Search by company name or email…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -1356,12 +1368,17 @@ export function ClientsDashboard({
 
       {deleteTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="delete-client-title"
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <AlertTriangle className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">Delete client?</h3>
+              <h3 id="delete-client-title" className="font-heading text-lg font-bold text-gray-900">Delete client?</h3>
               <p className="mt-2 text-sm text-gray-500">
                 This permanently removes{" "}
                 <span className="font-semibold text-gray-700">

@@ -10,6 +10,7 @@ import {
   X,
 } from "lucide-react";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { useFocusTrap } from "./_shared/use-focus-trap";
 import {
   EditableCell,
   extractPdfText,
@@ -83,13 +84,12 @@ export function BulkBatchUploadModal({
   // In-flight guard against double-clicks on Submit Selected.
   const submitRef = useRef(false);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !submitting) onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose, submitting]);
+  // Focus trap. While uploads are mid-flight, Escape is suppressed (matches
+  // the existing close-button behaviour) and focus stays locked on the
+  // progress UI. Replaces the previous standalone Escape-handler effect.
+  const trapRef = useFocusTrap<HTMLDivElement>(true, () => {
+    if (!submitting) onClose();
+  });
 
   function addFiles(picked: FileList | File[] | null) {
     if (!picked) return;
@@ -381,7 +381,13 @@ export function BulkBatchUploadModal({
 
   return (
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
-      <div className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}>
+      <div
+        ref={trapRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-batch-upload-title"
+        className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}
+      >
         {/* Header */}
         <div className="relative shrink-0 rounded-t-2xl bg-remotiv-purple px-7 py-6 pr-16">
           {!submitting && (
@@ -394,7 +400,12 @@ export function BulkBatchUploadModal({
               <X className="size-4" strokeWidth={2.5} />
             </button>
           )}
-          <p className="font-heading text-xl font-bold text-white">Bulk Upload CVs to Batch</p>
+          <p
+            id="bulk-batch-upload-title"
+            className="font-heading text-xl font-bold text-white"
+          >
+            Bulk Upload CVs to Batch
+          </p>
           <p className="mt-0.5 text-sm text-white/70">{headerSubtitle}</p>
         </div>
 

@@ -607,7 +607,12 @@ function CandidateDrawer({
         className="hidden flex-1 bg-black/30 backdrop-blur-sm lg:block"
         onClick={onClose}
       />
-      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[520px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Candidate details"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[520px]"
+      >
         <div className="relative shrink-0 border-b border-gray-100 px-4 py-4 lg:px-6 lg:py-5">
           <button
             type="button"
@@ -865,7 +870,12 @@ function AddCandidatePicker({
 
   return (
     <div className="fixed inset-0 z-40 flex">
-      <div className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]">
+      <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Add candidate"
+        className="flex h-full w-full shrink-0 flex-col bg-white shadow-2xl lg:w-[460px]"
+      >
         <div className="relative shrink-0 border-b border-gray-100 px-4 py-4 lg:px-5">
           <button
             type="button"
@@ -880,7 +890,8 @@ function AddCandidatePicker({
           <div className="mt-3 flex items-center gap-2 rounded-xl bg-gray-50 px-3 py-2">
             <SearchIcon className="size-4 shrink-0 text-gray-400" strokeWidth={2} />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               placeholder="Search by name, email, or position…"
@@ -1435,6 +1446,9 @@ export function BatchDetailDashboard({
           onClick={() => setOpenMenuId(null)}
         >
           <div
+            role="dialog"
+            aria-modal="true"
+            aria-label="Candidate actions"
             className="w-full rounded-t-2xl bg-white pb-6 pt-2 shadow-2xl"
             onClick={(e) => e.stopPropagation()}
           >
@@ -1468,12 +1482,17 @@ export function BatchDetailDashboard({
 
       {removeTarget && (
         <div className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4">
-          <div className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-candidate-title"
+            className="w-full max-w-sm overflow-hidden rounded-2xl bg-white shadow-2xl"
+          >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <Trash2 className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">Remove candidate?</h3>
+              <h3 id="remove-candidate-title" className="font-heading text-lg font-bold text-gray-900">Remove candidate?</h3>
               <p className="mt-2 text-sm text-gray-500">
                 This removes <span className="font-semibold text-gray-700">{fullName(removeTarget)}</span> from this batch only. The original application or talent profile remains intact.
               </p>

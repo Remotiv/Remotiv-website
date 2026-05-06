@@ -343,7 +343,8 @@ export function ClientBatchesDashboard({
             <div className="flex flex-1 items-center gap-2 rounded-2xl bg-white p-2 shadow-sm lg:w-[360px]">
               <SearchIcon className="ml-2 size-4 shrink-0 text-gray-400" strokeWidth={2} />
               <input
-                type="text"
+                type="search"
+                aria-label="Search"
                 placeholder="Search by batch name, position, or client…"
                 value={search}
                 onChange={(e) => setSearch(e.target.value)}
@@ -369,7 +370,8 @@ export function ClientBatchesDashboard({
               strokeWidth={2}
             />
             <input
-              type="text"
+              type="search"
+              aria-label="Search"
               placeholder="Search batches…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
