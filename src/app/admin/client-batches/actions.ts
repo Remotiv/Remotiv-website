@@ -655,3 +655,155 @@ export async function addAdminCandidateNote(
   if (error) return { success: false, error: error.message };
   return { success: true, data: data as AdminCandidateNote };
 }
+
+// ── Copy candidate → Applications / Talent ───────────────────
+
+/**
+ * Copy a batch candidate into job_applications. The original batch row
+ * stays in place — this is a fan-out, not a move. Returns the new
+ * application id so the caller can deep-link to /admin/applications.
+ *
+ * Duplicate-by-email guard: if a job_applications row already exists for
+ * the candidate's email, returns the existing id with success: false +
+ * a `duplicate: true` flag so the UI can offer "Open existing" instead
+ * of creating a second copy.
+ */
+export async function copyCandidateToApplications(
+  candidateId: string,
+): Promise<
+  | { success: true; applicationId: string }
+  | { success: false; error: string; duplicate?: boolean; applicationId?: string }
+> {
+  await requireAdmin();
+  const supabase = createServiceClient();
+
+  // 1. Fetch the candidate (use the aliased column set so current_role
+  //    comes back under its JS name).
+  const { data: candData, error: fetchErr } = await supabase
+    .from("client_batch_candidates")
+    .select(CANDIDATE_COLUMNS)
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (fetchErr) return { success: false, error: fetchErr.message };
+  if (!candData) return { success: false, error: "Candidate not found." };
+  const c = candData as unknown as BatchCandidate;
+  if (!c.email) return { success: false, error: "Candidate has no email — cannot copy to Applications." };
+
+  // 2. Duplicate-by-email guard
+  const { data: existing } = await supabase
+    .from("job_applications")
+    .select("id")
+    .eq("email", c.email)
+    .maybeSingle();
+  if (existing && (existing as { id: string }).id) {
+    return {
+      success: false,
+      error: "This candidate already exists in Applications.",
+      duplicate: true,
+      applicationId: (existing as { id: string }).id,
+    };
+  }
+
+  // 3. Insert into job_applications. job_applications has no `position`
+  //    column — the role is implied by job_id, which we leave null since
+  //    a batch candidate isn't bound to any specific open job.
+  const { data: row, error: insertErr } = await supabase
+    .from("job_applications")
+    .insert({
+      job_id: null,
+      first_name: c.first_name,
+      last_name: c.last_name,
+      email: c.email,
+      phone: c.phone,
+      linkedin_url: c.linkedin_url,
+      cv_url: c.cv_url,
+      status: "new",
+      source: "manual_upload",
+      notes: c.note_by_remotiv,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !row) {
+    return { success: false, error: insertErr?.message ?? "Insert failed." };
+  }
+
+  revalidatePath("/admin/applications");
+  return { success: true, applicationId: (row as { id: string }).id };
+}
+
+/**
+ * Copy a batch candidate into talent_profiles. Same fan-out + duplicate
+ * guard pattern as copyCandidateToApplications.
+ *
+ * NOTE: No UI currently calls this — admins move candidates to talent via
+ * the /admin/applications "Move to Talent" flow after first moving them
+ * to applications. Kept for potential future use.
+ */
+export async function copyCandidateToTalent(
+  candidateId: string,
+): Promise<
+  | { success: true; talentId: string }
+  | { success: false; error: string; duplicate?: boolean; talentId?: string }
+> {
+  await requireAdmin();
+  const supabase = createServiceClient();
+
+  const { data: candData, error: fetchErr } = await supabase
+    .from("client_batch_candidates")
+    .select(CANDIDATE_COLUMNS)
+    .eq("id", candidateId)
+    .maybeSingle();
+
+  if (fetchErr) return { success: false, error: fetchErr.message };
+  if (!candData) return { success: false, error: "Candidate not found." };
+  const c = candData as unknown as BatchCandidate;
+  if (!c.email) return { success: false, error: "Candidate has no email — cannot copy to Talent." };
+
+  // Duplicate guard against talent_profiles
+  const { data: existing } = await supabase
+    .from("talent_profiles")
+    .select("id")
+    .eq("email", c.email)
+    .maybeSingle();
+  if (existing && (existing as { id: string }).id) {
+    return {
+      success: false,
+      error: "This candidate already exists in the Talent network.",
+      duplicate: true,
+      talentId: (existing as { id: string }).id,
+    };
+  }
+
+  // Map batch fields to talent_profiles columns. Several batch-only
+  // fields (interviewer_name, loom_video_url, etc.) have no equivalent
+  // in talent_profiles and are dropped.
+  const { data: row, error: insertErr } = await supabase
+    .from("talent_profiles")
+    .insert({
+      first_name: c.first_name,
+      last_name: c.last_name,
+      email: c.email,
+      phone: c.phone,
+      linkedin_url: c.linkedin_url,
+      cv_url: c.cv_url,
+      job_title: c.position_applied,
+      // current_role on the batch maps to "what they're doing now" — feed
+      // it into talent_profiles.industry only if there's nothing better.
+      city: c.location,
+      institution: c.university,
+      status: "pending",
+      approved_at: null,
+      notes: c.note_by_remotiv,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !row) {
+    return { success: false, error: insertErr?.message ?? "Insert failed." };
+  }
+
+  revalidatePath("/admin/talent");
+  return { success: true, talentId: (row as { id: string }).id };
+}

@@ -1,11 +1,13 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import dynamic from "next/dynamic";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
+  Briefcase,
   Calendar,
   Check,
   ChevronRight,
@@ -13,6 +15,7 @@ import {
   Edit2,
   ExternalLink,
   Eye,
+  MoreVertical,
   Pencil,
   Plus,
   Save,
@@ -20,6 +23,7 @@ import {
   Share2,
   Star,
   Trash2,
+  Upload,
   Users,
   X,
 } from "lucide-react";
@@ -35,6 +39,7 @@ import { getClientAvatarUrl, getInitials } from "@/lib/client-avatars";
 import {
   addAdminCandidateNote,
   addCandidateToBatch,
+  copyCandidateToApplications,
   fetchAdminCandidateNotes,
   fetchAvailableCandidates,
   removeCandidateFromBatch,
@@ -47,6 +52,16 @@ import {
   type ClientBatch,
   type SourceType,
 } from "@/app/admin/client-batches/actions";
+
+// Bulk upload modal lazy-loaded — only fetched the first time the admin
+// clicks the "Bulk Upload CVs" button.
+const BulkBatchUploadModal = dynamic(
+  () =>
+    import("./bulk-batch-upload-modal").then((m) => ({
+      default: m.BulkBatchUploadModal,
+    })),
+  { ssr: false },
+);
 import { type UserRole } from "@/app/admin/lib/roles";
 
 const CLIENT_LOGIN_URL =
@@ -162,9 +177,11 @@ const DECISION_STYLE: Record<string, string> = {
 function CandidateCardMobile({
   candidate,
   onClick,
+  onOpenMenu,
 }: {
   candidate: BatchCandidate;
   onClick: () => void;
+  onOpenMenu: (id: string) => void;
 }) {
   const decisionLabel = candidate.client_decision
     ? CLIENT_DECISION_LABEL[candidate.client_decision]
@@ -195,11 +212,24 @@ function CandidateCardMobile({
               <p className="truncate font-heading text-base font-bold text-gray-900">
                 {fullName(candidate)}
               </p>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${stageBadgeClass(candidate.stage)}`}
-              >
-                {candidate.stage}
-              </span>
+              <div className="flex shrink-0 items-center gap-1.5">
+                <span
+                  className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${stageBadgeClass(candidate.stage)}`}
+                >
+                  {candidate.stage}
+                </span>
+                <button
+                  type="button"
+                  onClick={(e) => {
+                    e.stopPropagation();
+                    onOpenMenu(candidate.id);
+                  }}
+                  aria-label="More actions"
+                  className="flex size-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                >
+                  <MoreVertical className="size-4" strokeWidth={2} />
+                </button>
+              </div>
             </div>
             {candidate.position_applied && (
               <p className="mt-0.5 truncate text-xs text-gray-500">
@@ -974,10 +1004,43 @@ export function BatchDetailDashboard({
   const [openId, setOpenId] = useState<string | null>(null);
   const [showEditBatch, setShowEditBatch] = useState(false);
   const [showPicker, setShowPicker] = useState(false);
+  const [showBulkUpload, setShowBulkUpload] = useState(false);
   const [removeTarget, setRemoveTarget] = useState<BatchCandidate | null>(null);
   const [removing, setRemoving] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
   const [shareCopied, setShareCopied] = useState(false);
+
+  // Per-row 3-dot menu state. `openMenuId` is the candidate.id whose
+  // menu is currently open; only one is ever shown at a time. The
+  // copyInFlightRef set guards against double-fired Move actions.
+  const [openMenuId, setOpenMenuId] = useState<string | null>(null);
+  const copyInFlightRef = useRef(new Set<string>());
+
+  useEffect(() => {
+    if (openMenuId === null) return;
+    function close() { setOpenMenuId(null); }
+    document.addEventListener("click", close);
+    return () => document.removeEventListener("click", close);
+  }, [openMenuId]);
+
+  async function handleMoveToApplications(candidate: BatchCandidate) {
+    const guardKey = `apps:${candidate.id}`;
+    if (copyInFlightRef.current.has(guardKey)) return;
+    copyInFlightRef.current.add(guardKey);
+    setOpenMenuId(null);
+    try {
+      const result = await copyCandidateToApplications(candidate.id);
+      if (result.success) {
+        setToast("Added to Applications");
+      } else if (result.duplicate) {
+        setToast("Already in Applications");
+      } else {
+        setToast(`Failed: ${result.error}`);
+      }
+    } finally {
+      copyInFlightRef.current.delete(guardKey);
+    }
+  }
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
@@ -1092,14 +1155,24 @@ export function BatchDetailDashboard({
             </div>
           </div>
 
-          <button
-            type="button"
-            onClick={() => setShowPicker(true)}
-            className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-remotiv-green px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
-          >
-            <Plus className="size-4" strokeWidth={2.5} />
-            <span className="lg:inline">Add Candidate</span>
-          </button>
+          <div className="flex shrink-0 flex-wrap gap-2">
+            <button
+              type="button"
+              onClick={() => setShowBulkUpload(true)}
+              className="flex min-h-11 items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 hover:bg-gray-50 lg:px-5"
+            >
+              <Upload className="size-4" strokeWidth={2.5} />
+              <span>Bulk Upload CVs</span>
+            </button>
+            <button
+              type="button"
+              onClick={() => setShowPicker(true)}
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-remotiv-green px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
+            >
+              <Plus className="size-4" strokeWidth={2.5} />
+              <span className="lg:inline">Add Candidate</span>
+            </button>
+          </div>
         </div>
 
         <div className="mb-6 flex flex-wrap items-center gap-3 rounded-2xl border border-black/[0.05] bg-white px-5 py-4 shadow-sm">
@@ -1133,6 +1206,7 @@ export function BatchDetailDashboard({
                   key={c.id}
                   candidate={c}
                   onClick={() => setOpenId(c.id)}
+                  onOpenMenu={(id) => setOpenMenuId(id)}
                 />
               ))}
               <div className="mt-3">
@@ -1252,7 +1326,7 @@ export function BatchDetailDashboard({
                       )}
                     </td>
                     <td className="whitespace-nowrap px-3 py-2" onClick={(e) => e.stopPropagation()}>
-                      <div className="flex items-center gap-1">
+                      <div className="flex items-center gap-1" onClick={(e) => e.stopPropagation()}>
                         <button
                           type="button"
                           onClick={() => setOpenId(c.id)}
@@ -1261,6 +1335,37 @@ export function BatchDetailDashboard({
                         >
                           <Pencil className="size-3.5" strokeWidth={2} />
                         </button>
+                        <div className="relative">
+                          <button
+                            type="button"
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setOpenMenuId(openMenuId === c.id ? null : c.id);
+                            }}
+                            aria-label="More actions"
+                            aria-haspopup="menu"
+                            aria-expanded={openMenuId === c.id}
+                            className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                          >
+                            <MoreVertical className="size-3.5" strokeWidth={2} />
+                          </button>
+                          {openMenuId === c.id && (
+                            <div
+                              role="menu"
+                              className="absolute right-0 top-9 z-30 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg"
+                              onClick={(e) => e.stopPropagation()}
+                            >
+                              <button
+                                type="button"
+                                onClick={() => handleMoveToApplications(c)}
+                                className="flex w-full items-center gap-2.5 px-4 py-2.5 text-left text-sm text-gray-700 transition-colors hover:bg-gray-50"
+                              >
+                                <Briefcase className="size-4 text-gray-400" strokeWidth={2} />
+                                Move to Applications
+                              </button>
+                            </div>
+                          )}
+                        </div>
                         <button
                           type="button"
                           onClick={() => setRemoveTarget(c)}
@@ -1307,6 +1412,58 @@ export function BatchDetailDashboard({
           onClose={() => setShowPicker(false)}
           onToast={setToast}
         />
+      )}
+
+      {showBulkUpload && (
+        <BulkBatchUploadModal
+          batchId={batch.id}
+          onClose={() => setShowBulkUpload(false)}
+          onComplete={(msg) => {
+            setShowBulkUpload(false);
+            setToast(msg);
+            router.refresh();
+          }}
+        />
+      )}
+
+      {/* Mobile bottom sheet — same Move actions as the desktop dropdown.
+          `lg:hidden` keeps it off desktop, where the inline absolute-
+          positioned menu (in the table actions cell) handles things. */}
+      {openMenuId && (
+        <div
+          className="fixed inset-0 z-50 flex items-end bg-black/40 backdrop-blur-sm lg:hidden"
+          onClick={() => setOpenMenuId(null)}
+        >
+          <div
+            className="w-full rounded-t-2xl bg-white pb-6 pt-2 shadow-2xl"
+            onClick={(e) => e.stopPropagation()}
+          >
+            <div className="mx-auto mb-3 mt-1 h-1 w-10 rounded-full bg-gray-200" />
+            {(() => {
+              const target = candidates.find((c) => c.id === openMenuId);
+              if (!target) return null;
+              return (
+                <>
+                  <button
+                    type="button"
+                    onClick={() => handleMoveToApplications(target)}
+                    className="flex min-h-12 w-full items-center gap-3 px-5 text-left text-sm text-gray-800 transition-colors hover:bg-gray-50"
+                  >
+                    <Briefcase className="size-5 text-gray-400" strokeWidth={2} />
+                    Move to Applications
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setOpenMenuId(null)}
+                    className="mt-1 flex min-h-12 w-full items-center justify-center gap-3 px-5 text-sm font-semibold text-gray-500 transition-colors hover:bg-gray-50"
+                  >
+                    Cancel
+                  </button>
+                </>
+              );
+            })()}
+          </div>
+        </div>
       )}
 
       {removeTarget && (
