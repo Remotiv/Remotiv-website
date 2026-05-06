@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { trimRequired, trimToNull } from "@/app/admin/lib/validators";
 
 export type Job = {
   id: string;
@@ -42,21 +43,33 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-function toInsert(input: JobInput) {
+function buildPatch(input: JobInput):
+  | { ok: true; patch: Record<string, unknown> }
+  | { ok: false; error: string } {
+  const title = trimRequired(input.title);
+  if (!title) return { ok: false, error: "Job title is required." };
+  const company = trimRequired(input.company);
+  if (!company) return { ok: false, error: "Company is required." };
+  const location = trimRequired(input.location);
+  if (!location) return { ok: false, error: "Location is required." };
+
   return {
-    title: input.title,
-    company: input.company,
-    company_rating: Number.parseFloat(input.company_rating) || 4.5,
-    location: input.location,
-    salary_min: input.salary_min ? Number.parseInt(input.salary_min, 10) : null,
-    salary_max: input.salary_max ? Number.parseInt(input.salary_max, 10) : null,
-    contract_type: input.contract_type,
-    work_type: input.work_type,
-    category: input.category,
-    experience_level: input.experience_level,
-    language: input.language || "English",
-    description: input.description || null,
-    status: input.status,
+    ok: true,
+    patch: {
+      title,
+      company,
+      company_rating: Number.parseFloat(input.company_rating) || 4.5,
+      location,
+      salary_min: input.salary_min ? Number.parseInt(input.salary_min, 10) : null,
+      salary_max: input.salary_max ? Number.parseInt(input.salary_max, 10) : null,
+      contract_type: input.contract_type,
+      work_type: input.work_type,
+      category: input.category,
+      experience_level: input.experience_level,
+      language: trimToNull(input.language) ?? "English",
+      description: trimToNull(input.description),
+      status: input.status,
+    },
   };
 }
 
@@ -64,10 +77,13 @@ export async function createJob(
   input: JobInput,
 ): Promise<MutationResult<Job>> {
   await requireAdmin();
+  const built = buildPatch(input);
+  if (!built.ok) return { success: false, error: built.error };
+
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("jobs")
-    .insert(toInsert(input))
+    .insert(built.patch)
     .select()
     .single();
 
@@ -81,10 +97,13 @@ export async function updateJob(
   input: JobInput,
 ): Promise<MutationResult<Job>> {
   await requireAdmin();
+  const built = buildPatch(input);
+  if (!built.ok) return { success: false, error: built.error };
+
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("jobs")
-    .update(toInsert(input))
+    .update(built.patch)
     .eq("id", id)
     .select()
     .single();

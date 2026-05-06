@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
@@ -778,6 +778,9 @@ function AddCandidatePicker({
   const [results, setResults] = useState<AvailableCandidate[]>([]);
   const [loading, setLoading] = useState(false);
   const [busyKey, setBusyKey] = useState<string | null>(null);
+  // Per-row in-flight guard. `disabled={busyKey === key}` only stops the
+  // second click after React commits — Set-of-keys closes the race window.
+  const inFlightKeysRef = useRef(new Set<string>());
 
   // Debounced fetch on query / source filter changes.
   useEffect(() => {
@@ -799,29 +802,35 @@ function AddCandidatePicker({
 
   async function handleAdd(c: AvailableCandidate) {
     const key = `${c.source_type}:${c.id}`;
+    if (inFlightKeysRef.current.has(key)) return;
+    inFlightKeysRef.current.add(key);
     setBusyKey(key);
-    const result = await addCandidateToBatch(batchId, {
-      source_type: c.source_type,
-      source_id: c.id,
-      first_name: c.first_name,
-      last_name: c.last_name,
-      email: c.email,
-      phone: c.phone ?? null,
-      linkedin_url: c.linkedin_url ?? null,
-      cv_url: c.cv_url ?? null,
-      location: c.location ?? null,
-      university: c.education ?? null,
-      position_applied: c.position_applied ?? null,
-      current_role: c.current_role ?? null,
-      current_company: c.current_company ?? null,
-    });
-    setBusyKey(null);
-    if (!result.success) {
-      onToast(`Failed: ${result.error}`);
-      return;
+    try {
+      const result = await addCandidateToBatch(batchId, {
+        source_type: c.source_type,
+        source_id: c.id,
+        first_name: c.first_name,
+        last_name: c.last_name,
+        email: c.email,
+        phone: c.phone ?? null,
+        linkedin_url: c.linkedin_url ?? null,
+        cv_url: c.cv_url ?? null,
+        location: c.location ?? null,
+        university: c.education ?? null,
+        position_applied: c.position_applied ?? null,
+        current_role: c.current_role ?? null,
+        current_company: c.current_company ?? null,
+      });
+      if (!result.success) {
+        onToast(`Failed: ${result.error}`);
+        return;
+      }
+      onToast("Added");
+      router.refresh();
+    } finally {
+      inFlightKeysRef.current.delete(key);
+      setBusyKey(null);
     }
-    onToast("Added");
-    router.refresh();
   }
 
   return (

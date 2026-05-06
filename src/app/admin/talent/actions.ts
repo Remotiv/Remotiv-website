@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { trimToNull } from "@/app/admin/lib/validators";
 
 export type TalentStatus =
   | "pending"
@@ -129,7 +130,7 @@ export async function saveTalentNote(
   const supabase = createServiceClient();
   const { error } = await supabase
     .from("talent_profiles")
-    .update({ notes: note })
+    .update({ notes: trimToNull(note) })
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };

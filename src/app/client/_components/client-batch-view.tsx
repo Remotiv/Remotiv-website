@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -330,29 +330,39 @@ function CandidateCard({
     setEditing(!candidate.client_decision);
   }, [candidate.id, candidate.client_decision, candidate.client_comments]);
 
+  // Belt-and-braces double-click guard. saveClientFeedback fires an admin
+  // notification — a fast double-press would create two notifications and
+  // could overwrite a stale value with another stale value.
+  const saveInFlightRef = useRef(false);
+
   async function handleSave(nextDecision: ClientCandidate["client_decision"]) {
+    if (saveInFlightRef.current) return;
+    saveInFlightRef.current = true;
     setError(null);
     setSaving(true);
-    const result = await saveClientFeedback(candidate.id, nextDecision, comments);
-    setSaving(false);
+    try {
+      const result = await saveClientFeedback(candidate.id, nextDecision, comments);
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
 
-    if (!result.success) {
-      setError(result.error);
-      return;
+      const updated: ClientCandidate = {
+        ...candidate,
+        client_decision: nextDecision,
+        client_comments: comments.trim() || null,
+        client_decision_at: nextDecision ? new Date().toISOString() : null,
+      };
+      onSaved(updated);
+      setDecision(nextDecision);
+      setEditing(false);
+      setSavedFlash(true);
+      setTimeout(() => setSavedFlash(false), 1800);
+      router.refresh();
+    } finally {
+      saveInFlightRef.current = false;
+      setSaving(false);
     }
-
-    const updated: ClientCandidate = {
-      ...candidate,
-      client_decision: nextDecision,
-      client_comments: comments.trim() || null,
-      client_decision_at: nextDecision ? new Date().toISOString() : null,
-    };
-    onSaved(updated);
-    setDecision(nextDecision);
-    setEditing(false);
-    setSavedFlash(true);
-    setTimeout(() => setSavedFlash(false), 1800);
-    router.refresh();
   }
 
   const interviewLinks: Array<{ label: string; url: string | null }> = [

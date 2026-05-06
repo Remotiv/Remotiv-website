@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { isValidEmail } from "@/app/admin/lib/validators";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -54,6 +55,16 @@ export async function POST(request: NextRequest) {
     if (!firstName || !cvFile) {
       return NextResponse.json(
         { error: "First name and CV are required." },
+        { status: 400 },
+      );
+    }
+
+    // Email is optional on /apply (job application can be anonymised), but if
+    // provided it must be a real-looking address — we use it for duplicate
+    // detection and downstream contact.
+    if (email !== null && !isValidEmail(email)) {
+      return NextResponse.json(
+        { error: "Please enter a valid email address." },
         { status: 400 },
       );
     }

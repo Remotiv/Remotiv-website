@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -60,10 +61,20 @@ export async function addComment(
   authorName: string,
 ): Promise<MutationResult<ApplicationComment>> {
   await requireAdmin();
+  const trimmedComment = trimRequired(comment);
+  if (!trimmedComment) {
+    return { success: false, error: "Comment cannot be empty." };
+  }
+  const trimmedAuthor = trimToNull(authorName) ?? "Anonymous";
+
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("application_comments")
-    .insert({ application_id: applicationId, comment, author_name: authorName })
+    .insert({
+      application_id: applicationId,
+      comment: trimmedComment,
+      author_name: trimmedAuthor,
+    })
     .select()
     .single();
 
@@ -146,8 +157,10 @@ export async function moveApplicationToTalent(
   if (!appRow) return { success: false, error: "Application not found." };
 
   const row = appRow as Record<string, unknown>;
-  const email = typeof row.email === "string" ? row.email.trim() : "";
-  if (!email) return { success: false, error: "Application has no email." };
+  const email = typeof row.email === "string" ? row.email.trim().toLowerCase() : "";
+  if (!isValidEmail(email)) {
+    return { success: false, error: "Application has no valid email." };
+  }
 
   // 2. Duplicate-by-email guard against talent_profiles.
   const { data: existingTalent } = await supabase

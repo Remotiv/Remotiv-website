@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
 
 export type AdminLoginStatus = "active" | "paused" | "archived";
 
@@ -67,6 +68,18 @@ export async function addMember(
   input: MemberInput,
 ): Promise<MutationResult<{ member: TeamMember; password: string }>> {
   await requireSuperAdmin();
+
+  // Normalise + validate inputs before creating the Supabase auth user. If
+  // we created auth first and then bailed, we'd leave an orphan account.
+  const fullName = trimRequired(input.full_name);
+  if (!fullName) return { success: false, error: "Full name is required." };
+  const role = trimRequired(input.role);
+  if (!role) return { success: false, error: "Role is required." };
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    return { success: false, error: "Please enter a valid email address." };
+  }
+
   const supabase = createServiceClient();
 
   const password = generatePassword(12);
@@ -74,7 +87,7 @@ export async function addMember(
   // 1. Create Supabase auth account (skip email verification)
   const { data: authData, error: authError } =
     await supabase.auth.admin.createUser({
-      email: input.email,
+      email,
       password,
       email_confirm: true,
     });
@@ -86,15 +99,15 @@ export async function addMember(
     .from("team_members")
     .insert({
       auth_user_id: authData.user.id,
-      full_name: input.full_name,
-      role: input.role,
-      email: input.email,
-      phone: input.phone || null,
+      full_name: fullName,
+      role,
+      email,
+      phone: trimToNull(input.phone),
       status: input.status,
       permission: input.permission,
-      notes: input.notes || null,
-      gender: input.gender || null,
-      avatar_url: input.avatar_url || null,
+      notes: trimToNull(input.notes),
+      gender: trimToNull(input.gender),
+      avatar_url: trimToNull(input.avatar_url),
     })
     .select()
     .single();
@@ -111,7 +124,7 @@ export async function addMember(
   await supabase.from("admin_users").insert({
     user_id: authData.user.id,
     role: input.permission,
-    full_name: input.full_name,
+    full_name: fullName,
     must_change_password: true,
   });
 
@@ -157,18 +170,28 @@ export async function updateMember(
   input: MemberInput,
 ): Promise<MutationResult<TeamMember>> {
   await requireSuperAdmin();
+
+  const fullName = trimRequired(input.full_name);
+  if (!fullName) return { success: false, error: "Full name is required." };
+  const role = trimRequired(input.role);
+  if (!role) return { success: false, error: "Role is required." };
+  const email = (input.email ?? "").trim().toLowerCase();
+  if (!isValidEmail(email)) {
+    return { success: false, error: "Please enter a valid email address." };
+  }
+
   const supabase = createServiceClient();
   const { data, error } = await supabase
     .from("team_members")
     .update({
-      full_name: input.full_name,
-      role: input.role,
-      email: input.email,
-      phone: input.phone || null,
+      full_name: fullName,
+      role,
+      email,
+      phone: trimToNull(input.phone),
       status: input.status,
       permission: input.permission,
-      notes: input.notes || null,
-      gender: input.gender || null,
+      notes: trimToNull(input.notes),
+      gender: trimToNull(input.gender),
       // avatar_url intentionally not updated — assigned once at creation
     })
     .eq("id", id)

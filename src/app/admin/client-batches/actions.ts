@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { isValidEmail, trimToNull } from "@/app/admin/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
 
 // ── Types ────────────────────────────────────────────────────
@@ -428,8 +429,14 @@ export async function addCandidateToBatch(
 ): Promise<MutationResult<{ id: string }>> {
   await requireAdmin();
 
-  if (!candidate.first_name?.trim() || !candidate.email?.trim()) {
-    return { success: false, error: "First name and email are required." };
+  const firstName = candidate.first_name?.trim() ?? "";
+  const lastName = (candidate.last_name ?? "").trim();
+  const email = (candidate.email ?? "").trim().toLowerCase();
+  if (!firstName) {
+    return { success: false, error: "First name is required." };
+  }
+  if (!isValidEmail(email)) {
+    return { success: false, error: "Please enter a valid email address." };
   }
 
   const supabase = createServiceClient();
@@ -442,21 +449,21 @@ export async function addCandidateToBatch(
       batch_id: batchId,
       source_type: candidate.source_type,
       source_id: candidate.source_id,
-      first_name: candidate.first_name.trim(),
-      last_name: (candidate.last_name ?? "").trim(),
-      email: candidate.email.trim().toLowerCase(),
-      phone: candidate.phone ?? null,
-      linkedin_url: candidate.linkedin_url ?? null,
-      cv_url: candidate.cv_url ?? null,
-      location: candidate.location ?? null,
-      university: candidate.university ?? null,
-      position_applied: candidate.position_applied ?? null,
+      first_name: firstName,
+      last_name: lastName,
+      email,
+      phone: trimToNull(candidate.phone),
+      linkedin_url: trimToNull(candidate.linkedin_url),
+      cv_url: trimToNull(candidate.cv_url),
+      location: trimToNull(candidate.location),
+      university: trimToNull(candidate.university),
+      position_applied: trimToNull(candidate.position_applied),
       total_experience: candidate.total_experience ?? null,
-      candidate_current_role: candidate.current_role ?? null,
-      current_company: candidate.current_company ?? null,
-      current_salary: candidate.current_salary ?? null,
-      salary_expectations: candidate.salary_expectations ?? null,
-      notice_period: candidate.notice_period ?? null,
+      candidate_current_role: trimToNull(candidate.current_role),
+      current_company: trimToNull(candidate.current_company),
+      current_salary: trimToNull(candidate.current_salary),
+      salary_expectations: trimToNull(candidate.salary_expectations),
+      notice_period: trimToNull(candidate.notice_period),
       stage: "-",
     })
     .select("id")
@@ -467,9 +474,7 @@ export async function addCandidateToBatch(
   }
 
   // Bell notification for the rest of the admin team — fire-and-forget.
-  const candidateName =
-    `${candidate.first_name?.trim() ?? ""} ${candidate.last_name?.trim() ?? ""}`.trim() ||
-    "A candidate";
+  const candidateName = `${firstName} ${lastName}`.trim() || "A candidate";
 
   const { data: batchInfo } = await supabase
     .from("client_batches")

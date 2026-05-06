@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
+import { isValidEmail, trimRequired } from "@/app/admin/lib/validators";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -25,12 +26,6 @@ type MutationResult<T = undefined> =
   | { success: false; error: string };
 
 // ── Helpers ──────────────────────────────────────────────────
-
-const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
-function isValidEmail(email: string): boolean {
-  return EMAIL_REGEX.test(email.trim());
-}
 
 function isValidPassword(password: string): boolean {
   return typeof password === "string" && password.length >= 8;

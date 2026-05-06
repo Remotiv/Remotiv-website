@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { isValidEmail } from "@/app/admin/lib/validators";
 
 // 200-char ceiling on each input keeps payload-padding abuse in check.
 const MAX_INPUT_LENGTH = 200;
@@ -59,8 +60,9 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // 1. Email match (cheap, indexed equality)
-    if (email) {
+    // 1. Email match (cheap, indexed equality). Skip the DB hit when the
+    //    email is half-typed garbage so partial keystrokes don't query.
+    if (email && isValidEmail(email)) {
       const { data, error } = await supabase
         .from("job_applications")
         .select("id, first_name, last_name, email, phone, status, created_at, jobs(title)")

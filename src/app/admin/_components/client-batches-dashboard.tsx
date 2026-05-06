@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -123,26 +123,36 @@ function CreateBatchModal({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // Belt-and-braces guard. createBatch isn't reversible from the UI; a
+  // double-click would land the admin in the first batch's detail page
+  // while leaving an extra sibling batch behind.
+  const inFlightRef = useRef(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (inFlightRef.current) return;
     setError(null);
     if (!clientId) return setError("Select a client.");
     if (!batchName.trim()) return setError("Batch name is required.");
     if (!positionTitle.trim()) return setError("Position title is required.");
 
+    inFlightRef.current = true;
     setSubmitting(true);
-    const result = await createBatch({
-      client_id: clientId,
-      batch_name: batchName.trim(),
-      position_title: positionTitle.trim(),
-    });
-    setSubmitting(false);
-
-    if (!result.success) {
-      setError(result.error);
-      return;
+    try {
+      const result = await createBatch({
+        client_id: clientId,
+        batch_name: batchName.trim(),
+        position_title: positionTitle.trim(),
+      });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      router.push(`/admin/client-batches/${result.data.id}`);
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
     }
-    router.push(`/admin/client-batches/${result.data.id}`);
   }
 
   const inputCls =

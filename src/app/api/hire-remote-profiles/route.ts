@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { isValidEmail } from "@/app/admin/lib/validators";
 
 export const runtime = "nodejs";
 
@@ -157,6 +158,12 @@ export async function POST(request: NextRequest) {
     if (!firstName || !lastName || !email || !phone || !city || !country || !timeZone || !linkedinUrl) {
       return NextResponse.json(
         { error: "Missing required personal information." },
+        { status: 400 },
+      );
+    }
+    if (!isValidEmail(email)) {
+      return NextResponse.json(
+        { error: "Please enter a valid email address." },
         { status: 400 },
       );
     }

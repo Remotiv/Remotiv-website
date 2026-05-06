@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import {
   Briefcase,
   CheckCircle,
@@ -226,6 +226,9 @@ export function JobsDashboard({
 
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const [mutating, setMutating] = useState(false);
+  // Belt-and-braces guard against double-clicks racing past the disabled
+  // attribute — fast double-press would otherwise create two jobs.
+  const inFlightRef = useRef(false);
   const [mutError, setMutError] = useState<string | null>(null);
 
   // Mobile-only UI state. Modal responsiveness is handled with Tailwind
@@ -318,21 +321,26 @@ export function JobsDashboard({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (inFlightRef.current) return;
+    inFlightRef.current = true;
     setMutating(true);
     setMutError(null);
 
-    if (editingJob) {
-      const result = await updateJob(editingJob.id, form);
-      if (!result.success) { setMutError(result.error); setMutating(false); return; }
-      setJobs((prev) => prev.map((j) => (j.id === editingJob.id ? result.data : j)));
-    } else {
-      const result = await createJob(form);
-      if (!result.success) { setMutError(result.error); setMutating(false); return; }
-      setJobs((prev) => [result.data, ...prev]);
+    try {
+      if (editingJob) {
+        const result = await updateJob(editingJob.id, form);
+        if (!result.success) { setMutError(result.error); return; }
+        setJobs((prev) => prev.map((j) => (j.id === editingJob.id ? result.data : j)));
+      } else {
+        const result = await createJob(form);
+        if (!result.success) { setMutError(result.error); return; }
+        setJobs((prev) => [result.data, ...prev]);
+      }
+      closeModal();
+    } finally {
+      inFlightRef.current = false;
+      setMutating(false);
     }
-
-    setMutating(false);
-    closeModal();
   }
 
   // ── Status mutations ──────────────────────────────────────

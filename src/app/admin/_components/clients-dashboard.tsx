@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -384,24 +384,35 @@ function ClientDrawer({
     setBusyStatus(null);
   }
 
+  // Same belt-and-braces guard as createClient — rotating a client's password
+  // twice in quick succession is a real footgun (the second call invalidates
+  // the password the admin just typed before the toast confirms it).
+  const resetInFlightRef = useRef(false);
+
   async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (resetInFlightRef.current) return;
     setResetError(null);
     if (newPassword.length < 8) {
       setResetError("Password must be at least 8 characters.");
       return;
     }
+    resetInFlightRef.current = true;
     setResetting(true);
-    const result = await resetClientPassword(client.id, newPassword);
-    setResetting(false);
-    if (result.success) {
-      onToast("Password updated");
-      setShowResetForm(false);
-      setNewPassword("");
-      setShowNewPassword(false);
-      router.refresh();
-    } else {
-      setResetError(result.error);
+    try {
+      const result = await resetClientPassword(client.id, newPassword);
+      if (result.success) {
+        onToast("Password updated");
+        setShowResetForm(false);
+        setNewPassword("");
+        setShowNewPassword(false);
+        router.refresh();
+      } else {
+        setResetError(result.error);
+      }
+    } finally {
+      resetInFlightRef.current = false;
+      setResetting(false);
     }
   }
 
@@ -740,8 +751,14 @@ function CreateClientModal({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
+  // Belt-and-braces double-click guard. createClient creates a Supabase auth
+  // user; firing it twice from a fast double-click leaves an orphan account
+  // because the second insert hits the unique-email constraint.
+  const inFlightRef = useRef(false);
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (inFlightRef.current) return;
     setError(null);
     if (!companyName.trim()) return setError("Company name is required.");
     if (!contactName.trim()) return setError("Contact name is required.");
@@ -750,25 +767,30 @@ function CreateClientModal({
     }
     if (password.length < 8) return setError("Password must be at least 8 characters.");
 
+    inFlightRef.current = true;
     setSubmitting(true);
-    const result = await createClient({
-      company_name: companyName.trim(),
-      contact_name: contactName.trim(),
-      email: email.trim(),
-      password,
-    });
-    setSubmitting(false);
+    try {
+      const result = await createClient({
+        company_name: companyName.trim(),
+        contact_name: contactName.trim(),
+        email: email.trim(),
+        password,
+      });
 
-    if (!result.success) {
-      setError(result.error);
-      return;
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+
+      onSuccess({
+        company_name: companyName.trim(),
+        email: email.trim().toLowerCase(),
+        password,
+      });
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
     }
-
-    onSuccess({
-      company_name: companyName.trim(),
-      email: email.trim().toLowerCase(),
-      password,
-    });
   }
 
   return (

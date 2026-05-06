@@ -1,6 +1,6 @@
 "use client";
 
-import { useState, useEffect } from "react";
+import { useEffect, useRef, useState } from "react";
 import Image from "next/image";
 import {
   Users,
@@ -318,6 +318,12 @@ export function TeamDashboard({
   // ── Local state (optimistic) ──────────────────────────────
   const [members, setMembers] = useState<TeamMember[]>(initialMembers);
   const [mutating, setMutating] = useState(false);
+  // Belt-and-braces double-click guard: `disabled={mutating}` only stops a
+  // second click *after* React commits the next render, so a rapid
+  // double-press can fire the handler twice. The ref blocks that window
+  // for the irreversible flows (addMember creates auth users, resetMember
+  // rotates passwords).
+  const memberMutationRef = useRef(false);
   const [mutError, setMutError] = useState<string | null>(null);
   const [successMsg, setSuccessMsg] = useState<string | null>(null);
   const [credentials, setCredentials] = useState<{
@@ -427,61 +433,70 @@ export function TeamDashboard({
 
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
+    if (memberMutationRef.current) return;
+    memberMutationRef.current = true;
     setMutating(true);
     setMutError(null);
 
-    if (editingMember) {
-      const result = await updateMember(editingMember.id, form);
-      if (!result.success) {
-        setMutError(result.error);
-        setMutating(false);
-        return;
+    try {
+      if (editingMember) {
+        const result = await updateMember(editingMember.id, form);
+        if (!result.success) {
+          setMutError(result.error);
+          return;
+        }
+        setMembers((prev) =>
+          prev.map((m) => (m.id === editingMember.id ? result.data : m)),
+        );
+      } else {
+        const { first, last } = splitFullName(form.full_name);
+        const result = await addMember({
+          ...form,
+          avatar_url: getAvatarUrl(first, last),
+        });
+        if (!result.success) {
+          setMutError(result.error);
+          return;
+        }
+        setMembers((prev) => [result.data.member, ...prev]);
+        setCredentials({
+          full_name: result.data.member.full_name,
+          email: result.data.member.email,
+          password: result.data.password,
+          title: "Team Member Added",
+          description: "Send these credentials to",
+        });
       }
-      setMembers((prev) =>
-        prev.map((m) => (m.id === editingMember.id ? result.data : m)),
-      );
-    } else {
-      const { first, last } = splitFullName(form.full_name);
-      const result = await addMember({
-        ...form,
-        avatar_url: getAvatarUrl(first, last),
-      });
-      if (!result.success) {
-        setMutError(result.error);
-        setMutating(false);
-        return;
-      }
-      setMembers((prev) => [result.data.member, ...prev]);
-      setCredentials({
-        full_name: result.data.member.full_name,
-        email: result.data.member.email,
-        password: result.data.password,
-        title: "Team Member Added",
-        description: "Send these credentials to",
-      });
+      closeModal();
+    } finally {
+      memberMutationRef.current = false;
+      setMutating(false);
     }
-
-    setMutating(false);
-    closeModal();
   }
 
   // ── Reset password (super_admin only) ─────────────────────
   async function handleResetPassword(member: TeamMember) {
     if (!member.auth_user_id) return;
+    if (memberMutationRef.current) return;
+    memberMutationRef.current = true;
     setMutating(true);
-    const result = await resetMemberPassword(member.auth_user_id);
-    setMutating(false);
-    if (!result.success) {
-      setSuccessMsg(`Failed to reset password: ${result.error}`);
-      return;
+    try {
+      const result = await resetMemberPassword(member.auth_user_id);
+      if (!result.success) {
+        setSuccessMsg(`Failed to reset password: ${result.error}`);
+        return;
+      }
+      setCredentials({
+        full_name: member.full_name,
+        email: member.email,
+        password: result.data.password,
+        title: "Password Reset",
+        description: "The previous password is now invalid. Send the new credentials to",
+      });
+    } finally {
+      memberMutationRef.current = false;
+      setMutating(false);
     }
-    setCredentials({
-      full_name: member.full_name,
-      email: member.email,
-      password: result.data.password,
-      title: "Password Reset",
-      description: "The previous password is now invalid. Send the new credentials to",
-    });
   }
 
   // ── Deactivate (optimistic) ───────────────────────────────
