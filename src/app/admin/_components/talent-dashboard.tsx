@@ -16,7 +16,9 @@ import {
   Mail,
   Phone,
   Briefcase,
+  Building2,
   CheckCircle,
+  DollarSign,
   Star,
   Trophy,
   Archive,
@@ -43,6 +45,7 @@ import {
   type TalentStatus,
 } from "@/app/admin/talent/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
+import { friendlyError } from "@/app/admin/lib/errors";
 import { getAvatarUrl } from "@/lib/avatars";
 
 // ── Constants ────────────────────────────────────────────────
@@ -84,7 +87,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_BADGE: Record<TalentStatus, string> = {
   pending:     "bg-amber-100 text-amber-700",
   approved:    "bg-green-100 text-green-700",
-  shortlisted: "bg-[#7E47FF]/10 text-[#7E47FF]",
+  shortlisted: "bg-remotiv-purple/10 text-remotiv-purple",
   placed:      "bg-blue-100 text-blue-700",
   paused:      "bg-orange-100 text-orange-700",
   archived:    "bg-gray-100 text-gray-500",
@@ -177,7 +180,7 @@ function Avatar({
   if (errored) {
     return (
       <span
-        className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF]"
+        className="flex shrink-0 items-center justify-center rounded-full bg-remotiv-purple/10 font-bold text-remotiv-purple"
         style={{ width: size, height: size, fontSize: Math.max(10, size / 3) }}
       >
         {getInitials(fullName) || "?"}
@@ -227,10 +230,10 @@ function ProfileCard({
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-              available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+              available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
             }`}
           >
-            <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+            <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
             {available ? "Available" : "Not Available"}
           </span>
           {profile.role_category && (
@@ -283,7 +286,7 @@ function ProfileCard({
           {visibleSkills.map((s) => (
             <span
               key={s}
-              className="rounded-full bg-[#7E47FF]/8 px-2.5 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+              className="rounded-full bg-remotiv-purple/8 px-2.5 py-0.5 text-[10px] font-medium text-remotiv-purple"
             >
               {s}
             </span>
@@ -304,7 +307,8 @@ function ProfileCard({
 
       {salary && (
         <p className="flex items-center gap-1.5 text-xs font-semibold text-gray-700">
-          💰 {salary}
+          <DollarSign className="size-3.5 text-gray-500" strokeWidth={2} />
+          {salary}
         </p>
       )}
 
@@ -320,7 +324,7 @@ function ProfileCard({
           <button
             type="button"
             onClick={onApprove}
-            className="flex items-center gap-1.5 rounded-xl bg-[#49D7A7] px-4 py-2 text-xs font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
+            className="flex items-center gap-1.5 rounded-xl bg-remotiv-green px-4 py-2 text-xs font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
           >
             <CheckCircle className="size-3.5" strokeWidth={2.5} />
             Approve
@@ -341,7 +345,7 @@ type StageAction = {
 };
 
 const STAGE_ACTIONS: StageAction[] = [
-  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-[#7E47FF]/10 text-[#7E47FF] hover:bg-[#7E47FF]/20" },
+  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20" },
   { status: "placed",      label: "Mark as Placed", icon: Trophy,      className: "bg-blue-50 text-blue-600 hover:bg-blue-100" },
   { status: "paused",      label: "Pause",          icon: PauseCircle, className: "bg-orange-50 text-orange-700 hover:bg-orange-100" },
   { status: "archived",    label: "Archive",        icon: Archive,     className: "bg-gray-100 text-gray-600 hover:bg-gray-200" },
@@ -372,13 +376,29 @@ function ProfileDrawer({
   const [note, setNote] = useState(profile.notes ?? "");
   const [savingNote, setSavingNote] = useState(false);
   const [busyStatus, setBusyStatus] = useState<TalentStatus | null>(null);
+  // Two-stage confirm for the destructive Archive action: first click arms,
+  // second click commits. Auto-resets after 4s so the armed state can't
+  // linger if the admin walks away.
+  const [archiveArmed, setArchiveArmed] = useState(false);
 
   // Re-seed when a different profile is opened.
   useEffect(() => {
     setNote(profile.notes ?? "");
+    setArchiveArmed(false);
   }, [profile.id, profile.notes]);
 
+  useEffect(() => {
+    if (!archiveArmed) return;
+    const t = setTimeout(() => setArchiveArmed(false), 4000);
+    return () => clearTimeout(t);
+  }, [archiveArmed]);
+
   async function handleStatus(s: TalentStatus) {
+    if (s === "archived" && !archiveArmed) {
+      setArchiveArmed(true);
+      return;
+    }
+    setArchiveArmed(false);
     setBusyStatus(s);
     await onSetStatus(s);
     setBusyStatus(null);
@@ -403,7 +423,7 @@ function ProfileDrawer({
     if (result.success) {
       onToast("Note saved");
     } else {
-      onToast(`Save failed: ${result.error}`);
+      onToast(`Save failed: ${friendlyError(result.error)}`);
     }
   }
 
@@ -439,10 +459,10 @@ function ProfileDrawer({
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                    available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+                    available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
                   }`}
                 >
-                  <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+                  <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
                   {available ? "Available" : "Not Available"}
                 </span>
                 {profile.approved_at && (
@@ -465,7 +485,7 @@ function ProfileDrawer({
           <DrawerSection title="Contact">
             <div className="flex flex-col gap-2 text-sm">
               {profile.email && (
-                <a href={`mailto:${profile.email}`} className="flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]">
+                <a href={`mailto:${profile.email}`} className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple">
                   <Mail className="size-3.5 text-gray-400" strokeWidth={2} />
                   {profile.email}
                 </a>
@@ -481,7 +501,7 @@ function ProfileDrawer({
                   href={profile.linkedin_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]"
+                  className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple"
                 >
                   <svg className="size-3.5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M16 8a6 6 0 0 1 6 6v7h-4v-7a2 2 0 0 0-2-2 2 2 0 0 0-2 2v7h-4v-7a6 6 0 0 1 6-6zM2 9h4v12H2z" />
@@ -495,7 +515,7 @@ function ProfileDrawer({
                   href={profile.github_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]"
+                  className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple"
                 >
                   <svg className="size-3.5 text-gray-400" viewBox="0 0 24 24" fill="currentColor">
                     <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
@@ -535,7 +555,9 @@ function ProfileDrawer({
                     key={`${exp.company ?? "exp"}-${i}`}
                     className="flex gap-3 rounded-xl border border-gray-100 bg-gray-50/40 p-3"
                   >
-                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-xs">🏢</div>
+                    <div className="flex size-8 shrink-0 items-center justify-center rounded-lg bg-white text-remotiv-purple">
+                      <Building2 className="size-4" strokeWidth={2} />
+                    </div>
                     <div className="min-w-0 flex-1 text-xs">
                       {exp.title && <p className="font-semibold text-gray-800">{exp.title}</p>}
                       {exp.company && <p className="text-gray-500">{exp.company}</p>}
@@ -570,7 +592,7 @@ function ProfileDrawer({
                 {profile.skills.map((s) => (
                   <span
                     key={s}
-                    className="rounded-full bg-[#7E47FF]/10 px-3 py-1 text-xs font-medium text-[#7E47FF]"
+                    className="rounded-full bg-remotiv-purple/10 px-3 py-1 text-xs font-medium text-remotiv-purple"
                   >
                     {s}
                   </span>
@@ -610,7 +632,7 @@ function ProfileDrawer({
                   href={profile.cv_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#7E47FF]/10 px-3 py-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-3 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <Eye className="size-3.5" strokeWidth={2} />
                   View CV
@@ -634,7 +656,7 @@ function ProfileDrawer({
                 type="button"
                 disabled={busyStatus !== null}
                 onClick={() => handleStatus("approved")}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
               >
                 <CheckCircle className="size-3.5" strokeWidth={2} />
                 {busyStatus === "approved" ? "Approving…" : "Approve"}
@@ -647,7 +669,7 @@ function ProfileDrawer({
             <button
               type="button"
               onClick={onAddToBatch}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#7E47FF]/30 bg-[#7E47FF]/10 px-3 py-2.5 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-remotiv-purple/30 bg-remotiv-purple/10 px-3 py-2.5 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
             >
               <Send className="size-3.5" strokeWidth={2} />
               Add to Client Batch
@@ -661,7 +683,7 @@ function ProfileDrawer({
                 type="button"
                 disabled={busyStatus !== null}
                 onClick={handleReset}
-                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#49D7A7]/30 bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-remotiv-green/30 bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
               >
                 <RotateCcw className="size-3.5" strokeWidth={2} />
                 {busyStatus === "approved" ? "Resetting…" : "Reset to Approved"}
@@ -670,16 +692,25 @@ function ProfileDrawer({
             <div className="grid grid-cols-2 gap-2">
               {STAGE_ACTIONS.map((a) => {
                 const Icon = a.icon;
+                const isArchive = a.status === "archived";
+                const armed = isArchive && archiveArmed;
+                const cls = armed
+                  ? "bg-red-100 text-red-700 hover:bg-red-200"
+                  : a.className;
                 return (
                   <button
                     key={a.status}
                     type="button"
                     disabled={busyStatus !== null || profile.status === a.status}
                     onClick={() => handleStatus(a.status)}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50 ${a.className}`}
+                    className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50 ${cls}`}
                   >
                     <Icon className="size-3.5" strokeWidth={2} />
-                    {busyStatus === a.status ? "…" : a.label}
+                    {busyStatus === a.status
+                      ? "…"
+                      : armed
+                        ? "Click again to confirm"
+                        : a.label}
                   </button>
                 );
               })}
@@ -707,7 +738,7 @@ function ProfileDrawer({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Add an internal note about this candidate…"
-              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             />
             <button
               type="button"
@@ -762,8 +793,8 @@ function FilterPill({
       onClick={onClick}
       className={`w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors ${
         active
-          ? "bg-[#7E47FF] text-white"
-          : "border border-gray-100 bg-white text-gray-500 hover:border-[#7E47FF]/30 hover:text-gray-700"
+          ? "bg-remotiv-purple text-white"
+          : "border border-gray-100 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
       }`}
     >
       {label}
@@ -834,10 +865,10 @@ function TalentCardMobile({
       <div className="flex flex-wrap items-center gap-1.5">
         <span
           className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+            available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
           }`}
         >
-          <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+          <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
           {available ? "Available" : "Not Available"}
         </span>
         {profile.role_category && (
@@ -858,7 +889,7 @@ function TalentCardMobile({
           {visibleSkills.map((s) => (
             <span
               key={s}
-              className="rounded-full bg-[#7E47FF]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+              className="rounded-full bg-remotiv-purple/10 px-2.5 py-0.5 text-[10px] font-medium text-remotiv-purple"
             >
               {s}
             </span>
@@ -872,7 +903,7 @@ function TalentCardMobile({
       )}
 
       {/* CTA strip */}
-      <div className="-mx-4 -mb-4 mt-auto flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="-mx-4 -mb-4 mt-auto flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View profile
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -906,7 +937,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -1050,7 +1081,7 @@ export function TalentDashboard({
       router.refresh();
     } else {
       setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
-      setToast(`Update failed: ${result.error}`);
+      setToast(`Update failed: ${friendlyError(result.error)}`);
     }
   }
 
@@ -1065,7 +1096,7 @@ export function TalentDashboard({
       router.refresh();
     } else {
       setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
-      setToast(`Reset failed: ${result.error}`);
+      setToast(`Reset failed: ${friendlyError(result.error)}`);
     }
   }
 
@@ -1077,15 +1108,15 @@ export function TalentDashboard({
       setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
       if (openId === profile.id) setOpenId(null);
       setDeleteTarget(null);
-      setToast("Profile deleted");
+      setToast("Talent removed");
       router.refresh();
     } else {
-      setToast(`Delete failed: ${result.error}`);
+      setToast(`Delete failed: ${friendlyError(result.error)}`);
     }
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
@@ -1124,7 +1155,7 @@ export function TalentDashboard({
               placeholder="Search by name, skill…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-remotiv-purple/40 focus:ring-2 focus:ring-remotiv-purple/20"
             />
           </div>
           <button
@@ -1135,7 +1166,7 @@ export function TalentDashboard({
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -1256,7 +1287,7 @@ export function TalentDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -1316,7 +1347,7 @@ export function TalentDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
@@ -1388,7 +1419,7 @@ export function TalentDashboard({
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <AlertTriangle className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">Delete profile?</h3>
+              <h3 className="font-heading text-lg font-bold text-gray-900">Remove this talent?</h3>
               <p className="mt-2 text-sm text-gray-500">
                 This permanently removes{" "}
                 <span className="font-semibold text-gray-700">

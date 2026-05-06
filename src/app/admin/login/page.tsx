@@ -33,10 +33,10 @@ export default function AdminLoginPage() {
   }
 
   return (
-    <div className="flex min-h-screen items-center justify-center bg-[#7E47FF] p-4 font-sans">
+    <div className="flex min-h-screen items-center justify-center bg-remotiv-purple p-4 font-sans">
       <div className="w-full max-w-sm rounded-2xl bg-white p-8 shadow-xl">
         <div className="mb-8 text-center">
-          <span className="font-heading text-2xl font-bold text-[#7E47FF]">
+          <span className="font-heading text-2xl font-bold text-remotiv-purple">
             Remotiv.
           </span>
           <p className="mt-1 text-sm text-gray-400">Admin Portal</p>
@@ -57,7 +57,7 @@ export default function AdminLoginPage() {
               value={email}
               onChange={(e) => setEmail(e.target.value)}
               placeholder="admin@remotiv.work"
-              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#49D7A7] focus:ring-2 focus:ring-[#49D7A7]/20"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-green focus:ring-2 focus:ring-remotiv-green/20"
             />
           </div>
 
@@ -75,7 +75,7 @@ export default function AdminLoginPage() {
               value={password}
               onChange={(e) => setPassword(e.target.value)}
               placeholder="••••••••"
-              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#49D7A7] focus:ring-2 focus:ring-[#49D7A7]/20"
+              className="w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-green focus:ring-2 focus:ring-remotiv-green/20"
             />
           </div>
 
@@ -88,7 +88,7 @@ export default function AdminLoginPage() {
           <button
             type="submit"
             disabled={loading}
-            className="mt-2 w-full rounded-lg bg-[#49D7A7] py-2.5 text-sm font-semibold text-[#111] transition-colors hover:bg-[#3bc495] disabled:cursor-not-allowed disabled:opacity-60"
+            className="mt-2 w-full rounded-lg bg-remotiv-green py-2.5 text-sm font-semibold text-[#111] transition-colors hover:bg-remotiv-green-light disabled:cursor-not-allowed disabled:opacity-60"
           >
             {loading ? "Signing in…" : "Sign In"}
           </button>

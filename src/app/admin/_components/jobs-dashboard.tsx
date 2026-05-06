@@ -6,6 +6,7 @@ import {
   CheckCircle,
   ChevronRight,
   PauseCircle,
+  Star,
   XCircle,
   Plus,
   MoreHorizontal,
@@ -42,7 +43,7 @@ const STATUS_META: Record<
   Job["status"],
   { label: string; badge: string; dot: string }
 > = {
-  open:    { label: "Open",    badge: "bg-[#49D7A7]/10 text-[#1a9e73]", dot: "bg-[#49D7A7]" },
+  open:    { label: "Open",    badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green" },
   on_hold: { label: "On Hold", badge: "bg-amber-50 text-amber-600",      dot: "bg-amber-400"  },
   closed:  { label: "Closed",  badge: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
 };
@@ -72,7 +73,7 @@ const EMPTY_FORM: JobInput = {
 };
 
 const INPUT_CLS =
-  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 const LABEL_CLS =
   "mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
 
@@ -138,7 +139,7 @@ function JobCardMobile({
         </div>
 
         <div className="mt-3 flex flex-wrap items-center gap-1.5">
-          <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+          <span className="rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple">
             {job.work_type}
           </span>
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
@@ -162,7 +163,7 @@ function JobCardMobile({
         </p>
       </div>
 
-      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View / Edit job
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -196,7 +197,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -375,7 +376,7 @@ export function JobsDashboard({
   ];
 
   return (
-    <div className="min-h-full bg-[#f8f4f1] font-sans">
+    <div className="min-h-full bg-remotiv-bg font-sans">
       <TopNav email={email} userRole={userRole} />
 
       <div className="p-4 lg:p-8">
@@ -390,10 +391,10 @@ export function JobsDashboard({
             <button
               type="button"
               onClick={openAddModal}
-              className="hidden items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
+              className="hidden items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
             >
               <Plus className="size-4" strokeWidth={2.5} />
-              Post Job
+              New Job
             </button>
           )}
         </div>
@@ -411,7 +412,7 @@ export function JobsDashboard({
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -421,7 +422,7 @@ export function JobsDashboard({
               type="button"
               onClick={openAddModal}
               aria-label="Post a new job"
-              className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+              className="flex min-h-11 items-center gap-1 rounded-xl bg-remotiv-purple px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               New
@@ -497,7 +498,7 @@ export function JobsDashboard({
                   <tr>
                     <td colSpan={canEditJobs || canDeleteJobs ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-400">
                       {jobs.length === 0
-                        ? `No jobs posted yet.${canEditJobs ? " Click \"Post Job\" to get started." : ""}`
+                        ? `No jobs posted yet.${canEditJobs ? " Click \"New Job\" to get started." : ""}`
                         : "No jobs match the current filters."}
                     </td>
                   </tr>
@@ -512,7 +513,10 @@ export function JobsDashboard({
                         </td>
                         <td className="px-6 py-4">
                           <p className="text-gray-700">{job.company}</p>
-                          <p className="text-xs text-gray-400">★ {job.company_rating}</p>
+                          <p className="flex items-center gap-1 text-xs text-gray-400">
+                            <Star className="size-3 fill-amber-400 text-amber-400" strokeWidth={0} />
+                            {job.company_rating}
+                          </p>
                         </td>
                         <td className="px-6 py-4 text-gray-500">{job.category}</td>
                         <td className="px-6 py-4">
@@ -529,7 +533,7 @@ export function JobsDashboard({
                             <span className="w-fit rounded-md bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-600">
                               {job.contract_type}
                             </span>
-                            <span className="w-fit rounded-md bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+                            <span className="w-fit rounded-md bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple">
                               {job.work_type}
                             </span>
                           </div>
@@ -747,8 +751,8 @@ export function JobsDashboard({
                 <button type="button" onClick={closeModal} className="min-h-11 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
                   Cancel
                 </button>
-                <button type="submit" disabled={mutating} className="min-h-11 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60">
-                  {mutating ? "Saving…" : editingJob ? "Save Changes" : "Post Job"}
+                <button type="submit" disabled={mutating} className="min-h-11 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60">
+                  {mutating ? "Saving…" : editingJob ? "Save Changes" : "Create Job"}
                 </button>
               </div>
             </form>
@@ -776,7 +780,7 @@ export function JobsDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -828,7 +832,7 @@ export function JobsDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
@@ -846,7 +850,7 @@ export function JobsDashboard({
           type="button"
           onClick={openAddModal}
           aria-label="Post a new job"
-          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-[#7E47FF] text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
+          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-remotiv-purple text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
         >
           <Plus className="size-7 text-white" strokeWidth={2.5} />
         </button>

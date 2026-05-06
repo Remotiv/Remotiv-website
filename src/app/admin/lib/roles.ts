@@ -9,7 +9,7 @@ export const ROLE_LABELS: Record<UserRole, string> = {
 };
 
 export const ROLE_BADGE_STYLES: Record<UserRole, string> = {
-  super_admin: "bg-[#7E47FF]/10 text-[#7E47FF]",
+  super_admin: "bg-remotiv-purple/10 text-remotiv-purple",
   admin: "bg-blue-50 text-blue-600",
   viewer: "bg-gray-100 text-gray-500",
 };

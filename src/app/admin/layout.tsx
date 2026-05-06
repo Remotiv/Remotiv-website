@@ -48,6 +48,6 @@ export default async function AdminLayout({
   // The mobile drawer + hamburger now live in TopNav (rendered by each
   // dashboard component). The layout is just a scrollable main pane.
   return (
-    <main className="min-h-screen bg-[#f8f4f1] font-sans">{children}</main>
+    <main className="min-h-screen bg-remotiv-bg font-sans">{children}</main>
   );
 }

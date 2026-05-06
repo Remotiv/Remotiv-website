@@ -175,9 +175,12 @@ export function TopNav({
             <button
               type="button"
               onClick={() => setAvatarOpen((p) => !p)}
+              aria-label={`Account menu for ${email}`}
+              aria-expanded={avatarOpen}
+              aria-haspopup="menu"
               className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all hover:ring-remotiv-purple/40"
             >
-              <UserAvatar isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
+              <UserAvatar email={email} isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
             </button>
 
             {avatarOpen && (
@@ -268,7 +271,7 @@ export function TopNav({
         {/* User identity strip */}
         <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4">
           <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full">
-            <UserAvatar isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
+            <UserAvatar email={email} isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
           </span>
           <div className="min-w-0 flex-1">
             <p className="truncate text-sm font-semibold text-gray-800">
@@ -294,12 +297,12 @@ export function TopNav({
                     onClick={() => setMobileOpen(false)}
                     className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
                       active
-                        ? "bg-[#7E47FF]/10 font-semibold text-[#7E47FF]"
+                        ? "bg-remotiv-purple/10 font-semibold text-remotiv-purple"
                         : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
                     }`}
                   >
                     <Icon
-                      className={`size-4 shrink-0 ${active ? "text-[#7E47FF]" : "text-gray-400"}`}
+                      className={`size-4 shrink-0 ${active ? "text-remotiv-purple" : "text-gray-400"}`}
                       strokeWidth={2}
                     />
                     {label}
@@ -341,21 +344,24 @@ export function TopNav({
  * the initials chip on load failure so missing files never render broken.
  */
 function UserAvatar({
+  email,
   isWaleed,
   initials,
   initialsColor,
 }: {
+  email?: string;
   isWaleed: boolean;
   initials: string;
   initialsColor: string;
 }) {
   const [imgFailed, setImgFailed] = useState(false);
+  const altText = email ? `Profile picture for ${email}` : "Profile picture";
 
   if (isWaleed && !imgFailed) {
     return (
       <Image
         src={getAvatarUrl("Waleed", "Khan")}
-        alt="Profile"
+        alt={altText}
         fill
         sizes="40px"
         className="object-cover"

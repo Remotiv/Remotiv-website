@@ -45,7 +45,7 @@ function highlight(text: string | null, keywords: string[]): React.ReactNode {
       return (
         <span
           key={`${part}-${i}`}
-          className="rounded bg-[#7E47FF]/15 px-0.5 font-semibold text-[#7E47FF]"
+          className="rounded bg-remotiv-purple/15 px-0.5 font-semibold text-remotiv-purple"
         >
           {part}
         </span>
@@ -79,8 +79,8 @@ function ResultCard({
                 Application
               </span>
             ) : (
-              <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2.5 py-1 text-xs font-semibold text-[#1a9e73]">
-                <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+              <span className="inline-flex items-center gap-1.5 rounded-full bg-remotiv-green/10 px-2.5 py-1 text-xs font-semibold text-[#1a9e73]">
+                <span className="size-1.5 rounded-full bg-remotiv-green" />
                 Talent
               </span>
             )}
@@ -129,7 +129,7 @@ function ResultCard({
               {hit.matchedKeywords.map((k) => (
                 <span
                   key={k}
-                  className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+                  className="rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple"
                 >
                   {k}
                 </span>
@@ -180,8 +180,8 @@ function ResultCardMobile({
               Application
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
-              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-remotiv-green/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
+              <span className="size-1.5 rounded-full bg-remotiv-green" />
               Talent
             </span>
           )}
@@ -227,7 +227,7 @@ function ResultCardMobile({
             {hit.matchedKeywords.map((k) => (
               <span
                 key={k}
-                className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+                className="rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple"
               >
                 {k}
               </span>
@@ -236,7 +236,7 @@ function ResultCardMobile({
         )}
       </div>
 
-      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View profile
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -273,7 +273,7 @@ export function SearchClient({
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-xl px-4 py-6 lg:px-8 lg:py-8">
@@ -306,7 +306,7 @@ export function SearchClient({
           <button
             type="submit"
             disabled={loading || !query.trim()}
-            className="flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-[#7E47FF] px-6 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="flex min-h-12 shrink-0 items-center justify-center gap-2 rounded-xl bg-remotiv-purple px-6 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             {loading ? (
               <>
@@ -342,7 +342,7 @@ export function SearchClient({
         {/* Loading skeleton */}
         {loading && !results && (
           <div className="flex flex-col items-center justify-center rounded-2xl border border-gray-100 bg-white py-16 text-center lg:py-20">
-            <Loader2 className="mb-3 size-8 animate-spin text-[#7E47FF]" strokeWidth={2} />
+            <Loader2 className="mb-3 size-8 animate-spin text-remotiv-purple" strokeWidth={2} />
             <p className="text-sm text-gray-500">Scanning applications and profiles…</p>
           </div>
         )}

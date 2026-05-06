@@ -71,7 +71,7 @@ export function PaginationControls({
           className={`flex items-center gap-1 rounded-xl px-3.5 py-2 text-sm font-semibold transition-colors ${
             nextDisabled
               ? "cursor-not-allowed bg-gray-50 text-gray-300"
-              : "bg-[#7E47FF] text-white hover:bg-[#6a38e0]"
+              : "bg-remotiv-purple text-white hover:bg-[#6a38e0]"
           }`}
         >
           Next

@@ -13,6 +13,7 @@ import {
   MessageSquare,
   Trash2,
   AlertTriangle,
+  Clock,
   Search as SearchIcon,
   Send,
   SlidersHorizontal,
@@ -56,13 +57,13 @@ const STATUS_META: Record<
   { label: string; badge: string; dot: string }
 > = {
   new:         { label: "New",            badge: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
-  shortlisted: { label: "Shortlisted",    badge: "bg-[#49D7A7]/10 text-[#1a9e73]", dot: "bg-[#49D7A7]"  },
+  shortlisted: { label: "Shortlisted",    badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green"  },
   not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",          dot: "bg-red-400"    },
   maybe:       { label: "Maybe",          badge: "bg-amber-50 text-amber-600",      dot: "bg-amber-400"  },
 };
 
 const INPUT_CLS =
-  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 // LinkedIn URL gate — used by the bulk-upload row UI and as a defensive
 // guard right before each row hits /api/apply. Case-insensitive: any
@@ -259,10 +260,10 @@ function AppPanel({
             <button
               type="button"
               onClick={() => { onAddToBatch(); handleClose(); }}
-              className={`${actionBtn} text-[#7E47FF] hover:bg-[#7E47FF]/5`}
+              className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5`}
             >
-              <span className="flex size-7 items-center justify-center rounded-lg bg-[#7E47FF]/10">
-                <Send className="size-3.5 text-[#7E47FF]" strokeWidth={2} />
+              <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
+                <Send className="size-3.5 text-remotiv-purple" strokeWidth={2} />
               </span>
               Add to Client Batch
             </button>
@@ -270,10 +271,10 @@ function AppPanel({
             <button
               type="button"
               onClick={() => { onMoveToTalent(); handleClose(); }}
-              className={`${actionBtn} text-[#7E47FF] hover:bg-[#7E47FF]/5`}
+              className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5`}
             >
-              <span className="flex size-7 items-center justify-center rounded-lg bg-[#7E47FF]/10">
-                <UserCheck className="size-3.5 text-[#7E47FF]" strokeWidth={2} />
+              <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
+                <UserCheck className="size-3.5 text-remotiv-purple" strokeWidth={2} />
               </span>
               Move to Talent
             </button>
@@ -375,7 +376,7 @@ function AppPanel({
           <button
             type="submit"
             disabled={submitting || !text.trim()}
-            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-[#7E47FF] py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+            className="mt-2.5 flex w-full items-center justify-center gap-2 rounded-xl bg-remotiv-purple py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
           >
             <Send className="size-3.5" strokeWidth={2} />
             {submitting ? "Posting…" : "Post Comment"}
@@ -390,7 +391,7 @@ function AppPanel({
 
 const STATUS_DOT: Record<ApplicationStatus, string> = {
   new:         "bg-gray-100 text-gray-500",
-  shortlisted: "bg-[#49D7A7]/10 text-[#1a9e73]",
+  shortlisted: "bg-remotiv-green/10 text-[#1a9e73]",
   not_a_fit:   "bg-red-50 text-red-500",
   maybe:       "bg-amber-50 text-amber-600",
 };
@@ -438,7 +439,7 @@ function ApplicationCardMobile({
     >
       <div className="p-4">
         <div className="flex items-start gap-3">
-          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-heading text-xs font-bold text-[#7E47FF]">
+          <span className="flex size-10 shrink-0 items-center justify-center rounded-full bg-remotiv-purple/10 font-heading text-xs font-bold text-remotiv-purple">
             {appInitials(app.first_name, app.last_name)}
           </span>
           <div className="min-w-0 flex-1">
@@ -452,7 +453,7 @@ function ApplicationCardMobile({
                 {meta.label}
               </span>
             </div>
-            <p className="mt-0.5 truncate text-sm font-semibold text-[#7E47FF]">
+            <p className="mt-0.5 truncate text-sm font-semibold text-remotiv-purple">
               {app.job_title || "No job linked"}
             </p>
             <p className="mt-0.5 truncate text-xs text-gray-400">{app.email}</p>
@@ -466,8 +467,8 @@ function ApplicationCardMobile({
               Manual upload
             </span>
           ) : (
-            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
-              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+            <span className="inline-flex items-center gap-1.5 rounded-full bg-remotiv-green/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
+              <span className="size-1.5 rounded-full bg-remotiv-green" />
               Job post
             </span>
           )}
@@ -489,7 +490,7 @@ function ApplicationCardMobile({
         </p>
       </div>
 
-      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View application
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -523,7 +524,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -671,15 +672,15 @@ export function ApplicationsDashboard({
     {
       label: "Total Applications",
       value: totalApps,
-      from: "from-[#7E47FF]",
-      to: "to-[#9886fe]",
+      from: "from-remotiv-purple",
+      to: "to-remotiv-purple-light",
       icon: FileText,
     },
     {
       label: "Shortlisted",
       value: shortlisted,
-      from: "from-[#49D7A7]",
-      to: "to-[#3bc494]",
+      from: "from-remotiv-green",
+      to: "to-remotiv-green-light",
       icon: Star,
     },
     {
@@ -699,7 +700,7 @@ export function ApplicationsDashboard({
   ];
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-xl px-4 py-6 lg:px-8 lg:py-8">
@@ -716,7 +717,7 @@ export function ApplicationsDashboard({
               type="button"
               onClick={() => setShowUpload(true)}
               aria-label="Upload CV"
-              className="flex min-h-11 items-center gap-2 rounded-xl bg-[#7E47FF] px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 lg:hidden"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-remotiv-purple px-3 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90 lg:hidden"
             >
               <Upload className="size-4" strokeWidth={2} />
               Upload
@@ -736,7 +737,7 @@ export function ApplicationsDashboard({
               placeholder="Search by name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-remotiv-purple/40 focus:ring-2 focus:ring-remotiv-purple/20"
             />
           </div>
           <button
@@ -747,7 +748,7 @@ export function ApplicationsDashboard({
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -796,12 +797,12 @@ export function ApplicationsDashboard({
               placeholder="Search by name or email…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="h-9 w-64 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none placeholder:text-gray-400 focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="h-9 w-64 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none placeholder:text-gray-400 focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             />
             <select
               value={filterJob}
               onChange={(e) => setFilterJob(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             >
               <option value="all">All Job Roles</option>
               {jobRoles.map((r) => (
@@ -811,7 +812,7 @@ export function ApplicationsDashboard({
             <select
               value={filterStatus}
               onChange={(e) => setFilterStatus(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             >
               <option value="all">All Statuses</option>
               <option value="new">New</option>
@@ -826,7 +827,7 @@ export function ApplicationsDashboard({
               <button
                 type="button"
                 onClick={() => setShowUpload(true)}
-                className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
+                className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2 text-sm font-semibold text-white transition-opacity hover:opacity-90"
               >
                 <Upload className="size-4" strokeWidth={2} />
                 Upload CV
@@ -872,7 +873,7 @@ export function ApplicationsDashboard({
                         key={app.id}
                         className={`border-b border-gray-50 transition-colors hover:bg-gray-50/50 ${
                           isHighlighted
-                            ? "bg-[#7E47FF]/5 outline outline-2 -outline-offset-2 outline-[#7E47FF]/40"
+                            ? "bg-remotiv-purple/5 outline outline-2 -outline-offset-2 outline-remotiv-purple/40"
                             : ""
                         }`}
                       >
@@ -910,7 +911,7 @@ export function ApplicationsDashboard({
                               href={app.cv_url}
                               target="_blank"
                               rel="noopener noreferrer"
-                              className="inline-flex items-center gap-1 rounded-lg bg-[#7E47FF]/10 px-2.5 py-1 text-xs font-medium text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                              className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                             >
                               <ExternalLink className="size-3" strokeWidth={2} />
                               View
@@ -932,8 +933,8 @@ export function ApplicationsDashboard({
                               Manual
                             </span>
                           ) : (
-                            <span className="inline-flex items-center gap-1.5 rounded-full bg-[#49D7A7]/10 px-2.5 py-1 text-xs font-semibold text-[#1a9e73]">
-                              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+                            <span className="inline-flex items-center gap-1.5 rounded-full bg-remotiv-green/10 px-2.5 py-1 text-xs font-semibold text-[#1a9e73]">
+                              <span className="size-1.5 rounded-full bg-remotiv-green" />
                               Job Post
                             </span>
                           )}
@@ -989,7 +990,7 @@ export function ApplicationsDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -1040,7 +1041,7 @@ export function ApplicationsDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
@@ -1587,7 +1588,7 @@ function BulkUploadCVModal({
   const modalWidth = stage === "review" ? "max-w-6xl" : "max-w-lg";
 
   const ROW_INPUT_CLS =
-    "w-full rounded border border-transparent bg-transparent px-2 py-1 text-xs text-gray-800 outline-none transition-colors hover:border-gray-200 focus:border-[#7E47FF] focus:ring-1 focus:ring-[#7E47FF]/20";
+    "w-full rounded border border-transparent bg-transparent px-2 py-1 text-xs text-gray-800 outline-none transition-colors hover:border-gray-200 focus:border-remotiv-purple focus:ring-1 focus:ring-remotiv-purple/20";
 
   const headerSubtitle = (() => {
     if (stage === "upload")     return "Drop up to 50 CV PDFs to get started";
@@ -1599,7 +1600,7 @@ function BulkUploadCVModal({
     <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
       <div className={`relative mx-auto my-8 flex w-full ${modalWidth} flex-col rounded-2xl bg-white shadow-2xl`}>
         {/* Header */}
-        <div className="relative shrink-0 rounded-t-2xl bg-[#7E47FF] px-7 py-6 pr-16">
+        <div className="relative shrink-0 rounded-t-2xl bg-remotiv-purple px-7 py-6 pr-16">
           {!submitting && (
             <button
               type="button"
@@ -1630,19 +1631,19 @@ function BulkUploadCVModal({
                 }}
                 className={`flex w-full flex-col items-center justify-center gap-3 rounded-2xl border-2 border-dashed px-6 py-14 transition-colors ${
                   dragOver
-                    ? "border-[#7E47FF] bg-[#7E47FF]/5"
-                    : "border-gray-200 bg-gray-50 hover:border-[#7E47FF]/40"
+                    ? "border-remotiv-purple bg-remotiv-purple/5"
+                    : "border-gray-200 bg-gray-50 hover:border-remotiv-purple/40"
                 }`}
               >
-                <div className="flex size-12 items-center justify-center rounded-full bg-[#7E47FF]/10">
-                  <Upload className="size-5 text-[#7E47FF]" strokeWidth={2} />
+                <div className="flex size-12 items-center justify-center rounded-full bg-remotiv-purple/10">
+                  <Upload className="size-5 text-remotiv-purple" strokeWidth={2} />
                 </div>
                 <p className="font-heading text-sm font-semibold text-gray-800">
                   Drop up to {MAX_BULK} CV PDFs here or click to browse
                 </p>
                 <p className="text-xs text-gray-400">PDF only · max 5 MB each</p>
                 {files.length > 0 && (
-                  <p className="mt-2 text-sm font-semibold text-[#7E47FF]">
+                  <p className="mt-2 text-sm font-semibold text-remotiv-purple">
                     {files.length} file{files.length === 1 ? "" : "s"} selected
                   </p>
                 )}
@@ -1691,13 +1692,13 @@ function BulkUploadCVModal({
             </>
           ) : stage === "processing" ? (
             <div className="flex flex-col items-center justify-center gap-5 py-12">
-              <Loader2 className="size-10 animate-spin text-[#7E47FF]" strokeWidth={2} />
+              <Loader2 className="size-10 animate-spin text-remotiv-purple" strokeWidth={2} />
               <p className="font-heading text-sm font-semibold text-gray-800">
                 Processing CVs… {processedCount}/{files.length}
               </p>
               <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-gray-100">
                 <div
-                  className="h-full rounded-full bg-[#7E47FF] transition-all duration-200"
+                  className="h-full rounded-full bg-remotiv-purple transition-all duration-200"
                   style={{ width: `${(processedCount / Math.max(files.length, 1)) * 100}%` }}
                 />
               </div>
@@ -1775,7 +1776,7 @@ function BulkUploadCVModal({
                                   : ""
                               }
                               onChange={(e) => updateRow(row.id, { selected: e.target.checked })}
-                              className="size-4 rounded border-gray-300 text-[#7E47FF] focus:ring-[#7E47FF] disabled:cursor-not-allowed disabled:opacity-40"
+                              className="size-4 rounded border-gray-300 text-remotiv-purple focus:ring-remotiv-purple disabled:cursor-not-allowed disabled:opacity-40"
                             />
                           </td>
                           <td className="px-3 py-2 max-w-[180px]">
@@ -1832,10 +1833,13 @@ function BulkUploadCVModal({
                               className={ROW_INPUT_CLS}
                             />
                             {!isValidLinkedInUrl(row.linkedin) && (
-                              <p className="mt-1 text-[10px] font-medium leading-tight text-red-500">
-                                {row.linkedin.trim()
-                                  ? "⚠ Please enter a valid LinkedIn URL"
-                                  : "⚠ LinkedIn URL missing — add manually"}
+                              <p className="mt-1 inline-flex items-start gap-1 text-[10px] font-medium leading-tight text-red-500">
+                                <AlertTriangle className="mt-px size-3 shrink-0" strokeWidth={2} />
+                                <span>
+                                  {row.linkedin.trim()
+                                    ? "Please enter a valid LinkedIn URL"
+                                    : "LinkedIn URL missing — add manually"}
+                                </span>
                               </p>
                             )}
                           </td>
@@ -1864,10 +1868,11 @@ function BulkUploadCVModal({
                           <td className="px-3 py-2">
                             {row.duplicate ? (
                               <span
-                                className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
+                                className="inline-flex items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700"
                                 title={`Existing: ${row.duplicate.first_name} ${row.duplicate.last_name}`}
                               >
-                                ⚠ Exists
+                                <AlertTriangle className="size-3" strokeWidth={2.5} />
+                                Exists
                               </span>
                             ) : (
                               <span className="inline-flex items-center gap-1.5 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
@@ -1877,10 +1882,13 @@ function BulkUploadCVModal({
                           </td>
                           <td className="px-3 py-2">
                             {row.status === "ready" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">⏳ Ready</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">
+                                <Clock className="size-3" strokeWidth={2} />
+                                Ready
+                              </span>
                             )}
                             {row.status === "submitting" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-[#7E47FF]">
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-remotiv-purple">
                                 <Loader2 className="size-3 animate-spin" strokeWidth={2} /> Sending
                               </span>
                             )}
@@ -1894,11 +1902,14 @@ function BulkUploadCVModal({
                                 className="inline-flex items-center gap-1 text-[10px] font-medium text-red-500"
                                 title={row.errorMsg ?? ""}
                               >
-                                ✕ Error
+                                <X className="size-3" strokeWidth={2.5} />
+                                Error
                               </span>
                             )}
                             {row.status === "skipped" && (
-                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">— Skipped</span>
+                              <span className="inline-flex items-center gap-1 text-[10px] font-medium text-gray-400">
+                                Skipped
+                              </span>
                             )}
                           </td>
                           <td className="px-3 py-2">

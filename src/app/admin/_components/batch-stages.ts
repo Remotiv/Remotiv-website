@@ -23,7 +23,7 @@ export const BATCH_STAGES = [
   "Hold For Now",
   "Under Consideration",
   "Back Off",
-  "Already In our Data / Rejected",
+  "Already In Our Data / Rejected",
 ] as const;
 
 export type BatchStage = (typeof BATCH_STAGES)[number];
@@ -72,12 +72,18 @@ export function stageBadgeClass(stage: string): string {
 
 // ── Client decision vocabulary ───────────────────────────────
 
+import { CheckCircle2, Phone, XCircle, type LucideIcon } from "lucide-react";
+
 export type ClientDecision = "approve" | "reject" | "request_interview";
 
-export const CLIENT_DECISION_ICON: Record<ClientDecision, string> = {
-  approve: "✅",
-  reject: "❌",
-  request_interview: "📞",
+/**
+ * Lucide icon component reference for each client decision.
+ * Consumers should render with `const Icon = CLIENT_DECISION_ICON[d]; <Icon className="size-4" />`.
+ */
+export const CLIENT_DECISION_ICON: Record<ClientDecision, LucideIcon> = {
+  approve: CheckCircle2,
+  reject: XCircle,
+  request_interview: Phone,
 };
 
 export const CLIENT_DECISION_LABEL: Record<ClientDecision, string> = {

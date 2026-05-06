@@ -175,9 +175,9 @@ function activityIcon(kind: ActivityKind): LucideIcon {
 }
 
 const ACTIVITY_BADGE: Record<ActivityKind, { label: string; cls: string }> = {
-  talent: { label: "Talent", cls: "bg-[#7E47FF]/10 text-[#7E47FF]" },
+  talent: { label: "Talent", cls: "bg-remotiv-purple/10 text-remotiv-purple" },
   application: { label: "Application", cls: "bg-blue-100 text-blue-700" },
-  decision: { label: "Decision", cls: "bg-[#49D7A7]/15 text-emerald-700" },
+  decision: { label: "Decision", cls: "bg-remotiv-green/15 text-emerald-700" },
   booking: { label: "Booking", cls: "bg-amber-100 text-amber-700" },
   inquiry: { label: "Inquiry", cls: "bg-gray-200 text-gray-700" },
 };
@@ -268,8 +268,8 @@ function ActivityRow({ item }: { item: ActivityItem }) {
       href={item.link}
       className="-mx-2 flex items-start gap-3 rounded-xl px-2 py-2 transition-colors hover:bg-gray-50"
     >
-      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-[#f5f3ff]">
-        <Icon className="size-4 text-[#7E47FF]" strokeWidth={2} />
+      <div className="flex size-9 shrink-0 items-center justify-center rounded-full bg-remotiv-purple/10">
+        <Icon className="size-4 text-remotiv-purple" strokeWidth={2} />
       </div>
       <div className="min-w-0 flex-1">
         <div className="flex flex-wrap items-center gap-2">
@@ -341,7 +341,7 @@ export function OverviewDashboard({
   const chartTickInterval = isMobileBreak ? 6 : 4;
 
   return (
-    <div className="min-h-full bg-[#f8f4f1] font-sans">
+    <div className="min-h-full bg-remotiv-bg font-sans">
       <TopNav email={email} userRole={userRole} />
 
       <div className="p-4 lg:p-8">
@@ -450,15 +450,15 @@ export function OverviewDashboard({
             </ResponsiveContainer>
             <div className="mt-3 flex items-center gap-5">
               <div className="flex items-center gap-2">
-                <span className="size-2.5 rounded-full bg-[#7E47FF]" />
+                <span className="size-2.5 rounded-full bg-remotiv-purple" />
                 <span className="text-xs text-gray-400">Talent</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="size-2.5 rounded-full bg-[#49D7A7]" />
+                <span className="size-2.5 rounded-full bg-remotiv-green" />
                 <span className="text-xs text-gray-400">Remote Ready</span>
               </div>
               <div className="flex items-center gap-2">
-                <span className="size-2.5 rounded-full bg-[#9886FE]" />
+                <span className="size-2.5 rounded-full bg-remotiv-purple-light" />
                 <span className="text-xs text-gray-400">Applications</span>
               </div>
             </div>
@@ -632,7 +632,7 @@ export function OverviewDashboard({
             </div>
             <Link
               href="/admin/team"
-              className="text-xs font-semibold text-[#7E47FF] hover:underline"
+              className="text-xs font-semibold text-remotiv-purple hover:underline"
             >
               Manage Team →
             </Link>
@@ -784,11 +784,11 @@ function MeetingSchedule({ schedule }: { schedule: MeetingDay[] }) {
 
       <div className="mt-5 flex items-center gap-5 border-t border-gray-100 pt-4">
         <div className="flex items-center gap-2">
-          <span className="size-2.5 rounded-full bg-[#7E47FF]" />
+          <span className="size-2.5 rounded-full bg-remotiv-purple" />
           <span className="text-xs text-gray-500">Discovery Call</span>
         </div>
         <div className="flex items-center gap-2">
-          <span className="size-2.5 rounded-full bg-[#49D7A7]" />
+          <span className="size-2.5 rounded-full bg-remotiv-green" />
           <span className="text-xs text-gray-500">Client Interview</span>
         </div>
       </div>
@@ -804,7 +804,7 @@ function MeetingDayCell({ day }: { day: MeetingDay }) {
           {day.dayName}
         </p>
         {day.isToday ? (
-          <p className="mx-auto mt-1 flex size-8 items-center justify-center rounded-full bg-[#7E47FF] font-heading text-sm font-bold text-white">
+          <p className="mx-auto mt-1 flex size-8 items-center justify-center rounded-full bg-remotiv-purple font-heading text-sm font-bold text-white">
             {day.dayNum}
           </p>
         ) : (

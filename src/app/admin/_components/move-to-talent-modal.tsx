@@ -53,10 +53,10 @@ const WORK_LOCATION_OPTIONS = [
 // ── Shared classNames ─────────────────────────────────────────
 
 const INPUT_CLS =
-  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none transition-colors focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none transition-colors focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 const TEXTAREA_CLS =
-  "w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 outline-none transition-colors focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full rounded-lg border border-gray-200 px-3 py-2.5 text-sm text-gray-800 outline-none transition-colors focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 const LABEL_CLS = "mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500";
 
@@ -122,8 +122,8 @@ function RadioGroup({
           // Notice Period until the user re-scrolls.
           className={`relative flex cursor-pointer items-center gap-2 rounded-xl border px-3.5 py-2 text-xs font-semibold ${
             value === o.value
-              ? "border-[#49D7A7] bg-[#49D7A7]/8 text-[#1a9e73]"
-              : "border-gray-200 bg-white text-gray-600 hover:border-[#49D7A7]/40"
+              ? "border-remotiv-green bg-remotiv-green/8 text-[#1a9e73]"
+              : "border-gray-200 bg-white text-gray-600 hover:border-remotiv-green/40"
           }`}
         >
           <input
@@ -136,7 +136,7 @@ function RadioGroup({
           />
           <span
             className={`size-3 rounded-full border ${
-              value === o.value ? "border-[#49D7A7] bg-[#49D7A7]" : "border-gray-300"
+              value === o.value ? "border-remotiv-green bg-remotiv-green" : "border-gray-300"
             }`}
           />
           {o.label}
@@ -168,7 +168,7 @@ function SkillsInput({
 
   return (
     <div
-      className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1.5 transition-colors focus-within:border-[#7E47FF] focus-within:ring-2 focus-within:ring-[#7E47FF]/20"
+      className="flex min-h-10 flex-wrap items-center gap-1.5 rounded-lg border border-gray-200 bg-white px-2 py-1.5 transition-colors focus-within:border-remotiv-purple focus-within:ring-2 focus-within:ring-remotiv-purple/20"
       onClick={(e) => {
         const target = e.currentTarget.querySelector("input");
         if (target) target.focus();
@@ -185,14 +185,14 @@ function SkillsInput({
       {skills.map((s) => (
         <span
           key={s}
-          className="inline-flex items-center gap-1 rounded-md bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]"
+          className="inline-flex items-center gap-1 rounded-md bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple"
         >
           {s}
           <button
             type="button"
             onClick={() => remove(s)}
             aria-label={`Remove ${s}`}
-            className="text-[#7E47FF]/60 hover:text-[#7E47FF]"
+            className="text-remotiv-purple/60 hover:text-remotiv-purple"
           >
             <X className="size-3" strokeWidth={2.5} />
           </button>
@@ -222,8 +222,8 @@ function SkillsInput({
 
 function ApplicantCard({ app }: { app: JobApplication }) {
   return (
-    <div className="rounded-2xl border border-[#7E47FF]/15 bg-[#7E47FF]/5 px-5 py-4">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-[#7E47FF]">
+    <div className="rounded-2xl border border-remotiv-purple/15 bg-remotiv-purple/5 px-5 py-4">
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-remotiv-purple">
         Moving to Talent
       </p>
       <p className="font-heading text-base font-bold text-gray-900">
@@ -260,7 +260,7 @@ function ApplicantCard({ app }: { app: JobApplication }) {
               href={app.cv_url}
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center gap-1 font-medium text-[#7E47FF] hover:underline"
+              className="inline-flex items-center gap-1 font-medium text-remotiv-purple hover:underline"
             >
               <ExternalLink className="size-3" strokeWidth={2} />
               View CV
@@ -732,7 +732,7 @@ export function MoveToTalentModal({
             <button
               type="button"
               onClick={addEmploymentEntry}
-              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-[#7E47FF]/30 bg-[#7E47FF]/5 px-3 py-2.5 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/10"
+              className="mt-3 flex w-full items-center justify-center gap-1.5 rounded-xl border border-dashed border-remotiv-purple/30 bg-remotiv-purple/5 px-3 py-2.5 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/10"
             >
               <Plus className="size-3.5" strokeWidth={2} />
               Add Employment Entry
@@ -754,7 +754,7 @@ export function MoveToTalentModal({
             type="button"
             onClick={handleSubmit}
             disabled={submitting}
-            className="flex items-center gap-2 rounded-xl bg-[#49D7A7] px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-xl bg-remotiv-green px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             <UserCheck className="size-4" strokeWidth={2.5} />
             {submitting ? "Moving…" : "Move to Talent"}

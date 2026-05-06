@@ -32,7 +32,7 @@ function formatTime(iso: string): string {
 const EVENT_ICON: Record<string, { Icon: LucideIcon; color: string; bg: string }> = {
   client_decision: { Icon: CheckCircle,   color: "text-emerald-600", bg: "bg-emerald-50" },
   client_note:     { Icon: MessageSquare, color: "text-blue-600",    bg: "bg-blue-50"    },
-  stage_change:    { Icon: ArrowRight,    color: "text-[#7E47FF]",   bg: "bg-[#7E47FF]/10" },
+  stage_change:    { Icon: ArrowRight,    color: "text-remotiv-purple",   bg: "bg-remotiv-purple/10" },
   candidate_added: { Icon: UserPlus,      color: "text-orange-600",  bg: "bg-orange-50"  },
 };
 const EVENT_ICON_DEFAULT = { Icon: Bell, color: "text-gray-500", bg: "bg-gray-100" };
@@ -138,7 +138,7 @@ export function NotificationsBell() {
                   type="button"
                   onClick={handleMarkAllRead}
                   disabled={marking}
-                  className="text-[11px] font-semibold text-[#7E47FF] transition-opacity hover:opacity-80 disabled:opacity-50"
+                  className="text-[11px] font-semibold text-remotiv-purple transition-opacity hover:opacity-80 disabled:opacity-50"
                 >
                   Mark all read
                 </button>
@@ -173,7 +173,7 @@ export function NotificationsBell() {
                   key={n.id}
                   onClick={() => handleClick(n)}
                   className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors hover:bg-gray-50 ${
-                    !n.read_at ? "bg-[#7E47FF]/[0.04]" : ""
+                    !n.read_at ? "bg-remotiv-purple/[0.04]" : ""
                   }`}
                 >
                   <span
@@ -195,7 +195,7 @@ export function NotificationsBell() {
                     </p>
                   </div>
                   {!n.read_at && (
-                    <span className="mt-2 size-2 shrink-0 rounded-full bg-[#7E47FF]" />
+                    <span className="mt-2 size-2 shrink-0 rounded-full bg-remotiv-purple" />
                   )}
                 </button>
                 );

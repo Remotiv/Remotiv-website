@@ -13,7 +13,7 @@ import {
 } from "@/app/admin/client-batches/actions";
 
 const INPUT_CLS =
-  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 const LABEL_CLS = "mb-1.5 block text-xs font-semibold uppercase tracking-wider text-gray-500";
 
@@ -172,11 +172,11 @@ export function AddToBatchModal({
             {candidate.full_name} · {candidate.source_type === "application" ? "Job application" : "Talent profile"}
           </p>
           <div className="mt-3 flex items-center gap-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
-            <span className={step === "client" ? "text-[#7E47FF]" : ""}>1. Client</span>
+            <span className={step === "client" ? "text-remotiv-purple" : ""}>1. Client</span>
             <span>›</span>
-            <span className={step === "batch" ? "text-[#7E47FF]" : ""}>2. Batch</span>
+            <span className={step === "batch" ? "text-remotiv-purple" : ""}>2. Batch</span>
             <span>›</span>
-            <span className={step === "confirm" ? "text-[#7E47FF]" : ""}>3. Confirm</span>
+            <span className={step === "confirm" ? "text-remotiv-purple" : ""}>3. Confirm</span>
           </div>
         </div>
 
@@ -213,9 +213,9 @@ export function AddToBatchModal({
                     setShowCreateBatch((v) => !v);
                     setSelectedBatchId("");
                   }}
-                  className="text-[11px] font-semibold text-[#7E47FF] hover:underline"
+                  className="text-[11px] font-semibold text-remotiv-purple hover:underline"
                 >
-                  {showCreateBatch ? "← Pick existing" : "+ Create New Batch"}
+                  {showCreateBatch ? "← Pick existing" : "+ New Batch"}
                 </button>
               </div>
 
@@ -246,7 +246,7 @@ export function AddToBatchModal({
                 <p className="py-6 text-center text-xs text-gray-400">Loading batches…</p>
               ) : batches.length === 0 ? (
                 <p className="rounded-xl border border-dashed border-gray-200 px-4 py-6 text-center text-xs text-gray-400">
-                  No batches for this client yet. Click &quot;Create New Batch&quot;.
+                  No batches for this client yet. Click &quot;New Batch&quot;.
                 </p>
               ) : (
                 <div className="flex max-h-[260px] flex-col gap-2 overflow-y-auto">
@@ -257,8 +257,8 @@ export function AddToBatchModal({
                       onClick={() => setSelectedBatchId(b.id)}
                       className={`flex flex-col items-start gap-0.5 rounded-xl border px-4 py-3 text-left transition-colors ${
                         selectedBatchId === b.id
-                          ? "border-[#7E47FF] bg-[#7E47FF]/5"
-                          : "border-gray-200 bg-white hover:border-[#7E47FF]/30"
+                          ? "border-remotiv-purple bg-remotiv-purple/5"
+                          : "border-gray-200 bg-white hover:border-remotiv-purple/30"
                       }`}
                     >
                       <span className="text-sm font-semibold text-gray-800">{b.batch_name}</span>
@@ -281,8 +281,8 @@ export function AddToBatchModal({
                 <ConfirmKv label="Name" value={candidate.full_name} />
                 <ConfirmKv label="Email" value={candidate.email} />
                 <ConfirmKv label="Phone" value={candidate.phone ?? "—"} />
-                <ConfirmKv label="LinkedIn" value={candidate.linkedin_url ? "✓ Provided" : "—"} />
-                <ConfirmKv label="CV" value={candidate.cv_url ? "✓ Provided" : "—"} />
+                <ConfirmKv label="LinkedIn" value={candidate.linkedin_url ? "Provided" : "—"} />
+                <ConfirmKv label="CV" value={candidate.cv_url ? "Provided" : "—"} />
                 <ConfirmKv label="Position" value={candidate.position_applied ?? "—"} />
                 <ConfirmKv label="Location" value={candidate.location ?? "—"} />
                 <ConfirmKv label="Source" value={candidate.source_type === "application" ? "Job application" : "Talent profile"} />
@@ -322,7 +322,7 @@ export function AddToBatchModal({
               type="button"
               onClick={handleSelectClient}
               disabled={!clientId || loadingClients}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               Next
             </button>
@@ -342,7 +342,7 @@ export function AddToBatchModal({
                 setError(null);
                 setStep("confirm");
               }}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90"
             >
               Next
             </button>
@@ -352,7 +352,7 @@ export function AddToBatchModal({
               type="button"
               onClick={handleConfirm}
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-[#49D7A7] px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-green px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 disabled:opacity-60"
             >
               {submitting ? (
                 <>

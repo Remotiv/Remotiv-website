@@ -75,10 +75,10 @@ function clamp(text: string, max = 60): string {
 }
 
 const INPUT_CLS =
-  "w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 const TEXTAREA_CLS =
-  "w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full rounded-lg border border-gray-200 px-3 py-2 text-sm text-gray-800 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 const SUBSECTION_LABEL = "mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
 
@@ -104,7 +104,7 @@ function RowAvatar({
 }) {
   return (
     <span
-      className="relative inline-block shrink-0 overflow-hidden rounded-full bg-[#7E47FF]/10"
+      className="relative inline-block shrink-0 overflow-hidden rounded-full bg-remotiv-purple/10"
       style={{ width: size, height: size }}
     >
       {/* Plain <img> chosen so the onError handler can hide a missing avatar
@@ -120,7 +120,7 @@ function RowAvatar({
         }}
       />
       <span
-        className="absolute inset-0 flex items-center justify-center font-bold text-[#7E47FF]"
+        className="absolute inset-0 flex items-center justify-center font-bold text-remotiv-purple"
         style={{ fontSize: Math.max(10, size / 2.6) }}
       >
         {getInitials(candidate.first_name, candidate.last_name)}
@@ -153,7 +153,7 @@ function StarRating({ value }: { value: number | null }) {
 const DECISION_STYLE: Record<string, string> = {
   approve:           "bg-green-50 text-green-700",
   reject:            "bg-red-50 text-red-600",
-  request_interview: "bg-[#7E47FF]/10 text-[#7E47FF]",
+  request_interview: "bg-remotiv-purple/10 text-remotiv-purple",
 };
 
 function CandidateCardMobile({
@@ -218,7 +218,10 @@ function CandidateCardMobile({
             className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${decisionCls}`}
           >
             {candidate.client_decision &&
-              CLIENT_DECISION_ICON[candidate.client_decision]}
+              (() => {
+                const Icon = CLIENT_DECISION_ICON[candidate.client_decision];
+                return <Icon className="size-2.5" strokeWidth={2.5} />;
+              })()}
             {decisionLabel}
           </span>
           {candidate.note_by_remotiv && (
@@ -234,7 +237,7 @@ function CandidateCardMobile({
             target="_blank"
             rel="noopener noreferrer"
             onClick={(e) => e.stopPropagation()}
-            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-[#7E47FF] hover:underline"
+            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-remotiv-purple hover:underline"
           >
             <Calendar className="size-3" strokeWidth={2.5} />
             Open interview link
@@ -242,7 +245,7 @@ function CandidateCardMobile({
         )}
       </div>
 
-      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View details
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -305,7 +308,7 @@ function ClientNotesView({ candidateId }: { candidateId: string }) {
               <span
                 className={
                   n.author_type === "admin"
-                    ? "font-semibold text-[#7E47FF]"
+                    ? "font-semibold text-remotiv-purple"
                     : "font-semibold text-[#1a9e73]"
                 }
               >
@@ -325,13 +328,13 @@ function ClientNotesView({ candidateId }: { candidateId: string }) {
           placeholder="Reply to client…"
           rows={2}
           disabled={saving}
-          className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+          className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
         />
         {error && <p className="text-xs text-red-600">{error}</p>}
         <button
           type="submit"
           disabled={!draft.trim() || saving}
-          className="self-end rounded-lg bg-[#7E47FF] px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+          className="self-end rounded-lg bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
         >
           {saving ? "Saving…" : "Send"}
         </button>
@@ -479,7 +482,7 @@ function EditBatchModal({
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               <Save className="size-4" strokeWidth={2.5} />
               {submitting ? "Saving…" : "Save"}
@@ -621,7 +624,7 @@ function CandidateDrawer({
                 >
                   <option value="">—</option>
                   {[1, 2, 3, 4, 5].map((n) => (
-                    <option key={n} value={n}>{`${n} ★`}</option>
+                    <option key={n} value={n}>{`${n} ${n === 1 ? "star" : "stars"}`}</option>
                   ))}
                 </select>
               </Field>
@@ -665,10 +668,18 @@ function CandidateDrawer({
                 <p>
                   <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Decision</span>
                   <br />
-                  <span className="text-gray-800">
-                    {candidate.client_decision
-                      ? `${CLIENT_DECISION_ICON[candidate.client_decision]} ${CLIENT_DECISION_LABEL[candidate.client_decision]}`
-                      : "—"}
+                  <span className="inline-flex items-center gap-1.5 text-gray-800">
+                    {candidate.client_decision ? (
+                      <>
+                        {(() => {
+                          const Icon = CLIENT_DECISION_ICON[candidate.client_decision];
+                          return <Icon className="size-3.5" strokeWidth={2.5} />;
+                        })()}
+                        {CLIENT_DECISION_LABEL[candidate.client_decision]}
+                      </>
+                    ) : (
+                      "—"
+                    )}
                   </span>
                 </p>
                 {candidate.client_comments && (
@@ -710,7 +721,7 @@ function CandidateDrawer({
             type="button"
             onClick={handleSave}
             disabled={saving}
-            className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             <Save className="size-4" strokeWidth={2.5} />
             {saving ? "Saving…" : "Save Changes"}
@@ -842,8 +853,8 @@ function AddCandidatePicker({
                 onClick={() => setSourceFilter(s)}
                 className={`rounded-full px-3 py-1 text-[11px] font-semibold transition-colors ${
                   sourceFilter === s
-                    ? "bg-[#7E47FF] text-white"
-                    : "border border-gray-200 bg-white text-gray-500 hover:border-[#7E47FF]/30"
+                    ? "bg-remotiv-purple text-white"
+                    : "border border-gray-200 bg-white text-gray-500 hover:border-remotiv-purple/30"
                 }`}
               >
                 {s === "all" ? "All" : s === "application" ? "Job Applications" : "Talent Network"}
@@ -878,7 +889,7 @@ function AddCandidatePicker({
                           className={`rounded-full px-2 py-0.5 text-[9px] font-semibold ${
                             c.source_type === "application"
                               ? "bg-blue-100 text-blue-700"
-                              : "bg-[#49D7A7]/15 text-[#1a9e73]"
+                              : "bg-remotiv-green/15 text-[#1a9e73]"
                           }`}
                         >
                           {c.source_type === "application" ? "From Applications" : "From Talent"}
@@ -895,7 +906,7 @@ function AddCandidatePicker({
                       type="button"
                       disabled={busyKey === key}
                       onClick={() => handleAdd(c)}
-                      className="flex shrink-0 items-center gap-1 rounded-lg bg-[#7E47FF]/10 px-3 py-1.5 text-[11px] font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20 disabled:opacity-60"
+                      className="flex shrink-0 items-center gap-1 rounded-lg bg-remotiv-purple/10 px-3 py-1.5 text-[11px] font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20 disabled:opacity-60"
                     >
                       {busyKey === key ? (
                         "Adding…"
@@ -1014,13 +1025,13 @@ export function BatchDetailDashboard({
   };
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         <Link
           href="/admin/client-batches"
-          className="mb-3 inline-flex min-h-11 items-center gap-1 text-xs text-gray-400 hover:text-[#7E47FF] lg:min-h-0"
+          className="mb-3 inline-flex min-h-11 items-center gap-1 text-xs text-gray-400 hover:text-remotiv-purple lg:min-h-0"
         >
           <ArrowLeft className="size-4 lg:size-3" strokeWidth={2} />
           Back to Batches
@@ -1072,7 +1083,7 @@ export function BatchDetailDashboard({
           <button
             type="button"
             onClick={() => setShowPicker(true)}
-            className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#49D7A7] px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
+            className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-remotiv-green px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
           >
             <Plus className="size-4" strokeWidth={2.5} />
             <span className="lg:inline">Add Candidate</span>
@@ -1185,7 +1196,7 @@ export function BatchDetailDashboard({
                           target="_blank"
                           rel="noopener noreferrer"
                           onClick={(e) => e.stopPropagation()}
-                          className="inline-flex items-center gap-1 rounded-lg bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-semibold text-[#7E47FF] hover:bg-[#7E47FF]/20"
+                          className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-semibold text-remotiv-purple hover:bg-remotiv-purple/20"
                         >
                           <Eye className="size-3" strokeWidth={2} />
                           View
@@ -1213,9 +1224,17 @@ export function BatchDetailDashboard({
                     </td>
                     <td className="whitespace-nowrap px-3 py-2 text-gray-700">
                       {c.client_decision ? (
-                        <span title={CLIENT_DECISION_LABEL[c.client_decision]}>
-                          {CLIENT_DECISION_ICON[c.client_decision]}
-                        </span>
+                        (() => {
+                          const Icon = CLIENT_DECISION_ICON[c.client_decision];
+                          return (
+                            <span
+                              className="inline-flex items-center"
+                              title={CLIENT_DECISION_LABEL[c.client_decision]}
+                            >
+                              <Icon className="size-4" strokeWidth={2.5} />
+                            </span>
+                          );
+                        })()
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
@@ -1226,7 +1245,7 @@ export function BatchDetailDashboard({
                           type="button"
                           onClick={() => setOpenId(c.id)}
                           aria-label="Edit candidate"
-                          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-[#7E47FF]"
+                          className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-remotiv-purple"
                         >
                           <Pencil className="size-3.5" strokeWidth={2} />
                         </button>

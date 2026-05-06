@@ -118,7 +118,7 @@ function generatePassword(length = 12): string {
 function Avatar({ company, size }: { company: string; size: number }) {
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF]"
+      className="flex shrink-0 items-center justify-center rounded-full bg-remotiv-purple/10 font-bold text-remotiv-purple"
       style={{ width: size, height: size, fontSize: Math.max(11, size / 2.6) }}
     >
       {getCompanyInitials(company)}
@@ -176,7 +176,7 @@ function ClientCard({
           )}
           <a
             href={`mailto:${client.email}`}
-            className="mt-1 flex items-center gap-1 text-[11px] text-gray-400 hover:text-[#7E47FF]"
+            className="mt-1 flex items-center gap-1 text-[11px] text-gray-400 hover:text-remotiv-purple"
           >
             <Mail className="size-3" strokeWidth={2} />
             <span className="truncate">{client.email}</span>
@@ -199,7 +199,7 @@ function ClientCard({
       <button
         type="button"
         onClick={onManage}
-        className="mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-[#7E47FF]/10 px-4 py-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+        className="mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-4 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
       >
         Manage Client →
       </button>
@@ -270,7 +270,7 @@ function ClientCardMobile({
         </div>
       </div>
 
-      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View / Manage
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -304,7 +304,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -437,7 +437,7 @@ function ClientDrawer({
               )}
               <a
                 href={`mailto:${client.email}`}
-                className="mt-1 flex items-center gap-1 text-xs text-gray-400 hover:text-[#7E47FF]"
+                className="mt-1 flex items-center gap-1 text-xs text-gray-400 hover:text-remotiv-purple"
               >
                 <Mail className="size-3" strokeWidth={2} />
                 <span className="truncate">{client.email}</span>
@@ -452,15 +452,15 @@ function ClientDrawer({
 
         <div className="min-h-0 flex-1 overflow-y-auto px-6 py-5">
           {/* Login Credentials — always visible at the top of the panel. */}
-          <section className="mb-5 rounded-2xl border border-[#7E47FF]/15 bg-[#7E47FF]/5 p-4">
+          <section className="mb-5 rounded-2xl border border-remotiv-purple/15 bg-remotiv-purple/5 p-4">
             <div className="mb-3 flex items-center justify-between gap-2">
-              <h3 className="text-[10px] font-bold uppercase tracking-widest text-[#7E47FF]">
+              <h3 className="text-[10px] font-bold uppercase tracking-widest text-remotiv-purple">
                 Login Credentials
               </h3>
               <button
                 type="button"
                 onClick={handleCopyAllCreds}
-                className="flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/10"
+                className="flex min-h-[36px] items-center gap-1 rounded-lg px-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/10"
               >
                 {copiedAll ? (
                   <>
@@ -478,7 +478,7 @@ function ClientDrawer({
 
             <div className="space-y-2.5">
               {/* Email */}
-              <div className="rounded-xl border border-[#7E47FF]/10 bg-white p-3">
+              <div className="rounded-xl border border-remotiv-purple/10 bg-white p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -492,7 +492,7 @@ function ClientDrawer({
                     type="button"
                     onClick={() => handleCopyField(client.email, "email")}
                     aria-label={copiedField === "email" ? "Copied email" : "Copy email"}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#7E47FF]/10 text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-remotiv-purple/10 text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                   >
                     {copiedField === "email" ? (
                       <Check className="size-4 text-green-600" strokeWidth={2.5} />
@@ -504,7 +504,7 @@ function ClientDrawer({
               </div>
 
               {/* Login URL */}
-              <div className="rounded-xl border border-[#7E47FF]/10 bg-white p-3">
+              <div className="rounded-xl border border-remotiv-purple/10 bg-white p-3">
                 <div className="flex items-center justify-between gap-2">
                   <div className="min-w-0 flex-1">
                     <p className="text-[10px] font-semibold uppercase tracking-wider text-gray-400">
@@ -514,7 +514,7 @@ function ClientDrawer({
                       href={CLIENT_LOGIN_URL}
                       target="_blank"
                       rel="noopener noreferrer"
-                      className="mt-0.5 block truncate font-mono text-xs text-[#7E47FF] underline hover:text-[#6c39e0]"
+                      className="mt-0.5 block truncate font-mono text-xs text-remotiv-purple underline hover:text-[#6c39e0]"
                     >
                       {CLIENT_LOGIN_URL}
                     </a>
@@ -523,7 +523,7 @@ function ClientDrawer({
                     type="button"
                     onClick={() => handleCopyField(CLIENT_LOGIN_URL, "url")}
                     aria-label={copiedField === "url" ? "Copied URL" : "Copy URL"}
-                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-[#7E47FF]/10 text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                    className="flex size-9 shrink-0 items-center justify-center rounded-lg bg-remotiv-purple/10 text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                   >
                     {copiedField === "url" ? (
                       <Check className="size-4 text-green-600" strokeWidth={2.5} />
@@ -563,7 +563,7 @@ function ClientDrawer({
                       onChange={(e) => setNewPassword(e.target.value)}
                       minLength={8}
                       autoFocus
-                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm text-gray-800 outline-none transition-colors focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+                      className="w-full rounded-lg border border-gray-200 bg-white px-3 py-2 pr-9 text-sm text-gray-800 outline-none transition-colors focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
                     />
                     <button
                       type="button"
@@ -581,7 +581,7 @@ function ClientDrawer({
                     <button
                       type="submit"
                       disabled={resetting}
-                      className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-[#7E47FF] px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                      className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-remotiv-purple px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
                       <Save className="size-3.5" strokeWidth={2} />
                       {resetting ? "Saving…" : "Save"}
@@ -606,7 +606,7 @@ function ClientDrawer({
                   onClick={() => setShowResetForm(true)}
                   className="flex w-full items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
                 >
-                  <KeyRound className="size-3.5 text-[#7E47FF]" strokeWidth={2} />
+                  <KeyRound className="size-3.5 text-remotiv-purple" strokeWidth={2} />
                   Reset Password
                 </button>
               )}
@@ -615,7 +615,7 @@ function ClientDrawer({
                 href={`/admin/client-batches?client_id=${client.id}`}
                 className="flex w-full items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
               >
-                <Briefcase className="size-3.5 text-[#7E47FF]" strokeWidth={2} />
+                <Briefcase className="size-3.5 text-remotiv-purple" strokeWidth={2} />
                 View Batches →
               </Link>
             </div>
@@ -849,7 +849,7 @@ function CreateClientModal({
                 <button
                   type="button"
                   onClick={() => setPassword(generatePassword())}
-                  className="rounded-md px-2 py-1 text-[10px] font-semibold text-[#7E47FF] hover:bg-[#7E47FF]/10"
+                  className="rounded-md px-2 py-1 text-[10px] font-semibold text-remotiv-purple hover:bg-remotiv-purple/10"
                   title="Auto-generate a 12-character password"
                 >
                   <RefreshCcw className="inline size-3" strokeWidth={2} />
@@ -885,7 +885,7 @@ function CreateClientModal({
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               {submitting ? "Creating…" : "Create Client"}
@@ -921,7 +921,7 @@ function Field({
 }
 
 const INPUT_CLS =
-  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none transition-colors focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none transition-colors focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 // ── Credentials Modal (after successful create) ──────────────
 
@@ -984,7 +984,7 @@ function CredentialsModal({
               href={CLIENT_LOGIN_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-semibold text-[#7E47FF] hover:underline"
+              className="font-semibold text-remotiv-purple hover:underline"
             >
               {CLIENT_LOGIN_URL}
             </a>
@@ -1012,7 +1012,7 @@ function CredentialsModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-green py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
           >
             <CheckCircle className="size-4" strokeWidth={2.5} />
             Done
@@ -1127,7 +1127,7 @@ export function ClientsDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
@@ -1160,7 +1160,7 @@ export function ClientsDashboard({
             >
               <SlidersHorizontal className="size-4" strokeWidth={2} />
               {activeFilterCount > 0 && (
-                <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+                <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                   {activeFilterCount}
                 </span>
               )}
@@ -1169,7 +1169,7 @@ export function ClientsDashboard({
               type="button"
               onClick={() => setShowCreate(true)}
               aria-label="New client"
-              className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:px-4"
+              className="flex min-h-11 shrink-0 items-center gap-2 rounded-xl bg-remotiv-purple px-3 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 sm:px-4"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               <span className="hidden sm:inline">New Client</span>
@@ -1193,8 +1193,8 @@ export function ClientsDashboard({
               onClick={() => setFilterStatus(s)}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
                 filterStatus === s
-                  ? "bg-[#7E47FF] text-white"
-                  : "border border-gray-200 bg-white text-gray-500 hover:border-[#7E47FF]/30 hover:text-gray-700"
+                  ? "bg-remotiv-purple text-white"
+                  : "border border-gray-200 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
               }`}
             >
               {STATUS_LABELS[s] ?? s}
@@ -1261,7 +1261,7 @@ export function ClientsDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -1298,7 +1298,7 @@ export function ClientsDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>

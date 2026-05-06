@@ -60,7 +60,7 @@ const STATUS_LABELS: Record<string, string> = {
 const STATUS_BADGE: Record<RemoteTalentStatus, string> = {
   pending:     "bg-amber-100 text-amber-700",
   approved:    "bg-green-100 text-green-700",
-  shortlisted: "bg-[#7E47FF]/10 text-[#7E47FF]",
+  shortlisted: "bg-remotiv-purple/10 text-remotiv-purple",
   placed:      "bg-blue-100 text-blue-700",
   paused:      "bg-orange-100 text-orange-700",
   archived:    "bg-gray-100 text-gray-500",
@@ -146,7 +146,7 @@ function Avatar({
   }
   return (
     <span
-      className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF]"
+      className="flex shrink-0 items-center justify-center rounded-full bg-remotiv-purple/10 font-bold text-remotiv-purple"
       style={{ width: size, height: size, fontSize: Math.max(10, size / 3) }}
     >
       {getInitials(profile)}
@@ -177,10 +177,10 @@ function ProfileCard({
         <div className="flex items-center gap-2">
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-              available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+              available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
             }`}
           >
-            <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+            <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
             {available ? "Available" : "Later"}
           </span>
           {profile.hourly_rate != null && (
@@ -228,7 +228,7 @@ function ProfileCard({
           {visibleSkills.map((s) => (
             <span
               key={s}
-              className="rounded-full bg-[#7E47FF]/8 px-2.5 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+              className="rounded-full bg-remotiv-purple/8 px-2.5 py-0.5 text-[10px] font-medium text-remotiv-purple"
             >
               {s}
             </span>
@@ -258,7 +258,7 @@ function ProfileCard({
           <button
             type="button"
             onClick={onApprove}
-            className="flex items-center gap-1.5 rounded-xl bg-[#49D7A7] px-4 py-2 text-xs font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
+            className="flex items-center gap-1.5 rounded-xl bg-remotiv-green px-4 py-2 text-xs font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
           >
             <CheckCircle className="size-3.5" strokeWidth={2.5} />
             Approve
@@ -279,7 +279,7 @@ type StageAction = {
 };
 
 const STAGE_ACTIONS: StageAction[] = [
-  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-[#7E47FF]/10 text-[#7E47FF] hover:bg-[#7E47FF]/20" },
+  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20" },
   { status: "placed",      label: "Mark as Placed", icon: Trophy,      className: "bg-blue-50 text-blue-600 hover:bg-blue-100" },
   { status: "paused",      label: "Pause",          icon: PauseCircle, className: "bg-orange-50 text-orange-700 hover:bg-orange-100" },
   { status: "archived",    label: "Archive",        icon: Archive,     className: "bg-gray-100 text-gray-600 hover:bg-gray-200" },
@@ -400,10 +400,10 @@ function ProfileDrawer({
               <div className="mt-2 flex flex-wrap gap-1.5">
                 <span
                   className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                    available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+                    available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
                   }`}
                 >
-                  <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+                  <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
                   {available ? "Available" : "Later"}
                 </span>
                 {profile.approved_at && (
@@ -418,7 +418,7 @@ function ProfileDrawer({
                 {verifBadges.map((v) => (
                   <span
                     key={v}
-                    className="inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]"
+                    className="inline-flex items-center gap-1 rounded-full bg-remotiv-green/10 px-2 py-0.5 text-[10px] font-semibold text-[#1a9e73]"
                   >
                     <ShieldCheck className="size-2.5" strokeWidth={2.5} />
                     {v}
@@ -435,7 +435,7 @@ function ProfileDrawer({
           <DrawerSection title="Contact">
             <div className="flex flex-col gap-2 text-sm">
               {profile.email && (
-                <a href={`mailto:${profile.email}`} className="flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]">
+                <a href={`mailto:${profile.email}`} className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple">
                   <Mail className="size-3.5 text-gray-400" strokeWidth={2} />
                   {profile.email}
                 </a>
@@ -451,7 +451,7 @@ function ProfileDrawer({
                   href={profile.linkedin_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]"
+                  className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple"
                 >
                   <ExternalLink className="size-3.5 text-gray-400" strokeWidth={2} />
                   LinkedIn
@@ -475,7 +475,7 @@ function ProfileDrawer({
           {/* Rate */}
           {profile.hourly_rate != null && (
             <DrawerSection title="Rate">
-              <div className="rounded-xl bg-[#49D7A7]/8 px-4 py-3">
+              <div className="rounded-xl bg-remotiv-green/8 px-4 py-3">
                 <p className="font-heading text-2xl font-extrabold text-[#1a9e73]">
                   ${profile.hourly_rate}/hr
                 </p>
@@ -523,7 +523,7 @@ function ProfileDrawer({
                 {profile.skills.map((s) => (
                   <span
                     key={s}
-                    className="rounded-full bg-[#7E47FF]/10 px-3 py-1 text-xs font-medium text-[#7E47FF]"
+                    className="rounded-full bg-remotiv-purple/10 px-3 py-1 text-xs font-medium text-remotiv-purple"
                   >
                     {s}
                   </span>
@@ -539,7 +539,7 @@ function ProfileDrawer({
                 {profile.employment_history.map((e, i) => (
                   <div
                     key={`${e.company || "exp"}-${i}`}
-                    className="rounded-xl border-l-[3px] border-l-[#7E47FF] bg-gray-50 px-4 py-3"
+                    className="rounded-xl border-l-[3px] border-l-remotiv-purple bg-gray-50 px-4 py-3"
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
@@ -594,7 +594,7 @@ function ProfileDrawer({
                           href={p.url}
                           target="_blank"
                           rel="noopener noreferrer"
-                          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-semibold text-[#7E47FF] hover:bg-[#7E47FF]/10"
+                          className="inline-flex shrink-0 items-center gap-1 rounded-md bg-white px-2 py-1 text-[10px] font-semibold text-remotiv-purple hover:bg-remotiv-purple/10"
                         >
                           <ExternalLink className="size-3" strokeWidth={2} />
                           Visit
@@ -618,7 +618,7 @@ function ProfileDrawer({
                   href={profile.cv_url}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#7E47FF]/10 px-3 py-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                  className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-3 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <Eye className="size-3.5" strokeWidth={2} />
                   View CV
@@ -651,7 +651,7 @@ function ProfileDrawer({
                   type="checkbox"
                   checked={idVerified}
                   onChange={(e) => setIdVerified(e.target.checked)}
-                  className="size-4 cursor-pointer accent-[#49D7A7]"
+                  className="size-4 cursor-pointer accent-remotiv-green"
                 />
               </label>
               <label className="flex cursor-pointer items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 transition-colors hover:bg-gray-50">
@@ -660,7 +660,7 @@ function ProfileDrawer({
                   type="checkbox"
                   checked={phoneVerified}
                   onChange={(e) => setPhoneVerified(e.target.checked)}
-                  className="size-4 cursor-pointer accent-[#49D7A7]"
+                  className="size-4 cursor-pointer accent-remotiv-green"
                 />
               </label>
               <button
@@ -682,7 +682,7 @@ function ProfileDrawer({
                 type="button"
                 disabled={busyStatus !== null}
                 onClick={() => handleStatus("approved")}
-                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
               >
                 <CheckCircle className="size-3.5" strokeWidth={2} />
                 {busyStatus === "approved" ? "Approving…" : "Approve"}
@@ -697,7 +697,7 @@ function ProfileDrawer({
                 type="button"
                 disabled={busyStatus !== null}
                 onClick={handleReset}
-                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#49D7A7]/30 bg-[#49D7A7]/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-[#49D7A7]/20 disabled:opacity-50"
+                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-remotiv-green/30 bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
               >
                 <RotateCcw className="size-3.5" strokeWidth={2} />
                 {busyStatus === "approved" ? "Resetting…" : "Reset to Approved"}
@@ -743,7 +743,7 @@ function ProfileDrawer({
               value={note}
               onChange={(e) => setNote(e.target.value)}
               placeholder="Add an internal note about this candidate…"
-              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             />
             <button
               type="button"
@@ -809,8 +809,8 @@ function FilterPill({
       onClick={onClick}
       className={`w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors ${
         active
-          ? "bg-[#7E47FF] text-white"
-          : "border border-gray-100 bg-white text-gray-500 hover:border-[#7E47FF]/30 hover:text-gray-700"
+          ? "bg-remotiv-purple text-white"
+          : "border border-gray-100 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
       }`}
     >
       {label}
@@ -893,14 +893,14 @@ function RemoteTalentCardMobile({
       <div className="flex flex-wrap items-center gap-1.5">
         <span
           className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            available ? "bg-[#49D7A7]/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+            available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
           }`}
         >
-          <span className={`size-1.5 rounded-full ${available ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+          <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
           {available ? "Available" : "Later"}
         </span>
         {profile.hourly_rate != null && (
-          <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-bold text-[#7E47FF]">
+          <span className="rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-bold text-remotiv-purple">
             ${profile.hourly_rate}/hr
           </span>
         )}
@@ -927,7 +927,7 @@ function RemoteTalentCardMobile({
           {visibleSkills.map((s) => (
             <span
               key={s}
-              className="rounded-full bg-[#7E47FF]/10 px-2.5 py-0.5 text-[10px] font-medium text-[#7E47FF]"
+              className="rounded-full bg-remotiv-purple/10 px-2.5 py-0.5 text-[10px] font-medium text-remotiv-purple"
             >
               {s}
             </span>
@@ -940,7 +940,7 @@ function RemoteTalentCardMobile({
         </div>
       )}
 
-      <div className="-mx-4 -mb-4 mt-auto flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-[#7E47FF]">
+      <div className="-mx-4 -mb-4 mt-auto flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-sm font-semibold text-remotiv-purple">
         View profile
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
@@ -974,7 +974,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -1141,7 +1141,7 @@ export function RemoteTalentDashboard({
       setProfiles((prev) => prev.filter((p) => p.id !== profile.id));
       if (openId === profile.id) setOpenId(null);
       setDeleteTarget(null);
-      setToast("Profile deleted");
+      setToast("Talent removed");
       router.refresh();
     } else {
       setToast(`Delete failed: ${result.error}`);
@@ -1149,7 +1149,7 @@ export function RemoteTalentDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
@@ -1187,7 +1187,7 @@ export function RemoteTalentDashboard({
               placeholder="Search by name, skill…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-remotiv-purple/40 focus:ring-2 focus:ring-remotiv-purple/20"
             />
           </div>
           <button
@@ -1198,7 +1198,7 @@ export function RemoteTalentDashboard({
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -1317,7 +1317,7 @@ export function RemoteTalentDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -1374,7 +1374,7 @@ export function RemoteTalentDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
@@ -1400,7 +1400,7 @@ export function RemoteTalentDashboard({
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <AlertTriangle className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-gray-900">Delete profile?</h3>
+              <h3 className="font-heading text-lg font-bold text-gray-900">Remove this talent?</h3>
               <p className="mt-2 text-sm text-gray-500">
                 This permanently removes{" "}
                 <span className="font-semibold text-gray-700">

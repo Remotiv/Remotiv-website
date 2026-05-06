@@ -85,7 +85,7 @@ function BatchCard({ batch }: { batch: ClientBatch }) {
 
       <Link
         href={`/admin/client-batches/${batch.id}`}
-        className="mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-[#7E47FF]/10 px-4 py-2 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+        className="mt-auto flex items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-4 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
       >
         Manage Batch →
       </Link>
@@ -146,7 +146,7 @@ function CreateBatchModal({
   }
 
   const inputCls =
-    "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+    "w-full h-10 rounded-lg border border-gray-200 px-3 text-sm text-gray-800 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
   return (
     <div className="fixed inset-0 z-50 flex items-start justify-center overflow-y-auto bg-black/40 p-4 backdrop-blur-sm sm:p-8">
@@ -233,7 +233,7 @@ function CreateBatchModal({
             <button
               type="submit"
               disabled={submitting}
-              className="flex items-center gap-2 rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
+              className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               {submitting ? "Creating…" : "Create Batch"}
@@ -300,13 +300,13 @@ export function ClientBatchesDashboard({
   const archivedCount = batches.filter((b) => b.status === "archived").length;
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
         {filterClientId && (
           <p className="mb-3 flex items-center gap-2 text-xs text-gray-400">
-            <Link href="/admin/clients" className="inline-flex items-center gap-1 hover:text-[#7E47FF]">
+            <Link href="/admin/clients" className="inline-flex items-center gap-1 hover:text-remotiv-purple">
               <ArrowLeft className="size-3" strokeWidth={2} />
               All Clients
             </Link>
@@ -343,7 +343,7 @@ export function ClientBatchesDashboard({
             <button
               type="button"
               onClick={() => setShowCreate(true)}
-              className="flex shrink-0 items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
+              className="flex shrink-0 items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               New Batch
@@ -363,7 +363,7 @@ export function ClientBatchesDashboard({
               placeholder="Search batches…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-remotiv-purple/40 focus:ring-2 focus:ring-remotiv-purple/20"
             />
           </div>
           <button
@@ -374,7 +374,7 @@ export function ClientBatchesDashboard({
           >
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -383,7 +383,7 @@ export function ClientBatchesDashboard({
             type="button"
             onClick={() => setShowCreate(true)}
             aria-label="New batch"
-            className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-3 text-sm font-semibold text-white hover:opacity-90"
+            className="flex min-h-11 items-center gap-1 rounded-xl bg-remotiv-purple px-3 py-3 text-sm font-semibold text-white hover:opacity-90"
           >
             <Plus className="size-4" strokeWidth={2.5} />
             New
@@ -405,8 +405,8 @@ export function ClientBatchesDashboard({
               onClick={() => setFilterStatus(s)}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
                 filterStatus === s
-                  ? "bg-[#7E47FF] text-white"
-                  : "border border-gray-200 bg-white text-gray-500 hover:border-[#7E47FF]/30 hover:text-gray-700"
+                  ? "bg-remotiv-purple text-white"
+                  : "border border-gray-200 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
               }`}
             >
               {STATUS_LABEL[s] ?? s}
@@ -455,7 +455,7 @@ export function ClientBatchesDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -482,7 +482,7 @@ export function ClientBatchesDashboard({
                   onClick={() => setFilterStatus(s)}
                   className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                     active
-                      ? "bg-[#7E47FF] text-white"
+                      ? "bg-remotiv-purple text-white"
                       : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
                   }`}
                 >
@@ -505,7 +505,7 @@ export function ClientBatchesDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>

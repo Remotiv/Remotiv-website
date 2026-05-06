@@ -8,6 +8,7 @@ import {
   UserMinus,
   BarChart2,
   ChevronRight,
+  Lock,
   Mail,
   Phone,
   MoreHorizontal,
@@ -96,7 +97,7 @@ const EMPTY_FORM: MemberInput = {
 };
 
 const INPUT_CLS =
-  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20";
+  "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 const LABEL_CLS =
   "mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
 
@@ -163,7 +164,7 @@ function MemberAvatar({ member }: { member: TeamMember }) {
 // ── Mobile member card ──────────────────────────────────────
 
 const STATUS_BADGE_MOBILE: Record<TeamMember["status"], string> = {
-  active: "bg-[#49D7A7]/15 text-[#1a9e73]",
+  active: "bg-remotiv-green/15 text-[#1a9e73]",
   inactive: "bg-gray-100 text-gray-500",
 };
 
@@ -222,7 +223,7 @@ function MemberCardMobile({
             {member.email}
           </p>
           <div className="mt-2 flex flex-wrap items-center gap-1.5">
-            <span className="rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+            <span className="rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple">
               {member.permission.replace("_", " ")}
             </span>
             {member.auth_status !== "active" && (
@@ -242,7 +243,7 @@ function MemberCardMobile({
           <button
             type="button"
             onClick={onEdit}
-            className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]"
+            className="flex items-center gap-1 text-sm font-semibold text-remotiv-purple"
           >
             View
             <ChevronRight className="size-4" strokeWidth={2.5} />
@@ -289,7 +290,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -537,7 +538,7 @@ export function TeamDashboard({
   ];
 
   return (
-    <div className="min-h-full bg-[#f8f4f1] font-sans">
+    <div className="min-h-full bg-remotiv-bg font-sans">
 
       <TopNav email={email} userRole={userRole} />
 
@@ -555,10 +556,10 @@ export function TeamDashboard({
             <button
               type="button"
               onClick={openAddModal}
-              className="hidden items-center gap-2 rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
+              className="hidden items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
             >
               <Plus className="size-4" strokeWidth={2.5} />
-              Add Member
+              New Member
             </button>
           )}
         </div>
@@ -577,7 +578,7 @@ export function TeamDashboard({
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             Filters
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -587,7 +588,7 @@ export function TeamDashboard({
               type="button"
               onClick={openAddModal}
               aria-label="Add team member"
-              className="flex min-h-11 items-center gap-1 rounded-xl bg-[#7E47FF] px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+              className="flex min-h-11 items-center gap-1 rounded-xl bg-remotiv-purple px-3 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               Add
@@ -734,11 +735,11 @@ export function TeamDashboard({
                   <span
                     className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${
                       member.status === "active"
-                        ? "bg-[#49D7A7]/10 text-[#1a9e73]"
+                        ? "bg-remotiv-green/10 text-[#1a9e73]"
                         : "bg-gray-100 text-gray-400"
                     }`}
                   >
-                    <span className={`size-1.5 rounded-full ${member.status === "active" ? "bg-[#49D7A7]" : "bg-gray-400"}`} />
+                    <span className={`size-1.5 rounded-full ${member.status === "active" ? "bg-remotiv-green" : "bg-gray-400"}`} />
                     {member.status === "active" ? "Active" : "Inactive"}
                   </span>
                   {member.auth_status !== "active" && (
@@ -746,18 +747,19 @@ export function TeamDashboard({
                       className="inline-flex items-center gap-1.5 rounded-full bg-amber-100 px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider text-amber-700"
                       title="This member can't log in until a super admin resumes their account."
                     >
-                      🔒 Login {member.auth_status === "paused" ? "Paused" : member.auth_status}
+                      <Lock className="size-3" strokeWidth={2.5} />
+                      Login {member.auth_status === "paused" ? "Paused" : member.auth_status}
                     </span>
                   )}
                 </div>
 
                 {/* Assigned pills */}
                 <div className="mb-4 flex flex-wrap items-center gap-1.5">
-                  <span className="rounded-lg bg-[#7E47FF]/10 px-2.5 py-1 text-xs font-medium text-[#7E47FF]">
+                  <span className="rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple">
                     {member.candidates_assigned} Candidates
                   </span>
                   {member.clients_assigned > 0 && (
-                    <span className="rounded-lg bg-[#49D7A7]/10 px-2.5 py-1 text-xs font-medium text-[#1a9e73]">
+                    <span className="rounded-lg bg-remotiv-green/10 px-2.5 py-1 text-xs font-medium text-[#1a9e73]">
                       {member.clients_assigned} Clients
                     </span>
                   )}
@@ -893,9 +895,9 @@ export function TeamDashboard({
                 <button
                   type="submit"
                   disabled={mutating}
-                  className="rounded-xl bg-[#7E47FF] px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60"
+                  className="rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  {mutating ? "Saving…" : editingMember ? "Save Changes" : "Add Member"}
+                  {mutating ? "Saving…" : editingMember ? "Save Changes" : "Add Team Member"}
                 </button>
               </div>
             </form>
@@ -905,8 +907,8 @@ export function TeamDashboard({
 
       {/* ── Success toast ── */}
       {successMsg && (
-        <div className="fixed bottom-6 right-6 z-[60] flex max-w-sm items-start gap-3 rounded-2xl border border-[#49D7A7]/30 bg-white px-4 py-3.5 shadow-xl">
-          <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-[#49D7A7]/15 text-[#1a9e73]">
+        <div className="fixed bottom-6 right-6 z-[60] flex max-w-sm items-start gap-3 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3.5 shadow-xl">
+          <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-[#1a9e73]">
             <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="1.5 6.5 4.5 9.5 10.5 2.5" />
             </svg>
@@ -942,7 +944,7 @@ export function TeamDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -993,7 +995,7 @@ export function TeamDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
@@ -1086,7 +1088,7 @@ export function TeamDashboard({
                     setActionsMenuMember(null);
                     if (m) handleResetPassword(m);
                   }}
-                  className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-[#7E47FF]/10 px-4 py-3 text-left text-sm font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+                  className="flex min-h-12 w-full items-center gap-3 rounded-xl bg-remotiv-purple/10 px-4 py-3 text-left text-sm font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <KeyRound className="size-5" strokeWidth={2} />
                   Reset Password
@@ -1124,7 +1126,7 @@ export function TeamDashboard({
           type="button"
           onClick={openAddModal}
           aria-label="Add team member"
-          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-[#7E47FF] text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
+          className="fixed bottom-6 right-6 z-30 flex size-14 items-center justify-center rounded-full bg-remotiv-purple text-white shadow-2xl transition-all hover:bg-[#6a38e0] active:scale-95 lg:hidden"
         >
           <Plus className="size-7 text-white" strokeWidth={2.5} />
         </button>
@@ -1245,7 +1247,7 @@ function CredentialsModal({
               href={ADMIN_LOGIN_URL}
               target="_blank"
               rel="noopener noreferrer"
-              className="font-semibold text-[#7E47FF] hover:underline"
+              className="font-semibold text-remotiv-purple hover:underline"
             >
               {ADMIN_LOGIN_URL}
             </a>
@@ -1278,7 +1280,7 @@ function CredentialsModal({
           <button
             type="button"
             onClick={onClose}
-            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
+            className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-green py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90"
           >
             <CheckCircle className="size-4" strokeWidth={2.5} />
             Done

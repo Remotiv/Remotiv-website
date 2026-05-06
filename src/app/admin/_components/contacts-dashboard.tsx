@@ -26,6 +26,7 @@ import {
   type InquiryType,
 } from "@/app/admin/contacts/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
+import { friendlyError } from "@/app/admin/lib/errors";
 
 type Tab = "inquiries" | "bookings";
 
@@ -142,11 +143,11 @@ function InquiryDrawer({
     setSavingStatus(false);
     if (!result.success) {
       setStatus(inquiry.status);
-      onToast(`Status update failed: ${result.error}`);
+      onToast(`Status update failed: ${friendlyError(result.error)}`);
       return;
     }
     onLocalUpdate({ ...inquiry, status: next });
-    onToast("Status updated");
+    onToast(`Marked as ${STATUS_LABEL[next] ?? next}`);
     router.refresh();
   }
 
@@ -155,7 +156,7 @@ function InquiryDrawer({
     const result = await updateInquiryNotes(inquiry.id, type, notes);
     setSavingNotes(false);
     if (!result.success) {
-      onToast(`Notes save failed: ${result.error}`);
+      onToast(`Notes save failed: ${friendlyError(result.error)}`);
       return;
     }
     onLocalUpdate({ ...inquiry, admin_notes: notes.trim() || null });
@@ -167,7 +168,7 @@ function InquiryDrawer({
     const result = await deleteInquiry(inquiry.id, type);
     setDeleting(false);
     if (!result.success) {
-      onToast(`Delete failed: ${result.error}`);
+      onToast(`Delete failed: ${friendlyError(result.error)}`);
       return;
     }
     onLocalRemove(inquiry.id);
@@ -215,7 +216,7 @@ function InquiryDrawer({
               {inquiry.email && (
                 <a
                   href={`mailto:${inquiry.email}?subject=${encodeURIComponent(`Re: ${type === "booking" ? "your booking request" : "your inquiry"}`)}`}
-                  className="inline-flex items-center gap-2 text-gray-700 hover:text-[#7E47FF]"
+                  className="inline-flex items-center gap-2 text-gray-700 hover:text-remotiv-purple"
                 >
                   <Mail className="size-3.5 text-gray-400" strokeWidth={2} />
                   {inquiry.email}
@@ -274,7 +275,7 @@ function InquiryDrawer({
               value={notes}
               onChange={(e) => setNotes(e.target.value)}
               placeholder="Track follow-ups, mark blockers, leave context for teammates…"
-              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none focus:border-[#7E47FF] focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full resize-none rounded-xl border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
             />
             <button
               type="button"
@@ -393,7 +394,7 @@ function InquiryCardMobile({
         </div>
 
         {inquiry.service && (
-          <span className="mt-2 inline-block rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-[10px] font-medium text-[#7E47FF]">
+          <span className="mt-2 inline-block rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-medium text-remotiv-purple">
             {inquiry.service}
           </span>
         )}
@@ -407,7 +408,7 @@ function InquiryCardMobile({
 
       <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-xs text-gray-500">
         {relativeTime(inquiry.created_at)}
-        <span className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]">
+        <span className="flex items-center gap-1 text-sm font-semibold text-remotiv-purple">
           View
           <ChevronRight className="size-4" strokeWidth={2.5} />
         </span>
@@ -454,8 +455,8 @@ function BookingCardMobile({
         </div>
 
         {(booking.preferred_date || booking.preferred_time) && (
-          <div className="mt-3 flex items-center gap-2 rounded-xl bg-[#7E47FF]/5 p-2.5">
-            <CalendarDays className="size-4 shrink-0 text-[#7E47FF]" strokeWidth={2} />
+          <div className="mt-3 flex items-center gap-2 rounded-xl bg-remotiv-purple/5 p-2.5">
+            <CalendarDays className="size-4 shrink-0 text-remotiv-purple" strokeWidth={2} />
             <div className="min-w-0 flex-1">
               {booking.preferred_date && (
                 <p className="truncate text-xs font-semibold text-[#111]">
@@ -480,7 +481,7 @@ function BookingCardMobile({
 
       <div className="flex min-h-11 items-center justify-between border-t border-gray-100 bg-gray-50/50 px-4 py-3 text-xs text-gray-500">
         Booked {relativeTime(booking.created_at)}
-        <span className="flex items-center gap-1 text-sm font-semibold text-[#7E47FF]">
+        <span className="flex items-center gap-1 text-sm font-semibold text-remotiv-purple">
           View
           <ChevronRight className="size-4" strokeWidth={2.5} />
         </span>
@@ -515,7 +516,7 @@ function FilterSheetGroup({
               onClick={() => onChange(opt.value)}
               className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
                 active
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
               }`}
             >
@@ -637,7 +638,7 @@ export function ContactsDashboard({
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1]">
+    <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
@@ -652,7 +653,7 @@ export function ContactsDashboard({
         <div className="mb-6 grid grid-cols-2 gap-3 lg:grid-cols-4 lg:gap-4">
           <StatCard label="Total" value={totalCount} tint="text-gray-400" />
           <StatCard label="New" value={newCount} tint="text-blue-600" />
-          <StatCard label="This Week" value={thisWeekCount} tint="text-[#7E47FF]" />
+          <StatCard label="This Week" value={thisWeekCount} tint="text-remotiv-purple" />
           <StatCard label="Conversion" value={conversion} tint="text-[#1a9e73]" />
         </div>
 
@@ -672,7 +673,7 @@ export function ContactsDashboard({
               {inquiries.length > 0 && (
                 <span
                   className={`inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    tab === "inquiries" ? "bg-[#7E47FF] text-white" : "bg-gray-200 text-gray-600"
+                    tab === "inquiries" ? "bg-remotiv-purple text-white" : "bg-gray-200 text-gray-600"
                   }`}
                 >
                   {inquiries.length}
@@ -692,7 +693,7 @@ export function ContactsDashboard({
               {bookings.length > 0 && (
                 <span
                   className={`inline-flex min-w-[20px] items-center justify-center rounded-full px-1.5 py-0.5 text-[10px] font-bold ${
-                    tab === "bookings" ? "bg-[#7E47FF] text-white" : "bg-gray-200 text-gray-600"
+                    tab === "bookings" ? "bg-remotiv-purple text-white" : "bg-gray-200 text-gray-600"
                   }`}
                 >
                   {bookings.length}
@@ -714,7 +715,7 @@ export function ContactsDashboard({
               placeholder="Search…"
               value={search}
               onChange={(e) => setSearch(e.target.value)}
-              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-[#7E47FF]/40 focus:ring-2 focus:ring-[#7E47FF]/20"
+              className="w-full rounded-xl border border-gray-200 bg-white py-3 pl-10 pr-4 text-sm text-gray-800 outline-none placeholder:text-gray-400 focus:border-remotiv-purple/40 focus:ring-2 focus:ring-remotiv-purple/20"
             />
           </div>
           <button
@@ -725,7 +726,7 @@ export function ContactsDashboard({
           >
             <SlidersHorizontal className="size-4" strokeWidth={2} />
             {activeFilterCount > 0 && (
-              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-[#7E47FF] text-[10px] font-bold text-white">
+              <span className="absolute -right-1 -top-1 flex size-5 items-center justify-center rounded-full bg-remotiv-purple text-[10px] font-bold text-white">
                 {activeFilterCount}
               </span>
             )}
@@ -740,7 +741,7 @@ export function ContactsDashboard({
               onClick={() => { setTab("inquiries"); setFilterStatus("All"); }}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
                 tab === "inquiries"
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
               }`}
             >
@@ -754,7 +755,7 @@ export function ContactsDashboard({
               onClick={() => { setTab("bookings"); setFilterStatus("All"); }}
               className={`flex items-center gap-2 rounded-xl px-4 py-2 text-sm font-semibold transition-colors ${
                 tab === "bookings"
-                  ? "bg-[#7E47FF] text-white"
+                  ? "bg-remotiv-purple text-white"
                   : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
               }`}
             >
@@ -786,8 +787,8 @@ export function ContactsDashboard({
               onClick={() => setFilterStatus(s)}
               className={`rounded-full px-4 py-1.5 text-xs font-semibold transition-colors ${
                 filterStatus === s
-                  ? "bg-[#7E47FF] text-white"
-                  : "border border-gray-200 bg-white text-gray-500 hover:border-[#7E47FF]/30 hover:text-gray-700"
+                  ? "bg-remotiv-purple text-white"
+                  : "border border-gray-200 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
               }`}
             >
               {STATUS_LABEL[s] ?? s}
@@ -798,12 +799,19 @@ export function ContactsDashboard({
         {/* Mobile card list — replaces the wide desktop table on <lg */}
         <div className="lg:hidden">
           {filtered.length === 0 ? (
-            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
+            <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
               <MessageSquare className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
               <p className="font-heading text-sm font-semibold text-gray-700">
                 {activeRows.length === 0
                   ? `No ${tab === "bookings" ? "bookings" : "inquiries"} yet`
                   : "No rows match your filters"}
+              </p>
+              <p className="mt-1 max-w-sm text-xs text-gray-400">
+                {activeRows.length === 0
+                  ? tab === "bookings"
+                    ? "Bookings sync from Calendly when meetings are scheduled."
+                    : "Submissions from the public contact form will appear here."
+                  : "Try clearing a filter or broadening your search."}
               </p>
             </div>
           ) : (
@@ -845,9 +853,18 @@ export function ContactsDashboard({
               {filtered.length === 0 ? (
                 <tr>
                   <td colSpan={tab === "inquiries" ? 8 : 9} className="px-6 py-16 text-center text-sm text-gray-400">
-                    {activeRows.length === 0
-                      ? `No ${tab === "bookings" ? "bookings" : "inquiries"} yet`
-                      : "No rows match your filters"}
+                    <p className="font-semibold text-gray-700">
+                      {activeRows.length === 0
+                        ? `No ${tab === "bookings" ? "bookings" : "inquiries"} yet`
+                        : "No rows match your filters"}
+                    </p>
+                    <p className="mt-1 text-xs text-gray-400">
+                      {activeRows.length === 0
+                        ? tab === "bookings"
+                          ? "Bookings sync from Calendly when meetings are scheduled."
+                          : "Submissions from the public contact form will appear here."
+                        : "Try clearing a filter or broadening your search."}
+                    </p>
                   </td>
                 </tr>
               ) : (
@@ -865,7 +882,7 @@ export function ContactsDashboard({
                       <a
                         href={`mailto:${row.email}`}
                         onClick={(e) => e.stopPropagation()}
-                        className="inline-flex items-center gap-1 hover:text-[#7E47FF]"
+                        className="inline-flex items-center gap-1 hover:text-remotiv-purple"
                       >
                         <Mail className="size-3" strokeWidth={2} />
                         {row.email}
@@ -895,7 +912,7 @@ export function ContactsDashboard({
                           setOpenType(tab === "bookings" ? "booking" : "inquiry");
                           setOpenId(row.id);
                         }}
-                        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-[#7E47FF]"
+                        className="rounded-lg p-1.5 text-gray-400 hover:bg-gray-100 hover:text-remotiv-purple"
                         aria-label="Open"
                       >
                         <MessageSquare className="size-3.5" strokeWidth={2} />
@@ -934,7 +951,7 @@ export function ContactsDashboard({
           <h3 className="font-heading text-lg font-bold text-[#111]">
             Filters
             {activeFilterCount > 0 && (
-              <span className="ml-2 rounded-full bg-[#7E47FF]/10 px-2 py-0.5 text-xs font-semibold text-[#7E47FF]">
+              <span className="ml-2 rounded-full bg-remotiv-purple/10 px-2 py-0.5 text-xs font-semibold text-remotiv-purple">
                 {activeFilterCount}
               </span>
             )}
@@ -971,7 +988,7 @@ export function ContactsDashboard({
           <button
             type="button"
             onClick={() => setFilterDrawerOpen(false)}
-            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-[#7E47FF] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 flex-1 items-center justify-center rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0]"
           >
             Apply
           </button>
