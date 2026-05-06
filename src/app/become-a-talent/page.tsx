@@ -1188,7 +1188,7 @@ export default function BecomeATalentPage() {
                           <input
                             ref={cvInputRef}
                             type="file"
-                            accept=".pdf,.doc,.docx"
+                            accept="application/pdf"
                             onChange={(e) => handleCv(e.target.files?.[0])}
                           />
                           <div className="bta-upload-ico">📄</div>

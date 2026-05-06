@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+import { rateLimit } from "@/app/api/_lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -55,6 +56,14 @@ function fileExt(name: string, fallback = "bin"): string {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, { bucketKey: "hire-remote" });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   try {
     const form = await request.formData();
 
@@ -215,7 +224,7 @@ export async function POST(request: NextRequest) {
         .select("id, phone")
         .not("phone", "is", null)
         .order("created_at", { ascending: false })
-        .limit(5000);
+        .limit(100);
 
       const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
       const found = records.find(
@@ -237,7 +246,10 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const filenameSlug = slug(normalisedEmail);
 
-    // 2. Upload CV (optional)
+    // 2. Upload CV (optional). For PDFs we cross-check magic bytes (%PDF) so a
+     //    renamed .html / .exe can't slip through with a forged content type.
+     //    DOC / DOCX rely on the MIME-type whitelist above — covering them
+     //    properly would mean adding OLE compound + ZIP-container checks.
     let cvUrl: string | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.type && !ALLOWED_CV_TYPES.includes(cvFile.type)) {
@@ -246,12 +258,26 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
+      const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
+      if (cvFile.type === "application/pdf") {
+        const isPdf =
+          cvBuffer.length >= 4 &&
+          cvBuffer[0] === 0x25 &&
+          cvBuffer[1] === 0x50 &&
+          cvBuffer[2] === 0x44 &&
+          cvBuffer[3] === 0x46;
+        if (!isPdf) {
+          return NextResponse.json(
+            { error: "Uploaded file does not look like a real PDF. Please re-export and try again." },
+            { status: 400 },
+          );
+        }
+      }
       const ext = fileExt(cvFile.name, "pdf");
       const path = `hire-remote/cvs/${filenameSlug}-${timestamp}.${ext}`;
-      const buf = await cvFile.arrayBuffer();
       const { error: cvErr } = await supabase.storage
         .from("cvs")
-        .upload(path, buf, {
+        .upload(path, cvBuffer, {
           contentType: cvFile.type || "application/pdf",
           upsert: false,
         });

@@ -15,6 +15,10 @@ export default async function ClientDashboardPage() {
   const ctx = await getCurrentClientOrAdmin();
   if (ctx.type === "none") redirect("/client/login");
 
+  // TODO: When team grows, add audit log for admin-as-client impersonation.
+  // See QA Phase 3 audit finding #8 — every action an admin takes via the
+  // client portal should be recorded with the impersonator's user_id so we
+  // can answer "who approved this candidate as the client?" in support cases.
   const isAdminPreview = ctx.type === "admin";
   const headerName = isAdminPreview ? "Admin Preview" : ctx.client.company_name;
 

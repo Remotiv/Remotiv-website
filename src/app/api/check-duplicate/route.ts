@@ -1,6 +1,10 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+import { rateLimit } from "@/app/api/_lib/rate-limit";
+
+// 200-char ceiling on each input keeps payload-padding abuse in check.
+const MAX_INPUT_LENGTH = 200;
 
 type ApplicantRow = {
   id: string;
@@ -27,10 +31,26 @@ function shape(row: ApplicantRow) {
 }
 
 export async function POST(request: NextRequest) {
+  // Bumped cap because legitimate use fires this on every email/phone keystroke.
+  // 100 / min comfortably covers the worst typist; abuse scripts spike past it fast.
+  const rl = rateLimit(request, {
+    bucketKey: "check-duplicate",
+    max: 100,
+    windowMs: 60_000,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please slow down and try again." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   try {
-    const body = await request.json() as { email?: string; phone?: string };
-    const email = normalizeEmail(body.email ?? "");
-    const phone = (body.phone ?? "").trim();
+    const body = (await request.json()) as { email?: string; phone?: string };
+    const rawEmail = (body.email ?? "").slice(0, MAX_INPUT_LENGTH);
+    const rawPhone = (body.phone ?? "").slice(0, MAX_INPUT_LENGTH);
+    const email = normalizeEmail(rawEmail);
+    const phone = rawPhone.trim();
     const normalizedPhone = normalizePhone(phone);
 
     if (!email && !normalizedPhone) {
@@ -68,7 +88,7 @@ export async function POST(request: NextRequest) {
         .select("id, first_name, last_name, email, phone, status, created_at, jobs(title)")
         .not("phone", "is", null)
         .order("created_at", { ascending: false })
-        .limit(5000);
+        .limit(100);
 
       if (error) {
         return NextResponse.json({ error: error.message }, { status: 500 });

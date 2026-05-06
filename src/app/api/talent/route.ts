@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAvatarUrl } from "@/lib/avatars";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+import { rateLimit } from "@/app/api/_lib/rate-limit";
 
 export const runtime = "nodejs";
 
@@ -41,6 +42,14 @@ function fileExt(name: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, { bucketKey: "talent" });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   try {
     const form = await request.formData();
 
@@ -152,7 +161,7 @@ export async function POST(request: NextRequest) {
         .select("id, phone")
         .not("phone", "is", null)
         .order("created_at", { ascending: false })
-        .limit(5000);
+        .limit(100);
 
       const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
       const found = records.find(
@@ -205,7 +214,9 @@ export async function POST(request: NextRequest) {
       avatarUrl = getAvatarUrl(firstName, lastName);
     }
 
-    // 3. Upload CV (optional — talent profile can exist without a CV early on)
+    // 3. Upload CV (optional — talent profile can exist without a CV early on).
+    //    Magic-byte gate: PDFs start with "%PDF" (0x25 0x50 0x44 0x46). The
+    //    front-end accepts only PDF; this enforces the same on the server.
     let cvUrl: string | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.size > MAX_CV_FILE_BYTES) {
@@ -214,11 +225,23 @@ export async function POST(request: NextRequest) {
           { status: 413 },
         );
       }
+      const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
+      const isPdf =
+        cvBuffer.length >= 4 &&
+        cvBuffer[0] === 0x25 &&
+        cvBuffer[1] === 0x50 &&
+        cvBuffer[2] === 0x44 &&
+        cvBuffer[3] === 0x46;
+      if (!isPdf) {
+        return NextResponse.json(
+          { error: "Please upload a valid PDF file. Other file types are not accepted." },
+          { status: 400 },
+        );
+      }
       const path = `talent/cvs/${filenameSlug}-${timestamp}.pdf`;
-      const buf = await cvFile.arrayBuffer();
       const { error: cvErr } = await supabase.storage
         .from("cvs")
-        .upload(path, buf, { contentType: cvFile.type || "application/pdf", upsert: false });
+        .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
       if (cvErr) {
         return NextResponse.json({ error: cvErr.message }, { status: 500 });
       }

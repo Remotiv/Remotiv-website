@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+import { rateLimit } from "@/app/api/_lib/rate-limit";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -24,6 +25,14 @@ function slug(value: string): string {
 }
 
 export async function POST(request: NextRequest) {
+  const rl = rateLimit(request, { bucketKey: "apply" });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests. Please try again later." },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   try {
     const form = await request.formData();
 
@@ -53,6 +62,23 @@ export async function POST(request: NextRequest) {
       return NextResponse.json(
         { error: "CV file is too large (max 10 MB)." },
         { status: 413 },
+      );
+    }
+
+    // Magic-byte check: PDF files start with "%PDF" (0x25 0x50 0x44 0x46).
+    // Don't trust the client-supplied content type — a renamed .html or .exe
+    // would otherwise sail through the upload step.
+    const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
+    const isPdf =
+      cvBuffer.length >= 4 &&
+      cvBuffer[0] === 0x25 &&
+      cvBuffer[1] === 0x50 &&
+      cvBuffer[2] === 0x44 &&
+      cvBuffer[3] === 0x46;
+    if (!isPdf) {
+      return NextResponse.json(
+        { error: "Please upload a valid PDF file. Other file types are not accepted." },
+        { status: 400 },
       );
     }
 
@@ -97,7 +123,7 @@ export async function POST(request: NextRequest) {
           .select("id, phone")
           .not("phone", "is", null)
           .order("created_at", { ascending: false })
-          .limit(5000);
+          .limit(100);
 
         const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
         const found = records.find(
@@ -123,11 +149,10 @@ export async function POST(request: NextRequest) {
     const folder = jobId ?? "manual";
     const filename = email ? slug(email) : slug(firstName);
     const path = `${folder}/${filename}-${timestamp}.pdf`;
-    const bytes = await cvFile.arrayBuffer();
 
     const { error: uploadError } = await supabase.storage
       .from("cvs")
-      .upload(path, bytes, { contentType: "application/pdf", upsert: false });
+      .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
 
     if (uploadError) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
