@@ -1459,7 +1459,7 @@ export function TalentDashboard({
               <button
                 type="button"
                 onClick={() => deleteTarget && handleDelete(deleteTarget)}
-                disabled={deleting}
+                disabled={deleting} aria-busy={deleting}
                 className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
@@ -1471,7 +1471,7 @@ export function TalentDashboard({
 
       {/* Toast */}
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {toast}
         </div>
       )}

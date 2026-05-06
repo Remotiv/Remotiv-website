@@ -161,7 +161,7 @@ export function AddToBatchModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             aria-label="Close"
             className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
           >
@@ -312,7 +312,7 @@ export function AddToBatchModal({
               else if (step === "batch") setStep("client");
               else onClose();
             }}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
             {step === "client" ? "Cancel" : "Back"}
@@ -351,7 +351,7 @@ export function AddToBatchModal({
             <button
               type="button"
               onClick={handleConfirm}
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="flex items-center gap-2 rounded-xl bg-remotiv-green px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 disabled:opacity-60"
             >
               {submitting ? (

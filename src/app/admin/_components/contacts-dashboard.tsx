@@ -288,7 +288,7 @@ function InquiryDrawer({
             <button
               type="button"
               onClick={handleSaveNotes}
-              disabled={savingNotes}
+              disabled={savingNotes} aria-busy={savingNotes}
               className="mt-2 flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Save className="size-3.5" strokeWidth={2} />
@@ -307,7 +307,7 @@ function InquiryDrawer({
                     <button
                       type="button"
                       onClick={() => setConfirmDelete(false)}
-                      disabled={deleting}
+                      disabled={deleting} aria-busy={deleting}
                       className="flex-1 rounded-lg border border-gray-200 bg-white px-3 py-2 text-xs font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
                     >
                       Cancel
@@ -315,7 +315,7 @@ function InquiryDrawer({
                     <button
                       type="button"
                       onClick={handleDelete}
-                      disabled={deleting}
+                      disabled={deleting} aria-busy={deleting}
                       className="flex-1 rounded-lg bg-red-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
                     >
                       {deleting ? "Deleting…" : "Delete"}
@@ -1018,7 +1018,7 @@ export function ContactsDashboard({
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {toast.startsWith("Status") || toast.includes("deleted") || toast.includes("saved") ? (
             <CheckCircle className="size-4" strokeWidth={2} />
           ) : (

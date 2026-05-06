@@ -482,7 +482,7 @@ export function MoveToTalentModal({
           <button
             type="button"
             onClick={attemptClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             aria-label="Close"
             className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
           >
@@ -745,7 +745,7 @@ export function MoveToTalentModal({
           <button
             type="button"
             onClick={attemptClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
@@ -753,7 +753,7 @@ export function MoveToTalentModal({
           <button
             type="button"
             onClick={handleSubmit}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             className="flex items-center gap-2 rounded-xl bg-remotiv-green px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             <UserCheck className="size-4" strokeWidth={2.5} />

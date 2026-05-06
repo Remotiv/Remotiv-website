@@ -486,8 +486,13 @@ export function BulkBatchUploadModal({
             </>
           ) : stage === "processing" ? (
             <div className="flex flex-col items-center justify-center gap-5 py-12">
-              <Loader2 className="size-10 animate-spin text-remotiv-purple" strokeWidth={2} />
-              <p className="font-heading text-sm font-semibold text-gray-800">
+              <Loader2 className="size-10 animate-spin text-remotiv-purple motion-reduce:animate-none" strokeWidth={2} />
+              <p
+                role="status"
+                aria-live="polite"
+                aria-atomic="true"
+                className="font-heading text-sm font-semibold text-gray-800"
+              >
                 Processing CVs… {processedCount}/{files.length}
               </p>
               <div className="h-2 w-full max-w-sm overflow-hidden rounded-full bg-gray-100">
@@ -514,7 +519,7 @@ export function BulkBatchUploadModal({
                 <button
                   type="button"
                   onClick={() => { setStage("upload"); setRows([]); setError(null); }}
-                  disabled={submitting}
+                  disabled={submitting} aria-busy={submitting}
                   className="text-xs font-medium text-gray-400 transition-colors hover:text-gray-600 disabled:opacity-50"
                 >
                   ← Back
@@ -684,7 +689,7 @@ export function BulkBatchUploadModal({
                               <button
                                 type="button"
                                 onClick={() => removeRow(row.id)}
-                                disabled={submitting}
+                                disabled={submitting} aria-busy={submitting}
                                 className="rounded p-1 text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-30"
                                 aria-label="Remove row"
                               >
@@ -744,7 +749,7 @@ export function BulkBatchUploadModal({
                           <button
                             type="button"
                             onClick={() => removeRow(row.id)}
-                            disabled={submitting}
+                            disabled={submitting} aria-busy={submitting}
                             aria-label="Remove row"
                             className="flex size-9 shrink-0 items-center justify-center rounded text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-30"
                           >
@@ -837,7 +842,12 @@ export function BulkBatchUploadModal({
 
               {/* Bottom bar — sticky and stacks on phones */}
               <div className="sticky bottom-0 -mx-4 flex flex-col gap-3 border-t border-gray-100 bg-white px-4 pb-2 pt-4 sm:-mx-7 sm:flex-row sm:items-center sm:justify-between sm:px-7">
-                <p className="text-xs text-gray-500">
+                <p
+                  role="status"
+                  aria-live="polite"
+                  aria-atomic="true"
+                  className="text-xs text-gray-500"
+                >
                   {submitting ? (
                     <>Uploading {submittedCount}/{submitTotal}…</>
                   ) : (

@@ -360,7 +360,7 @@ function ClientNotesView({ candidateId }: { candidateId: string }) {
           onChange={(e) => setDraft(e.target.value)}
           placeholder="Reply to client…"
           rows={2}
-          disabled={saving}
+          disabled={saving} aria-busy={saving}
           className="w-full resize-none rounded-lg border border-gray-200 bg-white px-3 py-2 text-sm outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
         />
         {error && <p className="text-xs text-red-600">{error}</p>}
@@ -461,7 +461,7 @@ function EditBatchModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             aria-label="Close"
             className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
           >
@@ -507,14 +507,14 @@ function EditBatchModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               <Save className="size-4" strokeWidth={2.5} />
@@ -750,7 +750,7 @@ function CandidateDrawer({
           <button
             type="button"
             onClick={onClose}
-            disabled={saving}
+            disabled={saving} aria-busy={saving}
             className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
           >
             Cancel
@@ -758,7 +758,7 @@ function CandidateDrawer({
           <button
             type="button"
             onClick={handleSave}
-            disabled={saving}
+            disabled={saving} aria-busy={saving}
             className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
           >
             <Save className="size-4" strokeWidth={2.5} />
@@ -1501,7 +1501,7 @@ export function BatchDetailDashboard({
               <button
                 type="button"
                 onClick={() => setRemoveTarget(null)}
-                disabled={removing}
+                disabled={removing} aria-busy={removing}
                 className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
@@ -1509,7 +1509,7 @@ export function BatchDetailDashboard({
               <button
                 type="button"
                 onClick={handleRemove}
-                disabled={removing}
+                disabled={removing} aria-busy={removing}
                 className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
               >
                 {removing ? "Removing…" : "Remove"}
@@ -1520,7 +1520,7 @@ export function BatchDetailDashboard({
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           <Copy className="size-4" strokeWidth={2} />
           {toast}
         </div>

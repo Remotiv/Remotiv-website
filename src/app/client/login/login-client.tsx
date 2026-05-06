@@ -196,7 +196,7 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
 
               <button
                 type="submit"
-                disabled={loading}
+                disabled={loading} aria-busy={loading}
                 className="mt-2 w-full rounded-xl bg-remotiv-purple py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
               >
                 {loading ? "Signing in…" : "Sign In"}

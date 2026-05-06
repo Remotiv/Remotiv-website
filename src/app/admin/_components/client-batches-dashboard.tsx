@@ -175,7 +175,7 @@ function CreateBatchModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             aria-label="Close"
             className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
           >
@@ -235,14 +235,14 @@ function CreateBatchModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-60"
             >
               <Plus className="size-4" strokeWidth={2.5} />

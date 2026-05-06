@@ -245,3 +245,19 @@
     @apply font-sans;
   }
 }
+
+/* Respect the OS-level "Reduce motion" preference (WCAG 2.3.3).
+   Strips animation duration + iteration count + transition duration
+   sitewide for users who've opted into reduced motion. Tailwind's
+   motion-reduce: utility provides finer-grained per-element control
+   when needed. */
+@media (prefers-reduced-motion: reduce) {
+  *,
+  *::before,
+  *::after {
+    animation-duration: 0.001ms !important;
+    animation-iteration-count: 1 !important;
+    transition-duration: 0.001ms !important;
+    scroll-behavior: auto !important;
+  }
+}

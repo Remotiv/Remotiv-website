@@ -596,7 +596,7 @@ function ClientDrawer({
                   <div className="flex gap-2">
                     <button
                       type="submit"
-                      disabled={resetting}
+                      disabled={resetting} aria-busy={resetting}
                       className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-remotiv-purple px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                     >
                       <Save className="size-3.5" strokeWidth={2} />
@@ -609,7 +609,7 @@ function ClientDrawer({
                         setNewPassword("");
                         setResetError(null);
                       }}
-                      disabled={resetting}
+                      disabled={resetting} aria-busy={resetting}
                       className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50"
                     >
                       Cancel
@@ -817,7 +817,7 @@ function CreateClientModal({
           <button
             type="button"
             onClick={onClose}
-            disabled={submitting}
+            disabled={submitting} aria-busy={submitting}
             aria-label="Close"
             className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600 disabled:opacity-50"
           >
@@ -904,14 +904,14 @@ function CreateClientModal({
             <button
               type="button"
               onClick={onClose}
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="rounded-xl border border-gray-200 px-5 py-2.5 text-sm font-semibold text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
             >
               Cancel
             </button>
             <button
               type="submit"
-              disabled={submitting}
+              disabled={submitting} aria-busy={submitting}
               className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
             >
               <Plus className="size-4" strokeWidth={2.5} />
@@ -1391,7 +1391,7 @@ export function ClientsDashboard({
               <button
                 type="button"
                 onClick={() => setDeleteTarget(null)}
-                disabled={deleting}
+                disabled={deleting} aria-busy={deleting}
                 className="flex-1 rounded-xl border border-gray-200 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50 disabled:opacity-50"
               >
                 Cancel
@@ -1399,7 +1399,7 @@ export function ClientsDashboard({
               <button
                 type="button"
                 onClick={() => deleteTarget && handleDelete(deleteTarget)}
-                disabled={deleting}
+                disabled={deleting} aria-busy={deleting}
                 className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
@@ -1410,7 +1410,7 @@ export function ClientsDashboard({
       )}
 
       {toast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {toast}
         </div>
       )}

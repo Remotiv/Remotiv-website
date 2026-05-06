@@ -908,7 +908,7 @@ export function TeamDashboard({
                 </button>
                 <button
                   type="submit"
-                  disabled={mutating}
+                  disabled={mutating} aria-busy={mutating}
                   className="rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {mutating ? "Saving…" : editingMember ? "Save Changes" : "Add Team Member"}
@@ -921,7 +921,7 @@ export function TeamDashboard({
 
       {/* ── Success toast ── */}
       {successMsg && (
-        <div className="fixed bottom-6 right-6 z-[60] flex max-w-sm items-start gap-3 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3.5 shadow-xl">
+        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-[60] flex max-w-sm items-start gap-3 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3.5 shadow-xl">
           <div className="mt-0.5 flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-[#1a9e73]">
             <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="1.5 6.5 4.5 9.5 10.5 2.5" />
