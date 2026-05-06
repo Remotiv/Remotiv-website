@@ -53,6 +53,7 @@ import {
   type OpenJob,
 } from "@/app/admin/applications/actions";
 import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
+import { isValidEmail } from "@/app/admin/lib/validators";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -1336,6 +1337,79 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 11);
 }
 
+/**
+ * Click-to-edit cell used inside the BulkUploadCVModal review table and
+ * the equivalent mobile cards. Renders as a button-styled span until
+ * tapped, then swaps to an autoFocused <input>. Enter or blur commit;
+ * Escape reverts to the previous value.
+ *
+ * `onChange` only fires when the value actually changed, so a click-to-
+ * dismiss with no edit doesn't dirty the row.
+ */
+function EditableCell({
+  value,
+  onChange,
+  type = "text",
+  placeholder,
+  emptyHint = "—",
+}: {
+  value: string;
+  onChange: (next: string) => void;
+  type?: "text" | "email" | "tel" | "url";
+  placeholder?: string;
+  emptyHint?: string;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [draft, setDraft] = useState(value);
+
+  function commit() {
+    setEditing(false);
+    if (draft !== value) onChange(draft);
+  }
+
+  if (editing) {
+    return (
+      <input
+        type={type}
+        value={draft}
+        onChange={(e) => setDraft(e.target.value)}
+        onBlur={commit}
+        onKeyDown={(e) => {
+          if (e.key === "Enter") {
+            e.preventDefault();
+            commit();
+          } else if (e.key === "Escape") {
+            setDraft(value);
+            setEditing(false);
+          }
+        }}
+        autoFocus
+        placeholder={placeholder}
+        // biome-ignore lint/a11y/noAutofocus: editable cell explicitly opts in to autoFocus on click-to-edit
+        className="w-full rounded border border-remotiv-purple px-2 py-1 text-xs text-gray-800 outline-none focus:ring-2 focus:ring-remotiv-purple/30"
+      />
+    );
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={() => {
+        setDraft(value);
+        setEditing(true);
+      }}
+      title="Click to edit"
+      className="flex min-h-[28px] w-full items-center rounded px-2 py-1 text-left text-xs text-gray-800 transition-colors hover:bg-gray-100"
+    >
+      {value ? (
+        <span className="truncate">{value}</span>
+      ) : (
+        <span className="text-gray-300">{emptyHint}</span>
+      )}
+    </button>
+  );
+}
+
 function BulkUploadCVModal({
   openJobs,
   onClose,
@@ -1507,6 +1581,25 @@ function BulkUploadCVModal({
     const selectedRows = rows.filter((r) => r.selected && r.status !== "done");
     if (selectedRows.length === 0) return;
 
+    // Pre-flight check on the EDITED row state. The per-row submit loop also
+    // validates first-name + LinkedIn, but catching email/name issues up front
+    // means we don't fire half the uploads before bailing out.
+    const invalid = selectedRows.find((r) => {
+      if (!r.firstName.trim()) return true;
+      if (!r.lastName.trim()) return true;
+      // Email is optional in /api/apply, but if the admin typed something
+      // it must be a real email — protects the duplicate-detection step.
+      if (r.email.trim() && !isValidEmail(r.email)) return true;
+      return false;
+    });
+    if (invalid) {
+      setError(
+        "Some rows have invalid email or missing name. Please fix and try again.",
+      );
+      return;
+    }
+
+    setError(null);
     setSubmitting(true);
     setSubmittedCount(0);
     setSubmitTotal(selectedRows.length);
@@ -1618,7 +1711,7 @@ function BulkUploadCVModal({
               type="button"
               onClick={onClose}
               aria-label="Close"
-              className="absolute right-4 top-6 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
+              className="absolute right-4 top-5 flex size-11 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35 sm:size-9 sm:top-6"
             >
               <X className="size-4" strokeWidth={2.5} />
             </button>
@@ -1628,7 +1721,7 @@ function BulkUploadCVModal({
         </div>
 
         {/* Body */}
-        <div className="flex-1 px-7 py-6">
+        <div className="flex-1 px-4 py-5 sm:px-7 sm:py-6">
           {stage === "upload" ? (
             <>
               <button
@@ -1742,8 +1835,9 @@ function BulkUploadCVModal({
                 </button>
               </div>
 
-              {/* Review table */}
-              <div className="max-h-[60vh] overflow-auto rounded-xl border border-gray-100">
+              {/* Review table — desktop only. On mobile we render the same
+                  rows as stacked cards below. */}
+              <div className="hidden max-h-[60vh] overflow-auto rounded-xl border border-gray-100 lg:block">
                 <table className="w-full text-sm">
                   <thead className="sticky top-0 z-10 bg-gray-50/95 backdrop-blur">
                     <tr className="border-b border-gray-100">
@@ -1796,53 +1890,51 @@ function BulkUploadCVModal({
                               {row.filename}
                             </p>
                           </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
+                          <td className="min-w-[120px] px-3 py-2">
+                            <EditableCell
                               value={row.firstName}
-                              onChange={(e) => updateRow(row.id, { firstName: e.target.value })}
-                              className={ROW_INPUT_CLS}
+                              onChange={(v) => updateRow(row.id, { firstName: v })}
+                              placeholder="First name"
                             />
                           </td>
-                          <td className="px-3 py-2">
-                            <input
-                              type="text"
+                          <td className="min-w-[120px] px-3 py-2">
+                            <EditableCell
                               value={row.lastName}
-                              onChange={(e) => updateRow(row.id, { lastName: e.target.value })}
-                              className={ROW_INPUT_CLS}
+                              onChange={(v) => updateRow(row.id, { lastName: v })}
+                              placeholder="Last name"
                             />
                           </td>
-                          <td className="px-3 py-2 min-w-[180px]">
-                            <input
-                              type="email"
+                          <td className="min-w-[200px] px-3 py-2">
+                            <EditableCell
                               value={row.email}
-                              onChange={(e) => updateRow(row.id, { email: e.target.value })}
-                              className={ROW_INPUT_CLS}
+                              onChange={(v) => updateRow(row.id, { email: v })}
+                              type="email"
+                              placeholder="email@example.com"
                             />
                           </td>
-                          <td className="px-3 py-2 min-w-[140px]">
-                            <input
-                              type="tel"
+                          <td className="min-w-[130px] px-3 py-2">
+                            <EditableCell
                               value={row.phone}
-                              onChange={(e) => updateRow(row.id, { phone: e.target.value })}
-                              className={ROW_INPUT_CLS}
+                              onChange={(v) => updateRow(row.id, { phone: v })}
+                              type="tel"
+                              placeholder="+1 555…"
                             />
                           </td>
-                          <td className="px-3 py-2 min-w-[200px]">
-                            <input
-                              type="url"
+                          <td className="min-w-[200px] px-3 py-2">
+                            <EditableCell
                               value={row.linkedin}
-                              placeholder="https://linkedin.com/in/…"
-                              onChange={(e) => {
-                                updateRow(row.id, { linkedin: e.target.value });
-                                // If the row was selected and the new value is
-                                // invalid, force-deselect to keep the upload
-                                // count honest.
-                                if (row.selected && !isValidLinkedInUrl(e.target.value)) {
-                                  updateRow(row.id, { selected: false });
+                              onChange={(v) => {
+                                // Force-deselect when the new URL is invalid so
+                                // the upload count never includes a row that
+                                // would be rejected server-side.
+                                const next: Partial<BulkRow> = { linkedin: v };
+                                if (row.selected && !isValidLinkedInUrl(v)) {
+                                  next.selected = false;
                                 }
+                                updateRow(row.id, next);
                               }}
-                              className={ROW_INPUT_CLS}
+                              type="url"
+                              placeholder="https://linkedin.com/in/…"
                             />
                             {!isValidLinkedInUrl(row.linkedin) && (
                               <p className="mt-1 inline-flex items-start gap-1 text-[10px] font-medium leading-tight text-red-500">
@@ -1942,8 +2034,216 @@ function BulkUploadCVModal({
                 </table>
               </div>
 
-              {/* Bottom bar */}
-              <div className="flex items-center justify-between gap-4 border-t border-gray-100 pt-4">
+              {/* Review cards — mobile only. Mirrors the desktop columns but
+                  stacks each row vertically so the modal stays usable on a
+                  phone (the table itself overflows horribly under ~720px). */}
+              <div className="flex max-h-[60vh] flex-col gap-3 overflow-y-auto pr-1 lg:hidden">
+                {rows.length === 0 ? (
+                  <p className="px-4 py-12 text-center text-sm text-gray-400">No rows</p>
+                ) : (
+                  rows.map((row) => {
+                    const liInvalid = !isValidLinkedInUrl(row.linkedin);
+                    return (
+                      <div
+                        key={row.id}
+                        className={`rounded-xl border p-4 ${
+                          row.duplicate
+                            ? "border-amber-200 bg-amber-50/50"
+                            : "border-gray-200 bg-white"
+                        }`}
+                      >
+                        {/* Header row: checkbox + filename + duplicate + remove */}
+                        <div className="mb-3 flex items-start gap-3">
+                          <input
+                            type="checkbox"
+                            checked={row.selected}
+                            disabled={liInvalid}
+                            onChange={(e) =>
+                              updateRow(row.id, { selected: e.target.checked })
+                            }
+                            className="mt-1 size-4 shrink-0 rounded border-gray-300 text-remotiv-purple focus:ring-remotiv-purple disabled:cursor-not-allowed disabled:opacity-40"
+                          />
+                          <div className="min-w-0 flex-1">
+                            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                              CV File
+                            </p>
+                            <p
+                              className="truncate text-sm font-medium text-gray-700"
+                              title={row.filename}
+                            >
+                              {row.filename}
+                            </p>
+                          </div>
+                          {row.duplicate ? (
+                            <span className="inline-flex shrink-0 items-center gap-1 rounded-full bg-amber-100 px-2 py-0.5 text-[10px] font-semibold text-amber-700">
+                              <AlertTriangle className="size-3" strokeWidth={2.5} />
+                              Exists
+                            </span>
+                          ) : (
+                            <span className="inline-flex shrink-0 items-center rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
+                              New
+                            </span>
+                          )}
+                          <button
+                            type="button"
+                            onClick={() => removeRow(row.id)}
+                            disabled={submitting}
+                            aria-label="Remove row"
+                            className="flex size-9 shrink-0 items-center justify-center rounded text-gray-300 transition-colors hover:bg-red-50 hover:text-red-500 disabled:opacity-30"
+                          >
+                            <X className="size-4" strokeWidth={2} />
+                          </button>
+                        </div>
+
+                        <div className="grid grid-cols-2 gap-3">
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                              First Name
+                            </label>
+                            <EditableCell
+                              value={row.firstName}
+                              onChange={(v) => updateRow(row.id, { firstName: v })}
+                              placeholder="First name"
+                            />
+                          </div>
+                          <div>
+                            <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                              Last Name
+                            </label>
+                            <EditableCell
+                              value={row.lastName}
+                              onChange={(v) => updateRow(row.id, { lastName: v })}
+                              placeholder="Last name"
+                            />
+                          </div>
+                        </div>
+
+                        <div className="mt-3">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                            Email
+                          </label>
+                          <EditableCell
+                            value={row.email}
+                            onChange={(v) => updateRow(row.id, { email: v })}
+                            type="email"
+                            placeholder="email@example.com"
+                          />
+                        </div>
+
+                        <div className="mt-3">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                            Phone
+                          </label>
+                          <EditableCell
+                            value={row.phone}
+                            onChange={(v) => updateRow(row.id, { phone: v })}
+                            type="tel"
+                            placeholder="+1 555…"
+                          />
+                        </div>
+
+                        <div className="mt-3">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                            LinkedIn <span className="text-red-500">*</span>
+                          </label>
+                          <EditableCell
+                            value={row.linkedin}
+                            onChange={(v) => {
+                              const next: Partial<BulkRow> = { linkedin: v };
+                              if (row.selected && !isValidLinkedInUrl(v)) {
+                                next.selected = false;
+                              }
+                              updateRow(row.id, next);
+                            }}
+                            type="url"
+                            placeholder="https://linkedin.com/in/…"
+                          />
+                          {liInvalid && (
+                            <p className="mt-1 inline-flex items-start gap-1 text-[10px] font-medium leading-tight text-red-500">
+                              <AlertTriangle className="mt-px size-3 shrink-0" strokeWidth={2} />
+                              <span>
+                                {row.linkedin.trim()
+                                  ? "Please enter a valid LinkedIn URL"
+                                  : "LinkedIn URL missing — add manually"}
+                              </span>
+                            </p>
+                          )}
+                        </div>
+
+                        <div className="mt-3">
+                          <label className="mb-1 block text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                            Job Role
+                          </label>
+                          <select
+                            value={row.jobChoice}
+                            onChange={(e) =>
+                              updateRow(row.id, { jobChoice: e.target.value })
+                            }
+                            className={ROW_INPUT_CLS}
+                          >
+                            <option value="">—</option>
+                            {openJobs.map((j) => (
+                              <option key={j.id} value={j.id}>
+                                {j.title}
+                              </option>
+                            ))}
+                            <option value="__other__">Other (type)</option>
+                          </select>
+                          {row.jobChoice === "__other__" && (
+                            <input
+                              type="text"
+                              placeholder="Type job…"
+                              value={row.jobOther}
+                              onChange={(e) =>
+                                updateRow(row.id, { jobOther: e.target.value })
+                              }
+                              className={`${ROW_INPUT_CLS} mt-2`}
+                            />
+                          )}
+                        </div>
+
+                        {/* Status badge — only when not idle */}
+                        {row.status !== "ready" && (
+                          <div className="mt-3 flex items-center gap-1.5 border-t border-gray-100 pt-3">
+                            {row.status === "submitting" && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-remotiv-purple">
+                                <Loader2 className="size-3 animate-spin" strokeWidth={2} />{" "}
+                                Sending
+                              </span>
+                            )}
+                            {row.status === "done" && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-green-600">
+                                <CheckCircle className="size-3" strokeWidth={2} /> Done
+                              </span>
+                            )}
+                            {row.status === "error" && (
+                              <span
+                                className="inline-flex items-center gap-1 text-[11px] font-medium text-red-500"
+                                title={row.errorMsg ?? ""}
+                              >
+                                <X className="size-3" strokeWidth={2.5} />
+                                {row.errorMsg ?? "Error"}
+                              </span>
+                            )}
+                            {row.status === "skipped" && (
+                              <span className="inline-flex items-center gap-1 text-[11px] font-medium text-gray-400">
+                                Skipped
+                              </span>
+                            )}
+                          </div>
+                        )}
+                      </div>
+                    );
+                  })
+                )}
+              </div>
+
+              {/* Bottom bar — stacks vertically on phones so the Submit
+                  button never gets squished off-screen. Sticky so it stays
+                  reachable while scrolling a long list of CV cards. The
+                  -mx + px values mirror the parent body padding so the bar
+                  spans the full modal width edge-to-edge. */}
+              <div className="sticky bottom-0 -mx-4 flex flex-col gap-3 border-t border-gray-100 bg-white px-4 pb-2 pt-4 sm:-mx-7 sm:flex-row sm:items-center sm:justify-between sm:px-7">
                 <p className="text-xs text-gray-500">
                   {submitting ? (
                     <>Uploading {submittedCount}/{submitTotal}…</>
@@ -1964,7 +2264,7 @@ function BulkUploadCVModal({
                   type="button"
                   onClick={submitSelected}
                   disabled={submitting || selectedRows === 0}
-                  className="rounded-xl bg-gray-900 px-6 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                  className="w-full rounded-xl bg-gray-900 px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto sm:py-2.5"
                 >
                   {submitting ? "Uploading…" : `Submit Selected (${selectedRows})`}
                 </button>
