@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Image from "next/image";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -101,23 +102,26 @@ function RowAvatar({
   candidate: { first_name: string; last_name: string };
   size: number;
 }) {
+  // Image fails (404, RLS hide, etc.) → flip to errored and let the initials
+  // span show through. Same pattern as TalentAvatar / CandidateAvatar.
+  const [errored, setErrored] = useState(false);
+  const url = getClientAvatarUrl(candidate.first_name, candidate.last_name);
+
   return (
     <span
       className="relative inline-block shrink-0 overflow-hidden rounded-full bg-remotiv-purple/10"
       style={{ width: size, height: size }}
     >
-      {/* Plain <img> chosen so the onError handler can hide a missing avatar
-          without next/image's loader getting in the way; the initials span
-          underneath remains visible. */}
-      {/* biome-ignore lint/performance/noImgElement: see comment above */}
-      <img
-        src={getClientAvatarUrl(candidate.first_name, candidate.last_name)}
-        alt=""
-        className="absolute inset-0 size-full object-cover"
-        onError={(e) => {
-          (e.target as HTMLImageElement).style.display = "none";
-        }}
-      />
+      {!errored && (
+        <Image
+          src={url}
+          alt=""
+          fill
+          sizes={`${size}px`}
+          className="object-cover"
+          onError={() => setErrored(true)}
+        />
+      )}
       <span
         className="absolute inset-0 flex items-center justify-center font-bold text-remotiv-purple"
         style={{ fontSize: Math.max(10, size / 2.6) }}

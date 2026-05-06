@@ -81,12 +81,12 @@ export function getAvatarUrl(firstName: string | null, lastName: string | null):
 
   if (gender === 'female') {
     const num = (hash % FEMALE_AVATAR_COUNT) + 1;
-    return `/avatars/female-${String(num).padStart(3, '0')}.png`;
+    return `/avatars/female-${String(num).padStart(3, '0')}.webp`;
   }
 
   // Default to male avatars for 'male' and 'unknown' genders
   const num = (hash % MALE_AVATAR_COUNT) + 1;
-  return `/avatars/male-${String(num).padStart(3, '0')}.png`;
+  return `/avatars/male-${String(num).padStart(3, '0')}.webp`;
 }
 
 /**

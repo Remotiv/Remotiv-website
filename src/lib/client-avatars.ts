@@ -39,7 +39,7 @@ export function getClientAvatarUrl(
   const num = (hashString(fullName) % count) + 1;
   const padded = String(num).padStart(3, "0");
   const folder = gender === "female" ? "female" : "male";
-  return `/client-avatars/${folder}-${padded}.png`;
+  return `/client-avatars/${folder}-${padded}.webp`;
 }
 
 // Re-export getInitials so consumers of this module don't need a second
