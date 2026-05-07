@@ -816,6 +816,7 @@ export function TeamDashboard({
                     id="tm-name"
                     type="text"
                     required
+                    aria-required="true"
                     placeholder="e.g. Waleed Khan"
                     className={INPUT_CLS}
                     value={form.full_name}
@@ -851,6 +852,7 @@ export function TeamDashboard({
                     id="tm-email"
                     type="email"
                     required
+                    aria-required="true"
                     placeholder="name@remotiv.work"
                     className={INPUT_CLS}
                     value={form.email}
@@ -1152,13 +1154,18 @@ export function TeamDashboard({
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
           onClick={(e) => { if (e.target === e.currentTarget) setConfirmDeleteId(null); }}
         >
-          <div className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="remove-member-title"
+            className="w-full max-w-sm rounded-2xl bg-white p-6 shadow-xl"
+          >
             <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-red-50">
               <AlertTriangle className="size-5 text-red-500" strokeWidth={2} />
             </div>
-            <h2 className="font-heading text-base font-bold text-[#111]">Remove Member?</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              This will permanently delete this team member. This action cannot be undone.
+            <h2 id="remove-member-title" className="font-heading text-base font-bold text-[#111]">Remove team member?</h2>
+            <p className="mt-2 text-sm text-gray-500">
+              This permanently deletes their team_members row and revokes admin login. This action cannot be undone.
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">
               <button
@@ -1171,7 +1178,7 @@ export function TeamDashboard({
               <button
                 type="button"
                 onClick={handleConfirmRemove}
-                className="rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-600"
+                className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700"
               >
                 Remove
               </button>

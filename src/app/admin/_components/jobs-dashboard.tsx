@@ -879,15 +879,15 @@ export function JobsDashboard({
             <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-red-50">
               <AlertTriangle className="size-5 text-red-500" strokeWidth={2} />
             </div>
-            <h2 id="delete-job-title" className="font-heading text-base font-bold text-[#111]">Delete Job?</h2>
-            <p className="mt-2 text-sm text-gray-400">
-              This will permanently remove this job posting and it will no longer appear on the public site.
+            <h2 id="delete-job-title" className="font-heading text-base font-bold text-[#111]">Delete job?</h2>
+            <p className="mt-2 text-sm text-gray-500">
+              This permanently removes the job posting from the public site. This action cannot be undone.
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">
               <button type="button" onClick={() => setConfirmDeleteId(null)} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
                 Cancel
               </button>
-              <button type="button" onClick={handleConfirmDelete} className="rounded-xl bg-red-500 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-600">
+              <button type="button" onClick={handleConfirmDelete} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700">
                 Delete
               </button>
             </div>

@@ -113,13 +113,14 @@ function ChangePasswordForm() {
                 htmlFor="cp-new"
                 className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400"
               >
-                New Password
+                New Password <span className="text-red-500" aria-hidden="true">*</span>
               </label>
               <div className="relative">
                 <input
                   id="cp-new"
                   type={showNew ? "text" : "password"}
                   required
+                  aria-required="true"
                   autoFocus
                   autoComplete="new-password"
                   value={newPassword}
@@ -143,13 +144,14 @@ function ChangePasswordForm() {
                 htmlFor="cp-confirm"
                 className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400"
               >
-                Confirm New Password
+                Confirm New Password <span className="text-red-500" aria-hidden="true">*</span>
               </label>
               <div className="relative">
                 <input
                   id="cp-confirm"
                   type={showConfirm ? "text" : "password"}
                   required
+                  aria-required="true"
                   autoComplete="new-password"
                   value={confirmPassword}
                   onChange={(e) => setConfirmPassword(e.target.value)}

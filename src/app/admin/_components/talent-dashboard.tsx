@@ -757,7 +757,7 @@ function ProfileDrawer({
               type="button"
               onClick={handleSaveNote}
               disabled={savingNote}
-              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-gray-900 py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="mt-2 flex w-full items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple py-2.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Save className="size-3.5" strokeWidth={2} />
               {savingNote ? "Saving…" : "Save Note"}
@@ -1460,7 +1460,7 @@ export function TalentDashboard({
                 type="button"
                 onClick={() => deleteTarget && handleDelete(deleteTarget)}
                 disabled={deleting} aria-busy={deleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
               </button>

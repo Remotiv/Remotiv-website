@@ -754,7 +754,7 @@ export function MoveToTalentModal({
             type="button"
             onClick={handleSubmit}
             disabled={submitting} aria-busy={submitting}
-            className="flex items-center gap-2 rounded-xl bg-remotiv-green px-5 py-2.5 text-sm font-semibold text-[#1a4f3a] transition-opacity hover:opacity-90 disabled:opacity-60"
+            className="flex items-center gap-2 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
           >
             <UserCheck className="size-4" strokeWidth={2.5} />
             {submitting ? "Moving…" : "Move to Talent"}

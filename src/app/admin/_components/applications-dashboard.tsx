@@ -1175,7 +1175,7 @@ export function ApplicationsDashboard({
                 type="button"
                 onClick={handleDelete}
                 disabled={deleting} aria-busy={deleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
               </button>
@@ -1633,7 +1633,7 @@ function BulkUploadCVModal({
                 type="button"
                 onClick={processFiles}
                 disabled={files.length === 0}
-                className="mt-6 w-full rounded-xl bg-gray-900 py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
+                className="mt-6 w-full rounded-xl bg-remotiv-purple py-3.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40"
               >
                 Process CVs
               </button>
@@ -2117,7 +2117,7 @@ function BulkUploadCVModal({
                   type="button"
                   onClick={submitSelected}
                   disabled={submitting || selectedRows === 0}
-                  className="w-full rounded-xl bg-gray-900 px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto sm:py-2.5"
+                  className="w-full rounded-xl bg-remotiv-purple px-6 py-3 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-40 sm:w-auto sm:py-2.5"
                 >
                   {submitting ? "Uploading…" : `Submit Selected (${selectedRows})`}
                 </button>

@@ -150,12 +150,13 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
                   htmlFor="cl-email"
                   className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400"
                 >
-                  Email
+                  Email <span className="text-red-500" aria-hidden="true">*</span>
                 </label>
                 <input
                   id="cl-email"
                   type="email"
                   required
+                  aria-required="true"
                   autoFocus
                   autoComplete="email"
                   value={email}
@@ -170,13 +171,14 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
                   htmlFor="cl-password"
                   className="mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400"
                 >
-                  Password
+                  Password <span className="text-red-500" aria-hidden="true">*</span>
                 </label>
                 <div className="relative">
                   <input
                     id="cl-password"
                     type={showPassword ? "text" : "password"}
                     required
+                    aria-required="true"
                     autoComplete="current-password"
                     value={password}
                     onChange={(e) => setPassword(e.target.value)}

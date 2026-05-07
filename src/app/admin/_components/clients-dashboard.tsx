@@ -1400,7 +1400,7 @@ export function ClientsDashboard({
                 type="button"
                 onClick={() => deleteTarget && handleDelete(deleteTarget)}
                 disabled={deleting} aria-busy={deleting}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
               </button>

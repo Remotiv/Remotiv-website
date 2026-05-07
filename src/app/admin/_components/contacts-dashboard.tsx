@@ -289,7 +289,7 @@ function InquiryDrawer({
               type="button"
               onClick={handleSaveNotes}
               disabled={savingNotes} aria-busy={savingNotes}
-              className="mt-2 flex items-center gap-1.5 rounded-xl bg-gray-900 px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              className="mt-2 flex items-center gap-1.5 rounded-xl bg-remotiv-purple px-4 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
             >
               <Save className="size-3.5" strokeWidth={2} />
               {savingNotes ? "Saving…" : "Save Notes"}
@@ -316,7 +316,7 @@ function InquiryDrawer({
                       type="button"
                       onClick={handleDelete}
                       disabled={deleting} aria-busy={deleting}
-                      className="flex-1 rounded-lg bg-red-500 px-3 py-2 text-xs font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                      className="flex-1 rounded-lg bg-red-600 px-3 py-2 text-xs font-semibold text-white hover:bg-red-700 disabled:opacity-50"
                     >
                       {deleting ? "Deleting…" : "Delete"}
                     </button>

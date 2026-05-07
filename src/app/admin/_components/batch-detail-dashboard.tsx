@@ -981,7 +981,7 @@ function AddCandidatePicker({
           <button
             type="button"
             onClick={onClose}
-            className="w-full rounded-xl bg-gray-900 py-2.5 text-xs font-semibold text-white hover:opacity-90"
+            className="w-full rounded-xl bg-remotiv-purple py-2.5 text-xs font-semibold text-white hover:opacity-90"
           >
             Done
           </button>
@@ -1178,7 +1178,7 @@ export function BatchDetailDashboard({
             <button
               type="button"
               onClick={() => setShowPicker(true)}
-              className="flex min-h-11 items-center gap-2 rounded-xl bg-remotiv-green px-4 py-2.5 text-sm font-semibold text-[#1a4f3a] hover:opacity-90 lg:px-5"
+              className="flex min-h-11 items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white hover:opacity-90 lg:px-5"
             >
               <Plus className="size-4" strokeWidth={2.5} />
               <span className="lg:inline">Add Candidate</span>
@@ -1510,7 +1510,7 @@ export function BatchDetailDashboard({
                 type="button"
                 onClick={handleRemove}
                 disabled={removing} aria-busy={removing}
-                className="flex-1 rounded-xl bg-red-500 py-2.5 text-sm font-semibold text-white hover:opacity-90 disabled:opacity-50"
+                className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white hover:bg-red-700 disabled:opacity-50"
               >
                 {removing ? "Removing…" : "Remove"}
               </button>
