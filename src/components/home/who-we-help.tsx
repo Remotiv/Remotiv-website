@@ -1,4 +1,4 @@
-import { ArrowUpRight } from "lucide-react";
+import { ArrowRight } from "lucide-react";
 
 const CARDS = [
   {
@@ -37,7 +37,7 @@ export function WhoWeHelp() {
   return (
     <section className="bg-white px-6 pt-12 pb-0 sm:px-14">
       <div className="mx-auto max-w-7xl">
-        <h2 className="mb-16 text-center font-heading text-3xl font-bold tracking-tight text-remotiv-text-dark sm:text-4xl md:text-[42px] md:leading-[1.15]">
+        <h2 className="mb-16 text-center font-heading text-[clamp(2rem,3.8vw,2.6rem)] font-extrabold leading-tight tracking-tight text-[#111]">
           Built for{" "}
           <span className="relative inline-block">
             <span
@@ -49,32 +49,35 @@ export function WhoWeHelp() {
           , agencies &amp; scaling teams
         </h2>
 
-        <div className="mt-10 grid gap-6 md:grid-cols-3">
+        <div className="mt-10 grid gap-5 md:grid-cols-3">
           {CARDS.map((card) => (
             <div
               key={card.title}
-              className="group relative flex min-h-[420px] flex-col rounded-2xl border border-gray-200 bg-white p-7 transition-colors duration-350 hover:border-remotiv-purple hover:bg-remotiv-purple"
+              className="group relative flex min-h-[420px] flex-col rounded-2xl border border-gray-200 bg-white pt-9 px-8 pb-10 transition-colors duration-350 hover:border-remotiv-purple hover:bg-remotiv-purple"
             >
-              <div className="flex items-start justify-between">
-                <h3 className="font-heading text-2xl font-bold text-remotiv-text-dark transition-colors duration-350 group-hover:text-white">
+              <div className="flex min-h-[88px] items-start justify-between">
+                <h3 className="font-heading text-[1.9rem] font-extrabold tracking-[-0.025em] text-[#111] transition-colors duration-350 group-hover:text-white">
                   {card.title}
                 </h3>
-                <span className="flex size-10 shrink-0 items-center justify-center rounded-full border border-gray-200 transition-colors duration-350 group-hover:border-white group-hover:bg-white">
-                  <ArrowUpRight className="size-4 text-remotiv-text-dark transition-colors duration-350 group-hover:text-remotiv-purple" />
+                <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full border border-gray-200 transition-colors duration-350 group-hover:border-white group-hover:bg-white">
+                  <ArrowRight
+                    className="size-4 text-remotiv-text-dark transition-colors duration-350 group-hover:text-remotiv-purple"
+                    strokeWidth={2}
+                  />
                 </span>
               </div>
 
               <div className="flex-1" />
 
-              <div className="border-t border-gray-200 pt-5 transition-colors duration-350 group-hover:border-white/30">
-                <p className="text-sm leading-relaxed text-remotiv-text-mid transition-colors duration-350 group-hover:text-white/90">
+              <div className="border-t border-gray-200 pt-5 transition-colors duration-350 group-hover:border-white/20">
+                <p className="min-h-[72px] font-sans text-[0.9rem] font-normal leading-[1.7] text-[#666] transition-colors duration-350 group-hover:text-white/75">
                   {card.description}
                 </p>
-                <ul className="mt-4 space-y-2.5">
+                <ul className="mt-4 space-y-2">
                   {card.bullets.map((bullet) => (
-                    <li key={bullet} className="flex items-center gap-2.5 text-sm">
-                      <span className="size-2 shrink-0 rounded-full bg-remotiv-green transition-colors duration-350 group-hover:bg-white" />
-                      <span className="text-remotiv-text-dark transition-colors duration-350 group-hover:text-white">
+                    <li key={bullet} className="flex items-start gap-3">
+                      <span className="mt-1.5 size-[5px] flex-shrink-0 rounded-full bg-remotiv-green transition-colors duration-350 group-hover:bg-white/60" />
+                      <span className="font-sans text-[0.82rem] font-normal leading-[1.5] text-[#555] transition-colors duration-350 group-hover:text-white/80">
                         {bullet}
                       </span>
                     </li>

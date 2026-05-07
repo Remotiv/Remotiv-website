@@ -62,30 +62,38 @@ export function VettingProcess() {
 
   return (
     <section ref={sectionRef} className="bg-white px-6 pb-12 pt-0 md:px-[60px]">
-      <div className="mx-auto max-w-[820px]">
-        <span className="mb-4 inline-block rounded-full bg-remotiv-green/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-remotiv-green">
-          Our Vetting Process
-        </span>
-        <h2 className="font-heading text-3xl font-bold leading-tight text-remotiv-text-dark sm:text-4xl lg:text-[2.75rem]">
-          How We Deliver The <span className="text-remotiv-green">Top 1% of Talent</span> To Your
-          Next Hire
+      <div className="max-w-[820px]">
+        <div className="mb-7 inline-flex items-center gap-2.5">
+          <span className="block h-px w-7 bg-[#111]" />
+          <span className="font-sans text-[0.62rem] font-bold uppercase tracking-[0.18em] text-[#111]">
+            Our Vetting Process
+          </span>
+        </div>
+
+        <h2 className="mb-5 font-heading text-[clamp(2.4rem,4.5vw,4.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111]">
+          How We Deliver The
+          <br />
+          <em className="not-italic text-remotiv-green">Top 1% of Talent</em>
+          <br />
+          To Your Next Hire
         </h2>
-        <p className="mt-4 max-w-xl text-base leading-relaxed text-remotiv-text-light">
+
+        <p className="mb-16 max-w-[520px] font-sans text-[0.95rem] font-normal leading-[1.75] text-[#777]">
           Every candidate goes through our AI-powered 4-stage vetting process. You only see
           who&apos;s already passed.
         </p>
 
-        <div className="relative mt-14">
-          <div className="absolute left-[15px] top-0 h-full w-[2px] bg-gray-200 md:left-[19px]">
+        <div className="relative">
+          <div className="absolute left-0 top-1.5 bottom-1.5 w-[2px] bg-[rgba(126,71,255,0.15)]">
             <div
-              className="w-full bg-remotiv-purple transition-all duration-500 ease-out"
+              className="w-full bg-remotiv-purple ease transition-[height] duration-300"
               style={{ height: `${progressPercent}%` }}
             />
           </div>
 
-          <div className="space-y-10">
+          <div className="space-y-14">
             {STEPS.map((step, i) => {
-              const isActive = i <= activeIndex;
+              const isActive = i === activeIndex;
 
               return (
                 <div
@@ -95,33 +103,28 @@ export function VettingProcess() {
                   }}
                   className="relative pl-12 md:pl-14"
                 >
-                  <div
+                  <span
                     className={cn(
-                      "absolute left-[9px] top-1 size-[14px] rounded-full border-2 transition-colors duration-300 md:left-[13px]",
+                      "absolute left-[-5px] top-1.5 size-3 rounded-full border-2 transition-all duration-300",
                       isActive
-                        ? "border-remotiv-purple bg-remotiv-purple"
-                        : "border-gray-300 bg-white",
+                        ? "border-remotiv-purple bg-remotiv-purple shadow-[0_0_16px_rgba(126,71,255,0.35)]"
+                        : "border-[rgba(126,71,255,0.2)] bg-white",
                     )}
                   />
 
-                  <div className="flex items-center gap-3">
-                    <span
-                      className={cn(
-                        "font-heading text-xs font-bold tracking-widest transition-colors duration-300",
-                        isActive ? "text-remotiv-purple" : "text-remotiv-text-light",
-                      )}
-                    >
-                      {step.number}
-                    </span>
-                    <span className="rounded-full bg-gray-100 px-3 py-0.5 text-[11px] font-medium text-remotiv-text-mid">
-                      {step.tag}
-                    </span>
+                  <div
+                    className={cn(
+                      "font-sans text-[0.58rem] font-bold uppercase tracking-[0.14em] transition-colors duration-300",
+                      isActive ? "text-[rgba(126,71,255,0.45)]" : "text-[rgba(0,0,0,0.18)]",
+                    )}
+                  >
+                    {step.number}
                   </div>
 
                   <h3
                     className={cn(
-                      "mt-2 font-heading text-lg font-bold transition-colors duration-300",
-                      isActive ? "text-remotiv-purple" : "text-remotiv-text-dark",
+                      "mt-2 font-heading text-[clamp(1rem,1.8vw,1.15rem)] font-bold uppercase tracking-[0.04em] transition-colors duration-300",
+                      isActive ? "text-remotiv-purple" : "text-[rgba(0,0,0,0.18)]",
                     )}
                   >
                     {step.title}
@@ -129,11 +132,22 @@ export function VettingProcess() {
 
                   <div
                     className={cn(
-                      "overflow-hidden transition-all duration-500 ease-out",
-                      isActive ? "mt-2 max-h-40 opacity-100" : "max-h-0 opacity-0",
+                      "mt-2 font-sans text-[0.6rem] font-bold uppercase tracking-[0.12em] text-remotiv-green transition-opacity duration-300",
+                      isActive ? "opacity-100" : "opacity-0",
                     )}
                   >
-                    <p className="text-sm leading-relaxed text-remotiv-text-light">{step.body}</p>
+                    {step.tag}
+                  </div>
+
+                  <div
+                    className={cn(
+                      "overflow-hidden transition-all duration-500 ease-out",
+                      isActive ? "mt-3 max-h-[200px] opacity-100" : "max-h-0 opacity-0",
+                    )}
+                  >
+                    <p className="font-sans text-[0.9rem] font-normal leading-[1.8] text-[#555]">
+                      {step.body}
+                    </p>
                   </div>
                 </div>
               );
@@ -141,17 +155,17 @@ export function VettingProcess() {
           </div>
         </div>
 
-        <div className="mt-14 rounded-2xl border border-remotiv-green/20 bg-remotiv-green/5 px-6 py-5">
-          <p className="text-sm leading-relaxed text-remotiv-text-mid">
-            Only the top 1% of candidates reach you — AI-matched, human-verified, and ready from day
-            one.
+        <div className="mt-14 mb-10 rounded-xl border border-remotiv-green/20 bg-remotiv-green/[0.04] px-8 py-7">
+          <p className="font-sans text-[0.9rem] font-normal leading-[1.8] text-[#555]">
+            Only the <strong className="font-bold text-remotiv-green">top 1% of candidates</strong>{" "}
+            reach you — AI-matched, human-verified, and ready from day one.
           </p>
         </div>
 
-        <div className="mt-10">
+        <div>
           <Link
             href="/book-a-meeting"
-            className="inline-flex items-center rounded-lg bg-remotiv-green px-8 py-3.5 text-base font-semibold text-remotiv-text-dark shadow-lg shadow-remotiv-green/30 transition-all hover:-translate-y-0.5 hover:shadow-xl hover:shadow-remotiv-green/40"
+            className="inline-flex items-center gap-2 rounded-lg bg-remotiv-green px-9 py-4 font-heading text-[0.78rem] font-bold uppercase tracking-[0.08em] text-[#111] transition-colors duration-200 hover:bg-[#3bc495]"
           >
             Get Your Shortlist Now →
           </Link>

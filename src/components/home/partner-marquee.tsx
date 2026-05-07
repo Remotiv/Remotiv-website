@@ -1,28 +1,45 @@
 import Image from "next/image";
 
-const PARTNERS = [
-  "berlitz",
-  "cogent",
-  "acumen",
-  "circle",
-  "agency-partner",
-  "digilatics",
-  "marketrove",
+/**
+ * "Trusted by leading companies worldwide" partner-logo marquee.
+ *
+ * Pixel-matched to the reference HTML's #partner-marquee block:
+ *   - 26s linear-infinite scroll (paused on hover)
+ *   - 75%-wide cream rounded card on a white outer section
+ *   - Logos at 28 px tall, full colour (no grayscale / opacity dim)
+ *   - Warm beige-grey 1×26 px dividers between each logo
+ *   - 48 px fade gradients at both edges to soften the loop seam
+ *
+ * Logos live at /public/logos/*.webp (compressed from PNG @ 56 px tall
+ * for retina sharpness, ~3-7 KB each).
+ */
+
+const LOGOS = [
+  { src: "/logos/berlitz.webp", alt: "Berlitz" },
+  { src: "/logos/cogent.webp", alt: "Cogent" },
+  { src: "/logos/circle.webp", alt: "Circle" },
+  { src: "/logos/unlayer.webp", alt: "Unlayer" },
+  { src: "/logos/agency-partner.webp", alt: "Agency Partner" },
+  { src: "/logos/digilatics.webp", alt: "Digilatics" },
+  { src: "/logos/marketrove.webp", alt: "Marketrove" },
 ];
 
 function LogoTrack() {
   return (
-    <div className="flex shrink-0 items-center gap-12">
-      {PARTNERS.map((name) => (
-        <div key={name} className="flex items-center gap-12">
+    <div className="flex shrink-0 items-center gap-10">
+      {LOGOS.map((logo) => (
+        <div key={logo.src} className="flex items-center gap-10">
           <Image
-            src={`/logos/${name}.png`}
-            alt={name}
+            src={logo.src}
+            alt={logo.alt}
             width={120}
-            height={40}
-            className="h-8 w-auto object-contain opacity-70 grayscale transition-all hover:opacity-100 hover:grayscale-0"
+            height={28}
+            className="h-7 w-auto"
           />
-          <span className="h-6 w-px bg-gray-300" aria-hidden="true" />
+          <span
+            className="h-[26px] w-px bg-[#d9d3cd]"
+            aria-hidden="true"
+          />
         </div>
       ))}
     </div>
@@ -33,18 +50,18 @@ export function PartnerMarquee() {
   return (
     <section className="flex w-full justify-center bg-white pt-[52px] pb-8">
       <div className="flex w-[75%] flex-col items-center overflow-hidden rounded-2xl bg-remotiv-bg py-[26px]">
-        <h2 className="mb-6 text-center text-[15px] font-medium text-remotiv-text-mid">
+        <h2 className="mb-5 text-center text-[15px] font-medium text-[#111]">
           Trusted by leading companies worldwide
         </h2>
 
         {/* Marquee wrapper */}
         <div className="group relative w-full overflow-hidden">
-          {/* Fade edges */}
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-16 bg-gradient-to-r from-remotiv-bg to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-16 bg-gradient-to-l from-remotiv-bg to-transparent" />
+          {/* Fade edges — 48 px each, matches the reference */}
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-remotiv-bg to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-remotiv-bg to-transparent" />
 
-          {/* Scrolling track */}
-          <div className="flex w-max animate-[marquee_30s_linear_infinite] gap-12 group-hover:[animation-play-state:paused]">
+          {/* Scrolling track — 26s linear, pauses on hover */}
+          <div className="flex w-max animate-[marquee_26s_linear_infinite] gap-10 group-hover:[animation-play-state:paused]">
             <LogoTrack />
             <LogoTrack />
           </div>

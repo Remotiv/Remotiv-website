@@ -54,60 +54,88 @@ function useCounter(target: number, duration = 1800, active = false) {
 
 type CircleColor = "purple" | "beige" | "green";
 
-const CIRCLE_STYLES: Record<CircleColor, { bg: string; ring: string; text: string }> = {
+const CIRCLE_STYLES: Record<CircleColor, { bg: string; ringBorder: string }> = {
   purple: {
     bg: "bg-remotiv-purple",
-    ring: "border-remotiv-purple/25",
-    text: "text-white",
+    ringBorder: "border-remotiv-purple/25",
   },
   beige: {
     bg: "bg-[#EEEEE8]",
-    ring: "border-[#e0d5c9]",
-    text: "text-remotiv-text-dark",
+    ringBorder: "border-black/[0.08]",
   },
   green: {
     bg: "bg-remotiv-green",
-    ring: "border-remotiv-green/30",
-    text: "text-[#0a3d2a]",
+    ringBorder: "border-remotiv-green/35",
   },
 };
 
+type CircleNumberSpec = {
+  leading: string;
+  suffix: string;
+  numberSize: string;
+  numberColor: string;
+  suffixEm: string;
+  suffixColor: string;
+  suffixOpacity?: number;
+};
+
 function StatCircle({
-  value,
   label,
+  labelColor,
   color,
   size = 220,
+  spec,
   animate,
   visible,
 }: {
-  value: string;
-  label: string;
+  label: React.ReactNode;
+  labelColor: string;
   color: CircleColor;
   size?: number;
-  animate?: { target: number; suffix: string };
+  spec: Omit<CircleNumberSpec, "leading"> & { leading?: string };
+  animate?: { target: number };
   visible: boolean;
 }) {
   const counter = useCounter(animate?.target ?? 0, 1800, visible && !!animate);
   const c = CIRCLE_STYLES[color];
 
+  const leadingText = animate ? String(counter) : (spec.leading ?? "");
+
   return (
     <div
-      className="relative flex items-center justify-center"
+      className="relative flex shrink-0 items-center justify-center"
       style={{ width: size, height: size }}
     >
-      <div className={`absolute inset-0 rounded-full border-2 ${c.ring}`} style={{ margin: -12 }} />
       <div
-        className={`flex flex-col items-center justify-center rounded-full ${c.bg} ${c.text}`}
+        className={`absolute inset-0 rounded-full border ${c.ringBorder}`}
+        style={{ margin: -12 }}
+      />
+      <div
+        className={`flex flex-col items-center justify-center rounded-full p-7 text-center ${c.bg}`}
         style={{ width: size, height: size }}
       >
-        <span className="font-heading text-4xl font-bold leading-none">
-          {animate ? `${counter}${animate.suffix}` : value}
-        </span>
-        <span
-          className={`mt-2 max-w-[140px] text-center text-sm font-medium leading-tight ${color === "green" ? "" : "opacity-80"}`}
+        <div
+          className="font-heading font-black leading-none tracking-[-0.04em]"
+          style={{ fontSize: spec.numberSize, color: spec.numberColor }}
+        >
+          {leadingText}
+          <span
+            className="font-black"
+            style={{
+              fontSize: spec.suffixEm,
+              color: spec.suffixColor,
+              opacity: spec.suffixOpacity,
+            }}
+          >
+            {spec.suffix}
+          </span>
+        </div>
+        <div
+          className="mt-1 font-sans text-[0.72rem] font-semibold leading-[1.4]"
+          style={{ color: labelColor }}
         >
           {label}
-        </span>
+        </div>
       </div>
     </div>
   );
@@ -125,9 +153,9 @@ function AnimatedLine({
   const lineColor = color === "purple" ? "#7E47FF" : "#49D7A7";
 
   return (
-    <div className="relative flex h-[2px] w-full items-center">
+    <div className="relative flex h-px w-full items-center">
       <div
-        className="h-[2px] w-full transition-transform duration-1000 ease-out"
+        className="h-px w-full transition-transform ease-[cubic-bezier(0.4,0,0.2,1)] duration-[1300ms]"
         style={{
           backgroundColor: lineColor,
           transformOrigin: direction === "ltr" ? "left" : "right",
@@ -135,52 +163,67 @@ function AnimatedLine({
         }}
       />
       <div
-        className="absolute top-1/2 size-3 -translate-y-1/2 rounded-full transition-opacity duration-500"
+        className="absolute top-1/2 size-2.5 -translate-y-1/2 rounded-full transition-opacity ease-[cubic-bezier(0.4,0,0.2,1)] duration-[1300ms]"
         style={{
           backgroundColor: lineColor,
           opacity: visible ? 1 : 0,
-          transitionDelay: visible ? "800ms" : "0ms",
-          ...(direction === "ltr" ? { right: -6 } : { left: -6 }),
+          ...(direction === "ltr" ? { right: -5 } : { left: -5 }),
         }}
       />
     </div>
   );
 }
 
-function SectionLabel({ children }: { children: React.ReactNode }) {
+function Eyebrow({ label, color }: { label: string; color: string }) {
   return (
-    <span className="mb-3 inline-block rounded-full bg-remotiv-green/10 px-4 py-1.5 text-xs font-semibold uppercase tracking-wider text-remotiv-green">
-      {children}
-    </span>
+    <div className="mb-4 inline-flex items-center gap-2.5">
+      <span className="block h-px w-[22px]" style={{ backgroundColor: color }} />
+      <span
+        className="font-sans text-[0.58rem] font-bold uppercase tracking-[0.2em]"
+        style={{ color }}
+      >
+        {label}
+      </span>
+    </div>
   );
 }
 
 function SectionContent({
   label,
+  eyebrowColor,
   headline,
+  accentWord,
   accentColor,
   description,
-  accentWord,
+  align = "left",
 }: {
   label: string;
+  eyebrowColor: string;
   headline: string;
+  accentWord: string;
   accentColor: "purple" | "green";
   description: string;
-  accentWord: string;
+  align?: "left" | "center";
 }) {
-  const colorClass = accentColor === "purple" ? "text-[#7E47FF]" : "text-remotiv-green";
-
+  const accentClass = accentColor === "purple" ? "text-remotiv-purple" : "text-remotiv-green";
   const parts = headline.split(accentWord);
+  const isCenter = align === "center";
 
   return (
-    <div className="flex flex-col">
-      <SectionLabel>{label}</SectionLabel>
-      <h3 className="font-heading text-2xl font-bold leading-tight text-remotiv-text-dark lg:text-3xl">
+    <div className={`flex flex-col ${isCenter ? "items-center text-center" : "items-start"}`}>
+      <Eyebrow label={label} color={eyebrowColor} />
+      <h3 className="font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-tight tracking-tight text-[#111]">
         {parts[0]}
-        <span className={colorClass}>{accentWord}</span>
+        <em className={`not-italic ${accentClass}`}>{accentWord}</em>
         {parts[1] ?? ""}
       </h3>
-      <p className="mt-3 max-w-sm text-sm leading-relaxed text-remotiv-text-light">{description}</p>
+      <p
+        className={`mt-3.5 font-sans text-[0.86rem] font-normal leading-[1.75] text-[#777] ${
+          isCenter ? "max-w-[300px]" : "max-w-md"
+        }`}
+      >
+        {description}
+      </p>
     </div>
   );
 }
@@ -188,19 +231,33 @@ function SectionContent({
 function Row1() {
   const { ref, visible } = useInView(0.3);
   return (
-    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_auto]">
+    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_220px]">
       <SectionContent
         label="AI-Powered Talent"
+        eyebrowColor="#111"
         headline="The world's most intelligent talent database"
         accentWord="intelligent"
         accentColor="purple"
         description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
       />
-      <div className="hidden md:block">
+      <div className="hidden px-6 md:block">
         <AnimatedLine direction="ltr" color="purple" visible={visible} />
       </div>
       <div className="flex justify-center md:justify-end">
-        <StatCircle value="1M+" label="Talent Profiles" color="purple" visible={visible} />
+        <StatCircle
+          color="purple"
+          spec={{
+            leading: "1M",
+            suffix: "+",
+            numberSize: "2.8rem",
+            numberColor: "#fff",
+            suffixEm: "0.42em",
+            suffixColor: "rgba(255,255,255,0.7)",
+          }}
+          label="Talent Profiles"
+          labelColor="rgba(255,255,255,0.85)"
+          visible={visible}
+        />
       </div>
     </div>
   );
@@ -209,27 +266,62 @@ function Row1() {
 function Row2() {
   const { ref, visible } = useInView(0.3);
   return (
-    <div ref={ref} className="grid items-center gap-8 md:grid-cols-3">
+    <div
+      ref={ref}
+      className="grid items-center gap-12 md:grid-cols-[220px_1fr_220px]"
+    >
       <div className="flex justify-center md:justify-start">
         <StatCircle
-          value=""
-          label="Successful Placements"
           color="beige"
-          animate={{ target: 200, suffix: "+" }}
+          spec={{
+            suffix: "+",
+            numberSize: "2.8rem",
+            numberColor: "#111",
+            suffixEm: "0.36em",
+            suffixColor: "#AAA",
+          }}
+          label={
+            <>
+              Successful
+              <br />
+              Placements
+            </>
+          }
+          labelColor="#555"
+          animate={{ target: 200 }}
           visible={visible}
         />
       </div>
-      <div className="flex justify-center">
-        <SectionContent
-          label="Track Record"
-          headline="Proven results, global reach"
-          accentWord="global"
-          accentColor="purple"
-          description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
-        />
-      </div>
+      <SectionContent
+        label="Track Record"
+        eyebrowColor="#7E47FF"
+        headline="Proven results, global reach"
+        accentWord="global reach"
+        accentColor="purple"
+        description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
+        align="center"
+      />
       <div className="flex justify-center md:justify-end">
-        <StatCircle value="85%" label="Client Retention Rate" color="beige" visible={visible} />
+        <StatCircle
+          color="beige"
+          spec={{
+            leading: "85",
+            suffix: "%",
+            numberSize: "2.8rem",
+            numberColor: "#111",
+            suffixEm: "0.42em",
+            suffixColor: "#AAA",
+          }}
+          label={
+            <>
+              Client Retention
+              <br />
+              Rate
+            </>
+          }
+          labelColor="#555"
+          visible={visible}
+        />
       </div>
     </div>
   );
@@ -238,16 +330,36 @@ function Row2() {
 function Row3() {
   const { ref, visible } = useInView(0.3);
   return (
-    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[auto_1fr_1fr]">
+    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[220px_1fr_1fr]">
       <div className="flex justify-center md:justify-start">
-        <StatCircle value="24hrs" label="Shortlist Delivery" color="green" visible={visible} />
+        <StatCircle
+          color="green"
+          spec={{
+            leading: "24",
+            suffix: "hrs",
+            numberSize: "2.3rem",
+            numberColor: "#0A3D2A",
+            suffixEm: "0.4em",
+            suffixColor: "#0A3D2A",
+          }}
+          label={
+            <>
+              Shortlist
+              <br />
+              Delivery
+            </>
+          }
+          labelColor="#0A3D2A"
+          visible={visible}
+        />
       </div>
-      <div className="hidden md:block">
+      <div className="hidden px-6 md:block">
         <AnimatedLine direction="rtl" color="green" visible={visible} />
       </div>
       <div className="flex justify-center md:justify-end">
         <SectionContent
           label="Speed of Hire"
+          eyebrowColor="#49D7A7"
           headline="Your shortlist, in 24 hours"
           accentWord="24 hours"
           accentColor="green"
@@ -261,7 +373,7 @@ function Row3() {
 export function StatsCircles() {
   return (
     <section className="bg-white px-6 py-20 md:px-16">
-      <div className="mx-auto max-w-6xl space-y-20 lg:space-y-24">
+      <div className="mx-auto space-y-20">
         <Row1 />
         <Row2 />
         <Row3 />

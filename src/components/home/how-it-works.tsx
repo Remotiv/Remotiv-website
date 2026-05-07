@@ -1,40 +1,6 @@
 "use client";
 
-// Consolidated Avatar component - replaces 6 near-identical components
-type AvatarVariant = "aisha" | "rayan" | "sara" | "teal" | "purple" | "peach";
-
-const AVATAR_CONFIG: Record<AvatarVariant, { skinTone: string; hairColor: string; size: number }> =
-  {
-    aisha: { skinTone: "#e8c8d0", hairColor: "#2a2a2a", size: 28 },
-    rayan: { skinTone: "#d4b896", hairColor: "#1a1a1a", size: 28 },
-    sara: { skinTone: "#f0c8a0", hairColor: "#1a1a1a", size: 28 },
-    teal: { skinTone: "#d4b896", hairColor: "#1a1a1a", size: 22 },
-    purple: { skinTone: "#e8c8d0", hairColor: "#2a2a2a", size: 22 },
-    peach: { skinTone: "#f0c8a0", hairColor: "#1a1a1a", size: 22 },
-  };
-
-function Avatar({ variant, customSize }: { variant: AvatarVariant; customSize?: number }) {
-  const config = AVATAR_CONFIG[variant];
-  const size = customSize ?? config.size;
-  const { skinTone, hairColor } = config;
-
-  return (
-    <svg
-      width={size}
-      height={size}
-      viewBox="0 0 40 40"
-      fill="none"
-      aria-hidden="true"
-      focusable="false"
-    >
-      <ellipse cx="20" cy="13" rx="5.5" ry="6" fill={skinTone} />
-      <path d="M13 10 Q14 4 20 4 Q27 4 27 10" fill={hairColor} />
-      <circle cx="17" cy="13" r="1" fill={hairColor} />
-      <circle cx="23" cy="13" r="1" fill={hairColor} />
-      <path d="M12 22 Q20 38 28 22 Q28 34 20 35 Q12 34 12 22Z" fill={hairColor} />
-    </svg>
-  );
-}
+import Link from "next/link";
 
 function ChatCheck() {
   return (
@@ -161,20 +127,41 @@ export function HowItWorks() {
           <div className="mt-auto rounded-[16px] bg-white p-3 shadow-sm">
             <div className="mb-2 flex gap-2">
               <div className="flex flex-col items-center gap-1">
-                <div className="flex size-[38px] items-center justify-center rounded-full bg-[#e8e0f8]">
-                  <Avatar variant="aisha" />
+                <div className="flex size-[38px] items-center justify-center overflow-hidden rounded-full bg-[#e8e0f8]">
+                  {/* biome-ignore lint/performance/noImgElement: tiny 1.9KB local WebP, simpler than next/image here */}
+                  <img
+                    src="/team-avatars/aisha.webp"
+                    alt="Aisha"
+                    width={38}
+                    height={38}
+                    className="h-full w-full rounded-full object-cover"
+                  />
                 </div>
                 <span className="text-[10px] text-[#888]">Aisha</span>
               </div>
               <div className="flex flex-col items-center gap-1">
-                <div className="flex size-[38px] items-center justify-center rounded-full bg-[#d4ede8]">
-                  <Avatar variant="rayan" />
+                <div className="flex size-[38px] items-center justify-center overflow-hidden rounded-full bg-[#d4ede8]">
+                  {/* biome-ignore lint/performance/noImgElement: tiny local WebP, simpler than next/image here */}
+                  <img
+                    src="/team-avatars/rayan.webp"
+                    alt="Rayan"
+                    width={38}
+                    height={38}
+                    className="h-full w-full rounded-full object-cover"
+                  />
                 </div>
                 <span className="text-[10px] text-[#888]">Rayan</span>
               </div>
               <div className="flex flex-col items-center gap-1">
-                <div className="flex size-[38px] items-center justify-center rounded-full bg-[#f5e0dc]">
-                  <Avatar variant="sara" />
+                <div className="flex size-[38px] items-center justify-center overflow-hidden rounded-full bg-[#f5e0dc]">
+                  {/* biome-ignore lint/performance/noImgElement: tiny local WebP, simpler than next/image here */}
+                  <img
+                    src="/team-avatars/sara.webp"
+                    alt="Sara"
+                    width={38}
+                    height={38}
+                    className="h-full w-full rounded-full object-cover"
+                  />
                 </div>
                 <span className="text-[10px] text-[#888]">Sara</span>
               </div>
@@ -231,8 +218,15 @@ export function HowItWorks() {
           {/* Candidate Stack */}
           <div className="mt-auto flex flex-col gap-2.5">
             <div className="flex items-center gap-3 rounded-[14px] bg-white px-3.5 py-2.5 shadow-sm">
-              <div className="flex size-9 items-center justify-center rounded-full bg-[#d4ede8]">
-                <Avatar variant="teal" />
+              <div className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-[#d4ede8]">
+                {/* biome-ignore lint/performance/noImgElement: tiny local WebP, simpler than next/image here */}
+                <img
+                  src="/team-avatars/hassan-malik.webp"
+                  alt="Hassan Malik"
+                  width={36}
+                  height={36}
+                  className="h-full w-full rounded-full object-cover"
+                />
               </div>
               <span className="flex-1 text-[13px] font-medium text-[#111]">Hassan Malik</span>
               <div className="flex gap-1.5">
@@ -251,8 +245,15 @@ export function HowItWorks() {
               </div>
             </div>
             <div className="ml-2.5 flex items-center gap-3 rounded-[14px] bg-white px-3.5 py-2.5 shadow-sm">
-              <div className="flex size-9 items-center justify-center rounded-full bg-[#e8e0f8]">
-                <Avatar variant="purple" />
+              <div className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-[#e8e0f8]">
+                {/* biome-ignore lint/performance/noImgElement: tiny local WebP, simpler than next/image here */}
+                <img
+                  src="/team-avatars/sara-qureshi.webp"
+                  alt="Sara Qureshi"
+                  width={36}
+                  height={36}
+                  className="h-full w-full rounded-full object-cover"
+                />
               </div>
               <span className="flex-1 text-[13px] font-medium text-[#111]">Sara Qureshi</span>
               <div className="flex gap-1.5">
@@ -271,8 +272,15 @@ export function HowItWorks() {
               </div>
             </div>
             <div className="ml-5 flex items-center gap-3 rounded-[14px] bg-white px-3.5 py-2.5 shadow-sm">
-              <div className="flex size-9 items-center justify-center rounded-full bg-[#f5e0dc]">
-                <Avatar variant="peach" />
+              <div className="flex size-9 items-center justify-center overflow-hidden rounded-full bg-[#f5e0dc]">
+                {/* biome-ignore lint/performance/noImgElement: tiny local WebP, simpler than next/image here */}
+                <img
+                  src="/team-avatars/ali-rehman.webp"
+                  alt="Ali Rehman"
+                  width={36}
+                  height={36}
+                  className="h-full w-full rounded-full object-cover"
+                />
               </div>
               <span className="flex-1 text-[13px] font-medium text-[#111]">Ali Rehman</span>
               <div className="flex gap-1.5">
@@ -322,8 +330,8 @@ export function HowItWorks() {
                 Replacement guarantee for peace of mind
               </li>
             </ul>
-            <a
-              href="#contact"
+            <Link
+              href="/contact"
               className="inline-flex items-center gap-2 rounded-full bg-[#111] px-7 py-3.5 font-heading text-[14px] font-bold text-white transition-colors hover:bg-[#333]"
             >
               Get started
@@ -343,57 +351,122 @@ export function HowItWorks() {
                   strokeLinejoin="round"
                 />
               </svg>
-            </a>
+            </Link>
           </div>
 
-          {/* Calendar Illustration */}
-          <div className="flex items-center justify-center">
-            <svg
-              width="220"
-              height="180"
-              viewBox="0 0 220 180"
-              fill="none"
-              aria-hidden="true"
-              focusable="false"
-            >
-              <rect x="20" y="20" width="110" height="90" rx="12" fill="rgba(255,255,255,0.15)" />
-              <rect x="20" y="20" width="110" height="28" rx="12" fill="rgba(255,255,255,0.2)" />
-              <rect x="20" y="36" width="110" height="12" fill="rgba(255,255,255,0.2)" />
-              <text
-                x="75"
-                y="39"
-                textAnchor="middle"
-                fontSize="10"
-                fill="rgba(255,255,255,0.9)"
-                fontWeight="700"
-              >
-                Interview scheduled
-              </text>
-              <circle cx="40" cy="70" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="57" cy="70" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="74" cy="70" r="3" fill="#C9FF85" />
-              <circle cx="91" cy="70" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="108" cy="70" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="40" cy="88" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="57" cy="88" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="74" cy="88" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="91" cy="88" r="3" fill="rgba(255,255,255,0.4)" />
-              <circle cx="108" cy="88" r="3" fill="rgba(255,255,255,0.4)" />
-              <rect x="90" y="90" width="110" height="72" rx="12" fill="rgba(255,255,255,0.18)" />
-              <rect x="102" y="103" width="60" height="7" rx="3.5" fill="rgba(255,255,255,0.5)" />
-              <rect x="102" y="116" width="44" height="6" rx="3" fill="rgba(255,255,255,0.3)" />
-              <circle cx="185" cy="96" r="14" fill="#C9FF85" />
-              <path
-                d="M179 96l4 4 7-7"
-                stroke="#111"
-                strokeWidth="2"
-                strokeLinecap="round"
-                strokeLinejoin="round"
-              />
-              <text x="145" y="152" textAnchor="middle" fontSize="10" fill="rgba(255,255,255,0.7)">
-                Offer accepted
-              </text>
-            </svg>
+          {/* Video call mockup — translucent decorative graphic */}
+          <div
+            className="relative hidden items-center justify-center pr-4 md:flex lg:pr-8"
+            aria-hidden="true"
+          >
+            {/* Outer frosted card — the "video call window" */}
+            <div className="relative aspect-[4/3] w-[340px] overflow-hidden rounded-2xl border border-white/15 bg-white/10 shadow-2xl backdrop-blur-md lg:w-[400px]">
+              {/* Mac-style window controls */}
+              <div className="absolute top-3 left-3 flex gap-1.5">
+                <span className="size-2.5 rounded-full bg-white/30" />
+                <span className="size-2.5 rounded-full bg-white/30" />
+                <span className="size-2.5 rounded-full bg-white/30" />
+              </div>
+
+              {/* "REC" / live indicator top-right */}
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full border border-red-300/30 bg-red-500/30 px-2 py-0.5">
+                <span className="size-1.5 animate-pulse rounded-full bg-red-400" />
+                <span className="text-[10px] font-medium tracking-wider text-white/90">LIVE</span>
+              </div>
+
+              {/* Two participant tiles, side by side */}
+              <div className="absolute inset-0 mx-3 mt-9 mb-9 grid grid-cols-2 gap-2">
+                {/* Participant 1 — abstract avatar (lavender) */}
+                <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-purple-300/30 to-purple-500/20">
+                  {/* Abstract head silhouette */}
+                  <svg viewBox="0 0 80 80" className="h-3/5 w-3/5 opacity-70">
+                    <circle cx="40" cy="30" r="14" fill="white" fillOpacity="0.5" />
+                    <path
+                      d="M 14 70 Q 14 50 40 50 Q 66 50 66 70 Z"
+                      fill="white"
+                      fillOpacity="0.5"
+                    />
+                  </svg>
+                  {/* Name pill */}
+                  <div className="absolute bottom-1.5 left-1.5 rounded bg-black/30 px-1.5 py-0.5 backdrop-blur-sm">
+                    <span className="text-[9px] font-medium text-white/90">You</span>
+                  </div>
+                  {/* Mic icon */}
+                  <div className="absolute right-1.5 bottom-1.5 flex size-4 items-center justify-center rounded-full bg-white/20">
+                    <svg viewBox="0 0 24 24" className="size-2.5 text-white/80" fill="currentColor">
+                      <path d="M12 14a3 3 0 003-3V5a3 3 0 00-6 0v6a3 3 0 003 3z" />
+                      <path
+                        d="M19 11a7 7 0 01-14 0"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        fill="none"
+                      />
+                    </svg>
+                  </div>
+                </div>
+
+                {/* Participant 2 — abstract avatar (mint/green) */}
+                <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-green-300/30 to-green-500/20">
+                  <svg viewBox="0 0 80 80" className="h-3/5 w-3/5 opacity-70">
+                    <circle cx="40" cy="30" r="14" fill="white" fillOpacity="0.5" />
+                    <path
+                      d="M 14 70 Q 14 50 40 50 Q 66 50 66 70 Z"
+                      fill="white"
+                      fillOpacity="0.5"
+                    />
+                  </svg>
+                  <div className="absolute bottom-1.5 left-1.5 rounded bg-black/30 px-1.5 py-0.5 backdrop-blur-sm">
+                    <span className="text-[9px] font-medium text-white/90">Candidate</span>
+                  </div>
+                  <div className="absolute right-1.5 bottom-1.5 flex size-4 items-center justify-center rounded-full bg-white/20">
+                    <svg viewBox="0 0 24 24" className="size-2.5 text-white/80" fill="currentColor">
+                      <path d="M12 14a3 3 0 003-3V5a3 3 0 00-6 0v6a3 3 0 003 3z" />
+                      <path
+                        d="M19 11a7 7 0 01-14 0"
+                        stroke="currentColor"
+                        strokeWidth="2"
+                        fill="none"
+                      />
+                    </svg>
+                  </div>
+                </div>
+              </div>
+
+              {/* Bottom toolbar — call controls */}
+              <div className="absolute inset-x-0 bottom-2 flex items-center justify-center gap-2">
+                {/* Mic */}
+                <div className="flex size-7 items-center justify-center rounded-full border border-white/10 bg-white/15 backdrop-blur-sm">
+                  <svg viewBox="0 0 24 24" className="size-3.5 text-white/80" fill="currentColor">
+                    <path d="M12 14a3 3 0 003-3V5a3 3 0 00-6 0v6a3 3 0 003 3z" />
+                    <path
+                      d="M19 11a7 7 0 01-14 0"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      fill="none"
+                    />
+                  </svg>
+                </div>
+                {/* Video */}
+                <div className="flex size-7 items-center justify-center rounded-full border border-white/10 bg-white/15 backdrop-blur-sm">
+                  <svg
+                    viewBox="0 0 24 24"
+                    className="size-3.5 text-white/80"
+                    fill="none"
+                    stroke="currentColor"
+                    strokeWidth="2"
+                  >
+                    <path d="M23 7l-7 5 7 5V7z" />
+                    <rect x="1" y="5" width="15" height="14" rx="2" />
+                  </svg>
+                </div>
+                {/* End call (red) */}
+                <div className="flex size-7 items-center justify-center rounded-full border border-red-300/30 bg-red-500/60 backdrop-blur-sm">
+                  <svg viewBox="0 0 24 24" className="size-3.5 text-white" fill="currentColor">
+                    <path d="M21 15.46l-5.27-.61-2.52 2.52a11.01 11.01 0 01-4.92-4.92l2.53-2.53L10.21 4.7H3.03A18.93 18.93 0 0021 17.97v-2.51z" />
+                  </svg>
+                </div>
+              </div>
+            </div>
           </div>
         </div>
       </div>
