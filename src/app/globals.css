@@ -246,6 +246,16 @@
   }
 }
 
+/* Pin both `<html>` and `<body>` to the cream brand colour. Without this
+ * the `<html>` element falls back to the browser's default backdrop —
+ * which on macOS dark mode renders a thin dark strip above the navbar
+ * wherever a 1-px scrollbar/viewport gap exists. `!important` is the
+ * hammer that ensures no Tailwind base / shadcn rule overrides it. */
+html,
+body {
+  background: #f8f4f1 !important;
+}
+
 /* Respect the OS-level "Reduce motion" preference (WCAG 2.3.3).
    Strips animation duration + iteration count + transition duration
    sitewide for users who've opted into reduced motion. Tailwind's

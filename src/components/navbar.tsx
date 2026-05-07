@@ -3,6 +3,7 @@
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { cn } from "@/lib/utils";
+import styles from "./navbar.module.css";
 
 const NAV_ITEMS: readonly {
   label: string;
@@ -133,8 +134,11 @@ export function Navbar({ variant = "default" }: NavbarProps) {
 
       <ul
         className={cn(
+          // Reference padding is 6px 16px (px-4 py-1.5 = 16px / 6px ✓).
           "hidden list-none items-center gap-0.5 rounded-full border border-black/[0.08] px-4 py-1.5 shadow-[0_4px_24px_rgba(0,0,0,0.07)] backdrop-blur-[16px] md:flex",
-          isHome ? "-translate-y-[9px] bg-white/[0.92]" : "bg-[rgba(238,238,232,0.95)]",
+          isHome ? "bg-white/[0.92]" : "bg-[rgba(238,238,232,0.95)]",
+          // Float offset moved to a CSS module — see navbar.module.css.
+          isHome && styles.navPillFloat,
         )}
       >
         {NAV_ITEMS.map((item) => (
@@ -153,9 +157,9 @@ export function Navbar({ variant = "default" }: NavbarProps) {
       <Link
         href="/book-a-meeting"
         className={cn(
-          "rounded-[14px] bg-remotiv-green px-6 py-[11px] text-[0.92rem] font-semibold text-[#111] transition-all hover:bg-[#3bc495]",
-          isHome &&
-            "-translate-y-[6px] translate-x-[14px] hover:-translate-y-[8px] hover:translate-x-[14px]",
+          "rounded-[14px] bg-remotiv-green px-6 py-[11px] text-[0.92rem] font-semibold text-[#111] hover:bg-[#3bc495]",
+          // Float-up + slide-right + hover transitions live in the module.
+          isHome && styles.btnLoginFloat,
         )}
       >
         Book A Meeting

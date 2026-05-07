@@ -3,6 +3,7 @@ import { AIRecruiter } from "@/components/home/ai-recruiter";
 import { BrowseRoles } from "@/components/home/browse-roles";
 import { CtaInquiry } from "@/components/home/cta-inquiry";
 import { Hero } from "@/components/home/hero";
+import heroStyles from "@/components/home/hero.module.css";
 import { HowItWorks } from "@/components/home/how-it-works";
 import { PartnerMarquee } from "@/components/home/partner-marquee";
 import { StatsCards } from "@/components/home/stats-cards";
@@ -16,9 +17,14 @@ import { Navbar } from "@/components/navbar";
 export default function Home() {
   return (
     <>
-      <Navbar variant="home" />
-      <main>
+      {/* Navbar + Hero share one gridded backdrop on the homepage. The
+       * wrapper class is module-scoped, so other pages that render
+       * <Navbar /> on its own get no grid. */}
+      <div className={heroStyles.heroZone}>
+        <Navbar variant="home" />
         <Hero />
+      </div>
+      <main>
         <PartnerMarquee />
         <WhoWeHelp />
         <HowItWorks />

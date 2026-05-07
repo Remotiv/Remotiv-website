@@ -1,0 +1,25 @@
+/* Floating offsets for the homepage navbar pill + Book A Meeting button.
+ *
+ * Lifted from the reference HTML's `.nav-pill` and `.btn-login` rules so
+ * the pill sits 9px above the logo baseline and the button sits 6px up +
+ * 14px right (rising to 8px up on hover).
+ *
+ * Tailwind v4 was silently dropping these as arbitrary classes (
+ * `-translate-y-[9px]` etc.) when used inside conditional `cn()` strings,
+ * so we ship them as plain CSS instead. Module-scoped so they don't leak
+ * into other components.
+ */
+
+.navPillFloat {
+  transform: translateY(-9px);
+}
+
+.btnLoginFloat {
+  transform: translateY(-6px) translateX(14px);
+  transition: transform 0.15s, background 0.2s;
+}
+
+.btnLoginFloat:hover,
+.btnLoginFloat:focus-visible {
+  transform: translateY(-8px) translateX(14px);
+}

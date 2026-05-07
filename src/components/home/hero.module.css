@@ -1,0 +1,284 @@
+/* Homepage hero — ported from the reference HTML's `.hero` block.
+ *
+ * Module-scoped so the styles don't collide with anything else and so we
+ * bypass Tailwind v4's arbitrary-class quirks for the precise spacing /
+ * typography the reference relies on.
+ */
+
+.hero {
+  position: relative;
+  z-index: 1;
+  min-height: calc(100vh - 80px);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  text-align: center;
+  padding: 60px 24px 140px;
+}
+
+/* Wrapper hosting the grid + radial-glow backdrop. The homepage page.tsx
+ * wraps Navbar + Hero in <div className={styles.heroZone}> so the grid
+ * spans both — matching the reference design where the navbar visually
+ * floats over the same gridded backdrop as the hero content.
+ *
+ * Other pages that render <Navbar /> on its own get NO grid (the wrapper
+ * lives on /page.tsx only). overflow: hidden lives here so the grid
+ * doesn't bleed beyond the hero+navbar zone into the next section
+ * (PartnerMarquee, etc.). */
+.heroZone {
+  position: relative;
+  overflow: hidden;
+}
+
+/* Both pseudo-elements sit at z-index 0; Navbar (z-index 100) and inner
+ * hero content (.pill / .headline / .sub / .btnCta / .avatar — each
+ * `position: relative; z-index: 1;`) render above. */
+.heroZone::before {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(0, 0, 0, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(0, 0, 0, 0.07) 1px, transparent 1px);
+  background-size: 56px 56px;
+  pointer-events: none;
+  z-index: 0;
+}
+
+.heroZone::after {
+  content: "";
+  position: absolute;
+  /* Anchored at the wrapper top (which now starts at the navbar) so the
+   * glow centres roughly behind the headline, not above the navbar. */
+  top: 0;
+  left: 50%;
+  transform: translateX(-50%);
+  width: 900px;
+  height: 600px;
+  max-width: 100%;
+  background: radial-gradient(
+    ellipse at center,
+    rgba(255, 255, 255, 0.55) 0%,
+    transparent 70%
+  );
+  pointer-events: none;
+  z-index: 0;
+}
+
+/* ── Floating avatars ───────────────────────────────────────── */
+
+.avatar {
+  position: absolute;
+  z-index: 1;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  animation: heroFloatY 4s ease-in-out infinite;
+}
+
+.avatarCircle {
+  width: 74px;
+  height: 74px;
+  border-radius: 50%;
+  border: 3px solid rgba(255, 255, 255, 0.9);
+  box-shadow: 0 8px 28px rgba(0, 0, 0, 0.15);
+  overflow: hidden;
+  background: linear-gradient(135deg, #c8d8d0 0%, #a8c0b4 100%);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+}
+
+.avatarCircle img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  object-position: center top;
+}
+
+.av1 {
+  top: 10%;
+  left: 9%;
+  animation-delay: 0s;
+  flex-direction: row;
+}
+.av2 {
+  top: 10%;
+  right: 9%;
+  animation-delay: 1.2s;
+  flex-direction: row;
+}
+.av3 {
+  bottom: 8%;
+  left: 14%;
+  animation-delay: 0.6s;
+  flex-direction: row;
+}
+.av4 {
+  bottom: 8%;
+  right: 11%;
+  animation-delay: 1.8s;
+  flex-direction: row;
+}
+
+.arrow,
+.arrowLeft {
+  flex-shrink: 0;
+  display: flex;
+  align-items: center;
+}
+
+/* ── Above-headline pill ────────────────────────────────────── */
+
+.pill {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  background: rgba(255, 255, 255, 0.65);
+  border: 1px solid rgba(0, 0, 0, 0.09);
+  backdrop-filter: blur(12px);
+  -webkit-backdrop-filter: blur(12px);
+  border-radius: 999px;
+  padding: 8px 18px;
+  font-size: 0.85rem;
+  font-weight: 500;
+  color: #444;
+  margin-bottom: 32px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.06);
+  animation: heroFadeDown 0.6s ease both;
+}
+
+/* ── Headline ───────────────────────────────────────────────── */
+
+.headline {
+  position: relative;
+  z-index: 1;
+  font-family: "Sora", sans-serif;
+  font-size: clamp(1.9rem, 3.8vw, 3.2rem);
+  font-weight: 800;
+  line-height: 1.12;
+  letter-spacing: -0.03em;
+  color: #111;
+  max-width: 800px;
+  margin: 0 0 24px 0;
+}
+
+.headlineAccent {
+  color: #49d7a7;
+}
+
+.blinkDot {
+  color: #49d7a7;
+  animation: heroBlink 1.1s step-start infinite;
+  font-weight: 800;
+  margin-left: 1px;
+  display: inline-block;
+}
+
+/* ── Subhead + CTA ──────────────────────────────────────────── */
+
+.sub {
+  position: relative;
+  z-index: 1;
+  font-size: 1.05rem;
+  color: #777;
+  max-width: 540px;
+  line-height: 1.65;
+  font-weight: 400;
+  margin: 0 0 44px 0;
+  animation: heroFadeUp 0.7s ease 0.2s both;
+}
+
+.btnCta {
+  position: relative;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  background: #49d7a7;
+  color: #ffffff;
+  border: none;
+  padding: 17px 36px;
+  border-radius: 12px;
+  font-size: 1rem;
+  font-weight: 600;
+  cursor: pointer;
+  font-family: "DM Sans", sans-serif;
+  box-shadow: 0 8px 32px rgba(26, 92, 74, 0.28),
+    0 2px 8px rgba(26, 92, 74, 0.15);
+  transition: background 0.2s, transform 0.18s, box-shadow 0.2s;
+  animation: heroFadeUp 0.7s ease 0.3s both;
+  text-decoration: none;
+}
+
+.btnCta:hover {
+  background: #3bc495;
+  transform: translateY(-2px);
+  box-shadow: 0 12px 40px rgba(26, 92, 74, 0.35),
+    0 4px 12px rgba(26, 92, 74, 0.18);
+}
+
+.arrowIcon {
+  width: 20px;
+  height: 20px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: rgba(255, 255, 255, 0.18);
+  border-radius: 6px;
+  font-size: 0.85rem;
+  transition: transform 0.2s;
+}
+
+.btnCta:hover .arrowIcon {
+  transform: translateX(3px);
+}
+
+/* ── Keyframes ──────────────────────────────────────────────── */
+/* CSS Modules normally hash @keyframes names so the `animation: foo`
+ * reference inside the same module silently looks up the unscoped
+ * (uncreated) name → animation never fires. The `:global()` wrapper
+ * opts these specific keyframe identifiers out of scoping while
+ * keeping the rule definitions inside this module file (no globals.css
+ * contamination). The `hero` prefix keeps the names unique even though
+ * they're now global. */
+
+@keyframes heroFloatY {
+  0%, 100% { transform: translateY(0px); }
+  50% { transform: translateY(-10px); }
+}
+
+@keyframes heroBlink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0; }
+}
+
+@keyframes heroFadeUp {
+  from { opacity: 0; transform: translateY(22px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+@keyframes heroFadeDown {
+  from { opacity: 0; transform: translateY(-14px); }
+  to { opacity: 1; transform: translateY(0); }
+}
+
+/* ── Mobile breakpoint ──────────────────────────────────────── */
+
+@media (max-width: 768px) {
+  .av2,
+  .av4 {
+    display: none;
+  }
+  .av1 {
+    left: 4%;
+    top: 10%;
+  }
+  .av3 {
+    left: 4%;
+    bottom: 10%;
+  }
+}

@@ -1,5 +1,6 @@
 "use client";
 
+import { Bot } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -294,21 +295,15 @@ export function AIChatWidget() {
               <path d="M18 6L6 18M6 6l12 12" />
             </svg>
           ) : (
-            <svg
-              width="28"
-              height="28"
-              viewBox="0 0 24 24"
-              fill="none"
-              stroke="white"
-              strokeWidth="2"
+            // Bot icon — replaces the previous microphone glyph so the
+            // floating bubble visually telegraphs "AI assistant" rather
+            // than "voice input".
+            <Bot
+              size={28}
+              strokeWidth={2}
+              className="text-white"
               aria-hidden="true"
-              focusable="false"
-            >
-              <path d="M12 2a3 3 0 013 3v10a3 3 0 01-3 3 3 3 0 01-3-3V5a3 3 0 013-3z" />
-              <path d="M19 10v2a7 7 0 01-7 7 7 7 0 01-7-7v-2" />
-              <line x1="12" y1="19" x2="12" y2="22" />
-              <line x1="8" y1="22" x2="16" y2="22" />
-            </svg>
+            />
           )}
         </span>
       </button>
