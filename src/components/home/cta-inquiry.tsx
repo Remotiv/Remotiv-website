@@ -2,165 +2,244 @@
 
 import { Check, Lock } from "lucide-react";
 import { type FormEvent, useState } from "react";
+import { submitContact } from "@/app/contact/actions";
 
 const CHECKS = [
   "We respond within 24 hours",
   "No retainer fees — pay only when you hire",
   "100% confidential — your data stays private",
-];
+] as const;
 
-const SERVICES = ["Recruitment", "Staff Augmentation", "Dedicated Team", "Payroll Services"];
+const SERVICES = [
+  "Recruitment",
+  "Staff Augmentation",
+  "Dedicated Team",
+  "Payroll Services",
+  "Hire per-hour",
+  "Subscription",
+  "General Inquiry",
+] as const;
+
+const TRUST_AVATARS = [
+  { initials: "JC", bg: "#111", color: "#c9ff85" },
+  { initials: "SM", bg: "#7E47FF", color: "#ffffff" },
+  { initials: "OF", bg: "#333", color: "#ffffff" },
+] as const;
 
 const INPUT_CLASS =
-  "rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
+  "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 font-sans text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
+
+const LABEL_CLASS =
+  "mb-1 block font-sans text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]";
+
+type FormState = {
+  name: string;
+  company: string;
+  email: string;
+  service: string;
+  message: string;
+};
+
+const INITIAL_FORM: FormState = {
+  name: "",
+  company: "",
+  email: "",
+  service: SERVICES[0],
+  message: "",
+};
 
 export function CtaInquiry() {
-  const [submitted, setSubmitted] = useState(false);
+  const [form, setForm] = useState<FormState>(INITIAL_FORM);
+  const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    setSubmitted(true);
+  function update<K extends keyof FormState>(key: K, value: FormState[K]) {
+    setForm((prev) => ({ ...prev, [key]: value }));
   }
+
+  async function handleSubmit(event: FormEvent<HTMLFormElement>) {
+    event.preventDefault();
+    setStatus("sending");
+    setErrorMessage(null);
+    try {
+      const result = await submitContact(form);
+      if (result.success) {
+        setStatus("success");
+      } else {
+        setStatus("error");
+        setErrorMessage(result.error);
+      }
+    } catch (err) {
+      setStatus("error");
+      setErrorMessage(err instanceof Error ? err.message : "Unknown error");
+    }
+  }
+
+  const isPending = status === "sending";
 
   return (
     <section className="relative z-[3] bg-white px-10 pt-16 pb-[60px]">
       <div className="mx-auto max-w-[900px]">
-        <div className="relative z-[4] -mb-[140px] grid gap-14 rounded-3xl bg-[#c9ff85] px-[60px] py-[52px] lg:grid-cols-2">
-          <div className="flex flex-col justify-center">
-            <span className="mb-4 inline-flex w-fit items-center rounded-full bg-white/45 px-3.5 py-1.5 text-[11px] font-semibold uppercase tracking-wide text-remotiv-text-dark">
+        <div className="relative z-[4] -mb-10 grid items-center gap-14 rounded-3xl bg-remotiv-lime-card px-7 py-10 md:-mb-[140px] md:grid-cols-2 md:px-[60px] md:py-[52px]">
+          <div className="flex flex-col">
+            <span className="mb-[18px] inline-flex w-fit items-center rounded-full bg-white/45 px-3.5 py-[5px] font-sans text-[11px] font-semibold uppercase tracking-[0.06em] text-[#111]">
               Hire in 24 Hours
             </span>
-            <h2 className="font-heading text-[clamp(1.5rem,2.2vw,2rem)] font-black leading-[1.05] tracking-tight text-remotiv-text-dark">
+            <h2 className="mb-3 font-heading text-[clamp(1.5rem,2.2vw,2rem)] font-extrabold leading-[1.05] tracking-[-0.03em] text-[#111]">
               Ready to Build Your
               <br />
               Engineering Team?
             </h2>
-            <p className="mt-3 max-w-md text-[13px] leading-[1.75] text-remotiv-text-dark/75">
+            <p className="mb-6 max-w-md font-sans text-[13px] leading-[1.75] text-[#111]/75">
               Tell us what you&apos;re looking for. We&apos;ll match you with pre-vetted senior
               engineers — no retainers, no risk, shortlist in 24 hours.
             </p>
 
-            <ul className="mt-6 space-y-2.5">
+            <ul className="mb-7 flex flex-col gap-2.5">
               {CHECKS.map((item) => (
                 <li
                   key={item}
-                  className="flex items-center gap-2 text-[13px] font-medium text-remotiv-text-dark"
+                  className="flex items-center gap-2 font-sans text-[13px] font-medium text-[#111]"
                 >
                   <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-white/50">
-                    <Check className="size-[9px] text-remotiv-text-dark" strokeWidth={2.5} />
+                    <Check className="size-[9px] text-[#111]" strokeWidth={1.8} />
                   </span>
                   {item}
                 </li>
               ))}
             </ul>
 
-            <div className="mt-7 flex items-center gap-2">
+            <div className="flex items-center">
               <div className="flex">
-                <div className="-mr-[7px] flex size-7 items-center justify-center rounded-full border-2 border-[#c9ff85] bg-[#111] text-[9px] font-bold text-[#c9ff85]">
-                  JC
-                </div>
-                <div className="-mr-[7px] flex size-7 items-center justify-center rounded-full border-2 border-[#c9ff85] bg-[#7E47FF] text-[9px] font-bold text-white">
-                  SM
-                </div>
-                <div className="flex size-7 items-center justify-center rounded-full border-2 border-[#c9ff85] bg-[#333] text-[9px] font-bold text-white">
-                  OF
-                </div>
+                {TRUST_AVATARS.map((avatar, i) => (
+                  <div
+                    key={avatar.initials}
+                    className={`flex size-7 items-center justify-center rounded-full border-2 border-remotiv-lime-card text-[9px] font-bold ${i < TRUST_AVATARS.length - 1 ? "-mr-[7px]" : ""}`}
+                    style={{ background: avatar.bg, color: avatar.color }}
+                  >
+                    {avatar.initials}
+                  </div>
+                ))}
               </div>
-              <span className="ml-2 text-xs text-remotiv-text-dark/65">
+              <span className="ml-3 font-sans text-xs text-[#111]/65">
                 Trusted by 100+ companies worldwide
               </span>
             </div>
           </div>
 
-          <div className="rounded-2xl bg-white px-6 py-7">
-            {submitted ? (
-              <div className="flex h-full flex-col items-center justify-center gap-3 py-6 text-center">
-                <div className="text-4xl">✅</div>
-                <h3 className="font-heading text-base font-bold text-remotiv-text-dark">
-                  Inquiry Sent!
-                </h3>
-                <p className="text-[13px] text-[#666]">
-                  We&apos;ll get back to you within 24 hours.
-                </p>
-              </div>
-            ) : (
-              <form onSubmit={handleSubmit} className="flex flex-col gap-2.5">
-                <h3 className="mb-1 font-heading text-sm font-bold text-remotiv-text-dark">
-                  Send an Inquiry
-                </h3>
-                <div className="grid gap-2.5 sm:grid-cols-2">
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[#888]">
-                      Full Name
-                    </span>
-                    <input type="text" required placeholder="Your name" className={INPUT_CLASS} />
-                  </label>
-                  <label className="flex flex-col gap-1.5">
-                    <span className="text-[10px] font-semibold uppercase tracking-wide text-[#888]">
-                      Company
-                    </span>
-                    <input
-                      type="text"
-                      required
-                      placeholder="Company name"
-                      className={INPUT_CLASS}
-                    />
-                  </label>
-                </div>
+          {status === "success" ? (
+            <div className="rounded-2xl bg-white px-6 py-10 text-center">
+              <div className="text-4xl">✅</div>
+              <h3 className="mt-4 mb-2 font-heading text-base font-bold text-[#111]">
+                Inquiry Sent!
+              </h3>
+              <p className="font-sans text-[13px] text-[#666]">
+                We&apos;ll get back to you within 24 hours.
+              </p>
+            </div>
+          ) : (
+            <form onSubmit={handleSubmit} className="rounded-2xl bg-white px-6 py-7">
+              <h3 className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</h3>
 
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#888]">
-                    Work Email
-                  </span>
+              <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+                <div>
+                  <label className={LABEL_CLASS} htmlFor="cta-name">
+                    Full Name
+                  </label>
                   <input
-                    type="email"
+                    id="cta-name"
+                    type="text"
                     required
-                    placeholder="you@company.com"
+                    placeholder="Your name"
                     className={INPUT_CLASS}
+                    value={form.name}
+                    onChange={(e) => update("name", e.target.value)}
                   />
-                </label>
-
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#888]">
-                    I&apos;m looking for
-                  </span>
-                  <select
+                </div>
+                <div>
+                  <label className={LABEL_CLASS} htmlFor="cta-company">
+                    Company
+                  </label>
+                  <input
+                    id="cta-company"
+                    type="text"
                     required
-                    defaultValue="Recruitment"
-                    className={`${INPUT_CLASS} text-remotiv-text-mid`}
-                  >
-                    {SERVICES.map((s) => (
-                      <option key={s} value={s}>
-                        {s}
-                      </option>
-                    ))}
-                  </select>
-                </label>
-
-                <label className="flex flex-col gap-1.5">
-                  <span className="text-[10px] font-semibold uppercase tracking-wide text-[#888]">
-                    Message
-                  </span>
-                  <textarea
-                    rows={3}
-                    placeholder="Tell us about the role..."
-                    className={`${INPUT_CLASS} resize-none`}
+                    placeholder="Company name"
+                    className={INPUT_CLASS}
+                    value={form.company}
+                    onChange={(e) => update("company", e.target.value)}
                   />
-                </label>
+                </div>
+              </div>
 
-                <button
-                  type="submit"
-                  className="w-full rounded-[10px] bg-[#c9ff85] py-3 font-heading text-xs font-bold uppercase tracking-wide text-remotiv-text-dark transition-all hover:-translate-y-0.5 hover:bg-[#b8f060]"
+              <div className="mb-2.5">
+                <label className={LABEL_CLASS} htmlFor="cta-email">
+                  Work Email
+                </label>
+                <input
+                  id="cta-email"
+                  type="email"
+                  required
+                  placeholder="you@company.com"
+                  className={INPUT_CLASS}
+                  value={form.email}
+                  onChange={(e) => update("email", e.target.value)}
+                />
+              </div>
+
+              <div className="mb-2.5">
+                <label className={LABEL_CLASS} htmlFor="cta-service">
+                  I&apos;m looking for
+                </label>
+                <select
+                  id="cta-service"
+                  className={INPUT_CLASS}
+                  value={form.service}
+                  onChange={(e) => update("service", e.target.value)}
                 >
-                  Send Inquiry →
-                </button>
-                <p className="flex items-center justify-center gap-1 text-center text-[10px] text-[#bbb]">
-                  <Lock className="size-[9px] shrink-0 text-[#bbb]" strokeWidth={2} aria-hidden />
-                  Your data is encrypted and 100% confidential
+                  {SERVICES.map((s) => (
+                    <option key={s} value={s}>
+                      {s}
+                    </option>
+                  ))}
+                </select>
+              </div>
+
+              <div className="mb-2.5">
+                <label className={LABEL_CLASS} htmlFor="cta-message">
+                  Message
+                </label>
+                <textarea
+                  id="cta-message"
+                  rows={3}
+                  placeholder="Tell us about the role..."
+                  className={`${INPUT_CLASS} min-h-[68px] resize-none`}
+                  value={form.message}
+                  onChange={(e) => update("message", e.target.value)}
+                />
+              </div>
+
+              {status === "error" && (
+                <p className="mb-3 text-center text-[11px] text-red-600">
+                  {errorMessage ??
+                    "Something went wrong. Please try again or email hello@remotiv.com."}
                 </p>
-              </form>
-            )}
-          </div>
+              )}
+
+              <button
+                type="submit"
+                disabled={isPending}
+                className="w-full rounded-[10px] bg-remotiv-lime-card py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
+              >
+                {isPending ? "Sending..." : "Send Inquiry →"}
+              </button>
+
+              <p className="mt-3 flex items-center justify-center gap-1 font-sans text-[10px] text-[#bbb]">
+                <Lock className="size-[9px] shrink-0" strokeWidth={2} aria-hidden />
+                Your data is encrypted and 100% confidential
+              </p>
+            </form>
+          )}
         </div>
       </div>
     </section>

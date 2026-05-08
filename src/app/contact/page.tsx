@@ -121,6 +121,8 @@ const SERVICE_OPTIONS = [
   "Staff Augmentation",
   "Dedicated Team",
   "Payroll Services",
+  "Hire per-hour",
+  "Subscription",
   "General Inquiry",
 ];
 
