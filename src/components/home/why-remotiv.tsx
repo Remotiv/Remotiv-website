@@ -87,7 +87,7 @@ export function WhyRemotiv() {
                   {card.num}
                 </span>
                 <span className="flex size-9 items-center justify-center rounded-[10px] bg-white/15">
-                  <Check className="size-4 text-remotiv-green" strokeWidth={2.5} />
+                  <Check className="size-4 text-white" strokeWidth={2.5} />
                 </span>
               </div>
 
