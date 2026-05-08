@@ -1,6 +1,8 @@
 "use client";
 
+import Image from "next/image";
 import Link from "next/link";
+import { useEffect, useRef, useState } from "react";
 
 function ChatCheck() {
   return (
@@ -80,8 +82,29 @@ function WhiteCheck() {
 }
 
 export function HowItWorks() {
+  const sectionRef = useRef<HTMLElement | null>(null);
+  const [visible, setVisible] = useState(false);
+
+  useEffect(() => {
+    if (!sectionRef.current) return;
+    const observer = new IntersectionObserver(
+      ([entry]) => {
+        if (entry.isIntersecting) {
+          setVisible(true);
+          observer.disconnect();
+        }
+      },
+      { threshold: 0.15 },
+    );
+    observer.observe(sectionRef.current);
+    return () => observer.disconnect();
+  }, []);
+
   return (
-    <section className="bg-white px-6 py-[72px] font-[var(--font-sans)] sm:px-12">
+    <section
+      ref={sectionRef}
+      className="bg-white px-6 py-[72px] font-[var(--font-sans)] sm:px-12"
+    >
       {/* Header */}
       <div className="mb-12 text-center">
         <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
@@ -98,7 +121,10 @@ export function HowItWorks() {
       {/* Top Row - Two Cards */}
       <div className="mx-auto mb-5 grid max-w-[1060px] gap-5 md:grid-cols-[45fr_55fr]">
         {/* Step 01 Card */}
-        <div className="flex flex-col rounded-[24px] bg-[#F8F4F1] p-8">
+        <div
+          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          style={{ animationDelay: visible ? "0ms" : undefined }}
+        >
           <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
             Step 01
           </div>
@@ -167,19 +193,28 @@ export function HowItWorks() {
               </div>
             </div>
             <div className="flex flex-col gap-1.5">
-              <div className="flex items-end gap-1.5">
+              <div
+                className={`flex items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
+                style={{ animationDelay: visible ? "300ms" : undefined }}
+              >
                 <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
                   Senior React dev, remote, UTC+5.
                 </div>
                 <span className="mb-0.5 text-[10px] text-[#aaa]">10:21</span>
               </div>
-              <div className="flex items-end gap-1.5">
+              <div
+                className={`flex items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
+                style={{ animationDelay: visible ? "500ms" : undefined }}
+              >
                 <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
                   Budget $4k/mo. Start ASAP.
                 </div>
                 <span className="mb-0.5 text-[10px] text-[#aaa]">10:22</span>
               </div>
-              <div className="flex flex-row-reverse items-end gap-1.5">
+              <div
+                className={`flex flex-row-reverse items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
+                style={{ animationDelay: visible ? "700ms" : undefined }}
+              >
                 <div className="max-w-[85%] rounded-[14px] rounded-br-[4px] bg-[#C9FF85] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
                   Shortlist ready in 24 hrs!
                 </div>
@@ -190,7 +225,10 @@ export function HowItWorks() {
         </div>
 
         {/* Step 02 Card */}
-        <div className="flex flex-col rounded-[24px] bg-[#F8F4F1] p-8">
+        <div
+          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          style={{ animationDelay: visible ? "100ms" : undefined }}
+        >
           <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
             Step 02
           </div>
@@ -304,7 +342,10 @@ export function HowItWorks() {
 
       {/* Bottom Row - Purple Card */}
       <div className="mx-auto max-w-[1060px]">
-        <div className="grid items-center gap-12 rounded-[24px] bg-[#9886FE] px-8 py-12 md:grid-cols-2 md:px-14">
+        <div
+          className={`grid items-center gap-12 rounded-[24px] bg-[#9886FE] px-8 py-12 md:grid-cols-2 md:px-14 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          style={{ animationDelay: visible ? "200ms" : undefined }}
+        >
           <div>
             <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-white/60">
               Step 03
@@ -369,24 +410,22 @@ export function HowItWorks() {
               </div>
 
               {/* "REC" / live indicator top-right */}
-              <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full border border-red-300/30 bg-red-500/30 px-2 py-0.5">
+              <div className="absolute top-3 right-3 flex items-center gap-1.5 rounded-full border border-red-300/30 bg-red-500/30 px-2 py-0.5 animate-[aimStepPulse_2s_ease-in-out_infinite]">
                 <span className="size-1.5 animate-pulse rounded-full bg-red-400" />
                 <span className="text-[10px] font-medium tracking-wider text-white/90">LIVE</span>
               </div>
 
               {/* Two participant tiles, side by side */}
               <div className="absolute inset-0 mx-3 mt-9 mb-9 grid grid-cols-2 gap-2">
-                {/* Participant 1 — abstract avatar (lavender) */}
-                <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-purple-300/30 to-purple-500/20">
-                  {/* Abstract head silhouette */}
-                  <svg viewBox="0 0 80 80" className="h-3/5 w-3/5 opacity-70">
-                    <circle cx="40" cy="30" r="14" fill="white" fillOpacity="0.5" />
-                    <path
-                      d="M 14 70 Q 14 50 40 50 Q 66 50 66 70 Z"
-                      fill="white"
-                      fillOpacity="0.5"
-                    />
-                  </svg>
+                {/* Participant 1 — "You" tile (interviewer photo) */}
+                <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-purple-300/30 to-purple-500/20 ring-2 ring-remotiv-green/60 ring-offset-0 animate-[aimOrbPulse_2s_ease-in-out_infinite]">
+                  <Image
+                    src="/team-avatars/interviewer.webp"
+                    alt=""
+                    width={120}
+                    height={120}
+                    className="size-3/5 rounded-full object-cover opacity-90"
+                  />
                   {/* Name pill */}
                   <div className="absolute bottom-1.5 left-1.5 rounded bg-black/30 px-1.5 py-0.5 backdrop-blur-sm">
                     <span className="text-[9px] font-medium text-white/90">You</span>
@@ -405,16 +444,15 @@ export function HowItWorks() {
                   </div>
                 </div>
 
-                {/* Participant 2 — abstract avatar (mint/green) */}
+                {/* Participant 2 — "Candidate" tile (candidate photo) */}
                 <div className="relative flex items-center justify-center overflow-hidden rounded-xl border border-white/10 bg-gradient-to-br from-green-300/30 to-green-500/20">
-                  <svg viewBox="0 0 80 80" className="h-3/5 w-3/5 opacity-70">
-                    <circle cx="40" cy="30" r="14" fill="white" fillOpacity="0.5" />
-                    <path
-                      d="M 14 70 Q 14 50 40 50 Q 66 50 66 70 Z"
-                      fill="white"
-                      fillOpacity="0.5"
-                    />
-                  </svg>
+                  <Image
+                    src="/team-avatars/candidate.webp"
+                    alt=""
+                    width={120}
+                    height={120}
+                    className="size-3/5 rounded-full object-cover opacity-90"
+                  />
                   <div className="absolute bottom-1.5 left-1.5 rounded bg-black/30 px-1.5 py-0.5 backdrop-blur-sm">
                     <span className="text-[9px] font-medium text-white/90">Candidate</span>
                   </div>
