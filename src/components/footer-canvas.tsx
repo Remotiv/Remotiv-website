@@ -12,6 +12,13 @@ const FLICKER = 0.05;
 const TARGET_FPS = 30;
 const FRAME_INTERVAL = 1000 / TARGET_FPS;
 
+// Reference width where the unscaled SQUARE/GAP/font-size look "correct".
+// Below this, scaleFactor shrinks both the text and the dot grid so the
+// pixelated text string fits cleanly on narrow viewports.
+const REFERENCE_WIDTH = 1200;
+const MIN_SCALE = 0.35;
+const MAX_SCALE = 1.0;
+
 // Pre-build color strings to avoid template literal in hot loop
 const COLOR_STRINGS = Array.from({ length: 256 }, (_, i) => {
   const opacity = i / 255;
@@ -30,25 +37,42 @@ export function FooterCanvas() {
     last: number;
     raf: number;
     lastFrameTime: number;
-  }>({ squares: [], cols: 0, rows: 0, mask: null, last: 0, raf: 0, lastFrameTime: 0 });
+    scale: number;
+    square: number;
+    step: number;
+  }>({
+    squares: [],
+    cols: 0,
+    rows: 0,
+    mask: null,
+    last: 0,
+    raf: 0,
+    lastFrameTime: 0,
+    scale: 1,
+    square: SQUARE,
+    step: STEP,
+  });
 
-  const buildMask = useCallback((canvas: HTMLCanvasElement, dpr: number) => {
-    const w = canvas.width / dpr;
-    const h = canvas.height / dpr;
-    const off = document.createElement("canvas");
-    off.width = canvas.width;
-    off.height = canvas.height;
-    const oc = off.getContext("2d");
-    if (!oc) return null;
-    oc.scale(dpr, dpr);
-    oc.fillStyle = "white";
-    const fs = Math.min(w * 0.17, 96);
-    oc.font = `800 ${fs}px 'Sora', sans-serif`;
-    oc.textAlign = "center";
-    oc.textBaseline = "middle";
-    oc.fillText(TEXT, w / 2, h / 2);
-    return oc.getImageData(0, 0, canvas.width, canvas.height);
-  }, []);
+  const buildMask = useCallback(
+    (canvas: HTMLCanvasElement, dpr: number, scale: number) => {
+      const w = canvas.width / dpr;
+      const h = canvas.height / dpr;
+      const off = document.createElement("canvas");
+      off.width = canvas.width;
+      off.height = canvas.height;
+      const oc = off.getContext("2d");
+      if (!oc) return null;
+      oc.scale(dpr, dpr);
+      oc.fillStyle = "white";
+      const fs = Math.min(w * 0.17, 96) * scale;
+      oc.font = `800 ${fs}px 'Sora', sans-serif`;
+      oc.textAlign = "center";
+      oc.textBaseline = "middle";
+      oc.fillText(TEXT, w / 2, h / 2);
+      return oc.getImageData(0, 0, canvas.width, canvas.height);
+    },
+    [],
+  );
 
   // Visibility observer to pause animation when off-screen
   useEffect(() => {
@@ -57,7 +81,7 @@ export function FooterCanvas() {
 
     const observer = new IntersectionObserver(
       ([entry]) => setIsVisible(entry.isIntersecting),
-      { threshold: 0.1 }
+      { threshold: 0.1 },
     );
     observer.observe(wrap);
     return () => observer.disconnect();
@@ -83,26 +107,43 @@ export function FooterCanvas() {
         canvas.height = wrap.offsetHeight * dpr;
         canvas.style.width = `${wrap.offsetWidth}px`;
         canvas.style.height = `${wrap.offsetHeight}px`;
-        state.cols = Math.ceil(wrap.offsetWidth / STEP);
-        state.rows = Math.ceil(wrap.offsetHeight / STEP);
-        state.squares = Array.from({ length: state.cols * state.rows }, () => Math.random() * MAX_OP);
+
+        // Compute scaleFactor relative to a 1200px reference width.
+        // Clamped to [0.35, 1.0] so very narrow viewports don't render
+        // illegibly tiny dots, and very wide viewports stay at the
+        // unscaled 6px-grid + 96px-cap font-size.
+        const scale = Math.max(
+          MIN_SCALE,
+          Math.min(MAX_SCALE, wrap.offsetWidth / REFERENCE_WIDTH),
+        );
+        state.scale = scale;
+        state.square = SQUARE * scale;
+        state.step = STEP * scale;
+
+        state.cols = Math.ceil(wrap.offsetWidth / state.step);
+        state.rows = Math.ceil(wrap.offsetHeight / state.step);
+        state.squares = Array.from(
+          { length: state.cols * state.rows },
+          () => Math.random() * MAX_OP,
+        );
         state.mask = null;
       }, 100);
     }
 
     function draw() {
       if (!canvas || !ctx) return;
-      if (!state.mask) state.mask = buildMask(canvas, dpr);
+      if (!state.mask) state.mask = buildMask(canvas, dpr, state.scale);
       if (!state.mask) return;
 
       ctx.clearRect(0, 0, canvas.width, canvas.height);
-      const { cols, rows, squares, mask } = state;
-      const sw = SQUARE * dpr;
+      const { cols, rows, squares, mask, square, step } = state;
+      const sw = square * dpr;
+      const stepDpr = step * dpr;
 
       for (let i = 0; i < cols; i++) {
         for (let j = 0; j < rows; j++) {
-          const x = i * STEP * dpr;
-          const y = j * STEP * dpr;
+          const x = i * stepDpr;
+          const y = j * stepDpr;
           const px = Math.min(Math.floor(x + sw / 2), canvas.width - 1);
           const py = Math.min(Math.floor(y + sw / 2), canvas.height - 1);
           const idx = (py * canvas.width + px) * 4;

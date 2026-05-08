@@ -22,7 +22,7 @@ export function AIRecruiter() {
                 </span>
               </div>
 
-              <h2 className="font-heading text-[clamp(2rem,3.5vw,3.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-white">
+              <h2 className="font-heading text-[clamp(1.6rem,7vw,3.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-white break-words">
                 Meet Remotiv AI:
                 <br />
                 <em className="block not-italic text-remotiv-green">Your Always-On</em>
@@ -62,8 +62,8 @@ export function AIRecruiter() {
               <div className="flex-1 border-l border-dashed border-white/20" />
             </div>
 
-            <div className="flex flex-col gap-3.5 lg:pl-12">
-              <div className="flex items-start gap-3">
+            <div className="flex w-full min-w-0 flex-col gap-3.5 overflow-hidden lg:pl-12">
+              <div className="flex w-full min-w-0 items-start gap-3">
                 <Image
                   src="/team-avatars/recruiter.webp"
                   alt=""
@@ -75,8 +75,8 @@ export function AIRecruiter() {
                   <span className="mb-1.5 block font-heading text-[0.6rem] font-bold uppercase tracking-[0.1em] text-white">
                     Recruiter
                   </span>
-                  <div className="rounded-[4px_22px_22px_22px] bg-white px-5 py-4 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-                    <p className="font-sans text-[0.9rem] font-medium leading-[1.5] text-[#111]">
+                  <div className="max-w-full overflow-hidden break-words rounded-[4px_22px_22px_22px] bg-white px-5 py-4">
+                    <p className="whitespace-normal break-words font-sans text-[0.9rem] font-medium leading-[1.5] text-[#111]">
                       Send me candidates interested in{" "}
                       <span className="rounded bg-[#fef08a] px-1.5 py-0.5 text-[0.58rem] font-bold uppercase tracking-[0.06em] text-[#713f12]">
                         React Dev
@@ -90,18 +90,18 @@ export function AIRecruiter() {
                 </div>
               </div>
 
-              <div className="flex flex-col items-end">
-                <span className="mb-1.5 block font-heading text-[0.6rem] font-bold uppercase tracking-[0.12em] text-white/40">
+              <div className="flex w-full min-w-0 flex-col items-end">
+                <span className="mb-1.5 hidden font-heading text-[0.6rem] font-bold uppercase tracking-[0.12em] text-white/40 sm:block">
                   Remotiv<em className="not-italic text-remotiv-green">:ai</em>
                 </span>
-                <div className="max-w-[90%] rounded-[22px_4px_22px_22px] bg-remotiv-green px-5 py-4 shadow-[0_8px_32px_rgba(0,0,0,0.3)]">
-                  <p className="font-sans text-[0.85rem] font-semibold leading-[1.45] text-[#453e40]">
+                <div className="max-w-[90%] overflow-hidden break-words rounded-[22px_4px_22px_22px] bg-remotiv-green px-5 py-4">
+                  <p className="whitespace-normal break-words font-sans text-[0.85rem] font-semibold leading-[1.45] text-[#453e40]">
                     Absolutely! Sending you a shortlist of top candidates now.
                   </p>
                 </div>
               </div>
 
-              <div className="flex items-end gap-2">
+              <div className="flex w-full min-w-0 items-end gap-2 overflow-x-hidden">
                 <Image
                   src="/team-avatars/searching-1.webp"
                   alt=""
@@ -114,7 +114,7 @@ export function AIRecruiter() {
                   alt=""
                   width={28}
                   height={28}
-                  className="size-7 shrink-0 rounded-full object-cover"
+                  className="hidden size-7 shrink-0 rounded-full object-cover sm:inline-block"
                   style={{ marginBottom: "10px" }}
                 />
                 <Image
@@ -145,7 +145,7 @@ export function AIRecruiter() {
                   alt=""
                   width={26}
                   height={26}
-                  className="size-[26px] shrink-0 rounded-full object-cover"
+                  className="hidden size-[26px] shrink-0 rounded-full object-cover sm:inline-block"
                   style={{ marginBottom: "16px" }}
                 />
                 <Image
@@ -156,13 +156,13 @@ export function AIRecruiter() {
                   className="size-[38px] shrink-0 rounded-full object-cover"
                   style={{ marginBottom: "4px" }}
                 />
-                <span className="ml-2 font-sans text-[0.58rem] font-normal italic uppercase tracking-[0.16em] text-white/30">
+                <span className="ml-2 hidden font-sans text-[0.58rem] font-normal italic uppercase tracking-[0.16em] text-white/30 sm:inline-block">
                   searching...
                 </span>
               </div>
 
-              <div className="rounded-2xl bg-remotiv-bg px-[18px] pt-5 pb-4 shadow-[0_24px_56px_rgba(0,0,0,0.4)]">
-                <h3 className="mb-4 font-heading text-[0.82rem] font-bold uppercase tracking-tight text-[#1a1a1a]">
+              <div className="w-full max-w-full overflow-hidden rounded-2xl bg-remotiv-bg px-[18px] pt-5 pb-4">
+                <h3 className="mb-4 whitespace-normal break-words font-heading text-[0.82rem] font-bold uppercase tracking-tight text-[#1a1a1a]">
                   Your Qualified Candidate Review List
                 </h3>
                 <div className="flex flex-col">
@@ -171,16 +171,16 @@ export function AIRecruiter() {
                       key={row.name}
                       className={
                         row.elevated
-                          ? "relative -mx-1.5 -my-0.5 z-10 rounded-xl bg-white px-4 py-3.5 shadow-[0_6px_24px_rgba(0,0,0,0.12)]"
+                          ? "relative -mx-1.5 -my-0.5 z-10 rounded-xl bg-white px-4 py-3.5"
                           : "px-3 py-2.5"
                       }
                     >
                       {row.elevated && (
-                        <span className="absolute -bottom-3 left-3.5 inline-block rounded-full bg-remotiv-bg px-3 py-1 font-heading text-[0.52rem] font-bold uppercase tracking-[0.08em] text-[#111] shadow-[0_4px_12px_rgba(0,0,0,0.15)]">
+                        <span className="absolute -bottom-3 left-3.5 inline-block rounded-full bg-remotiv-bg px-3 py-1 font-heading text-[0.52rem] font-bold uppercase tracking-[0.08em] text-[#111]">
                           Recruiter
                         </span>
                       )}
-                      <div className="flex items-center gap-3">
+                      <div className="flex w-full min-w-0 items-center gap-3">
                         <Image
                           src={row.photo}
                           alt=""

@@ -78,7 +78,7 @@ export function CtaInquiry() {
   const isPending = status === "sending";
 
   return (
-    <section className="relative z-[3] bg-white px-10 pt-16 pb-[60px]">
+    <section className="relative z-[3] bg-white px-6 pt-16 pb-[60px] md:px-10">
       <div className="mx-auto max-w-[900px]">
         <div className="relative z-[4] -mb-10 grid items-center gap-14 rounded-3xl bg-remotiv-lime-card px-7 py-10 md:-mb-[140px] md:grid-cols-2 md:px-[60px] md:py-[52px]">
           <div className="flex flex-col">
@@ -141,7 +141,7 @@ export function CtaInquiry() {
             <form onSubmit={handleSubmit} className="rounded-2xl bg-white px-6 py-7">
               <h3 className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</h3>
 
-              <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+              <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <div>
                   <label className={LABEL_CLASS} htmlFor="cta-name">
                     Full Name
