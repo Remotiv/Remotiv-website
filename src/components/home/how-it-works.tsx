@@ -110,7 +110,7 @@ export function HowItWorks() {
         <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
           How it works
         </div>
-        <h2 className="mx-auto mb-3 font-heading text-[36px] font-black leading-[1.1] tracking-[-0.03em] text-[#111]">
+        <h2 className="mx-auto mb-3 font-heading text-[28px] font-black leading-[1.1] tracking-[-0.03em] text-[#111] sm:text-[36px]">
           How Remotiv works
         </h2>
         <p className="mx-auto max-w-[480px] text-[15px] leading-[1.65] text-[#777]">
@@ -119,10 +119,10 @@ export function HowItWorks() {
       </div>
 
       {/* Top Row - Two Cards */}
-      <div className="mx-auto mb-5 grid max-w-[1060px] gap-5 md:grid-cols-[45fr_55fr]">
+      <div className="mx-auto mb-5 grid max-w-[1060px] gap-5 lg:grid-cols-[45fr_55fr]">
         {/* Step 01 Card */}
         <div
-          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-6 sm:p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
           style={{ animationDelay: visible ? "0ms" : undefined }}
         >
           <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
@@ -197,7 +197,7 @@ export function HowItWorks() {
                 className={`flex items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
                 style={{ animationDelay: visible ? "300ms" : undefined }}
               >
-                <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
+                <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[11px] leading-[1.5] text-[#333] sm:text-[12px]">
                   Senior React dev, remote, UTC+5.
                 </div>
                 <span className="mb-0.5 text-[10px] text-[#aaa]">10:21</span>
@@ -206,7 +206,7 @@ export function HowItWorks() {
                 className={`flex items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
                 style={{ animationDelay: visible ? "500ms" : undefined }}
               >
-                <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
+                <div className="max-w-[85%] rounded-[14px] rounded-bl-[4px] bg-[#F9DE6F] px-3 py-2 text-[11px] leading-[1.5] text-[#333] sm:text-[12px]">
                   Budget $4k/mo. Start ASAP.
                 </div>
                 <span className="mb-0.5 text-[10px] text-[#aaa]">10:22</span>
@@ -215,7 +215,7 @@ export function HowItWorks() {
                 className={`flex flex-row-reverse items-end gap-1.5 ${visible ? "animate-[popIn_500ms_ease-out_both]" : "opacity-0"}`}
                 style={{ animationDelay: visible ? "700ms" : undefined }}
               >
-                <div className="max-w-[85%] rounded-[14px] rounded-br-[4px] bg-[#C9FF85] px-3 py-2 text-[12px] leading-[1.5] text-[#333]">
+                <div className="max-w-[85%] rounded-[14px] rounded-br-[4px] bg-[#C9FF85] px-3 py-2 text-[11px] leading-[1.5] text-[#333] sm:text-[12px]">
                   Shortlist ready in 24 hrs!
                 </div>
                 <span className="mb-0.5 text-[10px] text-[#aaa]">10:23</span>
@@ -226,7 +226,7 @@ export function HowItWorks() {
 
         {/* Step 02 Card */}
         <div
-          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          className={`flex flex-col rounded-[24px] bg-[#F8F4F1] p-6 sm:p-8 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
           style={{ animationDelay: visible ? "100ms" : undefined }}
         >
           <div className="mb-2 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">
@@ -270,13 +270,13 @@ export function HowItWorks() {
               <div className="flex gap-1.5">
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionOverlap />
                 </button>
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionChat />
                 </button>
@@ -297,13 +297,13 @@ export function HowItWorks() {
               <div className="flex gap-1.5">
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionOverlap />
                 </button>
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionChat />
                 </button>
@@ -324,13 +324,13 @@ export function HowItWorks() {
               <div className="flex gap-1.5">
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionOverlap />
                 </button>
                 <button
                   type="button"
-                  className="flex size-[30px] items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8]"
+                  className="flex size-11 items-center justify-center rounded-full bg-[#f2ede8] transition-colors hover:bg-[#e8e0d8] sm:size-[30px]"
                 >
                   <ActionChat />
                 </button>
@@ -343,7 +343,7 @@ export function HowItWorks() {
       {/* Bottom Row - Purple Card */}
       <div className="mx-auto max-w-[1060px]">
         <div
-          className={`grid items-center gap-12 rounded-[24px] bg-[#9886FE] px-8 py-12 md:grid-cols-2 md:px-14 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
+          className={`grid items-center gap-12 rounded-[24px] bg-[#9886FE] px-8 py-12 lg:grid-cols-2 lg:px-14 ${visible ? "animate-[btFadeIn_700ms_ease-out_both]" : "opacity-0"}`}
           style={{ animationDelay: visible ? "200ms" : undefined }}
         >
           <div>
@@ -397,7 +397,7 @@ export function HowItWorks() {
 
           {/* Video call mockup — translucent decorative graphic */}
           <div
-            className="relative hidden items-center justify-center pr-4 md:flex lg:pr-8"
+            className="relative hidden items-center justify-center pr-4 lg:flex lg:pr-8"
             aria-hidden="true"
           >
             {/* Outer frosted card — the "video call window" */}
