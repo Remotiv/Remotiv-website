@@ -34,7 +34,7 @@ function LogoTrack() {
             alt={logo.alt}
             width={120}
             height={28}
-            className="h-7 w-auto"
+            className="h-[22px] w-auto md:h-7"
           />
           <span
             className="h-[26px] w-px bg-[#d9d3cd]"
@@ -48,20 +48,20 @@ function LogoTrack() {
 
 export function PartnerMarquee() {
   return (
-    <section className="flex w-full justify-center bg-white pt-[52px] pb-8">
-      <div className="flex w-[75%] flex-col items-center overflow-hidden rounded-2xl bg-remotiv-bg py-[26px]">
-        <h2 className="mb-5 text-center text-[15px] font-medium text-[#111]">
+    <section className="flex w-full justify-center bg-white pt-8 pb-6 md:pt-[52px] md:pb-8">
+      <div className="flex w-[92%] flex-col items-center overflow-hidden rounded-2xl bg-remotiv-bg py-[26px] md:w-[75%]">
+        <h2 className="mb-5 text-center text-[13px] font-medium text-[#111] md:text-[15px]">
           Trusted by leading companies worldwide
         </h2>
 
         {/* Marquee wrapper */}
         <div className="group relative w-full overflow-hidden">
           {/* Fade edges — 48 px each, matches the reference */}
-          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-12 bg-gradient-to-r from-remotiv-bg to-transparent" />
-          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-12 bg-gradient-to-l from-remotiv-bg to-transparent" />
+          <div className="pointer-events-none absolute inset-y-0 left-0 z-10 w-6 bg-gradient-to-r from-remotiv-bg to-transparent md:w-12" />
+          <div className="pointer-events-none absolute inset-y-0 right-0 z-10 w-6 bg-gradient-to-l from-remotiv-bg to-transparent md:w-12" />
 
           {/* Scrolling track — 26s linear, pauses on hover */}
-          <div className="flex w-max animate-[marquee_26s_linear_infinite] gap-10 group-hover:[animation-play-state:paused]">
+          <div className="flex w-max animate-[marquee_38s_linear_infinite] gap-10 group-hover:[animation-play-state:paused] md:animate-[marquee_26s_linear_infinite]">
             <LogoTrack />
             <LogoTrack />
           </div>

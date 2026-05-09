@@ -37,9 +37,9 @@ const CARDS = [
 
 export function WhyRemotiv() {
   return (
-    <section className="bg-white px-6 pt-24 pb-[120px] sm:px-[60px]">
-      <div className="mx-auto grid max-w-7xl items-start gap-12 lg:grid-cols-[1fr_1fr] lg:gap-[72px]">
-        <div className="flex flex-col lg:sticky lg:top-[60px]">
+    <section className="bg-white px-6 pt-16 pb-20 sm:px-[60px] md:pt-24 md:pb-[120px]">
+      <div className="mx-auto grid max-w-7xl items-start gap-12 md:grid-cols-[1fr_1fr] md:gap-[72px]">
+        <div className="flex flex-col md:sticky md:top-[60px]">
           <div className="mb-6 flex items-center gap-3">
             <span className="block h-px w-7 bg-black" />
             <span className="font-sans text-[0.62rem] font-bold uppercase tracking-[0.18em] text-[#111]">
@@ -47,7 +47,7 @@ export function WhyRemotiv() {
             </span>
           </div>
 
-          <h2 className="mb-[22px] font-heading text-[clamp(2.2rem,3.8vw,3.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111]">
+          <h2 className="mb-[22px] font-heading text-[1.8rem] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111] sm:text-[clamp(2.2rem,3.8vw,3.2rem)]">
             Why Founders
             <br />
             <span className="text-remotiv-purple">Choose Remotiv?</span>
@@ -75,11 +75,12 @@ export function WhyRemotiv() {
           {CARDS.map((card, i) => (
             <div
               key={card.num}
-              className="wr-card rounded-[20px] border border-black/[0.07] bg-remotiv-purple-light px-9 py-8 shadow-[0_2px_16px_rgba(0,0,0,0.06)] transition-shadow duration-300 hover:shadow-[0_4px_28px_rgba(73,215,167,0.18),0_1px_4px_rgba(0,0,0,0.08)] lg:sticky"
+              className="wr-card sticky rounded-[20px] border border-black/[0.07] bg-remotiv-purple-light px-6 py-6 shadow-[0_2px_16px_rgba(0,0,0,0.06)] transition-shadow duration-300 hover:shadow-[0_4px_28px_rgba(73,215,167,0.18),0_1px_4px_rgba(0,0,0,0.08)] [top:var(--card-top)] md:px-9 md:py-8 md:[top:var(--card-top-md)] md:[transform:translateZ(var(--card-z))]"
               style={{
-                top: `${(i + 1) * 18}px`,
-                transform: `translateZ(${(i + 1) * 12}px)`,
                 zIndex: i + 1,
+                ["--card-top" as string]: `${(i + 1) * 12}px`,
+                ["--card-top-md" as string]: `${(i + 1) * 18}px`,
+                ["--card-z" as string]: `${(i + 1) * 12}px`,
               }}
             >
               <div className="mb-3.5 flex items-start justify-between">
@@ -91,7 +92,7 @@ export function WhyRemotiv() {
                 </span>
               </div>
 
-              <span className="mb-3 inline-block rounded-full bg-[#111] px-3.5 py-[5px] font-sans text-[0.65rem] font-bold uppercase tracking-[0.06em] text-white">
+              <span className="mb-3 inline-block rounded-full bg-[#111] px-3.5 py-[5px] font-sans text-[0.7rem] font-bold uppercase tracking-[0.06em] text-white md:text-[0.65rem]">
                 {card.tag}
               </span>
 
