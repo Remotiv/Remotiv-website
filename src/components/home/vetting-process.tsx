@@ -61,7 +61,7 @@ export function VettingProcess() {
   const progressPercent = ((activeIndex + 1) / STEPS.length) * 100;
 
   return (
-    <section ref={sectionRef} className="bg-white px-6 pb-12 pt-0 md:px-[60px]">
+    <section ref={sectionRef} className="bg-white px-6 pt-4 pb-12 md:px-[60px] md:pt-0">
       <div className="max-w-[820px]">
         <div className="mb-7 inline-flex items-center gap-2.5">
           <span className="block h-px w-7 bg-[#111]" />
@@ -70,7 +70,7 @@ export function VettingProcess() {
           </span>
         </div>
 
-        <h2 className="mb-5 font-heading text-[clamp(2.4rem,4.5vw,4.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111]">
+        <h2 className="mb-5 font-heading text-[2rem] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111] sm:text-[clamp(2.4rem,4.5vw,4.2rem)]">
           How We Deliver The
           <br />
           <em className="not-italic text-remotiv-green">Top 1% of Talent</em>
@@ -78,7 +78,7 @@ export function VettingProcess() {
           To Your Next Hire
         </h2>
 
-        <p className="mb-16 max-w-[520px] font-sans text-[0.95rem] font-normal leading-[1.75] text-[#777]">
+        <p className="mb-10 max-w-[520px] font-sans text-[0.95rem] font-normal leading-[1.75] text-[#777] md:mb-16">
           Every candidate goes through our AI-powered 4-stage vetting process. You only see
           who&apos;s already passed.
         </p>
@@ -91,7 +91,7 @@ export function VettingProcess() {
             />
           </div>
 
-          <div className="space-y-14">
+          <div className="space-y-10 md:space-y-14">
             {STEPS.map((step, i) => {
               const isActive = i === activeIndex;
 
@@ -165,7 +165,7 @@ export function VettingProcess() {
         <div>
           <Link
             href="/book-a-meeting"
-            className="inline-flex items-center gap-2 rounded-lg bg-remotiv-green px-9 py-4 font-heading text-[0.78rem] font-bold uppercase tracking-[0.08em] text-[#111] transition-colors duration-200 hover:bg-[#3bc495]"
+            className="flex w-full items-center justify-center gap-2 rounded-lg bg-remotiv-green px-9 py-4 font-heading text-[0.78rem] font-bold uppercase tracking-[0.08em] text-[#111] transition-colors duration-200 hover:bg-[#3bc495] sm:inline-flex sm:w-auto"
           >
             Get Your Shortlist Now →
           </Link>

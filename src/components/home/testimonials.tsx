@@ -1,7 +1,7 @@
 "use client";
 
 import Image from "next/image";
-import { useState } from "react";
+import { useEffect, useState } from "react";
 
 const TESTIMONIALS = [
   {
@@ -60,10 +60,16 @@ const TESTIMONIALS = [
   },
 ] as const;
 
-const COLUMNS: [number[], string][] = [
-  [[0, 3, 6], "28s"],
-  [[1, 4, 7], "22s"],
-  [[2, 5, 8], "25s"],
+type ColumnSpec = {
+  indices: number[];
+  duration: string;
+  mobileDuration?: string;
+};
+
+const COLUMNS: ColumnSpec[] = [
+  { indices: [0, 3, 6], duration: "28s", mobileDuration: "40s" },
+  { indices: [1, 4, 7], duration: "22s" },
+  { indices: [2, 5, 8], duration: "25s" },
 ];
 
 function TestimonialCard({ text, name, role, img }: (typeof TESTIMONIALS)[number]) {
@@ -87,23 +93,48 @@ function TestimonialCard({ text, name, role, img }: (typeof TESTIMONIALS)[number
   );
 }
 
-function ScrollColumn({ indices, duration }: { indices: number[]; duration: string }) {
+function ScrollColumn({
+  indices,
+  duration,
+  mobileDuration,
+}: {
+  indices: number[];
+  duration: string;
+  mobileDuration?: string;
+}) {
   const [paused, setPaused] = useState(false);
+  const [actualDuration, setActualDuration] = useState(duration);
+
+  useEffect(() => {
+    if (!mobileDuration) {
+      setActualDuration(duration);
+      return;
+    }
+
+    const mql = window.matchMedia("(max-width: 767px)");
+    const apply = () => {
+      setActualDuration(mql.matches ? mobileDuration : duration);
+    };
+    apply();
+    mql.addEventListener("change", apply);
+    return () => mql.removeEventListener("change", apply);
+  }, [duration, mobileDuration]);
 
   const cards = indices.map((i) => TESTIMONIALS[i]);
 
   return (
     <section
       aria-label="Scrolling testimonials"
-      className="relative flex w-[300px] flex-shrink-0 flex-col overflow-hidden"
+      className="relative flex w-[280px] flex-shrink-0 flex-col overflow-hidden sm:w-[300px]"
       style={{ height: 600 }}
       onMouseEnter={() => setPaused(true)}
       onMouseLeave={() => setPaused(false)}
+      onClick={() => setPaused((p) => !p)}
     >
       <div
         className="flex flex-col gap-5"
         style={{
-          animation: `scroll-up ${duration} linear infinite`,
+          animation: `scroll-up ${actualDuration} linear infinite`,
           animationPlayState: paused ? "paused" : "running",
         }}
       >
@@ -117,9 +148,9 @@ function ScrollColumn({ indices, duration }: { indices: number[]; duration: stri
 
 export function Testimonials() {
   return (
-    <section className="bg-white px-6 pt-0 pb-20 sm:px-16">
+    <section className="bg-white px-6 pt-12 pb-14 sm:px-16 md:pt-0 md:pb-20">
       <div className="mx-auto max-w-7xl">
-        <div className="mx-auto mb-14 flex max-w-[540px] flex-col items-center gap-4 text-center">
+        <div className="mx-auto mb-10 flex max-w-[540px] flex-col items-center gap-4 text-center md:mb-14">
           <h2 className="font-heading text-[clamp(1.8rem,3.5vw,2.8rem)] font-extrabold leading-[1.15] tracking-[-0.03em] text-[#111]">
             What our clients say
           </h2>
@@ -129,9 +160,9 @@ export function Testimonials() {
         </div>
 
         <div className="relative flex max-h-[680px] justify-center gap-5 overflow-hidden">
-          {COLUMNS.map(([indices, duration], colIdx) => (
+          {COLUMNS.map((col, colIdx) => (
             <div
-              key={duration}
+              key={col.duration}
               className={
                 colIdx === 1
                   ? "hidden md:flex"
@@ -140,7 +171,11 @@ export function Testimonials() {
                     : "flex"
               }
             >
-              <ScrollColumn indices={indices} duration={duration} />
+              <ScrollColumn
+                indices={col.indices}
+                duration={col.duration}
+                mobileDuration={col.mobileDuration}
+              />
             </div>
           ))}
 
