@@ -179,7 +179,7 @@ function Eyebrow({ label, color }: { label: string; color: string }) {
     <div className="mb-4 inline-flex items-center gap-2.5">
       <span className="block h-px w-[22px]" style={{ backgroundColor: color }} />
       <span
-        className="font-sans text-[0.58rem] font-bold uppercase tracking-[0.2em]"
+        className="font-sans text-[0.65rem] font-bold uppercase tracking-[0.2em] sm:text-[0.58rem]"
         style={{ color }}
       >
         {label}
@@ -231,7 +231,7 @@ function SectionContent({
 function Row1() {
   const { ref, visible } = useInView(0.3);
   return (
-    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[1fr_1fr_220px]">
+    <div ref={ref} className="grid items-center gap-10 lg:grid-cols-[1fr_1fr_220px] lg:gap-8">
       <SectionContent
         label="AI-Powered Talent"
         eyebrowColor="#111"
@@ -240,10 +240,10 @@ function Row1() {
         accentColor="purple"
         description="Our AI scans over 1 million profiles in seconds — matching on skills, experience depth, seniority, and role-fit signals. Only the right candidates make it through."
       />
-      <div className="hidden px-6 md:block">
+      <div className="hidden px-6 lg:block">
         <AnimatedLine direction="ltr" color="purple" visible={visible} />
       </div>
-      <div className="flex justify-center md:justify-end">
+      <div className="flex justify-center lg:justify-end">
         <StatCircle
           color="purple"
           spec={{
@@ -268,9 +268,9 @@ function Row2() {
   return (
     <div
       ref={ref}
-      className="grid items-center gap-12 md:grid-cols-[220px_1fr_220px]"
+      className="grid items-center gap-10 lg:grid-cols-[220px_1fr_220px] lg:gap-12"
     >
-      <div className="flex justify-center md:justify-start">
+      <div className="order-2 flex justify-center lg:justify-start lg:order-none">
         <StatCircle
           color="beige"
           spec={{
@@ -292,16 +292,18 @@ function Row2() {
           visible={visible}
         />
       </div>
-      <SectionContent
-        label="Track Record"
-        eyebrowColor="#7E47FF"
-        headline="Proven results, global reach"
-        accentWord="global reach"
-        accentColor="purple"
-        description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
-        align="center"
-      />
-      <div className="flex justify-center md:justify-end">
+      <div className="order-1 lg:order-none">
+        <SectionContent
+          label="Track Record"
+          eyebrowColor="#7E47FF"
+          headline="Proven results, global reach"
+          accentWord="global reach"
+          accentColor="purple"
+          description="Over 200+ professionals placed with US, UK, and global companies — from early-stage startups to established enterprises. Every placement backed by our 90-day guarantee."
+          align="center"
+        />
+      </div>
+      <div className="order-3 flex justify-center lg:justify-end lg:order-none">
         <StatCircle
           color="beige"
           spec={{
@@ -330,8 +332,8 @@ function Row2() {
 function Row3() {
   const { ref, visible } = useInView(0.3);
   return (
-    <div ref={ref} className="grid items-center gap-8 md:grid-cols-[220px_1fr_1fr]">
-      <div className="flex justify-center md:justify-start">
+    <div ref={ref} className="grid items-center gap-10 lg:grid-cols-[220px_1fr_1fr] lg:gap-8">
+      <div className="flex justify-center lg:justify-start">
         <StatCircle
           color="green"
           spec={{
@@ -353,10 +355,10 @@ function Row3() {
           visible={visible}
         />
       </div>
-      <div className="hidden px-6 md:block">
+      <div className="hidden px-6 lg:block">
         <AnimatedLine direction="rtl" color="green" visible={visible} />
       </div>
-      <div className="flex justify-center md:justify-end">
+      <div className="flex justify-center lg:justify-end">
         <SectionContent
           label="Speed of Hire"
           eyebrowColor="#49D7A7"
@@ -372,7 +374,7 @@ function Row3() {
 
 export function StatsCircles() {
   return (
-    <section className="bg-white px-6 py-20 md:px-16">
+    <section className="bg-white px-6 py-14 md:py-20 lg:px-16">
       <div className="mx-auto space-y-20">
         <Row1 />
         <Row2 />
