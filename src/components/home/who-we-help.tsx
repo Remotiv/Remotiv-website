@@ -1,4 +1,5 @@
 import { ArrowRight } from "lucide-react";
+import type { CSSPropertiesWithVars } from "@/lib/css-types";
 
 const CARDS = [
   {
@@ -54,10 +55,12 @@ export function WhoWeHelp() {
             <div
               key={card.title}
               className="group sticky flex flex-col rounded-2xl border border-gray-200 bg-white pt-7 px-6 pb-8 shadow-[0_2px_12px_rgba(0,0,0,0.05)] transition-[colors,box-shadow] duration-350 [top:var(--card-top)] md:pt-9 md:px-8 md:pb-10 lg:relative lg:min-h-[420px] lg:[top:auto] lg:hover:border-remotiv-purple lg:hover:bg-remotiv-purple lg:hover:shadow-[0_16px_48px_rgba(126,71,255,0.28)]"
-              style={{
-                ["--card-top" as string]: `${(i + 1) * 12}px`,
-                zIndex: i + 1,
-              }}
+              style={
+                {
+                  "--card-top": `${(i + 1) * 12}px`,
+                  zIndex: i + 1,
+                } as CSSPropertiesWithVars
+              }
             >
               <div className="flex items-start justify-between lg:min-h-[88px]">
                 <h3 className="font-heading text-[1.6rem] font-extrabold tracking-[-0.025em] text-[#111] transition-colors duration-350 sm:text-[1.9rem] lg:group-hover:text-white">

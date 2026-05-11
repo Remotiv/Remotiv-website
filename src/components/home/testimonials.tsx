@@ -64,12 +64,13 @@ type ColumnSpec = {
   indices: number[];
   duration: string;
   mobileDuration?: string;
+  visibility: string;
 };
 
 const COLUMNS: ColumnSpec[] = [
-  { indices: [0, 3, 6], duration: "28s", mobileDuration: "40s" },
-  { indices: [1, 4, 7], duration: "22s" },
-  { indices: [2, 5, 8], duration: "25s" },
+  { indices: [0, 3, 6], duration: "28s", mobileDuration: "40s", visibility: "flex" },
+  { indices: [1, 4, 7], duration: "22s", visibility: "hidden md:flex" },
+  { indices: [2, 5, 8], duration: "25s", visibility: "hidden lg:flex" },
 ];
 
 function TestimonialCard({ text, name, role, img }: (typeof TESTIMONIALS)[number]) {
@@ -160,17 +161,8 @@ export function Testimonials() {
         </div>
 
         <div className="relative flex max-h-[680px] justify-center gap-5 overflow-hidden">
-          {COLUMNS.map((col, colIdx) => (
-            <div
-              key={col.duration}
-              className={
-                colIdx === 1
-                  ? "hidden md:flex"
-                  : colIdx === 2
-                    ? "hidden lg:flex"
-                    : "flex"
-              }
-            >
+          {COLUMNS.map((col) => (
+            <div key={col.duration} className={col.visibility}>
               <ScrollColumn
                 indices={col.indices}
                 duration={col.duration}

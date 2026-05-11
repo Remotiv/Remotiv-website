@@ -101,7 +101,10 @@ export function AIRecruiter() {
                 </div>
               </div>
 
-              <div className="flex w-full min-w-0 items-end gap-2 overflow-x-hidden">
+              <div
+                aria-hidden="true"
+                className="flex w-full min-w-0 items-end gap-2 overflow-x-hidden"
+              >
                 <Image
                   src="/team-avatars/searching-1.webp"
                   alt=""
@@ -183,7 +186,7 @@ export function AIRecruiter() {
                       <div className="flex w-full min-w-0 items-center gap-3">
                         <Image
                           src={row.photo}
-                          alt=""
+                          alt={row.name}
                           width={36}
                           height={36}
                           className="size-9 shrink-0 rounded-full object-cover ring-2 ring-black/[0.06]"
