@@ -150,7 +150,8 @@ function AnimatedLine({
   color: "purple" | "green";
   visible: boolean;
 }) {
-  const lineColor = color === "purple" ? "#7E47FF" : "#49D7A7";
+  const lineColor =
+    color === "purple" ? "var(--color-remotiv-purple)" : "var(--color-remotiv-green)";
 
   return (
     <div className="relative flex h-px w-full items-center">
@@ -295,7 +296,7 @@ function Row2() {
       <div className="order-1 lg:order-none">
         <SectionContent
           label="Track Record"
-          eyebrowColor="#7E47FF"
+          eyebrowColor="var(--color-remotiv-purple)"
           headline="Proven results, global reach"
           accentWord="global reach"
           accentColor="purple"
@@ -361,7 +362,7 @@ function Row3() {
       <div className="flex justify-center lg:justify-end">
         <SectionContent
           label="Speed of Hire"
-          eyebrowColor="#49D7A7"
+          eyebrowColor="var(--color-remotiv-green)"
           headline="Your shortlist, in 24 hours"
           accentWord="24 hours"
           accentColor="green"

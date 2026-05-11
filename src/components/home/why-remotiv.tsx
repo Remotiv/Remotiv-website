@@ -1,6 +1,7 @@
 "use client";
 
 import { Check } from "lucide-react";
+import type { CSSPropertiesWithVars } from "@/lib/css-types";
 
 const CARDS = [
   {
@@ -76,12 +77,14 @@ export function WhyRemotiv() {
             <div
               key={card.num}
               className="wr-card sticky rounded-[20px] border border-black/[0.07] bg-remotiv-purple-light px-6 py-6 shadow-[0_2px_16px_rgba(0,0,0,0.06)] transition-shadow duration-300 hover:shadow-[0_4px_28px_rgba(73,215,167,0.18),0_1px_4px_rgba(0,0,0,0.08)] [top:var(--card-top)] md:px-9 md:py-8 md:[top:var(--card-top-md)] md:[transform:translateZ(var(--card-z))]"
-              style={{
-                zIndex: i + 1,
-                ["--card-top" as string]: `${(i + 1) * 12}px`,
-                ["--card-top-md" as string]: `${(i + 1) * 18}px`,
-                ["--card-z" as string]: `${(i + 1) * 12}px`,
-              }}
+              style={
+                {
+                  zIndex: i + 1,
+                  "--card-top": `${(i + 1) * 12}px`,
+                  "--card-top-md": `${(i + 1) * 18}px`,
+                  "--card-z": `${(i + 1) * 12}px`,
+                } as CSSPropertiesWithVars
+              }
             >
               <div className="mb-3.5 flex items-start justify-between">
                 <span className="font-heading text-2xl font-extrabold leading-none text-white">
