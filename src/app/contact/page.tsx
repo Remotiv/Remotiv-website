@@ -132,6 +132,8 @@ type FormState = {
   email: string;
   service: string;
   message: string;
+  // Honeypot — kept blank by humans; bots fill it. See actions.ts.
+  companyUrl: string;
 };
 
 const INITIAL_FORM: FormState = {
@@ -140,6 +142,7 @@ const INITIAL_FORM: FormState = {
   email: "",
   service: SERVICE_OPTIONS[0],
   message: "",
+  companyUrl: "",
 };
 
 const INPUT_CLASS =
@@ -332,6 +335,17 @@ export default function ContactPage() {
               ) : (
                 <form onSubmit={handleSubmit} noValidate>
                   <p className="mb-4 font-heading text-sm font-bold text-remotiv-text-dark">Send an Inquiry</p>
+                  {/* Honeypot — hidden from humans, filled by bots */}
+                  <input
+                    type="text"
+                    name="company_url"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                    className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
+                    value={form.companyUrl}
+                    onChange={(e) => update("companyUrl", e.target.value)}
+                  />
                   <div className="mb-2.5 grid gap-2.5 sm:grid-cols-2">
                     <div>
                       <label className={LABEL_CLASS} htmlFor="ct-name">
@@ -340,6 +354,7 @@ export default function ContactPage() {
                       <input
                         id="ct-name"
                         type="text"
+                        maxLength={100}
                         className={INPUT_CLASS}
                         placeholder="Your name"
                         value={form.name}
@@ -354,6 +369,7 @@ export default function ContactPage() {
                       <input
                         id="ct-company"
                         type="text"
+                        maxLength={100}
                         className={INPUT_CLASS}
                         placeholder="Company name"
                         value={form.company}
@@ -368,6 +384,7 @@ export default function ContactPage() {
                     <input
                       id="ct-email"
                       type="email"
+                      maxLength={254}
                       className={INPUT_CLASS}
                       placeholder="you@company.com"
                       value={form.email}
@@ -398,6 +415,7 @@ export default function ContactPage() {
                     </label>
                     <textarea
                       id="ct-message"
+                      maxLength={5000}
                       className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                       placeholder="Tell us how we can help..."
                       value={form.message}

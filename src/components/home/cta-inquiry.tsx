@@ -38,6 +38,8 @@ type FormState = {
   email: string;
   service: string;
   message: string;
+  // Honeypot — kept blank by humans; bots fill it. See actions.ts.
+  companyUrl: string;
 };
 
 const INITIAL_FORM: FormState = {
@@ -46,6 +48,7 @@ const INITIAL_FORM: FormState = {
   email: "",
   service: SERVICES[0],
   message: "",
+  companyUrl: "",
 };
 
 export function CtaInquiry() {
@@ -141,6 +144,18 @@ export function CtaInquiry() {
             <form onSubmit={handleSubmit} className="rounded-2xl bg-white px-6 py-7">
               <h3 className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</h3>
 
+              {/* Honeypot — hidden from humans, filled by bots */}
+              <input
+                type="text"
+                name="company_url"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
+                value={form.companyUrl}
+                onChange={(e) => update("companyUrl", e.target.value)}
+              />
+
               <div className="mb-2.5 grid grid-cols-1 gap-2.5 sm:grid-cols-2">
                 <div>
                   <label className={LABEL_CLASS} htmlFor="cta-name">
@@ -150,6 +165,7 @@ export function CtaInquiry() {
                     id="cta-name"
                     type="text"
                     required
+                    maxLength={100}
                     placeholder="Your name"
                     className={INPUT_CLASS}
                     value={form.name}
@@ -164,6 +180,7 @@ export function CtaInquiry() {
                     id="cta-company"
                     type="text"
                     required
+                    maxLength={100}
                     placeholder="Company name"
                     className={INPUT_CLASS}
                     value={form.company}
@@ -180,6 +197,7 @@ export function CtaInquiry() {
                   id="cta-email"
                   type="email"
                   required
+                  maxLength={254}
                   placeholder="you@company.com"
                   className={INPUT_CLASS}
                   value={form.email}
@@ -212,6 +230,7 @@ export function CtaInquiry() {
                 <textarea
                   id="cta-message"
                   rows={3}
+                  maxLength={5000}
                   placeholder="Tell us about the role..."
                   className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                   value={form.message}
