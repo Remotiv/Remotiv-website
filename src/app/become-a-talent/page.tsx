@@ -1600,6 +1600,72 @@ export default function BecomeATalentPage() {
           .bta-grid-2 { grid-template-columns:1fr; }
           .bta-form-footer { flex-direction:column; align-items:flex-start; }
           .bta-steps-inner { justify-content:flex-start; }
+
+          /* Steps bar — pin below mobile navbar (mobile-only) */
+          .bta-steps-bar { top: 64px; }
+
+          /* Hero stats — 2x2 grid */
+          .bat-stats { display: grid; grid-template-columns: 1fr 1fr; }
+          .bat-stat {
+            padding: 24px 18px;
+            border-right: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+          }
+          .bat-stat:nth-last-child(-n+2) { border-bottom: none; }
+          .bat-stat:nth-child(odd) { border-right: 1px solid rgba(255, 255, 255, 0.18); }
+          .bat-stat-num { font-size: 28px; margin-bottom: 8px; letter-spacing: -0.5px; }
+          .bat-stat-days { font-size: 24px; }
+          .bat-stat-label { font-size: 10px; }
+
+          /* Tap targets ≥ 44px */
+          .bta-exp-remove { width: 40px; height: 40px; top: 10px; right: 10px; }
+          .bta-radio-opt { padding: 12px 16px; min-height: 44px; }
+          .bta-photo-btn { padding: 10px 16px; }
+
+          /* Skill chip ✕ — invisible hit-area boost via negative margins */
+          .bta-stag-x { padding: 6px 8px; margin: -4px -6px -4px 0; }
+        }
+
+        @media (max-width: 640px) {
+          /* Hero heading scale-down */
+          .bat-h1, .bat-h2 { font-size: clamp(32px, 9vw, 44px); letter-spacing: -1px; }
+          .bat-sub { font-size: 15px; margin-bottom: 32px; }
+          .bat-wrap { padding: 56px 20px 36px; border-radius: 24px; }
+          .bat-outer { padding: 16px; }
+
+          /* Form-footer buttons — Primary on top, full-width */
+          .bta-form-footer { padding: 18px 20px; gap: 12px; }
+          .bta-form-actions {
+            width: 100%;
+            flex-direction: column-reverse;
+            gap: 10px;
+          }
+          .bta-btn-ghost,
+          .bta-btn-next,
+          .bta-btn-submit {
+            width: 100%;
+            justify-content: center;
+            padding: 14px 18px;
+          }
+        }
+
+        @media (max-width: 480px) {
+          /* Form card padding ease-up */
+          .bta-form-header { padding: 20px 20px 16px; }
+          .bta-form-body { padding: 20px 20px; }
+
+          /* Photo preview — stack + 88px */
+          .bta-photo-wrap { flex-direction: column; align-items: flex-start; gap: 14px; }
+          .bta-photo-prev { width: 88px; height: 88px; }
+
+          /* Skill input — allow tighter wrap when many tags */
+          .bta-skill-inp { min-width: 80px; }
+        }
+
+        @media (max-width: 430px) {
+          .bat-stat { padding: 18px 14px; }
+          .bat-stat-num { font-size: 24px; }
+          .bat-stat-days { font-size: 20px; }
         }
       `}</style>
     </>
