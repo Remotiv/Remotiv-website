@@ -2,6 +2,62 @@ import { Bot, BrainCircuit, MessageSquare } from "lucide-react";
 import Image from "next/image";
 import Link from "next/link";
 
+const SEARCHING_AVATARS: ReadonlyArray<{
+  src: string;
+  width: number;
+  height: number;
+  className: string;
+  marginBottom?: string;
+}> = [
+  {
+    src: "/team-avatars/searching-1.webp",
+    width: 36,
+    height: 36,
+    className: "size-9 shrink-0 rounded-full object-cover",
+  },
+  {
+    src: "/team-avatars/searching-2.webp",
+    width: 28,
+    height: 28,
+    className: "hidden size-7 shrink-0 rounded-full object-cover sm:inline-block",
+    marginBottom: "10px",
+  },
+  {
+    src: "/team-avatars/searching-3.webp",
+    width: 44,
+    height: 44,
+    className: "size-11 shrink-0 rounded-full object-cover",
+    marginBottom: "2px",
+  },
+  {
+    src: "/team-avatars/searching-4.webp",
+    width: 32,
+    height: 32,
+    className: "size-8 shrink-0 rounded-full object-cover",
+    marginBottom: "14px",
+  },
+  {
+    src: "/team-avatars/searching-5.webp",
+    width: 42,
+    height: 42,
+    className: "size-[42px] shrink-0 rounded-full object-cover",
+  },
+  {
+    src: "/team-avatars/searching-6.webp",
+    width: 26,
+    height: 26,
+    className: "hidden size-[26px] shrink-0 rounded-full object-cover sm:inline-block",
+    marginBottom: "16px",
+  },
+  {
+    src: "/team-avatars/searching-7.webp",
+    width: 38,
+    height: 38,
+    className: "size-[38px] shrink-0 rounded-full object-cover",
+    marginBottom: "4px",
+  },
+];
+
 export function AIRecruiter() {
   const candidateRows = [
     { name: "Ahmed K.", photo: "/team-avatars/ahmed.webp", elevated: false },
@@ -105,60 +161,17 @@ export function AIRecruiter() {
                 aria-hidden="true"
                 className="flex w-full min-w-0 items-end gap-2 overflow-x-hidden"
               >
-                <Image
-                  src="/team-avatars/searching-1.webp"
-                  alt=""
-                  width={36}
-                  height={36}
-                  className="size-9 shrink-0 rounded-full object-cover"
-                />
-                <Image
-                  src="/team-avatars/searching-2.webp"
-                  alt=""
-                  width={28}
-                  height={28}
-                  className="hidden size-7 shrink-0 rounded-full object-cover sm:inline-block"
-                  style={{ marginBottom: "10px" }}
-                />
-                <Image
-                  src="/team-avatars/searching-3.webp"
-                  alt=""
-                  width={44}
-                  height={44}
-                  className="size-11 shrink-0 rounded-full object-cover"
-                  style={{ marginBottom: "2px" }}
-                />
-                <Image
-                  src="/team-avatars/searching-4.webp"
-                  alt=""
-                  width={32}
-                  height={32}
-                  className="size-8 shrink-0 rounded-full object-cover"
-                  style={{ marginBottom: "14px" }}
-                />
-                <Image
-                  src="/team-avatars/searching-5.webp"
-                  alt=""
-                  width={42}
-                  height={42}
-                  className="size-[42px] shrink-0 rounded-full object-cover"
-                />
-                <Image
-                  src="/team-avatars/searching-6.webp"
-                  alt=""
-                  width={26}
-                  height={26}
-                  className="hidden size-[26px] shrink-0 rounded-full object-cover sm:inline-block"
-                  style={{ marginBottom: "16px" }}
-                />
-                <Image
-                  src="/team-avatars/searching-7.webp"
-                  alt=""
-                  width={38}
-                  height={38}
-                  className="size-[38px] shrink-0 rounded-full object-cover"
-                  style={{ marginBottom: "4px" }}
-                />
+                {SEARCHING_AVATARS.map((avatar) => (
+                  <Image
+                    key={avatar.src}
+                    src={avatar.src}
+                    alt=""
+                    width={avatar.width}
+                    height={avatar.height}
+                    className={avatar.className}
+                    style={avatar.marginBottom ? { marginBottom: avatar.marginBottom } : undefined}
+                  />
+                ))}
                 <span className="ml-2 hidden font-sans text-[0.58rem] font-normal italic uppercase tracking-[0.16em] text-white/30 sm:inline-block">
                   searching...
                 </span>
