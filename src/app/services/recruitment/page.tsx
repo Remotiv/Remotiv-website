@@ -302,7 +302,7 @@ export default function RecruitmentPage() {
       <Navbar />
       <main className="flex-1 bg-white font-body">
         {/* HERO */}
-        <section className="relative flex min-h-[420px] sm:min-h-[520px] items-center justify-center overflow-hidden bg-white px-5 sm:px-8 pt-16 pb-8 sm:pt-20 sm:pb-10">
+        <section className="relative flex min-h-[360px] sm:min-h-[520px] items-start sm:items-center justify-center overflow-hidden bg-white px-5 sm:px-8 pt-14 pb-6 sm:pt-20 sm:pb-10">
           <div
             aria-hidden="true"
             className="absolute inset-0 grid grid-cols-[repeat(6,1fr)] grid-rows-[repeat(9,1fr)] sm:grid-cols-[repeat(10,1fr)] sm:grid-rows-[repeat(8,1fr)] md:grid-cols-[repeat(12,1fr)] md:grid-rows-[repeat(7,1fr)] lg:grid-cols-[repeat(18,1fr)] lg:grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
@@ -338,7 +338,7 @@ export default function RecruitmentPage() {
                 Submit a Role →
               </Link>
               <Link
-                className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 sm:px-8 py-[11px] sm:py-[14px] text-[0.9rem] sm:text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+                className="hidden sm:inline-block w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 sm:px-8 py-[11px] sm:py-[14px] text-[0.9rem] sm:text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
                 href="/book-a-meeting"
               >
                 Book a 15-Min Call
