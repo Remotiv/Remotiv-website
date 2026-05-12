@@ -1,5 +1,19 @@
 "use client";
 
+import {
+  ClipboardList,
+  Cloud,
+  Code,
+  Database,
+  DollarSign,
+  Megaphone,
+  Package,
+  Palette,
+  Scale,
+  ShieldCheck,
+  TrendingUp,
+  Users,
+} from "lucide-react";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/footer";
@@ -182,18 +196,18 @@ const ADVANTAGE_ROWS = [
 ] as const;
 
 const ROLES = [
-  { name: "Engineering", tags: "React, Node.js, Python, Go, Java, iOS, Android, Full Stack, Ruby, PHP, .NET" },
-  { name: "Sales & Revenue", tags: "SDR, BDR, AE, RevOps, Sales Manager, VP Sales" },
-  { name: "Customer Success", tags: "CSM, Onboarding Specialist, Renewals, Technical Support, CS Manager" },
-  { name: "Design & UX", tags: "Product Designer, UX Researcher, UI Designer, Design Systems Lead" },
-  { name: "Data & AI", tags: "Data Scientist, ML Engineer, Data Analyst, Data Engineer, LLM Specialist" },
-  { name: "DevOps & Cloud", tags: "DevOps, SRE, Cloud Architect, Platform Engineer, AWS, GCP, Azure" },
-  { name: "Marketing", tags: "Performance, Content, SEO, Growth, Brand, Email, Demand Gen" },
-  { name: "Finance & Accounting", tags: "Controller, CFO, Accountant, FP&A, Payroll, Financial Analyst" },
-  { name: "QA & Testing", tags: "QA Engineer, SDET, Automation, Manual Testing" },
-  { name: "Operations", tags: "Operations Manager, COO, Chief of Staff, BizOps, Project Manager" },
-  { name: "Product", tags: "Product Manager, Product Lead, Product Analyst, Scrum Master" },
-  { name: "Legal & HR", tags: "HR Manager, Recruiter, Legal Counsel, Compliance Officer" },
+  { name: "Engineering", icon: Code, tags: "React, Node.js, Python, Go, Java, iOS, Android, Full Stack, Ruby, PHP, .NET" },
+  { name: "Sales & Revenue", icon: TrendingUp, tags: "SDR, BDR, AE, RevOps, Sales Manager, VP Sales" },
+  { name: "Customer Success", icon: Users, tags: "CSM, Onboarding Specialist, Renewals, Technical Support, CS Manager" },
+  { name: "Design & UX", icon: Palette, tags: "Product Designer, UX Researcher, UI Designer, Design Systems Lead" },
+  { name: "Data & AI", icon: Database, tags: "Data Scientist, ML Engineer, Data Analyst, Data Engineer, LLM Specialist" },
+  { name: "DevOps & Cloud", icon: Cloud, tags: "DevOps, SRE, Cloud Architect, Platform Engineer, AWS, GCP, Azure" },
+  { name: "Marketing", icon: Megaphone, tags: "Performance, Content, SEO, Growth, Brand, Email, Demand Gen" },
+  { name: "Finance & Accounting", icon: DollarSign, tags: "Controller, CFO, Accountant, FP&A, Payroll, Financial Analyst" },
+  { name: "QA & Testing", icon: ShieldCheck, tags: "QA Engineer, SDET, Automation, Manual Testing" },
+  { name: "Operations", icon: ClipboardList, tags: "Operations Manager, COO, Chief of Staff, BizOps, Project Manager" },
+  { name: "Product", icon: Package, tags: "Product Manager, Product Lead, Product Analyst, Scrum Master" },
+  { name: "Legal & HR", icon: Scale, tags: "HR Manager, Recruiter, Legal Counsel, Compliance Officer" },
 ] as const;
 
 const FAQS = [
@@ -267,10 +281,10 @@ export default function RecruitmentPage() {
       <Navbar />
       <main className="flex-1 bg-white font-body">
         {/* HERO */}
-        <section className="relative flex min-h-[520px] items-center justify-center overflow-hidden bg-white px-8 pt-20 pb-10">
+        <section className="relative flex min-h-[420px] sm:min-h-[520px] items-center justify-center overflow-hidden bg-white px-5 sm:px-8 pt-16 pb-8 sm:pt-20 sm:pb-10">
           <div
             aria-hidden="true"
-            className="absolute inset-0 grid grid-cols-[repeat(18,1fr)] grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
+            className="absolute inset-0 grid grid-cols-[repeat(6,1fr)] grid-rows-[repeat(9,1fr)] sm:grid-cols-[repeat(10,1fr)] sm:grid-rows-[repeat(8,1fr)] md:grid-cols-[repeat(12,1fr)] md:grid-rows-[repeat(7,1fr)] lg:grid-cols-[repeat(18,1fr)] lg:grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
             style={{
               maskImage:
                 "linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.15) 65%, rgba(0,0,0,0.04) 100%)",
@@ -283,27 +297,27 @@ export default function RecruitmentPage() {
             ))}
           </div>
           <div className="relative z-10 w-full max-w-[860px] text-center">
-            <h1 className="mb-7 font-heading text-[clamp(2.4rem,5.5vw,4.2rem)] font-extrabold leading-[1.1] tracking-tight">
+            <h1 className="mb-7 font-heading text-[clamp(1.65rem,7vw,4.2rem)] font-extrabold leading-[1.1] tracking-tight">
               <span className="text-[#111]">Hire</span>
               <br />
               <span className="text-[#49D7A7]">Exceptional Talent.</span>
               <br />
               <span className="text-[#7E47FF]">Interview Tomorrow</span>
             </h1>
-            <p className="mx-auto mb-10 max-w-[620px] text-[1.05rem] leading-[1.7] text-[#444]">
+            <p className="mx-auto mb-6 sm:mb-10 max-w-[620px] text-[0.9rem] sm:text-[1.05rem] leading-[1.55] sm:leading-[1.7] text-[#444]">
               Submit your role today, receive 3–5 pre-screened candidates by tomorrow morning.
               Remotiv combines AI-powered matching with human expertise to place hires in 2 weeks
               — not 4–5 weeks. You only pay when you hire.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-3.5">
+            <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
               <Link
-                className="rounded-full bg-[#49D7A7] px-8 py-[15px] font-heading text-base font-bold text-[#111] transition-opacity hover:opacity-90"
+                className="w-full sm:w-auto text-center rounded-full bg-[#49D7A7] px-6 sm:px-8 py-[11px] sm:py-[15px] font-heading text-[0.9rem] sm:text-base font-bold text-[#111] transition-opacity hover:opacity-90"
                 href="/contact"
               >
                 Submit a Role →
               </Link>
               <Link
-                className="rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-[14px] text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+                className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 sm:px-8 py-[11px] sm:py-[14px] text-[0.9rem] sm:text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
                 href="/book-a-meeting"
               >
                 Book a 15-Min Call
@@ -313,14 +327,14 @@ export default function RecruitmentPage() {
         </section>
 
         {/* TRUST & STATS */}
-        <section className="bg-white px-10 pt-[52px] pb-16">
+        <section className="bg-white px-5 sm:px-10 pt-12 sm:pt-[52px] pb-12 sm:pb-16">
           <div className="mx-auto max-w-[1100px] text-center">
             <h2 className="mb-6 font-heading text-[clamp(1.8rem,4vw,3rem)] font-extrabold leading-[1.2] text-[#111]">
               Trusted by 100+ companies from{" "}
               <span className="text-[#7E47FF]">YC startups</span> to{" "}
               <span className="text-[#49D7A7]">Fortune-level multinationals.</span>
             </h2>
-            <p className="mx-auto mb-14 max-w-[560px] text-base leading-[1.7] text-[#777]">
+            <p className="mx-auto mb-10 sm:mb-14 max-w-[560px] text-base leading-[1.7] text-[#777]">
               We match you with pre-vetted remote specialists — fast, affordable, and ready to
               deliver from day one.
             </p>
@@ -343,8 +357,8 @@ export default function RecruitmentPage() {
         </section>
 
         {/* SERVICES */}
-        <section className="bg-white px-10 pb-16">
-          <div className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#9886fe] px-14 pt-[72px] pb-14">
+        <section className="bg-white px-5 sm:px-10 pb-12 sm:pb-16">
+          <div className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#9886fe] px-6 sm:px-10 md:px-14 pt-12 sm:pt-16 md:pt-[72px] pb-10 sm:pb-14">
             <div className="relative z-10 mb-12 max-w-[680px]">
               <h2 className="mb-3 font-heading text-[clamp(2rem,4vw,3.2rem)] font-extrabold leading-[1.1] tracking-tight text-white">
                 Recruitment Services
@@ -383,7 +397,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHY REMOTIV (alt cards) */}
-        <section className="bg-white px-10 py-12">
+        <section className="bg-white px-5 sm:px-10 py-10 sm:py-12">
           <div className="mx-auto flex max-w-[1100px] flex-col gap-3">
             <div className="mb-9 text-center">
               <h2 className="mb-2.5 font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-extrabold leading-[1.15] text-[#111]">
@@ -405,21 +419,21 @@ export default function RecruitmentPage() {
                 )}
               >
                 {r.flip && (
-                  <div className="flex flex-col justify-end rounded-[20px] bg-[#c9ff85] p-8">
+                  <div className="flex flex-col justify-end rounded-[20px] bg-[#c9ff85] p-6 sm:p-8">
                     <div className="mb-2 font-heading text-[clamp(1.4rem,2.4vw,2rem)] font-extrabold leading-none text-[#111]">
                       {r.stat}
                     </div>
                     <p className="text-[0.82rem] font-medium text-black/55">{r.statLabel}</p>
                   </div>
                 )}
-                <div className="flex flex-col justify-center rounded-[20px] bg-[#F7F8F8] px-9 py-8">
+                <div className="flex flex-col justify-center rounded-[20px] bg-[#F7F8F8] px-6 sm:px-9 py-6 sm:py-8">
                   <h3 className="mb-2.5 font-heading text-base font-bold leading-[1.3] text-[#111]">
                     {r.heading}
                   </h3>
                   <p className="text-[0.85rem] leading-[1.7] text-[#444]">{r.body}</p>
                 </div>
                 {!r.flip && (
-                  <div className="flex flex-col justify-end rounded-[20px] bg-[#c9ff85] p-8">
+                  <div className="flex flex-col justify-end rounded-[20px] bg-[#c9ff85] p-6 sm:p-8">
                     <div className="mb-2 font-heading text-[clamp(1.4rem,2.4vw,2rem)] font-extrabold leading-none text-[#111]">
                       {r.stat}
                     </div>
@@ -432,7 +446,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PROCESS */}
-        <section className="bg-white px-10 pt-10 pb-14">
+        <section className="bg-white px-5 sm:px-10 pt-10 pb-12 sm:pb-14">
           <div className="mx-auto mb-9 max-w-[1400px]">
             <p className="mb-3 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
               Our Process
@@ -447,7 +461,7 @@ export default function RecruitmentPage() {
           </div>
           <div className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#2a2426]">
             <div className="grid grid-cols-1 border-b border-white/10 md:grid-cols-[1fr_1.8fr]">
-              <div className="flex items-start border-white/10 p-11 md:border-r">
+              <div className="flex items-start border-white/10 p-7 sm:p-11 md:border-r">
                 <p className="text-[0.85rem] leading-[1.7] text-white">
                   Four steps. One dedicated recruiter. Zero hand-offs. Your new hire starts
                   within seven days of your brief.
@@ -469,9 +483,9 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHO WE WORK WITH */}
-        <section className="bg-white px-10 pt-14 pb-8">
+        <section className="bg-white px-5 sm:px-10 pt-10 sm:pt-14 pb-8">
           <div className="mx-auto max-w-[1100px]">
-            <div className="mb-14 text-center">
+            <div className="mb-8 sm:mb-14 text-center">
               <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
                 Who We Work With
               </h2>
@@ -528,7 +542,7 @@ export default function RecruitmentPage() {
                 })}
               </div>
               <div className="sticky top-20 h-full">
-                <div className="flex min-h-[400px] items-center justify-center overflow-hidden rounded-[18px] bg-[#f8f4f1]">
+                <div className="flex min-h-[200px] md:min-h-[400px] items-center justify-center overflow-hidden rounded-[18px] bg-[#f8f4f1]">
                   <span className="text-[0.82rem] text-[#777]">Image coming soon</span>
                 </div>
               </div>
@@ -537,9 +551,9 @@ export default function RecruitmentPage() {
         </section>
 
         {/* ADVANTAGE */}
-        <section className="bg-white px-10 py-12">
+        <section className="bg-white px-5 sm:px-10 py-10 sm:py-12">
           <div className="mx-auto max-w-[1200px]">
-            <div className="mb-14">
+            <div className="mb-10 sm:mb-14">
               <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
                 The Advantage
               </p>
@@ -551,7 +565,7 @@ export default function RecruitmentPage() {
               <div
                 key={row.label}
                 className={cn(
-                  "grid gap-10 border-t border-black/10 py-10 md:grid-cols-[200px_repeat(3,1fr)]",
+                  "grid gap-6 sm:gap-10 border-t border-black/10 py-8 sm:py-10 md:grid-cols-[200px_repeat(3,1fr)]",
                   idx === ADVANTAGE_ROWS.length - 1 && "border-b"
                 )}
               >
@@ -581,8 +595,8 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PRICING */}
-        <section className="bg-white px-10 pt-12 pb-16">
-          <div className="mb-14 text-center">
+        <section className="bg-white px-5 sm:px-10 pt-10 sm:pt-12 pb-12 sm:pb-16">
+          <div className="mb-10 sm:mb-14 text-center">
             <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
               Simple, Transparent Pricing
             </h2>
@@ -641,7 +655,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHAT WE RECRUIT */}
-        <section className="relative bg-[#9886fe] px-14 pt-12 pb-20">
+        <section className="relative bg-[#9886fe] px-5 sm:px-8 md:px-14 pt-10 sm:pt-12 pb-14 sm:pb-20">
           <p className="mb-3.5 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
             Roles We Place
           </p>
@@ -654,26 +668,34 @@ export default function RecruitmentPage() {
             skill exists in Pakistan&apos;s talent market, we can source it.
           </p>
           <div className="grid grid-cols-2 gap-2.5 sm:grid-cols-3 md:grid-cols-4 xl:grid-cols-5">
-            {ROLES.map((r) => (
-              <div
-                key={r.name}
-                className="flex min-h-[180px] cursor-default flex-col items-center justify-center gap-4 rounded-2xl border border-[#252525] bg-white px-5 py-8 text-center transition-all hover:-translate-y-0.5 hover:border-[#7E47FF] hover:bg-[#f9f8ff]"
-              >
-                <div className="size-7 rounded-full bg-[#111]" />
-                <div className="font-heading text-[0.88rem] font-bold leading-[1.3] text-[#111]">
-                  {r.name}
+            {ROLES.map((r) => {
+              const Icon = r.icon;
+              return (
+                <div
+                  key={r.name}
+                  className="flex min-h-[150px] sm:min-h-[180px] cursor-default flex-col items-center justify-center rounded-2xl border border-[#252525] bg-white px-3 sm:px-5 py-5 sm:py-8 text-center transition-all hover:-translate-y-0.5 hover:border-[#7E47FF] hover:bg-[#f9f8ff]"
+                >
+                  <Icon
+                    className="mb-3 size-7 fill-[#111] text-[#111] opacity-[0.85]"
+                    strokeWidth={2}
+                  />
+                  <div className="mb-1 font-heading text-[0.88rem] font-semibold leading-[1.3] text-[#111]">
+                    {r.name}
+                  </div>
+                  <div className="text-[0.7rem] sm:text-[0.75rem] leading-snug text-[#666]">
+                    {r.tags}
+                  </div>
                 </div>
-                <div className="text-[0.75rem] leading-[1.5] text-[#555]">{r.tags}</div>
-              </div>
-            ))}
+              );
+            })}
           </div>
         </section>
 
         {/* CTA / INQUIRY */}
-        <section className="bg-white px-10 pt-10 pb-12">
-          <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-14 rounded-3xl bg-[#c9ff85] px-[60px] py-[52px] md:grid-cols-2">
+        <section className="bg-white px-4 sm:px-10 pt-10 pb-12">
+          <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-[#c9ff85] px-5 sm:px-8 md:px-[60px] py-8 sm:py-10 md:py-[52px] md:grid-cols-2">
             <div>
-              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-black leading-[1.1] tracking-tight text-[#111]">
+              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-tight text-[#111]">
                 Your Next Hire Is a Week Away.
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
@@ -682,13 +704,13 @@ export default function RecruitmentPage() {
               </p>
               <div className="mb-7 flex flex-wrap gap-2.5">
                 <Link
-                  className="rounded-full bg-[#49D7A7] px-6 py-3 font-heading text-[0.82rem] font-bold text-[#111] transition-opacity hover:opacity-90"
+                  className="rounded-full bg-[#49D7A7] px-6 py-[13px] sm:py-3 font-heading text-[0.82rem] font-bold text-[#111] transition-opacity hover:opacity-90"
                   href="/contact"
                 >
                   Submit a Role →
                 </Link>
                 <a
-                  className="rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+                  className="rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
                   href="https://calendly.com/waleed-izww/intro-call"
                   rel="noreferrer"
                   target="_blank"
@@ -733,9 +755,9 @@ export default function RecruitmentPage() {
         </section>
 
         {/* FAQ */}
-        <section className="border-t border-black/5 bg-white px-10 pt-16 pb-24">
+        <section className="border-t border-black/5 bg-white px-5 sm:px-10 pt-12 sm:pt-16 pb-16 sm:pb-24">
           <div className="mx-auto max-w-[1100px]">
-            <div className="flex w-full flex-col gap-20 md:flex-row md:gap-20">
+            <div className="flex w-full flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:w-[35%]">
                 <h2 className="mb-5 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold leading-[1.15] text-[#111]">
                   Questions We Hear Most
@@ -799,17 +821,16 @@ function ProcessStep({
   return (
     <div
       className={cn(
-        "relative flex flex-col px-9 pt-8 pb-9 transition-colors duration-500",
+        "relative flex flex-col px-6 sm:px-9 pt-7 sm:pt-8 pb-7 sm:pb-9 transition-colors duration-500",
         bordered && "border-white/10 lg:border-r"
       )}
       style={active ? { backgroundColor: step.activeColor } : undefined}
     >
       <span
         className={cn(
-          "mb-auto font-heading text-[clamp(1.8rem,3.5vw,2.8rem)] font-bold leading-none transition-colors duration-500",
+          "mb-auto pb-6 sm:pb-12 font-heading text-[clamp(1.8rem,3.5vw,2.8rem)] font-bold leading-none transition-colors duration-500",
           active ? "text-black/30" : "text-white/20"
         )}
-        style={{ paddingBottom: "48px" }}
       >
         {step.counter}
       </span>
@@ -873,7 +894,7 @@ function PricingCard({
   return (
     <div
       className={cn(
-        "flex flex-col rounded-[20px] border border-black/10 bg-white px-7 py-8",
+        "flex flex-col rounded-[20px] border border-black/10 bg-white px-6 sm:px-7 py-7 sm:py-8",
         highlight && "border-[#111]"
       )}
     >
@@ -887,7 +908,7 @@ function PricingCard({
       </div>
       <div className="mb-6">
         {price.main && (
-          <div className="mb-1.5 font-heading text-[2.8rem] font-extrabold leading-none text-[#111]">
+          <div className="mb-1.5 font-heading text-[2.2rem] sm:text-[2.8rem] font-extrabold leading-none text-[#111]">
             {price.main}
             {price.mainSuffix && (
               <span className="text-[1.4rem]"> {price.mainSuffix}</span>
@@ -966,9 +987,9 @@ function InquiryForm() {
   }
 
   return (
-    <div className="rounded-2xl bg-white px-6 py-7">
+    <div className="rounded-2xl bg-white px-5 sm:px-6 py-6 sm:py-7">
       <p className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</p>
-      <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+      <div className="mb-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
         <FormField label="Full Name" onChange={update("name")} placeholder="Your name" value={form.name} />
         <FormField label="Company" onChange={update("company")} placeholder="Company name" value={form.company} />
       </div>
@@ -990,14 +1011,14 @@ function InquiryForm() {
           Message
         </span>
         <textarea
-          className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-xs text-[#333] outline-none focus:bg-[#efefef]"
+          className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
           onChange={update("message")}
           placeholder="Tell us about the role, skills needed, and timeline..."
           value={form.message}
         />
       </label>
       <button
-        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-[#c9ff85] px-3 py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
+        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-[#c9ff85] px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
         onClick={submit}
         type="button"
       >
@@ -1029,7 +1050,7 @@ function FormField({
         {label}
       </span>
       <input
-        className="box-border w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-xs text-[#333] outline-none focus:bg-[#efefef]"
+        className="box-border w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
         onChange={onChange}
         placeholder={placeholder}
         type={type}
