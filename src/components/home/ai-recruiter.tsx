@@ -177,7 +177,10 @@ export function AIRecruiter() {
                 </span>
               </div>
 
-              <div className="w-full max-w-full overflow-hidden rounded-2xl bg-remotiv-bg px-[18px] pt-5 pb-4">
+              <div
+                aria-hidden="true"
+                className="w-full max-w-full overflow-hidden rounded-2xl bg-remotiv-bg px-[18px] pt-5 pb-4"
+              >
                 <h3 className="mb-4 whitespace-normal break-words font-heading text-[0.82rem] font-bold uppercase tracking-tight text-[#1a1a1a]">
                   Your Qualified Candidate Review List
                 </h3>

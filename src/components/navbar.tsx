@@ -2,6 +2,7 @@
 
 import { ChevronDown, Menu, X } from "lucide-react";
 import Link from "next/link";
+import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 import styles from "./navbar.module.css";
@@ -66,6 +67,7 @@ function ChevronSvg({ open }: { open: boolean }) {
 function ServicesDropdown() {
   const [open, setOpen] = useState(false);
   const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const pathname = usePathname();
 
   function show() {
     if (timeoutRef.current) clearTimeout(timeoutRef.current);
@@ -96,6 +98,7 @@ function ServicesDropdown() {
               <Link
                 key={service.href}
                 href={service.href}
+                aria-current={pathname === service.href ? "page" : undefined}
                 className="block rounded-xl px-3 py-[9px] text-left transition-colors hover:bg-remotiv-green/[0.09]"
               >
                 <span className="block text-[0.82rem] font-bold text-[#111] leading-[1.3]">
@@ -119,6 +122,7 @@ interface NavbarProps {
 
 export function Navbar({ variant = "default" }: NavbarProps) {
   const isHome = variant === "home";
+  const pathname = usePathname();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   const [isServicesExpanded, setIsServicesExpanded] = useState(false);
   const overlayRef = useRef<HTMLDivElement | null>(null);
@@ -227,7 +231,11 @@ export function Navbar({ variant = "default" }: NavbarProps) {
               {item.hasDropdown ? (
                 <ServicesDropdown />
               ) : (
-                <Link href={item.href} className={NAV_LINK_CLASS}>
+                <Link
+                  href={item.href}
+                  aria-current={pathname === item.href ? "page" : undefined}
+                  className={NAV_LINK_CLASS}
+                >
                   {item.label}
                 </Link>
               )}
@@ -299,6 +307,7 @@ export function Navbar({ variant = "default" }: NavbarProps) {
                             key={service.href}
                             href={service.href}
                             onClick={closeMenu}
+                            aria-current={pathname === service.href ? "page" : undefined}
                             className="rounded-lg px-4 py-3 font-sans text-[0.95rem] font-medium text-[#444] transition-colors hover:bg-black/[0.04] hover:text-[#111]"
                           >
                             {service.title}
@@ -314,6 +323,7 @@ export function Navbar({ variant = "default" }: NavbarProps) {
                   key={item.label}
                   href={item.href}
                   onClick={closeMenu}
+                  aria-current={pathname === item.href ? "page" : undefined}
                   className={MOBILE_LINK_CLASS}
                 >
                   {item.label}

@@ -29,6 +29,9 @@ export default function RootLayout({
   return (
     <html lang="en" className={`${sora.variable} ${dmSans.variable} h-full antialiased bg-background`}>
       <body className="min-h-full flex flex-col overflow-x-hidden">
+        <a href="#main" className="skip-link">
+          Skip to main content
+        </a>
         {children}
         <AIChatWidget />
       </body>

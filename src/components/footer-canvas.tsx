@@ -198,7 +198,7 @@ export function FooterCanvas() {
   return (
     <div ref={wrapRef} className="relative mt-2 h-[180px] w-full">
       <div className="pointer-events-none absolute inset-x-0 top-0 z-[2] h-[55%] bg-gradient-to-b from-[#111111] to-transparent" />
-      <canvas ref={canvasRef} className="block size-full" />
+      <canvas ref={canvasRef} aria-hidden="true" className="block size-full" />
     </div>
   );
 }

@@ -146,9 +146,9 @@ const INITIAL_FORM: FormState = {
 };
 
 const INPUT_CLASS =
-  "w-full rounded-lg bg-[#f5f5f5] px-3 py-[9px] text-xs text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] data-[invalid=true]:outline data-[invalid=true]:outline-2 data-[invalid=true]:outline-[#ff6b6b]";
+  "w-full rounded-lg bg-[#f5f5f5] px-3 py-[9px] text-xs text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-[#ff6b6b]";
 
-const LABEL_CLASS = "mb-[5px] block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]";
+const LABEL_CLASS = "mb-[5px] block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";
 
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
@@ -318,7 +318,7 @@ export default function ContactPage() {
 
             <div className="rounded-2xl bg-white px-6 py-7">
               {status === "success" ? (
-                <div className="py-6 text-center">
+                <div role="status" aria-live="polite" className="py-6 text-center">
                   <div className="mb-3 text-4xl">✅</div>
                   <h3 className="mb-2 font-heading text-base font-bold text-remotiv-text-dark">
                     Inquiry Sent!
@@ -336,7 +336,14 @@ export default function ContactPage() {
                 <form onSubmit={handleSubmit} noValidate>
                   <p className="mb-4 font-heading text-sm font-bold text-remotiv-text-dark">Send an Inquiry</p>
                   {errorMessage && (
-                    <p className="mb-4 text-sm text-red-600">{errorMessage}</p>
+                    <p
+                      id="ct-form-error"
+                      role="alert"
+                      aria-live="assertive"
+                      className="mb-4 text-sm text-red-600"
+                    >
+                      {errorMessage}
+                    </p>
                   )}
                   {/* Honeypot — hidden from humans, filled by bots */}
                   <input
@@ -362,7 +369,8 @@ export default function ContactPage() {
                         className={INPUT_CLASS}
                         placeholder="Your name"
                         value={form.name}
-                        data-invalid={errors.name || undefined}
+                        aria-invalid={errors.name ? true : undefined}
+                        aria-describedby={errorMessage ? "ct-form-error" : undefined}
                         onChange={(e) => update("name", e.target.value)}
                       />
                     </div>
@@ -377,6 +385,7 @@ export default function ContactPage() {
                         className={INPUT_CLASS}
                         placeholder="Company name"
                         value={form.company}
+                        aria-describedby={errorMessage ? "ct-form-error" : undefined}
                         onChange={(e) => update("company", e.target.value)}
                       />
                     </div>
@@ -393,7 +402,8 @@ export default function ContactPage() {
                       className={INPUT_CLASS}
                       placeholder="you@company.com"
                       value={form.email}
-                      data-invalid={errors.email || undefined}
+                      aria-invalid={errors.email ? true : undefined}
+                      aria-describedby={errorMessage ? "ct-form-error" : undefined}
                       onChange={(e) => update("email", e.target.value)}
                     />
                   </div>
@@ -405,6 +415,7 @@ export default function ContactPage() {
                       id="ct-service"
                       className={INPUT_CLASS}
                       value={form.service}
+                      aria-describedby={errorMessage ? "ct-form-error" : undefined}
                       onChange={(e) => update("service", e.target.value)}
                     >
                       {SERVICE_OPTIONS.map((option) => (
@@ -424,6 +435,7 @@ export default function ContactPage() {
                       className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                       placeholder="Tell us how we can help..."
                       value={form.message}
+                      aria-describedby={errorMessage ? "ct-form-error" : undefined}
                       onChange={(e) => update("message", e.target.value)}
                     />
                   </div>
@@ -434,7 +446,7 @@ export default function ContactPage() {
                   >
                     {status === "sending" ? "Sending…" : "Send Inquiry →"}
                   </button>
-                  <p className="flex items-center justify-center gap-1 text-center text-[10px] text-[#bbb]">
+                  <p className="flex items-center justify-center gap-1 text-center text-[10px] text-[#666]">
                     <Lock className="size-[9px]" />
                     Your data is encrypted and 100% confidential
                   </p>

@@ -271,3 +271,38 @@ body {
     scroll-behavior: auto !important;
   }
 }
+
+/* Visible focus indicator for keyboard navigation (WCAG 2.4.7).
+   Only shown for keyboard focus, not mouse clicks. */
+*:focus-visible {
+  outline: 2px solid var(--color-remotiv-purple);
+  outline-offset: 2px;
+  border-radius: 2px;
+}
+
+*:focus:not(:focus-visible) {
+  outline: none;
+}
+
+/* Skip-to-content link — visible only on focus.
+   Lets keyboard users bypass the navbar and jump to <main id="main">. */
+.skip-link {
+  position: absolute;
+  top: -40px;
+  left: 1rem;
+  z-index: 9999;
+  padding: 0.5rem 1rem;
+  background: var(--color-remotiv-purple);
+  color: white;
+  font-family: var(--font-heading);
+  font-weight: 600;
+  font-size: 0.875rem;
+  border-radius: 0.375rem;
+  text-decoration: none;
+  transition: top 0.2s ease;
+}
+
+.skip-link:focus,
+.skip-link:focus-visible {
+  top: 1rem;
+}

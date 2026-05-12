@@ -30,7 +30,7 @@ const INPUT_CLASS =
   "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 font-sans text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
 
 const LABEL_CLASS =
-  "mb-1 block font-sans text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]";
+  "mb-1 block font-sans text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";
 
 type FormState = {
   name: string;
@@ -131,7 +131,11 @@ export function CtaInquiry() {
           </div>
 
           {status === "success" ? (
-            <div className="rounded-2xl bg-white px-6 py-10 text-center">
+            <div
+              role="status"
+              aria-live="polite"
+              className="rounded-2xl bg-white px-6 py-10 text-center"
+            >
               <div className="text-4xl">✅</div>
               <h3 className="mt-4 mb-2 font-heading text-base font-bold text-[#111]">
                 Inquiry Sent!
@@ -181,6 +185,7 @@ export function CtaInquiry() {
                     className={INPUT_CLASS}
                     value={form.name}
                     onChange={(e) => update("name", e.target.value)}
+                    aria-describedby={status === "error" ? "cta-form-error" : undefined}
                   />
                 </div>
                 <div>
@@ -196,6 +201,7 @@ export function CtaInquiry() {
                     className={INPUT_CLASS}
                     value={form.company}
                     onChange={(e) => update("company", e.target.value)}
+                    aria-describedby={status === "error" ? "cta-form-error" : undefined}
                   />
                 </div>
               </div>
@@ -213,6 +219,7 @@ export function CtaInquiry() {
                   className={INPUT_CLASS}
                   value={form.email}
                   onChange={(e) => update("email", e.target.value)}
+                  aria-describedby={status === "error" ? "cta-form-error" : undefined}
                 />
               </div>
 
@@ -225,6 +232,7 @@ export function CtaInquiry() {
                   className={INPUT_CLASS}
                   value={form.service}
                   onChange={(e) => update("service", e.target.value)}
+                  aria-describedby={status === "error" ? "cta-form-error" : undefined}
                 >
                   {SERVICES.map((s) => (
                     <option key={s} value={s}>
@@ -246,11 +254,17 @@ export function CtaInquiry() {
                   className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                   value={form.message}
                   onChange={(e) => update("message", e.target.value)}
+                  aria-describedby={status === "error" ? "cta-form-error" : undefined}
                 />
               </div>
 
               {status === "error" && (
-                <p className="mb-3 text-center text-[11px] text-red-600">
+                <p
+                  id="cta-form-error"
+                  role="alert"
+                  aria-live="assertive"
+                  className="mb-3 text-center text-[11px] text-red-600"
+                >
                   {errorMessage ??
                     "Something went wrong. Please try again or email hello@remotiv.com."}
                 </p>
@@ -264,7 +278,7 @@ export function CtaInquiry() {
                 {isPending ? "Sending..." : "Send Inquiry →"}
               </button>
 
-              <p className="mt-3 flex items-center justify-center gap-1 font-sans text-[10px] text-[#bbb]">
+              <p className="mt-3 flex items-center justify-center gap-1 font-sans text-[10px] text-[#666]">
                 <Lock className="size-[9px] shrink-0" strokeWidth={2} aria-hidden />
                 Your data is encrypted and 100% confidential
               </p>
