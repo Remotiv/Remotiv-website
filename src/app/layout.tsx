@@ -16,9 +16,52 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
+  metadataBase: new URL("https://remotiv-website-m3jo.vercel.app"),
   title: "Remotiv — Hire Top 1% Senior Engineering Talent",
   description:
     "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+  applicationName: "Remotiv",
+  keywords: [
+    "remote engineering",
+    "senior developers",
+    "talent marketplace",
+    "Pakistan engineers",
+    "AI recruiter",
+    "staff augmentation",
+  ],
+  authors: [{ name: "Remotiv" }],
+  creator: "Remotiv",
+  publisher: "Remotiv",
+  openGraph: {
+    title: "Remotiv — Hire Top 1% Senior Engineering Talent",
+    description:
+      "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+    url: "https://remotiv-website-m3jo.vercel.app",
+    siteName: "Remotiv",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Remotiv — Hire Top 1% Senior Engineering Talent",
+    description:
+      "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+    creator: "@remotiv",
+  },
+  icons: {
+    icon: "/favicon.ico",
+    apple: "/apple-touch-icon.png",
+  },
+  themeColor: "#7E47FF",
+  robots: {
+    index: true,
+    follow: true,
+    googleBot: {
+      index: true,
+      follow: true,
+      "max-image-preview": "large",
+    },
+  },
 };
 
 export default function RootLayout({

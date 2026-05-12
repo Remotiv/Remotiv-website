@@ -71,11 +71,11 @@ export function VettingProcess() {
         </div>
 
         <h2 className="mb-5 font-heading text-[2rem] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111] sm:text-[clamp(2.4rem,4.5vw,4.2rem)]">
-          How We Deliver The
+          How we deliver the
           <br />
-          <em className="not-italic text-remotiv-green">Top 1% of Talent</em>
+          <em className="not-italic text-remotiv-green">top 1% of talent</em>
           <br />
-          To Your Next Hire
+          to your next hire
         </h2>
 
         <p className="mb-10 max-w-[520px] font-sans text-[0.95rem] font-normal leading-[1.75] text-[#777] md:mb-16">

@@ -97,7 +97,7 @@ const CONTACT_DETAILS = [
       <>
         Mon – Fri, 9am – 6pm PKT
         <br />
-        Urgent? We prioritise same-day replies
+        Urgent? We prioritize same-day replies
       </>
     ),
     icon: Clock,

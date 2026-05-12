@@ -12,7 +12,7 @@ const CARDS = [
     num: "02",
     tag: "Lightning fast",
     title: "Precision Speed (24-Hour Turnaround)",
-    body: "Receive a curated shortlist of top candidates within 24 hours of sharing your brief. It is the fastest turnaround in the industry.",
+    body: "Receive a curated shortlist of top candidates within 24 hours of sharing your brief. It&apos;s the fastest turnaround in the industry.",
   },
   {
     num: "03",
@@ -47,9 +47,9 @@ export function WhyRemotiv() {
           </div>
 
           <h2 className="mb-[22px] font-heading text-[1.8rem] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-[#111] sm:text-[clamp(2.2rem,3.8vw,3.2rem)]">
-            Why Founders
+            Why founders
             <br />
-            <span className="text-remotiv-purple">Choose Remotiv?</span>
+            <span className="text-remotiv-purple">choose Remotiv?</span>
           </h2>
 
           <p className="mb-11 max-w-[360px] font-sans text-[0.95rem] leading-[1.75] text-[#777]">

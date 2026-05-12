@@ -5,7 +5,7 @@ import { useEffect, useState } from "react";
 
 const TESTIMONIALS = [
   {
-    text: "Remotiv provided candidates faster and in higher quality than most overseas recruiters that have used, communication was really strong, so it led to a long working relationship. Very happy with our time working with Remotiv.",
+    text: "Remotiv provided candidates faster and of higher quality than most overseas recruiters I've used. Communication was strong, leading to a long working relationship. Very happy with our time working with Remotiv.",
     name: "Daniel Magazu",
     role: "CEO, Ride the Wave",
     img: "/client-avatars/male-001.webp",

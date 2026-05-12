@@ -81,9 +81,9 @@ export function AIRecruiter() {
               <h2 className="font-heading text-[clamp(1.6rem,7vw,3.2rem)] font-extrabold uppercase leading-[0.95] tracking-[-0.03em] text-white break-words">
                 Meet Remotiv AI:
                 <br />
-                <em className="block not-italic text-remotiv-green">Your Always-On</em>
+                <em className="block not-italic text-remotiv-green">your always-on</em>
                 <br />
-                Recruiter
+                recruiter
               </h2>
 
               <p className="mt-4 max-w-[400px] font-sans text-[0.95rem] font-normal leading-[1.75] text-white/65">

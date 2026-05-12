@@ -251,7 +251,7 @@ export function Navbar({ variant = "default" }: NavbarProps) {
             isHome && styles.btnLoginFloat,
           )}
         >
-          Book A Meeting
+          Book a meeting
         </Link>
       </nav>
 

@@ -1,7 +1,7 @@
 import Image from "next/image";
 
 /**
- * "Trusted by leading companies worldwide" partner-logo marquee.
+ * "Trusted by 100+ companies worldwide" partner-logo marquee.
  *
  * Pixel-matched to the reference HTML's #partner-marquee block:
  *   - 26s linear-infinite scroll (paused on hover)
@@ -51,7 +51,7 @@ export function PartnerMarquee() {
     <section className="flex w-full justify-center bg-white pt-8 pb-6 md:pt-[52px] md:pb-8">
       <div className="flex w-[92%] flex-col items-center overflow-hidden rounded-2xl bg-remotiv-bg py-[26px] md:w-[75%]">
         <h2 className="mb-5 text-center text-[13px] font-medium text-[#111] md:text-[15px]">
-          Trusted by leading companies worldwide
+          Trusted by 100+ companies worldwide
         </h2>
 
         {/* Marquee wrapper */}

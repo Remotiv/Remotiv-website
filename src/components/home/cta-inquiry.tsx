@@ -89,9 +89,9 @@ export function CtaInquiry() {
               Hire in 24 Hours
             </span>
             <h2 className="mb-3 font-heading text-[clamp(1.5rem,2.2vw,2rem)] font-extrabold leading-[1.05] tracking-[-0.03em] text-[#111]">
-              Ready to Build Your
+              Ready to build your
               <br />
-              Engineering Team?
+              engineering team?
             </h2>
             <p className="mb-6 max-w-md font-sans text-[13px] leading-[1.75] text-[#111]/75">
               Tell us what you&apos;re looking for. We&apos;ll match you with pre-vetted senior
@@ -275,7 +275,7 @@ export function CtaInquiry() {
                 disabled={isPending}
                 className="w-full rounded-[10px] bg-remotiv-lime-card py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60 disabled:hover:translate-y-0"
               >
-                {isPending ? "Sending..." : "Send Inquiry →"}
+                {isPending ? "Sending…" : "Send Inquiry →"}
               </button>
 
               <p className="mt-3 flex items-center justify-center gap-1 font-sans text-[10px] text-[#666]">
