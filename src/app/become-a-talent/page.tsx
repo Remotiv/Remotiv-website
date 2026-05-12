@@ -57,7 +57,18 @@ type WorkExperience = {
   start: string;
   end: string;
   skills: string;
+  currentlyWorking: boolean;
 };
+
+const makeEmptyExperience = (): WorkExperience => ({
+  id: Date.now(),
+  title: "",
+  company: "",
+  start: "",
+  end: "",
+  skills: "",
+  currentlyWorking: false,
+});
 
 type WorkType = "fullTime" | "partTime" | "contract" | "any";
 type NoticePeriod = "immediate" | "2weeks" | "1month" | "negotiable";
@@ -243,7 +254,7 @@ export default function BecomeATalentPage() {
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
 
-  const [experiences, setExperiences] = useState<WorkExperience[]>([]);
+  const [experiences, setExperiences] = useState<WorkExperience[]>(() => [makeEmptyExperience()]);
   const [skills, setSkills] = useState<string[]>([]);
   const [skillInput, setSkillInput] = useState("");
 
@@ -277,6 +288,7 @@ export default function BecomeATalentPage() {
   const [submitState, setSubmitState] = useState<"form" | "success" | "duplicate">("form");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [step1Error, setStep1Error] = useState<string | null>(null);
+  const [step2Error, setStep2Error] = useState<string | null>(null);
 
   const handleStep1Next = () => {
     setStep1Error(null);
@@ -301,6 +313,32 @@ export default function BecomeATalentPage() {
     goToStep(2);
   };
 
+  const handleStep2Next = () => {
+    setStep2Error(null);
+
+    if (!degree.trim())      { setStep2Error("Degree / qualification is required"); return; }
+    if (!institution.trim()) { setStep2Error("Institution / university is required"); return; }
+
+    if (experiences.length === 0) {
+      setStep2Error("Add at least one work experience entry");
+      return;
+    }
+
+    for (let i = 0; i < experiences.length; i++) {
+      const e = experiences[i];
+      const n = i + 1;
+      if (!e.title.trim())   { setStep2Error(`Experience ${n}: Job title is required`); return; }
+      if (!e.company.trim()) { setStep2Error(`Experience ${n}: Company is required`); return; }
+      if (!e.start.trim())   { setStep2Error(`Experience ${n}: Start date is required`); return; }
+      if (!e.currentlyWorking && !e.end.trim()) {
+        setStep2Error(`Experience ${n}: End date is required (or tick "I currently work here")`);
+        return;
+      }
+    }
+
+    goToStep(3);
+  };
+
   const goToStep = (target: number) => {
     if (target < 1 || target > 4) return;
     setStep(target);
@@ -308,10 +346,7 @@ export default function BecomeATalentPage() {
   };
 
   const addExperience = () => {
-    setExperiences((prev) => [
-      ...prev,
-      { id: Date.now(), title: "", company: "", start: "", end: "", skills: "" },
-    ]);
+    setExperiences((prev) => [...prev, makeEmptyExperience()]);
   };
 
   const updateExperience = (id: number, patch: Partial<WorkExperience>) => {
@@ -319,7 +354,10 @@ export default function BecomeATalentPage() {
   };
 
   const removeExperience = (id: number) => {
-    setExperiences((prev) => prev.filter((e) => e.id !== id));
+    setExperiences((prev) => {
+      const next = prev.filter((e) => e.id !== id);
+      return next.length === 0 ? [makeEmptyExperience()] : next;
+    });
   };
 
   const handleSkillKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -415,17 +453,20 @@ export default function BecomeATalentPage() {
       // skills string into an array so the modal can render them as tags.
       const expPayload = experiences
         .filter((e) => e.title?.trim() || e.company?.trim())
-        .map((e) => ({
-          title:   e.title?.trim()   ?? "",
-          company: e.company?.trim() ?? "",
-          start:   e.start?.trim()   ?? "",
-          end:     e.end?.trim()     ?? "",
-          dates:   [e.start?.trim(), e.end?.trim()].filter(Boolean).join(" – "),
-          skills:  (e.skills ?? "")
-            .split(",")
-            .map((s: string) => s.trim())
-            .filter(Boolean),
-        }));
+        .map((e) => {
+          const endValue = e.currentlyWorking ? "Present" : (e.end?.trim() ?? "");
+          return {
+            title:   e.title?.trim()   ?? "",
+            company: e.company?.trim() ?? "",
+            start:   e.start?.trim()   ?? "",
+            end:     endValue,
+            dates:   [e.start?.trim(), endValue].filter(Boolean).join(" – "),
+            skills:  (e.skills ?? "")
+              .split(",")
+              .map((s: string) => s.trim())
+              .filter(Boolean),
+          };
+        });
       fd.append("experience", JSON.stringify(expPayload));
       fd.append("availability",   AVAILABILITY_LABEL[availability]   ?? availability);
       fd.append("work_type",      WORK_TYPE_LABEL[workType]          ?? workType);
@@ -891,12 +932,45 @@ export default function BecomeATalentPage() {
                                     className="bta-input"
                                     placeholder="e.g. 2024 or Present"
                                     value={exp.end}
+                                    disabled={exp.currentlyWorking}
                                     onChange={(e) =>
                                       updateExperience(exp.id, { end: e.target.value })
+                                    }
+                                    style={
+                                      exp.currentlyWorking
+                                        ? { opacity: 0.5, cursor: "not-allowed" }
+                                        : undefined
                                     }
                                   />
                                 </div>
                               </div>
+                              <label
+                                style={{
+                                  display: "flex",
+                                  flexDirection: "row",
+                                  alignItems: "center",
+                                  gap: 8,
+                                  fontSize: ".78rem",
+                                  color: "#555",
+                                  cursor: "pointer",
+                                  fontFamily: "'DM Sans', sans-serif",
+                                  marginTop: -6,
+                                  marginBottom: 14,
+                                }}
+                              >
+                                <input
+                                  type="checkbox"
+                                  checked={exp.currentlyWorking}
+                                  onChange={(ev) =>
+                                    updateExperience(exp.id, {
+                                      currentlyWorking: ev.target.checked,
+                                      ...(ev.target.checked ? { end: "" } : {}),
+                                    })
+                                  }
+                                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                                />
+                                I currently work here
+                              </label>
                               <div className="bta-form-group">
                                 <div className="bta-label">
                                   Skills Used <span className="bta-opt">optional</span>
@@ -968,6 +1042,24 @@ export default function BecomeATalentPage() {
                           />
                         </div>
                       </div>
+                      {step2Error && (
+                        <div
+                          role="alert"
+                          style={{
+                            margin: "0 32px 16px",
+                            padding: "10px 14px",
+                            background: "rgba(239,68,68,0.08)",
+                            border: "1px solid rgba(239,68,68,0.25)",
+                            borderRadius: 10,
+                            color: "#dc2626",
+                            fontSize: "0.78rem",
+                            fontFamily: "'DM Sans',sans-serif",
+                            fontWeight: 500,
+                          }}
+                        >
+                          {step2Error}
+                        </div>
+                      )}
                       <div className="bta-form-footer">
                         <FooterNote />
                         <div className="bta-form-actions">
@@ -981,7 +1073,7 @@ export default function BecomeATalentPage() {
                           <button
                             type="button"
                             className="bta-btn-next"
-                            onClick={() => goToStep(3)}
+                            onClick={handleStep2Next}
                           >
                             Next: Work Preferences →
                           </button>
