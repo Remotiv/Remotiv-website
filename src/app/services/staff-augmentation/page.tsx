@@ -21,7 +21,7 @@ const TI_POINTS: readonly {
     title: "Not outsourcing",
     body: "You manage the work directly. No intermediary.",
     icon: (
-      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-16">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-14 sm:size-16">
         <rect x="8" y="10" width="38" height="46" rx="4" stroke="#111" strokeWidth="2" />
         <line x1="8" y1="20" x2="46" y2="20" stroke="#111" strokeWidth="2" />
         <circle cx="48" cy="46" r="10" fill="#49D7A7" />
@@ -41,7 +41,7 @@ const TI_POINTS: readonly {
     title: "Not permanent hiring",
     body: "No 6-week recruitment cycle. No severance risk.",
     icon: (
-      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-16">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-14 sm:size-16">
         <rect x="10" y="14" width="36" height="36" rx="5" stroke="#111" strokeWidth="2" />
         <circle cx="48" cy="46" r="10" fill="#49D7A7" />
         <path
@@ -62,7 +62,7 @@ const TI_POINTS: readonly {
     title: "Not freelancing",
     body: "Every specialist is vetted, contracted, and backed by our free replacement guarantee.",
     icon: (
-      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-16">
+      <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-14 sm:size-16">
         <path
           d="M20 32 C20 32 14 32 14 26 C14 20 20 20 20 20 L26 20 L26 44 L20 44 Z"
           stroke="#111"
@@ -614,33 +614,33 @@ const CHECK_ITEMS: readonly string[] = [
 
 function Hero() {
   return (
-    <section className="bg-white p-6">
-      <div className="relative isolate flex w-full items-center justify-center overflow-hidden rounded-[32px] bg-[#f8f4f1] px-6 pt-[72px] pb-20 text-center">
+    <section className="bg-white p-4 sm:p-6">
+      <div className="relative isolate flex w-full items-center justify-center overflow-hidden rounded-[32px] bg-[#f8f4f1] px-5 pt-12 pb-12 sm:px-6 sm:pt-[72px] sm:pb-20 text-center">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgba(0,0,0,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.07)_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(ellipse_60%_100%_at_50%_50%,black_20%,transparent_80%)]"
         />
         <div className="relative z-10">
-          <h1 className="mb-6 font-heading text-[clamp(2.4rem,5vw,4rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
+          <h1 className="mb-6 font-heading text-[clamp(1.9rem,6.5vw,4rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
             <span>Ship Faster.</span>{" "}
             <span className="text-remotiv-green">Spend Less.</span>{" "}
             <span className="text-remotiv-purple">Stay in Control.</span>
           </h1>
-          <p className="mx-auto mb-10 max-w-[620px] text-[1.1rem] leading-[1.65] text-[#444]">
+          <p className="mx-auto mb-6 sm:mb-10 max-w-[620px] text-[1.1rem] leading-[1.65] text-[#444]">
             Plug vetted specialists into your team in 24 hours. They join your standup, use your
             tools, and report to you — while Remotiv handles payroll, contracts, and compliance
             behind the scenes.
           </p>
-          <div className="flex flex-wrap items-center justify-center gap-3.5">
+          <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
             <Link
               href="/hire-remote"
-              className="rounded-full bg-remotiv-green px-8 py-[15px] font-heading text-base font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
+              className="w-full sm:w-auto text-center rounded-full bg-remotiv-green px-8 py-[12px] sm:py-[15px] font-heading text-base font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →
             </Link>
             <Link
               href="/ai-matching"
-              className="rounded-full border-[1.5px] border-[#111] px-8 py-3.5 text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+              className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] px-8 py-[11px] sm:py-3.5 text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
             >
               Try AI Matching
             </Link>
@@ -653,22 +653,22 @@ function Hero() {
 
 function Stats() {
   return (
-    <section className="border-t border-black/[0.06] bg-white px-8 py-20">
+    <section className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-8 sm:py-20">
       <h2 className="mx-auto mb-4 max-w-[700px] text-center font-heading text-[clamp(1.75rem,3.5vw,2.6rem)] font-extrabold leading-[1.15] text-[#111]">
         Trusted by 100+ companies from{" "}
         <span className="text-remotiv-purple">YC startups</span> to{" "}
         <span className="text-remotiv-green">Fortune-level multinationals.</span>
       </h2>
-      <p className="mx-auto mb-12 max-w-[580px] text-center text-[1.05rem] leading-[1.65] text-[#444]">
+      <p className="mx-auto mb-8 sm:mb-12 max-w-[580px] text-center text-[1.05rem] leading-[1.65] text-[#444]">
         We match you with pre-vetted remote specialists — fast, affordable, and ready to deliver
         from day one.
       </p>
-      <div className="mx-auto max-w-[1120px] rounded-[28px] bg-remotiv-purple-light p-7">
-        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 lg:grid-cols-4">
+      <div className="mx-auto max-w-[1120px] rounded-[28px] bg-remotiv-purple-light p-5 sm:p-7">
+        <div className="grid grid-cols-1 gap-4 sm:grid-cols-2 md:grid-cols-4">
           {STATS.map((s) => (
             <div
               key={s.label}
-              className="flex flex-col items-center gap-2.5 rounded-[18px] bg-white px-7 pt-10 pb-9 text-center"
+              className="flex flex-col items-center gap-2.5 rounded-[18px] bg-white px-5 pt-7 pb-6 sm:px-7 sm:pt-10 sm:pb-9 text-center"
             >
               <div className="font-heading text-[clamp(2rem,3.5vw,3rem)] font-extrabold leading-none text-[#111]">
                 {s.value}
@@ -686,10 +686,10 @@ function Stats() {
 
 function TeamIntegration() {
   return (
-    <section className="bg-[#f8f4f1] px-6 py-16 md:px-10 md:py-24">
+    <section className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto grid max-w-[1120px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-20">
         <div>
-          <h2 className="mb-7 font-heading text-[clamp(1.75rem,3vw,2.5rem)] font-extrabold leading-[1.15] text-[#111]">
+          <h2 className="mb-5 sm:mb-7 font-heading text-[clamp(1.75rem,3vw,2.5rem)] font-extrabold leading-[1.15] text-[#111]">
             Your Team, Plus the Exact Specialist You&apos;re Missing
           </h2>
           <p className="text-base leading-[1.8] text-[#444]">
@@ -702,7 +702,7 @@ function TeamIntegration() {
             done.
           </p>
         </div>
-        <div className="flex flex-col gap-13">
+        <div className="flex flex-col gap-12 md:gap-14">
           {TI_POINTS.map((pt) => (
             <div key={pt.title}>
               <div className="mb-5 block">{pt.icon}</div>
@@ -727,7 +727,7 @@ function FiveReasons() {
   return (
     <section className="bg-[#f8f4f1] px-5 py-14 sm:px-8 sm:py-20">
       <div className="mx-auto max-w-[1100px]">
-        <div className="mb-12 text-center">
+        <div className="mb-8 sm:mb-12 text-center">
           <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
             Five Reasons Companies Switch to Remotiv
           </h2>
@@ -736,7 +736,7 @@ function FiveReasons() {
           {REASONS.map((r) => (
             <div
               key={r.title}
-              className="flex min-h-[340px] flex-col rounded-2xl border border-black/[0.08] bg-white p-7"
+              className="flex min-h-[260px] sm:min-h-[340px] flex-col rounded-2xl border border-black/[0.08] bg-white p-6 sm:p-7"
             >
               <span
                 className={`mb-[18px] self-start rounded-[5px] px-2.5 py-1 font-heading text-[0.7rem] font-bold ${badgeClass(r.badge.tone)}`}
@@ -751,7 +751,7 @@ function FiveReasons() {
           ))}
 
           <div className="flex flex-col gap-3.5">
-            <div className="flex flex-1 flex-col rounded-2xl border border-black/[0.08] bg-white p-7">
+            <div className="flex flex-1 flex-col rounded-2xl border border-black/[0.08] bg-white p-6 sm:p-7">
               <h3 className="mb-0 font-heading text-[1.2rem] font-bold leading-tight text-[#111]">
                 The Right Specialist, Not the Nearest Generalist
               </h3>
@@ -763,7 +763,7 @@ function FiveReasons() {
               </p>
             </div>
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
-              <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-6">
+              <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
                 <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-[#111]">
                   World-Class Output at 60-80% Less
                 </h3>
@@ -773,7 +773,7 @@ function FiveReasons() {
                   timezone coverage, or English fluency.
                 </p>
               </div>
-              <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-6">
+              <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
                 <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-[#111]">
                   30 Days. Risk-Free
                 </h3>
@@ -792,8 +792,8 @@ function FiveReasons() {
 
 function ProcessSteps() {
   return (
-    <section className="bg-[#f8f4f1] px-6 py-16 md:px-10 md:py-24">
-      <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-start gap-12 lg:grid-cols-2 lg:gap-20">
+    <section className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+      <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-12 lg:gap-20">
         <div>
           <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
             The Process
@@ -801,7 +801,7 @@ function ProcessSteps() {
           <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-[#111]">
             Request to Deployment in 4 Steps
           </h2>
-          <p className="mb-12 text-[0.97rem] leading-[1.7] text-[#444]">
+          <p className="mb-8 sm:mb-12 text-[0.97rem] leading-[1.7] text-[#444]">
             We&apos;ve compressed the traditional 6–12 week hiring cycle into a repeatable 7-day
             process.
           </p>
@@ -828,7 +828,7 @@ function ProcessSteps() {
           </ol>
         </div>
 
-        <aside className="flex flex-col gap-5 rounded-3xl border border-black/[0.07] bg-white p-9 lg:sticky lg:top-24">
+        <aside className="flex flex-col gap-5 rounded-3xl border border-black/[0.07] bg-white p-6 sm:p-9 lg:sticky lg:top-24">
           <div className="inline-flex items-center gap-2 self-start rounded-full border border-remotiv-green/25 bg-remotiv-green/10 px-3.5 py-1.5 font-heading text-[0.72rem] font-bold text-remotiv-green">
             <span className="size-[7px] rounded-full bg-remotiv-green" />
             Live — Active Placements
@@ -871,9 +871,9 @@ function ProcessSteps() {
 
 function Advantage() {
   return (
-    <section className="bg-white px-6 py-16 md:px-10 md:py-24">
+    <section className="bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto max-w-[1100px]">
-        <div className="mb-14">
+        <div className="mb-10 sm:mb-14">
           <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
             The Advantage
           </p>
@@ -885,7 +885,7 @@ function Advantage() {
         {ADVANTAGES.map((row, idx) => (
           <div
             key={row.label}
-            className={`grid grid-cols-1 items-start gap-6 border-t border-black/[0.08] py-10 md:grid-cols-[220px_1fr] md:gap-10 ${
+            className={`grid grid-cols-1 items-start gap-5 py-8 border-t border-black/[0.08] sm:gap-6 sm:py-10 md:grid-cols-[220px_1fr] md:gap-10 ${
               idx === ADVANTAGES.length - 1 ? "border-b border-black/[0.08]" : ""
             }`}
           >
@@ -917,14 +917,14 @@ function Advantage() {
 
 function WhatWeStaff() {
   return (
-    <section className="bg-remotiv-purple-light px-6 pt-16 pb-12 sm:px-14">
+    <section className="bg-remotiv-purple-light px-5 pt-12 pb-10 sm:px-8 sm:pt-16 sm:pb-12 md:px-14">
       <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
         What We Staff
       </p>
       <h2 className="mb-3.5 max-w-[680px] font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-bold leading-[1.2] tracking-[-0.02em] text-white">
         Specialists Across Every Function and Seniority Level
       </h2>
-      <p className="mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/75">
+      <p className="mb-8 sm:mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/75">
         From individual contributors to fractional C-suite leaders, Remotiv covers the full
         spectrum. These are the categories our clients request most — but if your role isn&apos;t
         listed, ask us. If the skill exists in Pakistan&apos;s talent market, we can source it.
@@ -933,14 +933,14 @@ function WhatWeStaff() {
         {ROLES.map((role) => (
           <div
             key={role.name}
-            className="flex min-h-[180px] cursor-default flex-col items-center justify-center gap-4 rounded-2xl border border-[#252525] bg-white p-8 text-center transition-all hover:-translate-y-0.5 hover:border-remotiv-purple hover:bg-[#f9f8ff]"
+            className="flex min-h-[150px] sm:min-h-[180px] cursor-default flex-col items-center justify-center rounded-2xl border border-[#252525] bg-white px-3 sm:px-5 py-5 sm:py-8 text-center transition-all hover:-translate-y-0.5 hover:border-remotiv-purple hover:bg-[#f9f8ff]"
           >
-            <div className="flex size-7 items-center justify-center opacity-85">{role.icon}</div>
-            <div>
-              <div className="font-heading text-[0.88rem] font-bold leading-[1.3] text-[#111]">
-                {role.name}
-              </div>
-              <div className="mt-1 text-[0.75rem] leading-[1.5] text-[#555]">{role.tags}</div>
+            <div className="mb-3 flex size-7 items-center justify-center opacity-85">{role.icon}</div>
+            <div className="mb-1 font-heading text-[0.88rem] font-semibold leading-[1.3] text-[#111]">
+              {role.name}
+            </div>
+            <div className="text-[0.7rem] sm:text-[0.75rem] leading-snug text-[#666]">
+              {role.tags}
             </div>
           </div>
         ))}
@@ -977,10 +977,10 @@ function CtaInquiry() {
   }
 
   return (
-    <section className="bg-white px-5 pt-16 pb-14 md:px-10">
-      <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-14 rounded-3xl bg-remotiv-lime-card px-7 py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
+    <section className="bg-white px-4 pt-12 pb-10 sm:px-5 sm:pt-16 sm:pb-14 md:px-10">
+      <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-remotiv-lime-card px-5 py-8 sm:px-7 sm:py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
         <div>
-          <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-black leading-[1.1] tracking-[-0.02em] text-[#111]">
+          <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
             Your Next Hire Is a Week Away.
           </h2>
           <p className="mb-6 text-[13px] leading-[1.75] text-[#111] opacity-75">
@@ -990,7 +990,7 @@ function CtaInquiry() {
           <div className="mb-7 flex flex-wrap gap-2.5">
             <Link
               href="/hire-remote"
-              className="inline-flex items-center rounded-full bg-remotiv-green px-6 py-3 font-heading text-[0.82rem] font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
+              className="inline-flex items-center rounded-full bg-remotiv-green px-6 py-[13px] sm:py-3 font-heading text-[0.82rem] font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →
             </Link>
@@ -998,7 +998,7 @@ function CtaInquiry() {
               href="https://calendly.com/waleed-izww/intro-call"
               target="_blank"
               rel="noreferrer"
-              className="inline-flex items-center rounded-full border-[1.5px] border-[#111] px-6 py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+              className="inline-flex items-center rounded-full border-[1.5px] border-[#111] px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
             >
               Book a 15-Min Call
             </a>
@@ -1039,7 +1039,7 @@ function CtaInquiry() {
           </div>
         </div>
 
-        <div className="rounded-2xl bg-white p-6 md:p-7">
+        <div className="rounded-2xl bg-white p-5 sm:p-6 md:p-7">
           {submitted ? (
             <div className="py-6 text-center">
               <div className="mb-3 text-4xl">✅</div>
@@ -1049,7 +1049,7 @@ function CtaInquiry() {
           ) : (
             <form onSubmit={handleSubmit}>
               <p className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</p>
-              <div className="mb-2.5 grid grid-cols-2 gap-2.5">
+              <div className="mb-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
                 <InquiryField label="Full Name" name="name" placeholder="Your name" />
                 <InquiryField label="Company" name="company" placeholder="Company name" />
               </div>
@@ -1075,12 +1075,12 @@ function CtaInquiry() {
                   id="sa-inq-message"
                   name="message"
                   placeholder="Tell us about the role, skills needed, and timeline..."
-                  className="box-border min-h-[68px] w-full resize-none rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+                  className="box-border min-h-[68px] w-full resize-none rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
                 />
               </div>
               <button
                 type="submit"
-                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
+                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
               >
                 Send Inquiry →
               </button>
@@ -1132,7 +1132,7 @@ function InquiryField({
         type={type}
         name={name}
         placeholder={placeholder}
-        className="box-border w-full rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+        className="box-border w-full rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
       />
     </div>
   );
@@ -1142,7 +1142,7 @@ function Faq() {
   const [openIdx, setOpenIdx] = useState(0);
 
   return (
-    <section className="border-t border-black/[0.06] bg-white px-6 py-16 md:px-10 md:py-24">
+    <section className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto max-w-[1100px]">
         <div className="flex w-full flex-col items-start gap-10 md:flex-row md:gap-20">
           <div className="w-full md:basis-[35%]">
