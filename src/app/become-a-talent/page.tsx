@@ -465,6 +465,7 @@ export default function BecomeATalentPage() {
 
         <div className="bta-steps-bar">
           <div className="bta-steps-inner">
+            <span className="bta-step-counter">Step {step} · {STEPS[step - 1].label}</span>
             {STEPS.map((s, idx) => (
               <div key={s.num} className="contents">
                 <button
@@ -1422,6 +1423,7 @@ export default function BecomeATalentPage() {
         .bta-step.active .bta-step-circle { border-color:#49D7A7; background:#49D7A7; color:#111; }
         .bta-step.done .bta-step-circle { border-color:#49D7A7; color:#49D7A7; background:rgba(73,215,167,.1); }
         .bta-step-line { width:36px; height:1px; background:rgba(0,0,0,.1); flex-shrink:0; }
+        .bta-step-counter { display: none; }
 
         .bta-layout {
           max-width:1100px; margin:0 auto; padding:32px 40px 100px;
@@ -1599,10 +1601,29 @@ export default function BecomeATalentPage() {
           .bta-layout { padding:24px 20px 60px; }
           .bta-grid-2 { grid-template-columns:1fr; }
           .bta-form-footer { flex-direction:column; align-items:flex-start; }
-          .bta-steps-inner { justify-content:flex-start; }
 
           /* Steps bar — pin below mobile navbar (mobile-only) */
           .bta-steps-bar { top: 64px; }
+
+          /* Single-active-step mode */
+          .bta-steps-inner {
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px 20px 0;
+            justify-content: center;
+          }
+          .bta-step:not(.active) { display: none; }
+          .bta-step-line { display: none; }
+          .bta-step-counter {
+            display: block;
+            font-family: 'DM Sans', sans-serif;
+            font-size: .62rem;
+            font-weight: 600;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: #9aa0a6;
+            text-align: center;
+          }
 
           /* Hero stats — 2x2 grid */
           .bat-stats { display: grid; grid-template-columns: 1fr 1fr; }
