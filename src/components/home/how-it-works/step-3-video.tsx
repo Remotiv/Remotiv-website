@@ -32,10 +32,10 @@ export function Step3Video() {
             </li>
           </ul>
           <Link
-            href="/contact"
+            href="/book-a-meeting"
             className="inline-flex items-center gap-2 rounded-full bg-[#111] px-7 py-3.5 font-heading text-[14px] font-bold text-white transition-colors hover:bg-[#333]"
           >
-            Get started
+            Book a call
             <svg
               width="16"
               height="16"

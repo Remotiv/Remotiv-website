@@ -38,7 +38,6 @@ const footerLinks = [
 ] as const;
 
 const socialLinks = [
-  { label: "X", href: "#", ariaLabel: "Follow Remotiv on X" },
   { label: "IG", href: "https://www.instagram.com/remotiv.inc/", ariaLabel: "Follow Remotiv on Instagram" },
   { label: "LI", href: "https://www.linkedin.com/company/remotiv-inc/", ariaLabel: "Follow Remotiv on LinkedIn" },
 ] as const;

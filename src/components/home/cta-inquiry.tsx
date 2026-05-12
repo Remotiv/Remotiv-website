@@ -139,6 +139,17 @@ export function CtaInquiry() {
               <p className="font-sans text-[13px] text-[#666]">
                 We&apos;ll get back to you within 24 hours.
               </p>
+              <button
+                type="button"
+                onClick={() => {
+                  setForm(INITIAL_FORM);
+                  setStatus("idle");
+                  setErrorMessage(null);
+                }}
+                className="mt-4 text-sm font-medium text-remotiv-purple underline-offset-4 hover:underline"
+              >
+                Send another inquiry
+              </button>
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="rounded-2xl bg-white px-6 py-7">

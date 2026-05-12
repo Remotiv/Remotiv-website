@@ -154,12 +154,14 @@ export default function ContactPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
   const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (key === "name" || key === "email") {
       setErrors((prev) => ({ ...prev, [key]: false }));
     }
+    if (errorMessage) setErrorMessage(null);
   }
 
   function jumpToForm(targetService: string) {
@@ -175,6 +177,7 @@ export default function ContactPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+    setErrorMessage(null);
     const nextErrors = { name: !form.name.trim(), email: !form.email.trim() };
     if (nextErrors.name || nextErrors.email) {
       setErrors(nextErrors);
@@ -188,15 +191,11 @@ export default function ContactPage() {
         setStatus("success");
       } else {
         setStatus("idle");
-        alert(
-          `Submission failed: ${result.error}\n\nIf this keeps happening, email waleed@remotiv.work directly.`,
-        );
+        setErrorMessage(result.error || "Submission failed. Please try again.");
       }
     } catch (err) {
       setStatus("idle");
-      alert(
-        `Submission failed: ${err instanceof Error ? err.message : "Unknown error"}\n\nIf this keeps happening, email waleed@remotiv.work directly.`,
-      );
+      setErrorMessage(err instanceof Error ? err.message : "Submission failed. Please try again.");
     }
   }
 
@@ -204,6 +203,7 @@ export default function ContactPage() {
     setForm(INITIAL_FORM);
     setErrors({});
     setStatus("idle");
+    setErrorMessage(null);
   }
 
   return (
@@ -335,6 +335,9 @@ export default function ContactPage() {
               ) : (
                 <form onSubmit={handleSubmit} noValidate>
                   <p className="mb-4 font-heading text-sm font-bold text-remotiv-text-dark">Send an Inquiry</p>
+                  {errorMessage && (
+                    <p className="mb-4 text-sm text-red-600">{errorMessage}</p>
+                  )}
                   {/* Honeypot — hidden from humans, filled by bots */}
                   <input
                     type="text"
@@ -354,6 +357,7 @@ export default function ContactPage() {
                       <input
                         id="ct-name"
                         type="text"
+                        required
                         maxLength={100}
                         className={INPUT_CLASS}
                         placeholder="Your name"
@@ -384,6 +388,7 @@ export default function ContactPage() {
                     <input
                       id="ct-email"
                       type="email"
+                      required
                       maxLength={254}
                       className={INPUT_CLASS}
                       placeholder="you@company.com"
