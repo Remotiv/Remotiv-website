@@ -93,6 +93,8 @@ type BookingFormState = {
   service: string;
   message: string;
   preferred_time: string;
+  // Honeypot — kept blank by humans; bots fill it. See actions.ts.
+  companyUrl: string;
 };
 
 const EMPTY_BOOKING: BookingFormState = {
@@ -102,6 +104,7 @@ const EMPTY_BOOKING: BookingFormState = {
   service: "",
   message: "",
   preferred_time: "",
+  companyUrl: "",
 };
 
 export default function BookAMeetingPage() {
@@ -499,6 +502,17 @@ export default function BookAMeetingPage() {
                 onSubmit={handleSubmit}
                 className="rounded-3xl bg-[#9886fe] p-10"
               >
+                {/* Honeypot — hidden from humans, filled by bots */}
+                <input
+                  type="text"
+                  name="company_url"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  aria-hidden="true"
+                  className="pointer-events-none absolute -left-[9999px] h-0 w-0 opacity-0"
+                  value={form.companyUrl}
+                  onChange={(e) => setField("companyUrl", e.target.value)}
+                />
                 <p className="mb-[22px] font-heading text-2xl font-bold text-white">
                   Schedule Your Call
                 </p>

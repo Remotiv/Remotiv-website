@@ -17,7 +17,8 @@ type ContactInput = {
 
 type Result = { success: true } | { success: false; error: string };
 
-const GENERIC_ERROR = "Submission failed. Please try again.";
+const GENERIC_ERROR =
+  "We couldn't send your inquiry. Please try again or email us at hello@remotiv.com.";
 
 const RATE_LIMIT_MAX = 5;
 const RATE_LIMIT_WINDOW_MS = 60_000;

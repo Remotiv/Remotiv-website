@@ -1,7 +1,7 @@
 "use client";
 
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "./actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
@@ -155,6 +155,7 @@ export default function ContactPage() {
   const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
   const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -177,25 +178,52 @@ export default function ContactPage() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // M1: Double-click guard — synchronous lock before any async state flip
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     setErrorMessage(null);
     const nextErrors = { name: !form.name.trim(), email: !form.email.trim() };
     if (nextErrors.name || nextErrors.email) {
       setErrors(nextErrors);
+      submitLockRef.current = false;
       return;
     }
 
     setStatus("sending");
     try {
-      const result = await submitContact(form);
+      // M2: 15s client-side timeout — race the server action against a timer
+      const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              success: false,
+              error:
+                "This is taking longer than expected. Please try again or email us at hello@remotiv.com.",
+            }),
+          15000,
+        ),
+      );
+
+      const result = await Promise.race([submitContact(form), timeoutPromise]);
+
       if (result.success) {
         setStatus("success");
       } else {
         setStatus("idle");
-        setErrorMessage(result.error || "Submission failed. Please try again.");
+        setErrorMessage(
+          result.error ||
+            "We couldn't send your inquiry. Please try again or email us at hello@remotiv.com.",
+        );
       }
-    } catch (err) {
+    } catch {
       setStatus("idle");
-      setErrorMessage(err instanceof Error ? err.message : "Submission failed. Please try again.");
+      setErrorMessage(
+        "Something unexpected happened. Please try again or email us at hello@remotiv.com.",
+      );
+    } finally {
+      submitLockRef.current = false;
     }
   }
 

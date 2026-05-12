@@ -1,7 +1,7 @@
 "use client";
 
 import { Check, Lock } from "lucide-react";
-import { type FormEvent, useState } from "react";
+import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 
 const CHECKS = [
@@ -55,6 +55,7 @@ export function CtaInquiry() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [status, setStatus] = useState<"idle" | "sending" | "success" | "error">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -62,10 +63,29 @@ export function CtaInquiry() {
 
   async function handleSubmit(event: FormEvent<HTMLFormElement>) {
     event.preventDefault();
+
+    // M1: Double-click guard — synchronous lock before any async state flip
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
     setStatus("sending");
     setErrorMessage(null);
     try {
-      const result = await submitContact(form);
+      // M2: 15s client-side timeout — race the server action against a timer
+      const timeoutPromise = new Promise<{ success: false; error: string }>((resolve) =>
+        setTimeout(
+          () =>
+            resolve({
+              success: false,
+              error:
+                "This is taking longer than expected. Please try again or email us at hello@remotiv.com.",
+            }),
+          15000,
+        ),
+      );
+
+      const result = await Promise.race([submitContact(form), timeoutPromise]);
+
       if (result.success) {
         setStatus("success");
       } else {
@@ -74,7 +94,13 @@ export function CtaInquiry() {
       }
     } catch (err) {
       setStatus("error");
-      setErrorMessage(err instanceof Error ? err.message : "Unknown error");
+      setErrorMessage(
+        err instanceof Error
+          ? "Something unexpected happened. Please try again or email us at hello@remotiv.com."
+          : "Something unexpected happened. Please try again or email us at hello@remotiv.com.",
+      );
+    } finally {
+      submitLockRef.current = false;
     }
   }
 

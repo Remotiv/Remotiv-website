@@ -1,8 +1,9 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
-import { notifyAllAdmins } from "@/lib/notifications";
+import { headers } from "next/headers";
 import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { notifyAllAdmins } from "@/lib/notifications";
+import { createServiceClient } from "@/lib/supabase/server";
 
 export type BookingInput = {
   full_name: string;
@@ -11,11 +12,62 @@ export type BookingInput = {
   service: string;
   message: string;
   preferred_time: string;
+  // Honeypot — bots fill this; legitimate browsers leave it blank.
+  companyUrl?: string;
 };
 
 type Result = { success: true } | { success: false; error: string };
 
+const GENERIC_ERROR =
+  "We couldn't book your call. Please try again or email us at hello@remotiv.com.";
+
+const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
+const RATE_LIMIT_MAX = 3;
+
+const globalForRateLimit = globalThis as typeof globalThis & {
+  __submitBookingBuckets?: Map<string, { count: number; resetAt: number }>;
+};
+
+if (!globalForRateLimit.__submitBookingBuckets) {
+  globalForRateLimit.__submitBookingBuckets = new Map();
+}
+
+const rateBuckets = globalForRateLimit.__submitBookingBuckets;
+
+async function getClientIp(): Promise<string> {
+  const h = await headers();
+  const forwarded = h.get("x-forwarded-for");
+  if (forwarded) return forwarded.split(",")[0]?.trim() ?? "unknown";
+  return h.get("x-real-ip") ?? "unknown";
+}
+
+function checkRateLimit(ip: string): boolean {
+  const now = Date.now();
+  const bucket = rateBuckets.get(ip);
+  if (!bucket || bucket.resetAt < now) {
+    rateBuckets.set(ip, { count: 1, resetAt: now + RATE_LIMIT_WINDOW_MS });
+    return true;
+  }
+  if (bucket.count >= RATE_LIMIT_MAX) return false;
+  bucket.count += 1;
+  return true;
+}
+
 export async function submitBooking(data: BookingInput): Promise<Result> {
+  // Honeypot — silently succeed for bots that fill the hidden field
+  if (data.companyUrl && data.companyUrl.trim().length > 0) {
+    return { success: true };
+  }
+
+  // Per-IP rate limit
+  const ip = await getClientIp();
+  if (!checkRateLimit(ip)) {
+    return {
+      success: false,
+      error: "Too many submissions. Please wait a moment and try again.",
+    };
+  }
+
   const fullName = trimRequired(data.full_name);
   if (!fullName) return { success: false, error: "Name is required." };
   const email = (data.email ?? "").trim().toLowerCase();
@@ -39,8 +91,9 @@ export async function submitBooking(data: BookingInput): Promise<Result> {
   });
 
   if (error) {
+    // Log full details server-side; return a generic message to the client.
     console.error("[submitBooking] Supabase error:", error);
-    return { success: false, error: error.message };
+    return { success: false, error: GENERIC_ERROR };
   }
 
   // Fire-and-forget — don't block the user response.
