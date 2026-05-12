@@ -1199,6 +1199,27 @@ function Faq() {
 export default function StaffAugmentationPage() {
   return (
     <>
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Service",
+            name: "Staff Augmentation Services",
+            serviceType: "Staff Augmentation",
+            provider: {
+              "@type": "Organization",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+            },
+            areaServed: "Worldwide",
+            url: "https://remotiv-website-m3jo.vercel.app/services/staff-augmentation",
+            description:
+              "Augment your engineering team with pre-vetted senior talent. Flexible terms.",
+          }),
+        }}
+      />
       <Navbar />
       <main className="flex-1 bg-white">
         <Hero />

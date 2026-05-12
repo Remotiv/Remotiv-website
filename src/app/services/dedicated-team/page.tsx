@@ -402,6 +402,27 @@ export default function DedicatedTeamPage() {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Service",
+            name: "Dedicated Engineering Teams",
+            serviceType: "Dedicated Team Services",
+            provider: {
+              "@type": "Organization",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+            },
+            areaServed: "Worldwide",
+            url: "https://remotiv-website-m3jo.vercel.app/services/dedicated-team",
+            description:
+              "Build a dedicated remote engineering team. Hand-picked, managed, retained.",
+          }),
+        }}
+      />
       <Navbar />
       <main className="flex-1 bg-white font-[DM_Sans,sans-serif] text-[#111]">
         {/* HERO */}

@@ -278,6 +278,27 @@ export default function RecruitmentPage() {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Service",
+            name: "Engineering Recruitment Services",
+            serviceType: "Recruitment Services",
+            provider: {
+              "@type": "Organization",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+            },
+            areaServed: "Worldwide",
+            url: "https://remotiv-website-m3jo.vercel.app/services/recruitment",
+            description:
+              "End-to-end senior engineering recruitment. Pre-vetted candidates, 24-hour shortlists.",
+          }),
+        }}
+      />
       <Navbar />
       <main className="flex-1 bg-white font-body">
         {/* HERO */}

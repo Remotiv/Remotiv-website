@@ -77,6 +77,44 @@ export default function RootLayout({
         </a>
         {children}
         <AIChatWidget />
+        <script
+          type="application/ld+json"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "Organization",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+              logo: "https://remotiv-website-m3jo.vercel.app/opengraph-image",
+              description:
+                "Hire pre-vetted senior engineering talent. Top 1% engineers, ready in 24 hours.",
+              sameAs: [
+                "https://www.linkedin.com/company/remotiv-inc/",
+                "https://www.instagram.com/remotiv.inc/",
+              ],
+              contactPoint: {
+                "@type": "ContactPoint",
+                contactType: "Sales",
+                url: "https://remotiv-website-m3jo.vercel.app/contact",
+              },
+            }),
+          }}
+        />
+        <script
+          type="application/ld+json"
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+          dangerouslySetInnerHTML={{
+            __html: JSON.stringify({
+              "@context": "https://schema.org",
+              "@type": "WebSite",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+              description:
+                "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
+            }),
+          }}
+        />
       </body>
     </html>
   );

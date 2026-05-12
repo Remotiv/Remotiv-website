@@ -633,6 +633,27 @@ export default function PayrollPage() {
 
   return (
     <>
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: structured data JSON-LD requires raw JSON injection
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "Service",
+            name: "Payroll and Compliance Services",
+            serviceType: "Payroll Services",
+            provider: {
+              "@type": "Organization",
+              name: "Remotiv",
+              url: "https://remotiv-website-m3jo.vercel.app",
+            },
+            areaServed: "Worldwide",
+            url: "https://remotiv-website-m3jo.vercel.app/services/payroll",
+            description:
+              "Hassle-free international payroll, contracts, and compliance for remote engineering hires.",
+          }),
+        }}
+      />
       <Navbar />
       <main className="flex-1 bg-white">
         {/* Hero */}
