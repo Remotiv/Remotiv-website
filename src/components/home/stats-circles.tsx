@@ -12,10 +12,7 @@ function useInView(threshold = 0.3) {
 
     const observer = new IntersectionObserver(
       ([entry]) => {
-        if (entry.isIntersecting) {
-          setVisible(true);
-          observer.disconnect();
-        }
+        setVisible(entry.isIntersecting);
       },
       { threshold },
     );
@@ -31,7 +28,10 @@ function useCounter(target: number, duration = 1800, active = false) {
   const [value, setValue] = useState(0);
 
   useEffect(() => {
-    if (!active) return;
+    if (!active) {
+      setValue(0);
+      return;
+    }
 
     let start: number | null = null;
     let raf: number;

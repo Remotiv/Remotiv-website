@@ -14,25 +14,25 @@ const TESTIMONIALS = [
     text: "It was a great experience working with the Remotiv team. They were responsive and consistently shared candidate details in a timely manner. The information provided was comprehensive.",
     name: "Sidra Hafeez",
     role: "HR Officer, Terafort Pvt. Ltd",
-    img: "/client-avatars/female-001.webp",
+    img: "/client-avatars/Sidra-Hafeez.webp",
   },
   {
     text: "We needed a senior backend engineer in under a week and Remotiv made it happen. The shortlist was tight, the candidates were sharp, and the one we hired is still with us a year later.",
     name: "Ahmed Siddiqui",
     role: "Chief Technology Officer, Karachi Digital Works",
-    img: "/client-avatars/male-002.webp",
+    img: "/client-avatars/Ahmed-Siddiqui.webp",
   },
   {
     text: "I've worked with three other recruiting platforms and none of them screened candidates properly. Remotiv is the first one where every interview felt worth my time.",
     name: "Sarah Whitman",
     role: "Head of Engineering, Northwind Solutions",
-    img: "/client-avatars/female-002.webp",
+    img: "/client-avatars/Sarah-Whitman.webp",
   },
   {
     text: "From brief to first interview in 22 hours. I've never seen turnaround like this. Two weeks later we'd hired two engineers — both still on the team.",
     name: "Bilal Tariq",
     role: "Founder & CEO, Lahore Studio Co.",
-    img: "/client-avatars/male-003.webp",
+    img: "/client-avatars/Bilal-Tariq.webp",
   },
   {
     text: "We're a small agency and every hire matters. Remotiv understood that and only sent us candidates who actually fit our scope and budget. No filler.",
@@ -44,7 +44,7 @@ const TESTIMONIALS = [
     text: "The cultural fit on Remotiv hires has been better than our local pipeline, honestly. They get what we're building before the first call.",
     name: "Ayesha Malik",
     role: "VP of People, Indus Tech Group",
-    img: "/client-avatars/female-003.webp",
+    img: "/client-avatars/Ayesha-Malik.webp",
   },
   {
     text: "We scaled from 4 engineers to 11 in two months without compromising on quality. Remotiv was the only reason that was possible.",
@@ -56,7 +56,7 @@ const TESTIMONIALS = [
     text: "What sold me was the no-hire-no-fee model. Removed the entire risk side of trying a new recruiter. Now they're our default for every senior role.",
     name: "Caleb Whitaker",
     role: "Head of Talent Acquisition, Brixton Partners",
-    img: "/client-avatars/male-006.webp",
+    img: "/client-avatars/Caleb-Whitaker.webp",
   },
 ] as const;
 
