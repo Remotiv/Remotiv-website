@@ -36,7 +36,7 @@ const CARDS = [
 
 export function WhyRemotiv() {
   return (
-    <section className="bg-white px-6 pt-16 pb-20 sm:px-[60px] md:pt-24 md:pb-[120px]">
+    <section className="bg-white px-6 py-14 sm:px-[60px] md:py-20">
       <div className="mx-auto grid max-w-7xl items-start gap-12 md:grid-cols-[1fr_1fr] md:gap-[72px]">
         <div className="flex flex-col md:sticky md:top-[60px]">
           <div className="mb-6 flex items-center gap-3">

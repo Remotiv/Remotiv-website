@@ -8,7 +8,7 @@ const STATS = [
 
 export function StatsCards() {
   return (
-    <section className="bg-white px-8 py-16">
+    <section className="bg-white px-8 py-12 md:py-[72px]">
       <div className="mx-auto max-w-7xl">
         <h2 className="mx-auto max-w-[700px] text-center font-heading text-[clamp(1.8rem,3.5vw,2.4rem)] font-bold leading-[1.2] tracking-tight text-[#111]">
           The talent you need,{" "}

@@ -66,7 +66,7 @@ export function AIRecruiter() {
   ];
 
   return (
-    <section className="bg-white px-6 py-0 md:px-10">
+    <section className="bg-white px-6 py-12 md:px-10 md:py-[72px]">
       <div className="mx-auto max-w-[1400px]">
         <div className="overflow-hidden rounded-3xl bg-[#9886fe] px-6 py-12 md:px-14 md:py-[72px]">
           <div className="grid items-center gap-10 lg:grid-cols-[1fr_56px_1fr] lg:gap-0">

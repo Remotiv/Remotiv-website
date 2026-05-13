@@ -14,7 +14,13 @@
   align-items: center;
   justify-content: center;
   text-align: center;
-  padding: 60px 24px 140px;
+  padding: 60px 24px 120px;
+}
+
+@media (min-width: 768px) {
+  .hero {
+    padding: 80px 24px 100px;
+  }
 }
 
 /* Wrapper hosting the grid + radial-glow backdrop. The homepage page.tsx

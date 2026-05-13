@@ -112,7 +112,7 @@ export function CtaInquiry() {
   const isPending = status === "sending";
 
   return (
-    <section className="relative z-[3] bg-white px-6 pt-16 pb-[60px] md:px-10">
+    <section className="relative z-[3] bg-white px-6 py-14 md:px-10 md:py-20">
       <div className="mx-auto max-w-[900px]">
         <div className="relative z-[4] -mb-10 grid items-center gap-14 rounded-3xl bg-remotiv-lime-card px-7 py-10 md:-mb-[140px] md:grid-cols-2 md:px-[60px] md:py-[52px]">
           <div className="flex flex-col">

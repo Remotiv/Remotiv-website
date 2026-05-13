@@ -4,7 +4,7 @@ import { Step3Video } from "./step-3-video";
 
 export function HowItWorks() {
   return (
-    <section className="bg-white px-6 py-[72px] font-[var(--font-sans)] sm:px-12">
+    <section className="bg-white px-6 py-12 font-[var(--font-sans)] sm:px-12 md:py-[72px]">
       {/* Header */}
       <div className="mb-12 text-center">
         <div className="mb-3 text-[11px] font-bold uppercase tracking-[0.18em] text-[#9886FE]">

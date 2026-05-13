@@ -36,7 +36,7 @@ const CARDS = [
 
 export function WhoWeHelp() {
   return (
-    <section className="bg-white px-6 pt-12 pb-24 sm:px-14 md:pb-12">
+    <section className="bg-white px-6 py-12 sm:px-14 md:py-[72px]">
       <div className="mx-auto max-w-7xl">
         <h2 className="mb-10 text-center font-heading text-[clamp(2rem,3.8vw,2.6rem)] font-extrabold leading-tight tracking-tight text-[#111] md:mb-16">
           Built for{" "}

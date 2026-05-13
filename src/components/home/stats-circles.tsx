@@ -375,7 +375,7 @@ function Row3() {
 
 export function StatsCircles() {
   return (
-    <section className="bg-white px-6 py-14 md:py-20 lg:px-16">
+    <section className="bg-white px-6 py-12 md:py-[72px] lg:px-16">
       <div className="mx-auto space-y-20">
         <Row1 />
         <Row2 />

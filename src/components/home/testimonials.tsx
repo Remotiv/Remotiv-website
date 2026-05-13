@@ -149,7 +149,7 @@ function ScrollColumn({
 
 export function Testimonials() {
   return (
-    <section className="bg-white px-6 pt-12 pb-14 sm:px-16 md:pt-0 md:pb-20">
+    <section className="bg-white px-6 py-12 sm:px-16 md:py-[72px]">
       <div className="mx-auto max-w-7xl">
         <div className="mx-auto mb-10 flex max-w-[540px] flex-col items-center gap-4 text-center md:mb-14">
           <h2 className="font-heading text-[clamp(1.8rem,3.5vw,2.8rem)] font-extrabold leading-[1.15] tracking-[-0.03em] text-[#111]">

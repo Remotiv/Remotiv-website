@@ -35,7 +35,7 @@ const ROLES = [
 
 export function BrowseRoles() {
   return (
-    <section className="bg-remotiv-purple-light px-6 py-12 sm:px-14 md:py-16 lg:py-20">
+    <section className="bg-remotiv-purple-light px-6 py-12 sm:px-14 md:py-[72px]">
       <div className="mx-auto max-w-7xl">
         <h2 className="mb-10 font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-bold leading-[1.2] tracking-[-0.02em] text-white">
           Hire developers by role

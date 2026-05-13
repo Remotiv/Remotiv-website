@@ -61,7 +61,7 @@ export function VettingProcess() {
   const progressPercent = ((activeIndex + 1) / STEPS.length) * 100;
 
   return (
-    <section ref={sectionRef} className="bg-white px-6 pt-4 pb-12 md:px-[60px] md:pt-0">
+    <section ref={sectionRef} className="bg-white px-6 py-12 md:px-[60px] md:py-[72px]">
       <div className="max-w-[820px]">
         <div className="mb-7 inline-flex items-center gap-2.5">
           <span className="block h-px w-7 bg-[#111]" />
