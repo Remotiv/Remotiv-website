@@ -14,9 +14,11 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import { track } from "@vercel/analytics";
 import Image from "next/image";
 import Link from "next/link";
-import { useEffect, useState } from "react";
+import { useEffect, useRef, useState } from "react";
+import { submitContact } from "@/app/contact/actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
@@ -741,7 +743,7 @@ export default function RecruitmentPage() {
                 <a
                   className="rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
                   href="https://calendly.com/waleed-izww/intro-call"
-                  rel="noreferrer"
+                  rel="noopener noreferrer"
                   target="_blank"
                 >
                   Book a 15-Min Call
@@ -979,38 +981,131 @@ function PricingCard({
 }
 
 function InquiryForm() {
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
+  const [errors, setErrors] = useState<{ name?: string; email?: string }>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
   const [form, setForm] = useState({
     name: "",
     company: "",
     email: "",
     role: "",
     message: "",
+    companyUrl: "",
   });
-  const update = (k: keyof typeof form) => (e: React.ChangeEvent<HTMLInputElement | HTMLTextAreaElement>) =>
-    setForm((f) => ({ ...f, [k]: e.target.value }));
 
-  const submit = () => {
-    if (!form.name || !form.email) {
-      alert("Please enter your name and email.");
+  function update(key: keyof typeof form, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === "name" || key === "email") {
+      setErrors((prev) => ({ ...prev, [key]: undefined }));
+    }
+    if (errorMessage) setErrorMessage(null);
+  }
+
+  function resetForm() {
+    setForm({
+      name: "",
+      company: "",
+      email: "",
+      role: "",
+      message: "",
+      companyUrl: "",
+    });
+    setErrors({});
+    setErrorMessage(null);
+    setStatus("idle");
+  }
+
+  async function submit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
+    const nextErrors: { name?: string; email?: string } = {};
+    if (!form.name.trim()) nextErrors.name = "Please enter your name.";
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!form.email.trim()) {
+      nextErrors.email = "Please enter your work email.";
+    } else if (!emailRegex.test(form.email.trim())) {
+      nextErrors.email = "Please enter a valid email address.";
+    }
+    if (nextErrors.name || nextErrors.email) {
+      setErrors(nextErrors);
+      submitLockRef.current = false;
       return;
     }
-    const subject = encodeURIComponent(
-      `Recruitment Inquiry from ${form.name}${form.company ? ` — ${form.company}` : ""}`
-    );
-    const body = encodeURIComponent(
-      `Name: ${form.name}\nCompany: ${form.company}\nEmail: ${form.email}\nRole Needed: ${form.role}\n\nMessage:\n${form.message}`
-    );
-    window.location.href = `mailto:waleed@remotiv.work?subject=${subject}&body=${body}`;
-    setSubmitted(true);
-  };
+    setErrors({});
+    setErrorMessage(null);
+    setStatus("sending");
 
-  if (submitted) {
+    const composedMessage = form.role.trim()
+      ? `Role Needed: ${form.role.trim()}\n\n${form.message.trim()}`
+      : form.message.trim();
+
+    try {
+      const timeoutPromise = new Promise<{ success: false; error: string }>(
+        (resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                success: false,
+                error:
+                  "The request is taking too long. Please try again in a moment.",
+              }),
+            15000,
+          ),
+      );
+
+      const result = await Promise.race([
+        submitContact({
+          name: form.name,
+          company: form.company,
+          email: form.email,
+          service: "Recruitment",
+          message: composedMessage,
+          companyUrl: form.companyUrl,
+        }),
+        timeoutPromise,
+      ]);
+
+      if (result.success) {
+        track("inquiry_submitted", {
+          source: "recruitment_page",
+          service: "Recruitment",
+        });
+        setStatus("success");
+      } else {
+        setStatus("idle");
+        setErrorMessage(result.error);
+      }
+    } catch {
+      setStatus("idle");
+      setErrorMessage(
+        "Something went wrong. Please try again or email us at hello@remotiv.com.",
+      );
+    } finally {
+      submitLockRef.current = false;
+    }
+  }
+
+  if (status === "success") {
     return (
-      <div className="rounded-2xl bg-white px-6 py-7 text-center">
+      <div
+        role="status"
+        aria-live="polite"
+        className="rounded-2xl bg-white px-6 py-7 text-center"
+      >
         <div className="mb-3 text-4xl">✅</div>
         <h3 className="mb-2 font-heading text-base font-bold text-[#111]">Inquiry Sent!</h3>
-        <p className="text-[13px] text-[#666]">We&apos;ll get back to you within 48 hours.</p>
+        <p className="mb-4 text-[13px] text-[#666]">
+          We&apos;ll get back to you within 48 hours.
+        </p>
+        <button
+          type="button"
+          onClick={resetForm}
+          className="rounded-full bg-[#111] px-5 py-2.5 font-heading text-[0.85rem] font-bold text-white transition-opacity hover:opacity-90"
+        >
+          Submit Another Inquiry
+        </button>
       </div>
     );
   }
@@ -1018,40 +1113,94 @@ function InquiryForm() {
   return (
     <div className="rounded-2xl bg-white px-5 sm:px-6 py-6 sm:py-7">
       <p className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</p>
+      {errorMessage ? (
+        <p
+          id="rec-form-error"
+          role="alert"
+          aria-live="assertive"
+          className="mb-3 text-[13px] text-red-600"
+        >
+          {errorMessage}
+        </p>
+      ) : null}
       <div className="mb-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
-        <FormField label="Full Name" onChange={update("name")} placeholder="Your name" value={form.name} />
-        <FormField label="Company" onChange={update("company")} placeholder="Company name" value={form.company} />
+        <FormField
+          label="Full Name"
+          name="name"
+          placeholder="Your name"
+          value={form.name}
+          onChange={(v) => update("name", v)}
+          maxLength={80}
+          error={errors.name}
+        />
+        <FormField
+          label="Company"
+          name="company"
+          placeholder="Company name"
+          value={form.company}
+          onChange={(v) => update("company", v)}
+          maxLength={80}
+        />
       </div>
       <FormField
         label="Work Email"
-        onChange={update("email")}
-        placeholder="you@company.com"
+        name="email"
         type="email"
+        placeholder="you@company.com"
         value={form.email}
+        onChange={(v) => update("email", v)}
+        maxLength={120}
+        error={errors.email}
       />
       <FormField
         label="Role Needed"
-        onChange={update("role")}
+        name="role"
         placeholder="e.g. Senior React Developer"
         value={form.role}
+        onChange={(v) => update("role", v)}
+        maxLength={120}
       />
+      <div
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+        aria-hidden="true"
+      >
+        <label htmlFor="rec-company-url">Company URL</label>
+        <input
+          id="rec-company-url"
+          type="text"
+          name="company_url"
+          tabIndex={-1}
+          autoComplete="off"
+          value={form.companyUrl}
+          onChange={(e) => update("companyUrl", e.target.value)}
+        />
+      </div>
       <label className="mb-2.5 block">
         <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]">
           Message
         </span>
         <textarea
           className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
-          onChange={update("message")}
+          name="message"
+          maxLength={2000}
+          onChange={(e) => update("message", e.target.value)}
           placeholder="Tell us about the role, skills needed, and timeline..."
           value={form.message}
         />
       </label>
       <button
-        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-[#c9ff85] px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
+        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-[#c9ff85] px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60"
+        disabled={status === "sending"}
         onClick={submit}
         type="button"
       >
-        Send Inquiry →
+        {status === "sending" ? "Sending..." : "Send Inquiry →"}
       </button>
       <p className="text-center text-[10px] text-[#bbb]">
         Your data is encrypted and 100% confidential
@@ -1066,12 +1215,18 @@ function FormField({
   onChange,
   placeholder,
   type = "text",
+  name,
+  maxLength,
+  error,
 }: {
   label: string;
   value: string;
-  onChange: (e: React.ChangeEvent<HTMLInputElement>) => void;
+  onChange: (v: string) => void;
   placeholder: string;
   type?: string;
+  name?: string;
+  maxLength?: number;
+  error?: string;
 }) {
   return (
     <label className="mb-2.5 block">
@@ -1079,12 +1234,19 @@ function FormField({
         {label}
       </span>
       <input
-        className="box-border w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
-        onChange={onChange}
+        className={cn(
+          "box-border w-full rounded-lg border bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]",
+          error ? "border-red-500" : "border-transparent",
+        )}
+        name={name}
+        maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
+        onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         type={type}
         value={value}
       />
+      {error ? <p className="mt-1 text-[0.78rem] text-red-600">{error}</p> : null}
     </label>
   );
 }
