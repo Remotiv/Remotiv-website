@@ -1,9 +1,10 @@
 "use client";
 
 import Link from "next/link";
-import { useState } from "react";
+import { Fragment, useState } from "react";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
+import type { CSSPropertiesWithVars } from "@/lib/css-types";
 
 const HERO_STATS: readonly { num: string; em: string; label: string }[] = [
   { num: "2 ", em: "weeks", label: "Team Ready to Start" },
@@ -426,9 +427,9 @@ export default function DedicatedTeamPage() {
       <Navbar />
       <main className="flex-1 bg-white font-[DM_Sans,sans-serif] text-[#111]">
         {/* HERO */}
-        <section className="box-border w-full bg-white p-6">
+        <section className="box-border w-full bg-white p-6 max-md:p-4">
           <div
-            className="relative isolate mx-auto flex w-full flex-col items-center justify-center overflow-hidden rounded-[32px] px-6 pt-18 pb-20"
+            className="relative isolate mx-auto flex w-full flex-col items-center justify-center overflow-hidden rounded-[32px] px-6 pt-18 pb-20 max-md:px-5 max-md:pt-12 max-md:pb-12"
             style={{ background: "#F5F1EC" }}
           >
             <div
@@ -472,7 +473,7 @@ export default function DedicatedTeamPage() {
                         : ""
                     }`}
                   >
-                    <div className="mb-3.5 font-[Sora,sans-serif] text-[38px] font-extrabold leading-none tracking-[-1px] text-white">
+                    <div className="mb-3.5 font-[Sora,sans-serif] text-[38px] font-extrabold leading-none tracking-[-1px] text-white max-md:text-[28px]">
                       {stat.num}
                       <em className="not-italic" style={{ color: LIME }}>
                         {stat.em}
@@ -551,15 +552,23 @@ export default function DedicatedTeamPage() {
               What Separates Us from Every Other Option
             </h2>
 
-            <div className="mb-3.5 grid grid-cols-2 gap-3.5 max-md:grid-cols-1">
-              {WHY_REMOTIV_TOP.map((card) => (
-                <WhyCard key={card.badge} {...card} />
+            <div className="flex flex-col gap-3.5 md:hidden">
+              {[...WHY_REMOTIV_TOP, ...WHY_REMOTIV_BOTTOM].map((card, i) => (
+                <WhyCard key={card.heading} {...card} index={i} />
               ))}
             </div>
-            <div className="grid grid-cols-3 gap-3.5 max-md:grid-cols-1">
-              {WHY_REMOTIV_BOTTOM.map((card) => (
-                <WhyCard key={card.badge} {...card} />
-              ))}
+
+            <div className="hidden md:block">
+              <div className="mb-3.5 grid grid-cols-2 gap-3.5">
+                {WHY_REMOTIV_TOP.map((card) => (
+                  <WhyCard key={card.badge} {...card} index={-1} />
+                ))}
+              </div>
+              <div className="grid grid-cols-3 gap-3.5">
+                {WHY_REMOTIV_BOTTOM.map((card) => (
+                  <WhyCard key={card.badge} {...card} index={-1} />
+                ))}
+              </div>
             </div>
           </div>
         </section>
@@ -586,7 +595,7 @@ export default function DedicatedTeamPage() {
               </p>
             </div>
 
-            <div className="flex flex-col gap-0">
+            <div className="hidden md:flex md:flex-col md:gap-0">
               {PROCESS_STEPS.map((step, i) => {
                 const isEven = i % 2 === 1;
                 const isFirst = i === 0;
@@ -594,13 +603,9 @@ export default function DedicatedTeamPage() {
                 return (
                   <div
                     key={step.n}
-                    className="grid min-h-[180px] items-stretch max-md:min-h-0 max-md:grid-cols-[32px_1fr] max-md:gap-x-4 md:grid-cols-[1fr_56px_1fr]"
+                    className="grid min-h-[180px] grid-cols-[1fr_56px_1fr] items-stretch"
                   >
-                    {isEven ? (
-                      <div className="hidden md:block" />
-                    ) : (
-                      <ProcessCard step={step} />
-                    )}
+                    {isEven ? <div /> : <ProcessCard step={step} />}
                     <div className="relative flex flex-col items-center">
                       <div
                         className="w-[1.5px] flex-1"
@@ -620,14 +625,28 @@ export default function DedicatedTeamPage() {
                         style={{ background: isLast ? "transparent" : "rgba(152,134,254,0.25)" }}
                       />
                     </div>
-                    {isEven ? (
-                      <ProcessCard step={step} />
-                    ) : (
-                      <div className="hidden md:block" />
-                    )}
+                    {isEven ? <ProcessCard step={step} /> : <div />}
                   </div>
                 );
               })}
+            </div>
+
+            <div className="grid grid-cols-[44px_1fr] gap-x-4 md:hidden">
+              {PROCESS_STEPS.map((step, i) => (
+                <Fragment key={step.n}>
+                  <div className="flex flex-col items-center">
+                    <div className="flex h-11 w-11 items-center justify-center rounded-full bg-remotiv-purple text-base font-bold text-white">
+                      {i + 1}
+                    </div>
+                    {i < PROCESS_STEPS.length - 1 && (
+                      <div className="my-2 w-[1.5px] flex-1 bg-[#111]/15" />
+                    )}
+                  </div>
+                  <div className="pb-8">
+                    <ProcessCard step={step} />
+                  </div>
+                </Fragment>
+              ))}
             </div>
           </div>
         </section>
@@ -710,21 +729,21 @@ export default function DedicatedTeamPage() {
               className="overflow-hidden rounded-[28px] bg-[#111]"
               style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}
             >
-              <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] bg-[#111] px-10 max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-2">
-                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40">
+              <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] bg-[#111] px-10 max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5">
+                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
                   Role
                 </div>
-                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40 max-[600px]:hidden">
+                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
                   US Market
                 </div>
                 <div
-                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em]"
+                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
                   style={{ color: LIME }}
                 >
                   Via Remotiv
                 </div>
                 <div
-                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em]"
+                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
                   style={{ color: GREEN }}
                 >
                   You Save
@@ -736,30 +755,30 @@ export default function DedicatedTeamPage() {
                   <CostRow key={row.role} {...row} />
                 ))}
                 <div
-                  className="grid grid-cols-[1.8fr_1fr_1fr_1fr] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-2"
+                  className="grid grid-cols-[1.8fr_1fr_1fr_1fr] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5"
                   style={{ background: PURPLE }}
                 >
-                  <div className="flex items-center py-5.5">
-                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white">
+                  <div className="flex items-center py-5.5 max-[600px]:py-3.5">
+                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white max-[600px]:text-[0.78rem]">
                       5-Person Team Total
                     </span>
                   </div>
-                  <div className="flex items-center py-5.5 max-[600px]:hidden">
+                  <div className="flex items-center py-5.5 max-[600px]:py-3.5">
                     <span
-                      className="font-[Sora,sans-serif] text-base font-semibold line-through"
+                      className="font-[Sora,sans-serif] text-base font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
                       style={{ color: "rgba(255,255,255,0.5)" }}
                     >
                       $460,000/yr
                     </span>
                   </div>
-                  <div className="flex items-center py-5.5">
-                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white">
+                  <div className="flex items-center py-5.5 max-[600px]:py-3.5">
+                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white max-[600px]:text-[0.7rem]">
                       $189,000/yr
                     </span>
                   </div>
-                  <div className="flex items-center py-5.5">
+                  <div className="flex items-center py-5.5 max-[600px]:py-3.5">
                     <span
-                      className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-base font-extrabold"
+                      className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-base font-extrabold max-[600px]:text-[0.7rem]"
                       style={{ color: LIME }}
                     >
                       <span className="text-[0.7rem] opacity-70">↓</span>$271,000
@@ -854,7 +873,7 @@ export default function DedicatedTeamPage() {
                     } ${row.both ? "" : "hover:bg-[#faf8ff]"}`}
                     style={row.both ? { background: "rgba(73,215,167,0.04)" } : undefined}
                   >
-                    <div className="flex items-center gap-2.5 px-7 py-5 max-[720px]:hidden">
+                    <div className="flex items-center gap-2.5 px-7 py-5 max-[720px]:col-span-2 max-[720px]:border-b max-[720px]:border-black/[0.05] max-[720px]:pb-2 max-[720px]:font-semibold max-[720px]:text-[0.95rem]">
                       <span className="font-[Sora,sans-serif] text-[0.88rem] font-semibold text-[#111]">
                         {row.label}
                       </span>
@@ -954,7 +973,7 @@ export default function DedicatedTeamPage() {
         {/* CTA INQUIRY */}
         <section className="bg-white px-10 py-12 max-md:px-5">
           <div
-            className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl p-14 max-md:grid-cols-1 max-md:gap-10 max-md:p-8"
+            className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl p-14 max-[900px]:grid-cols-1 max-[900px]:gap-8 max-[900px]:p-7"
             style={{ background: LIME }}
           >
             <div>
@@ -962,7 +981,7 @@ export default function DedicatedTeamPage() {
                 • Dedicated Teams
               </div>
               <h2
-                className="m-0 mb-3 font-[Sora,sans-serif] font-black leading-[1.1] tracking-[-0.02em] text-[#111]"
+                className="m-0 mb-3 font-[Sora,sans-serif] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]"
                 style={{ fontSize: "clamp(1.4rem, 2.2vw, 1.9rem)" }}
               >
                 Your Dedicated Team is a Week Away.
@@ -1042,8 +1061,8 @@ export default function DedicatedTeamPage() {
 
         {/* FAQ */}
         <section className="box-border w-full border-t border-black/[0.06] bg-white px-10 pt-10 pb-20 max-md:px-6 max-md:pt-14 max-md:pb-18">
-          <div className="mx-auto flex max-w-[1100px] flex-row items-start gap-20 max-md:flex-col max-md:gap-10">
-            <div className="box-border max-w-[35%] flex-[0_0_35%] max-md:max-w-full max-md:flex-auto">
+          <div className="mx-auto flex max-w-[1100px] flex-row items-start gap-20 max-[900px]:flex-col max-[900px]:gap-10">
+            <div className="box-border max-w-[35%] flex-[0_0_35%] max-[900px]:max-w-full max-[900px]:flex-auto">
               <h2
                 className="m-0 mb-5 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
                 style={{ fontSize: "clamp(1.8rem, 3vw, 2.6rem)" }}
@@ -1056,7 +1075,7 @@ export default function DedicatedTeamPage() {
               </p>
             </div>
 
-            <div className="box-border max-w-[58%] flex-[0_0_58%] max-md:max-w-full max-md:flex-auto">
+            <div className="box-border max-w-[58%] flex-[0_0_58%] max-[900px]:max-w-full max-[900px]:flex-auto">
               <div className="border-t border-black/10">
                 {FAQS.map((faq, i) => {
                   const isOpen = openFaq === i;
@@ -1095,11 +1114,32 @@ export default function DedicatedTeamPage() {
   );
 }
 
-function WhyCard({ badge, heading, body }: { badge: string; heading: string; body: string }) {
+function WhyCard({
+  badge,
+  heading,
+  body,
+  index,
+}: {
+  badge: string;
+  heading: string;
+  body: string;
+  index: number;
+}) {
+  const isSticky = index >= 0;
   return (
     <div
-      className="group relative flex cursor-default flex-col rounded-[20px] border border-black/[0.08] bg-white px-8 pt-9 pb-10 transition-all hover:border-[#7E47FF] hover:bg-[#7E47FF]"
-      style={{ boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }}
+      className={`group relative flex cursor-default flex-col rounded-[20px] border border-black/[0.08] bg-white px-8 pt-9 pb-10 transition-all hover:border-[#7E47FF] hover:bg-[#7E47FF]${
+        isSticky ? " sticky [top:var(--card-top)]" : ""
+      }`}
+      style={
+        isSticky
+          ? ({
+              boxShadow: "0 2px 12px rgba(0,0,0,0.05)",
+              "--card-top": `${(index + 1) * 12}px`,
+              zIndex: index + 1,
+            } as CSSPropertiesWithVars)
+          : { boxShadow: "0 2px 12px rgba(0,0,0,0.05)" }
+      }
     >
       <span
         className="mb-5 inline-block self-start rounded-md border px-3 py-1 font-[Sora,sans-serif] text-[0.68rem] font-bold tracking-[0.06em] transition-colors group-hover:border-white/25"
@@ -1175,37 +1215,37 @@ function CostRow({
   savings: string;
 }) {
   return (
-    <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] border-t border-white/[0.06] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-2">
-      <div className="flex items-center py-5.5">
-        <span className="font-[Sora,sans-serif] text-[0.92rem] font-semibold text-white">
+    <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] border-t border-white/[0.06] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5">
+      <div className="flex items-center py-5.5 max-[600px]:py-3">
+        <span className="font-[Sora,sans-serif] text-[0.92rem] font-semibold text-white max-[600px]:text-[0.7rem] max-[600px]:leading-tight">
           {role}
         </span>
         <span
-          className="ml-2.5 inline-block rounded px-2 py-0.5 text-[0.62rem] font-bold uppercase tracking-[0.06em] max-md:hidden"
+          className="ml-2.5 inline-block rounded px-2 py-0.5 text-[0.62rem] font-bold uppercase tracking-[0.06em] max-md:hidden max-[600px]:hidden"
           style={{ background: badgeBg, color: badgeColor }}
         >
           {badgeLabel}
         </span>
       </div>
-      <div className="flex items-center py-5.5 max-[600px]:hidden">
+      <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="font-[Sora,sans-serif] text-[0.92rem] font-semibold line-through"
+          className="font-[Sora,sans-serif] text-[0.92rem] font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
           style={{ color: "rgba(255,255,255,0.45)", textDecorationColor: "rgba(255,255,255,0.2)" }}
         >
           {us}
         </span>
       </div>
-      <div className="flex items-center py-5.5">
+      <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="font-[Sora,sans-serif] text-[0.92rem] font-bold"
+          className="font-[Sora,sans-serif] text-[0.92rem] font-bold max-[600px]:text-[0.7rem]"
           style={{ color: LIME }}
         >
           {remotiv}
         </span>
       </div>
-      <div className="flex items-center py-5.5">
+      <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-[0.88rem] font-bold"
+          className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-[0.88rem] font-bold max-[600px]:text-[0.72rem] max-[600px]:font-bold"
           style={{ color: GREEN }}
         >
           <span className="text-[0.7rem] opacity-70">↓</span>
@@ -1219,7 +1259,7 @@ function CostRow({
 function CheckBadge() {
   return (
     <div
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-extrabold"
       style={{
         background: "rgba(73,215,167,0.15)",
         border: "1.5px solid rgba(73,215,167,0.4)",
@@ -1234,7 +1274,7 @@ function CheckBadge() {
 function CrossBadge() {
   return (
     <div
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-black"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-extrabold"
       style={{
         background: "rgba(239,68,68,0.08)",
         border: "1.5px solid rgba(239,68,68,0.2)",
@@ -1266,7 +1306,7 @@ function InquiryForm() {
   };
 
   const inputClass =
-    "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-[9px] text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
+    "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
 
   if (submitted) {
     return (
