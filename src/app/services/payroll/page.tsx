@@ -582,10 +582,21 @@ const FAQS = [
   },
 ];
 
-const PrimaryButton = ({ href, children }: { href: string; children: React.ReactNode }) => (
+const PrimaryButton = ({
+  href,
+  children,
+  className,
+}: {
+  href: string;
+  children: React.ReactNode;
+  className?: string;
+}) => (
   <Link
     href={href}
-    className="inline-flex items-center whitespace-nowrap rounded-full bg-[#49D7A7] px-8 py-3.5 font-heading text-[0.92rem] font-bold text-[#111] transition hover:-translate-y-px hover:bg-[#3bc495]"
+    className={cn(
+      "inline-flex items-center whitespace-nowrap rounded-full bg-[#49D7A7] px-8 py-3.5 font-heading text-[0.92rem] font-bold text-[#111] transition hover:-translate-y-px hover:bg-[#3bc495]",
+      className,
+    )}
   >
     {children}
   </Link>
@@ -595,15 +606,20 @@ const OutlineButton = ({
   href,
   external,
   children,
+  className,
 }: {
   href: string;
   external?: boolean;
   children: React.ReactNode;
+  className?: string;
 }) => (
   <a
     href={href}
     {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
-    className="inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-[#111] transition hover:bg-[#111] hover:text-white"
+    className={cn(
+      "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-[#111] transition hover:bg-[#111] hover:text-white",
+      className,
+    )}
   >
     {children}
   </a>
@@ -657,8 +673,8 @@ export default function PayrollPage() {
       <Navbar />
       <main className="flex-1 bg-white">
         {/* Hero */}
-        <section className="box-border w-full bg-white p-6">
-          <div className="mx-auto box-border flex w-full flex-col items-center rounded-[28px] bg-[#f8f4f1] px-10 pb-28 pt-24 text-center md:px-10 md:pb-28 md:pt-28">
+        <section className="box-border w-full bg-white p-4 md:p-6">
+          <div className="mx-auto box-border flex w-full flex-col items-center rounded-[28px] bg-[#f8f4f1] px-5 pb-20 pt-20 text-center md:px-10 md:pb-28 md:pt-28">
             <h1 className="mb-6 max-w-[820px] font-heading text-[clamp(2.2rem,5vw,3.8rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#111]">
               You Run the Business. We Run Payroll.
             </h1>
@@ -667,9 +683,11 @@ export default function PayrollPage() {
               spreadsheets, no missed deadlines, no errors. Already hired through Remotiv? Add payroll
               in one conversation.
             </p>
-            <div className="flex flex-wrap items-center justify-center gap-3.5">
-              <PrimaryButton href={BOOKING_HREF}>Set Up Payroll →</PrimaryButton>
-              <OutlineButton href={CALL_HREF} external>
+            <div className="flex flex-col items-stretch justify-center gap-3 sm:flex-row sm:flex-wrap sm:items-center sm:gap-3.5">
+              <PrimaryButton href={BOOKING_HREF} className="w-full sm:w-auto">
+                Set Up Payroll →
+              </PrimaryButton>
+              <OutlineButton href={CALL_HREF} external className="w-full sm:w-auto">
                 Book a 15-Min Call
               </OutlineButton>
             </div>
@@ -677,7 +695,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Features */}
-        <section className="box-border w-full bg-white px-10 py-12">
+        <section className="box-border w-full bg-white px-5 py-12 md:px-10">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Payroll Services</SectionPill>
@@ -723,7 +741,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Full Scope */}
-        <section className="box-border w-full bg-white px-10 py-12">
+        <section className="box-border w-full bg-white px-5 py-12 md:px-10">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Full Scope</SectionPill>
@@ -736,7 +754,7 @@ export default function PayrollPage() {
               </p>
             </div>
 
-            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 md:grid-cols-4">
               {SCOPE_CARDS.map((card) => (
                 <div
                   key={card.title}
@@ -765,7 +783,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Process */}
-        <section className="bg-[#9886fe] px-10 pb-24 pt-20">
+        <section className="bg-[#9886fe] px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
           <div className="mx-auto grid max-w-[1100px] items-start gap-12 md:grid-cols-2 md:gap-20">
             <div>
               <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#c9ff85]">
@@ -841,7 +859,7 @@ export default function PayrollPage() {
 
         {/* Who We Serve */}
         <section className="box-border w-full bg-white px-6 pb-20 pt-6">
-          <div className="mx-auto box-border grid max-w-[1100px] items-start gap-10 rounded-[24px] bg-[#1a1a1a] p-12 md:grid-cols-[1fr_1.4fr] md:gap-[72px] md:px-[60px] md:py-16">
+          <div className="mx-auto box-border grid max-w-[1100px] items-start gap-10 rounded-[24px] bg-[#1a1a1a] p-6 md:grid-cols-[1fr_1.4fr] md:gap-[72px] md:px-[60px] md:py-16">
             <div className="md:sticky md:top-24">
               <SectionPill variant="dark">Who We Serve</SectionPill>
               <h2 className="font-heading text-[clamp(1.8rem,2.8vw,2.6rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-white">
@@ -870,7 +888,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Advantage */}
-        <section className="bg-white px-10 py-20">
+        <section className="bg-white px-5 py-16 md:px-10 md:py-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14">
               <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
@@ -892,7 +910,7 @@ export default function PayrollPage() {
                 <h3 className="pt-1 font-heading text-base font-bold leading-[1.3] text-[#111]">
                   {row.label}
                 </h3>
-                <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 lg:grid-cols-3">
+                <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3">
                   {row.cols.map((col) => (
                     <div
                       key={col.heading}
@@ -921,13 +939,13 @@ export default function PayrollPage() {
         </section>
 
         {/* CTA */}
-        <section className="bg-white px-10 pb-20 pt-16">
-          <div className="mx-auto grid max-w-[900px] items-center gap-14 rounded-[24px] bg-[#c9ff85] p-10 md:grid-cols-2 md:p-[52px_60px]">
+        <section className="bg-white px-5 pb-16 pt-12 md:px-10 md:pb-20 md:pt-16">
+          <div className="mx-auto grid max-w-[900px] items-center gap-8 rounded-[24px] bg-[#c9ff85] p-6 md:grid-cols-2 md:gap-14 md:p-[52px_60px]">
             <div>
               <div className="mb-4 inline-flex items-center rounded-full bg-white/45 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#111]">
                 Payroll Services
               </div>
-              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-black leading-[1.1] tracking-[-0.02em] text-[#111]">
+              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
                 Your Payroll Goes Live in 48 Hours.
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
@@ -935,14 +953,14 @@ export default function PayrollPage() {
                 Manager, handling everything — from salary calculations to FBR filings — every single
                 month.
               </p>
-              <div className="mb-7 flex flex-wrap gap-2.5">
+              <div className="mb-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
                 <Link
                   href={BOOKING_HREF}
-                  className="inline-flex items-center rounded-full bg-[#49D7A7] px-6 py-3 font-heading text-[0.82rem] font-bold text-[#111] transition hover:opacity-90"
+                  className="inline-flex w-full items-center rounded-full bg-[#49D7A7] px-6 py-3 font-heading text-[0.82rem] font-bold text-[#111] transition hover:opacity-90 sm:w-auto"
                 >
                   Set Up Payroll →
                 </Link>
-                <OutlineButton href={CALL_HREF} external>
+                <OutlineButton href={CALL_HREF} external className="w-full sm:w-auto">
                   Book a 15-Min Call
                 </OutlineButton>
               </div>
@@ -1023,7 +1041,7 @@ export default function PayrollPage() {
         </section>
 
         {/* FAQ */}
-        <section className="border-t border-black/[0.06] bg-white px-10 pb-24 pt-20">
+        <section className="border-t border-black/[0.06] bg-white px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="flex flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:max-w-[35%] md:flex-[0_0_35%]">
@@ -1057,7 +1075,7 @@ export default function PayrollPage() {
                         <div
                           className={cn(
                             "overflow-hidden transition-[max-height] duration-300",
-                            isOpen ? "max-h-[400px]" : "max-h-0",
+                            isOpen ? "max-h-[600px]" : "max-h-0",
                           )}
                         >
                           <p className="pb-6 text-[0.9rem] leading-[1.75] text-[#444]">{faq.a}</p>
