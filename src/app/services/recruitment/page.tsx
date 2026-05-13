@@ -14,6 +14,7 @@ import {
   TrendingUp,
   Users,
 } from "lucide-react";
+import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useState } from "react";
 import { Footer } from "@/components/footer";
@@ -305,7 +306,7 @@ export default function RecruitmentPage() {
         <section className="relative flex min-h-[360px] sm:min-h-[520px] items-start sm:items-center justify-center overflow-hidden bg-white px-5 sm:px-8 pt-14 pb-6 sm:pt-20 sm:pb-10">
           <div
             aria-hidden="true"
-            className="absolute inset-0 grid grid-cols-[repeat(6,1fr)] grid-rows-[repeat(9,1fr)] sm:grid-cols-[repeat(10,1fr)] sm:grid-rows-[repeat(8,1fr)] md:grid-cols-[repeat(12,1fr)] md:grid-rows-[repeat(7,1fr)] lg:grid-cols-[repeat(18,1fr)] lg:grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
+            className="absolute inset-0 grid grid-cols-[repeat(7,1fr)] auto-rows-min sm:grid-cols-[repeat(10,1fr)] sm:grid-rows-[repeat(8,1fr)] sm:auto-rows-auto md:grid-cols-[repeat(12,1fr)] md:grid-rows-[repeat(7,1fr)] lg:grid-cols-[repeat(18,1fr)] lg:grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
             style={{
               maskImage:
                 "linear-gradient(to right, rgba(0,0,0,0.9) 0%, rgba(0,0,0,0.55) 35%, rgba(0,0,0,0.15) 65%, rgba(0,0,0,0.04) 100%)",
@@ -314,7 +315,7 @@ export default function RecruitmentPage() {
             }}
           >
             {Array.from({ length: 18 * 7 }).map((_, i) => (
-              <div key={i} className="rounded-md bg-[#f8f4f1]" />
+              <div key={i} className="aspect-square sm:aspect-auto rounded-md bg-[#f8f4f1]" />
             ))}
           </div>
           <div className="relative z-10 w-full max-w-[860px] text-center">
@@ -332,7 +333,7 @@ export default function RecruitmentPage() {
             </p>
             <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
               <Link
-                className="w-full sm:w-auto text-center rounded-full bg-[#49D7A7] px-6 sm:px-8 py-[11px] sm:py-[15px] font-heading text-[0.9rem] sm:text-base font-bold text-[#111] transition-opacity hover:opacity-90"
+                className="w-auto self-center text-center rounded-full bg-[#49D7A7] px-7 sm:px-8 py-[12px] sm:py-[15px] font-heading text-[0.9rem] sm:text-base font-bold text-[#111] transition-opacity hover:opacity-90"
                 href="/contact"
               >
                 Submit a Role →
@@ -563,8 +564,15 @@ export default function RecruitmentPage() {
                 })}
               </div>
               <div className="sticky top-20 h-full">
-                <div className="flex min-h-[200px] md:min-h-[400px] items-center justify-center overflow-hidden rounded-[18px] bg-[#f8f4f1]">
-                  <span className="text-[0.82rem] text-[#777]">Image coming soon</span>
+                <div className="relative min-h-[200px] md:min-h-[400px] overflow-hidden rounded-[18px] bg-[#f8f4f1]">
+                  <Image
+                    src="/recruitment/3570.webp"
+                    alt="Remotiv team collaborating with clients"
+                    fill
+                    sizes="(max-width: 768px) 100vw, 50vw"
+                    className="object-cover"
+                    priority={false}
+                  />
                 </div>
               </div>
             </div>
