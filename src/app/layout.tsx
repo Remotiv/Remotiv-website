@@ -1,5 +1,7 @@
 import type { Metadata } from "next";
 import { DM_Sans, Sora } from "next/font/google";
+import { Analytics } from "@vercel/analytics/react";
+import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AIChatWidget } from "@/components/ai-chat-widget";
 
@@ -115,6 +117,8 @@ export default function RootLayout({
             }),
           }}
         />
+        <Analytics />
+        <SpeedInsights />
       </body>
     </html>
   );

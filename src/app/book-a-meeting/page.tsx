@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { cloneElement, type ReactElement, useEffect, useId, useState } from "react";
 import { Footer } from "@/components/footer";
@@ -134,6 +135,9 @@ export default function BookAMeetingPage() {
       setErrorMsg(result.error);
       return;
     }
+    track("booking_submitted", {
+      source: "book_a_meeting_form",
+    });
     setSubmitted(true);
   }
 

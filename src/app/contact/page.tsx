@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@vercel/analytics";
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "./actions";
@@ -209,6 +210,10 @@ export default function ContactPage() {
       const result = await Promise.race([submitContact(form), timeoutPromise]);
 
       if (result.success) {
+        track("inquiry_submitted", {
+          source: "contact_page",
+          service: form.service || "unspecified",
+        });
         setStatus("success");
       } else {
         setStatus("idle");

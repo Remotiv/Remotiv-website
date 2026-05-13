@@ -1,5 +1,6 @@
 "use client";
 
+import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
@@ -87,6 +88,10 @@ export function CtaInquiry() {
       const result = await Promise.race([submitContact(form), timeoutPromise]);
 
       if (result.success) {
+        track("inquiry_submitted", {
+          source: "homepage_cta",
+          service: form.service || "unspecified",
+        });
         setStatus("success");
       } else {
         setStatus("error");
