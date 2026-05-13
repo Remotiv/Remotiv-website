@@ -832,10 +832,16 @@ export function BrowseClient({
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [openCard, setOpenCard] = useState<Card | null>(null);
   const [toast, setToast] = useState<string | null>(null);
+  const [drawerOpen, setDrawerOpen] = useState(false);
 
   // ESC closes the modal
   useEffect(() => {
-    function onKey(e: KeyboardEvent) { if (e.key === "Escape") setOpenCard(null); }
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") {
+        setOpenCard(null);
+        setDrawerOpen(false);
+      }
+    }
     document.addEventListener("keydown", onKey);
     return () => document.removeEventListener("keydown", onKey);
   }, []);
@@ -847,6 +853,14 @@ export function BrowseClient({
     document.body.style.overflow = "hidden";
     return () => { document.body.style.overflow = prev; };
   }, [openCard]);
+
+  // Body scroll lock when drawer open
+  useEffect(() => {
+    if (!drawerOpen) return;
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => { document.body.style.overflow = prev; };
+  }, [drawerOpen]);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -885,6 +899,56 @@ export function BrowseClient({
     setToast("🔒 Subscribe to unlock full access — payment setup in progress.");
   }
 
+  const renderSidebarContent = (onSelect?: () => void) => (
+    <>
+      <div className="bt-sbox">
+        <div className="bt-sbox-title">Talent Pool</div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">Total Candidates</span>
+          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>50,000+</span>
+        </div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">Engineers</span>
+          <span className="bt-pool-val" style={{ color: "#60a5fa" }}>18,400+</span>
+        </div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">SDR / Sales</span>
+          <span className="bt-pool-val" style={{ color: "#a78bfa" }}>12,000+</span>
+        </div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">Customer Success</span>
+          <span className="bt-pool-val" style={{ color: "#34d399" }}>9,800+</span>
+        </div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">Designers</span>
+          <span className="bt-pool-val" style={{ color: "#fb923c" }}>6,200+</span>
+        </div>
+        <div className="bt-pool-stat">
+          <span className="bt-pool-label">Available Now</span>
+          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>31,200+</span>
+        </div>
+      </div>
+
+      <div className="bt-sbox">
+        <div className="bt-sbox-title">Role Type</div>
+        {ROLE_FILTERS.map((r) => (
+          <button
+            key={r.key}
+            type="button"
+            className={cn("bt-role-chip", activeRole === r.key && "sel")}
+            onClick={() => { setActiveRole(r.key); onSelect?.(); }}
+          >
+            <div className="bt-rc-left">
+              <span className="bt-rc-dot" style={{ background: r.dot }} />
+              <span className="bt-rc-name">{r.label}</span>
+            </div>
+            <span className="bt-rc-count">{r.count}</span>
+          </button>
+        ))}
+      </div>
+    </>
+  );
+
   return (
     <>
       <Navbar />
@@ -894,55 +958,22 @@ export function BrowseClient({
         <div className="bt-page-wrap">
           {/* ── SIDEBAR ── */}
           <aside className="bt-sidebar">
-            <div className="bt-sbox">
-              <div className="bt-sbox-title">Talent Pool</div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">Total Candidates</span>
-                <span className="bt-pool-val" style={{ color: "#49D7A7" }}>50,000+</span>
-              </div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">Engineers</span>
-                <span className="bt-pool-val" style={{ color: "#60a5fa" }}>18,400+</span>
-              </div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">SDR / Sales</span>
-                <span className="bt-pool-val" style={{ color: "#a78bfa" }}>12,000+</span>
-              </div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">Customer Success</span>
-                <span className="bt-pool-val" style={{ color: "#34d399" }}>9,800+</span>
-              </div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">Designers</span>
-                <span className="bt-pool-val" style={{ color: "#fb923c" }}>6,200+</span>
-              </div>
-              <div className="bt-pool-stat">
-                <span className="bt-pool-label">Available Now</span>
-                <span className="bt-pool-val" style={{ color: "#49D7A7" }}>31,200+</span>
-              </div>
-            </div>
-
-            <div className="bt-sbox">
-              <div className="bt-sbox-title">Role Type</div>
-              {ROLE_FILTERS.map((r) => (
-                <button
-                  key={r.key}
-                  type="button"
-                  className={cn("bt-role-chip", activeRole === r.key && "sel")}
-                  onClick={() => setActiveRole(r.key)}
-                >
-                  <div className="bt-rc-left">
-                    <span className="bt-rc-dot" style={{ background: r.dot }} />
-                    <span className="bt-rc-name">{r.label}</span>
-                  </div>
-                  <span className="bt-rc-count">{r.count}</span>
-                </button>
-              ))}
-            </div>
+            {renderSidebarContent()}
           </aside>
 
           {/* ── MAIN ── */}
           <div className="bt-main">
+            <div className="bt-mobile-toolbar">
+              <button
+                type="button"
+                className="bt-filters-trigger"
+                onClick={() => setDrawerOpen(true)}
+                aria-label="Open filters"
+              >
+                <span aria-hidden="true">☰</span>
+                Filters
+              </button>
+            </div>
             <div className="bt-search-bar">
               <div className="bt-search-wrap">
                 <span className="bt-search-icon">⌕</span>
@@ -1003,6 +1034,41 @@ export function BrowseClient({
         </div>
       </main>
       <Footer />
+
+      {drawerOpen && (
+        <>
+          <div
+            className="bt-drawer-backdrop"
+            onClick={() => setDrawerOpen(false)}
+            role="presentation"
+          />
+          <aside className="bt-drawer" role="dialog" aria-label="Filters">
+            <div className="bt-drawer-header">
+              <span className="bt-drawer-title">Filters</span>
+              <button
+                type="button"
+                className="bt-drawer-close"
+                onClick={() => setDrawerOpen(false)}
+                aria-label="Close filters"
+              >
+                ×
+              </button>
+            </div>
+            <div className="bt-drawer-body">
+              {renderSidebarContent(() => setDrawerOpen(false))}
+            </div>
+            <div className="bt-drawer-footer">
+              <button
+                type="button"
+                className="bt-drawer-apply"
+                onClick={() => setDrawerOpen(false)}
+              >
+                Apply Filters
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
 
       {openCard && (
         <ProfileModal
@@ -1178,6 +1244,13 @@ export function BrowseClient({
           background: #49D7A7;
           display: inline-block;
         }
+        .bt-filters-trigger { display: none; }
+        .bt-drawer-backdrop { display: none; }
+        .bt-drawer { display: none; }
+        @keyframes bt-drawer-in {
+          from { transform: translateX(-100%); }
+          to { transform: translateX(0); }
+        }
         @media (max-width: 1024px) {
           .bth-cards { display: none; }
           .bth-heading { font-size: 40px; }
@@ -1306,6 +1379,95 @@ export function BrowseClient({
         @media (max-width: 1024px) {
           .bt-page-wrap { grid-template-columns: 1fr; }
           .bt-sidebar { position: relative; top: 0; height: auto; border-right: none; border-bottom: 1px solid rgba(0,0,0,0.08); }
+          .bt-sidebar { display: none; }
+          .bt-mobile-toolbar { padding: 14px 0 10px; }
+          .bt-filters-trigger {
+            display: inline-flex;
+            align-items: center;
+            gap: 8px;
+            padding: 10px 16px;
+            background: #7E47FF;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-family: "DM Sans",sans-serif;
+            font-size: 0.85rem;
+            font-weight: 600;
+            cursor: pointer;
+            min-height: 40px;
+          }
+          .bt-filters-trigger:hover {
+            background: #6f3aef;
+          }
+          .bt-drawer-backdrop {
+            display: block;
+            position: fixed;
+            inset: 0;
+            background: rgba(0,0,0,0.5);
+            z-index: 400;
+          }
+          .bt-drawer {
+            display: flex;
+            position: fixed;
+            top: 0;
+            left: 0;
+            height: 100vh;
+            height: 100dvh;
+            width: 78%;
+            max-width: 320px;
+            background: #fff;
+            z-index: 401;
+            flex-direction: column;
+            box-shadow: 4px 0 24px rgba(0,0,0,0.18);
+            animation: bt-drawer-in 0.22s ease-out;
+          }
+          .bt-drawer-header {
+            display: flex;
+            align-items: center;
+            justify-content: space-between;
+            padding: 14px 18px;
+            border-bottom: 1px solid rgba(126,71,255,0.12);
+          }
+          .bt-drawer-title {
+            font-family: "Sora",sans-serif;
+            font-size: 0.95rem;
+            font-weight: 700;
+            color: #111;
+          }
+          .bt-drawer-close {
+            width: 36px;
+            height: 36px;
+            display: flex;
+            align-items: center;
+            justify-content: center;
+            background: rgba(0,0,0,0.05);
+            border: 1px solid rgba(0,0,0,0.1);
+            border-radius: 8px;
+            cursor: pointer;
+            font-size: 1.1rem;
+            color: #888;
+          }
+          .bt-drawer-body {
+            flex: 1;
+            overflow-y: auto;
+          }
+          .bt-drawer-footer {
+            padding: 12px 18px;
+            border-top: 1px solid rgba(126,71,255,0.12);
+          }
+          .bt-drawer-apply {
+            width: 100%;
+            padding: 13px;
+            background: #7E47FF;
+            color: #fff;
+            border: none;
+            border-radius: 10px;
+            font-family: "DM Sans",sans-serif;
+            font-size: 0.85rem;
+            font-weight: 700;
+            cursor: pointer;
+          }
+          .bt-drawer-apply:hover { background: #6f3aef; }
         }
         @media (max-width: 768px) {
           .bt-main { padding: 20px; }
@@ -1313,6 +1475,20 @@ export function BrowseClient({
           .bt-search-wrap { width: 100%; }
           .bt-cand-card { grid-template-columns: 1fr; }
           .bt-card-right { align-items: flex-start; flex-direction: row; flex-wrap: wrap; }
+          #bth-wrap { min-height: 420px; }
+          .bt-search-input { font-size: 16px; }
+          .bt-sort-select { font-size: 16px; width: 100%; }
+          .bt-result-meta { flex-direction: column; align-items: flex-start; gap: 6px; }
+          .bt-role-chip { padding: 10px 8px; }
+          .bt-save-btn { padding: 8px 12px; min-height: 40px; }
+        }
+        @media (max-width: 480px) {
+          .bth-heading { font-size: 32px; letter-spacing: -1px; }
+          .bt-cand-card { padding: 18px; }
+          .bt-modal-header { padding: 18px 18px 16px; }
+          .bt-modal-body { padding: 18px; }
+          .bt-modal-close { width: 36px; height: 36px; }
+          .bt-profile-links { flex-wrap: wrap; }
         }
       `}</style>
     </>
