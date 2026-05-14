@@ -139,6 +139,209 @@ const DEMO_CARDS: Card[] = [
   { id: "demo-16", name: "Hira Nadeem",     initials: "HN", role: "Business Operations Manager",     type: "Ops",       skills: ["Notion","Asana","Process Design","OKRs","Hiring Ops"], location: "Lahore, Pakistan", exp: "5 years", available: true, score: 88, highlights: ["Scaled ops team from 5 to 40","SOPs for 3 companies","OKR framework builder"], bio: "Operations manager who built and scaled operational systems for US-funded startups from seed to Series B.", fullTime: true, partTime: false, remote: true, education: "LUMS — BS Business Administration", lastActive: "Yesterday", github: null, linkedin: "linkedin.com/in/hiranadeem", experience: [{ title: "Operations Manager", company: "Tajir (YC S20)", dates: "2021–Present · 3 yrs", skills: ["Notion","OKRs","Process Design"] }, { title: "Business Analyst", company: "NetSol Technologies", dates: "2019–2021 · 2 yrs", skills: ["Asana","Hiring Ops"] }] },
 ];
 
+const BLURRED_PREVIEW_CARDS: Card[] = [
+  {
+    id: "preview-1",
+    name: "Bilal R.",
+    initials: "BR",
+    role: "Senior Software Engineer",
+    type: "Engineer",
+    skills: ["React", "Node.js", "TypeScript", "AWS"],
+    location: "Lahore, Pakistan",
+    exp: "6 years",
+    available: true,
+    score: 92,
+    highlights: ["6 yrs experience"],
+    bio: "Full-stack engineer with strong product sense.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "Today",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-2",
+    name: "Hira S.",
+    initials: "HS",
+    role: "Product Designer",
+    type: "Design",
+    skills: ["Figma", "Design Systems", "User Research"],
+    location: "Karachi, Pakistan",
+    exp: "5 years",
+    available: true,
+    score: 88,
+    highlights: ["Design systems lead"],
+    bio: "Product designer focused on B2B SaaS workflows.",
+    fullTime: true,
+    partTime: true,
+    remote: true,
+    lastActive: "Yesterday",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-3",
+    name: "Usman K.",
+    initials: "UK",
+    role: "Sales Development Rep",
+    type: "SDR",
+    skills: ["HubSpot", "Salesforce", "Cold Outreach"],
+    location: "Islamabad, Pakistan",
+    exp: "3 years",
+    available: true,
+    score: 85,
+    highlights: ["Top quota attainment"],
+    bio: "SDR with consistent quota attainment.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "Today",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-4",
+    name: "Ayesha M.",
+    initials: "AM",
+    role: "Customer Success Manager",
+    type: "CS",
+    skills: ["Gainsight", "Onboarding", "QBRs"],
+    location: "Multan, Pakistan",
+    exp: "4 years",
+    available: true,
+    score: 90,
+    highlights: ["NPS uplift"],
+    bio: "CS lead specializing in onboarding US SaaS clients.",
+    fullTime: true,
+    partTime: true,
+    remote: true,
+    lastActive: "2 days ago",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-5",
+    name: "Tariq H.",
+    initials: "TH",
+    role: "Data Scientist",
+    type: "Data",
+    skills: ["Python", "TensorFlow", "SQL"],
+    location: "Faisalabad, Pakistan",
+    exp: "7 years",
+    available: false,
+    score: 94,
+    highlights: ["ML in production"],
+    bio: "Data scientist shipping ML pipelines at scale.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "1 week ago",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-6",
+    name: "Sana A.",
+    initials: "SA",
+    role: "DevOps Engineer",
+    type: "DevOps",
+    skills: ["AWS", "Terraform", "Kubernetes"],
+    location: "Lahore, Pakistan",
+    exp: "5 years",
+    available: true,
+    score: 87,
+    highlights: ["Cut infra cost 35%"],
+    bio: "DevOps engineer reducing infra cost via automation.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "Today",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-7",
+    name: "Hassan I.",
+    initials: "HI",
+    role: "QA Automation Engineer",
+    type: "QA",
+    skills: ["Cypress", "Selenium", "Jest"],
+    location: "Karachi, Pakistan",
+    exp: "4 years",
+    available: true,
+    score: 82,
+    highlights: ["80% test coverage"],
+    bio: "QA engineer focused on automation frameworks.",
+    fullTime: true,
+    partTime: true,
+    remote: true,
+    lastActive: "Yesterday",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-8",
+    name: "Mehwish K.",
+    initials: "MK",
+    role: "Performance Marketing Lead",
+    type: "Marketing",
+    skills: ["Google Ads", "Meta Ads", "Analytics"],
+    location: "Islamabad, Pakistan",
+    exp: "6 years",
+    available: true,
+    score: 89,
+    highlights: ["ROAS 4x+"],
+    bio: "Performance marketer managing 6-figure ad budgets.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "3 days ago",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-9",
+    name: "Faisal Q.",
+    initials: "FQ",
+    role: "Business Operations Manager",
+    type: "Ops",
+    skills: ["Notion", "Process Design", "OKRs"],
+    location: "Lahore, Pakistan",
+    exp: "8 years",
+    available: true,
+    score: 91,
+    highlights: ["Scaled ops 5x"],
+    bio: "Ops manager scaling startups from seed to Series B.",
+    fullTime: true,
+    partTime: false,
+    remote: true,
+    lastActive: "Today",
+    github: null,
+    linkedin: null,
+  },
+  {
+    id: "preview-10",
+    name: "Zainab N.",
+    initials: "ZN",
+    role: "Senior Accountant",
+    type: "Finance",
+    skills: ["QuickBooks", "Xero", "ACCA"],
+    location: "Multan, Pakistan",
+    exp: "5 years",
+    available: true,
+    score: 78,
+    highlights: ["ACCA qualified"],
+    bio: "ACCA-qualified accountant managing remote-client books.",
+    fullTime: true,
+    partTime: true,
+    remote: true,
+    lastActive: "Yesterday",
+    github: null,
+    linkedin: null,
+  },
+];
+
 // ── Helpers ──────────────────────────────────────────────────
 
 function getInitials(name: string): string {
@@ -949,6 +1152,10 @@ export function BrowseClient({
     </>
   );
 
+  const isFiltered = activeRole !== "All" || query.trim() !== "";
+  const visibleCards = filtered.slice(0, 15);
+  const shouldShowPaywall = realProfiles.length > 0 && filtered.length > 15;
+
   return (
     <>
       <Navbar />
@@ -998,6 +1205,7 @@ export function BrowseClient({
             <div className="bt-result-meta">
               <p className="bt-result-count">
                 Showing <strong>{filtered.length}</strong> candidates out of <strong>50,000+</strong> total
+                {isFiltered && <span className="bt-filtered-tag">(filtered)</span>}
               </p>
               <span className="bt-unlock-hint">🔒 Subscribe to unlock contact details</span>
             </div>
@@ -1008,28 +1216,61 @@ export function BrowseClient({
                   No candidates found. Try a different search or filter.
                 </div>
               ) : (
-                filtered.map((c, i) => (
-                  <CardItem
-                    key={c.id}
-                    c={c}
-                    saved={savedIds.has(c.id)}
-                    onView={() => setOpenCard(c)}
-                    onSave={() => toggleSave(c.id)}
-                    onLocked={lockedAction}
-                    index={i}
-                  />
-                ))
+                <>
+                  {visibleCards.map((c, i) => (
+                    <CardItem
+                      key={c.id}
+                      c={c}
+                      saved={savedIds.has(c.id)}
+                      onView={() => setOpenCard(c)}
+                      onSave={() => toggleSave(c.id)}
+                      onLocked={lockedAction}
+                      index={i}
+                    />
+                  ))}
+                  {shouldShowPaywall && (
+                    <div className="bt-blurred-section">
+                      <div
+                        className="bt-blurred-cards"
+                        aria-hidden="true"
+                        inert
+                      >
+                        {BLURRED_PREVIEW_CARDS.map((c, i) => (
+                          <CardItem
+                            key={`blur-${c.id}`}
+                            c={c}
+                            saved={false}
+                            onView={() => {}}
+                            onSave={() => {}}
+                            onLocked={() => {}}
+                            index={i + 15}
+                          />
+                        ))}
+                      </div>
+                      <div
+                        className="bt-paywall-overlay"
+                        role="region"
+                        aria-label="Subscription required"
+                      >
+                        <div className="bt-paywall-icon" aria-hidden="true">🔒</div>
+                        <div className="bt-paywall-title">10+ more candidates</div>
+                        <div className="bt-paywall-sub">
+                          Subscribe to unlock the full talent pool
+                        </div>
+                        <button
+                          type="button"
+                          className="bt-paywall-cta"
+                          onClick={lockedAction}
+                        >
+                          Subscribe to View
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </>
               )}
             </div>
 
-            <div className="bt-load-more">
-              <button type="button" className="bt-load-btn" onClick={lockedAction}>
-                Load More Candidates
-              </button>
-              <p className="bt-load-note">
-                Showing {filtered.length} of 50,000+ candidates. Subscribe to unlock all.
-              </p>
-            </div>
           </div>
         </div>
       </main>
@@ -1286,8 +1527,74 @@ export function BrowseClient({
         .bt-result-meta { display: flex; justify-content: space-between; align-items: center; margin-bottom: 16px; }
         .bt-result-count { font-family: "DM Sans",sans-serif; font-size: 0.82rem; color: #777; }
         .bt-result-count strong { color: #111; }
+        .bt-filtered-tag {
+          margin-left: 6px;
+          font-family: "DM Sans",sans-serif;
+          font-size: 0.75rem;
+          font-style: italic;
+          color: #9886fe;
+        }
         .bt-unlock-hint { font-family: "DM Sans",sans-serif; font-size: 0.75rem; color: #9886fe; }
         .bt-cand-list { display: flex; flex-direction: column; gap: 10px; }
+        .bt-blurred-section {
+          position: relative;
+          margin-top: 12px;
+        }
+        .bt-blurred-cards {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          filter: blur(8px);
+          opacity: 0.6;
+          pointer-events: none;
+          user-select: none;
+        }
+        .bt-paywall-overlay {
+          position: absolute;
+          inset: 0;
+          z-index: 2;
+          display: flex;
+          flex-direction: column;
+          align-items: center;
+          justify-content: center;
+          background: linear-gradient(
+            180deg,
+            rgba(255,255,255,0.5) 0%,
+            rgba(255,255,255,0.95) 35%,
+            rgba(255,255,255,0.95) 65%,
+            rgba(255,255,255,0.5) 100%
+          );
+          padding: 24px;
+          text-align: center;
+          border-radius: 16px;
+        }
+        .bt-paywall-icon { font-size: 28px; margin-bottom: 8px; }
+        .bt-paywall-title {
+          font-family: "Sora",sans-serif;
+          font-size: 1.05rem;
+          font-weight: 700;
+          color: #111;
+          margin-bottom: 4px;
+        }
+        .bt-paywall-sub {
+          font-family: "DM Sans",sans-serif;
+          font-size: 0.85rem;
+          color: #555;
+          margin-bottom: 14px;
+          max-width: 280px;
+        }
+        .bt-paywall-cta {
+          padding: 11px 22px;
+          background: #7E47FF;
+          color: #fff;
+          border: none;
+          border-radius: 10px;
+          font-family: "DM Sans",sans-serif;
+          font-size: 0.88rem;
+          font-weight: 700;
+          cursor: pointer;
+        }
+        .bt-paywall-cta:hover { background: #6f3aef; }
         .bt-cand-card { background: #fff; border: 1px solid rgba(0,0,0,0.08); border-radius: 16px; padding: 22px 24px; display: grid; grid-template-columns: 1fr auto; gap: 20px; cursor: pointer; transition: border-color 0.2s, box-shadow 0.2s, transform 0.18s; position: relative; overflow: hidden; }
         .bt-cand-card::before { content: ""; position: absolute; top: 0; left: 0; width: 3px; height: 0; background: #49D7A7; border-radius: 0 0 3px 3px; transition: height 0.28s; }
         .bt-cand-card:hover { border-color: #49D7A7; box-shadow: 0 8px 32px rgba(73,215,167,0.1); transform: translateY(-1px); }
