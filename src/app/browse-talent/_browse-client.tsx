@@ -502,6 +502,7 @@ function CardItem({
   onSave,
   onLocked,
   index,
+  tier = "free",
 }: {
   c: Card;
   saved: boolean;
@@ -509,6 +510,7 @@ function CardItem({
   onSave: () => void;
   onLocked: () => void;
   index: number;
+  tier?: "free" | "subscriber";
 }) {
   const cfg = ROLE_CFG[c.type];
   return (
@@ -554,18 +556,53 @@ function CardItem({
         )}
         <div className="bt-card-links" onClick={(e) => e.stopPropagation()} role="presentation">
           {c.github && (
+            tier === "subscriber" ? (
+              <a
+                className="bt-clink"
+                href={ensureHttpUrl(c.github) ?? "#"}
+                target="_blank"
+                rel="noopener noreferrer"
+              >
+                <GhSvg />
+                GitHub
+              </a>
+            ) : (
+              <button type="button" className="bt-clink" onClick={onLocked}>
+                <GhSvg />
+                GitHub
+              </button>
+            )
+          )}
+          {tier === "subscriber" && c.linkedin ? (
+            <a
+              className="bt-clink"
+              href={ensureHttpUrl(c.linkedin) ?? "#"}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              <LiSvg />
+              LinkedIn
+            </a>
+          ) : (
             <button type="button" className="bt-clink" onClick={onLocked}>
-              <GhSvg />
-              GitHub
+              <LiSvg />
+              LinkedIn
             </button>
           )}
-          <button type="button" className="bt-clink" onClick={onLocked}>
-            <LiSvg />
-            LinkedIn
-          </button>
-          <button type="button" className="bt-clink" onClick={onLocked}>
-            Resume ✦
-          </button>
+          {tier === "subscriber" && c.cvUrl ? (
+            <a
+              className="bt-clink"
+              href={c.cvUrl}
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Resume ✦
+            </a>
+          ) : (
+            <button type="button" className="bt-clink" onClick={onLocked}>
+              Resume ✦
+            </button>
+          )}
         </div>
       </div>
       <div className="bt-card-right">
@@ -601,14 +638,14 @@ function ensureHttpUrl(url: string | null | undefined): string | null {
 function ProfileModal({
   c,
   saved,
-  isAdminPreview,
+  tier = "free",
   onSave,
   onClose,
   onLocked,
 }: {
   c: Card;
   saved: boolean;
-  isAdminPreview: boolean;
+  tier?: "free" | "subscriber";
   onSave: () => void;
   onClose: () => void;
   onLocked: () => void;
@@ -640,7 +677,7 @@ function ProfileModal({
       role="presentation"
     >
       <div className="bt-modal-panel" onClick={(e) => e.stopPropagation()} role="presentation">
-        {isAdminPreview && (
+        {tier === "subscriber" && (
           <div className="bt-admin-banner" role="status">
             <span aria-hidden>🔓</span>
             Admin Preview — viewing unlocked content
@@ -666,7 +703,7 @@ function ProfileModal({
             </div>
             <div className="bt-profile-links">
               {c.github && (
-                isAdminPreview ? (
+                tier === "subscriber" ? (
                   <a
                     className="bt-plink"
                     href={ensureHttpUrl(c.github) ?? "#"}
@@ -679,7 +716,7 @@ function ProfileModal({
                   <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
                 )
               )}
-              {isAdminPreview && c.linkedin ? (
+              {tier === "subscriber" && c.linkedin ? (
                 <a
                   className="bt-plink"
                   href={ensureHttpUrl(c.linkedin) ?? "#"}
@@ -691,7 +728,7 @@ function ProfileModal({
               ) : (
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
-              {isAdminPreview && c.cvUrl ? (
+              {tier === "subscriber" && c.cvUrl ? (
                 <a
                   className="bt-plink"
                   href={c.cvUrl}
@@ -823,7 +860,7 @@ function ProfileModal({
             )}
           </div>
 
-          {isAdminPreview ? (
+          {tier === "subscriber" ? (
             <div className="bt-unlocked-box">
               <div className="bt-unlocked-head">
                 <span aria-hidden>🔓</span>
@@ -884,7 +921,7 @@ function ProfileModal({
           )}
 
           <div className="bt-modal-actions">
-            {!isAdminPreview && (
+            {tier !== "subscriber" && (
               <button
                 type="button"
                 className="bt-btn-unlock"
@@ -1019,10 +1056,10 @@ function Hero() {
 
 export function BrowseClient({
   realProfiles,
-  isAdminPreview = false,
+  tier = "free",
 }: {
   realProfiles: TalentRow[];
-  isAdminPreview?: boolean;
+  tier?: "free" | "subscriber";
 }) {
   const cards: Card[] = useMemo(() => {
     if (realProfiles.length === 0) return DEMO_CARDS;
@@ -1154,7 +1191,7 @@ export function BrowseClient({
 
   const isFiltered = activeRole !== "All" || query.trim() !== "";
   const visibleCards = filtered.slice(0, 15);
-  const shouldShowPaywall = realProfiles.length > 0 && filtered.length > 15;
+  const shouldShowPaywall = tier === "free" && realProfiles.length > 0;
 
   return (
     <>
@@ -1226,6 +1263,7 @@ export function BrowseClient({
                       onSave={() => toggleSave(c.id)}
                       onLocked={lockedAction}
                       index={i}
+                      tier={tier}
                     />
                   ))}
                   {shouldShowPaywall && (
@@ -1244,6 +1282,7 @@ export function BrowseClient({
                             onSave={() => {}}
                             onLocked={() => {}}
                             index={i + 15}
+                            tier={tier}
                           />
                         ))}
                       </div>
@@ -1315,7 +1354,7 @@ export function BrowseClient({
         <ProfileModal
           c={openCard}
           saved={savedIds.has(openCard.id)}
-          isAdminPreview={isAdminPreview}
+          tier={tier}
           onSave={() => toggleSave(openCard.id)}
           onClose={() => setOpenCard(null)}
           onLocked={lockedAction}
