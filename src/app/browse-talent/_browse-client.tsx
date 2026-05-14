@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
@@ -116,27 +117,6 @@ const ROLE_FILTERS: Array<{ key: "All" | RoleType; label: string; count: string;
   { key: "Marketing", label: "Marketing & Growth",    count: "4.2K",  dot: "#fbbf24" },
   { key: "Ops",       label: "Business & Ops",        count: "3.4K",  dot: "#c084fc" },
   { key: "Finance",   label: "Finance & Accounting",  count: "2.8K",  dot: "#34d399" },
-];
-
-// ── Demo fallback data (verbatim from HTML BT_ALL) ───────────
-
-const DEMO_CARDS: Card[] = [
-  { id: "demo-1",  name: "Ahmed Raza",      initials: "AR", role: "Senior Software Engineer",       type: "Engineer",  skills: ["React","Node.js","AWS","TypeScript","PostgreSQL"], location: "Lahore, Pakistan",   exp: "7 years", available: true,  score: 98, highlights: ["Ex-Arbisoft","Open to full-time & contract","Immediate joiner"], bio: "7+ years building scalable web apps. Led a team of 5 at Arbisoft delivering SaaS products for US clients.", fullTime: true,  partTime: true,  remote: true, education: "LUMS — BS Computer Science", lastActive: "Today",       github: "github.com/ahmedraza",      linkedin: "linkedin.com/in/ahmedraza",      experience: [{ title: "Senior Software Engineer", company: "Arbisoft", dates: "2020–Present · 4 yrs", skills: ["React","Node.js","AWS"] }, { title: "Software Engineer", company: "Systems Limited", dates: "2017–2020 · 3 yrs", skills: ["Vue.js","Python","MySQL"] }] },
-  { id: "demo-2",  name: "Sara Khan",       initials: "SK", role: "Sales Development Representative", type: "SDR",      skills: ["HubSpot","Salesforce","Cold Calling","LinkedIn Sales Nav","Outreach.io"], location: "Karachi, Pakistan", exp: "4 years", available: true,  score: 95, highlights: ["Top 5% SDR","200+ cold calls/day","SaaS focused"], bio: "Consistently exceeded quota by 130%+ at B2B SaaS companies. Specialized in US market outreach.", fullTime: true, partTime: false, remote: true, education: "IBA Karachi — BBA Marketing", lastActive: "Today", github: null, linkedin: "linkedin.com/in/sarakhan", experience: [{ title: "SDR Team Lead", company: "Contour Software", dates: "2022–Present · 2 yrs", skills: ["Salesforce","Outreach.io"] }, { title: "Sales Development Rep", company: "10Pearls", dates: "2020–2022 · 2 yrs", skills: ["HubSpot","LinkedIn Sales Nav"] }] },
-  { id: "demo-3",  name: "Usman Ali",       initials: "UA", role: "Customer Success Manager",        type: "CS",        skills: ["Zendesk","Gainsight","Churn Reduction","QBRs","Onboarding"], location: "Islamabad, Pakistan", exp: "5 years", available: true, score: 92, highlights: ["Reduced churn by 22%","Managed 80+ accounts","NPS champion"], bio: "CS professional managing $2M+ ARR portfolios for US SaaS startups. Expert in QBRs and renewal strategy.", fullTime: true, partTime: true, remote: true, education: "NUST — BS Business Administration", lastActive: "2 days ago", github: null, linkedin: "linkedin.com/in/usmanalics", experience: [{ title: "Customer Success Manager", company: "Motive (KeepTruckin)", dates: "2021–Present · 3 yrs", skills: ["Gainsight","QBRs"] }, { title: "CS Specialist", company: "Inbox Health", dates: "2019–2021 · 2 yrs", skills: ["Zendesk","Onboarding"] }] },
-  { id: "demo-4",  name: "Fatima Malik",    initials: "FM", role: "Full Stack Developer",            type: "Engineer",  skills: ["Vue.js","Python","Django","PostgreSQL","Docker"], location: "Lahore, Pakistan", exp: "6 years", available: false, score: 97, highlights: ["Open source contributor","Built 3 funded products","AWS certified"], bio: "Full-stack engineer with deep experience in Python/Vue. Shipped products used by 100K+ users.", fullTime: true, partTime: false, remote: true, education: "FAST NUCES — BS Software Engineering", lastActive: "1 week ago", github: "github.com/fatimamalik", linkedin: "linkedin.com/in/fatimamalik", experience: [{ title: "Full Stack Engineer", company: "Shaukat Khanum IT", dates: "2021–Present · 3 yrs", skills: ["Django","PostgreSQL","Docker"] }, { title: "Frontend Developer", company: "Xord", dates: "2018–2021 · 3 yrs", skills: ["Vue.js","REST APIs"] }] },
-  { id: "demo-5",  name: "Bilal Qureshi",   initials: "BQ", role: "SDR Team Lead",                   type: "SDR",       skills: ["Apollo.io","Salesloft","SaaS Sales","Pipeline Mgmt","Coaching"], location: "Karachi, Pakistan", exp: "6 years", available: true, score: 94, highlights: ["Managed team of 8 SDRs","Built outbound playbook","$1.2M pipeline/year"], bio: "Led SDR teams at two US-funded startups. Built repeatable outbound systems generating $1.2M pipeline annually.", fullTime: true, partTime: false, remote: true, education: "University of Karachi — MBA", lastActive: "Today", github: null, linkedin: "linkedin.com/in/bilalqureshi", experience: [{ title: "SDR Team Lead", company: "Podium (Remote)", dates: "2022–Present · 2 yrs", skills: ["Salesloft","Apollo.io"] }, { title: "Senior SDR", company: "DevRevamp", dates: "2018–2022 · 4 yrs", skills: ["SaaS Sales","Pipeline Mgmt"] }] },
-  { id: "demo-6",  name: "Zara Hussain",    initials: "ZH", role: "Senior Customer Success Manager", type: "CS",        skills: ["Gainsight","Intercom","NPS","Product Adoption","Executive Relations"], location: "Lahore, Pakistan", exp: "8 years", available: true, score: 96, highlights: ["NPS from 32 to 67","C-suite relationships","Startup to enterprise"], bio: "8 years in customer success across fintech and logistics SaaS. Specializes in enterprise onboarding.", fullTime: true, partTime: true, remote: true, education: "LSE — MSc Management", lastActive: "3 days ago", github: null, linkedin: "linkedin.com/in/zarahussain", experience: [{ title: "Senior CSM", company: "Airlift Technologies", dates: "2020–Present · 4 yrs", skills: ["Gainsight","Executive Relations"] }, { title: "CSM", company: "Swyft Logistics", dates: "2016–2020 · 4 yrs", skills: ["Intercom","NPS","Onboarding"] }] },
-  { id: "demo-7",  name: "Hassan Mir",      initials: "HM", role: "Backend Engineer",                type: "Engineer",  skills: ["Go","Kubernetes","Redis","gRPC","Terraform"], location: "Islamabad, Pakistan", exp: "5 years", available: true, score: 91, highlights: ["Microservices expert","Infra for 1M+ users","Open to relocate"], bio: "Backend engineer specializing in high-throughput distributed systems. Designed infra handling 50K req/sec.", fullTime: true, partTime: false, remote: true, education: "NUST — BS Computer Engineering", lastActive: "Today", github: "github.com/hassanmir", linkedin: "linkedin.com/in/hassanmir", experience: [{ title: "Backend Engineer", company: "Bazaar Technologies", dates: "2021–Present · 3 yrs", skills: ["Go","Kubernetes","gRPC"] }, { title: "Software Engineer", company: "Netsol Technologies", dates: "2019–2021 · 2 yrs", skills: ["Redis","Terraform"] }] },
-  { id: "demo-8",  name: "Amna Sheikh",     initials: "AS", role: "SDR Manager",                     type: "SDR",       skills: ["Salesloft","Gong","Pipeline Review","Hiring & Training","RevOps"], location: "Lahore, Pakistan", exp: "7 years", available: false, score: 93, highlights: ["Hired & trained 15+ SDRs","RevOps certified","140% quota attainment"], bio: "Sales leader with 7 years growing outbound teams for Series A-C SaaS companies focused on US enterprise.", fullTime: true, partTime: false, remote: true, education: "LUMS — MBA Marketing", lastActive: "5 days ago", github: null, linkedin: "linkedin.com/in/amnasheikh", experience: [{ title: "SDR Manager", company: "Rolustech", dates: "2020–Present · 4 yrs", skills: ["Salesloft","Gong","RevOps"] }, { title: "Senior SDR", company: "VentureDive", dates: "2017–2020 · 3 yrs", skills: ["Pipeline Review","Hiring"] }] },
-  { id: "demo-9",  name: "Kamran Iqbal",    initials: "KI", role: "DevOps Engineer",                 type: "DevOps",    skills: ["AWS","CI/CD","Jenkins","Ansible","Linux"], location: "Karachi, Pakistan", exp: "6 years", available: true, score: 89, highlights: ["AWS Solutions Architect","Zero-downtime deploys","Cut infra costs 40%"], bio: "DevOps engineer who reduced infrastructure costs by 40% while improving deployment frequency 3x.", fullTime: true, partTime: true, remote: true, education: "NED University — BS Computer Systems", lastActive: "Today", github: "github.com/kamraniqbal", linkedin: "linkedin.com/in/kamraniqbal", experience: [{ title: "DevOps Engineer", company: "Careem (Uber)", dates: "2021–Present · 3 yrs", skills: ["AWS","Kubernetes","CI/CD"] }, { title: "Systems Engineer", company: "TPS Pakistan", dates: "2018–2021 · 3 yrs", skills: ["Ansible","Jenkins","Linux"] }] },
-  { id: "demo-10", name: "Nadia Farooq",    initials: "NF", role: "Customer Success Specialist",     type: "CS",        skills: ["Freshdesk","Onboarding","Retention","CSAT","Upsell"], location: "Lahore, Pakistan", exp: "3 years", available: true, score: 88, highlights: ["CSAT 4.9/5","Upsell $180K revenue","Strong communicator"], bio: "CS specialist turning at-risk accounts into expansion opportunities. Expert at onboarding new clients.", fullTime: true, partTime: true, remote: true, education: "UCP Lahore — BBA", lastActive: "Yesterday", github: null, linkedin: "linkedin.com/in/nadiafarooq", experience: [{ title: "CS Specialist", company: "Inbox Business Technologies", dates: "2022–Present · 2 yrs", skills: ["Freshdesk","CSAT","Upsell"] }, { title: "Support Specialist", company: "TalentedgeAI", dates: "2021–2022 · 1 yr", skills: ["Onboarding","Retention"] }] },
-  { id: "demo-11", name: "Ali Hassan",      initials: "AH", role: "UI/UX Designer",                  type: "Design",    skills: ["Figma","Prototyping","Design Systems","User Research","Webflow"], location: "Lahore, Pakistan", exp: "5 years", available: true, score: 93, highlights: ["Redesigned 3 SaaS products","Led design system at scale","US clients exclusively"], bio: "Product designer who has shipped full redesigns for multiple US SaaS products, improving onboarding by 35%.", fullTime: true, partTime: true, remote: true, education: "NCA Lahore — BFA Visual Design", lastActive: "Today", github: null, linkedin: "linkedin.com/in/alihassan", experience: [{ title: "Senior Product Designer", company: "Zeal (Remote, US)", dates: "2021–Present · 3 yrs", skills: ["Figma","Design Systems","Prototyping"] }, { title: "UI Designer", company: "Tkxel", dates: "2019–2021 · 2 yrs", skills: ["User Research","Webflow"] }] },
-  { id: "demo-12", name: "Sana Baig",       initials: "SB", role: "Data Scientist",                  type: "Data",      skills: ["Python","TensorFlow","SQL","Pandas","Tableau"], location: "Karachi, Pakistan", exp: "6 years", available: true, score: 95, highlights: ["ML models in production","$2M cost savings via ML","Published researcher"], bio: "Data scientist with 6 years building ML models that ship to production. Domain expertise in fintech and logistics.", fullTime: true, partTime: false, remote: true, education: "LUMS — MS Data Science", lastActive: "2 days ago", github: "github.com/sanabaig", linkedin: "linkedin.com/in/sanabaig", experience: [{ title: "Senior Data Scientist", company: "Jazz (Veon)", dates: "2021–Present · 3 yrs", skills: ["TensorFlow","Python","SQL"] }, { title: "Data Analyst", company: "Inbox Health", dates: "2018–2021 · 3 yrs", skills: ["Tableau","Pandas"] }] },
-  { id: "demo-13", name: "Rehman Siddiqui", initials: "RS", role: "QA Automation Engineer",          type: "QA",        skills: ["Selenium","Cypress","Jest","API Testing","TestRail"], location: "Islamabad, Pakistan", exp: "5 years", available: true, score: 87, highlights: ["80% test automation coverage","Reduced bug rate 60%","CI/CD integration expert"], bio: "QA engineer who built automated test frameworks from scratch. Passionate about quality-first engineering culture.", fullTime: true, partTime: true, remote: true, education: "COMSATS — BS Computer Science", lastActive: "Today", github: "github.com/rehmansiddiqui", linkedin: "linkedin.com/in/rehmansiddiqui", experience: [{ title: "QA Automation Engineer", company: "Contour Software", dates: "2021–Present · 3 yrs", skills: ["Cypress","Selenium","API Testing"] }, { title: "QA Engineer", company: "Folio3", dates: "2019–2021 · 2 yrs", skills: ["Jest","TestRail"] }] },
-  { id: "demo-14", name: "Mariam Khan",     initials: "MK", role: "Performance Marketing Manager",   type: "Marketing", skills: ["Google Ads","Meta Ads","SEO","HubSpot","Analytics"], location: "Lahore, Pakistan", exp: "5 years", available: false, score: 90, highlights: ["ROAS 4.2x avg","Cut CAC by 38%","$500K ad spend managed"], bio: "Performance marketer managing $500K+ in annual ad spend across Google and Meta for US ecommerce and SaaS brands.", fullTime: true, partTime: false, remote: true, education: "FAST NUCES — BBA Marketing", lastActive: "3 days ago", github: null, linkedin: "linkedin.com/in/mariamkhan", experience: [{ title: "Senior Performance Marketer", company: "EcommerceHive (Remote)", dates: "2021–Present · 3 yrs", skills: ["Google Ads","Meta Ads","Analytics"] }, { title: "Digital Marketing Exec", company: "Rozee.pk", dates: "2019–2021 · 2 yrs", skills: ["SEO","HubSpot"] }] },
-  { id: "demo-15", name: "Omar Farhan",     initials: "OF", role: "Finance & Accounting Specialist", type: "Finance",   skills: ["QuickBooks","Xero","Financial Modeling","GAAP","Excel"], location: "Karachi, Pakistan", exp: "4 years", available: true, score: 86, highlights: ["ACCA qualified","US startup books managed","Month-end close expert"], bio: "ACCA-qualified accountant managing books for multiple US startups remotely. Expert in QuickBooks and Xero.", fullTime: true, partTime: true, remote: true, education: "ACCA — Full Member", lastActive: "Today", github: null, linkedin: "linkedin.com/in/omarfarhan", experience: [{ title: "Accounting Manager", company: "Remote CFO Services", dates: "2022–Present · 2 yrs", skills: ["QuickBooks","GAAP","Financial Modeling"] }, { title: "Accountant", company: "BDO Pakistan", dates: "2020–2022 · 2 yrs", skills: ["Xero","Excel"] }] },
-  { id: "demo-16", name: "Hira Nadeem",     initials: "HN", role: "Business Operations Manager",     type: "Ops",       skills: ["Notion","Asana","Process Design","OKRs","Hiring Ops"], location: "Lahore, Pakistan", exp: "5 years", available: true, score: 88, highlights: ["Scaled ops team from 5 to 40","SOPs for 3 companies","OKR framework builder"], bio: "Operations manager who built and scaled operational systems for US-funded startups from seed to Series B.", fullTime: true, partTime: false, remote: true, education: "LUMS — BS Business Administration", lastActive: "Yesterday", github: null, linkedin: "linkedin.com/in/hiranadeem", experience: [{ title: "Operations Manager", company: "Tajir (YC S20)", dates: "2021–Present · 3 yrs", skills: ["Notion","OKRs","Process Design"] }, { title: "Business Analyst", company: "NetSol Technologies", dates: "2019–2021 · 2 yrs", skills: ["Asana","Hiring Ops"] }] },
 ];
 
 const BLURRED_PREVIEW_CARDS: Card[] = [
@@ -1057,22 +1037,58 @@ function Hero() {
 export function BrowseClient({
   realProfiles,
   tier = "free",
+  currentPage,
+  totalPages,
+  totalCount,
+  pageSize,
+  activeRole,
+  activeQuery,
+  activeSort,
 }: {
   realProfiles: TalentRow[];
   tier?: "free" | "subscriber";
+  currentPage: number;
+  totalPages: number;
+  totalCount: number;
+  pageSize: number;
+  activeRole: "All" | "Engineer" | "SDR" | "CS" | "Design" | "Data" | "DevOps" | "QA" | "Marketing" | "Ops" | "Finance";
+  activeQuery: string;
+  activeSort: "match" | "name";
 }) {
   const cards: Card[] = useMemo(() => {
-    if (realProfiles.length === 0) return DEMO_CARDS;
     return realProfiles.map(rowToCard);
   }, [realProfiles]);
 
-  const [activeRole, setActiveRole] = useState<"All" | RoleType>("All");
-  const [query, setQuery] = useState("");
-  const [sort, setSort] = useState<"match" | "name">("match");
+  const [searchInput, setSearchInput] = useState(activeQuery);
   const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
   const [openCard, setOpenCard] = useState<Card | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  const buildUrl = (updates: Record<string, string | null>) => {
+    const params = new URLSearchParams(searchParams?.toString() ?? "");
+    for (const [key, value] of Object.entries(updates)) {
+      if (value === null || value === "") {
+        params.delete(key);
+      } else {
+        params.set(key, value);
+      }
+    }
+    // Any filter/sort/search change resets page to 1
+    if (!("page" in updates)) {
+      params.delete("page");
+    }
+    const qs = params.toString();
+    return qs ? `${pathname}?${qs}` : pathname;
+  };
+
+  const updateUrl = (updates: Record<string, string | null>) => {
+    router.push(buildUrl(updates));
+  };
 
   // ESC closes the modal
   useEffect(() => {
@@ -1109,22 +1125,22 @@ export function BrowseClient({
     return () => clearTimeout(t);
   }, [toast]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    let l = cards.filter((c) => {
-      if (activeRole !== "All" && c.type !== activeRole) return false;
-      if (!q) return true;
-      return (
-        c.name.toLowerCase().includes(q) ||
-        c.role.toLowerCase().includes(q) ||
-        c.skills.some((s) => s.toLowerCase().includes(q))
-      );
-    });
-    l = sort === "match"
-      ? [...l].sort((a, b) => b.score - a.score)
-      : [...l].sort((a, b) => a.name.localeCompare(b.name));
-    return l;
-  }, [cards, activeRole, query, sort]);
+  // Sync the search input value when the activeQuery prop changes (e.g. user
+  // clears the URL, navigates back, or another route updates ?q=).
+  useEffect(() => {
+    setSearchInput(activeQuery);
+  }, [activeQuery]);
+
+  // Debounced search: 300ms after the last keystroke, push the typed value
+  // to the URL (which triggers a server re-render with the new filter).
+  useEffect(() => {
+    if (searchInput === activeQuery) return;
+    const handle = setTimeout(() => {
+      updateUrl({ q: searchInput || null });
+    }, 300);
+    return () => clearTimeout(handle);
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [searchInput, activeQuery]);
 
   function toggleSave(id: string) {
     setSavedIds((prev) => {
@@ -1176,7 +1192,7 @@ export function BrowseClient({
             key={r.key}
             type="button"
             className={cn("bt-role-chip", activeRole === r.key && "sel")}
-            onClick={() => { setActiveRole(r.key); onSelect?.(); }}
+            onClick={() => { updateUrl({ role: r.key === "All" ? null : r.key }); onSelect?.(); }}
           >
             <div className="bt-rc-left">
               <span className="bt-rc-dot" style={{ background: r.dot }} />
@@ -1189,9 +1205,12 @@ export function BrowseClient({
     </>
   );
 
-  const isFiltered = activeRole !== "All" || query.trim() !== "";
-  const visibleCards = filtered.slice(0, 15);
+  const isFiltered = activeRole !== "All" || activeQuery !== "";
+  const visibleCards = cards;
   const shouldShowPaywall = tier === "free" && realProfiles.length > 0;
+  const rangeStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
+  const rangeEnd = Math.min(currentPage * pageSize, totalCount);
+  const candidateWord = totalCount === 1 ? "candidate" : "candidates";
 
   return (
     <>
@@ -1224,15 +1243,15 @@ export function BrowseClient({
                 <input
                   className="bt-search-input"
                   type="text"
-                  value={query}
-                  onChange={(e) => setQuery(e.target.value)}
+                  value={searchInput}
+                  onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search by name, role, or skill (e.g. React, Salesforce, Gainsight)..."
                 />
               </div>
               <select
                 className="bt-sort-select"
-                value={sort}
-                onChange={(e) => setSort(e.target.value as "match" | "name")}
+                value={activeSort}
+                onChange={(e) => updateUrl({ sort: e.target.value === "name" ? "name" : null })}
               >
                 <option value="match">Sort: Match Score</option>
                 <option value="name">Name A-Z</option>
@@ -1241,14 +1260,32 @@ export function BrowseClient({
 
             <div className="bt-result-meta">
               <p className="bt-result-count">
-                Showing <strong>{filtered.length}</strong> candidates out of <strong>50,000+</strong> total
-                {isFiltered && <span className="bt-filtered-tag">(filtered)</span>}
+                {totalCount === 0 ? (
+                  <>No candidates found</>
+                ) : (
+                  <>
+                    Showing <strong>{rangeStart}{rangeStart !== rangeEnd ? `–${rangeEnd}` : ""}</strong> of <strong>{totalCount.toLocaleString()}</strong> {candidateWord}
+                    {isFiltered && <span className="bt-filtered-tag">(filtered)</span>}
+                  </>
+                )}
               </p>
               <span className="bt-unlock-hint">🔒 Subscribe to unlock contact details</span>
             </div>
 
+            {tier === "subscriber" && currentPage > 1 && (
+              <div className="bt-prev-page">
+                <button
+                  type="button"
+                  className="bt-prev-btn"
+                  onClick={() => updateUrl({ page: currentPage === 2 ? null : String(currentPage - 1) })}
+                >
+                  ← Back to page {currentPage - 1}
+                </button>
+              </div>
+            )}
+
             <div className="bt-cand-list">
-              {filtered.length === 0 ? (
+              {cards.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 20px", color: "#bbb", fontFamily: "'DM Sans',sans-serif" }}>
                   No candidates found. Try a different search or filter.
                 </div>
@@ -1266,6 +1303,27 @@ export function BrowseClient({
                       tier={tier}
                     />
                   ))}
+                  {tier === "subscriber" && currentPage < totalPages && (
+                    <div className="bt-load-more">
+                      <button
+                        type="button"
+                        className="bt-load-btn"
+                        onClick={() => updateUrl({ page: String(currentPage + 1) })}
+                      >
+                        Load more candidates
+                      </button>
+                      <p className="bt-load-note">
+                        Page {currentPage} of {totalPages}
+                      </p>
+                    </div>
+                  )}
+                  {tier === "subscriber" && currentPage === totalPages && totalPages > 1 && (
+                    <div className="bt-load-more">
+                      <p className="bt-load-note">
+                        You&apos;ve viewed all {totalCount} candidates · Page {currentPage} of {totalPages}
+                      </p>
+                    </div>
+                  )}
                   {shouldShowPaywall && (
                     <div className="bt-blurred-section">
                       <div
@@ -1665,6 +1723,27 @@ export function BrowseClient({
         .bt-load-btn { font-family: "DM Sans",sans-serif; font-size: 0.82rem; font-weight: 600; padding: 12px 32px; border: 1.5px solid rgba(126,71,255,0.3); border-radius: 10px; background: transparent; color: #7E47FF; cursor: pointer; transition: all 0.18s; }
         .bt-load-btn:hover { border-color: #7E47FF; background: rgba(126,71,255,0.06); color: #7E47FF; }
         .bt-load-note { font-family: "DM Sans",sans-serif; font-size: 0.75rem; color: #bbb; margin-top: 10px; }
+        .bt-prev-page {
+          text-align: left;
+          margin-bottom: 16px;
+          padding-bottom: 12px;
+        }
+        .bt-prev-btn {
+          background: transparent;
+          border: 1px solid rgba(126, 71, 255, 0.2);
+          color: #7E47FF;
+          padding: 8px 16px;
+          border-radius: 8px;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 14px;
+          font-weight: 500;
+          cursor: pointer;
+          transition: background 0.15s ease, border-color 0.15s ease;
+        }
+        .bt-prev-btn:hover {
+          background: rgba(126, 71, 255, 0.05);
+          border-color: rgba(126, 71, 255, 0.4);
+        }
         .bt-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 500; padding: 20px; }
         .bt-modal-panel { background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 20px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.15); }
         .bt-modal-panel::-webkit-scrollbar { width: 4px; }
