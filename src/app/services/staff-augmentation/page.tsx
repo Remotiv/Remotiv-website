@@ -794,7 +794,7 @@ function FiveReasons() {
 
 function ProcessSteps() {
   return (
-    <section className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section id="process" className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-12 lg:gap-20">
         <div>
           <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
@@ -1063,7 +1063,7 @@ function CtaInquiry() {
   }
 
   return (
-    <section className="bg-white px-4 pt-12 pb-10 sm:px-5 sm:pt-16 sm:pb-14 md:px-10">
+    <section id="inquiry" className="bg-white px-4 pt-12 pb-10 sm:px-5 sm:pt-16 sm:pb-14 md:px-10">
       <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-remotiv-lime-card px-5 py-8 sm:px-7 sm:py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
         <div>
           <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
@@ -1324,7 +1324,7 @@ function Faq() {
   const [openIdx, setOpenIdx] = useState(0);
 
   return (
-    <section className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section id="faq" className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto max-w-[1100px]">
         <div className="flex w-full flex-col items-start gap-10 md:flex-row md:gap-20">
           <div className="w-full md:basis-[35%]">
@@ -1347,7 +1347,9 @@ function Faq() {
                       type="button"
                       onClick={() => setOpenIdx(open ? -1 : i)}
                       className="flex w-full items-center justify-between gap-4 bg-transparent py-6 text-left"
+                      id={`sa-faq-button-${i}`}
                       aria-expanded={open}
+                      aria-controls={`sa-faq-panel-${i}`}
                     >
                       <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-[#111]">
                         {item.q}
@@ -1361,6 +1363,9 @@ function Faq() {
                       </span>
                     </button>
                     <div
+                      id={`sa-faq-panel-${i}`}
+                      role="region"
+                      aria-labelledby={`sa-faq-button-${i}`}
                       className={`overflow-hidden transition-[max-height] duration-300 ease-out ${
                         open ? "max-h-[400px]" : "max-h-0"
                       }`}
