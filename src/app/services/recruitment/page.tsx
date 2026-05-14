@@ -48,7 +48,7 @@ const SERVICE_CARDS = [
 const WHY_ROWS = [
   {
     heading: "1-Day Shortlist. 7-Day Placement.",
-    body: "Traditional agencies take 4–8 weeks. Companies promise 'prescreened candidates in 3 working days.' Remotiv delivers a shortlist in 1 business day and completes full placement in 2 weeks.",
+    body: "Traditional agencies take 4–8 weeks. Companies promise “pre-screened candidates in 3 working days.” Remotiv delivers a shortlist in 1 business day and completes full placement in 2 weeks.",
     stat: "2 Weeks",
     statLabel: "Average full placement",
     flip: false,
@@ -102,14 +102,14 @@ const PROCESS_STEPS = [
     counter: "3/4",
     title: "You Interview & Select",
     body: "Interview on your schedule. We handle all coordination, candidate comms, and structured interview guides. We manage offer negotiations using live salary benchmarks.",
-    label: null,
+    label: "~1 Week",
     activeColor: "#49D7A7",
   },
   {
     counter: "4/4",
     title: "Reference Check, Offer & Onboarding",
     body: "Every hire includes a verified reference check report. We manage the offer, handle contract paperwork, and support onboarding. Your 90-day guarantee begins on day one.",
-    label: null,
+    label: "Day 1+",
     activeColor: "#FB923C",
   },
 ] as const;
@@ -129,11 +129,11 @@ const WHO_WE_WORK_WITH = [
   },
   {
     title: "SaaS & Tech Companies",
-    desc: "Product teams that need specialised technical talent — React engineers, ML specialists, DevOps leads, data engineers. Our AI matching is built for technical roles where precision matters more than volume.",
+    desc: "Product teams that need specialized technical talent — React engineers, ML specialists, DevOps leads, data engineers. Our AI matching is built for technical roles where precision matters more than volume.",
   },
   {
     title: "Non-Profits & NGOs",
-    desc: "Mission-driven organisations operating under tight budget constraints. Remotiv's success-based model and Pakistan's cost advantage make world-class talent accessible to organisations that couldn't otherwise afford it.",
+    desc: "Mission-driven organizations operating under tight budget constraints. Remotiv's success-based model and Pakistan's cost advantage make world-class talent accessible to organizations that couldn't otherwise afford it.",
   },
   {
     title: "Pakistani Companies",
@@ -173,7 +173,7 @@ const ADVANTAGE_ROWS = [
     label: "Your Budget Goes Further",
     color: "#7E47FF",
     cols: [
-      { title: "60–80% Cost Savings", body: "Pakistan's talent market delivers senior-calibre professionals at a fraction of US or UK rates." },
+      { title: "60–80% Cost Savings", body: "Pakistan's talent market delivers senior-caliber professionals at a fraction of US or UK rates." },
       { title: "Double Your Team", body: "Hire two senior engineers for the price of one US equivalent — same quality, same timezone overlap." },
       { title: "Extend Your Runway", body: "The savings compound annually. Every hire through Remotiv stretches your budget by quarters, not weeks." },
     ],
@@ -183,7 +183,7 @@ const ADVANTAGE_ROWS = [
     color: "#49D7A7",
     cols: [
       { title: "Dedicated Ownership", body: "A single recruiter owns your search from brief to placement. They know your company inside out." },
-      { title: "No Rotating Contacts", body: "No explaining your requirements twice. No account manager handoffs. One person, one relationship." },
+      { title: "No Rotating Contacts", body: "No explaining your requirements twice. No account manager hand-offs. One person, one relationship." },
       { title: "Culture-Aware Matching", body: "Your recruiter learns your hiring bar, your team dynamics, and your culture — and matches accordingly." },
     ],
   },
@@ -228,10 +228,10 @@ const FAQS = [
   },
   {
     q: "Do you only recruit from Pakistan?",
-    a: "Our primary talent pool is Pakistan — 500,000+ IT graduates annually and one of the world's top emerging tech markets. For highly specialised or executive roles, we extend regionally across South and Southeast Asia.",
+    a: "Our primary talent pool is Pakistan — 500,000+ IT graduates annually and one of the world's top emerging tech markets. For highly specialized or executive roles, we extend regionally across South and Southeast Asia.",
   },
   {
-    q: "Is your 1 million profile database fully vetted?",
+    q: "Is your 1M+ profile database fully vetted?",
     a: "The full database is our sourcing foundation — it includes all profiles we've sourced and aggregated. From this pool, our AI identifies the strongest matches, and our recruiters personally screen and verify the shortlisted candidates. The shortlist you receive is thoroughly vetted; the database is the raw talent universe we search from.",
   },
 ] as const;
@@ -314,17 +314,41 @@ export default function RecruitmentPage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "Service",
-            name: "Engineering Recruitment Services",
+            name: "Recruitment Services",
             serviceType: "Recruitment Services",
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
+              url: "https://www.remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://remotiv-website-m3jo.vercel.app/services/recruitment",
+            url: "https://www.remotiv.work/services/recruitment",
             description:
-              "End-to-end senior engineering recruitment. Pre-vetted candidates, 24-hour shortlists.",
+              "End-to-end recruitment across engineering, sales, design, data, marketing, and operations. Pre-vetted candidates delivered in 1 business day. 90-day replacement guarantee.",
+            offers: [
+              {
+                "@type": "Offer",
+                name: "Before You Hire",
+                price: "0",
+                priceCurrency: "USD",
+                description:
+                  "Zero upfront cost. AI-powered candidate sourcing, recruiter screening, and shortlist delivery.",
+              },
+              {
+                "@type": "Offer",
+                name: "When You Hire",
+                description:
+                  "Success-based placement fee. Pay only when a candidate is hired and starts work.",
+              },
+              {
+                "@type": "Offer",
+                name: "After You Hire",
+                price: "0",
+                priceCurrency: "USD",
+                description:
+                  "90-day free replacement guarantee. Full restart at zero additional cost.",
+              },
+            ],
           }),
         }}
       />
@@ -350,7 +374,7 @@ export default function RecruitmentPage() {
             <h1 className="mb-7 font-heading text-[clamp(1.65rem,7vw,4.2rem)] font-extrabold leading-[1.1] tracking-tight">
               <span className="text-[#111]">Hire</span>
               <br />
-              <span className="text-[#49D7A7]">Exceptional Talent.</span>
+              <span className="text-[#49D7A7]">Exceptional Talent</span>
               <br />
               <span className="text-[#7E47FF]">Interview Tomorrow</span>
             </h1>
@@ -382,7 +406,7 @@ export default function RecruitmentPage() {
             <h2 className="mb-6 font-heading text-[clamp(1.8rem,4vw,3rem)] font-extrabold leading-[1.2] text-[#111]">
               Trusted by 100+ companies from{" "}
               <span className="text-[#7E47FF]">YC startups</span> to{" "}
-              <span className="text-[#49D7A7]">Fortune-level multinationals.</span>
+              <span className="text-[#49D7A7]">Fortune-level multinationals</span>
             </h2>
             <p className="mx-auto mb-10 sm:mb-14 max-w-[560px] text-base leading-[1.7] text-[#777]">
               We match you with pre-vetted remote specialists — fast, affordable, and ready to
@@ -519,8 +543,8 @@ export default function RecruitmentPage() {
             <div className="grid grid-cols-1 border-b border-white/10 md:grid-cols-[1fr_1.8fr]">
               <div className="flex items-start border-white/10 p-7 sm:p-11 md:border-r">
                 <p className="text-[0.85rem] leading-[1.7] text-white">
-                  Four steps. One dedicated recruiter. Zero hand-offs. Your new hire starts
-                  within seven days of your brief.
+                  Four steps. One dedicated recruiter. Zero hand-offs. Shortlist in 1 day,
+                  interviews in ~1 week, hire started in 2 weeks.
                 </p>
               </div>
               <ProcessStep
@@ -615,7 +639,7 @@ export default function RecruitmentPage() {
                 <div className="relative min-h-[200px] md:min-h-[400px] overflow-hidden rounded-[18px] bg-[#f8f4f1]">
                   <Image
                     src="/recruitment/3570.webp"
-                    alt="Remotiv team collaborating with clients"
+                    alt="Remotiv recruiters reviewing a candidate shortlist with a client"
                     fill
                     sizes="(max-width: 768px) 100vw, 50vw"
                     className="object-cover"
@@ -684,7 +708,7 @@ export default function RecruitmentPage() {
           <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-stretch gap-5 md:grid-cols-3">
             <PricingCard
               badge={{ label: "Free", className: "bg-[#f8f4f1] text-[#444]" }}
-              btn={{ label: "Submit a Role", href: "/contact", variant: "lime" }}
+              btn={{ label: "Submit a Role →", href: "/contact", variant: "lime" }}
               features={[
                 "AI-powered candidate sourcing",
                 "Recruiter screening & verification",
@@ -698,7 +722,7 @@ export default function RecruitmentPage() {
             />
             <PricingCard
               badge={{ label: "Success-Based", className: "bg-[#111] text-white" }}
-              btn={{ label: "Book a Call", href: "/book-a-meeting", variant: "dark" }}
+              btn={{ label: "Book a 15-Min Call", href: "/book-a-meeting", variant: "dark" }}
               features={[
                 "Success-based placement fee",
                 "Paid only after candidate starts work",
@@ -716,7 +740,7 @@ export default function RecruitmentPage() {
                 label: "Covered",
                 className: "border border-[#444] bg-transparent text-[#444]",
               }}
-              btn={{ label: "Learn More", href: "/contact", variant: "outline" }}
+              btn={{ label: "See Guarantee Terms", href: "/contact", variant: "outline" }}
               features={[
                 "90-day free replacement guarantee",
                 "Full restart at zero additional cost",
@@ -774,7 +798,7 @@ export default function RecruitmentPage() {
           <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-[#c9ff85] px-5 sm:px-8 md:px-[60px] py-8 sm:py-10 md:py-[52px] md:grid-cols-2">
             <div>
               <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-tight text-[#111]">
-                Your Next Hire Is a Week Away.
+                Your Next Hire Is a Week Away
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
                 Tell us what you need. Remotiv delivers a screened, AI-matched shortlist — backed
@@ -1158,7 +1182,7 @@ function InquiryForm() {
     } catch {
       setStatus("idle");
       setErrorMessage(
-        "Something went wrong. Please try again or email us at hello@remotiv.com.",
+        "Something went wrong. Please try again or email us at talent@remotiv.work.",
       );
     } finally {
       submitLockRef.current = false;
@@ -1175,7 +1199,7 @@ function InquiryForm() {
         <div className="mb-3 text-4xl">✅</div>
         <h3 className="mb-2 font-heading text-base font-bold text-[#111]">Inquiry Sent!</h3>
         <p className="mb-4 text-[13px] text-[#666]">
-          We&apos;ll get back to you within 48 hours.
+          We&apos;ll get back to you within 24 hours.
         </p>
         <button
           type="button"
