@@ -329,9 +329,9 @@ export default function RecruitmentPage() {
         }}
       />
       <Navbar />
-      <main className="flex-1 bg-white font-body">
+      <main id="main" className="flex-1 bg-white font-body">
         {/* HERO */}
-        <section className="relative flex min-h-[360px] sm:min-h-[520px] items-start sm:items-center justify-center overflow-hidden bg-white px-5 sm:px-8 pt-14 pb-6 sm:pt-20 sm:pb-10">
+        <section className="relative flex min-h-[360px] sm:min-h-[520px] items-start sm:items-center justify-center overflow-hidden bg-white px-5 sm:px-8 py-14 md:py-20">
           <div
             aria-hidden="true"
             className="absolute inset-0 grid grid-cols-[repeat(7,1fr)] auto-rows-min sm:grid-cols-[repeat(10,1fr)] sm:grid-rows-[repeat(8,1fr)] sm:auto-rows-auto md:grid-cols-[repeat(12,1fr)] md:grid-rows-[repeat(7,1fr)] lg:grid-cols-[repeat(18,1fr)] lg:grid-rows-[repeat(7,1fr)] gap-1.5 p-1.5"
@@ -377,7 +377,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* TRUST & STATS */}
-        <section className="bg-white px-5 sm:px-10 pt-12 sm:pt-[52px] pb-12 sm:pb-16">
+        <section className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px] text-center">
             <h2 className="mb-6 font-heading text-[clamp(1.8rem,4vw,3rem)] font-extrabold leading-[1.2] text-[#111]">
               Trusted by 100+ companies from{" "}
@@ -407,7 +407,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* SERVICES */}
-        <section className="bg-white px-5 sm:px-10 pb-12 sm:pb-16">
+        <section className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#9886fe] px-6 sm:px-10 md:px-14 pt-12 sm:pt-16 md:pt-[72px] pb-10 sm:pb-14">
             <div className="relative z-10 mb-12 max-w-[680px]">
               <h2 className="mb-3 font-heading text-[clamp(2rem,4vw,3.2rem)] font-extrabold leading-[1.1] tracking-tight text-white">
@@ -447,7 +447,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHY REMOTIV (alt cards) */}
-        <section className="bg-white px-5 sm:px-10 py-10 sm:py-12">
+        <section className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto flex max-w-[1100px] flex-col gap-3">
             <div className="mb-9 text-center">
               <h2 className="mb-2.5 font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-extrabold leading-[1.15] text-[#111]">
@@ -496,7 +496,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PROCESS */}
-        <section id="process" className="bg-white px-5 sm:px-10 pt-10 pb-12 sm:pb-14">
+        <section id="process" className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto mb-9 max-w-[1400px]">
             <p className="mb-3 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
               Our Process
@@ -547,7 +547,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHO WE WORK WITH */}
-        <section id="who-we-work-with" className="bg-white px-5 sm:px-10 pt-10 sm:pt-14 pb-8">
+        <section id="who-we-work-with" className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-8 sm:mb-14 text-center">
               <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
@@ -590,7 +590,7 @@ export default function RecruitmentPage() {
                             "shrink-0 rounded-full border px-2.5 py-0.5 text-[0.78rem] transition-colors",
                             open
                               ? "border-white/15 text-white/40"
-                              : "border-[#ccc] text-[#aaa]"
+                              : "border-[#ccc] text-remotiv-text-light"
                           )}
                         >
                           {String(i + 1).padStart(2, "0")}
@@ -605,7 +605,7 @@ export default function RecruitmentPage() {
                           open ? "max-h-[300px] pb-5" : "max-h-0"
                         )}
                       >
-                        <p className="text-[0.88rem] leading-[1.75] text-white/65">{w.desc}</p>
+                        <p className="text-[0.88rem] leading-[1.75] text-white/85">{w.desc}</p>
                       </div>
                     </div>
                   );
@@ -628,7 +628,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* ADVANTAGE */}
-        <section className="bg-white px-5 sm:px-10 py-10 sm:py-12">
+        <section className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1200px]">
             <div className="mb-10 sm:mb-14">
               <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
@@ -672,7 +672,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PRICING */}
-        <section id="pricing" className="bg-white px-5 sm:px-10 pt-10 sm:pt-12 pb-12 sm:pb-16">
+        <section id="pricing" className="bg-white px-5 sm:px-10 py-12 md:py-[72px]">
           <div className="mb-10 sm:mb-14 text-center">
             <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
               Simple, Transparent Pricing
@@ -732,8 +732,8 @@ export default function RecruitmentPage() {
         </section>
 
         {/* WHAT WE RECRUIT */}
-        <section className="relative bg-[#9886fe] px-5 sm:px-8 md:px-14 pt-10 sm:pt-12 pb-14 sm:pb-20">
-          <p className="mb-3.5 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
+        <section className="relative bg-[#9886fe] px-5 sm:px-8 md:px-14 py-14 md:py-20">
+          <p className="mb-3.5 text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/85">
             Roles We Place
           </p>
           <h2 className="mb-3.5 max-w-[680px] font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-bold leading-[1.2] tracking-tight text-white">
@@ -755,6 +755,7 @@ export default function RecruitmentPage() {
                   <Icon
                     className="mb-3 size-7 fill-[#111] text-[#111] opacity-[0.85]"
                     strokeWidth={2}
+                    aria-hidden="true"
                   />
                   <div className="mb-1 font-heading text-[0.88rem] font-semibold leading-[1.3] text-[#111]">
                     {r.name}
@@ -769,7 +770,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* CTA / INQUIRY */}
-        <section className="bg-white px-4 sm:px-10 pt-10 pb-12">
+        <section className="bg-white px-4 sm:px-10 py-14 md:py-20">
           <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-[#c9ff85] px-5 sm:px-8 md:px-[60px] py-8 sm:py-10 md:py-[52px] md:grid-cols-2">
             <div>
               <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-tight text-[#111]">
@@ -832,7 +833,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="border-t border-black/5 bg-white px-5 sm:px-10 pt-12 sm:pt-16 pb-16 sm:pb-24">
+        <section id="faq" className="border-t border-black/5 bg-white px-5 sm:px-10 py-14 md:py-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="flex w-full flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:w-[35%]">
@@ -1179,7 +1180,7 @@ function InquiryForm() {
         <button
           type="button"
           onClick={resetForm}
-          className="rounded-full bg-[#111] px-5 py-2.5 font-heading text-[0.85rem] font-bold text-white transition-opacity hover:opacity-90"
+          className="rounded-full bg-[#111] px-6 py-3.5 font-heading text-[0.9rem] font-bold text-white transition-opacity hover:opacity-90"
         >
           Submit Another Inquiry
         </button>
@@ -1263,7 +1264,7 @@ function InquiryForm() {
         />
       </div>
       <label className="mb-2.5 block">
-        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]">
+        <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid">
           Message
         </span>
         <textarea
@@ -1284,7 +1285,7 @@ function InquiryForm() {
       >
         {status === "sending" ? "Sending..." : "Send Inquiry →"}
       </button>
-      <p className="text-center text-[10px] text-[#bbb]">
+      <p className="text-center text-[10px] text-remotiv-text-light">
         Your data is encrypted and 100% confidential
       </p>
     </div>
@@ -1314,7 +1315,7 @@ function FormField({
 }) {
   return (
     <label className="mb-2.5 block">
-      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]">
+      <span className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid">
         {label}
       </span>
       <input
