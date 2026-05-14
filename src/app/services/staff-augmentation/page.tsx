@@ -1,7 +1,9 @@
 "use client";
 
+import { track } from "@vercel/analytics";
 import Link from "next/link";
-import { type FormEvent, useState } from "react";
+import { useRef, useState } from "react";
+import { submitContact } from "@/app/contact/actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
@@ -950,30 +952,114 @@ function WhatWeStaff() {
 }
 
 function CtaInquiry() {
-  const [submitted, setSubmitted] = useState(false);
+  const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
+  const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const submitLockRef = useRef(false);
+  const [form, setForm] = useState({
+    name: "",
+    company: "",
+    email: "",
+    role: "",
+    message: "",
+    companyUrl: "",
+  });
 
-  function handleSubmit(e: FormEvent<HTMLFormElement>) {
-    e.preventDefault();
-    const data = new FormData(e.currentTarget);
-    const name = (data.get("name") as string).trim();
-    const company = (data.get("company") as string).trim();
-    const email = (data.get("email") as string).trim();
-    const role = (data.get("role") as string).trim();
-    const message = (data.get("message") as string).trim();
+  function update(key: keyof typeof form, value: string) {
+    setForm((prev) => ({ ...prev, [key]: value }));
+    if (key === "name" || key === "email") {
+      setErrors((prev) => ({ ...prev, [key]: false }));
+    }
+    if (errorMessage) setErrorMessage(null);
+  }
 
-    if (!name || !email) {
-      alert("Please enter your name and email.");
+  function resetForm() {
+    setForm({
+      name: "",
+      company: "",
+      email: "",
+      role: "",
+      message: "",
+      companyUrl: "",
+    });
+    setErrors({});
+    setErrorMessage(null);
+    setStatus("idle");
+  }
+
+  async function submit() {
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+
+    const nextErrors = {
+      name: !form.name.trim(),
+      email: !form.email.trim(),
+    };
+    if (nextErrors.name || nextErrors.email) {
+      setErrors(nextErrors);
+      setErrorMessage("Please fill in your name and work email.");
+      submitLockRef.current = false;
       return;
     }
+    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+    if (!emailRegex.test(form.email.trim())) {
+      setErrors({ email: true });
+      setErrorMessage("Please enter a valid email address.");
+      submitLockRef.current = false;
+      return;
+    }
+    setErrors({});
+    setErrorMessage(null);
+    setStatus("sending");
 
-    const subject = encodeURIComponent(
-      `Staff Augmentation Inquiry from ${name}${company ? ` — ${company}` : ""}`,
-    );
-    const body = encodeURIComponent(
-      `Name: ${name}\nCompany: ${company}\nEmail: ${email}\nRole Needed: ${role}\n\nMessage:\n${message}`,
-    );
-    window.location.href = `mailto:waleed@remotiv.work?subject=${subject}&body=${body}`;
-    setSubmitted(true);
+    const composedMessage = form.role.trim()
+      ? `Role Needed: ${form.role.trim()}\n\n${form.message.trim()}`
+      : form.message.trim();
+
+    try {
+      const timeoutPromise = new Promise<{ success: false; error: string }>(
+        (resolve) =>
+          setTimeout(
+            () =>
+              resolve({
+                success: false,
+                error:
+                  "The request is taking too long. Please try again in a moment.",
+              }),
+            15000,
+          ),
+      );
+
+      const result = await Promise.race([
+        submitContact({
+          name: form.name,
+          company: form.company,
+          email: form.email,
+          service: "Staff Augmentation",
+          message: composedMessage,
+          companyUrl: form.companyUrl,
+        }),
+        timeoutPromise,
+      ]);
+
+      if (result.success) {
+        track("inquiry_submitted", {
+          source: "staff_augmentation_page",
+          service: "Staff Augmentation",
+        });
+        setStatus("success");
+      } else {
+        setStatus("idle");
+        setErrorMessage(result.error);
+      }
+    } catch {
+      setStatus("idle");
+      setErrorMessage(
+        "Something went wrong. Please try again or email us at talent@remotiv.work.",
+      );
+    } finally {
+      submitLockRef.current = false;
+    }
   }
 
   return (
@@ -997,7 +1083,7 @@ function CtaInquiry() {
             <a
               href="https://calendly.com/waleed-izww/intro-call"
               target="_blank"
-              rel="noreferrer"
+              rel="noopener noreferrer"
               className="inline-flex items-center rounded-full border-[1.5px] border-[#111] px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
             >
               Book a 15-Min Call
@@ -1040,29 +1126,76 @@ function CtaInquiry() {
         </div>
 
         <div className="rounded-2xl bg-white p-5 sm:p-6 md:p-7">
-          {submitted ? (
-            <div className="py-6 text-center">
+          {status === "success" ? (
+            <div role="status" aria-live="polite" className="py-6 text-center">
               <div className="mb-3 text-4xl">✅</div>
               <h3 className="mb-2 font-heading text-base font-bold text-[#111]">Inquiry Sent!</h3>
-              <p className="text-[13px] text-[#666]">We&apos;ll get back to you within 48 hours.</p>
+              <p className="mb-4 text-[13px] text-[#666]">
+                Thanks for reaching out. We&apos;ll get back to you within 24 hours.
+              </p>
+              <button
+                type="button"
+                onClick={resetForm}
+                className="rounded-full bg-[#111] px-5 py-2.5 font-heading text-[0.85rem] font-bold text-white transition-opacity hover:opacity-90"
+              >
+                Submit Another Inquiry
+              </button>
             </div>
           ) : (
-            <form onSubmit={handleSubmit}>
+            <>
               <p className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</p>
+              {errorMessage ? (
+                <p
+                  id="sa-form-error"
+                  role="alert"
+                  aria-live="assertive"
+                  className="mb-3 text-[13px] text-red-600"
+                >
+                  {errorMessage}
+                </p>
+              ) : null}
               <div className="mb-2.5 grid grid-cols-1 sm:grid-cols-2 gap-2 sm:gap-2.5">
-                <InquiryField label="Full Name" name="name" placeholder="Your name" />
-                <InquiryField label="Company" name="company" placeholder="Company name" />
+                <InquiryField
+                  id="sa-inq-name"
+                  label="Full Name"
+                  name="name"
+                  placeholder="Your name"
+                  value={form.name}
+                  onChange={(v) => update("name", v)}
+                  maxLength={80}
+                  error={errors.name ? "Required" : undefined}
+                  errorId={errorMessage ? "sa-form-error" : undefined}
+                />
+                <InquiryField
+                  id="sa-inq-company"
+                  label="Company"
+                  name="company"
+                  placeholder="Company name"
+                  value={form.company}
+                  onChange={(v) => update("company", v)}
+                  maxLength={80}
+                />
               </div>
               <InquiryField
+                id="sa-inq-email"
                 label="Work Email"
                 name="email"
                 type="email"
                 placeholder="you@company.com"
+                value={form.email}
+                onChange={(v) => update("email", v)}
+                maxLength={120}
+                error={errors.email ? "Required" : undefined}
+                errorId={errorMessage ? "sa-form-error" : undefined}
               />
               <InquiryField
+                id="sa-inq-role"
                 label="Role Needed"
                 name="role"
                 placeholder="e.g. Senior React Developer"
+                value={form.role}
+                onChange={(v) => update("role", v)}
+                maxLength={120}
               />
               <div className="mb-2.5">
                 <label
@@ -1074,15 +1207,42 @@ function CtaInquiry() {
                 <textarea
                   id="sa-inq-message"
                   name="message"
+                  maxLength={2000}
+                  aria-describedby={errorMessage ? "sa-form-error" : undefined}
                   placeholder="Tell us about the role, skills needed, and timeline..."
                   className="box-border min-h-[68px] w-full resize-none rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+                  value={form.message}
+                  onChange={(e) => update("message", e.target.value)}
+                />
+              </div>
+              <div
+                style={{
+                  position: "absolute",
+                  left: "-9999px",
+                  width: "1px",
+                  height: "1px",
+                  overflow: "hidden",
+                }}
+                aria-hidden="true"
+              >
+                <label htmlFor="sa-company-url">Company URL</label>
+                <input
+                  id="sa-company-url"
+                  type="text"
+                  name="company_url"
+                  tabIndex={-1}
+                  autoComplete="off"
+                  value={form.companyUrl}
+                  onChange={(e) => update("companyUrl", e.target.value)}
                 />
               </div>
               <button
-                type="submit"
-                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060]"
+                type="button"
+                onClick={submit}
+                disabled={status === "sending"}
+                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60"
               >
-                Send Inquiry →
+                {status === "sending" ? "Sending..." : "Send Inquiry →"}
               </button>
               <p className="m-0 flex items-center justify-center gap-1 text-center text-[10px] text-[#bbb]">
                 <svg
@@ -1099,7 +1259,7 @@ function CtaInquiry() {
                 </svg>
                 Your data is encrypted and 100% confidential
               </p>
-            </form>
+            </>
           )}
         </div>
       </div>
@@ -1109,31 +1269,53 @@ function CtaInquiry() {
 
 function InquiryField({
   label,
-  name,
-  type = "text",
   placeholder,
+  value,
+  onChange,
+  type = "text",
+  name,
+  id,
+  maxLength,
+  error,
+  errorId,
 }: {
   label: string;
-  name: string;
-  type?: string;
   placeholder: string;
+  value: string;
+  onChange: (v: string) => void;
+  type?: string;
+  name?: string;
+  id?: string;
+  maxLength?: number;
+  error?: string;
+  errorId?: string;
 }) {
-  const id = `sa-inq-${name}`;
+  const inputId = id ?? (name ? `sa-inq-${name}` : undefined);
   return (
     <div className="mb-2.5">
       <label
-        htmlFor={id}
+        htmlFor={inputId}
         className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
       >
         {label}
       </label>
       <input
-        id={id}
+        id={inputId}
         type={type}
         name={name}
+        maxLength={maxLength}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={errorId}
         placeholder={placeholder}
-        className="box-border w-full rounded-lg bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        className={
+          error
+            ? "box-border w-full rounded-lg border border-red-500 bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef] focus:border-red-500"
+            : "box-border w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
+        }
       />
+      {error ? <p className="mt-1 text-[0.78rem] text-red-600">{error}</p> : null}
     </div>
   );
 }
