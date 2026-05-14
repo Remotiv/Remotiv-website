@@ -6,6 +6,7 @@ import { useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
+import { CalendarIcon, CheckBadge, ShieldIcon, TeamIcon } from "./_icons";
 
 const STATS: readonly { value: string; label: string }[] = [
   { value: "24 hrs", label: "First screened candidate in your inbox" },
@@ -26,14 +27,7 @@ const TI_POINTS: readonly {
       <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-14 sm:size-16">
         <rect x="8" y="10" width="38" height="46" rx="4" stroke="#111" strokeWidth="2" />
         <line x1="8" y1="20" x2="46" y2="20" stroke="#111" strokeWidth="2" />
-        <circle cx="48" cy="46" r="10" fill="#49D7A7" />
-        <path
-          d="M43 46l3.5 3.5L53 42"
-          stroke="#fff"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <CheckBadge />
         <line x1="16" y1="30" x2="36" y2="30" stroke="#111" strokeWidth="1.5" strokeLinecap="round" />
         <line x1="16" y1="37" x2="30" y2="37" stroke="#111" strokeWidth="1.5" strokeLinecap="round" />
       </svg>
@@ -45,14 +39,7 @@ const TI_POINTS: readonly {
     icon: (
       <svg viewBox="0 0 64 64" fill="none" aria-hidden="true" className="size-14 sm:size-16">
         <rect x="10" y="14" width="36" height="36" rx="5" stroke="#111" strokeWidth="2" />
-        <circle cx="48" cy="46" r="10" fill="#49D7A7" />
-        <path
-          d="M43 46l3.5 3.5L53 42"
-          stroke="#fff"
-          strokeWidth="2"
-          strokeLinecap="round"
-          strokeLinejoin="round"
-        />
+        <CheckBadge />
         <line x1="18" y1="24" x2="26" y2="24" stroke="#111" strokeWidth="2" strokeLinecap="round" />
         <line x1="18" y1="32" x2="38" y2="32" stroke="#111" strokeWidth="1.5" strokeLinecap="round" />
         <line x1="18" y1="39" x2="32" y2="39" stroke="#111" strokeWidth="1.5" strokeLinecap="round" />
@@ -397,12 +384,7 @@ const ADVANTAGES: readonly { label: string; color: AdvColor; cols: AdvCol[] }[] 
         body: "If the specialist underperforms, we replace them at zero cost. No justification required.",
         icon: (
           <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" className="size-[22px]">
-            <path
-              d="M18 6l10 4v8c0 6-4.5 10.5-10 12C12.5 28.5 8 24 8 18v-8l10-4z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
+            <ShieldIcon />
             <path
               d="M13 18l3 3 7-7"
               stroke="currentColor"
@@ -429,12 +411,7 @@ const ADVANTAGES: readonly { label: string; color: AdvColor; cols: AdvCol[] }[] 
         body: "The placement guarantee means the risk is entirely ours, not yours.",
         icon: (
           <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" className="size-[22px]">
-            <path
-              d="M18 6l10 4v8c0 6-4.5 10.5-10 12C12.5 28.5 8 24 8 18v-8l10-4z"
-              stroke="currentColor"
-              strokeWidth="1.8"
-              strokeLinejoin="round"
-            />
+            <ShieldIcon />
             <circle cx="18" cy="18" r="3" fill="currentColor" />
           </svg>
         ),
@@ -484,9 +461,7 @@ const ROLES: readonly { name: string; tags: string; icon: React.ReactNode }[] = 
     name: "Sales & Revenue",
     tags: "SDR · BDR · Account Executive · RevOps · Sales Manager · VP Sales",
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-7 fill-[#111]">
-        <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm-7 12H5v-2h8v2zm4-4H5v-2h12v2zm3-4H4V6h16v2z" />
-      </svg>
+      <CalendarIcon className="size-7 fill-[#111]" />
     ),
   },
   {
@@ -511,9 +486,7 @@ const ROLES: readonly { name: string; tags: string; icon: React.ReactNode }[] = 
     name: "Marketing",
     tags: "Performance Marketing · SEO · Content Strategy · Growth · Brand · Email",
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-7 fill-[#111]">
-        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-      </svg>
+      <TeamIcon className="size-7 fill-[#111]" />
     ),
   },
   {
@@ -556,18 +529,14 @@ const ROLES: readonly { name: string; tags: string; icon: React.ReactNode }[] = 
     name: "HR & People Ops",
     tags: "HR Manager · Talent Acquisition · L&D Specialist · People Operations · HRBP",
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-7 fill-[#111]">
-        <path d="M16 11c1.66 0 2.99-1.34 2.99-3S17.66 5 16 5c-1.66 0-3 1.34-3 3s1.34 3 3 3zm-8 0c1.66 0 2.99-1.34 2.99-3S9.66 5 8 5C6.34 5 5 6.34 5 8s1.34 3 3 3zm0 2c-2.33 0-7 1.17-7 3.5V19h14v-2.5c0-2.33-4.67-3.5-7-3.5zm8 0c-.29 0-.62.02-.97.05 1.16.84 1.97 1.97 1.97 3.45V19h6v-2.5c0-2.33-4.67-3.5-7-3.5z" />
-      </svg>
+      <TeamIcon className="size-7 fill-[#111]" />
     ),
   },
   {
     name: "Sales Enablement & CRM",
     tags: "HubSpot Admin · Salesforce Admin · CRM Specialist · Sales Ops Analyst",
     icon: (
-      <svg viewBox="0 0 24 24" aria-hidden="true" className="size-7 fill-[#111]">
-        <path d="M20 4H4c-1.11 0-2 .89-2 2v12c0 1.11.89 2 2 2h16c1.11 0 2-.89 2-2V6c0-1.11-.89-2-2-2zm-7 12H5v-2h8v2zm4-4H5v-2h12v2zm3-4H4V6h16v2z" />
-      </svg>
+      <CalendarIcon className="size-7 fill-[#111]" />
     ),
   },
   {
@@ -617,13 +586,13 @@ const CHECK_ITEMS: readonly string[] = [
 function Hero() {
   return (
     <section className="bg-white p-4 sm:p-6">
-      <div className="relative isolate flex w-full items-center justify-center overflow-hidden rounded-[32px] bg-[#f8f4f1] px-5 pt-12 pb-12 sm:px-6 sm:pt-[72px] sm:pb-20 text-center">
+      <div className="relative isolate flex w-full items-center justify-center overflow-hidden rounded-[32px] bg-remotiv-bg px-5 pt-12 pb-12 sm:px-6 sm:pt-[72px] sm:pb-20 text-center">
         <div
           aria-hidden="true"
           className="pointer-events-none absolute inset-0 [background-image:linear-gradient(rgba(0,0,0,0.07)_1px,transparent_1px),linear-gradient(90deg,rgba(0,0,0,0.07)_1px,transparent_1px)] [background-size:48px_48px] [mask-image:radial-gradient(ellipse_60%_100%_at_50%_50%,black_20%,transparent_80%)]"
         />
         <div className="relative z-10">
-          <h1 className="mb-6 font-heading text-[clamp(1.9rem,6.5vw,4rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
+          <h1 className="mb-6 font-heading text-[clamp(1.9rem,6.5vw,4rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
             <span>Ship Faster.</span>{" "}
             <span className="text-remotiv-green">Spend Less.</span>{" "}
             <span className="text-remotiv-purple">Stay in Control.</span>
@@ -636,13 +605,13 @@ function Hero() {
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
             <Link
               href="/hire-remote"
-              className="w-full sm:w-auto text-center rounded-full bg-remotiv-green px-8 py-[12px] sm:py-[15px] font-heading text-base font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
+              className="w-full sm:w-auto text-center rounded-full bg-remotiv-green px-8 py-[12px] sm:py-[15px] font-heading text-base font-bold text-remotiv-text-dark transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →
             </Link>
             <Link
               href="/ai-matching"
-              className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] px-8 py-[11px] sm:py-3.5 text-base font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+              className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] px-8 py-[11px] sm:py-3.5 text-base font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
             >
               Try AI Matching
             </Link>
@@ -656,7 +625,7 @@ function Hero() {
 function Stats() {
   return (
     <section className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-8 sm:py-20">
-      <h2 className="mx-auto mb-4 max-w-[700px] text-center font-heading text-[clamp(1.75rem,3.5vw,2.6rem)] font-extrabold leading-[1.15] text-[#111]">
+      <h2 className="mx-auto mb-4 max-w-[700px] text-center font-heading text-[clamp(1.75rem,3.5vw,2.6rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
         Trusted by 100+ companies from{" "}
         <span className="text-remotiv-purple">YC startups</span> to{" "}
         <span className="text-remotiv-green">Fortune-level multinationals.</span>
@@ -672,7 +641,7 @@ function Stats() {
               key={s.label}
               className="flex flex-col items-center gap-2.5 rounded-[18px] bg-white px-5 pt-7 pb-6 sm:px-7 sm:pt-10 sm:pb-9 text-center"
             >
-              <div className="font-heading text-[clamp(2rem,3.5vw,3rem)] font-extrabold leading-none text-[#111]">
+              <div className="font-heading text-[clamp(2rem,3.5vw,3rem)] font-extrabold leading-none text-remotiv-text-dark">
                 {s.value}
               </div>
               <div className="text-[0.95rem] font-semibold leading-snug text-[#555]">
@@ -688,10 +657,10 @@ function Stats() {
 
 function TeamIntegration() {
   return (
-    <section className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section className="bg-remotiv-bg px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto grid max-w-[1120px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-20">
         <div>
-          <h2 className="mb-5 sm:mb-7 font-heading text-[clamp(1.75rem,3vw,2.5rem)] font-extrabold leading-[1.15] text-[#111]">
+          <h2 className="mb-5 sm:mb-7 font-heading text-[clamp(1.75rem,3vw,2.5rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
             Your Team, Plus the Exact Specialist You&apos;re Missing
           </h2>
           <p className="text-base leading-[1.8] text-[#444]">
@@ -708,7 +677,7 @@ function TeamIntegration() {
           {TI_POINTS.map((pt) => (
             <div key={pt.title}>
               <div className="mb-5 block">{pt.icon}</div>
-              <h3 className="mb-2.5 font-heading text-[1.15rem] font-bold text-[#111]">
+              <h3 className="mb-2.5 font-heading text-[1.15rem] font-bold text-remotiv-text-dark">
                 {pt.title}
               </h3>
               <p className="text-[0.95rem] leading-[1.7] text-[#555]">{pt.body}</p>
@@ -723,14 +692,14 @@ function TeamIntegration() {
 function FiveReasons() {
   const badgeClass = (tone: "lime" | "dark") =>
     tone === "lime"
-      ? "bg-remotiv-lime-card text-[#111]"
+      ? "bg-remotiv-lime-card text-remotiv-text-dark"
       : "bg-[#111] text-white";
 
   return (
-    <section className="bg-[#f8f4f1] px-5 py-14 sm:px-8 sm:py-20">
+    <section className="bg-remotiv-bg px-5 py-14 sm:px-8 sm:py-20">
       <div className="mx-auto max-w-[1100px]">
         <div className="mb-8 sm:mb-12 text-center">
-          <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
+          <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
             Five Reasons Companies Switch to Remotiv
           </h2>
         </div>
@@ -745,7 +714,7 @@ function FiveReasons() {
               >
                 {r.badge.label}
               </span>
-              <h3 className="mb-0 font-heading text-[1.2rem] font-bold leading-tight text-[#111]">
+              <h3 className="mb-0 font-heading text-[1.2rem] font-bold leading-tight text-remotiv-text-dark">
                 {r.title}
               </h3>
               <p className="mt-auto pt-6 text-[0.86rem] leading-[1.72] text-[#555]">{r.body}</p>
@@ -754,7 +723,7 @@ function FiveReasons() {
 
           <div className="flex flex-col gap-3.5">
             <div className="flex flex-1 flex-col rounded-2xl border border-black/[0.08] bg-white p-6 sm:p-7">
-              <h3 className="mb-0 font-heading text-[1.2rem] font-bold leading-tight text-[#111]">
+              <h3 className="mb-0 font-heading text-[1.2rem] font-bold leading-tight text-remotiv-text-dark">
                 The Right Specialist, Not the Nearest Generalist
               </h3>
               <p className="mt-auto pt-6 text-[0.86rem] leading-[1.72] text-[#555]">
@@ -766,7 +735,7 @@ function FiveReasons() {
             </div>
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
-                <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-[#111]">
+                <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-remotiv-text-dark">
                   World-Class Output at 60-80% Less
                 </h3>
                 <p className="text-[0.82rem] leading-[1.68] text-[#555]">
@@ -776,7 +745,7 @@ function FiveReasons() {
                 </p>
               </div>
               <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
-                <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-[#111]">
+                <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-remotiv-text-dark">
                   30 Days. Risk-Free
                 </h3>
                 <p className="text-[0.82rem] leading-[1.68] text-[#555]">
@@ -794,13 +763,13 @@ function FiveReasons() {
 
 function ProcessSteps() {
   return (
-    <section id="process" className="bg-[#f8f4f1] px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section id="process" className="bg-remotiv-bg px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
       <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-12 lg:gap-20">
         <div>
           <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
             The Process
           </p>
-          <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-[#111]">
+          <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
             Request to Deployment in 4 Steps
           </h2>
           <p className="mb-8 sm:mb-12 text-[0.97rem] leading-[1.7] text-[#444]">
@@ -835,13 +804,13 @@ function ProcessSteps() {
             <span className="size-[7px] rounded-full bg-remotiv-green" />
             Live — Active Placements
           </div>
-          <p className="font-heading text-[1.4rem] font-extrabold leading-tight text-[#111]">
+          <p className="font-heading text-[1.4rem] font-extrabold leading-tight text-remotiv-text-dark">
             Most clients have their specialist working within 7 days of their first brief.
           </p>
           <div className="mt-1 grid grid-cols-2 gap-3.5">
             {STEP_METRICS.map((m) => (
-              <div key={m.label} className="rounded-2xl bg-[#f8f4f1] px-5 py-[18px]">
-                <div className="font-heading text-2xl font-extrabold leading-none text-[#111]">
+              <div key={m.label} className="rounded-2xl bg-remotiv-bg px-5 py-[18px]">
+                <div className="font-heading text-2xl font-extrabold leading-none text-remotiv-text-dark">
                   {m.value}
                 </div>
                 <div className="mt-1.5 text-[0.78rem] text-[#888]">{m.label}</div>
@@ -879,7 +848,7 @@ function Advantage() {
           <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
             The Advantage
           </p>
-          <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
+          <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
             What Changes When You Augment with Remotiv
           </h2>
         </div>
@@ -891,7 +860,7 @@ function Advantage() {
               idx === ADVANTAGES.length - 1 ? "border-b border-black/[0.08]" : ""
             }`}
           >
-            <h3 className="pt-1 font-heading text-base font-bold leading-tight text-[#111]">
+            <h3 className="pt-1 font-heading text-base font-bold leading-tight text-remotiv-text-dark">
               {row.label}
             </h3>
             <div className="grid grid-cols-1 gap-6 sm:grid-cols-2 md:gap-8 lg:grid-cols-3">
@@ -903,7 +872,7 @@ function Advantage() {
                   }`}
                 >
                   <div className="mt-0.5">{col.icon}</div>
-                  <h4 className="self-center font-heading text-[0.92rem] font-bold text-[#111]">
+                  <h4 className="self-center font-heading text-[0.92rem] font-bold text-remotiv-text-dark">
                     {col.heading}
                   </h4>
                   <p className="col-span-2 text-[0.85rem] leading-[1.72] text-[#555]">{col.body}</p>
@@ -938,7 +907,7 @@ function WhatWeStaff() {
             className="flex min-h-[150px] sm:min-h-[180px] cursor-default flex-col items-center justify-center rounded-2xl border border-[#252525] bg-white px-3 sm:px-5 py-5 sm:py-8 text-center transition-all hover:-translate-y-0.5 hover:border-remotiv-purple hover:bg-[#f9f8ff]"
           >
             <div className="mb-3 flex size-7 items-center justify-center opacity-85">{role.icon}</div>
-            <div className="mb-1 font-heading text-[0.88rem] font-semibold leading-[1.3] text-[#111]">
+            <div className="mb-1 font-heading text-[0.88rem] font-semibold leading-[1.3] text-remotiv-text-dark">
               {role.name}
             </div>
             <div className="text-[0.7rem] sm:text-[0.75rem] leading-snug text-[#666]">
@@ -1066,17 +1035,17 @@ function CtaInquiry() {
     <section id="inquiry" className="bg-white px-4 pt-12 pb-10 sm:px-5 sm:pt-16 sm:pb-14 md:px-10">
       <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-remotiv-lime-card px-5 py-8 sm:px-7 sm:py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
         <div>
-          <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
+          <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
             Your Next Hire Is a Week Away.
           </h2>
-          <p className="mb-6 text-[13px] leading-[1.75] text-[#111] opacity-75">
+          <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
             Tell us what you need. Remotiv delivers a screened, AI-matched shortlist — backed by a
             free replacement guarantee and an outcome-based engagement model.
           </p>
           <div className="mb-7 flex flex-wrap gap-2.5">
             <Link
               href="/hire-remote"
-              className="inline-flex items-center rounded-full bg-remotiv-green px-6 py-[13px] sm:py-3 font-heading text-[0.82rem] font-bold text-[#111] transition-opacity hover:opacity-[0.88]"
+              className="inline-flex items-center rounded-full bg-remotiv-green px-6 py-[13px] sm:py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →
             </Link>
@@ -1084,14 +1053,14 @@ function CtaInquiry() {
               href="https://calendly.com/waleed-izww/intro-call"
               target="_blank"
               rel="noopener noreferrer"
-              className="inline-flex items-center rounded-full border-[1.5px] border-[#111] px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+              className="inline-flex items-center rounded-full border-[1.5px] border-[#111] px-6 py-[13px] sm:py-[11px] text-[0.82rem] font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
             >
               Book a 15-Min Call
             </a>
           </div>
           <ul className="mb-7 flex flex-col gap-2.5">
             {CHECK_ITEMS.map((item) => (
-              <li key={item} className="flex items-center gap-2 text-[13px] font-medium text-[#111]">
+              <li key={item} className="flex items-center gap-2 text-[13px] font-medium text-remotiv-text-dark">
                 <span className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-white/50">
                   <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true">
                     <path
@@ -1119,7 +1088,7 @@ function CtaInquiry() {
                 OF
               </span>
             </div>
-            <span className="ml-3 text-xs text-[#111] opacity-65">
+            <span className="ml-3 text-xs text-remotiv-text-dark opacity-65">
               Trusted by 100+ companies worldwide
             </span>
           </div>
@@ -1129,7 +1098,7 @@ function CtaInquiry() {
           {status === "success" ? (
             <div role="status" aria-live="polite" className="py-6 text-center">
               <div className="mb-3 text-4xl">✅</div>
-              <h3 className="mb-2 font-heading text-base font-bold text-[#111]">Inquiry Sent!</h3>
+              <h3 className="mb-2 font-heading text-base font-bold text-remotiv-text-dark">Inquiry Sent!</h3>
               <p className="mb-4 text-[13px] text-[#666]">
                 Thanks for reaching out. We&apos;ll get back to you within 24 hours.
               </p>
@@ -1143,7 +1112,7 @@ function CtaInquiry() {
             </div>
           ) : (
             <>
-              <p className="mb-4 font-heading text-sm font-bold text-[#111]">Send an Inquiry</p>
+              <p className="mb-4 font-heading text-sm font-bold text-remotiv-text-dark">Send an Inquiry</p>
               {errorMessage ? (
                 <p
                   id="sa-form-error"
@@ -1240,7 +1209,7 @@ function CtaInquiry() {
                 type="button"
                 onClick={submit}
                 disabled={status === "sending"}
-                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-px hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60"
+                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-remotiv-text-dark transition-all hover:-translate-y-px hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60"
               >
                 {status === "sending" ? "Sending..." : "Send Inquiry →"}
               </button>
@@ -1328,7 +1297,7 @@ function Faq() {
       <div className="mx-auto max-w-[1100px]">
         <div className="flex w-full flex-col items-start gap-10 md:flex-row md:gap-20">
           <div className="w-full md:basis-[35%]">
-            <h2 className="mb-5 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold leading-[1.15] text-[#111]">
+            <h2 className="mb-5 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
               Questions We Hear Most
             </h2>
             <p className="text-[0.95rem] leading-[1.7] text-[#777]">
@@ -1351,11 +1320,11 @@ function Faq() {
                       aria-expanded={open}
                       aria-controls={`sa-faq-panel-${i}`}
                     >
-                      <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-[#111]">
+                      <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-remotiv-text-dark">
                         {item.q}
                       </span>
                       <span
-                        className={`w-6 flex-shrink-0 text-center text-[1.4rem] font-light leading-none text-[#111] transition-transform duration-200 ${
+                        className={`w-6 flex-shrink-0 text-center text-[1.4rem] font-light leading-none text-remotiv-text-dark transition-transform duration-200 ${
                           open ? "rotate-45" : ""
                         }`}
                       >
