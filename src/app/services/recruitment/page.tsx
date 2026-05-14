@@ -271,13 +271,39 @@ export default function RecruitmentPage() {
   const [activeStep, setActiveStep] = useState(0);
   const [openWho, setOpenWho] = useState(0);
   const [openFaq, setOpenFaq] = useState(0);
+  const [paused, setPaused] = useState(false);
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
 
   useEffect(() => {
-    const id = setInterval(() => {
-      setActiveStep((i) => (i + 1) % PROCESS_STEPS.length);
-    }, 2500);
-    return () => clearInterval(id);
-  }, []);
+    if (prefersReducedMotion) return;
+    let id: ReturnType<typeof setInterval> | null = null;
+
+    function start() {
+      if (id !== null || paused || document.hidden) return;
+      id = setInterval(() => {
+        setActiveStep((i) => (i + 1) % PROCESS_STEPS.length);
+      }, 2500);
+    }
+    function stop() {
+      if (id !== null) {
+        clearInterval(id);
+        id = null;
+      }
+    }
+    function handleVisibility() {
+      if (document.hidden) stop();
+      else start();
+    }
+
+    start();
+    document.addEventListener("visibilitychange", handleVisibility);
+    return () => {
+      stop();
+      document.removeEventListener("visibilitychange", handleVisibility);
+    };
+  }, [paused, prefersReducedMotion]);
 
   return (
     <>
@@ -470,7 +496,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PROCESS */}
-        <section className="bg-white px-5 sm:px-10 pt-10 pb-12 sm:pb-14">
+        <section id="process" className="bg-white px-5 sm:px-10 pt-10 pb-12 sm:pb-14">
           <div className="mx-auto mb-9 max-w-[1400px]">
             <p className="mb-3 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
               Our Process
@@ -483,7 +509,13 @@ export default function RecruitmentPage() {
               process.
             </p>
           </div>
-          <div className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#2a2426]">
+          <div
+            className="mx-auto w-full max-w-[1400px] overflow-hidden rounded-3xl bg-[#2a2426]"
+            onMouseEnter={() => setPaused(true)}
+            onMouseLeave={() => setPaused(false)}
+            onFocus={() => setPaused(true)}
+            onBlur={() => setPaused(false)}
+          >
             <div className="grid grid-cols-1 border-b border-white/10 md:grid-cols-[1fr_1.8fr]">
               <div className="flex items-start border-white/10 p-7 sm:p-11 md:border-r">
                 <p className="text-[0.85rem] leading-[1.7] text-white">
@@ -491,23 +523,31 @@ export default function RecruitmentPage() {
                   within seven days of your brief.
                 </p>
               </div>
-              <ProcessStep step={PROCESS_STEPS[0]} active={activeStep === 0} />
+              <ProcessStep
+                step={PROCESS_STEPS[0]}
+                active={activeStep === 0}
+                onClick={() => setActiveStep(0)}
+              />
             </div>
             <div className="grid grid-cols-1 sm:grid-cols-2 lg:grid-cols-3">
-              {PROCESS_STEPS.slice(1).map((s, i) => (
-                <ProcessStep
-                  key={s.counter}
-                  active={activeStep === i + 1}
-                  bordered={i < 2}
-                  step={s}
-                />
-              ))}
+              {PROCESS_STEPS.slice(1).map((s, idx) => {
+                const i = idx + 1;
+                return (
+                  <ProcessStep
+                    key={s.counter}
+                    active={activeStep === i}
+                    bordered={idx < 2}
+                    step={s}
+                    onClick={() => setActiveStep(i)}
+                  />
+                );
+              })}
             </div>
           </div>
         </section>
 
         {/* WHO WE WORK WITH */}
-        <section className="bg-white px-5 sm:px-10 pt-10 sm:pt-14 pb-8">
+        <section id="who-we-work-with" className="bg-white px-5 sm:px-10 pt-10 sm:pt-14 pb-8">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-8 sm:mb-14 text-center">
               <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
@@ -531,6 +571,9 @@ export default function RecruitmentPage() {
                     >
                       <button
                         className="flex w-full items-center justify-between gap-3 px-5 py-[18px] text-left"
+                        id={`who-button-${i}`}
+                        aria-expanded={openWho === i}
+                        aria-controls={`who-panel-${i}`}
                         onClick={() => setOpenWho(i)}
                         type="button"
                       >
@@ -554,6 +597,9 @@ export default function RecruitmentPage() {
                         </span>
                       </button>
                       <div
+                        id={`who-panel-${i}`}
+                        role="region"
+                        aria-labelledby={`who-button-${i}`}
                         className={cn(
                           "overflow-hidden px-5 transition-[max-height,padding] duration-300",
                           open ? "max-h-[300px] pb-5" : "max-h-0"
@@ -626,7 +672,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* PRICING */}
-        <section className="bg-white px-5 sm:px-10 pt-10 sm:pt-12 pb-12 sm:pb-16">
+        <section id="pricing" className="bg-white px-5 sm:px-10 pt-10 sm:pt-12 pb-12 sm:pb-16">
           <div className="mb-10 sm:mb-14 text-center">
             <h2 className="mb-3 font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
               Simple, Transparent Pricing
@@ -786,7 +832,7 @@ export default function RecruitmentPage() {
         </section>
 
         {/* FAQ */}
-        <section className="border-t border-black/5 bg-white px-5 sm:px-10 pt-12 sm:pt-16 pb-16 sm:pb-24">
+        <section id="faq" className="border-t border-black/5 bg-white px-5 sm:px-10 pt-12 sm:pt-16 pb-16 sm:pb-24">
           <div className="mx-auto max-w-[1100px]">
             <div className="flex w-full flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:w-[35%]">
@@ -806,6 +852,9 @@ export default function RecruitmentPage() {
                       <div key={f.q} className="border-b border-black/10">
                         <button
                           className="flex w-full cursor-pointer items-center justify-between gap-4 py-6 text-left"
+                          id={`faq-button-${i}`}
+                          aria-expanded={open}
+                          aria-controls={`faq-panel-${i}`}
                           onClick={() => setOpenFaq(open ? -1 : i)}
                           type="button"
                         >
@@ -817,6 +866,9 @@ export default function RecruitmentPage() {
                           </span>
                         </button>
                         <div
+                          id={`faq-panel-${i}`}
+                          role="region"
+                          aria-labelledby={`faq-button-${i}`}
                           className={cn(
                             "overflow-hidden transition-[max-height] duration-300",
                             open ? "max-h-[400px]" : "max-h-0"
@@ -844,19 +896,15 @@ function ProcessStep({
   step,
   active,
   bordered,
+  onClick,
 }: {
   step: ProcessStepData;
   active: boolean;
   bordered?: boolean;
+  onClick?: () => void;
 }) {
-  return (
-    <div
-      className={cn(
-        "relative flex flex-col px-6 sm:px-9 pt-7 sm:pt-8 pb-7 sm:pb-9 transition-colors duration-500",
-        bordered && "border-white/10 lg:border-r"
-      )}
-      style={active ? { backgroundColor: step.activeColor } : undefined}
-    >
+  const content = (
+    <>
       <span
         className={cn(
           "mb-auto pb-6 sm:pb-12 font-heading text-[clamp(1.8rem,3.5vw,2.8rem)] font-bold leading-none transition-colors duration-500",
@@ -893,6 +941,35 @@ function ProcessStep({
           {step.label}
         </span>
       )}
+    </>
+  );
+
+  const wrapperClass = cn(
+    "relative flex flex-col px-6 sm:px-9 pt-7 sm:pt-8 pb-7 sm:pb-9 transition-colors duration-500",
+    bordered && "border-white/10 lg:border-r",
+    onClick && "cursor-pointer text-left"
+  );
+
+  if (onClick) {
+    return (
+      <button
+        type="button"
+        onClick={onClick}
+        aria-pressed={active}
+        className={wrapperClass}
+        style={active ? { backgroundColor: step.activeColor } : undefined}
+      >
+        {content}
+      </button>
+    );
+  }
+
+  return (
+    <div
+      className={wrapperClass}
+      style={active ? { backgroundColor: step.activeColor } : undefined}
+    >
+      {content}
     </div>
   );
 }
@@ -1132,6 +1209,7 @@ function InquiryForm() {
           onChange={(v) => update("name", v)}
           maxLength={80}
           error={errors.name}
+          errorId={errorMessage ? "rec-form-error" : undefined}
         />
         <FormField
           label="Company"
@@ -1140,6 +1218,7 @@ function InquiryForm() {
           value={form.company}
           onChange={(v) => update("company", v)}
           maxLength={80}
+          errorId={errorMessage ? "rec-form-error" : undefined}
         />
       </div>
       <FormField
@@ -1151,6 +1230,7 @@ function InquiryForm() {
         onChange={(v) => update("email", v)}
         maxLength={120}
         error={errors.email}
+        errorId={errorMessage ? "rec-form-error" : undefined}
       />
       <FormField
         label="Role Needed"
@@ -1159,6 +1239,7 @@ function InquiryForm() {
         value={form.role}
         onChange={(v) => update("role", v)}
         maxLength={120}
+        errorId={errorMessage ? "rec-form-error" : undefined}
       />
       <div
         style={{
@@ -1189,6 +1270,7 @@ function InquiryForm() {
           className="box-border min-h-[68px] w-full resize-none rounded-lg border-none bg-[#f5f5f5] px-3 py-2.5 text-base sm:text-xs text-[#333] outline-none focus:bg-[#efefef]"
           name="message"
           maxLength={2000}
+          aria-describedby={errorMessage ? "rec-form-error" : undefined}
           onChange={(e) => update("message", e.target.value)}
           placeholder="Tell us about the role, skills needed, and timeline..."
           value={form.message}
@@ -1218,6 +1300,7 @@ function FormField({
   name,
   maxLength,
   error,
+  errorId,
 }: {
   label: string;
   value: string;
@@ -1227,6 +1310,7 @@ function FormField({
   name?: string;
   maxLength?: number;
   error?: string;
+  errorId?: string;
 }) {
   return (
     <label className="mb-2.5 block">
@@ -1241,6 +1325,7 @@ function FormField({
         name={name}
         maxLength={maxLength}
         aria-invalid={error ? true : undefined}
+        aria-describedby={errorId}
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         type={type}
