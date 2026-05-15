@@ -73,7 +73,7 @@ const REASONS: readonly {
   {
     badge: { label: "Speed", tone: "lime" },
     title: "Matched in 24 Hours, Not Weeks",
-    body: "Submit your requirement and receive a shortlist of 3-5 screened, AI-matched candidates within 24 hours. Most clients have their specialist working by day seven. Traditional agencies take 1-2 weeks for the same result.",
+    body: "Submit your requirement and receive a shortlist of 3–5 screened, AI-matched candidates within 24 hours. Most clients have their specialist working by day seven. Traditional agencies take 1–2 weeks for the same result.",
   },
   {
     badge: { label: "AI + Human", tone: "dark" },
@@ -359,7 +359,7 @@ const ADVANTAGES: readonly { label: string; color: AdvColor; cols: AdvCol[] }[] 
       },
       {
         heading: "3-Week Turnaround",
-        body: "Expertise that doesn't exist locally, delivered to your team within weeks not months.",
+        body: "Expertise that doesn't exist locally, delivered to your team within weeks, not months.",
         icon: (
           <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" className="size-[22px]">
             <circle cx="18" cy="18" r="12" stroke="currentColor" strokeWidth="1.8" />
@@ -553,7 +553,7 @@ const ROLES: readonly { name: string; tags: string; icon: React.ReactNode }[] = 
 const FAQS: readonly { q: string; a: string }[] = [
   {
     q: "How quickly can I get a specialist?",
-    a: "Within 24 hours you'll receive a shortlist of 3-5 screened, AI-matched candidates. Most clients complete interviews within 5-7 days and have their specialist starting the following week.",
+    a: "Within 24 hours you'll receive a shortlist of 3–5 screened, AI-matched candidates. Most clients complete interviews within 5–7 days and have their specialist starting the following week.",
   },
   {
     q: "How is this different from a dedicated team?",
@@ -561,7 +561,7 @@ const FAQS: readonly { q: string; a: string }[] = [
   },
   {
     q: "What's the minimum commitment?",
-    a: "Two months recommended. Sprint engagements as short as 3-4 weeks are possible for defined project scopes. No long-term lock-in.",
+    a: "Two months recommended. Sprint engagements as short as 3–4 weeks are possible for defined project scopes. No long-term lock-in.",
   },
   {
     q: "Who manages the specialist?",
@@ -628,7 +628,7 @@ function Stats() {
       <h2 className="mx-auto mb-4 max-w-[700px] text-center font-heading text-[clamp(1.75rem,3.5vw,2.6rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
         Trusted by 100+ companies from{" "}
         <span className="text-remotiv-purple">YC startups</span> to{" "}
-        <span className="text-remotiv-green">Fortune-level multinationals.</span>
+        <span className="text-remotiv-green">Fortune-level multinationals</span>
       </h2>
       <p className="mx-auto mb-8 sm:mb-12 max-w-[580px] text-center text-[1.05rem] leading-[1.65] text-[#444]">
         We match you with pre-vetted remote specialists — fast, affordable, and ready to deliver
@@ -667,7 +667,7 @@ function TeamIntegration() {
             Staff augmentation adds a skilled professional directly to your existing team. They
             join your Slack, attend your standups, commit to your repo, and report to you. You keep
             full control. Remotiv handles everything else — sourcing, vetting, payroll, contracts,
-            and compliance. It is not outsourcing. You never hand off a project to an external
+            and compliance. It&apos;s not outsourcing. You never hand off a project to an external
             vendor. You never lose visibility. You simply get the missing skill your team needs,
             deployed in days instead of months, with the flexibility to scale back when the work is
             done.
@@ -736,7 +736,7 @@ function FiveReasons() {
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
                 <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-remotiv-text-dark">
-                  World-Class Output at 60-80% Less
+                  World-Class Output at 60–80% Less
                 </h3>
                 <p className="text-[0.82rem] leading-[1.68] text-[#555]">
                   Pakistan produces 25,000+ STEM graduates annually. Remotiv gives you access to
@@ -1036,7 +1036,7 @@ function CtaInquiry() {
       <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-remotiv-lime-card px-5 py-8 sm:px-7 sm:py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
         <div>
           <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
-            Your Next Hire Is a Week Away.
+            Your Next Hire Is a Week Away
           </h2>
           <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
             Tell us what you need. Remotiv delivers a screened, AI-matched shortlist — backed by a
@@ -1367,12 +1367,12 @@ export default function StaffAugmentationPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
+              url: "https://www.remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://remotiv-website-m3jo.vercel.app/services/staff-augmentation",
+            url: "https://www.remotiv.work/services/staff-augmentation",
             description:
-              "Augment your engineering team with pre-vetted senior talent. Flexible terms.",
+              "Augment your team with pre-vetted senior specialists across engineering, sales, design, data, marketing, operations, and more. Matched in 24 hours, deployed in days, backed by a free replacement guarantee.",
           }),
         }}
       />
