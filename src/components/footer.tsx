@@ -17,7 +17,6 @@ const footerLinks = [
       { label: "Browse Talent", href: "/browse-talent" },
       { label: "Hire Remote", href: "/hire-remote" },
       { label: "AI Matching", href: "/ai-matching" },
-      { label: "Pricing", href: "/pricing" },
     ],
   },
   {
@@ -33,6 +32,14 @@ const footerLinks = [
     links: [
       { label: "About Us", href: "/about" },
       { label: "Contact", href: "/contact" },
+    ],
+  },
+  {
+    title: "Account",
+    links: [
+      { label: "Login", href: "/signin" },
+      { label: "Sign up", href: "/signup" },
+      { label: "Pricing", href: "/pricing" },
     ],
   },
 ] as const;
