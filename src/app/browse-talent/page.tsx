@@ -55,9 +55,12 @@ export default async function BrowseTalentPage({
   const userId = user?.id ?? "";
 
   let tier: "free" | "subscriber" = "free";
+  let isAdmin = false;
+  let creditsRemaining = 0;
   if (user) {
     if (userEmail === SUPER_ADMIN_EMAIL) {
       tier = "subscriber";
+      isAdmin = true;
     } else if (userId) {
       const { data: roleRow } = await supabase
         .from("admin_users")
@@ -67,14 +70,16 @@ export default async function BrowseTalentPage({
       const userRole = (roleRow?.role as UserRole | undefined) ?? null;
       if (userRole === "super_admin" || userRole === "admin") {
         tier = "subscriber";
+        isAdmin = true;
       } else {
         const { data: sub } = await auth
           .from("subscriptions")
-          .select("tier")
+          .select("tier, credits_remaining")
           .eq("user_id", userId)
           .maybeSingle();
         if (sub?.tier === "starter" || sub?.tier === "pro") {
           tier = "subscriber";
+          creditsRemaining = sub.credits_remaining ?? 0;
         }
       }
     }
@@ -121,15 +126,41 @@ export default async function BrowseTalentPage({
   const totalCount = countResult.count ?? 0;
   const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
-  const realProfiles: TalentRow[] = tier === "subscriber"
-    ? rows
-    : rows.map((row) => ({
-        ...row,
-        email: null,
-        phone: null,
-        cv_url: null,
-        linkedin_url: null,
-      }));
+  // Fetch user's unlock_events for visibility check.
+  // Free users get empty set (they see no unlocks even if rows exist —
+  // Phase B-3 Q7 Option B: subscription gates visibility).
+  let unlockedIds: Set<string> = new Set();
+  if (tier === "subscriber" && user?.id) {
+    const candidateIds = rows.map((r) => r.id);
+    if (candidateIds.length > 0) {
+      const { data: unlockRows } = await auth
+        .from("unlock_events")
+        .select("candidate_id")
+        .eq("user_id", user.id)
+        .in("candidate_id", candidateIds);
+      if (unlockRows) {
+        unlockedIds = new Set(unlockRows.map((u) => u.candidate_id as string));
+      }
+    }
+  }
+
+  // Per-row stripping based on unlock state.
+  // - Free tier: all rows stripped (4 contact fields nulled).
+  // - Subscriber tier: only rows in unlockedIds keep their contact fields.
+  //   github_url is never stripped (Q11: public/social signal).
+  const realProfiles: TalentRow[] = rows.map((row) => {
+    const isUnlocked = tier === "subscriber" && unlockedIds.has(row.id);
+    if (isUnlocked) {
+      return row;
+    }
+    return {
+      ...row,
+      email: null,
+      phone: null,
+      cv_url: null,
+      linkedin_url: null,
+    };
+  });
 
   return (
     <BrowseClient
@@ -142,6 +173,9 @@ export default async function BrowseTalentPage({
       activeRole={role}
       activeQuery={q}
       activeSort={sort}
+      unlockedIds={Array.from(unlockedIds)}
+      creditsRemaining={creditsRemaining}
+      isAdmin={isAdmin}
     />
   );
 }

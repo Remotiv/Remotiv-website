@@ -5,6 +5,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
+import { unlockCandidate, type UnlockResult } from "./actions";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -475,6 +476,14 @@ function BtMatchBadge({ score }: { score: number }) {
 
 // ── Card item (matches .bt-cand-card structure exactly) ──────
 
+type EffectiveContact = {
+  email: string | null;
+  phone: string | null;
+  linkedin: string | null;
+  cvUrl: string | null;
+  github: string | null;
+};
+
 function CardItem({
   c,
   saved,
@@ -483,6 +492,11 @@ function CardItem({
   onLocked,
   index,
   tier = "free",
+  isAdmin = false,
+  isUnlocked,
+  canUnlock,
+  onUnlock,
+  effectiveContact,
 }: {
   c: Card;
   saved: boolean;
@@ -491,6 +505,11 @@ function CardItem({
   onLocked: () => void;
   index: number;
   tier?: "free" | "subscriber";
+  isAdmin?: boolean;
+  isUnlocked: boolean;
+  canUnlock: boolean;
+  onUnlock: () => void;
+  effectiveContact: EffectiveContact;
 }) {
   const cfg = ROLE_CFG[c.type];
   return (
@@ -535,17 +554,28 @@ function CardItem({
           </div>
         )}
         <div className="bt-card-links" onClick={(e) => e.stopPropagation()} role="presentation">
+          {/* GitHub — always available if present (Q11: not stripped) */}
           {c.github && (
-            tier === "subscriber" ? (
+            (isAdmin || isUnlocked) ? (
               <a
                 className="bt-clink"
-                href={ensureHttpUrl(c.github) ?? "#"}
+                href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
                 target="_blank"
                 rel="noopener noreferrer"
               >
                 <GhSvg />
                 GitHub
               </a>
+            ) : canUnlock ? (
+              <button
+                type="button"
+                className="bt-clink"
+                onClick={onUnlock}
+                title="Use 1 credit to unlock all contact details"
+              >
+                <GhSvg />
+                GitHub <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span>
+              </button>
             ) : (
               <button type="button" className="bt-clink" onClick={onLocked}>
                 <GhSvg />
@@ -553,31 +583,52 @@ function CardItem({
               </button>
             )
           )}
-          {tier === "subscriber" && c.linkedin ? (
+          {/* LinkedIn */}
+          {(isAdmin || isUnlocked) && effectiveContact.linkedin ? (
             <a
               className="bt-clink"
-              href={ensureHttpUrl(c.linkedin) ?? "#"}
+              href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
               target="_blank"
               rel="noopener noreferrer"
             >
               <LiSvg />
               LinkedIn
             </a>
+          ) : canUnlock ? (
+            <button
+              type="button"
+              className="bt-clink"
+              onClick={onUnlock}
+              title="Use 1 credit to unlock all contact details"
+            >
+              <LiSvg />
+              LinkedIn <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span>
+            </button>
           ) : (
             <button type="button" className="bt-clink" onClick={onLocked}>
               <LiSvg />
               LinkedIn
             </button>
           )}
-          {tier === "subscriber" && c.cvUrl ? (
+          {/* Resume */}
+          {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
             <a
               className="bt-clink"
-              href={c.cvUrl}
+              href={effectiveContact.cvUrl}
               target="_blank"
               rel="noopener noreferrer"
             >
               Resume ✦
             </a>
+          ) : canUnlock ? (
+            <button
+              type="button"
+              className="bt-clink"
+              onClick={onUnlock}
+              title="Use 1 credit to unlock all contact details"
+            >
+              Resume <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span>
+            </button>
           ) : (
             <button type="button" className="bt-clink" onClick={onLocked}>
               Resume ✦
@@ -619,6 +670,11 @@ function ProfileModal({
   c,
   saved,
   tier = "free",
+  isAdmin = false,
+  isUnlocked,
+  canUnlock,
+  onUnlock,
+  effectiveContact,
   onSave,
   onClose,
   onLocked,
@@ -626,6 +682,11 @@ function ProfileModal({
   c: Card;
   saved: boolean;
   tier?: "free" | "subscriber";
+  isAdmin?: boolean;
+  isUnlocked: boolean;
+  canUnlock: boolean;
+  onUnlock: () => void;
+  effectiveContact: EffectiveContact;
   onSave: () => void;
   onClose: () => void;
   onLocked: () => void;
@@ -683,40 +744,52 @@ function ProfileModal({
             </div>
             <div className="bt-profile-links">
               {c.github && (
-                tier === "subscriber" ? (
+                (isAdmin || isUnlocked) ? (
                   <a
                     className="bt-plink"
-                    href={ensureHttpUrl(c.github) ?? "#"}
+                    href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
                     target="_blank"
                     rel="noopener noreferrer"
                   >
                     GitHub
                   </a>
+                ) : canUnlock ? (
+                  <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
+                    GitHub · 1 credit
+                  </button>
                 ) : (
                   <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
                 )
               )}
-              {tier === "subscriber" && c.linkedin ? (
+              {(isAdmin || isUnlocked) && effectiveContact.linkedin ? (
                 <a
                   className="bt-plink"
-                  href={ensureHttpUrl(c.linkedin) ?? "#"}
+                  href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   LinkedIn
                 </a>
+              ) : canUnlock ? (
+                <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
+                  LinkedIn · 1 credit
+                </button>
               ) : (
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
-              {tier === "subscriber" && c.cvUrl ? (
+              {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
                 <a
                   className="bt-plink"
-                  href={c.cvUrl}
+                  href={effectiveContact.cvUrl}
                   target="_blank"
                   rel="noopener noreferrer"
                 >
                   Resume ✦
                 </a>
+              ) : canUnlock ? (
+                <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
+                  Resume · 1 credit
+                </button>
               ) : (
                 <button type="button" className="bt-plink" onClick={onLocked}>Resume ✦</button>
               )}
@@ -840,46 +913,46 @@ function ProfileModal({
             )}
           </div>
 
-          {tier === "subscriber" ? (
+          {(isAdmin || isUnlocked) ? (
             <div className="bt-unlocked-box">
               <div className="bt-unlocked-head">
                 <span aria-hidden>🔓</span>
                 <div>
                   <div className="bt-unlocked-title">Contact Details</div>
-                  <div className="bt-unlocked-sub">Visible to admins only</div>
+                  <div className="bt-unlocked-sub">Contact details unlocked</div>
                 </div>
               </div>
               <div className="bt-unlocked-rows">
-                {c.email && (
+                {effectiveContact.email && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">Email</span>
-                    <a href={`mailto:${c.email}`} className="bt-unlocked-link">{c.email}</a>
+                    <a href={`mailto:${effectiveContact.email}`} className="bt-unlocked-link">{effectiveContact.email}</a>
                   </div>
                 )}
-                {c.phone && (
+                {effectiveContact.phone && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">Phone</span>
-                    <a href={`tel:${c.phone}`} className="bt-unlocked-link">{c.phone}</a>
+                    <a href={`tel:${effectiveContact.phone}`} className="bt-unlocked-link">{effectiveContact.phone}</a>
                   </div>
                 )}
-                {c.linkedin && (
+                {effectiveContact.linkedin && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">LinkedIn</span>
                     <a
-                      href={ensureHttpUrl(c.linkedin) ?? "#"}
+                      href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="bt-unlocked-link"
                     >
-                      {c.linkedin}
+                      {effectiveContact.linkedin}
                     </a>
                   </div>
                 )}
-                {c.cvUrl && (
+                {effectiveContact.cvUrl && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">CV</span>
                     <a
-                      href={c.cvUrl}
+                      href={effectiveContact.cvUrl}
                       target="_blank"
                       rel="noopener noreferrer"
                       className="bt-unlocked-link"
@@ -895,20 +968,45 @@ function ProfileModal({
               <div className="bt-locked-icon">🔒</div>
               <div>
                 <div className="bt-locked-title">Unlock Full Contact Details</div>
-                <div className="bt-locked-sub">Subscribe to view phone, email, LinkedIn, and references</div>
+                <div className="bt-locked-sub">
+                  {tier === "subscriber"
+                    ? "Use 1 credit to reveal phone, email, LinkedIn, and CV"
+                    : "Subscribe to view phone, email, LinkedIn, and references"}
+                </div>
               </div>
             </div>
           )}
 
           <div className="bt-modal-actions">
-            {tier !== "subscriber" && (
-              <button
-                type="button"
-                className="bt-btn-unlock"
-                onClick={() => { onClose(); onLocked(); }}
-              >
-                Unlock &amp; Contact
-              </button>
+            {!isAdmin && !isUnlocked && (
+              canUnlock ? (
+                <button
+                  type="button"
+                  className="bt-btn-unlock"
+                  onClick={() => onUnlock()}
+                >
+                  Unlock contact · 1 credit
+                </button>
+              ) : tier === "free" ? (
+                <button
+                  type="button"
+                  className="bt-btn-unlock"
+                  onClick={() => { onClose(); onLocked(); }}
+                >
+                  Subscribe to Unlock
+                </button>
+              ) : (
+                <div className="bt-out-of-credits">
+                  <p>You&apos;ve used all your credits this month.</p>
+                  <button
+                    type="button"
+                    className="bt-btn-unlock"
+                    onClick={() => { onClose(); onLocked(); }}
+                  >
+                    Upgrade to Pro for 300 credits/month
+                  </button>
+                </div>
+              )
             )}
             <button
               type="button"
@@ -1044,6 +1142,9 @@ export function BrowseClient({
   activeRole,
   activeQuery,
   activeSort,
+  unlockedIds,
+  creditsRemaining,
+  isAdmin = false,
 }: {
   realProfiles: TalentRow[];
   tier?: "free" | "subscriber";
@@ -1054,6 +1155,9 @@ export function BrowseClient({
   activeRole: "All" | "Engineer" | "SDR" | "CS" | "Design" | "Data" | "DevOps" | "QA" | "Marketing" | "Ops" | "Finance";
   activeQuery: string;
   activeSort: "match" | "name";
+  unlockedIds: string[];
+  creditsRemaining: number;
+  isAdmin?: boolean;
 }) {
   const cards: Card[] = useMemo(() => {
     return realProfiles.map(rowToCard);
@@ -1064,6 +1168,21 @@ export function BrowseClient({
   const [openCard, setOpenCard] = useState<Card | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
+  const [unlockedSet, setUnlockedSet] = useState<Set<string>>(() => new Set(unlockedIds));
+  const [credits, setCredits] = useState<number>(creditsRemaining);
+  const [unlockedContactData, setUnlockedContactData] = useState<Map<string, {
+    email: string | null;
+    phone: string | null;
+    linkedinUrl: string | null;
+    cvUrl: string | null;
+  }>>(new Map());
+
+  // Sync unlock state when server props change (pagination/filter navigation).
+  useEffect(() => {
+    setUnlockedSet(new Set(unlockedIds));
+    setCredits(creditsRemaining);
+    setUnlockedContactData(new Map());
+  }, [unlockedIds, creditsRemaining]);
 
   const router = useRouter();
   const pathname = usePathname();
@@ -1153,6 +1272,60 @@ export function BrowseClient({
 
   function lockedAction() {
     setToast("🔒 Subscribe to unlock full access — payment setup in progress.");
+  }
+
+  async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
+    const result = await unlockCandidate(candidateId);
+    if (result.success) {
+      setUnlockedSet((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+      setUnlockedContactData((prev) => {
+        const next = new Map(prev);
+        next.set(candidateId, {
+          email: result.email,
+          phone: result.phone,
+          linkedinUrl: result.linkedinUrl,
+          cvUrl: result.cvUrl,
+        });
+        return next;
+      });
+      setCredits(result.creditsRemaining);
+      if (!result.alreadyUnlocked) {
+        setToast(`✓ Unlocked ${candidateName} · ${result.creditsRemaining} credits left`);
+      }
+    } else {
+      setToast(`✗ ${result.message}`);
+    }
+    return result;
+  }
+
+  function getEffectiveContact(c: Card): {
+    email: string | null;
+    phone: string | null;
+    linkedin: string | null;
+    cvUrl: string | null;
+    github: string | null;
+  } {
+    const local = unlockedContactData.get(c.id);
+    if (local) {
+      return {
+        email: local.email,
+        phone: local.phone,
+        linkedin: local.linkedinUrl,
+        cvUrl: local.cvUrl,
+        github: c.github,
+      };
+    }
+    return {
+      email: c.email ?? null,
+      phone: c.phone ?? null,
+      linkedin: c.linkedin ?? null,
+      cvUrl: c.cvUrl ?? null,
+      github: c.github,
+    };
   }
 
   const renderSidebarContent = (onSelect?: () => void) => (
@@ -1269,7 +1442,13 @@ export function BrowseClient({
                   </>
                 )}
               </p>
-              <span className="bt-unlock-hint">🔒 Subscribe to unlock contact details</span>
+              {isAdmin ? null : tier === "subscriber" ? (
+                <span className="bt-credit-counter">
+                  💳 <strong>{credits}</strong> credits remaining
+                </span>
+              ) : (
+                <span className="bt-unlock-hint">🔒 Subscribe to unlock contact details</span>
+              )}
             </div>
 
             {tier === "subscriber" && currentPage > 1 && (
@@ -1301,6 +1480,11 @@ export function BrowseClient({
                       onLocked={lockedAction}
                       index={i}
                       tier={tier}
+                      isAdmin={isAdmin}
+                      isUnlocked={unlockedSet.has(c.id)}
+                      canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(c.id)}
+                      onUnlock={() => { void handleUnlock(c.id, c.name); }}
+                      effectiveContact={getEffectiveContact(c)}
                     />
                   ))}
                   {tier === "subscriber" && currentPage < totalPages && (
@@ -1341,6 +1525,11 @@ export function BrowseClient({
                             onLocked={() => {}}
                             index={i + 15}
                             tier={tier}
+                            isAdmin={false}
+                            isUnlocked={false}
+                            canUnlock={false}
+                            onUnlock={() => {}}
+                            effectiveContact={{ email: null, phone: null, linkedin: null, cvUrl: null, github: null }}
                           />
                         ))}
                       </div>
@@ -1413,6 +1602,11 @@ export function BrowseClient({
           c={openCard}
           saved={savedIds.has(openCard.id)}
           tier={tier}
+          isAdmin={isAdmin}
+          isUnlocked={unlockedSet.has(openCard.id)}
+          canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(openCard.id)}
+          onUnlock={() => { void handleUnlock(openCard.id, openCard.name); }}
+          effectiveContact={getEffectiveContact(openCard)}
           onSave={() => toggleSave(openCard.id)}
           onClose={() => setOpenCard(null)}
           onLocked={lockedAction}
@@ -1424,7 +1618,7 @@ export function BrowseClient({
           style={{
             position: "fixed",
             bottom: 24,
-            right: 24,
+            left: 24,
             zIndex: 1000,
             background: "#111",
             color: "#fff",
@@ -1632,6 +1826,42 @@ export function BrowseClient({
           color: #9886fe;
         }
         .bt-unlock-hint { font-family: "DM Sans",sans-serif; font-size: 0.75rem; color: #9886fe; }
+        .bt-credit-counter {
+          font-family: 'DM Sans', sans-serif;
+          font-size: 0.78rem;
+          font-weight: 500;
+          color: #7E47FF;
+          background: rgba(126, 71, 255, 0.08);
+          padding: 6px 14px;
+          border-radius: 999px;
+          border: 1px solid rgba(126, 71, 255, 0.2);
+          display: inline-flex;
+          align-items: center;
+          gap: 6px;
+          white-space: nowrap;
+        }
+        .bt-credit-counter strong {
+          font-weight: 600;
+          color: #7E47FF;
+        }
+        .bt-out-of-credits {
+          display: flex;
+          flex-direction: column;
+          gap: 10px;
+          align-items: stretch;
+          padding: 14px;
+          background: rgba(255, 200, 100, 0.08);
+          border: 1px solid rgba(255, 200, 100, 0.25);
+          border-radius: 12px;
+          width: 100%;
+        }
+        .bt-out-of-credits p {
+          font-family: 'DM Sans', sans-serif;
+          font-size: 0.85rem;
+          color: #555;
+          margin: 0;
+          text-align: center;
+        }
         .bt-cand-list { display: flex; flex-direction: column; gap: 10px; }
         .bt-blurred-section {
           position: relative;
