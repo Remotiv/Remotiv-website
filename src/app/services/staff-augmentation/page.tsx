@@ -585,7 +585,7 @@ const CHECK_ITEMS: readonly string[] = [
 
 function Hero() {
   return (
-    <section className="bg-white p-4 sm:p-6">
+    <section className="bg-white px-4 sm:px-6 py-14 md:py-20">
       <div className="relative isolate flex w-full items-center justify-center overflow-hidden rounded-[32px] bg-remotiv-bg px-5 pt-12 pb-12 sm:px-6 sm:pt-[72px] sm:pb-20 text-center">
         <div
           aria-hidden="true"
@@ -624,7 +624,7 @@ function Hero() {
 
 function Stats() {
   return (
-    <section className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-8 sm:py-20">
+    <section className="border-t border-black/[0.06] bg-white px-5 sm:px-8 py-12 md:py-[72px]">
       <h2 className="mx-auto mb-4 max-w-[700px] text-center font-heading text-[clamp(1.75rem,3.5vw,2.6rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
         Trusted by 100+ companies from{" "}
         <span className="text-remotiv-purple">YC startups</span> to{" "}
@@ -657,7 +657,7 @@ function Stats() {
 
 function TeamIntegration() {
   return (
-    <section className="bg-remotiv-bg px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section className="bg-remotiv-bg px-5 sm:px-6 md:px-10 py-12 md:py-[72px]">
       <div className="mx-auto grid max-w-[1120px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-20">
         <div>
           <h2 className="mb-5 sm:mb-7 font-heading text-[clamp(1.75rem,3vw,2.5rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
@@ -696,7 +696,7 @@ function FiveReasons() {
       : "bg-[#111] text-white";
 
   return (
-    <section className="bg-remotiv-bg px-5 py-14 sm:px-8 sm:py-20">
+    <section className="bg-remotiv-bg px-5 sm:px-8 py-12 md:py-[72px]">
       <div className="mx-auto max-w-[1100px]">
         <div className="mb-8 sm:mb-12 text-center">
           <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
@@ -763,7 +763,7 @@ function FiveReasons() {
 
 function ProcessSteps() {
   return (
-    <section id="process" className="bg-remotiv-bg px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section id="process" className="bg-remotiv-bg px-5 sm:px-6 md:px-10 py-12 md:py-[72px]">
       <div className="mx-auto grid max-w-[1100px] grid-cols-1 items-start gap-12 md:grid-cols-2 md:gap-12 lg:gap-20">
         <div>
           <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
@@ -813,7 +813,7 @@ function ProcessSteps() {
                 <div className="font-heading text-2xl font-extrabold leading-none text-remotiv-text-dark">
                   {m.value}
                 </div>
-                <div className="mt-1.5 text-[0.78rem] text-[#888]">{m.label}</div>
+                <div className="mt-1.5 text-[0.78rem] text-remotiv-text-mid">{m.label}</div>
               </div>
             ))}
           </div>
@@ -842,7 +842,7 @@ function ProcessSteps() {
 
 function Advantage() {
   return (
-    <section className="bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section className="bg-white px-5 sm:px-6 md:px-10 py-12 md:py-[72px]">
       <div className="mx-auto max-w-[1100px]">
         <div className="mb-10 sm:mb-14">
           <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
@@ -888,14 +888,14 @@ function Advantage() {
 
 function WhatWeStaff() {
   return (
-    <section className="bg-remotiv-purple-light px-5 pt-12 pb-10 sm:px-8 sm:pt-16 sm:pb-12 md:px-14">
-      <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
+    <section className="bg-remotiv-purple-light px-5 sm:px-8 md:px-14 py-14 md:py-20">
+      <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/85">
         What We Staff
       </p>
       <h2 className="mb-3.5 max-w-[680px] font-heading text-[clamp(1.6rem,2.8vw,2.2rem)] font-bold leading-[1.2] tracking-[-0.02em] text-white">
         Specialists Across Every Function and Seniority Level
       </h2>
-      <p className="mb-8 sm:mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/75">
+      <p className="mb-8 sm:mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/85">
         From individual contributors to fractional C-suite leaders, Remotiv covers the full
         spectrum. These are the categories our clients request most — but if your role isn&apos;t
         listed, ask us. If the skill exists in Pakistan&apos;s talent market, we can source it.
@@ -1032,7 +1032,7 @@ function CtaInquiry() {
   }
 
   return (
-    <section id="inquiry" className="bg-white px-4 pt-12 pb-10 sm:px-5 sm:pt-16 sm:pb-14 md:px-10">
+    <section id="inquiry" className="bg-white px-4 sm:px-5 md:px-10 py-14 md:py-20">
       <div className="mx-auto grid max-w-[900px] grid-cols-1 items-center gap-8 md:gap-14 rounded-3xl bg-remotiv-lime-card px-5 py-8 sm:px-7 sm:py-10 md:grid-cols-2 md:px-[60px] md:py-[52px]">
         <div>
           <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
@@ -1105,7 +1105,7 @@ function CtaInquiry() {
               <button
                 type="button"
                 onClick={resetForm}
-                className="rounded-full bg-[#111] px-5 py-2.5 font-heading text-[0.85rem] font-bold text-white transition-opacity hover:opacity-90"
+                className="rounded-full bg-[#111] px-5 py-3.5 font-heading text-[0.85rem] font-bold text-white transition-opacity hover:opacity-90"
               >
                 Submit Another Inquiry
               </button>
@@ -1169,7 +1169,7 @@ function CtaInquiry() {
               <div className="mb-2.5">
                 <label
                   htmlFor="sa-inq-message"
-                  className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+                  className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
                 >
                   Message
                 </label>
@@ -1213,7 +1213,7 @@ function CtaInquiry() {
               >
                 {status === "sending" ? "Sending..." : "Send Inquiry →"}
               </button>
-              <p className="m-0 flex items-center justify-center gap-1 text-center text-[10px] text-[#bbb]">
+              <p className="m-0 flex items-center justify-center gap-1 text-center text-[10px] text-remotiv-text-light">
                 <svg
                   width="9"
                   height="9"
@@ -1264,7 +1264,7 @@ function InquiryField({
     <div className="mb-2.5">
       <label
         htmlFor={inputId}
-        className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+        className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
       >
         {label}
       </label>
@@ -1293,7 +1293,7 @@ function Faq() {
   const [openIdx, setOpenIdx] = useState(0);
 
   return (
-    <section id="faq" className="border-t border-black/[0.06] bg-white px-5 py-12 sm:px-6 sm:py-16 md:px-10 md:py-24">
+    <section id="faq" className="border-t border-black/[0.06] bg-white px-5 sm:px-6 md:px-10 py-14 md:py-20">
       <div className="mx-auto max-w-[1100px]">
         <div className="flex w-full flex-col items-start gap-10 md:flex-row md:gap-20">
           <div className="w-full md:basis-[35%]">
@@ -1377,7 +1377,7 @@ export default function StaffAugmentationPage() {
         }}
       />
       <Navbar />
-      <main className="flex-1 bg-white">
+      <main id="main" className="flex-1 bg-white">
         <Hero />
         <Stats />
         <TeamIntegration />
