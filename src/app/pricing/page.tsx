@@ -19,13 +19,13 @@ interface Tier {
 const TIERS: readonly Tier[] = [
   {
     name: "Starter",
-    price: "$50",
+    price: "$49",
     priceSuffix: "/ month",
     description: "For companies exploring the talent pool",
     features: [
       { label: "Browse the full Remotiv talent pool" },
       { label: "View candidate profiles with Resume" },
-      { label: "Unlock up to 50 contact details per month" },
+      { label: "Unlock up to 30 contact details per month" },
       { label: "Advanced filters", included: false },
       { label: "Dedicated account manager", included: false },
     ],
@@ -38,7 +38,7 @@ const TIERS: readonly Tier[] = [
     description: "For teams actively hiring at scale",
     features: [
       { label: "Everything in Starter" },
-      { label: "200 Profiles/mo" },
+      { label: "300 Profiles/mo" },
       { label: "Advanced filters — role, stack, seniority, availability, salary" },
       { label: "Save and shortlist candidates" },
       { label: "Priority support" },
@@ -77,14 +77,14 @@ const COMPARISON: readonly {
 }[] = [
   {
     feature: "Talent Profile Access",
-    starter: "50 Profiles/mo",
-    pro: "200 Profiles/mo",
+    starter: "30 Profiles/mo",
+    pro: "300 Profiles/mo",
     enterprise: "Unlimited",
   },
   {
     feature: "CV / Resume Downloads",
-    starter: "50/mo",
-    pro: "200/mo",
+    starter: "30/mo",
+    pro: "300/mo",
     enterprise: "Unlimited",
   },
   {
