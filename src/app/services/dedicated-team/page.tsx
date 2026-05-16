@@ -576,7 +576,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* OUR PROCESS */}
-        <section className="box-border w-full bg-white px-14 py-12 max-md:px-6 max-md:pt-14 max-md:pb-18">
+        <section id="process" className="box-border w-full bg-white px-14 py-12 max-md:px-6 max-md:pt-14 max-md:pb-18">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-16 text-center">
               <span
@@ -973,7 +973,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* CTA INQUIRY */}
-        <section className="bg-white px-10 py-12 max-md:px-5">
+        <section id="inquiry" className="bg-white px-10 py-12 max-md:px-5">
           <div
             className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl p-14 max-[900px]:grid-cols-1 max-[900px]:gap-8 max-[900px]:p-7"
             style={{ background: LIME }}
@@ -1062,7 +1062,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* FAQ */}
-        <section className="box-border w-full border-t border-black/[0.06] bg-white px-10 pt-10 pb-20 max-md:px-6 max-md:pt-14 max-md:pb-18">
+        <section id="faq" className="box-border w-full border-t border-black/[0.06] bg-white px-10 pt-10 pb-20 max-md:px-6 max-md:pt-14 max-md:pb-18">
           <div className="mx-auto flex max-w-[1100px] flex-row items-start gap-20 max-[900px]:flex-col max-[900px]:gap-10">
             <div className="box-border max-w-[35%] flex-[0_0_35%] max-[900px]:max-w-full max-[900px]:flex-auto">
               <h2
@@ -1087,6 +1087,9 @@ export default function DedicatedTeamPage() {
                         type="button"
                         onClick={() => setOpenFaq(isOpen ? -1 : i)}
                         className="flex w-full cursor-pointer items-center justify-between gap-4 border-none bg-transparent py-6 text-left"
+                        id={`dt-faq-button-${i}`}
+                        aria-expanded={isOpen}
+                        aria-controls={`dt-faq-panel-${i}`}
                       >
                         <span className="flex-1 font-[Sora,sans-serif] text-[0.97rem] font-semibold leading-[1.4] text-[#111]">
                           {faq.q}
@@ -1096,6 +1099,9 @@ export default function DedicatedTeamPage() {
                         </span>
                       </button>
                       <div
+                        id={`dt-faq-panel-${i}`}
+                        role="region"
+                        aria-labelledby={`dt-faq-button-${i}`}
                         className="overflow-hidden transition-[max-height] duration-300"
                         style={{ maxHeight: isOpen ? 400 : 0 }}
                       >
@@ -1156,11 +1162,11 @@ function WhyCard({
           {badge}
         </span>
       </span>
-      <h3 className="m-0 mb-4 font-[Sora,sans-serif] text-[1.1rem] font-bold leading-[1.3] text-[#111] transition-colors group-hover:text-white">
+      <h3 className="m-0 mb-4 font-[Sora,sans-serif] text-[1.1rem] font-bold leading-[1.3] text-[#111] transition-colors group-hover:!text-white">
         {heading}
       </h3>
       <div className="mb-4 h-px w-full bg-black/[0.07] transition-colors group-hover:bg-white/20" />
-      <p className="m-0 text-[0.86rem] leading-[1.75] text-[#555] transition-colors group-hover:text-white/80">
+      <p className="m-0 text-[0.86rem] leading-[1.75] text-[#555] transition-colors group-hover:!text-white/80">
         {body}
       </p>
     </div>
