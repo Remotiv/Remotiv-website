@@ -13,7 +13,6 @@ import {
   Upload,
 } from "lucide-react";
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
 
@@ -524,7 +523,6 @@ export default function JobsPage() {
           </div>
         </div>
       </main>
-      <Footer />
 
       {applyJob && (
         <ApplyModal job={applyJob} onClose={() => setApplyJob(null)} />

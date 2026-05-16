@@ -1,4 +1,3 @@
-import { Footer } from "@/components/footer";
 import { AIRecruiter } from "@/components/home/ai-recruiter";
 import { BrowseRoles } from "@/components/home/browse-roles";
 import { CtaInquiry } from "@/components/home/cta-inquiry";
@@ -37,7 +36,6 @@ export default function Home() {
         <StatsCards />
         <CtaInquiry />
       </main>
-      <Footer />
     </>
   );
 }

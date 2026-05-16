@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
 
@@ -1089,7 +1088,6 @@ export default function PayrollPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }

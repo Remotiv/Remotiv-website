@@ -4,7 +4,6 @@ import { ArrowLeft, Bookmark, MapPin } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useMemo, useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { ROLE_CONFIG, type Talent, TALENT_POOL } from "@/lib/talent-pool";
 
@@ -294,7 +293,6 @@ export default function AIResultsPage() {
       >
         <ResultsContent />
       </Suspense>
-      <Footer />
     </div>
   );
 }

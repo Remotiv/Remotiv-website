@@ -5,7 +5,6 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { createClient } from "@/lib/supabase/client";
 import { Navbar } from "@/components/navbar";
-import { Footer } from "@/components/footer";
 
 const PURPLE = "#7E47FF";
 const BG = "#f8f4f1";
@@ -222,7 +221,6 @@ export default function AccountClient({
         </div>
       )}
 
-      <Footer />
     </div>
   );
 }

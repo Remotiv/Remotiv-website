@@ -19,7 +19,6 @@ import Image from "next/image";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
 
@@ -910,7 +909,6 @@ export default function RecruitmentPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }

@@ -4,7 +4,6 @@ import { track } from "@vercel/analytics";
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "./actions";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
 const INQUIRY_CARDS = [
@@ -489,7 +488,6 @@ export default function ContactPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }

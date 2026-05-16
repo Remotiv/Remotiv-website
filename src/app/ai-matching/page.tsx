@@ -3,7 +3,6 @@
 import { Search, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
 const SUGGESTIONS = [
@@ -222,7 +221,6 @@ export default function AIMatchingPage() {
         </>
       )}
 
-      <Footer />
     </div>
   );
 }

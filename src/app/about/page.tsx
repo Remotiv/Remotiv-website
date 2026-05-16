@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
 const HERO_STATS = [
@@ -320,7 +319,6 @@ export default function AboutPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }

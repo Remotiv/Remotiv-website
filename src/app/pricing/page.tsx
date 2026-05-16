@@ -1,6 +1,5 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
 
@@ -658,7 +657,6 @@ export default function PricingPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }

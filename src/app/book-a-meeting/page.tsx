@@ -3,7 +3,6 @@
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { cloneElement, type ReactElement, useEffect, useId, useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { submitBooking } from "./actions";
 
@@ -614,7 +613,6 @@ export default function BookAMeetingPage() {
         </div>
       </section>
 
-      <Footer />
     </div>
   );
 }

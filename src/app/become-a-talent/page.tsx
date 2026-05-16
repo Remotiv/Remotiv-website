@@ -2,7 +2,6 @@
 
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 
 // ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
@@ -1457,7 +1456,6 @@ export default function BecomeATalentPage() {
           </aside>
         </div>
       </div>
-      <Footer />
 
       <style jsx global>{`
         .bta-root { background:#fff; font-family:'DM Sans',sans-serif; }

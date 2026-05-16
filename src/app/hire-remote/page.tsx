@@ -1,5 +1,4 @@
 import Link from "next/link";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { createServiceClient } from "@/lib/supabase/server";
 import { HireMarketplace, type RemoteProfileRow } from "./_marketplace";
@@ -33,7 +32,6 @@ export default async function HireRemotePage() {
         <HowItWorks />
         <QuoteCta />
       </main>
-      <Footer />
     </>
   );
 }

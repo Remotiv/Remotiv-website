@@ -4,6 +4,7 @@ import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
 import "./globals.css";
 import { AIChatWidget } from "@/components/ai-chat-widget";
+import { FooterWrapper } from "@/components/footer-wrapper";
 
 const sora = Sora({
   variable: "--font-heading",
@@ -78,6 +79,7 @@ export default function RootLayout({
           Skip to main content
         </a>
         {children}
+        <FooterWrapper />
         <AIChatWidget />
         <script
           type="application/ld+json"

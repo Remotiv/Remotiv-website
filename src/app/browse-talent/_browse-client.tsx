@@ -3,7 +3,6 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
@@ -1629,7 +1628,6 @@ export function BrowseClient({
           </div>
         </div>
       </main>
-      <Footer />
 
       {drawerOpen && (
         <>
