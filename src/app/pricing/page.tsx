@@ -13,6 +13,7 @@ interface Tier {
   description: string;
   features: readonly { label: string; included?: boolean }[];
   cta: string;
+  href: string;
   featured?: boolean;
 }
 
@@ -30,6 +31,7 @@ const TIERS: readonly Tier[] = [
       { label: "Dedicated account manager", included: false },
     ],
     cta: "Get Started",
+    href: "/signup",
   },
   {
     name: "Pro",
@@ -44,6 +46,7 @@ const TIERS: readonly Tier[] = [
       { label: "Priority support" },
     ],
     cta: "Get Started",
+    href: "/signup",
     featured: true,
   },
   {
@@ -59,6 +62,7 @@ const TIERS: readonly Tier[] = [
       { label: "Dedicated success manager" },
     ],
     cta: "Get a Quote",
+    href: "/contact",
   },
 ];
 
@@ -314,7 +318,7 @@ export default function PricingPage() {
                 </ul>
 
                 <Link
-                  href="/book-a-meeting"
+                  href={tier.href}
                   className={cn(
                     "mt-auto block rounded-[14px] px-6 py-[15px] text-center text-[0.97rem] font-bold transition-all hover:-translate-y-0.5",
                     tier.featured

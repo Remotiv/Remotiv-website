@@ -32,6 +32,7 @@ export default async function BrowseTalentPage({
     q?: string;
     sort?: string;
     page?: string;
+    view?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -44,6 +45,7 @@ export default async function BrowseTalentPage({
   const sort: "match" | "name" = params.sort === "name" ? "name" : "match";
   const pageRaw = Number(params.page ?? 1);
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
+  const isSavedView = params.view === "saved";
 
   // Auth-aware client (reads cookies) for user + subscription lookup; service
   // client bypasses RLS for the admin_users role read and the public talent fetch.
@@ -89,42 +91,73 @@ export default async function BrowseTalentPage({
   const from = (page - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  let talentQuery = supabase
-    .from("talent_profiles")
-    .select(
-      "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, industry, degree, institution, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, linkedin_url, github_url, experience, approved_at, created_at",
-    )
-    .not("approved_at", "is", null);
-
-  let countQuery = supabase
-    .from("talent_profiles")
-    .select("id", { count: "exact", head: true })
-    .not("approved_at", "is", null);
-
-  if (role !== "All") {
-    talentQuery = talentQuery.eq("role_category", role);
-    countQuery = countQuery.eq("role_category", role);
+  // Phase B-4: saved profiles filter — fetch user's saved candidate IDs
+  const savedIdsArr: string[] = [];
+  const savedIdsSet = new Set<string>();
+  if (user) {
+    const { data: savedRows } = await supabase
+      .from("saved_profiles")
+      .select("candidate_id")
+      .eq("user_id", user.id);
+    if (savedRows) {
+      for (const r of savedRows as Array<{ candidate_id: string }>) {
+        savedIdsArr.push(r.candidate_id);
+        savedIdsSet.add(r.candidate_id);
+      }
+    }
   }
 
-  if (q !== "") {
-    const safeQ = escapeIlike(q);
-    const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
-    talentQuery = talentQuery.or(orFilter);
-    countQuery = countQuery.or(orFilter);
+  // Short-circuit: saved view with zero saves → render empty state
+  const shouldReturnEmpty = isSavedView && savedIdsSet.size === 0;
+
+  let rows: TalentRow[] = [];
+  let totalCount = 0;
+  let totalPages = 1;
+
+  if (!shouldReturnEmpty) {
+    let talentQuery = supabase
+      .from("talent_profiles")
+      .select(
+        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, industry, degree, institution, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, linkedin_url, github_url, experience, approved_at, created_at",
+      )
+      .not("approved_at", "is", null);
+
+    let countQuery = supabase
+      .from("talent_profiles")
+      .select("id", { count: "exact", head: true })
+      .not("approved_at", "is", null);
+
+    if (isSavedView) {
+      const inList = Array.from(savedIdsSet);
+      talentQuery = talentQuery.in("id", inList);
+      countQuery = countQuery.in("id", inList);
+    }
+
+    if (role !== "All") {
+      talentQuery = talentQuery.eq("role_category", role);
+      countQuery = countQuery.eq("role_category", role);
+    }
+
+    if (q !== "") {
+      const safeQ = escapeIlike(q);
+      const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
+      talentQuery = talentQuery.or(orFilter);
+      countQuery = countQuery.or(orFilter);
+    }
+
+    if (sort === "name") {
+      talentQuery = talentQuery.order("first_name", { ascending: true });
+    } else {
+      talentQuery = talentQuery.order("created_at", { ascending: false });
+    }
+
+    talentQuery = talentQuery.range(from, to);
+
+    const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
+    rows = (talentResult.data ?? []) as TalentRow[];
+    totalCount = countResult.count ?? 0;
+    totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   }
-
-  if (sort === "name") {
-    talentQuery = talentQuery.order("first_name", { ascending: true });
-  } else {
-    talentQuery = talentQuery.order("created_at", { ascending: false });
-  }
-
-  talentQuery = talentQuery.range(from, to);
-
-  const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
-  const rows = (talentResult.data ?? []) as TalentRow[];
-  const totalCount = countResult.count ?? 0;
-  const totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
 
   // Fetch user's unlock_events for visibility check.
   // Free users get empty set (they see no unlocks even if rows exist —
@@ -176,6 +209,8 @@ export default async function BrowseTalentPage({
       unlockedIds={Array.from(unlockedIds)}
       creditsRemaining={creditsRemaining}
       isAdmin={isAdmin}
+      isSavedView={isSavedView}
+      savedIds={savedIdsArr}
     />
   );
 }

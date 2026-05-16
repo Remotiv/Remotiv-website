@@ -1,9 +1,12 @@
 "use client";
 
 import { useEffect, useMemo, useState } from "react";
+import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
+import PricingModal from "@/components/pricing-modal";
+import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { unlockCandidate, type UnlockResult } from "./actions";
 
@@ -1145,6 +1148,8 @@ export function BrowseClient({
   unlockedIds,
   creditsRemaining,
   isAdmin = false,
+  isSavedView,
+  savedIds,
 }: {
   realProfiles: TalentRow[];
   tier?: "free" | "subscriber";
@@ -1158,13 +1163,15 @@ export function BrowseClient({
   unlockedIds: string[];
   creditsRemaining: number;
   isAdmin?: boolean;
+  isSavedView: boolean;
+  savedIds: string[];
 }) {
   const cards: Card[] = useMemo(() => {
     return realProfiles.map(rowToCard);
   }, [realProfiles]);
 
   const [searchInput, setSearchInput] = useState(activeQuery);
-  const [savedIds, setSavedIds] = useState<Set<string>>(new Set());
+  const [localSavedIds, setLocalSavedIds] = useState<Set<string>>(() => new Set(savedIds));
   const [openCard, setOpenCard] = useState<Card | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1176,6 +1183,7 @@ export function BrowseClient({
     linkedinUrl: string | null;
     cvUrl: string | null;
   }>>(new Map());
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
 
   // Sync unlock state when server props change (pagination/filter navigation).
   useEffect(() => {
@@ -1261,18 +1269,49 @@ export function BrowseClient({
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [searchInput, activeQuery]);
 
-  function toggleSave(id: string) {
-    setSavedIds((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }
+  const handleToggleSave = async (candidateId: string) => {
+    // Free tier (or anonymous) → open pricing modal instead of saving
+    if (tier === "free") {
+      setIsPricingModalOpen(true);
+      return;
+    }
+    const supabase = createClient();
+    const isSaved = localSavedIds.has(candidateId);
+    if (isSaved) {
+      setLocalSavedIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidateId);
+        return next;
+      });
+      await supabase.from("saved_profiles").delete().eq("candidate_id", candidateId);
+      setToast("Removed from saved");
+    } else {
+      setLocalSavedIds((prev) => new Set(prev).add(candidateId));
+      await supabase.from("saved_profiles").insert({ candidate_id: candidateId });
+      setToast("✓ Saved");
+    }
+    setTimeout(() => setToast(null), 2500);
+  };
 
-  function lockedAction() {
-    setToast("🔒 Subscribe to unlock full access — payment setup in progress.");
-  }
+  // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions
+  const handleLockedAction = () => {
+    // Subscribers should never hit this (their flow is handleUnlock); admins bypass everything
+    if (tier === "free") {
+      setIsPricingModalOpen(true);
+    } else {
+      // Out-of-credits subscriber edge case → keep existing toast for clarity
+      setToast("🔒 You're out of credits this month.");
+      setTimeout(() => setToast(null), 3500);
+    }
+  };
+
+  const handleGetStartedFromModal = () => {
+    setIsPricingModalOpen(false);
+    setToast("🔒 Subscriptions coming soon — payment integration in progress.");
+    setTimeout(() => setToast(null), 3500);
+  };
+
+  const lockedAction = () => handleLockedAction();
 
   async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
     const result = await unlockCandidate(candidateId);
@@ -1463,8 +1502,38 @@ export function BrowseClient({
               </div>
             )}
 
+            {isSavedView && (
+              <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, padding: "16px 20px", background: "#fff", border: "1px solid #e8e0db", borderRadius: 12 }}>
+                <div>
+                  <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                    <span style={{ fontSize: 22 }}>❤️</span>
+                    <h3 style={{ fontSize: 18, fontWeight: 500, margin: 0, color: "#111" }}>Saved profiles</h3>
+                  </div>
+                  <p style={{ fontSize: 13, color: "#666", margin: "4px 0 0 32px" }}>
+                    Showing {realProfiles.length} saved candidate{realProfiles.length !== 1 ? "s" : ""}
+                  </p>
+                </div>
+                <Link href="/browse-talent" style={{ background: "#fff", color: "#7E47FF", border: "1px solid #d8d2f6", borderRadius: 999, padding: "10px 18px", fontSize: 13, fontWeight: 500, textDecoration: "none" }}>
+                  ← Back to all candidates
+                </Link>
+              </div>
+            )}
+
             <div className="bt-cand-list">
-              {cards.length === 0 ? (
+              {isSavedView && cards.length === 0 ? (
+                <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
+                  <div style={{ width: 64, height: 64, margin: "0 auto 16px auto", borderRadius: "50%", background: "#EEEDFE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>
+                    ❤️
+                  </div>
+                  <h4 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px 0", color: "#111" }}>Build your shortlist</h4>
+                  <p style={{ fontSize: 14, color: "#666", margin: "0 0 24px 0", lineHeight: 1.5 }}>
+                    Click the heart icon on any candidate card to save them here for later review.
+                  </p>
+                  <Link href="/browse-talent" style={{ background: "#7E47FF", color: "#fff", border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-block" }}>
+                    ← Browse all candidates
+                  </Link>
+                </div>
+              ) : cards.length === 0 ? (
                 <div style={{ textAlign: "center", padding: "60px 20px", color: "#bbb", fontFamily: "'DM Sans',sans-serif" }}>
                   No candidates found. Try a different search or filter.
                 </div>
@@ -1474,10 +1543,10 @@ export function BrowseClient({
                     <CardItem
                       key={c.id}
                       c={c}
-                      saved={savedIds.has(c.id)}
+                      saved={localSavedIds.has(c.id)}
                       onView={() => setOpenCard(c)}
-                      onSave={() => toggleSave(c.id)}
-                      onLocked={lockedAction}
+                      onSave={() => handleToggleSave(c.id)}
+                      onLocked={handleLockedAction}
                       index={i}
                       tier={tier}
                       isAdmin={isAdmin}
@@ -1546,7 +1615,7 @@ export function BrowseClient({
                         <button
                           type="button"
                           className="bt-paywall-cta"
-                          onClick={lockedAction}
+                          onClick={handleLockedAction}
                         >
                           Subscribe to View
                         </button>
@@ -1600,16 +1669,16 @@ export function BrowseClient({
       {openCard && (
         <ProfileModal
           c={openCard}
-          saved={savedIds.has(openCard.id)}
+          saved={localSavedIds.has(openCard.id)}
           tier={tier}
           isAdmin={isAdmin}
           isUnlocked={unlockedSet.has(openCard.id)}
           canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(openCard.id)}
           onUnlock={() => { void handleUnlock(openCard.id, openCard.name); }}
           effectiveContact={getEffectiveContact(openCard)}
-          onSave={() => toggleSave(openCard.id)}
+          onSave={() => handleToggleSave(openCard.id)}
           onClose={() => setOpenCard(null)}
-          onLocked={lockedAction}
+          onLocked={handleLockedAction}
         />
       )}
 
@@ -1633,6 +1702,12 @@ export function BrowseClient({
           {toast}
         </div>
       )}
+
+      <PricingModal
+        isOpen={isPricingModalOpen}
+        onClose={() => setIsPricingModalOpen(false)}
+        onGetStarted={handleGetStartedFromModal}
+      />
 
       {/* ─────────── Verbatim CSS from HTML <style> block ─────────── */}
       <style jsx global>{`
