@@ -1,7 +1,9 @@
 "use client";
 
+import { track } from "@vercel/analytics";
 import Link from "next/link";
-import { Fragment, useState } from "react";
+import { Fragment, useRef, useState } from "react";
+import { submitContact } from "@/app/contact/actions";
 import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
@@ -1287,36 +1289,140 @@ function CrossBadge() {
 }
 
 function InquiryForm() {
-  const [submitted, setSubmitted] = useState(false);
-  const [form, setForm] = useState({ name: "", company: "", email: "", size: "", message: "" });
+  const submitLockRef = useRef(false);
+  const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
+  const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
+  const [errorMessage, setErrorMessage] = useState<string | null>(null);
+  const [form, setForm] = useState({
+    name: "",
+    company: "",
+    email: "",
+    size: "1–2 people",
+    message: "",
+    companyUrl: "",
+  });
 
-  const handleSubmit = () => {
-    if (!form.name || !form.email) {
-      alert("Please enter your name and email.");
-      return;
-    }
-    const subject = encodeURIComponent(
-      `Dedicated Team Inquiry from ${form.name}${form.company ? ` — ${form.company}` : ""}`,
-    );
-    const body = encodeURIComponent(
-      `Name: ${form.name}\nCompany: ${form.company}\nEmail: ${form.email}\nTeam Size: ${form.size}\n\nMessage:\n${form.message}`,
-    );
-    window.location.href = `mailto:waleed@remotiv.work?subject=${subject}&body=${body}`;
-    setSubmitted(true);
+  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
+
+  const resetForm = () => {
+    setStatus("idle");
+    setErrors({});
+    setErrorMessage(null);
+    setForm({
+      name: "",
+      company: "",
+      email: "",
+      size: "1–2 people",
+      message: "",
+      companyUrl: "",
+    });
+    submitLockRef.current = false;
   };
 
-  const inputClass =
-    "w-full rounded-lg border-none bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]";
+  const submit = async () => {
+    if (submitLockRef.current) return;
 
-  if (submitted) {
+    const newErrors: { name?: boolean; email?: boolean } = {};
+    if (!form.name.trim()) newErrors.name = true;
+    if (!form.email.trim()) newErrors.email = true;
+    if (Object.keys(newErrors).length > 0) {
+      setErrors(newErrors);
+      setErrorMessage("Please fill in your name and work email.");
+      return;
+    }
+    if (!emailRegex.test(form.email.trim())) {
+      setErrors({ email: true });
+      setErrorMessage("Please enter a valid email address.");
+      return;
+    }
+
+    submitLockRef.current = true;
+    setStatus("sending");
+    setErrors({});
+    setErrorMessage(null);
+
+    const messageWithSize = `Team Size: ${form.size}\n\n${form.message.trim()}`;
+
+    const timeoutPromise = new Promise<never>((_, reject) =>
+      setTimeout(() => reject(new Error("timeout")), 15000),
+    );
+
+    try {
+      const result = await Promise.race([
+        submitContact({
+          name: form.name.trim(),
+          email: form.email.trim(),
+          company: form.company.trim(),
+          service: "Dedicated Team",
+          message: messageWithSize,
+          companyUrl: form.companyUrl,
+        }),
+        timeoutPromise,
+      ]);
+
+      if (result.success) {
+        track("inquiry_submitted", {
+          source: "dedicated_team_page",
+          service: "Dedicated Team",
+        });
+        setStatus("success");
+      } else {
+        setStatus("idle");
+        setErrorMessage(
+          result.error ||
+            "Something went wrong. Please try again or email us at talent@remotiv.work.",
+        );
+        submitLockRef.current = false;
+      }
+    } catch (err) {
+      setStatus("idle");
+      const isTimeout = err instanceof Error && err.message === "timeout";
+      setErrorMessage(
+        isTimeout
+          ? "The request is taking too long. Please try again in a moment."
+          : "Something went wrong. Please try again or email us at talent@remotiv.work.",
+      );
+      submitLockRef.current = false;
+    }
+  };
+
+  if (status === "success") {
     return (
       <div className="rounded-2xl bg-white p-7">
-        <div className="py-6 text-center">
-          <div className="mb-3 text-4xl">✅</div>
+        <div
+          role="status"
+          aria-live="polite"
+          className="py-6 text-center"
+        >
+          <div className="mx-auto mb-4 flex h-14 w-14 items-center justify-center rounded-full bg-remotiv-green/10">
+            <svg
+              viewBox="0 0 24 24"
+              fill="none"
+              className="h-7 w-7 text-remotiv-green"
+              aria-hidden="true"
+            >
+              <path
+                d="M5 12l5 5L20 7"
+                stroke="currentColor"
+                strokeWidth="2.5"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+              />
+            </svg>
+          </div>
           <h3 className="m-0 mb-2 font-[Sora,sans-serif] text-base font-bold text-[#111]">
             Inquiry Sent!
           </h3>
-          <p className="m-0 text-[13px] text-[#666]">We&apos;ll get back to you within 48 hours.</p>
+          <p className="m-0 mb-6 text-[13px] text-[#666]">
+            Thanks for reaching out. We&apos;ll get back to you within 24 hours.
+          </p>
+          <button
+            type="button"
+            onClick={resetForm}
+            className="rounded-full bg-[#111] px-5 py-3.5 text-sm font-medium text-white transition-opacity hover:opacity-[0.88]"
+          >
+            Submit Another Inquiry
+          </button>
         </div>
       </div>
     );
@@ -1327,21 +1433,36 @@ function InquiryForm() {
       <p className="m-0 mb-4 font-[Sora,sans-serif] text-sm font-bold text-[#111]">
         Send an Inquiry
       </p>
+
+      {errorMessage && (
+        <p
+          id="dt-form-error"
+          role="alert"
+          aria-live="assertive"
+          className="mb-4 rounded-lg bg-red-50 px-4 py-3 text-sm text-red-700"
+        >
+          {errorMessage}
+        </p>
+      )}
+
       <div className="mb-2.5 grid grid-cols-2 gap-2.5">
         <div>
           <label
             htmlFor="dt-inq-name"
             className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
           >
-            Full Name
+            Full Name <span className="text-red-500">*</span>
           </label>
           <input
             id="dt-inq-name"
             type="text"
             value={form.name}
             onChange={(e) => setForm({ ...form, name: e.target.value })}
+            maxLength={80}
+            aria-invalid={errors.name ? true : undefined}
+            aria-describedby={errorMessage ? "dt-form-error" : undefined}
             placeholder="Your name"
-            className={inputClass}
+            className={`w-full rounded-lg border ${errors.name ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]`}
           />
         </div>
         <div>
@@ -1356,8 +1477,9 @@ function InquiryForm() {
             type="text"
             value={form.company}
             onChange={(e) => setForm({ ...form, company: e.target.value })}
+            maxLength={80}
             placeholder="Company name"
-            className={inputClass}
+            className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
           />
         </div>
       </div>
@@ -1366,15 +1488,18 @@ function InquiryForm() {
           htmlFor="dt-inq-email"
           className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
         >
-          Work Email
+          Work Email <span className="text-red-500">*</span>
         </label>
         <input
           id="dt-inq-email"
           type="email"
           value={form.email}
           onChange={(e) => setForm({ ...form, email: e.target.value })}
+          maxLength={120}
+          aria-invalid={errors.email ? true : undefined}
+          aria-describedby={errorMessage ? "dt-form-error" : undefined}
           placeholder="you@company.com"
-          className={inputClass}
+          className={`w-full rounded-lg border ${errors.email ? "border-red-500" : "border-transparent"} bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]`}
         />
       </div>
       <div className="mb-2.5">
@@ -1388,11 +1513,8 @@ function InquiryForm() {
           id="dt-inq-size"
           value={form.size}
           onChange={(e) => setForm({ ...form, size: e.target.value })}
-          className={inputClass}
+          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef]"
         >
-          <option value="" disabled>
-            Select team size
-          </option>
           <option>1–2 people</option>
           <option>3–5 people</option>
           <option>6–10 people</option>
@@ -1410,17 +1532,43 @@ function InquiryForm() {
           id="dt-inq-message"
           value={form.message}
           onChange={(e) => setForm({ ...form, message: e.target.value })}
+          maxLength={2000}
           placeholder="Tell us about the roles, skills needed, and timeline..."
-          className={`${inputClass} min-h-[68px] resize-none`}
+          aria-describedby={errorMessage ? "dt-form-error" : undefined}
+          className="w-full rounded-lg border border-transparent bg-[#f5f5f5] px-3 py-[9px] text-base sm:text-xs text-[#333] outline-none transition-colors focus:bg-[#efefef] min-h-[68px] resize-none"
         />
       </div>
+
+      <div
+        aria-hidden="true"
+        style={{
+          position: "absolute",
+          left: "-9999px",
+          width: "1px",
+          height: "1px",
+          overflow: "hidden",
+        }}
+      >
+        <label htmlFor="dt-company-url">Company URL</label>
+        <input
+          id="dt-company-url"
+          type="text"
+          name="company_url"
+          tabIndex={-1}
+          autoComplete="off"
+          value={form.companyUrl}
+          onChange={(e) => setForm({ ...form, companyUrl: e.target.value })}
+        />
+      </div>
+
       <button
         type="button"
-        onClick={handleSubmit}
-        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none py-3 font-[Sora,sans-serif] text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px"
+        onClick={submit}
+        disabled={status === "sending"}
+        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none py-3 font-[Sora,sans-serif] text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
         style={{ background: PURPLE }}
       >
-        Send Inquiry →
+        {status === "sending" ? "Sending..." : "Send Inquiry →"}
       </button>
       <p className="m-0 text-center text-[10px] text-[#bbb]">
         <svg
