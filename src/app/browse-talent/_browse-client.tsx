@@ -3,7 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Search } from "lucide-react";
+import { Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
@@ -721,6 +721,30 @@ function ProfileModal({
       role="presentation"
     >
       <div className="bt-modal-panel" onClick={(e) => e.stopPropagation()} role="presentation">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          style={{
+            position: "absolute",
+            top: 12,
+            right: 12,
+            background: "#fff",
+            border: "1px solid #e8e0db",
+            borderRadius: "50%",
+            width: 36,
+            height: 36,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            cursor: "pointer",
+            zIndex: 10,
+            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
+          }}
+        >
+          <X size={16} color="#666" />
+        </button>
+        <div className="bt-modal-scroll">
         {tier === "subscriber" && (
           <div className="bt-admin-banner" role="status">
             <span aria-hidden>🔓</span>
@@ -798,14 +822,6 @@ function ProfileModal({
               )}
             </div>
           </div>
-          <button
-            type="button"
-            className="bt-modal-close"
-            onClick={onClose}
-            aria-label="Close"
-          >
-            x
-          </button>
         </div>
 
         <div className="bt-modal-body">
@@ -1019,6 +1035,7 @@ function ProfileModal({
               {saved ? "♥ Saved" : "♡ Save Profile"}
             </button>
           </div>
+        </div>
         </div>
       </div>
     </div>
@@ -2058,9 +2075,10 @@ export function BrowseClient({
           border-color: rgba(126, 71, 255, 0.4);
         }
         .bt-modal-overlay { position: fixed; inset: 0; background: rgba(0,0,0,0.5); backdrop-filter: blur(8px); display: flex; align-items: center; justify-content: center; z-index: 500; padding: 20px; }
-        .bt-modal-panel { background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 20px; width: 100%; max-width: 600px; max-height: 90vh; overflow-y: auto; box-shadow: 0 24px 64px rgba(0,0,0,0.15); }
-        .bt-modal-panel::-webkit-scrollbar { width: 4px; }
-        .bt-modal-panel::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
+        .bt-modal-panel { position: relative; background: #fff; border: 1px solid rgba(0,0,0,0.1); border-radius: 20px; width: 100%; max-width: 600px; max-height: 90vh; overflow: hidden; display: flex; flex-direction: column; box-shadow: 0 24px 64px rgba(0,0,0,0.15); }
+        .bt-modal-scroll { flex: 1 1 auto; min-height: 0; overflow-y: auto; }
+        .bt-modal-scroll::-webkit-scrollbar { width: 4px; }
+        .bt-modal-scroll::-webkit-scrollbar-thumb { background: rgba(0,0,0,0.1); border-radius: 4px; }
         .bt-modal-header { padding: 24px 28px 20px; border-bottom: 1px solid rgba(0,0,0,0.07); display: flex; gap: 16px; align-items: flex-start; }
         .bt-modal-avatar { width: 52px; height: 52px; border-radius: 14px; display: flex; align-items: center; justify-content: center; font-family: "Sora",sans-serif; font-size: 1rem; font-weight: 700; flex-shrink: 0; border: 1px solid; }
         .bt-modal-meta { flex: 1; }
