@@ -4,7 +4,6 @@ import { track } from "@vercel/analytics";
 import Link from "next/link";
 import { Fragment, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
 
@@ -424,9 +423,9 @@ export default function DedicatedTeamPage() {
         }}
       />
       <Navbar />
-      <main className="flex-1 bg-white font-sans text-remotiv-text-dark">
+      <main id="main" className="flex-1 bg-white font-sans text-remotiv-text-dark">
         {/* HERO */}
-        <section className="box-border w-full bg-white p-6 max-md:p-4">
+        <section className="box-border w-full bg-white px-6 max-md:px-4 py-14 md:py-20">
           <div
             className="relative isolate mx-auto flex w-full flex-col items-center justify-center overflow-hidden rounded-[32px] px-6 pt-18 pb-20 max-md:px-5 max-md:pt-12 max-md:pb-12"
             style={{ background: "#F5F1EC" }}
@@ -477,7 +476,7 @@ export default function DedicatedTeamPage() {
                         {stat.em}
                       </em>
                     </div>
-                    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/65">
+                    <div className="text-[11px] font-semibold uppercase tracking-[0.1em] text-white/85">
                       {stat.label}
                     </div>
                   </div>
@@ -488,7 +487,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* HOW IT WORKS */}
-        <section className="box-border w-full bg-white px-14 pt-12 pb-10 max-md:px-6 max-md:py-14">
+        <section className="box-border w-full bg-white px-14 max-md:px-6 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <span
               className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
@@ -525,7 +524,7 @@ export default function DedicatedTeamPage() {
                     </em>
                   </div>
                   <div className="h-px w-full bg-white/20" />
-                  <p className="text-[0.88rem] leading-[1.75] text-white/80">{card.body}</p>
+                  <p className="text-[0.88rem] leading-[1.75] text-white">{card.body}</p>
                 </div>
               ))}
             </div>
@@ -533,7 +532,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* WHY REMOTIV */}
-        <section className="box-border w-full bg-white px-14 py-12 max-md:px-6 max-md:py-14">
+        <section className="box-border w-full bg-white px-14 max-md:px-6 py-14 md:py-20">
           <div className="mx-auto max-w-[1100px]">
             <span
               className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
@@ -569,7 +568,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* OUR PROCESS */}
-        <section id="process" className="box-border w-full bg-white px-14 py-12 max-md:px-6 max-md:pt-14 max-md:pb-18">
+        <section id="process" className="box-border w-full bg-white px-14 max-md:px-6 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-16 text-center">
               <span
@@ -643,7 +642,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* THE ADVANTAGE */}
-        <section className="box-border w-full bg-white px-10 py-12 max-md:px-6 max-md:py-16">
+        <section className="box-border w-full bg-white px-10 max-md:px-6 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14">
               <span
@@ -694,7 +693,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* COST COMPARISON */}
-        <section className="box-border w-full bg-white px-10 py-12 max-md:px-5 max-md:py-16">
+        <section className="box-border w-full bg-white px-10 max-md:px-5 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <span
@@ -719,10 +718,10 @@ export default function DedicatedTeamPage() {
               style={{ boxShadow: "0 24px 80px rgba(0,0,0,0.18)" }}
             >
               <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] bg-[#111] px-10 max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5">
-                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
+                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/85 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
                   Role
                 </div>
-                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/40 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
+                <div className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-white/85 max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]">
                   US Market
                 </div>
                 <div
@@ -779,7 +778,7 @@ export default function DedicatedTeamPage() {
                 }}
               >
                 <div className="flex flex-col gap-1">
-                  <span className="text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/75">
+                  <span className="text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/85">
                     Annual savings on a 5-person team
                   </span>
                   <span
@@ -796,7 +795,7 @@ export default function DedicatedTeamPage() {
               </div>
             </div>
 
-            <p className="mt-5 text-center text-[0.75rem] leading-[1.65] text-[#aaa]">
+            <p className="mt-5 text-center text-[0.75rem] leading-[1.65] text-remotiv-text-light">
               * Remotiv rates are estimates based on mid-to-senior level Pakistani talent. Actual
               rates vary by role, experience, and team composition. All figures in USD annually.
             </p>
@@ -804,7 +803,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* WHY NOT DIY */}
-        <section className="box-border w-full bg-white px-10 py-12 max-md:px-5 max-md:py-16">
+        <section className="box-border w-full bg-white px-10 max-md:px-5 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[900px]">
             <div className="mb-14 text-center">
               <span
@@ -830,7 +829,7 @@ export default function DedicatedTeamPage() {
               style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.07)" }}
             >
               <div className="grid grid-cols-[1.4fr_1fr_1fr] bg-[#111] max-[720px]:grid-cols-2">
-                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40 max-[720px]:hidden" />
+                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/85 max-[720px]:hidden" />
                 <div
                   className="flex items-center gap-2.5 rounded-tr-xl bg-remotiv-purple px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white max-[720px]:rounded-tl-xl max-[720px]:rounded-tr-none"
                 >
@@ -841,7 +840,7 @@ export default function DedicatedTeamPage() {
                     Recommended
                   </span>
                 </div>
-                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40">
+                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/85">
                   DIY Offshore
                 </div>
               </div>
@@ -878,7 +877,7 @@ export default function DedicatedTeamPage() {
                       {row.both ? <CheckBadge /> : <CrossBadge />}
                       <span
                         className={`text-[0.85rem] leading-[1.4] ${
-                          row.both ? "font-medium text-[#333]" : "font-normal text-[#999]"
+                          row.both ? "font-medium text-[#333]" : "font-normal text-[#666]"
                         }`}
                       >
                         {row.diy}
@@ -896,13 +895,13 @@ export default function DedicatedTeamPage() {
                   <div className="font-heading text-base font-bold text-white">
                     Ready to skip the complexity?
                   </div>
-                  <div className="mt-1 text-[0.82rem] text-white/75">
+                  <div className="mt-1 text-[0.82rem] text-white/85">
                     Your team ready in 2 weeks. Zero legal overhead. Zero setup cost.
                   </div>
                 </div>
                 <Link
                   href="/book-a-meeting"
-                  className="shrink-0 whitespace-nowrap rounded-[10px] bg-remotiv-lime-card px-6 py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition-transform hover:-translate-y-0.5"
+                  className="shrink-0 whitespace-nowrap rounded-[10px] bg-remotiv-lime-card px-6 py-3.5 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition-transform hover:-translate-y-0.5"
                 >
                   Book a Free Call →
                 </Link>
@@ -912,18 +911,18 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* WHAT WE BUILD */}
-        <section className="box-border w-full bg-remotiv-purple-light px-14 pt-16 pb-20 max-md:px-6 max-md:pt-12 max-md:pb-16">
+        <section className="box-border w-full bg-remotiv-purple-light px-14 max-md:px-6 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
-            <span className="mb-3.5 block text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
+            <span className="mb-3.5 block text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/85">
               What We Build
             </span>
             <h2
               className="m-0 mb-3.5 max-w-[680px] font-heading font-bold leading-[1.2] tracking-[-0.02em] text-white"
               style={{ fontSize: "clamp(1.6rem, 2.8vw, 2.2rem)" }}
             >
-              Every Function. Every Level.
+              Every Function. Every Level
             </h2>
-            <p className="m-0 mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/75">
+            <p className="m-0 mb-12 max-w-[680px] text-[0.95rem] leading-[1.7] text-white/85">
               We build dedicated teams across the full spectrum of professional roles — from
               individual contributors to team leads and managers.
             </p>
@@ -952,7 +951,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* CTA INQUIRY */}
-        <section id="inquiry" className="bg-white px-10 py-12 max-md:px-5">
+        <section id="inquiry" className="bg-white px-10 max-md:px-5 py-14 md:py-20">
           <div
             className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl bg-remotiv-lime-card p-14 max-[900px]:grid-cols-1 max-[900px]:gap-8 max-[900px]:p-7"
           >
@@ -964,7 +963,7 @@ export default function DedicatedTeamPage() {
                 className="m-0 mb-3 font-heading font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.4rem, 2.2vw, 1.9rem)" }}
               >
-                Your Dedicated Team is a Week Away.
+                Your Dedicated Team is a Week Away
               </h2>
               <p className="m-0 mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
                 Tell us the roles you need. Remotiv recruits, onboards, and manages your full
@@ -974,7 +973,7 @@ export default function DedicatedTeamPage() {
               <div className="mb-7 flex flex-wrap gap-2.5">
                 <Link
                   href="/book-a-meeting"
-                  className="inline-flex items-center rounded-full bg-remotiv-purple px-6 py-3 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-90"
+                  className="inline-flex items-center rounded-full bg-remotiv-purple px-6 py-3.5 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-90"
                 >
                   Build Your Dedicated Team →
                 </Link>
@@ -982,7 +981,7 @@ export default function DedicatedTeamPage() {
                   href="https://calendly.com/waleed-izww/intro-call"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[11px] text-[0.82rem] font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
+                  className="inline-flex items-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-3.5 text-[0.82rem] font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
                 >
                   Book a 30-Min Call
                 </a>
@@ -1039,7 +1038,7 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="box-border w-full border-t border-black/[0.06] bg-white px-10 pt-10 pb-20 max-md:px-6 max-md:pt-14 max-md:pb-18">
+        <section id="faq" className="box-border w-full border-t border-black/[0.06] bg-white px-10 max-md:px-6 py-14 md:py-20">
           <div className="mx-auto flex max-w-[1100px] flex-row items-start gap-20 max-[900px]:flex-col max-[900px]:gap-10">
             <div className="box-border max-w-[35%] flex-[0_0_35%] max-[900px]:max-w-full max-[900px]:flex-auto">
               <h2
@@ -1094,7 +1093,6 @@ export default function DedicatedTeamPage() {
           </div>
         </section>
       </main>
-      <Footer />
     </>
   );
 }
@@ -1423,7 +1421,7 @@ function InquiryForm() {
         <div>
           <label
             htmlFor="dt-inq-name"
-            className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+            className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
           >
             Full Name <span className="text-red-500">*</span>
           </label>
@@ -1442,7 +1440,7 @@ function InquiryForm() {
         <div>
           <label
             htmlFor="dt-inq-company"
-            className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+            className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
           >
             Company
           </label>
@@ -1460,7 +1458,7 @@ function InquiryForm() {
       <div className="mb-2.5">
         <label
           htmlFor="dt-inq-email"
-          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
         >
           Work Email <span className="text-red-500">*</span>
         </label>
@@ -1479,7 +1477,7 @@ function InquiryForm() {
       <div className="mb-2.5">
         <label
           htmlFor="dt-inq-size"
-          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
         >
           Team Size Needed
         </label>
@@ -1498,7 +1496,7 @@ function InquiryForm() {
       <div className="mb-2.5">
         <label
           htmlFor="dt-inq-message"
-          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#888]"
+          className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
         >
           Message
         </label>
@@ -1539,17 +1537,17 @@ function InquiryForm() {
         type="button"
         onClick={submit}
         disabled={status === "sending"}
-        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-remotiv-purple py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
+        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-remotiv-purple py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "sending" ? "Sending..." : "Send Inquiry →"}
       </button>
-      <p className="m-0 text-center text-[10px] text-[#bbb]">
+      <p className="m-0 text-center text-[10px] text-remotiv-text-light">
         <svg
           width="9"
           height="9"
           viewBox="0 0 24 24"
           fill="none"
-          stroke="#bbb"
+          stroke="#777"
           strokeWidth="2"
           className="mr-1 inline-block align-middle"
           aria-hidden="true"
