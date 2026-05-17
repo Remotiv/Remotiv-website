@@ -87,8 +87,12 @@ export default async function BrowseTalentPage({
     }
   }
 
+  // Phase B security: free tier is locked to page 1. Without this, free users could
+  // bypass the 15-row cap by passing ?page=2, ?page=3 etc. and scrape the full pool.
+  // Admins and subscribers keep normal pagination behavior.
+  const effectivePage = tier === "free" && !isAdmin ? 1 : page;
   const PAGE_SIZE = tier === "free" ? 15 : 30;
-  const from = (page - 1) * PAGE_SIZE;
+  const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
   // Phase B-4: saved profiles filter — fetch user's saved candidate IDs
@@ -156,7 +160,8 @@ export default async function BrowseTalentPage({
     const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
     rows = (talentResult.data ?? []) as TalentRow[];
     totalCount = countResult.count ?? 0;
-    totalPages = Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    // Free tier always sees only page 1 — never expose pagination affordance to them
+    totalPages = tier === "free" && !isAdmin ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
   }
 
   // Fetch user's unlock_events for visibility check.
