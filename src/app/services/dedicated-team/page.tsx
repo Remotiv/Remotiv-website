@@ -321,10 +321,7 @@ const FAQS: readonly { q: string; a: string }[] = [
   },
 ];
 
-const PURPLE_LIGHT = "#9886fe";
-const PURPLE = "#7E47FF";
-const LIME = "#c9ff85";
-const GREEN = "#49D7A7";
+const EMAIL_REGEX = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
 
 const ICON_SVG_CLASS = "mt-0.5 h-[22px] w-[22px]";
 
@@ -417,17 +414,17 @@ export default function DedicatedTeamPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
+              url: "https://www.remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://remotiv-website-m3jo.vercel.app/services/dedicated-team",
+            url: "https://www.remotiv.work/services/dedicated-team",
             description:
               "Build a dedicated remote engineering team. Hand-picked, managed, retained.",
           }),
         }}
       />
       <Navbar />
-      <main className="flex-1 bg-white font-[DM_Sans,sans-serif] text-[#111]">
+      <main className="flex-1 bg-white font-sans text-remotiv-text-dark">
         {/* HERO */}
         <section className="box-border w-full bg-white p-6 max-md:p-4">
           <div
@@ -436,7 +433,7 @@ export default function DedicatedTeamPage() {
           >
             <div
               aria-hidden="true"
-              className="pointer-events-none absolute inset-0 z-0"
+              className="pointer-events-none absolute inset-0 z-0 max-md:hidden"
               style={{
                 backgroundImage:
                   "linear-gradient(to right, #ccc8c0 0.5px, transparent 0.5px), linear-gradient(to bottom, #ccc8c0 0.5px, transparent 0.5px)",
@@ -445,26 +442,25 @@ export default function DedicatedTeamPage() {
             />
             <div className="relative z-10 mx-auto flex w-full max-w-[1100px] flex-col items-center text-center">
               <h1
-                className="m-0 max-w-[860px] text-center font-[Sora,sans-serif] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]"
+                className="m-0 max-w-[860px] text-center font-heading font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)" }}
               >
                 Your Dedicated Team. Recruited,
               </h1>
               <div
-                className="mt-1 mb-7 max-w-[860px] text-center font-[Sora,sans-serif] font-extrabold leading-[1.1] tracking-[-0.02em]"
-                style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)", color: PURPLE_LIGHT }}
+                className="mt-1 mb-7 max-w-[860px] text-center font-heading font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-purple-light"
+                style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)" }}
               >
                 Onboarded, and Working in 2 Weeks.
               </div>
-              <p className="mb-12 max-w-[580px] text-center text-[1.1rem] leading-[1.65] text-[#777]">
+              <p className="mb-12 max-w-[580px] text-center text-[1.1rem] leading-[1.65] text-remotiv-text-light">
                 You define the roles. Remotiv recruits, onboards, and manages your dedicated team
                 — HR, payroll, contracts, and compliance handled silently in the background. They
                 work exclusively for you, on your tools, your timezone, your culture.
               </p>
 
               <div
-                className="flex w-full max-w-[1040px] items-stretch overflow-hidden rounded-[20px] max-md:flex-col"
-                style={{ background: PURPLE }}
+                className="flex w-full max-w-[1040px] items-stretch overflow-hidden rounded-[20px] bg-remotiv-purple max-md:flex-col"
               >
                 {HERO_STATS.map((stat, i) => (
                   <div
@@ -475,9 +471,9 @@ export default function DedicatedTeamPage() {
                         : ""
                     }`}
                   >
-                    <div className="mb-3.5 font-[Sora,sans-serif] text-[38px] font-extrabold leading-none tracking-[-1px] text-white max-md:text-[28px]">
+                    <div className="mb-3.5 font-heading text-[38px] font-extrabold leading-none tracking-[-1px] text-white max-md:text-[28px]">
                       {stat.num}
-                      <em className="not-italic" style={{ color: LIME }}>
+                      <em className="not-italic text-remotiv-lime-card">
                         {stat.em}
                       </em>
                     </div>
@@ -495,26 +491,24 @@ export default function DedicatedTeamPage() {
         <section className="box-border w-full bg-white px-14 pt-12 pb-10 max-md:px-6 max-md:py-14">
           <div className="mx-auto max-w-[1100px]">
             <span
-              className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-              style={{ color: PURPLE_LIGHT }}
+              className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
             >
               How It Works
             </span>
             <h2
-              className="m-0 mb-5 text-center font-[Sora,sans-serif] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#111]"
+              className="m-0 mb-5 text-center font-heading font-extrabold leading-[1.1] tracking-[-0.03em] text-remotiv-text-dark"
               style={{ fontSize: "clamp(2rem, 4vw, 3.2rem)" }}
             >
               A Full Team That Works Only for You
             </h2>
-            <p className="mx-auto mb-14 max-w-[640px] text-center text-base leading-[1.7] text-[#777]">
+            <p className="mx-auto mb-14 max-w-[640px] text-center text-base leading-[1.7] text-remotiv-text-light">
               A dedicated team is a group of full-time remote professionals recruited and employed
               exclusively for your company. They join your Slack, attend your standups, commit to
               your repo, and report to you. From the outside, they are indistinguishable from your
               in-house team.
             </p>
             <div
-              className="grid grid-cols-3 gap-0 rounded-3xl p-10 max-md:grid-cols-1 max-md:p-6"
-              style={{ background: PURPLE_LIGHT }}
+              className="grid grid-cols-3 gap-0 rounded-3xl bg-remotiv-purple-light p-10 max-md:grid-cols-1 max-md:p-6"
             >
               {HOW_IT_WORKS.map((card, i) => (
                 <div
@@ -525,8 +519,8 @@ export default function DedicatedTeamPage() {
                       : ""
                   }`}
                 >
-                  <div className="mb-1 font-[Sora,sans-serif] text-[1.05rem] font-bold text-white">
-                    <em className="not-italic" style={{ color: LIME }}>
+                  <div className="mb-1 font-heading text-[1.05rem] font-bold text-white">
+                    <em className="not-italic text-remotiv-lime-card">
                       {card.em}
                     </em>
                   </div>
@@ -542,13 +536,12 @@ export default function DedicatedTeamPage() {
         <section className="box-border w-full bg-white px-14 py-12 max-md:px-6 max-md:py-14">
           <div className="mx-auto max-w-[1100px]">
             <span
-              className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-              style={{ color: PURPLE_LIGHT }}
+              className="mb-4 block text-center text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
             >
               Why Remotiv
             </span>
             <h2
-              className="m-0 mb-12 text-center font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+              className="m-0 mb-12 text-center font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
               style={{ fontSize: "clamp(1.75rem, 3vw, 2.4rem)" }}
             >
               What Separates Us from Every Other Option
@@ -580,18 +573,17 @@ export default function DedicatedTeamPage() {
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-16 text-center">
               <span
-                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-                style={{ color: PURPLE_LIGHT }}
+                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
               >
                 Our Process
               </span>
               <h2
-                className="m-0 mb-4 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+                className="m-0 mb-4 font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.75rem, 3vw, 2.4rem)" }}
               >
                 From Brief to Fully Operational in 2 Weeks
               </h2>
-              <p className="mx-auto max-w-[580px] text-base leading-[1.7] text-[#777]">
+              <p className="mx-auto max-w-[580px] text-base leading-[1.7] text-remotiv-text-light">
                 We&apos;ve built a process that gets your dedicated team recruited, onboarded, and
                 productive faster than any other provider in the market.
               </p>
@@ -614,11 +606,8 @@ export default function DedicatedTeamPage() {
                         style={{ background: isFirst ? "transparent" : "rgba(152,134,254,0.25)" }}
                       />
                       <div
-                        className="z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full font-[Sora,sans-serif] text-[0.9rem] font-extrabold text-white"
-                        style={{
-                          background: PURPLE,
-                          boxShadow: "0 0 0 6px rgba(152,134,254,0.15)",
-                        }}
+                        className="z-10 flex h-11 w-11 shrink-0 items-center justify-center rounded-full bg-remotiv-purple font-heading text-[0.9rem] font-extrabold text-white"
+                        style={{ boxShadow: "0 0 0 6px rgba(152,134,254,0.15)" }}
                       >
                         {step.n}
                       </div>
@@ -658,13 +647,12 @@ export default function DedicatedTeamPage() {
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14">
               <span
-                className="mb-3.5 block text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-                style={{ color: PURPLE_LIGHT }}
+                className="mb-3.5 block text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
               >
                 The Advantage
               </span>
               <h2
-                className="m-0 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+                className="m-0 font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.75rem, 3vw, 2.4rem)" }}
               >
                 What Changes When You Build with Remotiv
@@ -678,7 +666,7 @@ export default function DedicatedTeamPage() {
                   i === ADVANTAGE_ROWS.length - 1 ? "border-b" : ""
                 }`}
               >
-                <h3 className="m-0 pr-1 font-[Sora,sans-serif] text-base font-bold leading-[1.3] text-[#111]">
+                <h3 className="m-0 pr-1 font-heading text-base font-bold leading-[1.3] text-remotiv-text-dark">
                   {row.label}
                 </h3>
                 <div className="grid grid-cols-3 gap-8 max-md:grid-cols-2 max-md:gap-6 max-[560px]:grid-cols-1">
@@ -689,9 +677,9 @@ export default function DedicatedTeamPage() {
                     >
                       <AdvantageIconSvg
                         icon={col.icon}
-                        color={row.color === "purple" ? PURPLE : PURPLE_LIGHT}
+                        color={row.color === "purple" ? "#7E47FF" : "#9886fe"}
                       />
-                      <h4 className="col-start-2 row-start-1 m-0 self-center font-[Sora,sans-serif] text-[0.92rem] font-bold text-[#111]">
+                      <h4 className="col-start-2 row-start-1 m-0 self-center font-heading text-[0.92rem] font-bold text-remotiv-text-dark">
                         {col.heading}
                       </h4>
                       <p className="col-span-2 row-start-2 m-0 text-[0.85rem] leading-[1.72] text-[#555]">
@@ -710,18 +698,17 @@ export default function DedicatedTeamPage() {
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <span
-                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-                style={{ color: PURPLE_LIGHT }}
+                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
               >
                 The Numbers
               </span>
               <h2
-                className="m-0 mb-4 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+                className="m-0 mb-4 font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.75rem, 3vw, 2.4rem)" }}
               >
                 What a 5-Person Team Actually Costs
               </h2>
-              <p className="mx-auto max-w-[540px] text-base leading-[1.7] text-[#777]">
+              <p className="mx-auto max-w-[540px] text-base leading-[1.7] text-remotiv-text-light">
                 Same quality. Same timezone overlap. Same standup culture. The only difference is
                 the number on the invoice.
               </p>
@@ -739,14 +726,12 @@ export default function DedicatedTeamPage() {
                   US Market
                 </div>
                 <div
-                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
-                  style={{ color: LIME }}
+                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-remotiv-lime-card max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
                 >
                   Via Remotiv
                 </div>
                 <div
-                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
-                  style={{ color: GREEN }}
+                  className="pt-7 pb-5 text-[0.68rem] font-bold uppercase tracking-[0.14em] text-remotiv-green max-[600px]:pt-4 max-[600px]:pb-3 max-[600px]:text-[0.58rem] max-[600px]:tracking-[0.06em]"
                 >
                   You Save
                 </div>
@@ -757,31 +742,29 @@ export default function DedicatedTeamPage() {
                   <CostRow key={row.role} {...row} />
                 ))}
                 <div
-                  className="grid grid-cols-[1.8fr_1fr_1fr_1fr] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5"
-                  style={{ background: PURPLE }}
+                  className="grid grid-cols-[1.8fr_1fr_1fr_1fr] bg-remotiv-purple px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5"
                 >
                   <div className="flex items-center py-5.5 max-[600px]:py-3.5">
-                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white max-[600px]:text-[0.78rem]">
+                    <span className="font-heading text-base font-extrabold text-white max-[600px]:text-[0.78rem]">
                       5-Person Team Total
                     </span>
                   </div>
                   <div className="flex items-center py-5.5 max-[600px]:py-3.5">
                     <span
-                      className="font-[Sora,sans-serif] text-base font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
+                      className="font-heading text-base font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
                       style={{ color: "rgba(255,255,255,0.5)" }}
                     >
                       $460,000/yr
                     </span>
                   </div>
                   <div className="flex items-center py-5.5 max-[600px]:py-3.5">
-                    <span className="font-[Sora,sans-serif] text-base font-extrabold text-white max-[600px]:text-[0.7rem]">
+                    <span className="font-heading text-base font-extrabold text-white max-[600px]:text-[0.7rem]">
                       $189,000/yr
                     </span>
                   </div>
                   <div className="flex items-center py-5.5 max-[600px]:py-3.5">
                     <span
-                      className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-base font-extrabold max-[600px]:text-[0.7rem]"
-                      style={{ color: LIME }}
+                      className="inline-flex items-center gap-1.5 font-heading text-base font-extrabold text-remotiv-lime-card max-[600px]:text-[0.7rem]"
                     >
                       <span className="text-[0.7rem] opacity-70">↓</span>$271,000
                     </span>
@@ -792,7 +775,7 @@ export default function DedicatedTeamPage() {
               <div
                 className="flex flex-wrap items-center justify-between gap-6 px-10 py-8 max-md:px-5 max-md:py-6"
                 style={{
-                  background: `linear-gradient(135deg, ${GREEN} 0%, ${PURPLE_LIGHT} 100%)`,
+                  background: "linear-gradient(135deg, #49D7A7 0%, #9886fe 100%)",
                 }}
               >
                 <div className="flex flex-col gap-1">
@@ -800,10 +783,10 @@ export default function DedicatedTeamPage() {
                     Annual savings on a 5-person team
                   </span>
                   <span
-                    className="font-[Sora,sans-serif] font-extrabold leading-none tracking-[-0.03em] text-white"
+                    className="font-heading font-extrabold leading-none tracking-[-0.03em] text-white"
                     style={{ fontSize: "clamp(2rem, 4vw, 3rem)" }}
                   >
-                    $<em className="not-italic text-[#111]">271,000</em>
+                    $<em className="not-italic text-remotiv-text-dark">271,000</em>
                   </span>
                 </div>
                 <p className="max-w-[340px] text-[0.88rem] leading-[1.6] text-white/85">
@@ -825,18 +808,17 @@ export default function DedicatedTeamPage() {
           <div className="mx-auto max-w-[900px]">
             <div className="mb-14 text-center">
               <span
-                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em]"
-                style={{ color: PURPLE_LIGHT }}
+                className="mb-4 block text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-purple-light"
               >
                 Why Not DIY?
               </span>
               <h2
-                className="m-0 mb-4 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+                className="m-0 mb-4 font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.75rem, 3vw, 2.4rem)" }}
               >
                 Remotiv vs Hiring in Pakistan Yourself
               </h2>
-              <p className="mx-auto max-w-[600px] text-base leading-[1.7] text-[#777]">
+              <p className="mx-auto max-w-[600px] text-base leading-[1.7] text-remotiv-text-light">
                 Setting up your own offshore team sounds simple — until you factor in legal entity
                 registration, Pakistani employment law, local HR management, and cross-border
                 payroll. Here&apos;s the real comparison.
@@ -848,20 +830,18 @@ export default function DedicatedTeamPage() {
               style={{ boxShadow: "0 8px 40px rgba(0,0,0,0.07)" }}
             >
               <div className="grid grid-cols-[1.4fr_1fr_1fr] bg-[#111] max-[720px]:grid-cols-2">
-                <div className="px-7 py-5.5 font-[Sora,sans-serif] text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40 max-[720px]:hidden" />
+                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40 max-[720px]:hidden" />
                 <div
-                  className="flex items-center gap-2.5 rounded-tr-xl px-7 py-5.5 font-[Sora,sans-serif] text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white max-[720px]:rounded-tl-xl max-[720px]:rounded-tr-none"
-                  style={{ background: PURPLE }}
+                  className="flex items-center gap-2.5 rounded-tr-xl bg-remotiv-purple px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white max-[720px]:rounded-tl-xl max-[720px]:rounded-tr-none"
                 >
                   <span>Remotiv</span>
                   <span
-                    className="rounded px-2 py-0.5 text-[0.6rem] font-extrabold uppercase tracking-[0.06em] text-[#111]"
-                    style={{ background: LIME }}
+                    className="rounded bg-remotiv-lime-card px-2 py-0.5 text-[0.6rem] font-extrabold uppercase tracking-[0.06em] text-remotiv-text-dark"
                   >
                     Recommended
                   </span>
                 </div>
-                <div className="px-7 py-5.5 font-[Sora,sans-serif] text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40">
+                <div className="px-7 py-5.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.12em] text-white/40">
                   DIY Offshore
                 </div>
               </div>
@@ -876,7 +856,7 @@ export default function DedicatedTeamPage() {
                     style={row.both ? { background: "rgba(73,215,167,0.04)" } : undefined}
                   >
                     <div className="flex items-center gap-2.5 px-7 py-5 max-[720px]:col-span-2 max-[720px]:border-b max-[720px]:border-black/[0.05] max-[720px]:pb-2 max-[720px]:font-semibold max-[720px]:text-[0.95rem]">
-                      <span className="font-[Sora,sans-serif] text-[0.88rem] font-semibold text-[#111]">
+                      <span className="font-heading text-[0.88rem] font-semibold text-remotiv-text-dark">
                         {row.label}
                       </span>
                     </div>
@@ -910,10 +890,10 @@ export default function DedicatedTeamPage() {
 
               <div
                 className="flex flex-wrap items-center justify-between gap-5 px-8 py-7"
-                style={{ background: `linear-gradient(135deg, ${PURPLE} 0%, ${PURPLE_LIGHT} 100%)` }}
+                style={{ background: "linear-gradient(135deg, #7E47FF 0%, #9886fe 100%)" }}
               >
                 <div>
-                  <div className="font-[Sora,sans-serif] text-base font-bold text-white">
+                  <div className="font-heading text-base font-bold text-white">
                     Ready to skip the complexity?
                   </div>
                   <div className="mt-1 text-[0.82rem] text-white/75">
@@ -922,8 +902,7 @@ export default function DedicatedTeamPage() {
                 </div>
                 <Link
                   href="/book-a-meeting"
-                  className="shrink-0 whitespace-nowrap rounded-[10px] px-6 py-3 font-[Sora,sans-serif] text-[0.82rem] font-bold text-[#111] transition-transform hover:-translate-y-0.5"
-                  style={{ background: LIME }}
+                  className="shrink-0 whitespace-nowrap rounded-[10px] bg-remotiv-lime-card px-6 py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition-transform hover:-translate-y-0.5"
                 >
                   Book a Free Call →
                 </Link>
@@ -933,13 +912,13 @@ export default function DedicatedTeamPage() {
         </section>
 
         {/* WHAT WE BUILD */}
-        <section className="box-border w-full px-14 pt-16 pb-20 max-md:px-6 max-md:pt-12 max-md:pb-16" style={{ background: PURPLE_LIGHT }}>
+        <section className="box-border w-full bg-remotiv-purple-light px-14 pt-16 pb-20 max-md:px-6 max-md:pt-12 max-md:pb-16">
           <div className="mx-auto max-w-[1100px]">
             <span className="mb-3.5 block text-[0.72rem] font-bold uppercase tracking-[0.16em] text-white/65">
               What We Build
             </span>
             <h2
-              className="m-0 mb-3.5 max-w-[680px] font-[Sora,sans-serif] font-bold leading-[1.2] tracking-[-0.02em] text-white"
+              className="m-0 mb-3.5 max-w-[680px] font-heading font-bold leading-[1.2] tracking-[-0.02em] text-white"
               style={{ fontSize: "clamp(1.6rem, 2.8vw, 2.2rem)" }}
             >
               Every Function. Every Level.
@@ -953,7 +932,7 @@ export default function DedicatedTeamPage() {
               {WHAT_WE_BUILD.map((item) => (
                 <div
                   key={item.name}
-                  className="flex min-h-[180px] cursor-default flex-col items-center justify-center gap-4 rounded-2xl border border-white/20 bg-white p-5 py-8 text-center transition-all hover:-translate-y-0.5 hover:border-[#7E47FF] hover:bg-[#f9f8ff]"
+                  className="flex min-h-[180px] cursor-default flex-col items-center justify-center gap-4 rounded-2xl border border-white/20 bg-white p-5 py-8 text-center transition-all hover:-translate-y-0.5 hover:border-remotiv-purple hover:bg-[#f9f8ff]"
                 >
                   <div className="flex h-7 w-7 items-center justify-center opacity-85">
                     <svg viewBox="0 0 24 24" className="h-7 w-7 fill-[#111]" aria-hidden="true">
@@ -961,7 +940,7 @@ export default function DedicatedTeamPage() {
                     </svg>
                   </div>
                   <div>
-                    <div className="font-[Sora,sans-serif] text-[0.88rem] font-bold leading-[1.3] text-[#111]">
+                    <div className="font-heading text-[0.88rem] font-bold leading-[1.3] text-remotiv-text-dark">
                       {item.name}
                     </div>
                     <div className="text-[0.75rem] leading-[1.5] text-[#555]">{item.tags}</div>
@@ -975,20 +954,19 @@ export default function DedicatedTeamPage() {
         {/* CTA INQUIRY */}
         <section id="inquiry" className="bg-white px-10 py-12 max-md:px-5">
           <div
-            className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl p-14 max-[900px]:grid-cols-1 max-[900px]:gap-8 max-[900px]:p-7"
-            style={{ background: LIME }}
+            className="mx-auto grid max-w-[900px] grid-cols-2 items-center gap-14 rounded-3xl bg-remotiv-lime-card p-14 max-[900px]:grid-cols-1 max-[900px]:gap-8 max-[900px]:p-7"
           >
             <div>
-              <div className="mb-[18px] inline-flex items-center rounded-full bg-white/45 px-3.5 py-[5px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[#111]">
+              <div className="mb-[18px] inline-flex items-center rounded-full bg-white/45 px-3.5 py-[5px] text-[11px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-dark">
                 • Dedicated Teams
               </div>
               <h2
-                className="m-0 mb-3 font-[Sora,sans-serif] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]"
+                className="m-0 mb-3 font-heading font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.4rem, 2.2vw, 1.9rem)" }}
               >
                 Your Dedicated Team is a Week Away.
               </h2>
-              <p className="m-0 mb-6 text-[13px] leading-[1.75] text-[#111] opacity-75">
+              <p className="m-0 mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
                 Tell us the roles you need. Remotiv recruits, onboards, and manages your full
                 dedicated team — HR, payroll, contracts, and compliance handled permanently in the
                 background.
@@ -996,8 +974,7 @@ export default function DedicatedTeamPage() {
               <div className="mb-7 flex flex-wrap gap-2.5">
                 <Link
                   href="/book-a-meeting"
-                  className="inline-flex items-center rounded-full px-6 py-3 font-[Sora,sans-serif] text-[0.82rem] font-bold text-white transition-opacity hover:opacity-90"
-                  style={{ background: PURPLE }}
+                  className="inline-flex items-center rounded-full bg-remotiv-purple px-6 py-3 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-90"
                 >
                   Build Your Dedicated Team →
                 </Link>
@@ -1005,7 +982,7 @@ export default function DedicatedTeamPage() {
                   href="https://calendly.com/waleed-izww/intro-call"
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="inline-flex items-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[11px] text-[0.82rem] font-semibold text-[#111] transition-colors hover:bg-[#111] hover:text-white"
+                  className="inline-flex items-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-[11px] text-[0.82rem] font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
                 >
                   Book a 30-Min Call
                 </a>
@@ -1018,7 +995,7 @@ export default function DedicatedTeamPage() {
                 ].map((item) => (
                   <li
                     key={item}
-                    className="flex items-center gap-2 text-[13px] font-medium text-[#111]"
+                    className="flex items-center gap-2 text-[13px] font-medium text-remotiv-text-dark"
                   >
                     <div className="flex h-[18px] w-[18px] shrink-0 items-center justify-center rounded-full bg-white/50">
                       <svg width="9" height="9" viewBox="0 0 12 12" fill="none" aria-hidden="true">
@@ -1044,14 +1021,14 @@ export default function DedicatedTeamPage() {
                   ].map((av) => (
                     <div
                       key={av.label}
-                      className="-mr-[7px] flex h-7 w-7 items-center justify-center rounded-full border-2 text-[9px] font-bold"
-                      style={{ background: av.bg, color: av.color, borderColor: LIME }}
+                      className="-mr-[7px] flex h-7 w-7 items-center justify-center rounded-full border-2 border-remotiv-lime-card text-[9px] font-bold"
+                      style={{ background: av.bg, color: av.color }}
                     >
                       {av.label}
                     </div>
                   ))}
                 </div>
-                <span className="ml-3 text-xs text-[#111] opacity-65">
+                <span className="ml-3 text-xs text-remotiv-text-dark opacity-65">
                   Trusted by 100+ companies worldwide
                 </span>
               </div>
@@ -1066,12 +1043,12 @@ export default function DedicatedTeamPage() {
           <div className="mx-auto flex max-w-[1100px] flex-row items-start gap-20 max-[900px]:flex-col max-[900px]:gap-10">
             <div className="box-border max-w-[35%] flex-[0_0_35%] max-[900px]:max-w-full max-[900px]:flex-auto">
               <h2
-                className="m-0 mb-5 font-[Sora,sans-serif] font-extrabold leading-[1.15] text-[#111]"
+                className="m-0 mb-5 font-heading font-extrabold leading-[1.15] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.8rem, 3vw, 2.6rem)" }}
               >
                 Questions We Hear Most
               </h2>
-              <p className="m-0 text-[0.95rem] leading-[1.7] text-[#777]">
+              <p className="m-0 text-[0.95rem] leading-[1.7] text-remotiv-text-light">
                 For any unanswered questions, reach out to our team. We&apos;ll respond as soon as
                 possible.
               </p>
@@ -1091,10 +1068,10 @@ export default function DedicatedTeamPage() {
                         aria-expanded={isOpen}
                         aria-controls={`dt-faq-panel-${i}`}
                       >
-                        <span className="flex-1 font-[Sora,sans-serif] text-[0.97rem] font-semibold leading-[1.4] text-[#111]">
+                        <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-remotiv-text-dark">
                           {faq.q}
                         </span>
-                        <span className="w-6 shrink-0 text-center text-[1.4rem] font-light leading-none text-[#111]">
+                        <span className="w-6 shrink-0 text-center text-[1.4rem] font-light leading-none text-remotiv-text-dark">
                           {isOpen ? "−" : "+"}
                         </span>
                       </button>
@@ -1136,7 +1113,7 @@ function WhyCard({
   const isSticky = index >= 0;
   return (
     <div
-      className={`group relative flex cursor-default flex-col rounded-[20px] border border-black/[0.08] bg-white px-8 pt-9 pb-10 transition-all hover:border-[#7E47FF] hover:bg-[#7E47FF]${
+      className={`group relative flex cursor-default flex-col rounded-[20px] border border-black/[0.08] bg-white px-8 pt-9 pb-10 transition-all hover:border-remotiv-purple hover:bg-remotiv-purple${
         isSticky ? " sticky [top:var(--card-top)]" : ""
       }`}
       style={
@@ -1150,19 +1127,18 @@ function WhyCard({
       }
     >
       <span
-        className="mb-5 inline-block self-start rounded-md border px-3 py-1 font-[Sora,sans-serif] text-[0.68rem] font-bold tracking-[0.06em] transition-colors group-hover:border-white/25"
+        className="mb-5 inline-block self-start rounded-md border px-3 py-1 font-heading text-[0.68rem] font-bold text-remotiv-purple tracking-[0.06em] transition-colors group-hover:border-white/25"
         style={{
           background: "rgba(152,134,254,0.12)",
-          color: PURPLE,
           borderColor: "rgba(152,134,254,0.25)",
         }}
       >
         <span className="group-hover:hidden">{badge}</span>
-        <span className="hidden group-hover:inline" style={{ color: LIME }}>
+        <span className="hidden group-hover:inline text-remotiv-lime-card">
           {badge}
         </span>
       </span>
-      <h3 className="m-0 mb-4 font-[Sora,sans-serif] text-[1.1rem] font-bold leading-[1.3] text-[#111] transition-colors group-hover:!text-white">
+      <h3 className="m-0 mb-4 font-heading text-[1.1rem] font-bold leading-[1.3] text-remotiv-text-dark transition-colors group-hover:!text-white">
         {heading}
       </h3>
       <div className="mb-4 h-px w-full bg-black/[0.07] transition-colors group-hover:bg-white/20" />
@@ -1184,21 +1160,18 @@ function ProcessCard({
       style={{ boxShadow: "0 2px 16px rgba(0,0,0,0.05)" }}
     >
       <div
-        className="mb-3 inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-[0.68rem] font-bold uppercase tracking-[0.08em]"
-        style={{ color: PURPLE_LIGHT }}
+        className="mb-3 inline-flex items-center gap-1.5 font-heading text-[0.68rem] font-bold text-remotiv-purple-light uppercase tracking-[0.08em]"
       >
         <span
-          className="inline-block h-[5px] w-[5px] shrink-0 rounded-full"
-          style={{ background: PURPLE_LIGHT }}
+          className="inline-block h-[5px] w-[5px] shrink-0 rounded-full bg-remotiv-purple-light"
         />
         {step.tag}
       </div>
-      <h3 className="m-0 mb-3.5 font-[Sora,sans-serif] text-[1.05rem] font-bold leading-[1.3] text-[#111]">
+      <h3 className="m-0 mb-3.5 font-heading text-[1.05rem] font-bold leading-[1.3] text-remotiv-text-dark">
         {step.heading}
       </h3>
       <div
-        className="mb-3.5 h-0.5 w-10 rounded-sm opacity-40"
-        style={{ background: PURPLE_LIGHT }}
+        className="mb-3.5 h-0.5 w-10 rounded-sm bg-remotiv-purple-light opacity-40"
       />
       <p className="m-0 text-[0.88rem] leading-[1.78] text-[#555]">{step.body}</p>
     </div>
@@ -1225,7 +1198,7 @@ function CostRow({
   return (
     <div className="grid grid-cols-[1.8fr_1fr_1fr_1fr] border-t border-white/[0.06] px-10 transition-colors hover:bg-white/[0.04] max-md:grid-cols-[1.4fr_0.8fr_0.8fr_0.9fr] max-md:px-5 max-[600px]:grid-cols-[1.2fr_0.9fr_0.9fr_0.9fr] max-[600px]:gap-x-2 max-[600px]:px-2.5">
       <div className="flex items-center py-5.5 max-[600px]:py-3">
-        <span className="font-[Sora,sans-serif] text-[0.92rem] font-semibold text-white max-[600px]:text-[0.7rem] max-[600px]:leading-tight">
+        <span className="font-heading text-[0.92rem] font-semibold text-white max-[600px]:text-[0.7rem] max-[600px]:leading-tight">
           {role}
         </span>
         <span
@@ -1237,7 +1210,7 @@ function CostRow({
       </div>
       <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="font-[Sora,sans-serif] text-[0.92rem] font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
+          className="font-heading text-[0.92rem] font-semibold line-through max-[600px]:text-[0.7rem] max-[600px]:no-underline"
           style={{ color: "rgba(255,255,255,0.45)", textDecorationColor: "rgba(255,255,255,0.2)" }}
         >
           {us}
@@ -1245,16 +1218,14 @@ function CostRow({
       </div>
       <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="font-[Sora,sans-serif] text-[0.92rem] font-bold max-[600px]:text-[0.7rem]"
-          style={{ color: LIME }}
+          className="font-heading text-[0.92rem] font-bold text-remotiv-lime-card max-[600px]:text-[0.7rem]"
         >
           {remotiv}
         </span>
       </div>
       <div className="flex items-center py-5.5 max-[600px]:py-3">
         <span
-          className="inline-flex items-center gap-1.5 font-[Sora,sans-serif] text-[0.88rem] font-bold max-[600px]:text-[0.72rem] max-[600px]:font-bold"
-          style={{ color: GREEN }}
+          className="inline-flex items-center gap-1.5 font-heading text-[0.88rem] font-bold text-remotiv-green max-[600px]:text-[0.72rem] max-[600px]:font-bold"
         >
           <span className="text-[0.7rem] opacity-70">↓</span>
           {savings}
@@ -1267,11 +1238,10 @@ function CostRow({
 function CheckBadge() {
   return (
     <div
-      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-extrabold"
+      className="flex h-5 w-5 shrink-0 items-center justify-center rounded-full text-[0.65rem] font-extrabold text-remotiv-green"
       style={{
         background: "rgba(73,215,167,0.15)",
         border: "1.5px solid rgba(73,215,167,0.4)",
-        color: GREEN,
       }}
     >
       ✓
@@ -1308,8 +1278,6 @@ function InquiryForm() {
     companyUrl: "",
   });
 
-  const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
-
   const resetForm = () => {
     setStatus("idle");
     setErrors({});
@@ -1336,7 +1304,7 @@ function InquiryForm() {
       setErrorMessage("Please fill in your name and work email.");
       return;
     }
-    if (!emailRegex.test(form.email.trim())) {
+    if (!EMAIL_REGEX.test(form.email.trim())) {
       setErrors({ email: true });
       setErrorMessage("Please enter a valid email address.");
       return;
@@ -1416,7 +1384,7 @@ function InquiryForm() {
               />
             </svg>
           </div>
-          <h3 className="m-0 mb-2 font-[Sora,sans-serif] text-base font-bold text-[#111]">
+          <h3 className="m-0 mb-2 font-heading text-base font-bold text-remotiv-text-dark">
             Inquiry Sent!
           </h3>
           <p className="m-0 mb-6 text-[13px] text-[#666]">
@@ -1436,7 +1404,7 @@ function InquiryForm() {
 
   return (
     <div className="rounded-2xl bg-white p-7">
-      <p className="m-0 mb-4 font-[Sora,sans-serif] text-sm font-bold text-[#111]">
+      <p className="m-0 mb-4 font-heading text-sm font-bold text-remotiv-text-dark">
         Send an Inquiry
       </p>
 
@@ -1571,8 +1539,7 @@ function InquiryForm() {
         type="button"
         onClick={submit}
         disabled={status === "sending"}
-        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none py-3 font-[Sora,sans-serif] text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
-        style={{ background: PURPLE }}
+        className="mb-2.5 w-full cursor-pointer rounded-[10px] border-none bg-remotiv-purple py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-white transition-all hover:-translate-y-px disabled:cursor-not-allowed disabled:opacity-60"
       >
         {status === "sending" ? "Sending..." : "Send Inquiry →"}
       </button>
