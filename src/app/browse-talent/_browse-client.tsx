@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
+import { Search } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
@@ -1533,8 +1534,17 @@ export function BrowseClient({
                   </Link>
                 </div>
               ) : cards.length === 0 ? (
-                <div style={{ textAlign: "center", padding: "60px 20px", color: "#bbb", fontFamily: "'DM Sans',sans-serif" }}>
-                  No candidates found. Try a different search or filter.
+                <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
+                  <div style={{ width: 64, height: 64, margin: "0 auto 16px auto", borderRadius: "50%", background: "#EEEDFE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                    <Search size={28} color="#7E47FF" />
+                  </div>
+                  <h4 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px 0", color: "#111" }}>No candidates match</h4>
+                  <p style={{ fontSize: 14, color: "#666", margin: "0 0 24px 0", lineHeight: 1.5, maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+                    We couldn&apos;t find anyone matching your filters. Try different search terms or clear all filters.
+                  </p>
+                  <Link href="/browse-talent" style={{ background: "#7E47FF", color: "#fff", border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-block" }}>
+                    Clear all filters
+                  </Link>
                 </div>
               ) : (
                 <>
