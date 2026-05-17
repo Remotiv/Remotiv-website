@@ -32,7 +32,7 @@ export default function SignupClient({
 
     const supabase = createClient();
     const next = nextParam ?? "/browse-talent";
-    const { error: signupError } = await supabase.auth.signUp({
+    const { data, error: signupError } = await supabase.auth.signUp({
       email,
       password,
       options: {
@@ -50,6 +50,14 @@ export default function SignupClient({
       } else {
         setError("Could not create account. Please try again.");
       }
+      return;
+    }
+
+    // Supabase enumeration protection: when email already exists + is confirmed,
+    // signUp returns success silently but with identities: [] as the signal.
+    // Detect this and show a proper message instead of fake "Check your email" screen.
+    if (data?.user && data.user.identities && data.user.identities.length === 0) {
+      setError("An account with this email already exists. Sign in instead.");
       return;
     }
 
