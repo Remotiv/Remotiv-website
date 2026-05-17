@@ -1,4 +1,5 @@
 import Link from "next/link";
+import { FooterAccountColumn } from "./footer-account-column";
 import { FooterCanvas } from "./footer-canvas";
 
 const footerLinks = [
@@ -32,14 +33,6 @@ const footerLinks = [
     links: [
       { label: "About Us", href: "/about" },
       { label: "Contact", href: "/contact" },
-    ],
-  },
-  {
-    title: "Account",
-    links: [
-      { label: "Login", href: "/signin" },
-      { label: "Sign up", href: "/signup" },
-      { label: "Pricing", href: "/pricing" },
     ],
   },
 ] as const;
@@ -96,6 +89,7 @@ export function Footer() {
               </ul>
             </div>
           ))}
+          <FooterAccountColumn />
         </div>
       </div>
 

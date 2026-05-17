@@ -3,6 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
+import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
 import { Navbar } from "@/components/navbar";
 
@@ -30,6 +31,12 @@ export default function AccountClient({
   const router = useRouter();
   const [signingOut, setSigningOut] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+  const [passwordFormOpen, setPasswordFormOpen] = useState(false);
+  const [newPassword, setNewPassword] = useState("");
+  const [confirmPassword, setConfirmPassword] = useState("");
+  const [showPassword, setShowPassword] = useState(false);
+  const [passwordError, setPasswordError] = useState<string | null>(null);
+  const [passwordSaving, setPasswordSaving] = useState(false);
 
   const displayName = fullName || email.split("@")[0];
   const initial = (fullName?.charAt(0) || email.charAt(0)).toUpperCase();
@@ -47,6 +54,48 @@ export default function AccountClient({
     await supabase.auth.signOut();
     router.push("/");
     router.refresh();
+  };
+
+  const handleChangePassword = async (e: React.FormEvent) => {
+    e.preventDefault();
+    setPasswordError(null);
+
+    if (newPassword.length < 8) {
+      setPasswordError("Password must be at least 8 characters.");
+      return;
+    }
+    if (newPassword !== confirmPassword) {
+      setPasswordError("Passwords don't match.");
+      return;
+    }
+
+    setPasswordSaving(true);
+    const supabase = createClient();
+    const { error } = await supabase.auth.updateUser({ password: newPassword });
+    setPasswordSaving(false);
+
+    if (error) {
+      if (error.message.toLowerCase().includes("same") || error.message.toLowerCase().includes("different")) {
+        setPasswordError("New password must be different from your current password.");
+      } else {
+        setPasswordError("Could not update password. Please try again.");
+      }
+      return;
+    }
+
+    setPasswordFormOpen(false);
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    showToast("✓ Password updated");
+  };
+
+  const handleCancelPasswordChange = () => {
+    setPasswordFormOpen(false);
+    setNewPassword("");
+    setConfirmPassword("");
+    setShowPassword(false);
+    setPasswordError(null);
   };
 
   const isSubscriber = tier === "starter" || tier === "pro";
@@ -148,17 +197,68 @@ export default function AccountClient({
             </div>
           </div>
 
-          <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0", borderBottom: "1px solid #f0ebe6" }}>
-            <div>
-              <div style={{ fontSize: 14, color: "#111", fontWeight: 500 }}>Password</div>
-              <div style={{ fontSize: 13, color: "#666", marginTop: 2 }}>••••••••••</div>
+          <div style={{ padding: "10px 0", borderBottom: "1px solid #f0ebe6" }}>
+            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center" }}>
+              <div>
+                <div style={{ fontSize: 14, color: "#111", fontWeight: 500 }}>Password</div>
+                <div style={{ fontSize: 13, color: "#666", marginTop: 2 }}>••••••••••</div>
+              </div>
+              <button
+                type="button"
+                onClick={() => (passwordFormOpen ? handleCancelPasswordChange() : setPasswordFormOpen(true))}
+                style={{ background: "transparent", border: "none", fontSize: 13, color: PURPLE, fontWeight: 500, cursor: "pointer", padding: 0, fontFamily: "DM Sans, sans-serif" }}
+              >
+                {passwordFormOpen ? "Cancel" : "Change"}
+              </button>
             </div>
-            <Link
-              href="/forgot-password"
-              style={{ background: "transparent", border: "none", fontSize: 13, color: PURPLE, fontWeight: 500, cursor: "pointer", textDecoration: "none" }}
-            >
-              Change
-            </Link>
+
+            {passwordFormOpen && (
+              <form onSubmit={handleChangePassword} style={{ marginTop: 16, display: "flex", flexDirection: "column", gap: 10 }}>
+                {passwordError && (
+                  <div role="alert" style={{ background: "#fee2e2", color: "#991b1b", border: "1px solid #fecaca", borderRadius: 10, padding: "8px 12px", fontSize: 13 }}>
+                    {passwordError}
+                  </div>
+                )}
+
+                <div style={{ position: "relative" }}>
+                  <input
+                    type={showPassword ? "text" : "password"}
+                    placeholder="New password (8+ characters)"
+                    value={newPassword}
+                    onChange={(e) => setNewPassword(e.target.value)}
+                    required
+                    minLength={8}
+                    style={{ width: "100%", padding: "10px 40px 10px 14px", borderRadius: 10, border: "1px solid #e8e0db", fontSize: 14, fontFamily: "DM Sans, sans-serif", boxSizing: "border-box" }}
+                  />
+                  <button
+                    type="button"
+                    onClick={() => setShowPassword((p) => !p)}
+                    aria-label={showPassword ? "Hide password" : "Show password"}
+                    style={{ position: "absolute", right: 10, top: "50%", transform: "translateY(-50%)", background: "transparent", border: "none", cursor: "pointer", padding: 4, display: "flex", alignItems: "center" }}
+                  >
+                    {showPassword ? <EyeOff size={16} color="#888" /> : <Eye size={16} color="#888" />}
+                  </button>
+                </div>
+
+                <input
+                  type={showPassword ? "text" : "password"}
+                  placeholder="Confirm new password"
+                  value={confirmPassword}
+                  onChange={(e) => setConfirmPassword(e.target.value)}
+                  required
+                  minLength={8}
+                  style={{ width: "100%", padding: "10px 14px", borderRadius: 10, border: "1px solid #e8e0db", fontSize: 14, fontFamily: "DM Sans, sans-serif", boxSizing: "border-box" }}
+                />
+
+                <button
+                  type="submit"
+                  disabled={passwordSaving}
+                  style={{ background: PURPLE, color: "#fff", border: "none", borderRadius: 10, padding: "10px 16px", fontSize: 13, fontWeight: 600, cursor: passwordSaving ? "wait" : "pointer", opacity: passwordSaving ? 0.7 : 1, fontFamily: "DM Sans, sans-serif", alignSelf: "flex-start" }}
+                >
+                  {passwordSaving ? "Updating..." : "Update password →"}
+                </button>
+              </form>
+            )}
           </div>
 
           <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", padding: "10px 0" }}>
