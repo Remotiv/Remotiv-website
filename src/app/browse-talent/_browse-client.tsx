@@ -1701,9 +1701,16 @@ export function BrowseClient({
           canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(openCard.id)}
           onUnlock={() => { void handleUnlock(openCard.id, openCard.name); }}
           effectiveContact={getEffectiveContact(openCard)}
-          onSave={() => handleToggleSave(openCard.id)}
+          onSave={() => {
+            const candidateId = openCard.id;
+            setOpenCard(null);
+            handleToggleSave(candidateId);
+          }}
           onClose={() => setOpenCard(null)}
-          onLocked={handleLockedAction}
+          onLocked={() => {
+            setOpenCard(null);
+            handleLockedAction();
+          }}
         />
       )}
 

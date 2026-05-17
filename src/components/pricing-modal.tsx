@@ -118,7 +118,7 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
           <p style={{ fontSize: 13, color: "#666", margin: 0 }}>Choose a plan to start unlocking talent</p>
         </div>
 
-        <div style={{ display: "grid", gridTemplateColumns: "1fr 1fr 1fr", gap: 10 }}>
+        <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
           {/* STARTER */}
           <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 14, padding: "18px 14px", display: "flex", flexDirection: "column" }}>
             <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>Starter</div>
