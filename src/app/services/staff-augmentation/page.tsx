@@ -4,7 +4,6 @@ import { track } from "@vercel/analytics";
 import Link from "next/link";
 import { useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
-import { Footer } from "@/components/footer";
 import { Navbar } from "@/components/navbar";
 import { CalendarIcon, CheckBadge, ShieldIcon, TeamIcon } from "./_icons";
 
@@ -1388,7 +1387,6 @@ export default function StaffAugmentationPage() {
         <CtaInquiry />
         <Faq />
       </main>
-      <Footer />
     </>
   );
 }
