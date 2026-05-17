@@ -1108,12 +1108,17 @@ function WhyCard({
   body: string;
   index: number;
 }) {
+  const [isHovered, setIsHovered] = useState(false);
   const isSticky = index >= 0;
   return (
     <div
-      className={`group relative flex cursor-default flex-col rounded-[20px] border border-black/[0.08] bg-white px-8 pt-9 pb-10 transition-all hover:border-remotiv-purple hover:bg-remotiv-purple${
-        isSticky ? " sticky [top:var(--card-top)]" : ""
-      }`}
+      onMouseEnter={() => setIsHovered(true)}
+      onMouseLeave={() => setIsHovered(false)}
+      className={`relative flex cursor-default flex-col rounded-[20px] border px-8 pt-9 pb-10 transition-all ${
+        isHovered
+          ? "border-remotiv-purple bg-remotiv-purple"
+          : "border-black/[0.08] bg-white"
+      }${isSticky ? " sticky [top:var(--card-top)]" : ""}`}
       style={
         isSticky
           ? ({
@@ -1125,22 +1130,34 @@ function WhyCard({
       }
     >
       <span
-        className="mb-5 inline-block self-start rounded-md border px-3 py-1 font-heading text-[0.68rem] font-bold text-remotiv-purple tracking-[0.06em] transition-colors group-hover:border-white/25"
+        className={`mb-5 inline-block self-start rounded-md border px-3 py-1 font-heading text-[0.68rem] font-bold tracking-[0.06em] transition-colors ${
+          isHovered ? "border-white/25" : ""
+        }`}
         style={{
           background: "rgba(152,134,254,0.12)",
-          borderColor: "rgba(152,134,254,0.25)",
+          color: isHovered ? "#c9ff85" : "#7E47FF",
+          borderColor: isHovered ? undefined : "rgba(152,134,254,0.25)",
         }}
       >
-        <span className="group-hover:hidden">{badge}</span>
-        <span className="hidden group-hover:inline text-remotiv-lime-card">
-          {badge}
-        </span>
+        {badge}
       </span>
-      <h3 className="m-0 mb-4 font-heading text-[1.1rem] font-bold leading-[1.3] text-remotiv-text-dark transition-colors group-hover:!text-white">
+      <h3
+        className={`m-0 mb-4 font-heading text-[1.1rem] font-bold leading-[1.3] transition-colors ${
+          isHovered ? "text-white" : "text-remotiv-text-dark"
+        }`}
+      >
         {heading}
       </h3>
-      <div className="mb-4 h-px w-full bg-black/[0.07] transition-colors group-hover:bg-white/20" />
-      <p className="m-0 text-[0.86rem] leading-[1.75] text-[#555] transition-colors group-hover:!text-white/80">
+      <div
+        className={`mb-4 h-px w-full transition-colors ${
+          isHovered ? "bg-white/20" : "bg-black/[0.07]"
+        }`}
+      />
+      <p
+        className={`m-0 text-[0.86rem] leading-[1.75] transition-colors ${
+          isHovered ? "text-white/80" : "text-[#555]"
+        }`}
+      >
         {body}
       </p>
     </div>
