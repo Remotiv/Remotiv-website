@@ -479,14 +479,14 @@ export default function JobsPage() {
             <button
               type="button"
               onClick={applyFilters}
-              className="w-full rounded-xl bg-[#111] px-3 py-3.5 font-heading text-[0.78rem] font-bold text-white"
+              className="w-full min-h-11 rounded-xl bg-[#111] px-3 py-4 font-heading text-[0.78rem] font-bold text-white"
             >
               Apply filter
             </button>
             <button
               type="button"
               onClick={resetFilters}
-              className="mt-2.5 w-full bg-transparent px-3 py-1.5 text-[0.82rem] text-[#aaa]"
+              className="mt-2.5 w-full min-h-11 bg-transparent px-3 py-2.5 text-[0.82rem] text-[#666]"
             >
               Reset filter
             </button>
@@ -498,7 +498,7 @@ export default function JobsPage() {
                 type="button"
                 onClick={() => setShowFavorites((p) => !p)}
                 className={cn(
-                  "flex cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] px-4 py-2.5 text-[0.82rem] font-semibold transition-colors",
+                  "flex min-h-11 cursor-pointer items-center gap-2 whitespace-nowrap rounded-full border-[1.5px] px-4 py-2.5 text-[0.82rem] font-semibold transition-colors",
                   showFavorites
                     ? "border-remotiv-green/30 bg-remotiv-green/10 text-remotiv-green"
                     : "border-black/10 bg-white text-[#555]",
@@ -522,11 +522,11 @@ export default function JobsPage() {
             </div>
 
             {loading ? (
-              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#aaa]">
+              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
                 Loading jobs…
               </div>
             ) : filteredJobs.length === 0 ? (
-              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#aaa]">
+              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
                 {showFavorites
                   ? "No favorited jobs yet. Click the bookmark icon on any job to save it."
                   : "No open positions match your filters."}
@@ -818,7 +818,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
             type="button"
             onClick={onClose}
             aria-label="Close"
-            className="absolute right-4 top-6 flex size-9 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
+            className="absolute right-4 top-6 flex size-11 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
           >
             <X className="size-4" strokeWidth={2.5} />
           </button>
@@ -870,7 +870,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
               <button
                 type="button"
                 onClick={onClose}
-                className="w-full rounded-xl bg-[#111] py-3 text-sm font-semibold text-white transition-colors hover:bg-[#333]"
+                className="w-full min-h-11 rounded-xl bg-[#111] py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#333]"
               >
                 Got it
               </button>
@@ -1049,7 +1049,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-2.5 pl-3.5 pr-8 text-base sm:text-[0.85rem] text-[#555] outline-none"
+      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-3 pl-3.5 pr-8 text-base sm:py-2.5 sm:text-[0.85rem] text-[#555] outline-none"
       style={{
         backgroundImage: SELECT_CHEVRON,
         backgroundRepeat: "no-repeat",
@@ -1074,7 +1074,7 @@ function CheckItem({
     <button
       type="button"
       onClick={onToggle}
-      className="mb-2.5 flex w-full cursor-pointer select-none items-center gap-2.5 text-left"
+      className="-mx-2 mb-2.5 flex min-h-11 w-full cursor-pointer select-none items-center gap-2.5 rounded-md px-2 text-left"
     >
       <span
         className={cn(
@@ -1141,60 +1141,74 @@ function JobCard({
   onToggleFavorite: (e: React.MouseEvent) => void;
 }) {
   return (
-    <button
-      type="button"
-      onClick={onSelect}
+    <article
       className={cn(
-        "group relative cursor-pointer rounded-[20px] border border-black/[0.08] bg-white p-7 text-left transition-all hover:-translate-y-0.5 hover:border-remotiv-green/40 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)]",
+        "group relative flex flex-col rounded-[20px] border border-black/[0.08] bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-remotiv-green/40 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] sm:p-7",
         isActive && "border-remotiv-green/40 shadow-[0_4px_20px_rgba(0,0,0,0.08)]",
       )}
     >
+      <button
+        type="button"
+        onClick={onSelect}
+        aria-label={`View ${job.title} job details`}
+        className="absolute inset-0 z-0 rounded-[20px]"
+      />
+
       {!isActive ? (
-        <div className="absolute right-5 top-5 flex gap-1.5">
-          <span
-            onClick={onToggleFavorite}
-            className={cn(
-              "flex size-[30px] cursor-pointer items-center justify-center rounded-full border transition-colors",
-              isFavorited
-                ? "border-remotiv-green/30 bg-remotiv-green/10 text-remotiv-green"
-                : "border-black/[0.08] bg-white text-[#aaa] hover:border-remotiv-green/20 hover:text-remotiv-green/60",
-            )}
+        <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 sm:right-5 sm:top-5">
+          <button
+            type="button"
+            onClick={(e) => {
+              e.stopPropagation();
+              onToggleFavorite(e);
+            }}
+            aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
+            aria-pressed={isFavorited}
+            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-[#111]"
           >
             <Bookmark
-              className="size-3.5"
+              className="size-4"
               strokeWidth={2}
               fill={isFavorited ? "currentColor" : "none"}
             />
-          </span>
-          <span className="flex size-[30px] items-center justify-center rounded-full border border-black/[0.08] bg-white">
-            <MoreHorizontal className="size-3.5 text-[#aaa]" strokeWidth={2} />
-          </span>
+          </button>
+          <button
+            type="button"
+            onClick={(e) => e.stopPropagation()}
+            aria-label="More options"
+            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-[#111]"
+          >
+            <MoreHorizontal className="size-4" strokeWidth={2} />
+          </button>
         </div>
       ) : null}
-      <div className="mb-3 text-[0.72rem] text-[#aaa]">
-        Posted {timeAgo(job.created_at)}
+
+      <div className="pointer-events-none relative z-0">
+        <div className="mb-3 text-[0.78rem] text-[#666]">
+          Posted {timeAgo(job.created_at)}
+        </div>
+        <div className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-[#111]">
+          {job.title}
+        </div>
+        <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-[#777]">
+          <span>{job.company}</span>
+          <Star className="size-3 fill-remotiv-green text-remotiv-green" />
+          <span>{job.company_rating.toFixed(1)}</span>
+        </div>
+        <div className="mb-4 text-[0.82rem] text-[#777]">{job.location}</div>
+        <div className="mb-4 text-[0.9rem] font-semibold text-[#444]">
+          Salary: {fmtSalary(job.salary_min, job.salary_max)}
+        </div>
+        <div className="flex flex-wrap gap-1.5">
+          <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
+            {job.contract_type}
+          </span>
+          <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
+            {job.work_type}
+          </span>
+        </div>
       </div>
-      <div className="mb-1.5 font-heading text-[1.2rem] font-bold text-[#111]">
-        {job.title}
-      </div>
-      <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-[#777]">
-        <span>{job.company}</span>
-        <Star className="size-3 fill-remotiv-green text-remotiv-green" />
-        <span>{job.company_rating.toFixed(1)}</span>
-      </div>
-      <div className="mb-4 text-[0.82rem] text-[#777]">{job.location}</div>
-      <div className="mb-4 text-[0.9rem] font-semibold text-[#444]">
-        Salary: {fmtSalary(job.salary_min, job.salary_max)}
-      </div>
-      <div className="flex flex-wrap gap-1.5">
-        <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
-          {job.contract_type}
-        </span>
-        <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
-          {job.work_type}
-        </span>
-      </div>
-    </button>
+    </article>
   );
 }
 
@@ -1217,7 +1231,7 @@ function JobDetail({
         type="button"
         onClick={onClose}
         aria-label="Close"
-        className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full border-0 bg-white/15"
+        className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
       >
         <X className="size-4 text-white" strokeWidth={2.5} />
       </button>
