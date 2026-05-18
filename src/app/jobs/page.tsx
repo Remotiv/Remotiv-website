@@ -15,6 +15,7 @@ import {
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
+import "./jobs.css";
 
 interface Job {
   id: string;
@@ -143,6 +144,9 @@ export default function JobsPage() {
   const [showFavorites, setShowFavorites] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
   const [applyJob, setApplyJob] = useState<Job | null>(null);
+
+  const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
+  const drawerCloseBtnRef = useRef<HTMLButtonElement>(null);
 
   // Restore favorites + saved search from localStorage on mount
   useEffect(() => {
@@ -295,13 +299,48 @@ export default function JobsPage() {
 
   const rows = useMemo(() => chunk(filteredJobs, 3), [filteredJobs]);
 
+  // ESC key closes drawer
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") setFiltersDrawerOpen(false);
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, []);
+
+  // Body scroll lock (ref-counted so it stacks safely with other modals)
+  useEffect(() => {
+    if (!filtersDrawerOpen) return;
+    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
+    document.body.dataset.scrollLocks = String(count + 1);
+    if (count === 0) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
+      const next = current - 1;
+      document.body.dataset.scrollLocks = String(next);
+      if (next <= 0) {
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollLocks;
+      }
+    };
+  }, [filtersDrawerOpen]);
+
+  // Auto-focus the close button when drawer opens (a11y)
+  useEffect(() => {
+    if (filtersDrawerOpen) {
+      requestAnimationFrame(() => drawerCloseBtnRef.current?.focus());
+    }
+  }, [filtersDrawerOpen]);
+
   return (
     <>
       <Navbar />
       <main className="min-h-screen bg-[#FAFAFA] font-sans">
-        <div className="flex flex-col gap-2 px-6 pt-6 md:px-6">
+        <div className="flex flex-col gap-2 px-5 pt-6 sm:px-6 md:px-6">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
-            <div className="flex min-h-[280px] flex-col rounded-[20px] bg-[#0e0e0e] p-8 md:p-10">
+            <div className="flex min-h-[280px] flex-col rounded-[20px] bg-[#0e0e0e] p-6 sm:p-8 md:p-10">
               <span className="mb-3.5 inline-flex w-fit items-center gap-2 rounded-full border border-remotiv-green/30 bg-remotiv-green/[0.08] px-4 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-remotiv-green">
                 <span className="size-1.5 rounded-full bg-remotiv-green" />
                 Now Hiring
@@ -318,7 +357,7 @@ export default function JobsPage() {
               </p>
             </div>
 
-            <div className="flex min-h-[280px] max-h-[320px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] bg-[linear-gradient(135deg,#0e0e0e_0%,#1a1a2e_50%,#0e0e0e_100%)]">
+            <div className="flex min-h-[160px] max-h-[320px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] bg-[linear-gradient(135deg,#0e0e0e_0%,#1a1a2e_50%,#0e0e0e_100%)] md:min-h-[280px]">
               <Briefcase className="size-16 text-remotiv-green/40" strokeWidth={1.5} />
               <span className="text-xs uppercase tracking-[0.1em] text-white/30">
                 {loading ? "Loading…" : `${filteredJobs.length} Open Position${filteredJobs.length !== 1 ? "s" : ""}`}
@@ -326,11 +365,11 @@ export default function JobsPage() {
             </div>
           </section>
 
-          <section className="rounded-[20px] bg-remotiv-purple px-8 py-8 md:px-10 md:pb-9">
+          <section className="rounded-[20px] bg-remotiv-purple px-5 py-6 sm:px-8 sm:py-8 md:px-10 md:pb-9">
             <h2 className="mb-6 font-heading text-[clamp(1.2rem,2vw,1.6rem)] font-normal uppercase text-[#111]">
               Discover your dream job
             </h2>
-            <div className="flex flex-wrap items-center gap-3">
+            <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
               <SearchField
                 icon={<Search className="size-[11px]" strokeWidth={2} />}
                 placeholder="Job title, keywords, company name"
@@ -354,14 +393,14 @@ export default function JobsPage() {
               />
               <button
                 type="button"
-                className="shrink-0 whitespace-nowrap rounded-full bg-[#111] px-4 py-1.5 text-xs font-semibold text-white"
+                className="w-full shrink-0 whitespace-nowrap rounded-full bg-[#111] px-4 py-3 text-xs font-semibold text-white sm:w-auto sm:py-1.5"
               >
                 Advanced search
               </button>
               <button
                 type="button"
                 onClick={handleSaveSearch}
-                className="flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full border-2 border-white/35 bg-transparent px-3.5 py-[5px] text-xs font-semibold text-white transition-colors hover:border-white/60"
+                className="flex w-full shrink-0 items-center justify-center gap-1.5 whitespace-nowrap rounded-full border-2 border-white/35 bg-transparent px-3.5 py-3 text-xs font-semibold text-white transition-colors hover:border-white/60 sm:w-auto sm:py-[5px]"
               >
                 Save search
                 <Bookmark className="size-3.5" strokeWidth={2} />
@@ -370,8 +409,21 @@ export default function JobsPage() {
           </section>
         </div>
 
-        <div className="grid grid-cols-1 items-start gap-6 px-6 pb-16 pt-4 lg:grid-cols-[280px_1fr]">
-          <aside className="sticky top-20 rounded-[20px] border border-black/[0.08] bg-white p-7">
+        <div className="px-6 pt-2 xl:hidden">
+          <button
+            type="button"
+            className="jobs-filters-trigger"
+            onClick={() => setFiltersDrawerOpen(true)}
+            aria-label="Open filters"
+            aria-expanded={filtersDrawerOpen}
+          >
+            <span aria-hidden="true">☰</span>
+            Filters
+          </button>
+        </div>
+
+        <div className="grid grid-cols-1 items-start gap-6 px-5 pb-16 pt-4 sm:px-6 xl:grid-cols-[280px_1fr]">
+          <aside className="jobs-desktop-sidebar xl:sticky xl:top-20 rounded-[20px] border border-black/[0.08] bg-white p-7">
             <FilterGroup label="Category">
               <FilterSelect
                 value={pendingCategory}
@@ -524,6 +576,113 @@ export default function JobsPage() {
         </div>
       </main>
 
+      {filtersDrawerOpen && (
+        <>
+          <div
+            className="jobs-drawer-backdrop"
+            onClick={() => setFiltersDrawerOpen(false)}
+            role="presentation"
+          />
+          <aside
+            className="jobs-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="jobs-drawer-title"
+          >
+            <div className="jobs-drawer-header">
+              <span id="jobs-drawer-title" className="jobs-drawer-title">Filters</span>
+              <button
+                ref={drawerCloseBtnRef}
+                type="button"
+                className="jobs-drawer-close"
+                onClick={() => setFiltersDrawerOpen(false)}
+                aria-label="Close filters"
+              >
+                ×
+              </button>
+            </div>
+            <div className="jobs-drawer-body">
+              <div className="p-7">
+                <FilterGroup label="Category">
+                  <FilterSelect
+                    value={pendingCategory}
+                    onChange={setPendingCategory}
+                  >
+                    <option value="">Select category</option>
+                    {CATEGORIES.map((c) => (
+                      <option key={c} value={c}>{c}</option>
+                    ))}
+                  </FilterSelect>
+                </FilterGroup>
+
+                <Divider />
+
+                <FilterGroup label="Experience level">
+                  {EXPERIENCE_LEVELS.map((label) => (
+                    <CheckItem
+                      key={label}
+                      label={label}
+                      checked={pendingExperience.has(label)}
+                      onToggle={() => toggleExperience(label)}
+                    />
+                  ))}
+                </FilterGroup>
+
+                <Divider />
+
+                <FilterGroup label="Contract type">
+                  {CONTRACT_TYPES.map((label) => (
+                    <CheckItem
+                      key={label}
+                      label={label}
+                      checked={pendingContract.has(label)}
+                      onToggle={() => toggleContract(label)}
+                    />
+                  ))}
+                </FilterGroup>
+
+                <Divider />
+
+                <FilterGroup label="Language">
+                  <FilterSelect
+                    value={pendingLanguage}
+                    onChange={setPendingLanguage}
+                  >
+                    <option value="">Select language</option>
+                    {LANGUAGES.map((l) => (
+                      <option key={l} value={l}>{l}</option>
+                    ))}
+                  </FilterSelect>
+                </FilterGroup>
+
+              </div>
+            </div>
+            <div className="jobs-drawer-footer flex gap-2.5">
+              <button
+                type="button"
+                className="jobs-drawer-reset"
+                onClick={() => {
+                  resetFilters();
+                  setFiltersDrawerOpen(false);
+                }}
+              >
+                Reset
+              </button>
+              <button
+                type="button"
+                className="jobs-drawer-apply"
+                onClick={() => {
+                  applyFilters();
+                  setFiltersDrawerOpen(false);
+                }}
+              >
+                Apply Filters
+              </button>
+            </div>
+          </aside>
+        </>
+      )}
+
       {applyJob && (
         <ApplyModal job={applyJob} onClose={() => setApplyJob(null)} />
       )}
@@ -646,7 +805,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   }
 
   const INPUT_CLS =
-    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3 text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
+    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3 text-base sm:text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
   const LABEL_CLS =
     "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
 
@@ -890,7 +1049,7 @@ function FilterSelect({
     <select
       value={value}
       onChange={(e) => onChange(e.target.value)}
-      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-2.5 pl-3.5 pr-8 text-[0.85rem] text-[#555] outline-none"
+      className="w-full cursor-pointer appearance-none rounded-[10px] border border-black/10 bg-[#FAFAFA] py-2.5 pl-3.5 pr-8 text-base sm:text-[0.85rem] text-[#555] outline-none"
       style={{
         backgroundImage: SELECT_CHEVRON,
         backgroundRepeat: "no-repeat",
@@ -950,7 +1109,7 @@ function SearchField({
   return (
     <div
       className={cn(
-        "flex min-w-[80px] items-center gap-2 rounded-full bg-white px-3 py-1.5",
+        "flex w-full min-w-[80px] items-center gap-2 rounded-full bg-white px-3 py-1.5 sm:w-auto",
         size === "lg" ? "flex-[1.6]" : "flex-[0.6] min-w-[90px]",
       )}
     >
@@ -962,7 +1121,7 @@ function SearchField({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 border-0 bg-transparent text-[0.75rem] text-[#111] outline-none placeholder:text-[#bbb]"
+        className="min-w-0 flex-1 border-0 bg-transparent text-base sm:text-[0.75rem] text-[#111] outline-none placeholder:text-[#bbb]"
       />
     </div>
   );
