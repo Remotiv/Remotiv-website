@@ -614,7 +614,7 @@ const OutlineButton = ({
 }) => (
   <a
     href={href}
-    {...(external ? { target: "_blank", rel: "noreferrer" } : {})}
+    {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
     className={cn(
       "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-[#111] transition hover:bg-[#111] hover:text-white",
       className,
@@ -660,13 +660,13 @@ export default function PayrollPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
+              url: "https://www.remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://remotiv-website-m3jo.vercel.app/services/payroll",
+            url: "https://www.remotiv.work/services/payroll",
             description:
               "Hassle-free international payroll, contracts, and compliance for remote engineering hires.",
-          }),
+          }).replace(/</g, "\\u003c"),
         }}
       />
       <Navbar />
