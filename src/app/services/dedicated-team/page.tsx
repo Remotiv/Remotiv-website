@@ -11,7 +11,7 @@ const HERO_STATS: readonly { num: string; em: string; label: string }[] = [
   { num: "2 ", em: "weeks", label: "Team Ready to Start" },
   { num: "60–", em: "80%", label: "Cost Savings vs US Hiring" },
   { num: "$", em: "271K", label: "Avg. Annual Savings (5-person team)" },
-  { num: "1M", em: "+", label: "Active Talents" },
+  { num: "1M", em: "+", label: "Active Candidates" },
 ];
 
 const HOW_IT_WORKS: readonly { em: string; body: string }[] = [
@@ -33,7 +33,7 @@ const WHY_REMOTIV_TOP: readonly { badge: string; heading: string; body: string }
   {
     badge: "Speed",
     heading: "Operational in 2 Weeks",
-    body: "Companies onboarding takes weeks. Firms ramp-up is measured in sprints. Remotiv gets your team recruited, contracted, and working in 2 weeks — because we've already built the infrastructure to move that fast.",
+    body: "Company onboarding takes weeks. Firm ramp-up is measured in sprints. Remotiv gets your team recruited, contracted, and working in 2 weeks — because we've already built the infrastructure to move that fast.",
   },
   {
     badge: "Cost",
@@ -56,7 +56,7 @@ const WHY_REMOTIV_BOTTOM: readonly { badge: string; heading: string; body: strin
   {
     badge: "Guarantee",
     heading: "Replacement Guarantee",
-    body: "If any team member leaves or doesn't work, Remotiv restarts the search and places a replacement at zero cost. No paperwork, no rebooking fee. We fix it.",
+    body: "If any team member leaves or underperforms, Remotiv restarts the search and places a replacement at zero cost. No paperwork, no rebooking fee. We fix it.",
   },
 ];
 
@@ -408,7 +408,7 @@ export default function DedicatedTeamPage() {
           __html: JSON.stringify({
             "@context": "https://schema.org",
             "@type": "Service",
-            name: "Dedicated Engineering Teams",
+            name: "Dedicated Remote Teams",
             serviceType: "Dedicated Team Services",
             provider: {
               "@type": "Organization",
@@ -418,7 +418,7 @@ export default function DedicatedTeamPage() {
             areaServed: "Worldwide",
             url: "https://www.remotiv.work/services/dedicated-team",
             description:
-              "Build a dedicated remote engineering team. Hand-picked, managed, retained.",
+              "Build a dedicated remote team across engineering, sales, design, customer success, marketing, and operations. Hand-picked, managed, retained — operational in 2 weeks with a free replacement guarantee.",
           }),
         }}
       />
@@ -963,7 +963,7 @@ export default function DedicatedTeamPage() {
                 className="m-0 mb-3 font-heading font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark"
                 style={{ fontSize: "clamp(1.4rem, 2.2vw, 1.9rem)" }}
               >
-                Your Dedicated Team is a Week Away
+                Your Dedicated Team Is a Week Away
               </h2>
               <p className="m-0 mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark opacity-75">
                 Tell us the roles you need. Remotiv recruits, onboards, and manages your full
@@ -983,7 +983,7 @@ export default function DedicatedTeamPage() {
                   rel="noopener noreferrer"
                   className="inline-flex items-center rounded-full border-[1.5px] border-[#111] bg-transparent px-6 py-3.5 text-[0.82rem] font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
                 >
-                  Book a 30-Min Call
+                  Book on Calendly →
                 </a>
               </div>
               <ul className="m-0 mb-7 flex list-none flex-col gap-2.5 p-0">
@@ -1410,7 +1410,7 @@ function InquiryForm() {
             onClick={resetForm}
             className="rounded-full bg-[#111] px-5 py-3.5 text-sm font-medium text-white transition-opacity hover:opacity-[0.88]"
           >
-            Submit Another Inquiry
+            Submit Another Inquiry →
           </button>
         </div>
       </div>
@@ -1496,7 +1496,7 @@ function InquiryForm() {
           htmlFor="dt-inq-size"
           className="mb-1.5 block text-[10px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-mid"
         >
-          Team Size Needed
+          Team Size
         </label>
         <select
           id="dt-inq-size"
