@@ -805,15 +805,20 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   }
 
   const INPUT_CLS =
-    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3 text-base sm:text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
+    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
   const LABEL_CLS =
     "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
 
   return (
-    <div className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm">
-      <div className="relative mx-auto my-16 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl">
+    <div
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
+      role="dialog"
+      aria-modal="true"
+      aria-labelledby="apply-modal-title"
+    >
+      <div className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16">
         {/* Header — sticky, never scrolls away */}
-        <div className="relative shrink-0 rounded-t-[20px] bg-[#7E47FF] px-7 py-8 pr-16">
+        <div className="relative shrink-0 rounded-t-[20px] bg-[#7E47FF] px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
           <button
             type="button"
             onClick={onClose}
@@ -822,7 +827,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
           >
             <X className="size-4" strokeWidth={2.5} />
           </button>
-          <p className="mb-1 font-heading text-xl font-bold leading-tight text-white">
+          <p id="apply-modal-title" className="mb-1 font-heading text-xl font-bold leading-tight text-white">
             {job.title}
           </p>
           <p className="text-sm text-white/65">{job.company}</p>
@@ -831,7 +836,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
         {/* Body — scrollable */}
         <div className="flex-1 overflow-y-auto rounded-b-[20px]">
           {duplicateMsg ? (
-            <div className="flex flex-col items-center gap-6 px-8 py-10 text-center">
+            <div className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8 sm:py-10">
               <div className="flex size-20 items-center justify-center rounded-full bg-[#7E47FF]/10">
                 <CheckCircle className="size-10 text-[#7E47FF]" strokeWidth={1.5} />
               </div>
@@ -886,8 +891,8 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
               </p>
             </div>
           ) : (
-            <form onSubmit={handleSubmit} className="px-7 py-6">
-              <div className="grid grid-cols-2 gap-4">
+            <form onSubmit={handleSubmit} className="px-5 py-5 sm:px-7 sm:py-6">
+              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
                   <label className={LABEL_CLS}>First Name</label>
                   <input
@@ -1226,7 +1231,7 @@ function JobDetail({
   onApply: () => void;
 }) {
   return (
-    <div className="relative col-span-full grid grid-cols-1 gap-10 rounded-[20px] bg-remotiv-purple p-9 md:grid-cols-2 md:p-10">
+    <div className="relative col-span-full grid grid-cols-1 gap-6 rounded-[20px] bg-remotiv-purple p-6 md:grid-cols-2 md:gap-10 md:p-10">
       <button
         type="button"
         onClick={onClose}
