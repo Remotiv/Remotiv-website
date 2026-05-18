@@ -1,7 +1,7 @@
 "use client";
 
 import "./browse-talent.css";
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Search, X } from "lucide-react";
@@ -1243,6 +1243,12 @@ export function BrowseClient({
 
   const [searchInput, setSearchInput] = useState(activeQuery);
   const [localSavedIds, setLocalSavedIds] = useState<Set<string>>(() => new Set(savedIds));
+
+  // Sync localSavedIds when the savedIds prop changes (page navigation, route refresh)
+  useEffect(() => {
+    setLocalSavedIds(new Set(savedIds));
+  }, [savedIds]);
+
   const [openCard, setOpenCard] = useState<Card | null>(null);
   const [toast, setToast] = useState<string | null>(null);
   const [drawerOpen, setDrawerOpen] = useState(false);
@@ -1257,17 +1263,28 @@ export function BrowseClient({
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
 
   // Sync unlock state when server props change (pagination/filter navigation).
+  // Merge unlockedContactData instead of replacing it so client-side unlock results
+  // survive re-renders. Only drop entries that are no longer in unlockedIds.
   useEffect(() => {
-    setUnlockedSet(new Set(unlockedIds));
+    const newSet = new Set(unlockedIds);
+    setUnlockedSet(newSet);
     setCredits(creditsRemaining);
-    setUnlockedContactData(new Map());
+    setUnlockedContactData((prev) => {
+      const next = new Map(prev);
+      for (const id of next.keys()) {
+        if (!newSet.has(id)) {
+          next.delete(id);
+        }
+      }
+      return next;
+    });
   }, [unlockedIds, creditsRemaining]);
 
   const router = useRouter();
   const pathname = usePathname();
   const searchParams = useSearchParams();
 
-  const buildUrl = (updates: Record<string, string | null>) => {
+  const buildUrl = useCallback((updates: Record<string, string | null>) => {
     const params = new URLSearchParams(searchParams?.toString() ?? "");
     for (const [key, value] of Object.entries(updates)) {
       if (value === null || value === "") {
@@ -1282,11 +1299,11 @@ export function BrowseClient({
     }
     const qs = params.toString();
     return qs ? `${pathname}?${qs}` : pathname;
-  };
+  }, [searchParams, pathname]);
 
-  const updateUrl = (updates: Record<string, string | null>) => {
+  const updateUrl = useCallback((updates: Record<string, string | null>) => {
     router.push(buildUrl(updates));
-  };
+  }, [router, buildUrl]);
 
   // ESC closes the modal
   useEffect(() => {
@@ -1359,8 +1376,7 @@ export function BrowseClient({
       updateUrl({ q: searchInput || null });
     }, 300);
     return () => clearTimeout(handle);
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [searchInput, activeQuery]);
+  }, [searchInput, activeQuery, updateUrl]);
 
   const handleToggleSave = async (candidateId: string) => {
     if (tier === "free" && !isAdmin) {

@@ -20,8 +20,10 @@ const VALID_ROLES = [
 type RoleFilter = (typeof VALID_ROLES)[number];
 
 function escapeIlike(s: string): string {
+  // Strip PostgREST-special chars that break .or() string parsing
+  const cleaned = s.replace(/[,()'"]/g, "");
   // Escape Postgres ILIKE wildcards (% and _) and the escape character (\).
-  return s.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
+  return cleaned.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
 export default async function BrowseTalentPage({
@@ -159,11 +161,18 @@ export default async function BrowseTalentPage({
 
     talentQuery = talentQuery.range(from, to);
 
-    const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
-    rows = (talentResult.data ?? []) as TalentRow[];
-    totalCount = countResult.count ?? 0;
-    // Free tier always sees only page 1 — never expose pagination affordance to them
-    totalPages = tier === "free" && !isAdmin ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    try {
+      const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
+      if (talentResult.error) throw talentResult.error;
+      if (countResult.error) throw countResult.error;
+      rows = (talentResult.data ?? []) as TalentRow[];
+      totalCount = countResult.count ?? 0;
+      // Free tier always sees only page 1 — never expose pagination affordance to them
+      totalPages = tier === "free" && !isAdmin ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+    } catch (err) {
+      console.error("Browse talent query failed:", err);
+      // rows/totalCount/totalPages keep their defaults — empty state renders gracefully
+    }
   }
 
   // Fetch user's unlock_events for visibility check.
