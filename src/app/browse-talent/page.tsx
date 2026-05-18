@@ -193,8 +193,20 @@ export default async function BrowseTalentPage({
     }
   }
 
+  // Issue #15: redact contact info embedded in freeform text fields.
+  // Without this, a candidate could write "email me at foo@x.com" in their
+  // summary or experience and leak contact info to non-unlocked viewers.
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}/g;
+  const redactContactInfo = (text: string | null | undefined): string | null => {
+    if (!text) return text ?? null;
+    return text
+      .replace(emailRegex, "[contact hidden]")
+      .replace(phoneRegex, "[contact hidden]");
+  };
+
   // Per-row stripping based on unlock state.
-  // - Free tier: all rows stripped (4 contact fields nulled).
+  // - Free tier: all rows stripped (4 contact fields nulled + freeform redacted).
   // - Subscriber tier: only rows in unlockedIds keep their contact fields.
   //   github_url is never stripped (Q11: public/social signal).
   const realProfiles: TalentRow[] = rows.map((row) => {
@@ -208,6 +220,14 @@ export default async function BrowseTalentPage({
       phone: null,
       cv_url: null,
       linkedin_url: null,
+      summary: redactContactInfo(row.summary),
+      experience: Array.isArray(row.experience)
+        ? row.experience.map((exp) => ({
+            ...exp,
+            title: exp.title != null ? (redactContactInfo(exp.title) ?? undefined) : exp.title,
+            company: exp.company != null ? (redactContactInfo(exp.company) ?? undefined) : exp.company,
+          }))
+        : row.experience,
     };
   });
 

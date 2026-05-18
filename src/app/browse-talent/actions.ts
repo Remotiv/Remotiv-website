@@ -99,9 +99,25 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     };
   }
 
-  // RPC succeeded — now fetch the candidate's contact fields via service role
-  // (RLS doesn't block service role; this read is safe because we just verified
-  // the unlock_event row exists for this user-candidate pair).
+  // Issue #16: defense in depth — verify unlock_event row exists for this
+  // user+candidate before trusting the RPC return as authorization. Uses the
+  // user's auth-aware client so RLS enforces "only your own unlock_events".
+  const { data: unlockEvent, error: verifyError } = await auth
+    .from("unlock_events")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
+
+  if (verifyError || !unlockEvent) {
+    return {
+      success: false,
+      error: "internal_error",
+      message: "Unlock verification failed. Please contact support.",
+    };
+  }
+
+  // RPC succeeded and unlock_event verified — fetch contact fields via service role.
   const sc = createServiceClient();
   const { data: candidate, error: fetchError } = await sc
     .from("talent_profiles")

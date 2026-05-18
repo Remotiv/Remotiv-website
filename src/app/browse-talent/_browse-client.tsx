@@ -520,9 +520,6 @@ function CardItem({
     <div
       className="bt-cand-card"
       onClick={onView}
-      role="button"
-      tabIndex={0}
-      onKeyDown={(e) => { if (e.key === "Enter" || e.key === " ") { e.preventDefault(); onView(); } }}
       style={{ animation: `btFadeIn .35s ease ${index * 0.04}s both` }}
     >
       <div className="bt-card-left">
@@ -1820,6 +1817,9 @@ export function BrowseClient({
 
       {toast && (
         <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
           style={{
             position: "fixed",
             bottom: 24,
