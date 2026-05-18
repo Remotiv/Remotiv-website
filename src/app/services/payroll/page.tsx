@@ -112,7 +112,7 @@ const FEATURE_CARDS: FeatureCard[] = [
   },
   {
     badge: "Not slow",
-    title: "Live in 24–48 Hours",
+    title: "Live in 48 Hours",
     description:
       "From discovery call to first payroll run in under two days. No new contracts, no re-entering data.",
     iconBg: "bg-remotiv-lime-card/40",
@@ -364,7 +364,7 @@ const WHO_WE_SERVE = [
     body: "You've built a remote team in Pakistan. Now you need someone to pay them correctly and keep things legally clean — without setting up a local entity or learning Pakistani tax law. Remotiv acts as Employer of Record — no local company needed. USD to PKR disbursement. Full Pakistan labour law compliance. One monthly USD invoice to you.",
   },
   {
-    title: "UK & Europe Companies",
+    title: "UK & European Companies",
     body: "Your Pakistani team delivers great work. Managing their payroll shouldn't require a new hire in your HR department. Remotiv handles everything locally — GBP/EUR to PKR payroll management, local compliance, timezone-aware communication. Works alongside your existing HR team.",
   },
   {
@@ -565,7 +565,7 @@ const FAQS = [
   },
   {
     q: "We're a US company. Do we need a Pakistani entity?",
-    a: "No. Through our EOR service, Remotiv legally employs your Pakistani team on your behalf. No local company, no bank account, no entity registration required.",
+    a: "No. Through our EOR (Employer of Record) service, Remotiv legally employs your Pakistani team on your behalf. No local company, no bank account, no entity registration required.",
   },
   {
     q: "What's the minimum team size?",
@@ -665,7 +665,7 @@ export default function PayrollPage() {
             areaServed: "Worldwide",
             url: "https://www.remotiv.work/services/payroll",
             description:
-              "Hassle-free international payroll, contracts, and compliance for remote engineering hires.",
+              "Hassle-free international payroll, contracts, and compliance for remote teams across engineering, sales, design, customer success, and operations. Live in 48 hours with full statutory coverage.",
           }).replace(/</g, "\\u003c"),
         }}
       />
@@ -687,7 +687,7 @@ export default function PayrollPage() {
                 Set Up Payroll →
               </PrimaryButton>
               <OutlineButton href={CALL_HREF} external className="w-full sm:w-auto">
-                Book a 15-Min Call
+                Book a 15-Min Call →
               </OutlineButton>
             </div>
           </div>
@@ -789,7 +789,7 @@ export default function PayrollPage() {
                 Getting Started
               </p>
               <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-white">
-                Live in 24–48 Hours. Here&apos;s How.
+                Live in 48 Hours. Here&apos;s How.
               </h2>
               <p className="mb-12 text-[0.97rem] leading-[1.7] text-white/85">
                 No lengthy onboarding. No technical setup on your side. No disruption to your team.
@@ -961,7 +961,7 @@ export default function PayrollPage() {
                   Set Up Payroll →
                 </Link>
                 <OutlineButton href={CALL_HREF} external className="w-full sm:w-auto">
-                  Book a 15-Min Call
+                  Book a 15-Min Call →
                 </OutlineButton>
               </div>
               <ul className="mb-7 flex flex-col gap-2.5">
