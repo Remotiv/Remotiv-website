@@ -1288,27 +1288,39 @@ export function BrowseClient({
   }, [searchInput, activeQuery]);
 
   const handleToggleSave = async (candidateId: string) => {
-    // Free tier (or anonymous) → open pricing modal instead of saving
-    if (tier === "free") {
+    if (tier === "free" && !isAdmin) {
       setIsPricingModalOpen(true);
       return;
     }
-    const supabase = createClient();
-    const isSaved = localSavedIds.has(candidateId);
-    if (isSaved) {
+
+    const wasSaved = localSavedIds.has(candidateId);
+
+    setLocalSavedIds((prev) => {
+      const next = new Set(prev);
+      if (wasSaved) next.delete(candidateId);
+      else next.add(candidateId);
+      return next;
+    });
+
+    const { toggleSave } = await import("./actions");
+    const result = await toggleSave(candidateId);
+
+    if (!result.success) {
       setLocalSavedIds((prev) => {
         const next = new Set(prev);
-        next.delete(candidateId);
+        if (wasSaved) next.add(candidateId);
+        else next.delete(candidateId);
         return next;
       });
-      await supabase.from("saved_profiles").delete().eq("candidate_id", candidateId);
-      setToast("Removed from saved");
+
+      if (result.error === "Subscription required") {
+        setIsPricingModalOpen(true);
+      } else {
+        setToast("Could not update saved status");
+      }
     } else {
-      setLocalSavedIds((prev) => new Set(prev).add(candidateId));
-      await supabase.from("saved_profiles").insert({ candidate_id: candidateId });
-      setToast("✓ Saved");
+      setToast(wasSaved ? "Removed from saved" : "Saved to your list");
     }
-    setTimeout(() => setToast(null), 2500);
   };
 
   // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions

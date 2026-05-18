@@ -130,3 +130,81 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     cvUrl: candidate.cv_url,
   };
 }
+
+export async function toggleSave(candidateId: string): Promise<{
+  success: boolean;
+  saved?: boolean;
+  error?: string;
+}> {
+  if (typeof candidateId !== "string" || candidateId.length < 1 || candidateId.length > 100) {
+    return { success: false, error: "Invalid candidate ID" };
+  }
+
+  const supabase = await createClient();
+  const { data: { user }, error: authError } = await supabase.auth.getUser();
+
+  if (authError || !user) {
+    return { success: false, error: "Not authenticated" };
+  }
+
+  const SUPER_ADMIN_EMAIL = (await import("@/app/admin/lib/roles")).SUPER_ADMIN_EMAIL;
+  const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
+
+  let isAdmin = isSuperAdmin;
+  if (!isAdmin) {
+    const { data: adminRow } = await supabase
+      .from("admin_users")
+      .select("role")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (adminRow?.role === "admin" || adminRow?.role === "super_admin") {
+      isAdmin = true;
+    }
+  }
+
+  let isSubscriber = false;
+  if (!isAdmin) {
+    const { data: sub } = await supabase
+      .from("subscriptions")
+      .select("tier")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (sub?.tier === "starter" || sub?.tier === "pro") {
+      isSubscriber = true;
+    }
+  }
+
+  if (!isAdmin && !isSubscriber) {
+    return { success: false, error: "Subscription required" };
+  }
+
+  const { data: existing, error: existingError } = await supabase
+    .from("saved_profiles")
+    .select("id")
+    .eq("user_id", user.id)
+    .eq("candidate_id", candidateId)
+    .maybeSingle();
+
+  if (existingError) {
+    return { success: false, error: "Could not check saved status" };
+  }
+
+  if (existing) {
+    const { error: deleteError } = await supabase
+      .from("saved_profiles")
+      .delete()
+      .eq("id", existing.id);
+    if (deleteError) {
+      return { success: false, error: "Could not unsave" };
+    }
+    return { success: true, saved: false };
+  }
+
+  const { error: insertError } = await supabase
+    .from("saved_profiles")
+    .insert({ user_id: user.id, candidate_id: candidateId });
+  if (insertError) {
+    return { success: false, error: "Could not save" };
+  }
+  return { success: true, saved: true };
+}

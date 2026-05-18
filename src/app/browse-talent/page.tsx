@@ -132,7 +132,9 @@ export default async function BrowseTalentPage({
       .not("approved_at", "is", null);
 
     if (isSavedView) {
-      const inList = Array.from(savedIdsSet);
+      // Free tier: cap saved view to 15 IDs server-side (defense in depth)
+      const allIds = Array.from(savedIdsSet);
+      const inList = (tier === "free" && !isAdmin) ? allIds.slice(0, 15) : allIds;
       talentQuery = talentQuery.in("id", inList);
       countQuery = countQuery.in("id", inList);
     }
