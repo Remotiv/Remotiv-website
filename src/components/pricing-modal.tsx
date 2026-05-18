@@ -21,25 +21,36 @@ type PricingModalProps = {
 export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingModalProps) {
   const router = useRouter();
 
-  // ESC key closes modal
+  // ESC closes only the topmost modal — capture phase + stopPropagation
+  // prevents a stacked ProfileModal's bubble-phase listener from also firing.
   useEffect(() => {
     if (!isOpen) return;
     const handleEsc = (e: KeyboardEvent) => {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape") {
+        e.stopPropagation();
+        onClose();
+      }
     };
-    document.addEventListener("keydown", handleEsc);
-    return () => document.removeEventListener("keydown", handleEsc);
+    document.addEventListener("keydown", handleEsc, true);
+    return () => document.removeEventListener("keydown", handleEsc, true);
   }, [isOpen, onClose]);
 
-  // Lock body scroll when open
+  // Ref-counted body scroll lock so stacked modals don't clobber each other.
   useEffect(() => {
-    if (isOpen) {
+    if (!isOpen) return;
+    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
+    document.body.dataset.scrollLocks = String(count + 1);
+    if (count === 0) {
       document.body.style.overflow = "hidden";
-    } else {
-      document.body.style.overflow = "";
     }
     return () => {
-      document.body.style.overflow = "";
+      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
+      const next = current - 1;
+      document.body.dataset.scrollLocks = String(next);
+      if (next <= 0) {
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollLocks;
+      }
     };
   }, [isOpen]);
 

@@ -715,13 +715,66 @@ function ProfileModal({
   // explicit "No work experience added" empty state.
   const hasExperienceArray = !!c.experience && c.experience.length > 0;
 
+  // Focus trap — keep Tab focus within the modal panel
+  useEffect(() => {
+    const modalEl = document.querySelector(
+      '[role="dialog"][aria-labelledby="profile-modal-title"]',
+    ) as HTMLElement | null;
+    if (!modalEl) return;
+
+    const focusableSelector =
+      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
+    const focusables = Array.from(modalEl.querySelectorAll<HTMLElement>(focusableSelector));
+    if (focusables.length === 0) return;
+
+    const first = focusables[0];
+    const last = focusables[focusables.length - 1];
+
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      if (e.shiftKey && document.activeElement === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && document.activeElement === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, []);
+
+  // Focus the close button on open; restore focus to the triggering element on close.
+  useEffect(() => {
+    const previousActiveElement = document.activeElement as HTMLElement | null;
+
+    const timer = setTimeout(() => {
+      const closeButton = document.querySelector(
+        '[role="dialog"][aria-labelledby="profile-modal-title"] [aria-label="Close"]',
+      ) as HTMLElement | null;
+      closeButton?.focus();
+    }, 50);
+
+    return () => {
+      clearTimeout(timer);
+      previousActiveElement?.focus?.();
+    };
+  }, []);
+
   return (
     <div
       className="bt-modal-overlay"
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       role="presentation"
     >
-      <div className="bt-modal-panel" onClick={(e) => e.stopPropagation()} role="presentation">
+      <div
+        className="bt-modal-panel"
+        onClick={(e) => e.stopPropagation()}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="profile-modal-title"
+      >
         <button
           type="button"
           onClick={onClose}
@@ -763,7 +816,7 @@ function ProfileModal({
           </div>
           <div className="bt-modal-meta">
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <div className="bt-modal-name">{c.name}</div>
+              <div id="profile-modal-title" className="bt-modal-name">{c.name}</div>
               <BtMatchBadge score={c.score} />
             </div>
             <div className="bt-modal-role">{c.role}</div>
@@ -1247,20 +1300,42 @@ export function BrowseClient({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Body scroll lock when modal open
+  // Ref-counted body scroll lock for ProfileModal — survives stacked PricingModal
   useEffect(() => {
     if (!openCard) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
+    document.body.dataset.scrollLocks = String(count + 1);
+    if (count === 0) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
+      const next = current - 1;
+      document.body.dataset.scrollLocks = String(next);
+      if (next <= 0) {
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollLocks;
+      }
+    };
   }, [openCard]);
 
-  // Body scroll lock when drawer open
+  // Ref-counted body scroll lock for mobile filter drawer
   useEffect(() => {
     if (!drawerOpen) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
+    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
+    document.body.dataset.scrollLocks = String(count + 1);
+    if (count === 0) {
+      document.body.style.overflow = "hidden";
+    }
+    return () => {
+      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
+      const next = current - 1;
+      document.body.dataset.scrollLocks = String(next);
+      if (next <= 0) {
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollLocks;
+      }
+    };
   }, [drawerOpen]);
 
   // Toast auto-dismiss
