@@ -23,7 +23,7 @@ const FEATURE_CARDS: FeatureCard[] = [
     title: "Dedicated Payroll Manager",
     description:
       "A real dedicated Payroll Manager who knows your team, your pay structure, and picks up the phone when you call.",
-    iconBg: "bg-[#49D7A7]/15",
+    iconBg: "bg-remotiv-green/15",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Manager</title>
@@ -39,19 +39,19 @@ const FEATURE_CARDS: FeatureCard[] = [
     visual: (
       <>
         <div className="mb-3.5 flex items-center gap-3">
-          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-[#49D7A7]/15 font-heading text-[0.75rem] font-extrabold text-[#1d8c6b]">
+          <div className="flex size-10 flex-shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 font-heading text-[0.75rem] font-extrabold text-[#1d8c6b]">
             AM
           </div>
           <div>
-            <div className="font-heading text-[0.82rem] font-bold text-[#111]">Ayesha Malik</div>
+            <div className="font-heading text-[0.82rem] font-bold text-remotiv-text-dark">Ayesha Malik</div>
             <div className="mt-0.5 text-[0.72rem] text-[#888]">Your Payroll Manager</div>
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
           {[
-            { label: "Payroll", bg: "bg-[#49D7A7]/15", color: "text-[#1d8c6b]" },
-            { label: "Tax Compliance", bg: "bg-[#7E47FF]/10", color: "text-[#7E47FF]" },
-            { label: "EOBI / SESSI", bg: "bg-[#c9ff85]/40", color: "text-[#5a7a10]" },
+            { label: "Payroll", bg: "bg-remotiv-green/15", color: "text-[#1d8c6b]" },
+            { label: "Tax Compliance", bg: "bg-remotiv-purple/10", color: "text-remotiv-purple" },
+            { label: "EOBI / SESSI", bg: "bg-remotiv-lime-card/40", color: "text-[#5a7a10]" },
           ].map((tag) => (
             <span
               key={tag.label}
@@ -69,7 +69,7 @@ const FEATURE_CARDS: FeatureCard[] = [
     title: "Full-Scope Payroll",
     description:
       "Salary processing, tax filing, EOBI, SESSI, gratuity, provident fund, payslips, leave tracking — every task, every month.",
-    iconBg: "bg-[#7E47FF]/10",
+    iconBg: "bg-remotiv-purple/10",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Checklist</title>
@@ -92,7 +92,7 @@ const FEATURE_CARDS: FeatureCard[] = [
           "Leave tracking & compliance",
         ].map((item) => (
           <div key={item} className="flex items-center gap-2.5 text-[0.78rem] font-medium text-[#333]">
-            <div className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-[#49D7A7]/15">
+            <div className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-remotiv-green/15">
               <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
                 <title>Check</title>
                 <path
@@ -115,7 +115,7 @@ const FEATURE_CARDS: FeatureCard[] = [
     title: "Live in 24–48 Hours",
     description:
       "From discovery call to first payroll run in under two days. No new contracts, no re-entering data.",
-    iconBg: "bg-[#c9ff85]/40",
+    iconBg: "bg-remotiv-lime-card/40",
     icon: (
       <svg viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Timer</title>
@@ -147,13 +147,13 @@ const FEATURE_CARDS: FeatureCard[] = [
             <div className="size-2 flex-shrink-0 rounded-full" style={{ background: row.dot }} />
             <span
               className={cn(
-                "flex-1 text-[0.75rem] font-medium text-[#444]",
-                row.bold && "font-bold text-[#111]",
+                "flex-1 text-[0.75rem] font-medium text-remotiv-text-mid",
+                row.bold && "font-bold text-remotiv-text-dark",
               )}
             >
               {row.label}
             </span>
-            <span className="font-heading text-[0.68rem] font-bold text-[#49D7A7]">{row.time}</span>
+            <span className="font-heading text-[0.68rem] font-bold text-remotiv-green">{row.time}</span>
           </div>
         ))}
       </div>
@@ -174,7 +174,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Salary Processing & Disbursement",
     description:
       "Full monthly payroll — base salaries, overtime, bonuses, increments — transferred directly to employee bank accounts on payday. Automated calculation, direct bank transfers, multi-currency support.",
-    iconBg: "bg-[#49D7A7]/15",
+    iconBg: "bg-remotiv-green/15",
     iconColor: "#49D7A7",
     icon: (
       <>
@@ -188,7 +188,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Income Tax Deduction & Filing",
     description:
       "Monthly withholding tax calculated and deducted correctly. Annual income tax returns filed with FBR on your behalf. Employee tax certificates issued. Fully compliant with Pakistan tax law.",
-    iconBg: "bg-[#7E47FF]/10",
+    iconBg: "bg-remotiv-purple/10",
     iconColor: "#7E47FF",
     icon: (
       <>
@@ -201,7 +201,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "EOBI, SESSI & Social Security",
     description:
       "All mandatory statutory contributions calculated, deducted, and remitted on time. EOBI monthly contributions, SESSI/PESSI deductions, province-specific compliance — all managed with full digital records.",
-    iconBg: "bg-[#c9ff85]/50",
+    iconBg: "bg-remotiv-lime-card/50",
     iconColor: "#5a7a10",
     icon: (
       <>
@@ -225,7 +225,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Gratuity & Provident Fund",
     description:
       "End-of-service gratuity and provident fund tracked month by month. Individual employee benefit statements and accurate fund ledgers maintained.",
-    iconBg: "bg-[#49D7A7]/15",
+    iconBg: "bg-remotiv-green/15",
     iconColor: "#49D7A7",
     icon: (
       <path
@@ -241,7 +241,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Payslip Generation & Delivery",
     description:
       "Every employee receives a clean, detailed digital payslip on payday — automatically, every month. Full earnings and deductions breakdown, accessible anytime.",
-    iconBg: "bg-[#9886fe]/15",
+    iconBg: "bg-remotiv-purple-light/15",
     iconColor: "#9886fe",
     icon: (
       <>
@@ -259,7 +259,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Leave, Attendance & Absence",
     description:
       "Leave and attendance feed directly into payroll. Casual, sick, unpaid absences, and overtime all reflected automatically. Leave balance reports on demand.",
-    iconBg: "bg-[#49D7A7]/15",
+    iconBg: "bg-remotiv-green/15",
     iconColor: "#49D7A7",
     icon: (
       <>
@@ -283,7 +283,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "International & Remote Payroll (EOR)",
     description:
       "Remotiv acts as Employer of Record — employing your team legally in Pakistan, paying in PKR while you invoice in USD or GBP. No Pakistani company or bank account required.",
-    iconBg: "bg-[#7E47FF]/10",
+    iconBg: "bg-remotiv-purple/10",
     iconColor: "#7E47FF",
     icon: (
       <>
@@ -302,7 +302,7 @@ const SCOPE_CARDS: ScopeCard[] = [
     title: "Compliance & HR Documentation",
     description:
       "Employment contracts, offer letters, HR policies, onboarding and offboarding documentation — kept clean and legally sound. Labour law and SECP compliance handled.",
-    iconBg: "bg-[#c9ff85]/50",
+    iconBg: "bg-remotiv-lime-card/50",
     iconColor: "#5a7a10",
     icon: (
       <>
@@ -593,7 +593,7 @@ const PrimaryButton = ({
   <Link
     href={href}
     className={cn(
-      "inline-flex items-center whitespace-nowrap rounded-full bg-[#49D7A7] px-8 py-3.5 font-heading text-[0.92rem] font-bold text-[#111] transition hover:-translate-y-px hover:bg-[#3bc495]",
+      "inline-flex items-center whitespace-nowrap rounded-full bg-remotiv-green px-8 py-3.5 font-heading text-[0.92rem] font-bold text-remotiv-text-dark transition hover:-translate-y-px hover:bg-remotiv-green-light",
       className,
     )}
   >
@@ -616,7 +616,7 @@ const OutlineButton = ({
     href={href}
     {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
     className={cn(
-      "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-[#111] transition hover:bg-[#111] hover:text-white",
+      "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-remotiv-text-dark transition hover:bg-[#111] hover:text-white",
       className,
     )}
   >
@@ -635,7 +635,7 @@ const SectionPill = ({
     className={cn(
       "mb-5 inline-flex items-center rounded-full border px-4 py-1 text-[0.72rem] font-bold uppercase tracking-[0.08em]",
       variant === "green"
-        ? "border-[#49D7A7]/30 bg-[#49D7A7]/10 text-[#1d8c6b]"
+        ? "border-remotiv-green/30 bg-remotiv-green/10 text-[#1d8c6b]"
         : "border-white/15 bg-white/10 text-white/60",
     )}
   >
@@ -670,14 +670,14 @@ export default function PayrollPage() {
         }}
       />
       <Navbar />
-      <main className="flex-1 bg-white">
+      <main id="main" className="flex-1 bg-white">
         {/* Hero */}
         <section className="box-border w-full bg-white p-4 md:p-6">
-          <div className="mx-auto box-border flex w-full flex-col items-center rounded-[28px] bg-[#f8f4f1] px-5 pb-20 pt-20 text-center md:px-10 md:pb-28 md:pt-28">
-            <h1 className="mb-6 max-w-[820px] font-heading text-[clamp(2.2rem,5vw,3.8rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#111]">
+          <div className="mx-auto box-border flex w-full flex-col items-center rounded-[28px] bg-remotiv-bg px-5 pb-20 pt-20 text-center md:px-10 md:pb-28 md:pt-28">
+            <h1 className="mb-6 max-w-[820px] font-heading text-[clamp(2.2rem,5vw,3.8rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-remotiv-text-dark">
               You Run the Business. We Run Payroll.
             </h1>
-            <p className="mx-auto mb-11 max-w-[580px] text-[1.05rem] leading-[1.7] text-[#444]">
+            <p className="mx-auto mb-11 max-w-[580px] text-[1.05rem] leading-[1.7] text-remotiv-text-mid">
               Salaries, tax compliance, EOBI, SESSI, gratuity — handled end-to-end by Remotiv. No
               spreadsheets, no missed deadlines, no errors. Already hired through Remotiv? Add payroll
               in one conversation.
@@ -698,12 +698,12 @@ export default function PayrollPage() {
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Payroll Services</SectionPill>
-              <h2 className="mb-5 font-heading text-[clamp(1.9rem,3.5vw,2.8rem)] font-extrabold leading-[1.12] tracking-[-0.02em] text-[#111]">
+              <h2 className="mb-5 font-heading text-[clamp(1.9rem,3.5vw,2.8rem)] font-extrabold leading-[1.12] tracking-[-0.02em] text-remotiv-text-dark">
                 Payroll That Runs Itself.
                 <br />
                 Perfectly. Every Month.
               </h2>
-              <p className="mx-auto max-w-[560px] text-base leading-[1.7] text-[#777]">
+              <p className="mx-auto max-w-[560px] text-base leading-[1.7] text-remotiv-text-light">
                 Most payroll software still requires someone to run it. We give you a dedicated
                 manager, full compliance coverage, and a setup that&apos;s live in under 48 hours.
               </p>
@@ -713,7 +713,7 @@ export default function PayrollPage() {
               {FEATURE_CARDS.map((card) => (
                 <div
                   key={card.title}
-                  className="flex flex-col overflow-hidden rounded-[20px] bg-[#f8f4f1] p-8 pb-8"
+                  className="flex flex-col overflow-hidden rounded-[20px] bg-remotiv-bg p-8 pb-8"
                 >
                   <div
                     className={cn(
@@ -726,7 +726,7 @@ export default function PayrollPage() {
                   <span className="mb-2.5 text-[0.65rem] font-bold uppercase tracking-[0.1em] text-[#999]">
                     {card.badge}
                   </span>
-                  <h3 className="mb-3.5 font-heading text-[1.15rem] font-bold leading-[1.25] text-[#111]">
+                  <h3 className="mb-3.5 font-heading text-[1.15rem] font-bold leading-[1.25] text-remotiv-text-dark">
                     {card.title}
                   </h3>
                   <p className="mb-8 flex-1 text-[0.88rem] leading-[1.72] text-[#555]">
@@ -744,10 +744,10 @@ export default function PayrollPage() {
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Full Scope</SectionPill>
-              <h2 className="mb-4 font-heading text-[clamp(1.8rem,3.2vw,2.6rem)] font-extrabold leading-[1.12] tracking-[-0.03em] text-[#111]">
+              <h2 className="mb-4 font-heading text-[clamp(1.8rem,3.2vw,2.6rem)] font-extrabold leading-[1.12] tracking-[-0.03em] text-remotiv-text-dark">
                 Everything Payroll. Nothing Left Out.
               </h2>
-              <p className="mx-auto max-w-[560px] text-base leading-[1.7] text-[#777]">
+              <p className="mx-auto max-w-[560px] text-base leading-[1.7] text-remotiv-text-light">
                 From the first salary run to annual tax filings — here is every task Remotiv takes
                 completely off your hands.
               </p>
@@ -757,7 +757,7 @@ export default function PayrollPage() {
               {SCOPE_CARDS.map((card) => (
                 <div
                   key={card.title}
-                  className="flex flex-col rounded-[18px] border border-transparent bg-[#f8f4f1] px-6 pb-8 pt-7 transition hover:-translate-y-0.5 hover:border-[#49D7A7]/30 hover:shadow-[0_8px_28px_rgba(73,215,167,0.1)]"
+                  className="flex flex-col rounded-[18px] border border-transparent bg-remotiv-bg px-6 pb-8 pt-7 transition hover:-translate-y-0.5 hover:border-remotiv-green/30 hover:shadow-[0_8px_28px_rgba(73,215,167,0.1)]"
                 >
                   <div
                     className={cn(
@@ -771,7 +771,7 @@ export default function PayrollPage() {
                       {card.icon}
                     </svg>
                   </div>
-                  <h4 className="mb-2.5 font-heading text-[0.9rem] font-bold leading-[1.3] text-[#111]">
+                  <h4 className="mb-2.5 font-heading text-[0.9rem] font-bold leading-[1.3] text-remotiv-text-dark">
                     {card.title}
                   </h4>
                   <p className="text-[0.82rem] leading-[1.72] text-[#666]">{card.description}</p>
@@ -782,10 +782,10 @@ export default function PayrollPage() {
         </section>
 
         {/* Process */}
-        <section className="bg-[#9886fe] px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
+        <section id="process" className="bg-remotiv-purple-light px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
           <div className="mx-auto grid max-w-[1100px] items-start gap-12 md:grid-cols-2 md:gap-20">
             <div>
-              <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#c9ff85]">
+              <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-lime-card">
                 Getting Started
               </p>
               <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-white">
@@ -799,7 +799,7 @@ export default function PayrollPage() {
                 {PROCESS_STEPS.map((step, idx) => (
                   <div key={step.label} className="relative flex gap-5 pb-9 last:pb-0">
                     <div className="flex flex-shrink-0 flex-col items-center">
-                      <div className="relative z-10 flex size-8 flex-shrink-0 items-center justify-center rounded-full bg-white font-heading text-[0.78rem] font-bold text-[#9886fe]">
+                      <div className="relative z-10 flex size-8 flex-shrink-0 items-center justify-center rounded-full bg-white font-heading text-[0.78rem] font-bold text-remotiv-purple-light">
                         {idx + 1}
                       </div>
                       {idx !== PROCESS_STEPS.length - 1 && (
@@ -807,7 +807,7 @@ export default function PayrollPage() {
                       )}
                     </div>
                     <div className="flex-1 pt-1">
-                      <p className="mb-2 font-heading text-[0.85rem] font-bold text-[#c9ff85]">
+                      <p className="mb-2 font-heading text-[0.85rem] font-bold text-remotiv-lime-card">
                         {step.label}
                       </p>
                       <p className="text-[0.88rem] leading-[1.75] text-white/80">{step.body}</p>
@@ -817,18 +817,18 @@ export default function PayrollPage() {
               </div>
             </div>
 
-            <div className="sticky top-24 flex flex-col gap-5 overflow-hidden rounded-[24px] border border-black/[0.07] bg-white px-9 py-10">
-              <div className="inline-flex items-center gap-2 self-start rounded-full border border-[#49D7A7]/25 bg-[#49D7A7]/10 px-3.5 py-1.5 font-heading text-[0.72rem] font-bold text-[#49D7A7]">
-                <span className="size-[7px] rounded-full bg-[#49D7A7]" />
+            <div className="md:sticky md:top-24 flex flex-col gap-5 overflow-hidden rounded-[24px] border border-black/[0.07] bg-white px-9 py-10">
+              <div className="inline-flex items-center gap-2 self-start rounded-full border border-remotiv-green/25 bg-remotiv-green/10 px-3.5 py-1.5 font-heading text-[0.72rem] font-bold text-remotiv-green">
+                <span className="size-[7px] rounded-full bg-remotiv-green" />
                 Live — Active Payroll Clients
               </div>
-              <p className="font-heading text-[1.4rem] font-extrabold leading-[1.2] text-[#111]">
+              <p className="font-heading text-[1.4rem] font-extrabold leading-[1.2] text-remotiv-text-dark">
                 Most clients are fully live on payroll within 48 hours of their first call.
               </p>
               <div className="mt-1 grid grid-cols-2 gap-3.5">
                 {PROCESS_STATS.map((stat) => (
-                  <div key={stat.label} className="rounded-[14px] bg-[#f8f4f1] px-5 py-4">
-                    <div className="font-heading text-[1.5rem] font-extrabold leading-none text-[#111]">
+                  <div key={stat.label} className="rounded-[14px] bg-remotiv-bg px-5 py-4">
+                    <div className="font-heading text-[1.5rem] font-extrabold leading-none text-remotiv-text-dark">
                       {stat.num}
                     </div>
                     <div className="mt-1.5 text-[0.78rem] text-[#888]">{stat.label}</div>
@@ -839,7 +839,7 @@ export default function PayrollPage() {
               <div className="flex flex-col gap-3">
                 {PROCESS_BARS.map((bar) => (
                   <div key={bar.step} className="flex items-center gap-3">
-                    <div className="flex size-[26px] flex-shrink-0 items-center justify-center rounded-full bg-[#9886fe] font-heading text-[0.68rem] font-bold text-white">
+                    <div className="flex size-[26px] flex-shrink-0 items-center justify-center rounded-full bg-remotiv-purple-light font-heading text-[0.68rem] font-bold text-white">
                       {bar.step}
                     </div>
                     <div className="h-1.5 flex-1 overflow-hidden rounded-full bg-black/[0.07]">
@@ -890,10 +890,10 @@ export default function PayrollPage() {
         <section className="bg-white px-5 py-16 md:px-10 md:py-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14">
-              <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-[#49D7A7]">
+              <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
                 The Advantage
               </p>
-              <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-[#111]">
+              <h2 className="font-heading text-[clamp(1.75rem,3vw,2.4rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
                 What Changes When You Hand Payroll to Remotiv
               </h2>
             </div>
@@ -906,7 +906,7 @@ export default function PayrollPage() {
                   idx === arr.length - 1 && "border-b border-black/[0.08]",
                 )}
               >
-                <h3 className="pt-1 font-heading text-base font-bold leading-[1.3] text-[#111]">
+                <h3 className="pt-1 font-heading text-base font-bold leading-[1.3] text-remotiv-text-dark">
                   {row.label}
                 </h3>
                 <div className="grid grid-cols-1 gap-8 sm:grid-cols-2 md:grid-cols-3">
@@ -923,7 +923,7 @@ export default function PayrollPage() {
                         <title>{col.heading}</title>
                         {col.icon}
                       </svg>
-                      <h4 className="col-start-2 row-start-1 self-center font-heading text-[0.92rem] font-bold text-[#111]">
+                      <h4 className="col-start-2 row-start-1 self-center font-heading text-[0.92rem] font-bold text-remotiv-text-dark">
                         {col.heading}
                       </h4>
                       <p className="col-span-full row-start-2 text-[0.85rem] leading-[1.72] text-[#555]">
@@ -938,16 +938,16 @@ export default function PayrollPage() {
         </section>
 
         {/* CTA */}
-        <section className="bg-white px-5 pb-16 pt-12 md:px-10 md:pb-20 md:pt-16">
-          <div className="mx-auto grid max-w-[900px] items-center gap-8 rounded-[24px] bg-[#c9ff85] p-6 md:grid-cols-2 md:gap-14 md:p-[52px_60px]">
+        <section id="cta" className="bg-white px-5 pb-16 pt-12 md:px-10 md:pb-20 md:pt-16">
+          <div className="mx-auto grid max-w-[900px] items-center gap-8 rounded-[24px] bg-remotiv-lime-card p-6 md:grid-cols-2 md:gap-14 md:p-[52px_60px]">
             <div>
-              <div className="mb-4 inline-flex items-center rounded-full bg-white/45 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-[#111]">
+              <div className="mb-4 inline-flex items-center rounded-full bg-white/45 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-dark">
                 Payroll Services
               </div>
-              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-[#111]">
+              <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
                 Your Payroll Goes Live in 48 Hours.
               </h2>
-              <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
+              <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark/75">
                 No spreadsheets. No missed filings. No payroll errors. Just a dedicated Payroll
                 Manager, handling everything — from salary calculations to FBR filings — every single
                 month.
@@ -955,7 +955,7 @@ export default function PayrollPage() {
               <div className="mb-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
                 <Link
                   href={BOOKING_HREF}
-                  className="inline-flex w-full items-center rounded-full bg-[#49D7A7] px-6 py-3 font-heading text-[0.82rem] font-bold text-[#111] transition hover:opacity-90 sm:w-auto"
+                  className="inline-flex w-full items-center rounded-full bg-remotiv-green px-6 py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition hover:opacity-90 sm:w-auto"
                 >
                   Set Up Payroll →
                 </Link>
@@ -967,7 +967,7 @@ export default function PayrollPage() {
                 {CTA_CHECKS.map((check) => (
                   <li
                     key={check}
-                    className="flex items-center gap-2 text-[13px] font-medium text-[#111]"
+                    className="flex items-center gap-2 text-[13px] font-medium text-remotiv-text-dark"
                   >
                     <div className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-white/50">
                       <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
@@ -994,27 +994,27 @@ export default function PayrollPage() {
                   ].map((av) => (
                     <div
                       key={av.initials}
-                      className="-mr-[7px] flex size-7 items-center justify-center rounded-full border-2 border-[#c9ff85] text-[9px] font-bold"
+                      className="-mr-[7px] flex size-7 items-center justify-center rounded-full border-2 border-remotiv-lime-card text-[9px] font-bold"
                       style={{ background: av.bg, color: av.color }}
                     >
                       {av.initials}
                     </div>
                   ))}
                 </div>
-                <span className="ml-3 text-xs text-[#111]/65">
+                <span className="ml-3 text-xs text-remotiv-text-dark/65">
                   Trusted by 100+ companies worldwide
                 </span>
               </div>
             </div>
 
             <div className="flex flex-col rounded-2xl bg-white p-7">
-              <p className="mb-5 font-heading text-sm font-bold text-[#111]">
+              <p className="mb-5 font-heading text-sm font-bold text-remotiv-text-dark">
                 Payroll by the Numbers
               </p>
               <div className="mb-5 grid grid-cols-2 gap-3">
                 {CTA_STATS.map((stat) => (
-                  <div key={stat.label} className="rounded-xl bg-[#f8f4f1] px-4 py-4">
-                    <div className="mb-1 font-heading text-[1.35rem] font-extrabold leading-none text-[#111]">
+                  <div key={stat.label} className="rounded-xl bg-remotiv-bg px-4 py-4">
+                    <div className="mb-1 font-heading text-[1.35rem] font-extrabold leading-none text-remotiv-text-dark">
                       {stat.num}
                     </div>
                     <div className="text-[0.72rem] leading-[1.4] text-[#888]">{stat.label}</div>
@@ -1023,7 +1023,7 @@ export default function PayrollPage() {
               </div>
               <Link
                 href={BOOKING_HREF}
-                className="mb-2.5 w-full rounded-[10px] bg-[#c9ff85] py-3 text-center font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition hover:-translate-y-px hover:bg-[#b8f060]"
+                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3 text-center font-heading text-xs font-bold uppercase tracking-[0.06em] text-remotiv-text-dark transition hover:-translate-y-px hover:bg-[#b8f060]"
               >
                 Get Started Today →
               </Link>
@@ -1040,14 +1040,14 @@ export default function PayrollPage() {
         </section>
 
         {/* FAQ */}
-        <section className="border-t border-black/[0.06] bg-white px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
+        <section id="faq" className="border-t border-black/[0.06] bg-white px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="flex flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:max-w-[35%] md:flex-[0_0_35%]">
-                <h2 className="mb-5 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold leading-[1.15] text-[#111]">
+                <h2 className="mb-5 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold leading-[1.15] text-remotiv-text-dark">
                   Questions We Hear Most
                 </h2>
-                <p className="text-[0.95rem] leading-[1.7] text-[#777]">
+                <p className="text-[0.95rem] leading-[1.7] text-remotiv-text-light">
                   For any unanswered questions, reach out to our team. We&apos;ll respond as soon as
                   possible.
                 </p>
@@ -1061,23 +1061,29 @@ export default function PayrollPage() {
                       <div key={faq.q} className="border-b border-black/10">
                         <button
                           type="button"
+                          id={`pay-faq-button-${idx}`}
                           onClick={() => setOpenFaq(isOpen ? -1 : idx)}
+                          aria-expanded={isOpen}
+                          aria-controls={`pay-faq-panel-${idx}`}
                           className="flex w-full items-center justify-between gap-4 bg-transparent py-6 text-left"
                         >
-                          <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-[#111]">
+                          <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-remotiv-text-dark">
                             {faq.q}
                           </span>
-                          <span className="w-6 flex-shrink-0 text-center text-[1.4rem] font-light leading-none text-[#111]">
+                          <span className="w-6 flex-shrink-0 text-center text-[1.4rem] font-light leading-none text-remotiv-text-dark">
                             {isOpen ? "−" : "+"}
                           </span>
                         </button>
                         <div
+                          id={`pay-faq-panel-${idx}`}
+                          role="region"
+                          aria-labelledby={`pay-faq-button-${idx}`}
                           className={cn(
                             "overflow-hidden transition-[max-height] duration-300",
                             isOpen ? "max-h-[600px]" : "max-h-0",
                           )}
                         >
-                          <p className="pb-6 text-[0.9rem] leading-[1.75] text-[#444]">{faq.a}</p>
+                          <p className="pb-6 text-[0.9rem] leading-[1.75] text-remotiv-text-mid">{faq.a}</p>
                         </div>
                       </div>
                     );
