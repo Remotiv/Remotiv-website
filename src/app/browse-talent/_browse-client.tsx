@@ -368,12 +368,12 @@ function deriveYears(
   const starts: number[] = [];
   const ends: number[] = [];
   for (const e of experience) {
-    const s = extractYear(e.start) ?? extractYear(e.dates?.split(/[–\-]/)[0]);
+    const s = extractYear(e.start) ?? extractYear(e.dates?.split(/[–-]/)[0]);
     if (s !== null) starts.push(s);
     if (e.end && /present/i.test(e.end)) {
       ends.push(now);
     } else {
-      const en = extractYear(e.end) ?? extractYear(e.dates?.split(/[–\-]/)[1]) ?? now;
+      const en = extractYear(e.end) ?? extractYear(e.dates?.split(/[–-]/)[1]) ?? now;
       ends.push(en);
     }
   }
@@ -447,7 +447,7 @@ function rowToCard(r: TalentRow): Card {
 
 function GhSvg() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor">
+    <svg viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="GitHub">
       <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
     </svg>
   );
@@ -455,7 +455,7 @@ function GhSvg() {
 
 function LiSvg() {
   return (
-    <svg viewBox="0 0 24 24" fill="currentColor">
+    <svg viewBox="0 0 24 24" fill="currentColor" role="img" aria-label="LinkedIn">
       <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
     </svg>
   );
@@ -470,7 +470,7 @@ function BtMatchBadge({ score }: { score: number }) {
       className="bt-match-badge"
       style={{ background: `${c}12`, borderColor: `${c}40`, color: c }}
     >
-      <svg width="8" height="8" viewBox="0 0 10 10" fill={c}>
+      <svg width="8" height="8" viewBox="0 0 10 10" fill={c} role="img" aria-label="Match score">
         <polygon points="5,0 6.2,3.8 10,3.8 7,6.1 8.1,10 5,7.6 1.9,10 3,6.1 0,3.8 3.8,3.8" />
       </svg>
       {score}%
@@ -495,7 +495,6 @@ function CardItem({
   onSave,
   onLocked,
   index,
-  tier = "free",
   isAdmin = false,
   isUnlocked,
   canUnlock,
@@ -508,7 +507,6 @@ function CardItem({
   onSave: () => void;
   onLocked: () => void;
   index: number;
-  tier?: "free" | "subscriber";
   isAdmin?: boolean;
   isUnlocked: boolean;
   canUnlock: boolean;
@@ -534,12 +532,12 @@ function CardItem({
           <span className={c.available ? "bt-avail-yes" : "bt-avail-no"}>
             {c.available ? "● Available" : "○ Unavailable"}
           </span>
-          <span style={{ marginLeft: "auto", fontSize: "0.7rem", color: "#ccc", fontFamily: "'DM Sans',sans-serif" }}>
+          <span style={{ marginLeft: "auto", fontSize: "0.7rem", color: "#888", fontFamily: "'DM Sans',sans-serif" }}>
             {c.lastActive}
           </span>
         </div>
         <div className="bt-cand-row2">
-          {c.role} · 📍 {c.location} · {c.exp} exp
+          {c.role} · <span aria-hidden="true">📍</span> {c.location} · {c.exp} exp
         </div>
         {c.bio && <div className="bt-cand-bio">{c.bio}</div>}
         <div className="bt-skills-row">
@@ -550,7 +548,7 @@ function CardItem({
         {c.highlights.length > 0 && (
           <div className="bt-highlights-row">
             {c.highlights.map((h) => (
-              <span key={h} className="bt-hl-tag">✦ {h}</span>
+              <span key={h} className="bt-hl-tag"><span aria-hidden="true">✦</span> {h}</span>
             ))}
           </div>
         )}
@@ -776,22 +774,7 @@ function ProfileModal({
           type="button"
           onClick={onClose}
           aria-label="Close"
-          style={{
-            position: "absolute",
-            top: 12,
-            right: 12,
-            background: "#fff",
-            border: "1px solid #e8e0db",
-            borderRadius: "50%",
-            width: 36,
-            height: 36,
-            display: "flex",
-            alignItems: "center",
-            justifyContent: "center",
-            cursor: "pointer",
-            zIndex: 10,
-            boxShadow: "0 1px 3px rgba(0,0,0,0.08)",
-          }}
+          className="bt-modal-close-btn"
         >
           <X size={16} color="#666" />
         </button>
@@ -818,7 +801,7 @@ function ProfileModal({
             </div>
             <div className="bt-modal-role">{c.role}</div>
             <div className="bt-modal-info">
-              📍 {c.location} · {c.exp} experience{eduInline ? ` · ${eduInline}` : ""}
+              <span aria-hidden="true">📍</span> {c.location} · {c.exp} experience{eduInline ? ` · ${eduInline}` : ""}
             </div>
             <div className="bt-profile-links">
               {c.github && (
@@ -1035,7 +1018,7 @@ function ProfileModal({
             </div>
           ) : (
             <div className="bt-locked-box">
-              <div className="bt-locked-icon">🔒</div>
+              <div className="bt-locked-icon" aria-hidden="true">🔒</div>
               <div>
                 <div className="bt-locked-title">Unlock Full Contact Details</div>
                 <div className="bt-locked-sub">
@@ -1429,8 +1412,6 @@ export function BrowseClient({
     setTimeout(() => setToast(null), 3500);
   };
 
-  const lockedAction = () => handleLockedAction();
-
   async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
     const result = await unlockCandidate(candidateId);
     if (result.success) {
@@ -1604,7 +1585,7 @@ export function BrowseClient({
                   💳 <strong>{credits}</strong> credits remaining
                 </span>
               ) : (
-                <span className="bt-unlock-hint">🔒 Subscribe to unlock contact details</span>
+                <span className="bt-unlock-hint"><span aria-hidden="true">🔒</span> Subscribe to unlock contact details</span>
               )}
             </div>
 
@@ -1624,7 +1605,7 @@ export function BrowseClient({
               <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 16, padding: "16px 20px", background: "#fff", border: "1px solid #e8e0db", borderRadius: 12 }}>
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                    <span style={{ fontSize: 22 }}>❤️</span>
+                    <span style={{ fontSize: 22 }} aria-hidden="true">❤️</span>
                     <h3 style={{ fontSize: 18, fontWeight: 500, margin: 0, color: "#111" }}>Saved profiles</h3>
                   </div>
                   <p style={{ fontSize: 13, color: "#666", margin: "4px 0 0 32px" }}>
@@ -1639,28 +1620,28 @@ export function BrowseClient({
 
             <div className="bt-cand-list">
               {isSavedView && cards.length === 0 ? (
-                <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
-                  <div style={{ width: 64, height: 64, margin: "0 auto 16px auto", borderRadius: "50%", background: "#EEEDFE", display: "flex", alignItems: "center", justifyContent: "center", fontSize: 32 }}>
+                <div className="bt-empty-state">
+                  <div className="bt-empty-state-icon" aria-hidden="true">
                     ❤️
                   </div>
-                  <h4 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px 0", color: "#111" }}>Build your shortlist</h4>
-                  <p style={{ fontSize: 14, color: "#666", margin: "0 0 24px 0", lineHeight: 1.5 }}>
+                  <h4 className="bt-empty-state-heading">Build your shortlist</h4>
+                  <p className="bt-empty-state-subtext">
                     Click the heart icon on any candidate card to save them here for later review.
                   </p>
-                  <Link href="/browse-talent" style={{ background: "#7E47FF", color: "#fff", border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-block" }}>
+                  <Link href="/browse-talent" className="bt-empty-state-cta">
                     ← Browse all candidates
                   </Link>
                 </div>
               ) : cards.length === 0 ? (
-                <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 12, padding: "48px 24px", textAlign: "center" }}>
-                  <div style={{ width: 64, height: 64, margin: "0 auto 16px auto", borderRadius: "50%", background: "#EEEDFE", display: "flex", alignItems: "center", justifyContent: "center" }}>
+                <div className="bt-empty-state">
+                  <div className="bt-empty-state-icon" aria-hidden="true">
                     <Search size={28} color="#7E47FF" />
                   </div>
-                  <h4 style={{ fontSize: 18, fontWeight: 500, margin: "0 0 8px 0", color: "#111" }}>No candidates match</h4>
-                  <p style={{ fontSize: 14, color: "#666", margin: "0 0 24px 0", lineHeight: 1.5, maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
+                  <h4 className="bt-empty-state-heading">No candidates match</h4>
+                  <p className="bt-empty-state-subtext" style={{ maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
                     We couldn&apos;t find anyone matching your filters. Try different search terms or clear all filters.
                   </p>
-                  <Link href="/browse-talent" style={{ background: "#7E47FF", color: "#fff", border: "none", borderRadius: 999, padding: "12px 24px", fontSize: 13, fontWeight: 600, textDecoration: "none", display: "inline-block" }}>
+                  <Link href={buildUrl({ q: null, role: null, view: null })} className="bt-empty-state-cta">
                     Clear all filters
                   </Link>
                 </div>
@@ -1675,7 +1656,6 @@ export function BrowseClient({
                       onSave={() => handleToggleSave(c.id)}
                       onLocked={handleLockedAction}
                       index={i}
-                      tier={tier}
                       isAdmin={isAdmin}
                       isUnlocked={unlockedSet.has(c.id)}
                       canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(c.id)}
@@ -1720,7 +1700,6 @@ export function BrowseClient({
                             onSave={() => {}}
                             onLocked={() => {}}
                             index={i + 15}
-                            tier={tier}
                             isAdmin={false}
                             isUnlocked={false}
                             canUnlock={false}
@@ -1817,23 +1796,10 @@ export function BrowseClient({
 
       {toast && (
         <div
+          className="bt-toast"
           role="status"
           aria-live="polite"
           aria-atomic="true"
-          style={{
-            position: "fixed",
-            bottom: 24,
-            left: 24,
-            zIndex: 1000,
-            background: "#111",
-            color: "#fff",
-            padding: "12px 16px",
-            borderRadius: 12,
-            fontFamily: "'DM Sans',sans-serif",
-            fontSize: ".85rem",
-            fontWeight: 500,
-            boxShadow: "0 8px 32px rgba(0,0,0,.15)",
-          }}
         >
           {toast}
         </div>
