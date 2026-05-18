@@ -25,7 +25,7 @@ const FEATURE_CARDS: FeatureCard[] = [
       "A real dedicated Payroll Manager who knows your team, your pay structure, and picks up the phone when you call.",
     iconBg: "bg-remotiv-green/15",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="size-7">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Manager</title>
         <circle cx="12" cy="8" r="4" stroke="#49D7A7" strokeWidth="1.8" />
         <path
@@ -44,7 +44,7 @@ const FEATURE_CARDS: FeatureCard[] = [
           </div>
           <div>
             <div className="font-heading text-[0.82rem] font-bold text-remotiv-text-dark">Ayesha Malik</div>
-            <div className="mt-0.5 text-[0.72rem] text-[#888]">Your Payroll Manager</div>
+            <div className="mt-0.5 text-[0.72rem] text-remotiv-text-mid">Your Payroll Manager</div>
           </div>
         </div>
         <div className="flex flex-wrap gap-1.5">
@@ -71,7 +71,7 @@ const FEATURE_CARDS: FeatureCard[] = [
       "Salary processing, tax filing, EOBI, SESSI, gratuity, provident fund, payslips, leave tracking — every task, every month.",
     iconBg: "bg-remotiv-purple/10",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="size-7">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Checklist</title>
         <rect x="3" y="3" width="18" height="18" rx="3" stroke="#7E47FF" strokeWidth="1.8" />
         <path
@@ -93,7 +93,7 @@ const FEATURE_CARDS: FeatureCard[] = [
         ].map((item) => (
           <div key={item} className="flex items-center gap-2.5 text-[0.78rem] font-medium text-[#333]">
             <div className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-remotiv-green/15">
-              <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+              <svg aria-hidden="true" width="9" height="9" viewBox="0 0 12 12" fill="none">
                 <title>Check</title>
                 <path
                   d="M2 6l3 3 5-5"
@@ -117,7 +117,7 @@ const FEATURE_CARDS: FeatureCard[] = [
       "From discovery call to first payroll run in under two days. No new contracts, no re-entering data.",
     iconBg: "bg-remotiv-lime-card/40",
     icon: (
-      <svg viewBox="0 0 24 24" fill="none" className="size-7">
+      <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-7">
         <title>Timer</title>
         <circle cx="12" cy="12" r="9" stroke="#5a7a10" strokeWidth="1.8" />
         <path
@@ -593,7 +593,7 @@ const PrimaryButton = ({
   <Link
     href={href}
     className={cn(
-      "inline-flex items-center whitespace-nowrap rounded-full bg-remotiv-green px-8 py-3.5 font-heading text-[0.92rem] font-bold text-remotiv-text-dark transition hover:-translate-y-px hover:bg-remotiv-green-light",
+      "inline-flex items-center whitespace-nowrap rounded-full bg-remotiv-green px-8 py-3.5 font-heading text-[0.92rem] font-bold text-remotiv-text-dark transition hover:-translate-y-px hover:bg-remotiv-green-light focus-visible:ring-2 focus-visible:ring-remotiv-purple focus-visible:ring-offset-2 focus-visible:outline-none",
       className,
     )}
   >
@@ -616,7 +616,7 @@ const OutlineButton = ({
     href={href}
     {...(external ? { target: "_blank", rel: "noopener noreferrer" } : {})}
     className={cn(
-      "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3 text-[0.92rem] font-semibold text-remotiv-text-dark transition hover:bg-[#111] hover:text-white",
+      "inline-flex items-center whitespace-nowrap rounded-full border-[1.5px] border-[#111] bg-transparent px-8 py-3.5 text-[0.92rem] font-semibold text-remotiv-text-dark transition hover:bg-[#111] hover:text-white focus-visible:ring-2 focus-visible:ring-remotiv-purple focus-visible:ring-offset-2 focus-visible:outline-none",
       className,
     )}
   >
@@ -636,7 +636,7 @@ const SectionPill = ({
       "mb-5 inline-flex items-center rounded-full border px-4 py-1 text-[0.72rem] font-bold uppercase tracking-[0.08em]",
       variant === "green"
         ? "border-remotiv-green/30 bg-remotiv-green/10 text-[#1d8c6b]"
-        : "border-white/15 bg-white/10 text-white/60",
+        : "border-white/15 bg-white/10 text-white/85",
     )}
   >
     {children}
@@ -672,7 +672,7 @@ export default function PayrollPage() {
       <Navbar />
       <main id="main" className="flex-1 bg-white">
         {/* Hero */}
-        <section className="box-border w-full bg-white p-4 md:p-6">
+        <section className="box-border w-full bg-white px-6 max-md:px-4 py-14 md:py-20">
           <div className="mx-auto box-border flex w-full flex-col items-center rounded-[28px] bg-remotiv-bg px-5 pb-20 pt-20 text-center md:px-10 md:pb-28 md:pt-28">
             <h1 className="mb-6 max-w-[820px] font-heading text-[clamp(2.2rem,5vw,3.8rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-remotiv-text-dark">
               You Run the Business. We Run Payroll.
@@ -694,7 +694,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Features */}
-        <section className="box-border w-full bg-white px-5 py-12 md:px-10">
+        <section className="box-border w-full bg-white px-5 md:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Payroll Services</SectionPill>
@@ -723,7 +723,7 @@ export default function PayrollPage() {
                   >
                     {card.icon}
                   </div>
-                  <span className="mb-2.5 text-[0.65rem] font-bold uppercase tracking-[0.1em] text-[#999]">
+                  <span className="mb-2.5 text-[0.65rem] font-bold uppercase tracking-[0.1em] text-remotiv-text-mid">
                     {card.badge}
                   </span>
                   <h3 className="mb-3.5 font-heading text-[1.15rem] font-bold leading-[1.25] text-remotiv-text-dark">
@@ -740,7 +740,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Full Scope */}
-        <section className="box-border w-full bg-white px-5 py-12 md:px-10">
+        <section className="box-border w-full bg-white px-5 md:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14 text-center">
               <SectionPill>Full Scope</SectionPill>
@@ -766,14 +766,14 @@ export default function PayrollPage() {
                     )}
                     style={{ color: card.iconColor }}
                   >
-                    <svg viewBox="0 0 24 24" fill="none" className="size-[22px]">
+                    <svg aria-hidden="true" viewBox="0 0 24 24" fill="none" className="size-[22px]">
                       <title>{card.title}</title>
                       {card.icon}
                     </svg>
                   </div>
-                  <h4 className="mb-2.5 font-heading text-[0.9rem] font-bold leading-[1.3] text-remotiv-text-dark">
+                  <h3 className="mb-2.5 font-heading text-[0.9rem] font-bold leading-[1.3] text-remotiv-text-dark">
                     {card.title}
-                  </h4>
+                  </h3>
                   <p className="text-[0.82rem] leading-[1.72] text-[#666]">{card.description}</p>
                 </div>
               ))}
@@ -782,7 +782,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Process */}
-        <section id="process" className="bg-remotiv-purple-light px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
+        <section id="process" className="bg-remotiv-purple-light px-5 md:px-10 py-12 md:py-[72px]">
           <div className="mx-auto grid max-w-[1100px] items-start gap-12 md:grid-cols-2 md:gap-20">
             <div>
               <p className="mb-4 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-lime-card">
@@ -791,7 +791,7 @@ export default function PayrollPage() {
               <h2 className="mb-3.5 font-heading text-[clamp(1.6rem,3vw,2.2rem)] font-extrabold leading-[1.15] text-white">
                 Live in 24–48 Hours. Here&apos;s How.
               </h2>
-              <p className="mb-12 text-[0.97rem] leading-[1.7] text-white/75">
+              <p className="mb-12 text-[0.97rem] leading-[1.7] text-white/85">
                 No lengthy onboarding. No technical setup on your side. No disruption to your team.
               </p>
 
@@ -810,7 +810,7 @@ export default function PayrollPage() {
                       <p className="mb-2 font-heading text-[0.85rem] font-bold text-remotiv-lime-card">
                         {step.label}
                       </p>
-                      <p className="text-[0.88rem] leading-[1.75] text-white/80">{step.body}</p>
+                      <p className="text-[0.88rem] leading-[1.75] text-white">{step.body}</p>
                     </div>
                   </div>
                 ))}
@@ -831,7 +831,7 @@ export default function PayrollPage() {
                     <div className="font-heading text-[1.5rem] font-extrabold leading-none text-remotiv-text-dark">
                       {stat.num}
                     </div>
-                    <div className="mt-1.5 text-[0.78rem] text-[#888]">{stat.label}</div>
+                    <div className="mt-1.5 text-[0.78rem] text-remotiv-text-mid">{stat.label}</div>
                   </div>
                 ))}
               </div>
@@ -857,12 +857,12 @@ export default function PayrollPage() {
         </section>
 
         {/* Who We Serve */}
-        <section className="box-border w-full bg-white px-6 pb-20 pt-6">
+        <section className="box-border w-full bg-white px-6 py-12 md:py-[72px]">
           <div className="mx-auto box-border grid max-w-[1100px] items-start gap-10 rounded-[24px] bg-[#1a1a1a] p-6 md:grid-cols-[1fr_1.4fr] md:gap-[72px] md:px-[60px] md:py-16">
             <div className="md:sticky md:top-24">
               <SectionPill variant="dark">Who We Serve</SectionPill>
               <h2 className="font-heading text-[clamp(1.8rem,2.8vw,2.6rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-white">
-                Whether You Have 2 Employees or 2,000 — We&apos;ve Got You.
+                Whether You Have 2 Employees or 2,000 — We&apos;ve Got You
               </h2>
             </div>
             <div className="flex flex-col">
@@ -879,7 +879,7 @@ export default function PayrollPage() {
                   <h3 className="mb-3 font-heading text-base font-bold leading-[1.3] text-white">
                     {item.title}
                   </h3>
-                  <p className="text-[0.88rem] leading-[1.78] text-white/55">{item.body}</p>
+                  <p className="text-[0.88rem] leading-[1.78] text-white/85">{item.body}</p>
                 </div>
               ))}
             </div>
@@ -887,7 +887,7 @@ export default function PayrollPage() {
         </section>
 
         {/* Advantage */}
-        <section className="bg-white px-5 py-16 md:px-10 md:py-20">
+        <section className="bg-white px-5 md:px-10 py-12 md:py-[72px]">
           <div className="mx-auto max-w-[1100px]">
             <div className="mb-14">
               <p className="mb-3.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.14em] text-remotiv-green">
@@ -916,6 +916,7 @@ export default function PayrollPage() {
                       className="grid grid-cols-[26px_1fr] gap-x-2.5 gap-y-2.5"
                     >
                       <svg
+                        aria-hidden="true"
                         viewBox="0 0 36 36"
                         fill="none"
                         className="col-start-1 row-start-1 mt-0.5 block size-[22px] flex-shrink-0"
@@ -938,14 +939,14 @@ export default function PayrollPage() {
         </section>
 
         {/* CTA */}
-        <section id="cta" className="bg-white px-5 pb-16 pt-12 md:px-10 md:pb-20 md:pt-16">
+        <section id="cta" className="bg-white px-5 md:px-10 py-14 md:py-20">
           <div className="mx-auto grid max-w-[900px] items-center gap-8 rounded-[24px] bg-remotiv-lime-card p-6 md:grid-cols-2 md:gap-14 md:p-[52px_60px]">
             <div>
               <div className="mb-4 inline-flex items-center rounded-full bg-white/45 px-3.5 py-1 text-[11px] font-semibold uppercase tracking-[0.06em] text-remotiv-text-dark">
                 Payroll Services
               </div>
               <h2 className="mb-3 font-heading text-[clamp(1.4rem,2.2vw,1.9rem)] font-extrabold leading-[1.1] tracking-[-0.02em] text-remotiv-text-dark">
-                Your Payroll Goes Live in 48 Hours.
+                Your Payroll Goes Live in 48 Hours
               </h2>
               <p className="mb-6 text-[13px] leading-[1.75] text-remotiv-text-dark/75">
                 No spreadsheets. No missed filings. No payroll errors. Just a dedicated Payroll
@@ -955,7 +956,7 @@ export default function PayrollPage() {
               <div className="mb-7 flex flex-col gap-2.5 sm:flex-row sm:flex-wrap">
                 <Link
                   href={BOOKING_HREF}
-                  className="inline-flex w-full items-center rounded-full bg-remotiv-green px-6 py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition hover:opacity-90 sm:w-auto"
+                  className="inline-flex w-full items-center rounded-full bg-remotiv-green px-6 py-3.5 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition hover:opacity-90 sm:w-auto"
                 >
                   Set Up Payroll →
                 </Link>
@@ -970,7 +971,7 @@ export default function PayrollPage() {
                     className="flex items-center gap-2 text-[13px] font-medium text-remotiv-text-dark"
                   >
                     <div className="flex size-[18px] flex-shrink-0 items-center justify-center rounded-full bg-white/50">
-                      <svg width="9" height="9" viewBox="0 0 12 12" fill="none">
+                      <svg aria-hidden="true" width="9" height="9" viewBox="0 0 12 12" fill="none">
                         <title>Check</title>
                         <path
                           d="M2 6l3 3 5-5"
@@ -1017,18 +1018,18 @@ export default function PayrollPage() {
                     <div className="mb-1 font-heading text-[1.35rem] font-extrabold leading-none text-remotiv-text-dark">
                       {stat.num}
                     </div>
-                    <div className="text-[0.72rem] leading-[1.4] text-[#888]">{stat.label}</div>
+                    <div className="text-[0.72rem] leading-[1.4] text-remotiv-text-mid">{stat.label}</div>
                   </div>
                 ))}
               </div>
               <Link
                 href={BOOKING_HREF}
-                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3 text-center font-heading text-xs font-bold uppercase tracking-[0.06em] text-remotiv-text-dark transition hover:-translate-y-px hover:bg-[#b8f060]"
+                className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card py-3.5 text-center font-heading text-xs font-bold uppercase tracking-[0.06em] text-remotiv-text-dark transition hover:-translate-y-px hover:bg-[#b8f060]"
               >
                 Get Started Today →
               </Link>
-              <p className="flex items-center justify-center gap-1 text-[10px] text-[#bbb]">
-                <svg width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#bbb" strokeWidth="2">
+              <p className="flex items-center justify-center gap-1 text-[10px] text-remotiv-text-mid">
+                <svg aria-hidden="true" width="9" height="9" viewBox="0 0 24 24" fill="none" stroke="#444" strokeWidth="2">
                   <title>Lock</title>
                   <rect x="3" y="11" width="18" height="11" rx="2" />
                   <path d="M7 11V7a5 5 0 0 1 10 0v4" />
@@ -1040,7 +1041,7 @@ export default function PayrollPage() {
         </section>
 
         {/* FAQ */}
-        <section id="faq" className="border-t border-black/[0.06] bg-white px-5 pb-20 pt-16 md:px-10 md:pb-24 md:pt-20">
+        <section id="faq" className="border-t border-black/[0.06] bg-white px-5 md:px-10 py-14 md:py-20">
           <div className="mx-auto max-w-[1100px]">
             <div className="flex flex-col gap-10 md:flex-row md:gap-20">
               <div className="md:max-w-[35%] md:flex-[0_0_35%]">
@@ -1065,7 +1066,7 @@ export default function PayrollPage() {
                           onClick={() => setOpenFaq(isOpen ? -1 : idx)}
                           aria-expanded={isOpen}
                           aria-controls={`pay-faq-panel-${idx}`}
-                          className="flex w-full items-center justify-between gap-4 bg-transparent py-6 text-left"
+                          className="flex w-full items-center justify-between gap-4 bg-transparent py-6 text-left focus-visible:ring-2 focus-visible:ring-remotiv-purple focus-visible:ring-offset-2 focus-visible:outline-none"
                         >
                           <span className="flex-1 font-heading text-[0.97rem] font-semibold leading-[1.4] text-remotiv-text-dark">
                             {faq.q}
