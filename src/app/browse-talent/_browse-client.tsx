@@ -9,7 +9,8 @@ import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { unlockCandidate, type UnlockResult } from "./actions";
+import { toggleSave, unlockCandidate, type UnlockResult } from "./actions";
+import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -96,6 +97,11 @@ type Card = {
 };
 
 // ── BT_ROLE_CFG (verbatim from HTML) ─────────────────────────
+
+const TOAST_DURATION_MS = 3500;
+
+const isFreeViewer = (tier: string, isAdmin: boolean): boolean =>
+  tier === "free" && !isAdmin;
 
 const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; label: string }> = {
   Engineer:  { c: "#60a5fa", bg: "rgba(96,165,250,0.08)",  b: "rgba(96,165,250,0.3)",  label: "Engineer" },
@@ -1297,48 +1303,15 @@ export function BrowseClient({
     return () => document.removeEventListener("keydown", onKey);
   }, []);
 
-  // Ref-counted body scroll lock for ProfileModal — survives stacked PricingModal
-  useEffect(() => {
-    if (!openCard) return;
-    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
-    document.body.dataset.scrollLocks = String(count + 1);
-    if (count === 0) {
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
-      const next = current - 1;
-      document.body.dataset.scrollLocks = String(next);
-      if (next <= 0) {
-        document.body.style.overflow = "";
-        delete document.body.dataset.scrollLocks;
-      }
-    };
-  }, [openCard]);
-
-  // Ref-counted body scroll lock for mobile filter drawer
-  useEffect(() => {
-    if (!drawerOpen) return;
-    const count = parseInt(document.body.dataset.scrollLocks ?? "0", 10);
-    document.body.dataset.scrollLocks = String(count + 1);
-    if (count === 0) {
-      document.body.style.overflow = "hidden";
-    }
-    return () => {
-      const current = parseInt(document.body.dataset.scrollLocks ?? "1", 10);
-      const next = current - 1;
-      document.body.dataset.scrollLocks = String(next);
-      if (next <= 0) {
-        document.body.style.overflow = "";
-        delete document.body.dataset.scrollLocks;
-      }
-    };
-  }, [drawerOpen]);
+  // Ref-counted body scroll lock — shared counter so opening a card while
+  // the filter drawer is open keeps scroll locked until both close.
+  useBodyScrollLock(Boolean(openCard));
+  useBodyScrollLock(drawerOpen);
 
   // Toast auto-dismiss
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2800);
+    const t = setTimeout(() => setToast(null), TOAST_DURATION_MS);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -1359,7 +1332,7 @@ export function BrowseClient({
   }, [searchInput, activeQuery, updateUrl]);
 
   const handleToggleSave = async (candidateId: string) => {
-    if (tier === "free" && !isAdmin) {
+    if (isFreeViewer(tier, isAdmin)) {
       setIsPricingModalOpen(true);
       return;
     }
@@ -1373,7 +1346,6 @@ export function BrowseClient({
       return next;
     });
 
-    const { toggleSave } = await import("./actions");
     const result = await toggleSave(candidateId);
 
     if (!result.success) {
@@ -1402,14 +1374,14 @@ export function BrowseClient({
     } else {
       // Out-of-credits subscriber edge case → keep existing toast for clarity
       setToast("🔒 You're out of credits this month.");
-      setTimeout(() => setToast(null), 3500);
+      setTimeout(() => setToast(null), TOAST_DURATION_MS);
     }
   };
 
   const handleGetStartedFromModal = () => {
     setIsPricingModalOpen(false);
     setToast("🔒 Subscriptions coming soon — payment integration in progress.");
-    setTimeout(() => setToast(null), 3500);
+    setTimeout(() => setToast(null), TOAST_DURATION_MS);
   };
 
   async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {

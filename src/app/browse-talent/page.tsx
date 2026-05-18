@@ -19,6 +19,9 @@ const VALID_ROLES = [
 ] as const;
 type RoleFilter = (typeof VALID_ROLES)[number];
 
+const isFreeViewer = (tier: string, isAdmin: boolean): boolean =>
+  tier === "free" && !isAdmin;
+
 function escapeIlike(s: string): string {
   // Strip PostgREST-special chars that break .or() string parsing
   const cleaned = s.replace(/[,()'"]/g, "");
@@ -92,7 +95,7 @@ export default async function BrowseTalentPage({
   // Phase B security: free tier is locked to page 1. Without this, free users could
   // bypass the 15-row cap by passing ?page=2, ?page=3 etc. and scrape the full pool.
   // Admins and subscribers keep normal pagination behavior.
-  const effectivePage = tier === "free" && !isAdmin ? 1 : page;
+  const effectivePage = isFreeViewer(tier, isAdmin) ? 1 : page;
   const PAGE_SIZE = tier === "free" ? 15 : 30;
   const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
@@ -136,7 +139,7 @@ export default async function BrowseTalentPage({
     if (isSavedView) {
       // Free tier: cap saved view to 15 IDs server-side (defense in depth)
       const allIds = Array.from(savedIdsSet);
-      const inList = (tier === "free" && !isAdmin) ? allIds.slice(0, 15) : allIds;
+      const inList = isFreeViewer(tier, isAdmin) ? allIds.slice(0, 15) : allIds;
       talentQuery = talentQuery.in("id", inList);
       countQuery = countQuery.in("id", inList);
     }
@@ -168,7 +171,7 @@ export default async function BrowseTalentPage({
       rows = (talentResult.data ?? []) as TalentRow[];
       totalCount = countResult.count ?? 0;
       // Free tier always sees only page 1 — never expose pagination affordance to them
-      totalPages = tier === "free" && !isAdmin ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      totalPages = isFreeViewer(tier, isAdmin) ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
     } catch (err) {
       console.error("Browse talent query failed:", err);
       // rows/totalCount/totalPages keep their defaults — empty state renders gracefully

@@ -1,6 +1,7 @@
 "use server";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
 
 export type UnlockResult =
   | {
@@ -163,7 +164,6 @@ export async function toggleSave(candidateId: string): Promise<{
     return { success: false, error: "Not authenticated" };
   }
 
-  const SUPER_ADMIN_EMAIL = (await import("@/app/admin/lib/roles")).SUPER_ADMIN_EMAIL;
   const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
 
   let isAdmin = isSuperAdmin;
