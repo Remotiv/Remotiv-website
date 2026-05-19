@@ -111,7 +111,7 @@ export default function AIMatchingPage() {
       <Navbar />
 
       {loading ? (
-        <section className="bg-remotiv-bg px-10 py-20 text-center">
+        <section className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20">
           <div className="mx-auto mb-7 flex size-[68px] animate-[aimOrbPulse_1.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-remotiv-green text-[1.4rem] font-bold text-[#111]">
             ✦
           </div>
@@ -157,7 +157,7 @@ export default function AIMatchingPage() {
                 onKeyDown={handleKeyDown}
                 rows={4}
                 placeholder="e.g. Senior React developer, 5+ years, AWS knowledge preferred, Lahore based, US timezone comfortable…"
-                className="min-h-[100px] w-full resize-y border-none bg-transparent py-2.5 text-left font-sans text-[0.95rem] leading-[1.7] text-[#111] outline-none placeholder:text-[#bbb]"
+                className="min-h-[100px] w-full resize-y border-none bg-transparent py-2.5 text-left font-sans text-base leading-[1.7] text-[#111] outline-none placeholder:text-[#bbb] sm:text-[0.95rem]"
               />
               <button
                 type="submit"
@@ -169,7 +169,7 @@ export default function AIMatchingPage() {
             </form>
 
             <div className="mx-auto flex max-w-[760px] flex-wrap justify-center gap-2.5">
-              <p className="mb-0 w-full text-center font-sans text-[0.9rem] text-[#999]">
+              <p className="mb-0 w-full text-center font-sans text-[0.9rem] text-[#666]">
                 Try a search like:
               </p>
               {SUGGESTIONS.map((s) => (
@@ -180,7 +180,7 @@ export default function AIMatchingPage() {
                     setQuery(s);
                     runSearch(s);
                   }}
-                  className="cursor-pointer rounded-full border-[1.5px] border-black/[0.09] bg-white px-[18px] py-[9px] font-sans text-[0.84rem] text-[#555] transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.04] hover:text-remotiv-purple"
+                  className="min-h-11 cursor-pointer rounded-full border-[1.5px] border-black/[0.09] bg-white px-[18px] py-[9px] font-sans text-[0.84rem] text-[#555] transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.04] hover:text-remotiv-purple"
                 >
                   {s}
                 </button>
@@ -188,7 +188,7 @@ export default function AIMatchingPage() {
             </div>
           </section>
 
-          <section className="border-b border-black/[0.07] bg-remotiv-bg px-14 py-16">
+          <section className="border-b border-black/[0.07] bg-remotiv-bg px-6 py-12 sm:px-10 sm:py-14 md:px-14 md:py-16">
             <div className="mx-auto max-w-[1000px]">
               <div className="mb-3 flex items-center gap-2.5 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-remotiv-green">
                 <span className="block h-px w-5 bg-remotiv-green" />
