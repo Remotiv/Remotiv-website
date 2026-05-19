@@ -9,7 +9,7 @@ import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { toggleSave, unlockCandidate, type UnlockResult } from "./actions";
+import { getCvSignedUrl, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 // ── Types ────────────────────────────────────────────────────
@@ -500,6 +500,7 @@ function CardItem({
   onView,
   onSave,
   onLocked,
+  onViewCv,
   index,
   isAdmin = false,
   isUnlocked,
@@ -512,6 +513,7 @@ function CardItem({
   onView: () => void;
   onSave: () => void;
   onLocked: () => void;
+  onViewCv: () => void;
   index: number;
   isAdmin?: boolean;
   isUnlocked: boolean;
@@ -617,14 +619,9 @@ function CardItem({
           )}
           {/* Resume */}
           {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
-            <a
-              className="bt-clink"
-              href={effectiveContact.cvUrl}
-              target="_blank"
-              rel="noopener noreferrer"
-            >
+            <button type="button" className="bt-clink" onClick={onViewCv}>
               Resume ✦
-            </a>
+            </button>
           ) : canUnlock ? (
             <button
               type="button"
@@ -683,6 +680,7 @@ function ProfileModal({
   onSave,
   onClose,
   onLocked,
+  onViewCv,
 }: {
   c: Card;
   saved: boolean;
@@ -695,6 +693,7 @@ function ProfileModal({
   onSave: () => void;
   onClose: () => void;
   onLocked: () => void;
+  onViewCv: () => void;
 }) {
   const cfg = ROLE_CFG[c.type];
 
@@ -845,14 +844,9 @@ function ProfileModal({
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
               {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
-                <a
-                  className="bt-plink"
-                  href={effectiveContact.cvUrl}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
+                <button type="button" className="bt-plink" onClick={onViewCv}>
                   Resume ✦
-                </a>
+                </button>
               ) : canUnlock ? (
                 <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
                   Resume · 1 credit
@@ -1010,14 +1004,13 @@ function ProfileModal({
                 {effectiveContact.cvUrl && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">CV</span>
-                    <a
-                      href={effectiveContact.cvUrl}
-                      target="_blank"
-                      rel="noopener noreferrer"
+                    <button
+                      type="button"
+                      onClick={onViewCv}
                       className="bt-unlocked-link"
                     >
                       View CV
-                    </a>
+                    </button>
                   </div>
                 )}
               </div>
@@ -1384,6 +1377,24 @@ export function BrowseClient({
     setTimeout(() => setToast(null), TOAST_DURATION_MS);
   };
 
+  async function handleViewCv(candidateId: string): Promise<void> {
+    const result = await getCvSignedUrl(candidateId);
+    if (result.ok) {
+      const win = window.open(result.url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+      }
+      return;
+    }
+    const errorMessages: Record<string, string> = {
+      not_authenticated: "Please log in to view this CV.",
+      not_unlocked: "Please unlock this candidate to view their CV.",
+      cv_missing: "CV unavailable — please contact support.",
+      internal_error: "Could not load CV. Please try again.",
+    };
+    setToast(errorMessages[result.error] ?? "Could not load CV. Please try again.");
+  }
+
   async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
     const result = await unlockCandidate(candidateId);
     if (result.success) {
@@ -1627,6 +1638,7 @@ export function BrowseClient({
                       onView={() => setOpenCard(c)}
                       onSave={() => handleToggleSave(c.id)}
                       onLocked={handleLockedAction}
+                      onViewCv={() => { void handleViewCv(c.id); }}
                       index={i}
                       isAdmin={isAdmin}
                       isUnlocked={unlockedSet.has(c.id)}
@@ -1671,6 +1683,7 @@ export function BrowseClient({
                             onView={() => {}}
                             onSave={() => {}}
                             onLocked={() => {}}
+                            onViewCv={() => {}}
                             index={i + 15}
                             isAdmin={false}
                             isUnlocked={false}
@@ -1763,6 +1776,7 @@ export function BrowseClient({
             setOpenCard(null);
             handleLockedAction();
           }}
+          onViewCv={() => { void handleViewCv(openCard.id); }}
         />
       )}
 

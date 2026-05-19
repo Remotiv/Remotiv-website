@@ -621,3 +621,100 @@ export async function addCandidateNote(
   return { success: true, data: data as CandidateNote };
 }
 
+// ────────────────────────────────────────────────────────────────────────────
+// K1 Phase 2: getClientCvSignedUrl
+// Returns a fresh 1-hour signed URL for a client_batch_candidates row's CV.
+// Auth: must be authenticated AND own the parent batch (client) OR be an admin
+// (admin preview). Mirrors the client-or-admin ACL pattern used by
+// fetchCandidateNotes / saveClientFeedback in this file.
+// ────────────────────────────────────────────────────────────────────────────
+
+type ClientCvSignedUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: "not_authenticated" | "not_authorized" | "cv_missing" | "internal_error" };
+
+const CLIENT_CV_TTL_SECONDS = 60 * 60; // 1 hour
+
+export async function getClientCvSignedUrl(
+  batchCandidateId: string,
+): Promise<ClientCvSignedUrlResult> {
+  if (
+    typeof batchCandidateId !== "string" ||
+    batchCandidateId.length < 1 ||
+    batchCandidateId.length > 100
+  ) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  const ctx = await getCurrentClientOrAdmin();
+  if (ctx.type === "none") {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const service = createServiceClient();
+
+  // Fetch the candidate row + batch ownership in one query for both ACL + cv_path.
+  const { data: candidateRow, error: candidateErr } = await service
+    .from("client_batch_candidates")
+    .select("id, cv_path, cv_url, batch_id, batch:client_batches(client_id)")
+    .eq("id", batchCandidateId)
+    .maybeSingle();
+
+  type CandRow = {
+    id: string;
+    cv_path: string | null;
+    cv_url: string | null;
+    batch_id: string;
+    batch: { client_id: string } | null;
+  };
+  const cand = candidateRow as CandRow | null;
+  if (candidateErr || !cand) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  // ACL: clients see only candidates in batches they own. Admins bypass (preview mode).
+  const isAdmin = ctx.type === "admin";
+  if (!isAdmin) {
+    if (cand.batch?.client_id !== ctx.client.id) {
+      return { ok: false, error: "not_authorized" };
+    }
+  }
+
+  // Resolve cv_path (prefer cv_path; derive from cv_url for transition safety)
+  let cvPath = cand.cv_path;
+  if (!cvPath && cand.cv_url) {
+    const match = String(cand.cv_url).match(
+      /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+    );
+    cvPath = match ? match[1] : null;
+  }
+  if (!cvPath) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  const { data: signed, error: signErr } = await service.storage
+    .from("cvs")
+    .createSignedUrl(cvPath, CLIENT_CV_TTL_SECONDS);
+
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  // Audit log (best-effort)
+  try {
+    const userId = isAdmin ? ctx.user.id : (ctx.client.user_id ?? "");
+    if (userId) {
+      await service.from("signed_url_logs").insert({
+        user_id: userId,
+        candidate_id: batchCandidateId,
+        source_table: "client_batch_candidates",
+        was_admin: isAdmin,
+      });
+    }
+  } catch {
+    // Swallow logging failures silently.
+  }
+
+  return { ok: true, url: signed.signedUrl };
+}
+

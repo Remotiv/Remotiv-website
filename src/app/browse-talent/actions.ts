@@ -135,6 +135,12 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     };
   }
 
+  // K1 Phase 2: replace the raw public cv_url with a fresh 1-hour signed URL.
+  // The unlock_events row was already verified above, so getCvSignedUrl finds it
+  // and signs without charging a credit. Subsequent re-views call getCvSignedUrl
+  // directly from the client without re-entering this RPC.
+  const signedResult = await getCvSignedUrl(candidateId);
+
   return {
     success: true,
     alreadyUnlocked: result.already_unlocked,
@@ -144,7 +150,7 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     email: candidate.email,
     phone: candidate.phone,
     linkedinUrl: candidate.linkedin_url,
-    cvUrl: candidate.cv_url,
+    cvUrl: signedResult.ok ? signedResult.url : null,
   };
 }
 
@@ -223,4 +229,111 @@ export async function toggleSave(candidateId: string): Promise<{
     return { success: false, error: "Could not save" };
   }
   return { success: true, saved: true };
+}
+
+// ────────────────────────────────────────────────────────────────────────────
+// K1 Phase 2: getCvSignedUrl
+// Returns a fresh 1-hour signed URL for a candidate's CV.
+//   - Admins: bypass unlock_events check, signed via service-role.
+//   - Subscribers with an unlock_events row: signed via service-role (no credit).
+//   - Anyone else: { ok: false, error: "not_unlocked" }
+// Logs every successful grant to signed_url_logs.
+// ────────────────────────────────────────────────────────────────────────────
+
+type CvSignedUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: "not_authenticated" | "not_unlocked" | "cv_missing" | "internal_error" };
+
+const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
+
+export async function getCvSignedUrl(candidateId: string): Promise<CvSignedUrlResult> {
+  // Input validation (same shape as unlockCandidate)
+  if (typeof candidateId !== "string" || candidateId.length < 1 || candidateId.length > 100) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  const auth = await createClient();
+  const { data: authData } = await auth.auth.getUser();
+  const user = authData.user;
+  if (!user) {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const service = createServiceClient();
+
+  // Determine admin status (super-admin email shortcut OR admin_users.role)
+  let isAdmin = false;
+  if (user.email && user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+    isAdmin = true;
+  } else {
+    const { data: roleRow } = await service
+      .from("admin_users")
+      .select("role, status")
+      .eq("user_id", user.id)
+      .maybeSingle();
+    if (
+      roleRow?.status === "active" &&
+      (roleRow.role === "admin" || roleRow.role === "super_admin")
+    ) {
+      isAdmin = true;
+    }
+  }
+
+  // If not admin, require an unlock_events row (auth-aware so RLS enforces ownership)
+  if (!isAdmin) {
+    const { data: unlockRow, error: unlockErr } = await auth
+      .from("unlock_events")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("candidate_id", candidateId)
+      .maybeSingle();
+    if (unlockErr || !unlockRow) {
+      return { ok: false, error: "not_unlocked" };
+    }
+  }
+
+  // Fetch cv_path from talent_profiles (service-role bypasses RLS)
+  const { data: candidateRow, error: candidateErr } = await service
+    .from("talent_profiles")
+    .select("cv_path, cv_url")
+    .eq("id", candidateId)
+    .maybeSingle();
+  if (candidateErr || !candidateRow) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  // Resolve cv_path: prefer cv_path; if null, derive from cv_url for transition safety
+  let cvPath = candidateRow.cv_path as string | null;
+  if (!cvPath && candidateRow.cv_url) {
+    const match = String(candidateRow.cv_url).match(
+      /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+    );
+    cvPath = match ? match[1] : null;
+  }
+  if (!cvPath) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  // Generate signed URL via service-role
+  const { data: signed, error: signErr } = await service.storage
+    .from("cvs")
+    .createSignedUrl(cvPath, CV_SIGNED_URL_TTL_SECONDS);
+
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  // Audit log (best-effort; failure does NOT block the grant)
+  try {
+    await service.from("signed_url_logs").insert({
+      user_id: user.id,
+      candidate_id: candidateId,
+      source_table: "talent_profiles",
+      was_admin: isAdmin,
+    });
+  } catch {
+    // Swallow logging failures silently — do not let logging break a successful unlock.
+  }
+
+  return { ok: true, url: signed.signedUrl };
 }

@@ -29,6 +29,7 @@ import { BATCH_STAGES, stageBadgeClass } from "@/app/admin/_components/batch-sta
 import {
   addCandidateNote,
   fetchCandidateNotes,
+  getClientCvSignedUrl,
   saveClientFeedback,
   updateClientStage,
   type CandidateNote,
@@ -84,6 +85,30 @@ function StarRating({ value }: { value: number | null }) {
 function ensureHttp(url: string | null): string | null {
   if (!url) return null;
   return url.startsWith("http://") || url.startsWith("https://") ? url : `https://${url}`;
+}
+
+/**
+ * K1 Phase 2: open a candidate's CV via a fresh server-signed URL.
+ * Uses the existing client-portal ACL (clients-or-admin) inside
+ * getClientCvSignedUrl. Falls back to window.alert because this file
+ * uses scoped per-component setError hooks rather than a global toast.
+ */
+async function viewClientCv(batchCandidateId: string): Promise<void> {
+  const result = await getClientCvSignedUrl(batchCandidateId);
+  if (result.ok) {
+    const win = window.open(result.url, "_blank", "noopener,noreferrer");
+    if (!win) {
+      window.alert("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+    }
+    return;
+  }
+  const errorMessages: Record<string, string> = {
+    not_authenticated: "Please log in to view this CV.",
+    not_authorized: "You do not have access to this CV.",
+    cv_missing: "CV unavailable — please contact support.",
+    internal_error: "Could not load CV. Please try again.",
+  };
+  window.alert(errorMessages[result.error] ?? "Could not load CV. Please try again.");
 }
 
 // ── Time formatting + notes thread shared with admin ────────
@@ -470,15 +495,14 @@ function CandidateCard({
             </a>
           )}
           {candidate.cv_url && (
-            <a
-              href={candidate.cv_url}
-              target="_blank"
-              rel="noopener noreferrer"
+            <button
+              type="button"
+              onClick={() => { void viewClientCv(candidate.id); }}
               className="inline-flex items-center gap-1.5 rounded-lg bg-[#7E47FF]/10 px-3 py-1.5 font-semibold text-[#7E47FF] hover:bg-[#7E47FF]/20"
             >
               <Eye className="size-3.5" strokeWidth={2} />
               View CV
-            </a>
+            </button>
           )}
         </div>
 
