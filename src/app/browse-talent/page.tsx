@@ -1,5 +1,4 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
 import { BrowseClient, type TalentRow } from "./_browse-client";
 
 export const dynamic = "force-dynamic";
@@ -19,8 +18,7 @@ const VALID_ROLES = [
 ] as const;
 type RoleFilter = (typeof VALID_ROLES)[number];
 
-const isFreeViewer = (tier: string, isAdmin: boolean): boolean =>
-  tier === "free" && !isAdmin;
+const isFreeViewer = (tier: string): boolean => tier === "free";
 
 function escapeIlike(s: string): string {
   // Strip PostgREST-special chars that break .or() string parsing
@@ -53,49 +51,31 @@ export default async function BrowseTalentPage({
   const isSavedView = params.view === "saved";
 
   // Auth-aware client (reads cookies) for user + subscription lookup; service
-  // client bypasses RLS for the admin_users role read and the public talent fetch.
+  // client bypasses RLS for the public talent fetch.
   const auth = await createClient();
   const supabase = createServiceClient();
 
   const { data: { user } } = await auth.auth.getUser();
-  const userEmail = user?.email ?? "";
   const userId = user?.id ?? "";
 
   let tier: "free" | "subscriber" = "free";
-  let isAdmin = false;
   let creditsRemaining = 0;
-  if (user) {
-    if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (user && userId) {
+    const { data: sub } = await auth
+      .from("subscriptions")
+      .select("tier, credits_remaining")
+      .eq("user_id", userId)
+      .maybeSingle();
+    if (sub?.tier === "starter" || sub?.tier === "pro") {
       tier = "subscriber";
-      isAdmin = true;
-    } else if (userId) {
-      const { data: roleRow } = await supabase
-        .from("admin_users")
-        .select("role")
-        .eq("user_id", userId)
-        .maybeSingle();
-      const userRole = (roleRow?.role as UserRole | undefined) ?? null;
-      if (userRole === "super_admin" || userRole === "admin") {
-        tier = "subscriber";
-        isAdmin = true;
-      } else {
-        const { data: sub } = await auth
-          .from("subscriptions")
-          .select("tier, credits_remaining")
-          .eq("user_id", userId)
-          .maybeSingle();
-        if (sub?.tier === "starter" || sub?.tier === "pro") {
-          tier = "subscriber";
-          creditsRemaining = sub.credits_remaining ?? 0;
-        }
-      }
+      creditsRemaining = sub.credits_remaining ?? 0;
     }
   }
 
   // Phase B security: free tier is locked to page 1. Without this, free users could
   // bypass the 15-row cap by passing ?page=2, ?page=3 etc. and scrape the full pool.
   // Admins and subscribers keep normal pagination behavior.
-  const effectivePage = isFreeViewer(tier, isAdmin) ? 1 : page;
+  const effectivePage = isFreeViewer(tier) ? 1 : page;
   const PAGE_SIZE = tier === "free" ? 15 : 30;
   const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
@@ -139,7 +119,7 @@ export default async function BrowseTalentPage({
     if (isSavedView) {
       // Free tier: cap saved view to 15 IDs server-side (defense in depth)
       const allIds = Array.from(savedIdsSet);
-      const inList = isFreeViewer(tier, isAdmin) ? allIds.slice(0, 15) : allIds;
+      const inList = isFreeViewer(tier) ? allIds.slice(0, 15) : allIds;
       talentQuery = talentQuery.in("id", inList);
       countQuery = countQuery.in("id", inList);
     }
@@ -171,7 +151,7 @@ export default async function BrowseTalentPage({
       rows = (talentResult.data ?? []) as TalentRow[];
       totalCount = countResult.count ?? 0;
       // Free tier always sees only page 1 — never expose pagination affordance to them
-      totalPages = isFreeViewer(tier, isAdmin) ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+      totalPages = isFreeViewer(tier) ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
     } catch (err) {
       console.error("Browse talent query failed:", err);
       // rows/totalCount/totalPages keep their defaults — empty state renders gracefully
@@ -258,7 +238,6 @@ export default async function BrowseTalentPage({
       activeSort={sort}
       unlockedIds={Array.from(unlockedIds)}
       creditsRemaining={creditsRemaining}
-      isAdmin={isAdmin}
       isSavedView={isSavedView}
       savedIds={savedIdsArr}
     />

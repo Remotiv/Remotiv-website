@@ -199,33 +199,17 @@ export async function toggleSave(candidateId: string): Promise<{
     };
   }
 
-  const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;
+  // Public browse-talent is subscription-only — admin status on /browse-talent
+  // is no longer a special-case. Admins who want to save profiles must subscribe.
+  // (Admin privileges remain inside /admin/talent via getCvSignedUrl's admin branch.)
+  const { data: sub } = await supabase
+    .from("subscriptions")
+    .select("tier")
+    .eq("user_id", user.id)
+    .maybeSingle();
+  const isSubscriber = sub?.tier === "starter" || sub?.tier === "pro";
 
-  let isAdmin = isSuperAdmin;
-  if (!isAdmin) {
-    const { data: adminRow } = await supabase
-      .from("admin_users")
-      .select("role")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (adminRow?.role === "admin" || adminRow?.role === "super_admin") {
-      isAdmin = true;
-    }
-  }
-
-  let isSubscriber = false;
-  if (!isAdmin) {
-    const { data: sub } = await supabase
-      .from("subscriptions")
-      .select("tier")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (sub?.tier === "starter" || sub?.tier === "pro") {
-      isSubscriber = true;
-    }
-  }
-
-  if (!isAdmin && !isSubscriber) {
+  if (!isSubscriber) {
     return { success: false, error: "Subscription required" };
   }
 

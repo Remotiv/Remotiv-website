@@ -100,8 +100,7 @@ type Card = {
 
 const TOAST_DURATION_MS = 3500;
 
-const isFreeViewer = (tier: string, isAdmin: boolean): boolean =>
-  tier === "free" && !isAdmin;
+const isFreeViewer = (tier: string): boolean => tier === "free";
 
 const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; label: string }> = {
   Engineer:  { c: "#60a5fa", bg: "rgba(96,165,250,0.08)",  b: "rgba(96,165,250,0.3)",  label: "Engineer" },
@@ -502,7 +501,6 @@ function CardItem({
   onLocked,
   onViewCv,
   index,
-  isAdmin = false,
   isUnlocked,
   canUnlock,
   onUnlock,
@@ -515,7 +513,6 @@ function CardItem({
   onLocked: () => void;
   onViewCv: () => void;
   index: number;
-  isAdmin?: boolean;
   isUnlocked: boolean;
   canUnlock: boolean;
   onUnlock: () => void;
@@ -563,7 +560,7 @@ function CardItem({
         <div className="bt-card-links" onClick={(e) => e.stopPropagation()} role="presentation">
           {/* GitHub — always available if present (Q11: not stripped) */}
           {c.github && (
-            (isAdmin || isUnlocked) ? (
+            isUnlocked ? (
               <a
                 className="bt-clink"
                 href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
@@ -591,7 +588,7 @@ function CardItem({
             )
           )}
           {/* LinkedIn */}
-          {(isAdmin || isUnlocked) && effectiveContact.linkedin ? (
+          {isUnlocked && effectiveContact.linkedin ? (
             <a
               className="bt-clink"
               href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
@@ -618,7 +615,7 @@ function CardItem({
             </button>
           )}
           {/* Resume */}
-          {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
+          {isUnlocked && effectiveContact.cvUrl ? (
             <button type="button" className="bt-clink" onClick={onViewCv}>
               Resume ✦
             </button>
@@ -672,7 +669,6 @@ function ProfileModal({
   c,
   saved,
   tier = "free",
-  isAdmin = false,
   isUnlocked,
   canUnlock,
   onUnlock,
@@ -685,7 +681,6 @@ function ProfileModal({
   c: Card;
   saved: boolean;
   tier?: "free" | "subscriber";
-  isAdmin?: boolean;
   isUnlocked: boolean;
   canUnlock: boolean;
   onUnlock: () => void;
@@ -810,7 +805,7 @@ function ProfileModal({
             </div>
             <div className="bt-profile-links">
               {c.github && (
-                (isAdmin || isUnlocked) ? (
+                isUnlocked ? (
                   <a
                     className="bt-plink"
                     href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
@@ -827,7 +822,7 @@ function ProfileModal({
                   <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
                 )
               )}
-              {(isAdmin || isUnlocked) && effectiveContact.linkedin ? (
+              {isUnlocked && effectiveContact.linkedin ? (
                 <a
                   className="bt-plink"
                   href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
@@ -843,7 +838,7 @@ function ProfileModal({
               ) : (
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
-              {(isAdmin || isUnlocked) && effectiveContact.cvUrl ? (
+              {isUnlocked && effectiveContact.cvUrl ? (
                 <button type="button" className="bt-plink" onClick={onViewCv}>
                   Resume ✦
                 </button>
@@ -966,7 +961,7 @@ function ProfileModal({
             )}
           </div>
 
-          {(isAdmin || isUnlocked) ? (
+          {isUnlocked ? (
             <div className="bt-unlocked-box">
               <div className="bt-unlocked-head">
                 <span aria-hidden>🔓</span>
@@ -1030,7 +1025,7 @@ function ProfileModal({
           )}
 
           <div className="bt-modal-actions">
-            {!isAdmin && !isUnlocked && (
+            {!isUnlocked && (
               canUnlock ? (
                 <button
                   type="button"
@@ -1197,7 +1192,6 @@ export function BrowseClient({
   activeSort,
   unlockedIds,
   creditsRemaining,
-  isAdmin = false,
   isSavedView,
   savedIds,
 }: {
@@ -1212,7 +1206,6 @@ export function BrowseClient({
   activeSort: "match" | "name";
   unlockedIds: string[];
   creditsRemaining: number;
-  isAdmin?: boolean;
   isSavedView: boolean;
   savedIds: string[];
 }) {
@@ -1325,7 +1318,7 @@ export function BrowseClient({
   }, [searchInput, activeQuery, updateUrl]);
 
   const handleToggleSave = async (candidateId: string) => {
-    if (isFreeViewer(tier, isAdmin)) {
+    if (isFreeViewer(tier)) {
       setIsPricingModalOpen(true);
       return;
     }
@@ -1563,7 +1556,7 @@ export function BrowseClient({
                   </>
                 )}
               </p>
-              {isAdmin ? null : tier === "subscriber" ? (
+              {tier === "subscriber" ? (
                 <span className="bt-credit-counter">
                   💳 <strong>{credits}</strong> credits remaining
                 </span>
@@ -1640,9 +1633,8 @@ export function BrowseClient({
                       onLocked={handleLockedAction}
                       onViewCv={() => { void handleViewCv(c.id); }}
                       index={i}
-                      isAdmin={isAdmin}
                       isUnlocked={unlockedSet.has(c.id)}
-                      canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(c.id)}
+                      canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(c.id)}
                       onUnlock={() => { void handleUnlock(c.id, c.name); }}
                       effectiveContact={getEffectiveContact(c)}
                     />
@@ -1685,7 +1677,6 @@ export function BrowseClient({
                             onLocked={() => {}}
                             onViewCv={() => {}}
                             index={i + 15}
-                            isAdmin={false}
                             isUnlocked={false}
                             canUnlock={false}
                             onUnlock={() => {}}
@@ -1761,9 +1752,8 @@ export function BrowseClient({
           c={openCard}
           saved={localSavedIds.has(openCard.id)}
           tier={tier}
-          isAdmin={isAdmin}
           isUnlocked={unlockedSet.has(openCard.id)}
-          canUnlock={tier === "subscriber" && !isAdmin && credits > 0 && !unlockedSet.has(openCard.id)}
+          canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(openCard.id)}
           onUnlock={() => { void handleUnlock(openCard.id, openCard.name); }}
           effectiveContact={getEffectiveContact(openCard)}
           onSave={() => {
