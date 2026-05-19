@@ -229,7 +229,7 @@ export default async function BrowseTalentPage({
     <BrowseClient
       realProfiles={realProfiles}
       tier={tier}
-      currentPage={page}
+      currentPage={Math.min(page, totalPages)}
       totalPages={totalPages}
       totalCount={totalCount}
       pageSize={PAGE_SIZE}
