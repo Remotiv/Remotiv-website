@@ -147,9 +147,9 @@ export default function BookAMeetingPage() {
       {/* Calendar preview section */}
       <section className="px-6 pt-10 pb-4 md:px-10">
         <div className="mx-auto max-w-[1100px]">
-          <div className="relative flex min-h-[440px] flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-[#c9ff85] p-8 md:flex-row md:items-center md:p-14">
+          <div className="relative flex flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-[#c9ff85] p-6 sm:p-8 md:p-14 lg:min-h-[440px] lg:flex-row lg:items-center">
             {/* Left */}
-            <div className="flex flex-col gap-5 md:w-[340px] md:shrink-0">
+            <div className="flex flex-col gap-5 lg:w-[340px] lg:shrink-0">
               <span className="w-fit rounded-full bg-white/85 px-[18px] py-2 text-sm text-[#1a1a1a]">
                 Available this week for a 30-min call
               </span>
@@ -169,9 +169,9 @@ export default function BookAMeetingPage() {
             </div>
 
             {/* Right */}
-            <div className="relative h-[400px] flex-1">
+            <div className="relative flex-1 lg:h-[400px]">
               {/* Calendar card */}
-              <div className="absolute right-0 top-0 w-[370px] max-w-full rounded-[20px] bg-white p-5 shadow-[0_4px_32px_rgba(0,0,0,0.10)]">
+              <div className="relative w-full max-w-[370px] rounded-[20px] bg-white p-4 shadow-[0_4px_32px_rgba(0,0,0,0.10)] sm:p-5 lg:absolute lg:right-0 lg:top-0 lg:w-[370px] lg:max-w-full">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-[10px]">
                     <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#7E47FF]">
@@ -223,7 +223,7 @@ export default function BookAMeetingPage() {
                   {CALENDAR_DAYS.map((day, i) => (
                     <div
                       key={i}
-                      className={`mx-auto flex size-9 items-center justify-center rounded-full text-[13px] ${DAY_STYLES[day.kind]}`}
+                      className={`mx-auto flex size-8 items-center justify-center rounded-full text-[13px] sm:size-9 ${DAY_STYLES[day.kind]}`}
                     >
                       {day.num ?? ""}
                     </div>
@@ -232,12 +232,12 @@ export default function BookAMeetingPage() {
               </div>
 
               {/* Your Advisor pill */}
-              <div className="absolute right-[370px] top-[220px] hidden rounded-full bg-[#7E47FF] px-4 py-[7px] text-[13px] font-medium text-white md:block">
+              <div className="absolute right-[370px] top-[220px] hidden rounded-full bg-[#7E47FF] px-4 py-[7px] text-[13px] font-medium text-white lg:block">
                 Your Advisor
               </div>
 
               {/* Task card */}
-              <div className="absolute right-[340px] top-[248px] hidden w-[228px] rounded-2xl bg-white p-[14px] shadow-[0_4px_24px_rgba(0,0,0,0.13)] md:block">
+              <div className="absolute right-[340px] top-[248px] hidden w-[228px] rounded-2xl bg-white p-[14px] shadow-[0_4px_24px_rgba(0,0,0,0.13)] lg:block">
                 <div className="mb-[3px] font-heading text-xs font-semibold text-[#111]">
                   Discovery Call &mdash; Remotiv
                 </div>
@@ -445,7 +445,7 @@ export default function BookAMeetingPage() {
       <section id="booking-form" className="px-6 pt-4 pb-12 md:px-10">
         <div className="mx-auto max-w-[1100px]">
           {submitted ? (
-            <div className="rounded-3xl bg-[#9886fe] p-10 text-center text-white">
+            <div className="rounded-3xl bg-[#9886fe] p-6 text-center text-white sm:p-8 md:p-10">
               <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-white/20">
                 <Check className="size-7" />
               </div>
@@ -457,12 +457,12 @@ export default function BookAMeetingPage() {
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
               {/* Left panel */}
-              <div className="rounded-3xl bg-[#9886fe] p-10">
+              <div className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10">
                 <div className="mb-5 inline-flex w-fit items-center gap-[7px] rounded-full bg-white/20 px-4 py-1.5 font-heading text-[11px] font-semibold tracking-[0.08em] text-white">
                   <span className="size-[7px] shrink-0 rounded-full bg-[#c9ff85]" />
                   BOOK A MEETING
                 </div>
-                <h2 className="mb-4 font-heading text-[44px] font-bold leading-[1.08] text-white">
+                <h2 className="mb-4 font-heading text-[32px] font-bold leading-[1.1] text-white sm:text-[44px] sm:leading-[1.08]">
                   Let&apos;s Find Your
                   <br />
                   Next Hire
@@ -503,7 +503,7 @@ export default function BookAMeetingPage() {
               {/* Right form panel */}
               <form
                 onSubmit={handleSubmit}
-                className="rounded-3xl bg-[#9886fe] p-10"
+                className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10"
               >
                 {/* Honeypot — hidden from humans, filled by bots */}
                 <input
@@ -602,7 +602,7 @@ export default function BookAMeetingPage() {
                   >
                     {submitting ? "Booking…" : "Book My Call →"}
                   </button>
-                  <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-xs text-white/50">
+                  <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-xs text-white/70">
                     <Lock className="size-3" />
                     Your information is encrypted and 100% confidential
                   </p>
@@ -618,7 +618,7 @@ export default function BookAMeetingPage() {
 }
 
 const inputClass =
-  "w-full rounded-[10px] border-[1.5px] border-white/30 bg-white/20 px-[15px] py-3 text-sm text-white outline-none placeholder:text-white/45 transition-colors focus:border-white/70";
+  "w-full rounded-[10px] border-[1.5px] border-white/30 bg-white/20 px-[15px] py-3 text-base text-white outline-none placeholder:text-white/45 transition-colors focus:border-white/70 sm:text-sm";
 
 const selectClass = `${inputClass} cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22 viewBox=%220 0 12 8%22><path fill=%22rgba(255,255,255,0.55)%22 d=%22M6 8L0 0h12z%22/></svg>')] bg-[length:10px] bg-[position:right_14px_center] bg-no-repeat pr-9 text-white/80 [&>option]:bg-white [&>option]:text-[#111]`;
 
