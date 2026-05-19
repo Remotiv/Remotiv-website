@@ -4,12 +4,12 @@ import "./browse-talent.css";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
-import { Search, X } from "lucide-react";
+import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
 import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
-import { getCvSignedUrl, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
+import { getCvSignedUrl, refreshTier, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 // ── Types ────────────────────────────────────────────────────
@@ -505,6 +505,9 @@ function CardItem({
   canUnlock,
   onUnlock,
   effectiveContact,
+  isUnlocking = false,
+  isSaving = false,
+  isViewingCv = false,
 }: {
   c: Card;
   saved: boolean;
@@ -517,6 +520,9 @@ function CardItem({
   canUnlock: boolean;
   onUnlock: () => void;
   effectiveContact: EffectiveContact;
+  isUnlocking?: boolean;
+  isSaving?: boolean;
+  isViewingCv?: boolean;
 }) {
   const cfg = ROLE_CFG[c.type];
   return (
@@ -616,8 +622,14 @@ function CardItem({
           )}
           {/* Resume */}
           {isUnlocked && effectiveContact.cvUrl ? (
-            <button type="button" className="bt-clink" onClick={onViewCv}>
-              Resume ✦
+            <button
+              type="button"
+              className="bt-clink"
+              onClick={onViewCv}
+              disabled={isViewingCv}
+              style={{ minWidth: 100 }}
+            >
+              {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume ✦"}
             </button>
           ) : canUnlock ? (
             <button
@@ -625,8 +637,14 @@ function CardItem({
               className="bt-clink"
               onClick={onUnlock}
               title="Use 1 credit to unlock all contact details"
+              disabled={isUnlocking}
+              style={{ minWidth: 120 }}
             >
-              Resume <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span>
+              {isUnlocking ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : (
+                <>Resume <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span></>
+              )}
             </button>
           ) : (
             <button type="button" className="bt-clink" onClick={onLocked}>
@@ -648,8 +666,12 @@ function CardItem({
           type="button"
           className={cn("bt-save-btn", saved && "saved")}
           onClick={(e) => { e.stopPropagation(); onSave(); }}
+          disabled={isSaving}
+          style={{ minWidth: 88 }}
         >
-          {saved ? "♥ Saved" : "♡ Save"}
+          {isSaving ? (
+            <Loader2 className="h-4 w-4 animate-spin" />
+          ) : saved ? "♥ Saved" : "♡ Save"}
         </button>
       </div>
     </div>
@@ -677,6 +699,9 @@ function ProfileModal({
   onClose,
   onLocked,
   onViewCv,
+  isUnlocking = false,
+  isSaving = false,
+  isViewingCv = false,
 }: {
   c: Card;
   saved: boolean;
@@ -689,6 +714,9 @@ function ProfileModal({
   onClose: () => void;
   onLocked: () => void;
   onViewCv: () => void;
+  isUnlocking?: boolean;
+  isSaving?: boolean;
+  isViewingCv?: boolean;
 }) {
   const cfg = ROLE_CFG[c.type];
 
@@ -839,12 +867,25 @@ function ProfileModal({
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
               {isUnlocked && effectiveContact.cvUrl ? (
-                <button type="button" className="bt-plink" onClick={onViewCv}>
-                  Resume ✦
+                <button
+                  type="button"
+                  className="bt-plink"
+                  onClick={onViewCv}
+                  disabled={isViewingCv}
+                  style={{ minWidth: 100 }}
+                >
+                  {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume ✦"}
                 </button>
               ) : canUnlock ? (
-                <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
-                  Resume · 1 credit
+                <button
+                  type="button"
+                  className="bt-plink"
+                  onClick={onUnlock}
+                  title="Use 1 credit to unlock all contact details"
+                  disabled={isUnlocking}
+                  style={{ minWidth: 120 }}
+                >
+                  {isUnlocking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume · 1 credit"}
                 </button>
               ) : (
                 <button type="button" className="bt-plink" onClick={onLocked}>Resume ✦</button>
@@ -1003,8 +1044,10 @@ function ProfileModal({
                       type="button"
                       onClick={onViewCv}
                       className="bt-unlocked-link"
+                      disabled={isViewingCv}
+                      style={{ minWidth: 88 }}
                     >
-                      View CV
+                      {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "View CV"}
                     </button>
                   </div>
                 )}
@@ -1031,8 +1074,14 @@ function ProfileModal({
                   type="button"
                   className="bt-btn-unlock"
                   onClick={() => onUnlock()}
+                  disabled={isUnlocking}
+                  style={{ minWidth: 200 }}
                 >
-                  Unlock contact · 1 credit
+                  {isUnlocking ? (
+                    <Loader2 className="h-4 w-4 animate-spin" />
+                  ) : (
+                    "Unlock contact · 1 credit"
+                  )}
                 </button>
               ) : tier === "free" ? (
                 <button
@@ -1059,8 +1108,12 @@ function ProfileModal({
               type="button"
               className={cn("bt-btn-save-modal", saved && "saved")}
               onClick={onSave}
+              disabled={isSaving}
+              style={{ minWidth: 140 }}
             >
-              {saved ? "♥ Saved" : "♡ Save Profile"}
+              {isSaving ? (
+                <Loader2 className="h-4 w-4 animate-spin" />
+              ) : saved ? "♥ Saved" : "♡ Save Profile"}
             </button>
           </div>
         </div>
@@ -1233,6 +1286,16 @@ export function BrowseClient({
     cvUrl: string | null;
   }>>(new Map());
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  // K1/E3/F2: per-candidate in-flight tracking. Prevents double-click races
+  // and powers per-button Loader2 spinners.
+  const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set());
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  const [viewingCvIds, setViewingCvIds] = useState<Set<string>>(new Set());
+  // A2: persistent toast shown when a subscriber hits no_credits.
+  const [outOfCreditsToast, setOutOfCreditsToast] = useState<boolean>(false);
+  // B3/J2: persistent toast shown when the client tier prop disagrees with
+  // the server-side tier (subscription cancelled mid-session).
+  const [sessionStaleToast, setSessionStaleToast] = useState<boolean>(false);
 
   // Sync unlock state when server props change (pagination/filter navigation).
   // Merge unlockedContactData instead of replacing it so client-side unlock results
@@ -1322,6 +1385,13 @@ export function BrowseClient({
       setIsPricingModalOpen(true);
       return;
     }
+    // F2: in-flight guard. Prevent TOCTOU race on rapid double-clicks.
+    if (savingIds.has(candidateId)) return;
+    setSavingIds((prev) => {
+      const next = new Set(prev);
+      next.add(candidateId);
+      return next;
+    });
 
     const wasSaved = localSavedIds.has(candidateId);
 
@@ -1332,89 +1402,193 @@ export function BrowseClient({
       return next;
     });
 
-    const result = await toggleSave(candidateId);
+    try {
+      const result = await toggleSave(candidateId);
 
-    if (!result.success) {
-      setLocalSavedIds((prev) => {
+      if (!result.success) {
+        // Revert optimistic UI.
+        setLocalSavedIds((prev) => {
+          const next = new Set(prev);
+          if (wasSaved) next.add(candidateId);
+          else next.delete(candidateId);
+          return next;
+        });
+
+        // A1/F5: distinct error messages per error type.
+        const errorStr = result.error ?? "";
+        if (errorStr === "Subscription required") {
+          setIsPricingModalOpen(true);
+          return;
+        }
+        if (errorStr === "Not authenticated") {
+          // B3/J2: client thinks subscriber but server says not authenticated → session stale.
+          if (tier === "subscriber") {
+            setSessionStaleToast(true);
+          } else {
+            setToast("Please sign in to save profiles.");
+          }
+          return;
+        }
+        const lower = errorStr.toLowerCase();
+        if (errorStr === "Invalid candidate ID") {
+          setToast("Invalid candidate. Please refresh.");
+        } else if (lower.includes("too many save toggles")) {
+          setToast("Slow down — too many save changes. Wait a moment.");
+        } else if (lower.includes("could not check saved status")) {
+          setToast("Could not verify saved status. Please try again.");
+        } else if (lower.includes("could not unsave")) {
+          setToast("Could not remove from saved. Please try again.");
+        } else if (lower.includes("could not save")) {
+          setToast("Could not save. Please try again.");
+        } else {
+          setToast("Could not update saved status.");
+        }
+      } else {
+        setToast(wasSaved ? "Removed from saved" : "Saved to your list");
+      }
+    } finally {
+      setSavingIds((prev) => {
         const next = new Set(prev);
-        if (wasSaved) next.add(candidateId);
-        else next.delete(candidateId);
+        next.delete(candidateId);
         return next;
       });
-
-      if (result.error === "Subscription required") {
-        setIsPricingModalOpen(true);
-      } else {
-        setToast("Could not update saved status");
-      }
-    } else {
-      setToast(wasSaved ? "Removed from saved" : "Saved to your list");
     }
   };
 
-  // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions
+  // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions.
+  // Subscribers should never hit this (their flow is handleUnlock). Free users
+  // and admins-without-subscription land here and see the pricing modal.
   const handleLockedAction = () => {
-    // Subscribers should never hit this (their flow is handleUnlock); admins bypass everything
     if (tier === "free") {
       setIsPricingModalOpen(true);
     } else {
-      // Out-of-credits subscriber edge case → keep existing toast for clarity
-      setToast("🔒 You're out of credits this month.");
-      setTimeout(() => setToast(null), TOAST_DURATION_MS);
+      // A2: Subscriber out-of-credits → amber persistent toast with Upgrade link.
+      setOutOfCreditsToast(true);
     }
   };
 
   const handleGetStartedFromModal = () => {
     setIsPricingModalOpen(false);
+    // Auto-dismiss handled by the [toast] useEffect.
     setToast("🔒 Subscriptions coming soon — payment integration in progress.");
-    setTimeout(() => setToast(null), TOAST_DURATION_MS);
   };
 
   async function handleViewCv(candidateId: string): Promise<void> {
-    const result = await getCvSignedUrl(candidateId);
-    if (result.ok) {
-      const win = window.open(result.url, "_blank", "noopener,noreferrer");
-      if (!win) {
-        setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+    // K1: in-flight guard + spinner. Ignore subsequent clicks while a previous
+    // request is pending; spinner state lives in viewingCvIds.
+    if (viewingCvIds.has(candidateId)) return;
+    setViewingCvIds((prev) => {
+      const next = new Set(prev);
+      next.add(candidateId);
+      return next;
+    });
+
+    try {
+      const result = await getCvSignedUrl(candidateId);
+      if (result.ok) {
+        const win = window.open(result.url, "_blank", "noopener,noreferrer");
+        if (!win) {
+          setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+        }
+        return;
       }
-      return;
+      // B3/J2: client thinks subscriber but server says not authenticated → session stale.
+      if (result.error === "not_authenticated" && tier === "subscriber") {
+        setSessionStaleToast(true);
+        return;
+      }
+      const errorMessages: Record<string, string> = {
+        not_authenticated: "Please log in to view this CV.",
+        not_unlocked: "Please unlock this candidate to view their CV.",
+        cv_missing: "CV unavailable — please contact support.",
+        internal_error: "Could not load CV. Please try again.",
+      };
+      setToast(errorMessages[result.error] ?? "Could not load CV. Please try again.");
+    } finally {
+      setViewingCvIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidateId);
+        return next;
+      });
     }
-    const errorMessages: Record<string, string> = {
-      not_authenticated: "Please log in to view this CV.",
-      not_unlocked: "Please unlock this candidate to view their CV.",
-      cv_missing: "CV unavailable — please contact support.",
-      internal_error: "Could not load CV. Please try again.",
-    };
-    setToast(errorMessages[result.error] ?? "Could not load CV. Please try again.");
   }
 
   async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
-    const result = await unlockCandidate(candidateId);
-    if (result.success) {
-      setUnlockedSet((prev) => {
-        const next = new Set(prev);
-        next.add(candidateId);
-        return next;
-      });
-      setUnlockedContactData((prev) => {
-        const next = new Map(prev);
-        next.set(candidateId, {
-          email: result.email,
-          phone: result.phone,
-          linkedinUrl: result.linkedinUrl,
-          cvUrl: result.cvUrl,
-        });
-        return next;
-      });
-      setCredits(result.creditsRemaining);
-      if (!result.alreadyUnlocked) {
-        setToast(`✓ Unlocked ${candidateName} · ${result.creditsRemaining} credits left`);
-      }
-    } else {
-      setToast(`✗ ${result.message}`);
+    // E3: in-flight guard. Atomic RPC prevents double-charge but the UI would
+    // otherwise flicker on parallel requests. Return a placeholder result on
+    // dedupe; the caller in BrowseClient doesn't use the return value.
+    if (unlockingIds.has(candidateId)) {
+      return {
+        success: false,
+        error: "rate_limited",
+        message: "Already in progress.",
+      } as UnlockResult;
     }
-    return result;
+    setUnlockingIds((prev) => {
+      const next = new Set(prev);
+      next.add(candidateId);
+      return next;
+    });
+
+    try {
+      const result = await unlockCandidate(candidateId);
+      if (result.success) {
+        setUnlockedSet((prev) => {
+          const next = new Set(prev);
+          next.add(candidateId);
+          return next;
+        });
+        setUnlockedContactData((prev) => {
+          const next = new Map(prev);
+          next.set(candidateId, {
+            email: result.email,
+            phone: result.phone,
+            linkedinUrl: result.linkedinUrl,
+            cvUrl: result.cvUrl,
+          });
+          return next;
+        });
+        setCredits(result.creditsRemaining);
+        if (!result.alreadyUnlocked) {
+          setToast(`✓ Unlocked ${candidateName} · ${result.creditsRemaining} credits left`);
+        }
+      } else {
+        // A2: no_credits → dedicated persistent toast with [Upgrade plan] link.
+        if (result.error === "no_credits") {
+          setOutOfCreditsToast(true);
+          return result;
+        }
+        // B3/J2: not_subscribed mid-session for a "subscriber" client → session stale.
+        if (result.error === "not_subscribed" && tier === "subscriber") {
+          setSessionStaleToast(true);
+          return result;
+        }
+        setToast(`✗ ${result.message}`);
+      }
+      return result;
+    } finally {
+      setUnlockingIds((prev) => {
+        const next = new Set(prev);
+        next.delete(candidateId);
+        return next;
+      });
+    }
   }
+
+  // B3/J2: on window focus, re-read tier server-side. If it disagrees with
+  // the prop the page was rendered with, the user's subscription changed in
+  // another tab/session — show the session-stale toast.
+  useEffect(() => {
+    if (tier !== "subscriber") return; // only matters for subscribers
+    const handler = async () => {
+      const fresh = await refreshTier();
+      if (fresh.ok && fresh.tier !== tier) {
+        setSessionStaleToast(true);
+      }
+    };
+    window.addEventListener("focus", handler);
+    return () => window.removeEventListener("focus", handler);
+  }, [tier]);
 
   function getEffectiveContact(c: Card): {
     email: string | null;
@@ -1637,6 +1811,9 @@ export function BrowseClient({
                       canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(c.id)}
                       onUnlock={() => { void handleUnlock(c.id, c.name); }}
                       effectiveContact={getEffectiveContact(c)}
+                      isUnlocking={unlockingIds.has(c.id)}
+                      isSaving={savingIds.has(c.id)}
+                      isViewingCv={viewingCvIds.has(c.id)}
                     />
                   ))}
                   {tier === "subscriber" && currentPage < totalPages && (
@@ -1681,6 +1858,9 @@ export function BrowseClient({
                             canUnlock={false}
                             onUnlock={() => {}}
                             effectiveContact={{ email: null, phone: null, linkedin: null, cvUrl: null, github: null }}
+                            isUnlocking={false}
+                            isSaving={false}
+                            isViewingCv={false}
                           />
                         ))}
                       </div>
@@ -1767,6 +1947,9 @@ export function BrowseClient({
             handleLockedAction();
           }}
           onViewCv={() => { void handleViewCv(openCard.id); }}
+          isUnlocking={unlockingIds.has(openCard.id)}
+          isSaving={savingIds.has(openCard.id)}
+          isViewingCv={viewingCvIds.has(openCard.id)}
         />
       )}
 
@@ -1778,6 +1961,108 @@ export function BrowseClient({
           aria-atomic="true"
         >
           {toast}
+        </div>
+      )}
+
+      {outOfCreditsToast && (
+        <div
+          className="bt-toast"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          style={{
+            bottom: 80,
+            background: "#FEF3C7",
+            color: "#78350F",
+            border: "1px solid #FCD34D",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <span>Out of credits this month.</span>
+          <Link
+            href="/pricing"
+            style={{
+              color: "#78350F",
+              fontWeight: 600,
+              textDecoration: "underline",
+            }}
+          >
+            Upgrade plan
+          </Link>
+          <button
+            type="button"
+            onClick={() => setOutOfCreditsToast(false)}
+            aria-label="Dismiss"
+            style={{
+              marginLeft: 4,
+              background: "transparent",
+              border: "none",
+              color: "#78350F",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
+        </div>
+      )}
+
+      {sessionStaleToast && (
+        <div
+          className="bt-toast"
+          role="alert"
+          aria-live="assertive"
+          aria-atomic="true"
+          style={{
+            bottom: outOfCreditsToast ? 136 : 80,
+            background: "#FEF3C7",
+            color: "#78350F",
+            border: "1px solid #FCD34D",
+            display: "flex",
+            alignItems: "center",
+            gap: 12,
+          }}
+        >
+          <span>Your subscription has changed.</span>
+          <button
+            type="button"
+            onClick={() => {
+              setSessionStaleToast(false);
+              router.refresh();
+            }}
+            style={{
+              background: "#78350F",
+              color: "#FEF3C7",
+              border: "none",
+              borderRadius: 6,
+              padding: "4px 10px",
+              fontWeight: 600,
+              cursor: "pointer",
+            }}
+          >
+            Refresh
+          </button>
+          <button
+            type="button"
+            onClick={() => setSessionStaleToast(false)}
+            aria-label="Dismiss"
+            style={{
+              marginLeft: 4,
+              background: "transparent",
+              border: "none",
+              color: "#78350F",
+              cursor: "pointer",
+              fontSize: 18,
+              lineHeight: 1,
+              padding: 0,
+            }}
+          >
+            ×
+          </button>
         </div>
       )}
 

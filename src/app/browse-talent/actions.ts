@@ -350,3 +350,44 @@ export async function getCvSignedUrl(candidateId: string): Promise<CvSignedUrlRe
 
   return { ok: true, url: signed.signedUrl };
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// B3/J2: refreshTier
+// Lightweight server action to re-read the current user's subscription tier
+// + credits_remaining. Called from the client on window focus events to detect
+// mid-session subscription changes (e.g. user subscribed/cancelled in another
+// tab). Mirrors the exact tier-detection logic used by page.tsx + toggleSave.
+// ────────────────────────────────────────────────────────────────────────────
+
+type RefreshTierResult =
+  | { ok: true; tier: "free" | "subscriber"; creditsRemaining: number | null }
+  | { ok: false; error: "not_authenticated" | "internal_error" };
+
+export async function refreshTier(): Promise<RefreshTierResult> {
+  const auth = await createClient();
+  const { data: authData } = await auth.auth.getUser();
+  const user = authData.user;
+  if (!user) {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const service = createServiceClient();
+  const { data: subRow, error: subErr } = await service
+    .from("subscriptions")
+    .select("tier, credits_remaining")
+    .eq("user_id", user.id)
+    .maybeSingle();
+
+  if (subErr) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  let tier: "free" | "subscriber" = "free";
+  let creditsRemaining: number | null = null;
+  if (subRow && (subRow.tier === "starter" || subRow.tier === "pro")) {
+    tier = "subscriber";
+    creditsRemaining = subRow.credits_remaining ?? 0;
+  }
+
+  return { ok: true, tier, creditsRemaining };
+}

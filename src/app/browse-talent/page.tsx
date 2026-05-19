@@ -74,9 +74,9 @@ export default async function BrowseTalentPage({
 
   // Phase B security: free tier is locked to page 1. Without this, free users could
   // bypass the 15-row cap by passing ?page=2, ?page=3 etc. and scrape the full pool.
-  // Admins and subscribers keep normal pagination behavior.
+  // Subscribers see full pagination; free users locked to page 1.
   const effectivePage = isFreeViewer(tier) ? 1 : page;
-  const PAGE_SIZE = tier === "free" ? 15 : 30;
+  const PAGE_SIZE = isFreeViewer(tier) ? 15 : 30;
   const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
