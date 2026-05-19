@@ -569,6 +569,7 @@ export default function RemoteReadyPage() {
 
         <div className="bta-steps-bar">
           <div className="bta-steps-inner">
+            <span className="bta-step-counter">Step {step} · {STEPS[step - 1].label}</span>
             {STEPS.map((s, idx) => (
               <div key={s.num} className="contents">
                 <button
@@ -732,6 +733,7 @@ export default function RemoteReadyPage() {
 
         .bta-steps-bar { background:#fff; border-bottom:1px solid rgba(0,0,0,.07); position:sticky; top:0; z-index:50; }
         .bta-steps-inner { display:flex; align-items:center; justify-content:flex-start; max-width:880px; margin:0 auto; padding:0 40px; overflow-x:auto; }
+        .bta-step-counter { display: none; }
         .bta-step {
           display:flex; align-items:center; gap:10px; font-family:'DM Sans',sans-serif; font-size:.72rem;
           font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#bbb; padding:16px 20px;
@@ -778,7 +780,7 @@ export default function RemoteReadyPage() {
         }
         .bta-sec-title::before { content:''; width:12px; height:1px; background:#49D7A7; }
         .bta-sec-title::after { content:''; flex:1; height:1px; background:rgba(0,0,0,.06); }
-        .bta-help-text { font-size:.78rem; font-style:italic; color:#999; line-height:1.6; margin:-8px 0 16px; max-width:640px; }
+        .bta-help-text { font-size:.78rem; font-style:italic; color:#666; line-height:1.6; margin:-8px 0 16px; max-width:640px; }
         .bta-grid-2 { display:grid; grid-template-columns:1fr 1fr; gap:14px; margin-bottom:14px; }
         .bta-spacer { height:24px; }
         .bta-form-group { display:flex; flex-direction:column; gap:6px; }
@@ -901,11 +903,106 @@ export default function RemoteReadyPage() {
         .bta-exp-remove:hover { background:rgba(239,68,68,.1); color:#ef4444; }
         .bta-exp-entry .bta-grid-2 { margin-bottom:10px; }
 
-        @media (max-width:768px) {
-          .bta-layout { padding:24px 20px 60px; }
-          .bta-grid-2 { grid-template-columns:1fr; }
-          .bta-form-footer { flex-direction:column; align-items:flex-start; }
-          .bta-steps-inner { justify-content:flex-start; }
+        @media (max-width: 768px) {
+          /* Layout */
+          .bta-layout { padding: 24px 20px 60px; }
+          .bta-grid-2 { grid-template-columns: 1fr; }
+
+          /* Steps bar — pin below mobile navbar */
+          .bta-steps-bar { top: 64px; }
+
+          /* Single-active-step mode with caption */
+          .bta-steps-inner {
+            flex-direction: column;
+            gap: 4px;
+            padding: 8px 20px 0;
+            justify-content: center;
+          }
+          .bta-step:not(.active) { display: none; }
+          .bta-step-line { display: none; }
+          .bta-step-counter {
+            display: block;
+            font-family: 'DM Sans', sans-serif;
+            font-size: .62rem;
+            font-weight: 600;
+            letter-spacing: .14em;
+            text-transform: uppercase;
+            color: #9aa0a6;
+            text-align: center;
+          }
+
+          /* Hero stats — vertical stack (3 cells, full-width each) */
+          .bat-stats {
+            display: flex;
+            flex-direction: column;
+            gap: 0;
+          }
+          .bat-stat {
+            padding: 22px 24px;
+            border-right: none;
+            border-bottom: 1px solid rgba(255, 255, 255, 0.18);
+            text-align: left;
+          }
+          .bat-stat:last-child {
+            border-bottom: none;
+          }
+          .bat-stat-num { font-size: 28px; margin-bottom: 6px; letter-spacing: -0.5px; }
+          .bat-stat-days { font-size: 22px; }
+          .bat-stat-label { font-size: 10px; }
+
+          /* iOS auto-zoom prevention */
+          .bta-input,
+          .bta-select,
+          .bta-textarea,
+          .bta-skill-inp { font-size: 16px; }
+
+          /* Tap targets >= 44px */
+          .bta-exp-remove { width: 40px; height: 40px; }
+          .bta-radio-opt { padding: 12px 16px; min-height: 44px; }
+          .bta-photo-btn { padding: 10px 16px; }
+          .bta-stag-x { padding: 6px 8px; margin: -4px -6px -4px 0; }
+          .bta-btn-ghost,
+          .bta-btn-next,
+          .bta-btn-submit { min-height: 44px; }
+          .bta-add-exp-btn { min-height: 44px; padding: 12px 20px; }
+        }
+
+        @media (max-width: 640px) {
+          /* Hero heading scale-down */
+          .bat-h1,
+          .bat-h2 {
+            font-size: clamp(32px, 9vw, 44px);
+            letter-spacing: -1px;
+          }
+
+          /* Hero wrap padding reduction */
+          .bat-wrap { padding: 56px 16px 36px; }
+
+          /* Form footer — column stack with full-width buttons */
+          .bta-form-footer {
+            flex-direction: column-reverse;
+            gap: 12px;
+            align-items: stretch;
+            padding: 16px 20px;
+          }
+          .bta-btn-ghost,
+          .bta-btn-next,
+          .bta-btn-submit { width: 100%; justify-content: center; }
+          .bta-footer-note { text-align: center; }
+        }
+
+        @media (max-width: 480px) {
+          /* Form card padding reduction */
+          .bta-form-header { padding: 20px 20px 16px; }
+          .bta-form-body { padding: 20px 20px; }
+
+          /* Photo preview — stack column */
+          .bta-photo-wrap {
+            flex-direction: column;
+            align-items: flex-start;
+            gap: 14px;
+          }
+          .bta-photo-prev { width: 88px; height: 88px; }
         }
 
         .bta-step-num,
