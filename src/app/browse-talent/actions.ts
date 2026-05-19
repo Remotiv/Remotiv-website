@@ -2,6 +2,7 @@
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 
 export type UnlockResult =
   | {
@@ -24,6 +25,7 @@ export type UnlockResult =
         | "no_credits"
         | "candidate_not_found"
         | "invalid_input"
+        | "rate_limited"
         | "internal_error";
       message: string;
     };
@@ -60,16 +62,33 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     };
   }
 
+  // K2: per-user rate limit. 30 unlocks/min cap to mitigate credit-drain via
+  // session theft. NOTE: in-memory limiter — per-lambda counter, resets on
+  // cold start, not shared across regions. Burst protection only; not a
+  // hard global cap. Pair with a real WAF / Upstash Redis layer in front
+  // for hard quotas.
+  const unlockRate = rateLimitByKey(`unlock:${user.id}`, { max: 30, windowMs: 60_000 });
+  if (!unlockRate.ok) {
+    return {
+      success: false,
+      error: "rate_limited",
+      message: "Too many unlock attempts. Please wait a moment and try again.",
+    };
+  }
+
   // Call the SECURITY DEFINER RPC — atomic decrement + insert
   const { data: rpcData, error: rpcError } = await auth.rpc("unlock_candidate", {
     p_candidate_id: candidateId,
   });
 
   if (rpcError) {
+    // J3: Never leak raw Supabase/Postgres error messages to the client.
+    // Log server-side; return a generic message.
+    console.error("[unlockCandidate] RPC failed:", rpcError);
     return {
       success: false,
       error: "internal_error",
-      message: rpcError.message || "Unlock failed. Please try again.",
+      message: "Unlock failed. Please try again.",
     };
   }
 
@@ -168,6 +187,16 @@ export async function toggleSave(candidateId: string): Promise<{
 
   if (authError || !user) {
     return { success: false, error: "Not authenticated" };
+  }
+
+  // K3: per-user rate limit. 60 saves/min cap. NOTE: in-memory limiter,
+  // per-lambda. See K2 comment in unlockCandidate for caveats.
+  const saveRate = rateLimitByKey(`save:${user.id}`, { max: 60, windowMs: 60_000 });
+  if (!saveRate.ok) {
+    return {
+      success: false,
+      error: "Too many save toggles. Please wait a moment.",
+    };
   }
 
   const isSuperAdmin = user.email === SUPER_ADMIN_EMAIL;

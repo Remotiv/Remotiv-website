@@ -200,12 +200,23 @@ export default async function BrowseTalentPage({
   // Without this, a candidate could write "email me at foo@x.com" in their
   // summary or experience and leak contact info to non-unlocked viewers.
   const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
-  const phoneRegex = /(\+?\d{1,3}[-.\s]?)?\(?\d{2,4}\)?[-.\s]?\d{3,4}[-.\s]?\d{3,4}/g;
+  // B2: hardened phone redaction. Catches international, US, and Pakistani formats.
+  // Structure: optional "+" country code (1-3 digits), then area code (2-4 digits)
+  // with optional parens, then 1-4 more digit groups separated by space/dot/hyphen
+  // or no separator. The digit-count guard inside the replace callback gates
+  // matches to the E.164 valid range (7-15 digits) so short year/score tokens
+  // don't get redacted. Fail-safe direction: better a false positive than a leak.
+  const phoneRegex =
+    /(?:\+\d{1,3}[\s.\-]?)?\(?\d{2,4}\)?(?:[\s.\-]?\d{2,4}){1,4}/g;
   const redactContactInfo = (text: string | null | undefined): string | null => {
     if (!text) return text ?? null;
     return text
       .replace(emailRegex, "[contact hidden]")
-      .replace(phoneRegex, "[contact hidden]");
+      .replace(phoneRegex, (match) => {
+        const digitCount = (match.match(/\d/g) ?? []).length;
+        if (digitCount < 7 || digitCount > 15) return match;
+        return "[contact hidden]";
+      });
   };
 
   // Per-row stripping based on unlock state.

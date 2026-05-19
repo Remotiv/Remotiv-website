@@ -51,6 +51,36 @@ export function rateLimit(
   return { ok: true };
 }
 
+/**
+ * Same in-memory limiter, keyed by an arbitrary caller-supplied string
+ * instead of an IP from a Request object. Use this from server actions
+ * (which have no Request) — typically with a key like `"unlock:" + userId`.
+ *
+ * Same in-memory caveats apply: per-lambda counters, reset on cold start,
+ * not shared across regions. Good for burst protection; not a hard global cap.
+ */
+export function rateLimitByKey(
+  key: string,
+  opts?: { max?: number; windowMs?: number },
+): RateLimitResult {
+  const max = opts?.max ?? DEFAULT_MAX;
+  const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
+  const now = Date.now();
+  const bucket = buckets.get(key);
+
+  if (!bucket || bucket.resetAt < now) {
+    buckets.set(key, { count: 1, resetAt: now + windowMs });
+    return { ok: true };
+  }
+
+  if (bucket.count >= max) {
+    return { ok: false, retryAfter: Math.ceil((bucket.resetAt - now) / 1000) };
+  }
+
+  bucket.count++;
+  return { ok: true };
+}
+
 // Periodic GC so the Map doesn't grow unbounded under steady traffic. Stored
 // on globalThis so HMR doesn't double-register the interval in dev.
 type RLGlobal = typeof globalThis & { __rateLimitCleanup?: NodeJS.Timeout };
