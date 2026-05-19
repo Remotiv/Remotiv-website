@@ -153,7 +153,7 @@ export default function AboutPage() {
               </div>
 
               {/* Right: dark content card */}
-              <div className="flex flex-col rounded-3xl bg-[#111] p-10 md:p-[52px_48px]">
+              <div className="flex flex-col rounded-3xl bg-[#111] p-6 sm:p-8 md:p-[52px_48px]">
                 <div className="mb-[22px] flex items-center gap-2.5 text-[0.65rem] font-bold uppercase tracking-[0.18em] text-remotiv-green">
                   <span className="h-px w-6 bg-remotiv-green" />
                   Who We Are
@@ -172,7 +172,7 @@ export default function AboutPage() {
 
                 <div className="mb-7 h-px bg-white/10" />
 
-                <div className="grid grid-cols-2 gap-5">
+                <div className="grid grid-cols-1 gap-5 sm:grid-cols-2">
                   {HERO_STATS.map((s) => (
                     <div key={s.label} className="flex flex-col gap-1">
                       <div className="font-heading text-[1.8rem] font-black leading-none tracking-[-0.03em] text-white">
@@ -246,7 +246,7 @@ export default function AboutPage() {
               {VALUES.map((v) => (
                 <div
                   key={v.title}
-                  className="group flex flex-col items-start rounded-3xl border border-black/[0.08] bg-white p-9 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_40px_rgba(0,0,0,0.08)]"
+                  className="group flex flex-col items-start rounded-3xl border border-black/[0.08] bg-white p-6 transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_40px_rgba(0,0,0,0.08)] sm:p-8 md:p-9"
                 >
                   <div
                     className={`mb-7 flex size-14 items-center justify-center rounded-2xl ${v.iconBg}`}
@@ -290,7 +290,7 @@ export default function AboutPage() {
 
         {/* CTA */}
         <section className="bg-white px-6 py-20 md:px-14">
-          <div className="mx-auto max-w-[980px] overflow-hidden rounded-[32px] bg-[#111] p-10 text-center md:p-16">
+          <div className="mx-auto max-w-[980px] overflow-hidden rounded-[32px] bg-[#111] p-6 text-center sm:p-8 md:p-10 lg:p-16">
             <div className="mx-auto mb-5 inline-flex items-center gap-2 rounded-full border border-remotiv-green/25 bg-remotiv-green/10 px-5 py-[7px] text-[0.78rem] font-bold uppercase tracking-[0.08em] text-remotiv-green">
               <span className="size-1.5 rounded-full bg-remotiv-green" />
               Join the mission
