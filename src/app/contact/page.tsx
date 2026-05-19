@@ -146,7 +146,7 @@ const INITIAL_FORM: FormState = {
 };
 
 const INPUT_CLASS =
-  "w-full rounded-lg bg-[#f5f5f5] px-3 py-[9px] text-xs text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-[#ff6b6b]";
+  "w-full rounded-lg bg-[#f5f5f5] px-3 py-3 text-base text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-[#ff6b6b] sm:py-[9px] sm:text-xs";
 
 const LABEL_CLASS = "mb-[5px] block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";
 
@@ -242,7 +242,7 @@ export default function ContactPage() {
     <>
       <Navbar />
       <main className="bg-remotiv-bg font-sans">
-        <section className="px-6 pb-14 pt-[72px] text-center">
+        <section className="px-5 pb-14 pt-[72px] text-center sm:px-6">
           <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-remotiv-purple/20 bg-remotiv-purple/10 px-5 py-[7px] text-xs font-semibold uppercase tracking-[0.06em] text-remotiv-purple">
             <span className="size-1.5 rounded-full bg-remotiv-purple" />
             Get In Touch
@@ -255,11 +255,11 @@ export default function ContactPage() {
           </p>
         </section>
 
-        <section className="mx-auto mb-16 grid max-w-[900px] gap-5 px-6 md:grid-cols-2">
+        <section className="mx-auto mb-16 grid max-w-[900px] gap-5 px-5 sm:px-6 md:grid-cols-2">
           {INQUIRY_CARDS.map((card) => (
             <div
               key={card.title}
-              className="flex flex-col items-center rounded-3xl border border-black/[0.07] bg-white px-9 pb-10 pt-12 text-center shadow-[0_2px_16px_rgba(0,0,0,0.05)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(0,0,0,0.1)]"
+              className="flex flex-col items-center rounded-3xl border border-black/[0.07] bg-white px-6 pb-8 pt-10 text-center shadow-[0_2px_16px_rgba(0,0,0,0.05)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(0,0,0,0.1)] sm:px-9 sm:pb-10 sm:pt-12"
             >
               <div className="mb-7 flex size-[120px] items-center justify-center">{card.illustration}</div>
               <h3 className="mb-3 font-heading text-xl font-bold text-remotiv-text-dark">{card.title}</h3>
@@ -278,7 +278,7 @@ export default function ContactPage() {
           ))}
         </section>
 
-        <section id="contact-form" className="mx-auto mb-20 grid max-w-[1200px] items-center gap-10 px-6 md:px-14 lg:grid-cols-2 lg:gap-16 scroll-mt-24">
+        <section id="contact-form" className="mx-auto mb-20 grid max-w-[1200px] items-center gap-10 px-5 sm:px-6 md:px-14 lg:grid-cols-2 lg:gap-16 scroll-mt-24">
           <div>
             <div className="mb-5 inline-flex items-center gap-1.5 text-[11px] font-bold uppercase tracking-[0.1em] text-remotiv-green">
               <span className="h-0.5 w-5 rounded-sm bg-remotiv-green" />
@@ -310,7 +310,7 @@ export default function ContactPage() {
             </div>
           </div>
 
-          <div className="rounded-3xl bg-remotiv-lime-card px-10 py-12 md:px-[60px] md:py-[52px]">
+          <div className="rounded-3xl bg-remotiv-lime-card px-6 py-8 sm:px-10 sm:py-12 md:px-[60px] md:py-[52px]">
             <div className="mb-[18px] inline-flex items-center rounded-full bg-white/45 px-3.5 py-[5px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[#111]">
               Get In Touch
             </div>
@@ -359,7 +359,7 @@ export default function ContactPage() {
                   <button
                     type="button"
                     onClick={resetForm}
-                    className="mt-4 rounded-[10px] bg-[#111] px-5 py-2.5 text-xs font-semibold tracking-[0.03em] text-white"
+                    className="mt-4 min-h-11 rounded-[10px] bg-[#111] px-5 py-3 text-xs font-semibold tracking-[0.03em] text-white sm:py-2.5"
                   >
                     Submit Another Inquiry
                   </button>
@@ -391,7 +391,7 @@ export default function ContactPage() {
                   <div className="mb-2.5 grid gap-2.5 sm:grid-cols-2">
                     <div>
                       <label className={LABEL_CLASS} htmlFor="ct-name">
-                        Full Name
+                        Full Name <span className="text-red-500" aria-hidden="true">*</span>
                       </label>
                       <input
                         id="ct-name"
@@ -424,7 +424,7 @@ export default function ContactPage() {
                   </div>
                   <div className="mb-2.5">
                     <label className={LABEL_CLASS} htmlFor="ct-email">
-                      Work Email
+                      Work Email <span className="text-red-500" aria-hidden="true">*</span>
                     </label>
                     <input
                       id="ct-email"
@@ -474,7 +474,7 @@ export default function ContactPage() {
                   <button
                     type="submit"
                     disabled={status === "sending"}
-                    className="mb-2.5 w-full rounded-[10px] bg-remotiv-lime-card px-3 py-3 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60"
+                    className="mb-2.5 min-h-11 w-full rounded-[10px] bg-remotiv-lime-card px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
                   >
                     {status === "sending" ? "Sending…" : "Send Inquiry →"}
                   </button>
