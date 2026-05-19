@@ -6,8 +6,9 @@
 // (e.g. "/avatars/male 1.png" with spaces — those files don't exist on
 // disk; only the dash + zero-padded format does). Reader is self-healing.
 
-import { useState, useEffect, useMemo } from "react";
+import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
+import { getCvSignedUrl } from "@/app/browse-talent/actions";
 import { useRouter } from "next/navigation";
 import {
   Search as SearchIcon,
@@ -418,6 +419,31 @@ function ProfileDrawer({
     setBusyStatus(null);
   }
 
+  // K1 Phase 2b: open the candidate's CV via a fresh signed URL. The
+  // getCvSignedUrl action recognises admin context (super-admin email or
+  // admin_users.role) and bypasses the unlock_events check, so admins don't
+  // need an unlock to view CVs.
+  const handleAdminViewCv = useCallback(
+    async (candidateId: string): Promise<void> => {
+      const result = await getCvSignedUrl(candidateId);
+      if (result.ok) {
+        const win = window.open(result.url, "_blank", "noopener,noreferrer");
+        if (!win) {
+          onToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+        }
+        return;
+      }
+      const messages: Record<string, string> = {
+        not_authenticated: "Your session has expired. Please log in again.",
+        not_unlocked: "Unable to access this CV (admin permission issue).",
+        cv_missing: "CV file unavailable — please contact support.",
+        internal_error: "Could not load CV. Please try again.",
+      };
+      onToast(messages[result.error] ?? "Could not load CV. Please try again.");
+    },
+    [onToast],
+  );
+
   const canReset =
     profile.status === "paused" ||
     profile.status === "archived" ||
@@ -641,23 +667,26 @@ function ProfileDrawer({
           {profile.cv_url && (
             <DrawerSection title="CV">
               <div className="flex gap-2">
-                <a
-                  href={profile.cv_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleAdminViewCv(profile.id);
+                  }}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-3 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <Eye className="size-3.5" strokeWidth={2} />
                   View CV
-                </a>
-                <a
-                  href={profile.cv_url}
-                  download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => {
+                    void handleAdminViewCv(profile.id);
+                  }}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   <Download className="size-3.5" strokeWidth={2} />
                   Download CV
-                </a>
+                </button>
               </div>
             </DrawerSection>
           )}
