@@ -258,6 +258,7 @@ export async function POST(request: NextRequest) {
      //    DOC / DOCX rely on the MIME-type whitelist above — covering them
      //    properly would mean adding OLE compound + ZIP-container checks.
     let cvUrl: string | null = null;
+    let cvPath: string | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.type && !ALLOWED_CV_TYPES.includes(cvFile.type)) {
         return NextResponse.json(
@@ -281,7 +282,7 @@ export async function POST(request: NextRequest) {
         }
       }
       const ext = fileExt(cvFile.name, "pdf");
-      const path = `hire-remote/cvs/${filenameSlug}-${timestamp}.${ext}`;
+      const path = `hire-remote/cvs/${crypto.randomUUID()}.${ext}`;
       const { error: cvErr } = await supabase.storage
         .from("cvs")
         .upload(path, cvBuffer, {
@@ -293,6 +294,7 @@ export async function POST(request: NextRequest) {
       }
       const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       cvUrl = cUrl.publicUrl;
+      cvPath = path;
     }
 
     // 3. Upload photo (optional)
@@ -349,6 +351,7 @@ export async function POST(request: NextRequest) {
         languages,
 
         cv_url: cvUrl,
+        cv_path: cvPath,
         cv_text: cvText,
         photo_url: photoUrl,
 

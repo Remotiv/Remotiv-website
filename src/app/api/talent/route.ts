@@ -225,6 +225,7 @@ export async function POST(request: NextRequest) {
     //    Magic-byte gate: PDFs start with "%PDF" (0x25 0x50 0x44 0x46). The
     //    front-end accepts only PDF; this enforces the same on the server.
     let cvUrl: string | null = null;
+    let cvPath: string | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.size > MAX_CV_FILE_BYTES) {
         return NextResponse.json(
@@ -245,7 +246,7 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const path = `talent/cvs/${filenameSlug}-${timestamp}.pdf`;
+      const path = `talent/cvs/${crypto.randomUUID()}.pdf`;
       const { error: cvErr } = await supabase.storage
         .from("cvs")
         .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
@@ -254,6 +255,7 @@ export async function POST(request: NextRequest) {
       }
       const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       cvUrl = cUrl.publicUrl;
+      cvPath = path;
     }
 
     // 4. Insert
@@ -283,6 +285,7 @@ export async function POST(request: NextRequest) {
       salary_max: salaryMax,
       avatar_url: avatarUrl,
       cv_url: cvUrl,
+      cv_path: cvPath,
       cv_text:
         cvText && cvText.length > MAX_CV_TEXT_LENGTH
           ? cvText.slice(0, MAX_CV_TEXT_LENGTH)

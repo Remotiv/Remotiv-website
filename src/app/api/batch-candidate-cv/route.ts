@@ -197,11 +197,9 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 2. Upload CV to storage. Path mirrors /api/apply's structure but lives
-    //    under batch/<batchId> so it's easy to find later.
-    const timestamp = Date.now();
-    const filename = email ? slug(email) : slug(firstName);
-    const path = `batch/${batchId}/${filename}-${timestamp}.pdf`;
+    // 2. Upload CV to storage. K1: filename is a UUID — no PII in the path.
+    //    Folder still groups by batchId so admin tooling can locate files.
+    const path = `batch/${batchId}/${crypto.randomUUID()}.pdf`;
 
     const { error: uploadError } = await supabase.storage
       .from("cvs")
@@ -232,6 +230,7 @@ export async function POST(request: NextRequest) {
         phone,
         linkedin_url: linkedin,
         cv_url: cvUrl,
+        cv_path: path,
         position_applied: position,
         stage: "-",
       })

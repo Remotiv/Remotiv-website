@@ -154,12 +154,11 @@ export async function POST(request: NextRequest) {
       }
     }
 
-    // 1. Upload CV to storage — use email when present, otherwise a slug of the
-    //    first name; the timestamp keeps every path unique.
-    const timestamp = Date.now();
+    // 1. Upload CV to storage. K1: filename is a UUID — no PII in the path,
+    //    no guessable timestamp/email pattern. Folder still groups by job for
+    //    operational find-ability.
     const folder = jobId ?? "manual";
-    const filename = email ? slug(email) : slug(firstName);
-    const path = `${folder}/${filename}-${timestamp}.pdf`;
+    const path = `${folder}/${crypto.randomUUID()}.pdf`;
 
     const { error: uploadError } = await supabase.storage
       .from("cvs")
@@ -205,6 +204,7 @@ export async function POST(request: NextRequest) {
       phone,
       linkedin_url: linkedin,
       cv_url: cvUrl,
+      cv_path: path,
       cv_text: boundedCvText,
       status: "new",
       source,
