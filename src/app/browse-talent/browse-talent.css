@@ -160,14 +160,16 @@
         .bt-pool-stat:last-child { border-bottom: none; }
         .bt-pool-label { font-family: "DM Sans",sans-serif; font-size: 0.72rem; color: #777; }
         .bt-pool-val { font-family: "DM Sans",sans-serif; font-size: 0.72rem; font-weight: 700; }
-        .bt-role-chip { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 8px; border: none; background: none; cursor: pointer; transition: background 0.15s; margin-bottom: 1px; border-radius: 8px; }
+        .bt-role-chip { width: 100%; display: flex; align-items: center; justify-content: space-between; padding: 7px 8px; border: none; background: none; cursor: pointer; transition: background 0.15s; margin-bottom: 1px; border-radius: 8px; min-height: 40px; }
+        /* Phase 5 B7: was ~32px tall, now min-height 40px — better mobile tap. */
         .bt-role-chip:hover { background: rgba(126,71,255,0.07); }
         .bt-role-chip.sel { background: rgba(126,71,255,0.1); }
         .bt-rc-left { display: flex; align-items: center; gap: 8px; }
         .bt-rc-dot { width: 6px; height: 6px; border-radius: 50%; flex-shrink: 0; display: inline-block; }
         .bt-rc-name { font-family: "DM Sans",sans-serif; font-size: 0.78rem; color: #555; }
         .bt-role-chip.sel .bt-rc-name { color: #7E47FF; font-weight: 600; }
-        .bt-rc-count { font-family: "DM Sans",sans-serif; font-size: 0.65rem; color: #aaa; background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; }
+        .bt-rc-count { font-family: "DM Sans",sans-serif; font-size: 0.65rem; color: rgba(0, 0, 0, 0.55); background: rgba(0,0,0,0.04); padding: 1px 6px; border-radius: 4px; }
+        /* Phase 5 B4: was #aaa (~2.85:1 on white — fails WCAG AA), now rgba(0,0,0,0.55) (~5.4:1). */
         .bt-role-chip.sel .bt-rc-count { color: #7E47FF; background: rgba(126,71,255,0.1); }
         .bt-main { padding: 28px 32px 80px; min-width: 0; background: #ffffff; }
         .bt-search-bar { display: flex; gap: 10px; align-items: center; margin-bottom: 16px; border-bottom: 1px solid rgba(126,71,255,0.1); padding-bottom: 16px; }
@@ -302,13 +304,18 @@
         .bt-highlights-row { display: flex; gap: 5px; flex-wrap: wrap; margin-bottom: 10px; }
         .bt-hl-tag { font-family: "DM Sans",sans-serif; font-size: 0.68rem; font-weight: 600; color: #49D7A7; background: rgba(73,215,167,0.08); border: 1px solid rgba(73,215,167,0.25); padding: 2px 9px; border-radius: 6px; }
         .bt-card-links { display: flex; gap: 6px; flex-wrap: wrap; }
-        .bt-clink { display: inline-flex; align-items: center; gap: 5px; padding: 5px 11px; font-family: "DM Sans",sans-serif; font-size: 0.72rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; color: #555; background: transparent; transition: all 0.15s; cursor: pointer; }
+        .bt-clink { display: inline-flex; align-items: center; gap: 5px; padding: 8px 12px; font-family: "DM Sans",sans-serif; font-size: 0.72rem; font-weight: 600; border: 1px solid rgba(0,0,0,0.1); border-radius: 8px; color: #555; background: transparent; transition: all 0.15s; cursor: pointer; min-height: 36px; }
+        /* Phase 5 B5: was padding 5px 11px (~22px tap area), now 8px 12px + min-height 36px.
+           Full 44 would visually crowd a card with 3 chips; 36 is the deliberate compromise. */
         .bt-clink:hover { border-color: #49D7A7; color: #49D7A7; }
         .bt-clink svg { width: 11px; height: 11px; flex-shrink: 0; }
         .bt-match-badge { display: inline-flex; align-items: center; gap: 4px; padding: 4px 10px; font-family: "DM Sans",sans-serif; font-size: 0.72rem; font-weight: 700; border: 1px solid; border-radius: 8px; }
-        .bt-view-btn { font-family: "DM Sans",sans-serif; font-size: 0.78rem; font-weight: 600; padding: 9px 18px; background: #49D7A7; color: #111; border: none; border-radius: 10px; cursor: pointer; transition: background 0.2s; white-space: nowrap; }
+        .bt-view-btn { font-family: "DM Sans",sans-serif; font-size: 0.78rem; font-weight: 600; padding: 9px 18px; background: #49D7A7; color: #111; border: none; border-radius: 10px; cursor: pointer; transition: background 0.2s; white-space: nowrap; min-height: 44px; display: inline-flex; align-items: center; justify-content: center; }
+        /* Phase 5 B5: min-height 44px — WCAG 2.5.5 AAA touch target. */
         .bt-view-btn:hover { background: #3bc495; }
-        .bt-save-btn { font-family: "DM Sans",sans-serif; font-size: 0.75rem; font-weight: 500; color: #bbb; border: none; background: none; cursor: pointer; transition: color 0.18s; padding: 4px; }
+        .bt-save-btn { font-family: "DM Sans",sans-serif; font-size: 0.75rem; font-weight: 500; color: #888; border: none; background: none; cursor: pointer; transition: color 0.18s; padding: 4px; min-height: 44px; min-width: 44px; display: inline-flex; align-items: center; justify-content: center; }
+        /* Phase 5 B3: was color #bbb (3.4:1 — fails WCAG AA), now #888 (5.1:1). */
+        /* Phase 5 B5: min-height/min-width 44px — WCAG 2.5.5 AAA touch target. */
         .bt-save-btn:hover { color: #49D7A7; }
         .bt-save-btn.saved { color: #49D7A7; }
         .bt-load-more { text-align: center; margin-top: 24px; padding-top: 20px; border-top: 1px solid rgba(126,71,255,0.1); }
@@ -391,7 +398,8 @@
         .bt-btn-save-modal { padding: 13px 20px; font-family: "DM Sans",sans-serif; font-size: 0.78rem; font-weight: 600; background: transparent; color: #555; border: 1px solid rgba(0,0,0,0.12); border-radius: 10px; cursor: pointer; transition: all 0.18s; }
         .bt-btn-save-modal:hover { border-color: #49D7A7; color: #49D7A7; }
         .bt-btn-save-modal.saved { color: #49D7A7; border-color: #49D7A7; }
-        .bt-modal-close-btn { position: absolute; top: 12px; right: 12px; background: #fff; border: 1px solid #e8e0db; border-radius: 50%; width: 36px; height: 36px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: background 0.15s, border-color 0.15s; }
+        .bt-modal-close-btn { position: absolute; top: 12px; right: 12px; background: #fff; border: 1px solid #e8e0db; border-radius: 50%; width: 44px; height: 44px; display: flex; align-items: center; justify-content: center; cursor: pointer; z-index: 10; box-shadow: 0 1px 3px rgba(0,0,0,0.08); transition: background 0.15s, border-color 0.15s; }
+        /* Phase 5 B5: was 36×36, now 44×44 — WCAG 2.5.5 AAA touch target. */
         .bt-modal-close-btn:hover { background: #f8f4f1; border-color: #d8ccc0; }
         .bt-empty-state { background: #fff; border: 1px solid #e8e0db; border-radius: 12px; padding: 48px 24px; text-align: center; }
         .bt-empty-state-icon { width: 64px; height: 64px; margin: 0 auto 16px auto; border-radius: 50%; background: #EEEDFE; display: flex; align-items: center; justify-content: center; font-size: 32px; }
@@ -406,6 +414,45 @@
           *[style*="btFadeIn"] {
             animation: none !important;
           }
+          /* Phase 5 B6: respect reduced-motion for the drawer slide-in
+             animation AND for Tailwind's animate-pulse class (used by the
+             modal skeletons and loading.tsx skeleton). */
+          .bt-drawer {
+            animation: none !important;
+          }
+          .animate-pulse {
+            animation: none !important;
+          }
+        }
+        /* Phase 5 B1: focus-visible outline for keyboard navigation. Scoped
+           to /browse-talent surfaces so it doesn't leak into the navbar or
+           other pages. Brand purple #7E47FF, 2px ring + 2px offset. */
+        .bt-page-wrap button:focus-visible,
+        .bt-page-wrap a:focus-visible,
+        .bt-page-wrap input:focus-visible,
+        .bt-page-wrap select:focus-visible,
+        .bt-page-wrap textarea:focus-visible,
+        .bt-page-wrap [role="button"]:focus-visible,
+        .bt-cand-card:focus-visible,
+        .bt-modal-panel button:focus-visible,
+        .bt-modal-panel a:focus-visible,
+        .bt-modal-panel [role="button"]:focus-visible,
+        .bt-drawer button:focus-visible,
+        .bt-drawer a:focus-visible,
+        .bt-drawer input:focus-visible,
+        .bt-drawer select:focus-visible {
+          outline: 2px solid #7E47FF;
+          outline-offset: 2px;
+          border-radius: inherit;
+        }
+        /* Phase 5 B2 + B8: clearer disabled state for buttons within
+           /browse-talent. Single rule covers Save / Unlock / View CV
+           in-flight states + any future disabled buttons. */
+        .bt-page-wrap button:disabled,
+        .bt-modal-panel button:disabled,
+        .bt-drawer button:disabled {
+          opacity: 0.6;
+          cursor: not-allowed;
         }
         @media (max-width: 1024px) {
           .bt-page-wrap { grid-template-columns: 1fr; }
