@@ -60,15 +60,35 @@ export default async function BrowseTalentPage({
 
   let tier: "free" | "subscriber" = "free";
   let creditsRemaining = 0;
+  // Phase 4 A1: subscriptions + saved_profiles run in parallel — both depend
+  // only on user.id, neither blocks the other. Saves one DB round-trip in the
+  // critical path. Anonymous viewers skip both queries entirely.
+  const savedIdsArr: string[] = [];
+  const savedIdsSet = new Set<string>();
   if (user && userId) {
-    const { data: sub } = await auth
-      .from("subscriptions")
-      .select("tier, credits_remaining")
-      .eq("user_id", userId)
-      .maybeSingle();
+    const [subResult, savedResult] = await Promise.all([
+      auth
+        .from("subscriptions")
+        .select("tier, credits_remaining")
+        .eq("user_id", userId)
+        .maybeSingle(),
+      // Phase 4 EDIT 7: defensive .limit(500) — without a cap, a user with
+      // tens of thousands of saves would hand a giant array back to the page.
+      supabase
+        .from("saved_profiles")
+        .select("candidate_id")
+        .eq("user_id", userId)
+        .limit(500),
+    ]);
+    const sub = subResult.data;
     if (sub?.tier === "starter" || sub?.tier === "pro") {
       tier = "subscriber";
       creditsRemaining = sub.credits_remaining ?? 0;
+    }
+    const savedRows = savedResult.data ?? [];
+    for (const r of savedRows as Array<{ candidate_id: string }>) {
+      savedIdsArr.push(r.candidate_id);
+      savedIdsSet.add(r.candidate_id);
     }
   }
 
@@ -80,21 +100,8 @@ export default async function BrowseTalentPage({
   const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
-  // Phase B-4: saved profiles filter — fetch user's saved candidate IDs
-  const savedIdsArr: string[] = [];
-  const savedIdsSet = new Set<string>();
-  if (user) {
-    const { data: savedRows } = await supabase
-      .from("saved_profiles")
-      .select("candidate_id")
-      .eq("user_id", user.id);
-    if (savedRows) {
-      for (const r of savedRows as Array<{ candidate_id: string }>) {
-        savedIdsArr.push(r.candidate_id);
-        savedIdsSet.add(r.candidate_id);
-      }
-    }
-  }
+  // Phase 4 A1: savedIdsArr / savedIdsSet are populated in the Promise.all
+  // above (alongside the subscriptions fetch) — no separate round-trip here.
 
   // Short-circuit: saved view with zero saves → render empty state
   const shouldReturnEmpty = isSavedView && savedIdsSet.size === 0;

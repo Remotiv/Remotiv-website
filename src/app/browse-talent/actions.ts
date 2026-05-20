@@ -4,6 +4,57 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 
+// Hoisted from getCvSignedUrl so the shared signing helper (Phase 4 E2)
+// can reference the same TTL.
+const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
+
+// Phase 4 E2: shared signing helper. Takes a pre-resolved cv_path so the
+// caller does NOT re-issue the unlock_events verify + talent_profiles lookup
+// round-trips that it has already done. Used by:
+//   - unlockCandidate (immediately after its Promise.all — verify+contact)
+//   - getCvSignedUrl (after its admin / unlock_events / cv_path resolution)
+// Audit log is fire-and-forget (Phase 4 E5): never blocks the response.
+async function signCvUrlAndLog(params: {
+  userId: string;
+  candidateId: string;
+  cvPath: string;
+  wasAdmin: boolean;
+  sourceTable: string;
+}): Promise<{ ok: true; url: string } | { ok: false; error: "internal_error" }> {
+  const service = createServiceClient();
+  const { data: signed, error: signErr } = await service.storage
+    .from("cvs")
+    .createSignedUrl(params.cvPath, CV_SIGNED_URL_TTL_SECONDS);
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "internal_error" };
+  }
+  // Phase 4 E5: fire-and-forget audit log. We deliberately do NOT await this:
+  // a failed insert must never block a successful signed-URL grant. Errors
+  // are surfaced via console.error so they show up in Vercel logs.
+  service
+    .from("signed_url_logs")
+    .insert({
+      user_id: params.userId,
+      candidate_id: params.candidateId,
+      source_table: params.sourceTable,
+      was_admin: params.wasAdmin,
+    })
+    .then(({ error }) => {
+      if (error) console.error("[signed_url_logs insert]", error);
+    });
+  return { ok: true, url: signed.signedUrl };
+}
+
+// Phase 4 E2: extracted from getCvSignedUrl's inline fallback. When cv_path
+// is missing, derive it from a legacy public cv_url string.
+function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
+  if (!cvUrl) return null;
+  const match = String(cvUrl).match(
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+  );
+  return match ? match[1] : null;
+}
+
 export type UnlockResult =
   | {
       success: true;
@@ -119,46 +170,59 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     };
   }
 
-  // Issue #16: defense in depth — verify unlock_event row exists for this
-  // user+candidate before trusting the RPC return as authorization. Uses the
-  // user's auth-aware client so RLS enforces "only your own unlock_events".
-  const { data: unlockEvent, error: verifyError } = await auth
-    .from("unlock_events")
-    .select("id")
-    .eq("user_id", user.id)
-    .eq("candidate_id", candidateId)
-    .maybeSingle();
+  // Phase 4 E1: parallelize the two independent post-RPC reads. The unlock_events
+  // re-verify (issue #16 defense-in-depth) and the contact-field fetch only need
+  // (user_id, candidate_id) — they're independent. cv_path is folded into the
+  // same SELECT so we can sign the URL inline below without a third round-trip
+  // through getCvSignedUrl (Phase 4 E2).
+  const sc = createServiceClient();
+  const [verifyResult, candidateResult] = await Promise.all([
+    auth
+      .from("unlock_events")
+      .select("id")
+      .eq("user_id", user.id)
+      .eq("candidate_id", candidateId)
+      .maybeSingle(),
+    sc
+      .from("talent_profiles")
+      .select("email, phone, linkedin_url, cv_url, cv_path")
+      .eq("id", candidateId)
+      .maybeSingle(),
+  ]);
 
-  if (verifyError || !unlockEvent) {
+  if (verifyResult.error || !verifyResult.data) {
     return {
       success: false,
       error: "internal_error",
       message: "Unlock verification failed. Please contact support.",
     };
   }
-
-  // RPC succeeded and unlock_event verified — fetch contact fields via service role.
-  const sc = createServiceClient();
-  const { data: candidate, error: fetchError } = await sc
-    .from("talent_profiles")
-    .select("email, phone, linkedin_url, cv_url")
-    .eq("id", candidateId)
-    .maybeSingle();
-
-  if (fetchError || !candidate) {
-    // Unlock recorded but fetch failed — fail safely; user can refresh.
+  if (candidateResult.error || !candidateResult.data) {
     return {
       success: false,
       error: "internal_error",
       message: "Unlock recorded but contact fetch failed. Refresh the page.",
     };
   }
+  const candidate = candidateResult.data;
 
-  // K1 Phase 2: replace the raw public cv_url with a fresh 1-hour signed URL.
-  // The unlock_events row was already verified above, so getCvSignedUrl finds it
-  // and signs without charging a credit. Subsequent re-views call getCvSignedUrl
-  // directly from the client without re-entering this RPC.
-  const signedResult = await getCvSignedUrl(candidateId);
+  // Phase 4 E2: sign the CV URL inline using the cv_path we just fetched.
+  // Skips the redundant admin + unlock_events + cv_path round-trips that
+  // getCvSignedUrl(candidateId) would re-execute. unlockCandidate is the
+  // subscriber path; wasAdmin is false (admin clicks go through /admin/talent
+  // → getCvSignedUrl directly, which preserves the admin branch).
+  let cvUrlForPayload: string | null = null;
+  const cvPath = candidate.cv_path ?? deriveCvPathFromUrl(candidate.cv_url);
+  if (cvPath) {
+    const signed = await signCvUrlAndLog({
+      userId: user.id,
+      candidateId,
+      cvPath,
+      wasAdmin: false,
+      sourceTable: "talent_profiles",
+    });
+    if (signed.ok) cvUrlForPayload = signed.url;
+  }
 
   return {
     success: true,
@@ -169,7 +233,7 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
     email: candidate.email,
     phone: candidate.phone,
     linkedinUrl: candidate.linkedin_url,
-    cvUrl: signedResult.ok ? signedResult.url : null,
+    cvUrl: cvUrlForPayload,
   };
 }
 
@@ -213,25 +277,22 @@ export async function toggleSave(candidateId: string): Promise<{
     return { success: false, error: "Subscription required" };
   }
 
-  const { data: existing, error: existingError } = await supabase
+  // Phase 4: collapse the read-then-write 2-step into a single round-trip
+  // for the unsave path. `.delete().select("id")` returns the deleted rows so
+  // we know whether anything was actually removed — no separate existence check.
+  // If 0 rows were deleted (i.e. nothing was saved), fall through to INSERT.
+  const { data: deletedRows, error: deleteError } = await supabase
     .from("saved_profiles")
-    .select("id")
+    .delete()
     .eq("user_id", user.id)
     .eq("candidate_id", candidateId)
-    .maybeSingle();
+    .select("id");
 
-  if (existingError) {
+  if (deleteError) {
     return { success: false, error: "Could not check saved status" };
   }
 
-  if (existing) {
-    const { error: deleteError } = await supabase
-      .from("saved_profiles")
-      .delete()
-      .eq("id", existing.id);
-    if (deleteError) {
-      return { success: false, error: "Could not unsave" };
-    }
+  if (deletedRows && deletedRows.length > 0) {
     return { success: true, saved: false };
   }
 
@@ -257,7 +318,8 @@ type CvSignedUrlResult =
   | { ok: true; url: string }
   | { ok: false; error: "not_authenticated" | "not_unlocked" | "cv_missing" | "internal_error" };
 
-const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour
+// CV_SIGNED_URL_TTL_SECONDS is declared at the top of this file so the
+// shared signCvUrlAndLog helper (Phase 4 E2) can reference it.
 
 export async function getCvSignedUrl(candidateId: string): Promise<CvSignedUrlResult> {
   // Input validation (same shape as unlockCandidate)
@@ -316,39 +378,22 @@ export async function getCvSignedUrl(candidateId: string): Promise<CvSignedUrlRe
   }
 
   // Resolve cv_path: prefer cv_path; if null, derive from cv_url for transition safety
-  let cvPath = candidateRow.cv_path as string | null;
-  if (!cvPath && candidateRow.cv_url) {
-    const match = String(candidateRow.cv_url).match(
-      /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-    );
-    cvPath = match ? match[1] : null;
-  }
+  const cvPath =
+    (candidateRow.cv_path as string | null) ??
+    deriveCvPathFromUrl(candidateRow.cv_url as string | null);
   if (!cvPath) {
     return { ok: false, error: "cv_missing" };
   }
 
-  // Generate signed URL via service-role
-  const { data: signed, error: signErr } = await service.storage
-    .from("cvs")
-    .createSignedUrl(cvPath, CV_SIGNED_URL_TTL_SECONDS);
-
-  if (signErr || !signed?.signedUrl) {
-    return { ok: false, error: "internal_error" };
-  }
-
-  // Audit log (best-effort; failure does NOT block the grant)
-  try {
-    await service.from("signed_url_logs").insert({
-      user_id: user.id,
-      candidate_id: candidateId,
-      source_table: "talent_profiles",
-      was_admin: isAdmin,
-    });
-  } catch {
-    // Swallow logging failures silently — do not let logging break a successful unlock.
-  }
-
-  return { ok: true, url: signed.signedUrl };
+  // Phase 4 E2: storage sign + audit insert delegated to the shared helper.
+  // Audit log is fire-and-forget inside signCvUrlAndLog (Phase 4 E5).
+  return signCvUrlAndLog({
+    userId: user.id,
+    candidateId,
+    cvPath,
+    wasAdmin: isAdmin,
+    sourceTable: "talent_profiles",
+  });
 }
 
 // ────────────────────────────────────────────────────────────────────────────

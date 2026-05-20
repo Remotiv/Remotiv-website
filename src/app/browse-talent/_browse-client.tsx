@@ -1,13 +1,12 @@
 "use client";
 
 import "./browse-talent.css";
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import PricingModal from "@/components/pricing-modal";
-import { createClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import { getCvSignedUrl, refreshTier, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
@@ -493,7 +492,10 @@ type EffectiveContact = {
   github: string | null;
 };
 
-function CardItem({
+// Phase 4 D1: memoized. With useCallback'd handlers + stable c/saved/flag props
+// per candidate, typing in the search input no longer re-renders every card —
+// only cards whose isUnlocking/isSaving/isViewingCv actually flip will repaint.
+const CardItem = memo(function CardItem({
   c,
   saved,
   onView,
@@ -676,7 +678,8 @@ function CardItem({
       </div>
     </div>
   );
-}
+});
+CardItem.displayName = "CardItem";
 
 // ── Profile modal (matches .bt-modal-overlay structure) ──────
 
@@ -1380,7 +1383,10 @@ export function BrowseClient({
     return () => clearTimeout(handle);
   }, [searchInput, activeQuery, updateUrl]);
 
-  const handleToggleSave = async (candidateId: string) => {
+  // Phase 4 D1: useCallback so CardItem's memo comparison stays stable. Deps
+  // are the values the body actually reads; useState setters are guaranteed
+  // stable by React and intentionally omitted.
+  const handleToggleSave = useCallback(async (candidateId: string) => {
     if (isFreeViewer(tier)) {
       setIsPricingModalOpen(true);
       return;
@@ -1453,7 +1459,7 @@ export function BrowseClient({
         return next;
       });
     }
-  };
+  }, [savingIds, localSavedIds, tier]);
 
   // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions.
   // Subscribers should never hit this (their flow is handleUnlock). Free users
@@ -1473,7 +1479,8 @@ export function BrowseClient({
     setToast("🔒 Subscriptions coming soon — payment integration in progress.");
   };
 
-  async function handleViewCv(candidateId: string): Promise<void> {
+  // Phase 4 D1: useCallback so CardItem's memo stays stable.
+  const handleViewCv = useCallback(async (candidateId: string): Promise<void> => {
     // K1: in-flight guard + spinner. Ignore subsequent clicks while a previous
     // request is pending; spinner state lives in viewingCvIds.
     if (viewingCvIds.has(candidateId)) return;
@@ -1511,9 +1518,10 @@ export function BrowseClient({
         return next;
       });
     }
-  }
+  }, [viewingCvIds, tier]);
 
-  async function handleUnlock(candidateId: string, candidateName: string): Promise<UnlockResult> {
+  // Phase 4 D1: useCallback so CardItem's memo stays stable.
+  const handleUnlock = useCallback(async (candidateId: string, candidateName: string): Promise<UnlockResult> => {
     // E3: in-flight guard. Atomic RPC prevents double-charge but the UI would
     // otherwise flicker on parallel requests. Return a placeholder result on
     // dedupe; the caller in BrowseClient doesn't use the return value.
@@ -1573,7 +1581,7 @@ export function BrowseClient({
         return next;
       });
     }
-  }
+  }, [unlockingIds, tier]);
 
   // B3/J2: on window focus, re-read tier server-side. If it disagrees with
   // the prop the page was rendered with, the user's subscription changed in
