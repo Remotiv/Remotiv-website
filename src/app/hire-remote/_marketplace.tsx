@@ -279,7 +279,7 @@ const CandidateCard = memo(function CandidateCard({
     <button
       type="button"
       onClick={() => onSelect(candidate)}
-      className={`group flex w-full flex-col gap-3 rounded-2xl border bg-white text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(0,0,0,0.06)] ${
+      className={`group flex w-full flex-col gap-3 rounded-2xl border bg-white text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(0,0,0,0.06)] active:scale-[0.98] active:opacity-90 ${
         selected
           ? "border-l-[3px] border-l-[#49D7A7] border-t-black/[0.06] border-r-black/[0.06] border-b-black/[0.06]"
           : "border-black/[0.06]"
@@ -335,7 +335,7 @@ const CandidateCard = memo(function CandidateCard({
       )}
 
       <div className="mt-1 flex items-center justify-end">
-        <span className="inline-flex items-center justify-center rounded-xl border border-[#49D7A7]/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-colors group-hover:bg-[#49D7A7]/10 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
+        <span className="inline-flex items-center justify-center rounded-xl border border-[#49D7A7]/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-all group-hover:bg-[#49D7A7]/10 group-active:scale-[0.98] group-active:opacity-90 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
           View Profile →
         </span>
       </div>
@@ -374,7 +374,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-colors hover:text-[#111] max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-all hover:text-[#111] active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <ArrowLeft className="size-3.5" strokeWidth={2} />
           Back
@@ -382,7 +382,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <Unlock className="size-3.5" strokeWidth={2} />
           Unlock Profile
@@ -563,7 +563,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-3 font-heading text-sm font-bold text-white transition-opacity hover:opacity-90"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-3 font-heading text-sm font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90"
         >
           <Lock className="size-4" strokeWidth={2} />
           Unlock &amp; Contact
@@ -602,7 +602,7 @@ function FilterBar({
         <button
           type="button"
           onClick={() => setMobileOpen((v) => !v)}
-          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333] max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3"
+          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333] transition-all active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3"
         >
           Filters {mobileOpen ? "▴" : "▾"}
         </button>
@@ -684,7 +684,7 @@ function FilterBar({
 
         <button
           type="button"
-          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] px-5 font-heading text-sm font-bold text-[#111] transition-colors hover:bg-[#3bc495]"
+          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] px-5 font-heading text-sm font-bold text-[#111] transition-all hover:bg-[#3bc495] active:scale-[0.98] active:opacity-90"
         >
           <Search className="size-4" strokeWidth={2.5} />
           Search
@@ -698,7 +698,7 @@ function FilterBar({
 
 function Toast({ msg }: { msg: string }) {
   return (
-    <div className="fixed bottom-6 right-6 z-[60] rounded-xl bg-[#111] px-4 py-3 font-sans text-sm font-medium text-white shadow-xl">
+    <div className="fixed z-[70] rounded-xl bg-[#111] px-4 py-3 font-sans text-sm font-medium text-white shadow-xl lg:bottom-6 lg:right-6 max-lg:bottom-4 max-lg:left-4 max-lg:right-4">
       {msg}
     </div>
   );
@@ -861,7 +861,7 @@ export function HireMarketplace({
                 <button
                   type="button"
                   onClick={() => setPageSize((n) => n + PAGE_SIZE)}
-                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-[#7E47FF]/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-[#7E47FF] transition-colors hover:border-[#7E47FF] hover:bg-[#7E47FF]/[0.06]"
+                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-[#7E47FF]/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-[#7E47FF] transition-all hover:border-[#7E47FF] hover:bg-[#7E47FF]/[0.06] active:scale-[0.98] active:opacity-90"
                 >
                   Load More Profiles
                 </button>
@@ -911,20 +911,7 @@ export function HireMarketplace({
               <button
                 type="button"
                 onClick={handleClose}
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: "pointer",
-                  display: "flex",
-                  alignItems: "center",
-                  gap: 8,
-                  color: "#7E47FF",
-                  fontSize: 14,
-                  fontWeight: 500,
-                  padding: "10px 8px",
-                  minHeight: 44,
-                  fontFamily: "'DM Sans', sans-serif",
-                }}
+                className="flex min-h-[44px] cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 font-sans text-sm font-medium text-[#7E47FF] transition-all active:scale-[0.98] active:opacity-90"
                 aria-label="Back to candidates"
               >
                 <ArrowLeft size={18} />
