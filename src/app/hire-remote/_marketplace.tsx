@@ -333,7 +333,7 @@ const CandidateCard = memo(function CandidateCard({
       )}
 
       <div className="mt-1 flex items-center justify-end">
-        <span className="rounded-xl border border-[#49D7A7]/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-colors group-hover:bg-[#49D7A7]/10">
+        <span className="inline-flex items-center justify-center rounded-xl border border-[#49D7A7]/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-colors group-hover:bg-[#49D7A7]/10 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
           View Profile →
         </span>
       </div>
@@ -372,7 +372,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-colors hover:text-[#111]"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-colors hover:text-[#111] max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <ArrowLeft className="size-3.5" strokeWidth={2} />
           Back
@@ -380,7 +380,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-opacity hover:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <Unlock className="size-3.5" strokeWidth={2} />
           Unlock Profile
@@ -600,7 +600,7 @@ function FilterBar({
         <button
           type="button"
           onClick={() => setMobileOpen((v) => !v)}
-          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333]"
+          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333] max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3"
         >
           Filters {mobileOpen ? "▴" : "▾"}
         </button>
@@ -854,6 +854,19 @@ export function HireMarketplace({
         </div>
       </div>
 
+      {/* Backdrop — mobile only, tap to close */}
+      {drawerOpen && (
+        <button
+          type="button"
+          aria-label="Close profile"
+          onClick={handleClose}
+          className="fixed inset-0 z-40 bg-black/40 lg:hidden"
+          style={{
+            transition: "opacity 0.3s ease",
+          }}
+        />
+      )}
+
       {/* Slide-in profile panel */}
       <div
         style={{
@@ -867,34 +880,54 @@ export function HireMarketplace({
           transform: drawerOpen ? "translateX(0)" : "translateX(110%)",
           transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
           overflowY: "auto",
+          overscrollBehavior: "contain",
+          WebkitOverflowScrolling: "touch",
           zIndex: 50,
           padding: "24px",
         }}
       >
         {selected && (
           <>
-            <button
-              type="button"
-              onClick={handleClose}
+            <div
               style={{
-                background: "transparent",
-                border: "none",
-                cursor: "pointer",
-                display: "flex",
-                alignItems: "center",
-                gap: 8,
-                color: "#7E47FF",
-                fontSize: 14,
-                fontWeight: 500,
-                padding: 0,
-                marginBottom: 24,
-                fontFamily: "'DM Sans', sans-serif",
+                position: "sticky",
+                top: 0,
+                background: "#fff",
+                zIndex: 10,
+                marginLeft: -24,
+                marginRight: -24,
+                marginTop: -24,
+                marginBottom: 16,
+                paddingLeft: 24,
+                paddingRight: 24,
+                paddingTop: 16,
+                paddingBottom: 12,
+                borderBottom: "1px solid #e8e0db",
               }}
-              aria-label="Back to candidates"
             >
-              <ArrowLeft size={18} />
-              Back to candidates
-            </button>
+              <button
+                type="button"
+                onClick={handleClose}
+                style={{
+                  background: "transparent",
+                  border: "none",
+                  cursor: "pointer",
+                  display: "flex",
+                  alignItems: "center",
+                  gap: 8,
+                  color: "#7E47FF",
+                  fontSize: 14,
+                  fontWeight: 500,
+                  padding: "10px 8px",
+                  minHeight: 44,
+                  fontFamily: "'DM Sans', sans-serif",
+                }}
+                aria-label="Back to candidates"
+              >
+                <ArrowLeft size={18} />
+                Back to candidates
+              </button>
+            </div>
             <ProfileDrawer
               candidate={selected}
               onClose={handleClose}
