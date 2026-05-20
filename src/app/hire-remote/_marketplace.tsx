@@ -288,29 +288,31 @@ const CandidateCard = memo(function CandidateCard({
       <div className="flex items-start gap-4">
         <Avatar candidate={candidate} size={compact ? 48 : 56} />
         <div className="min-w-0 flex-1">
-          <div className="flex flex-wrap items-center gap-2">
-            <p className={`font-heading font-bold text-[#111] ${compact ? "text-base" : "text-lg"}`}>
-              {candidate.maskedName}
-            </p>
-            <span className="text-[12px] text-[#888]">· {candidate.location}</span>
+          <div className="flex flex-wrap items-start justify-between gap-2 max-lg:flex-col">
+            <div className="flex flex-wrap items-center gap-2">
+              <p className={`font-heading font-bold text-[#111] ${compact ? "text-base" : "text-lg"}`}>
+                {candidate.maskedName}
+              </p>
+              <span className="text-[12px] text-[#888]">· {candidate.location}</span>
+            </div>
+            <div className="shrink-0 text-right max-lg:flex max-lg:items-center max-lg:gap-2 max-lg:text-left">
+              <p className="font-heading text-base font-extrabold text-[#111]">${candidate.hourlyRate}/hr</p>
+              {available ? (
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#1a9e73] max-lg:mt-0">
+                  <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+                  Available Now
+                </span>
+              ) : (
+                <span className="mt-1 inline-block rounded-full bg-[#f3f3f3] px-2.5 py-0.5 text-[10px] font-medium text-[#888] max-lg:mt-0">
+                  {candidate.availability}
+                </span>
+              )}
+            </div>
           </div>
           <p className="mt-1 truncate text-sm text-[#555]">{candidate.jobTitle}</p>
           <p className={`mt-2 ${compact ? "line-clamp-2" : "line-clamp-3"} text-[13px] leading-[1.7] text-[#666]`}>
             {candidate.bio}
           </p>
-        </div>
-        <div className="text-right">
-          <p className="font-heading text-base font-extrabold text-[#111]">${candidate.hourlyRate}/hr</p>
-          {available ? (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#1a9e73]">
-              <span className="size-1.5 rounded-full bg-[#49D7A7]" />
-              Available Now
-            </span>
-          ) : (
-            <span className="mt-1 inline-block rounded-full bg-[#f3f3f3] px-2.5 py-0.5 text-[10px] font-medium text-[#888]">
-              {candidate.availability}
-            </span>
-          )}
         </div>
       </div>
 
@@ -367,7 +369,7 @@ function ProfileDrawer({
   const c = avatarColors(candidate.id);
   const available = isAvailable(candidate);
   return (
-    <div className="flex flex-col gap-5 rounded-2xl border border-black/[0.06] bg-white p-6 shadow-[0_4px_16px_rgba(0,0,0,0.05)]">
+    <div className="flex flex-col gap-5 rounded-2xl lg:border lg:border-black/[0.06] lg:bg-white lg:p-6 lg:shadow-[0_4px_16px_rgba(0,0,0,0.05)] max-lg:p-0 max-lg:bg-transparent">
       <div className="flex items-center justify-between">
         <button
           type="button"
@@ -423,7 +425,7 @@ function ProfileDrawer({
 
       <p className="text-[13px] leading-[1.7] text-[#555]">{candidate.bio}</p>
 
-      <div className="grid grid-cols-2 gap-3">
+      <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-black/[0.06] bg-[#f8f8f8] px-4 py-3">
           <p className="flex items-center gap-1.5 text-[10px] font-semibold uppercase tracking-widest text-[#888]">
             <Clock className="size-3" strokeWidth={2} />
@@ -616,6 +618,21 @@ function FilterBar({
         </div>
       </div>
 
+      <div className="mt-3 rounded-2xl border border-black/[0.06] bg-white px-4 py-3 lg:hidden">
+        <div className="mb-2 flex items-center justify-between">
+          <span className="text-xs font-medium text-[#666]">Rate</span>
+          <span className="text-sm font-semibold text-[#111]">${rate}/hr</span>
+        </div>
+        <input
+          type="range"
+          min={0}
+          max={200}
+          value={rate}
+          onChange={(e) => setRate(Number.parseInt(e.target.value, 10))}
+          className="w-full accent-[#49D7A7]"
+        />
+      </div>
+
       <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center lg:gap-2 ${mobileOpen ? "" : "hidden lg:flex"}`}>
         <select value={role} onChange={(e) => setRole(e.target.value)} className={`${SELECT_CLS} lg:w-36`}>
           {FILTER_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
@@ -629,7 +646,7 @@ function FilterBar({
           className={`${SELECT_CLS} placeholder:text-[#bbb] lg:w-32`}
         />
 
-        <div className="flex h-11 items-center gap-3 rounded-xl border border-black/[0.08] bg-white px-3.5 lg:w-64">
+        <div className="hidden h-11 items-center gap-3 rounded-xl border border-black/[0.08] bg-white px-3.5 lg:flex lg:w-64">
           <span className="whitespace-nowrap text-xs font-semibold text-[#666]">Rate:</span>
           <input
             type="range"
@@ -869,6 +886,7 @@ export function HireMarketplace({
 
       {/* Slide-in profile panel */}
       <div
+        className="p-6 max-lg:p-4"
         style={{
           position: "fixed",
           top: 0,
@@ -883,27 +901,12 @@ export function HireMarketplace({
           overscrollBehavior: "contain",
           WebkitOverflowScrolling: "touch",
           zIndex: 50,
-          padding: "24px",
         }}
       >
         {selected && (
           <>
             <div
-              style={{
-                position: "sticky",
-                top: 0,
-                background: "#fff",
-                zIndex: 10,
-                marginLeft: -24,
-                marginRight: -24,
-                marginTop: -24,
-                marginBottom: 16,
-                paddingLeft: 24,
-                paddingRight: 24,
-                paddingTop: 16,
-                paddingBottom: 12,
-                borderBottom: "1px solid #e8e0db",
-              }}
+              className="sticky top-0 z-10 -mx-6 -mt-6 mb-4 border-b border-[#e8e0db] bg-white px-6 pb-3 pt-4 max-lg:-mx-4 max-lg:-mt-4 max-lg:px-4"
             >
               <button
                 type="button"
