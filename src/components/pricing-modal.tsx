@@ -1,9 +1,10 @@
 "use client";
 
-import { useEffect } from "react";
+import { useEffect, useRef } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { X, Check } from "lucide-react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 const PURPLE = "#7E47FF";
 const BG = "#f8f4f1";
@@ -20,6 +21,10 @@ type PricingModalProps = {
 
 export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingModalProps) {
   const router = useRouter();
+  // Phase 5 A7: focus trap + initial focus + focus restore. Hook is a no-op
+  // when !isOpen, so it's safe to declare unconditionally.
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, isOpen);
 
   // ESC closes only the topmost modal — capture phase + stopPropagation
   // prevents a stacked ProfileModal's bubble-phase listener from also firing.
@@ -88,6 +93,7 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
       }}
     >
       <div
+        ref={modalRef}
         style={{
           background: BG,
           borderRadius: 20,

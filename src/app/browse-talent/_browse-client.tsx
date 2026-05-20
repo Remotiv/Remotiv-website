@@ -1,7 +1,7 @@
 "use client";
 
 import "./browse-talent.css";
-import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
@@ -30,6 +30,7 @@ import {
   type UnlockResult,
 } from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -336,6 +337,15 @@ const CardItem = memo(function CardItem({
     <div
       className="bt-cand-card"
       onClick={onView}
+      onKeyDown={(e) => {
+        if (e.key === "Enter" || e.key === " ") {
+          e.preventDefault();
+          onView();
+        }
+      }}
+      role="button"
+      tabIndex={0}
+      aria-label={`Open profile for ${c.name || "candidate"}`}
       style={{ animation: `btFadeIn .35s ease ${index * 0.04}s both` }}
     >
       <div className="bt-card-left">
@@ -435,8 +445,9 @@ const CardItem = memo(function CardItem({
               onClick={onViewCv}
               disabled={isViewingCv}
               style={{ minWidth: 100 }}
+              aria-busy={isViewingCv}
             >
-              {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume ✦"}
+              {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" aria-label="Loading CV" /> : "Resume ✦"}
             </button>
           ) : canUnlock ? (
             <button
@@ -446,9 +457,10 @@ const CardItem = memo(function CardItem({
               title="Use 1 credit to unlock all contact details"
               disabled={isUnlocking}
               style={{ minWidth: 120 }}
+              aria-busy={isUnlocking}
             >
               {isUnlocking ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
+                <Loader2 className="h-4 w-4 animate-spin" aria-label="Unlocking" />
               ) : (
                 <>Resume <span style={{ opacity: 0.7, fontSize: "0.7rem" }}>· 1 credit</span></>
               )}
@@ -475,9 +487,12 @@ const CardItem = memo(function CardItem({
           onClick={(e) => { e.stopPropagation(); onSave(); }}
           disabled={isSaving}
           style={{ minWidth: 88 }}
+          aria-pressed={saved}
+          aria-busy={isSaving}
+          aria-label={saved ? "Saved — click to unsave" : "Save this candidate"}
         >
           {isSaving ? (
-            <Loader2 className="h-4 w-4 animate-spin" />
+            <Loader2 className="h-4 w-4 animate-spin" aria-label="Saving" />
           ) : saved ? "♥ Saved" : "♡ Save"}
         </button>
       </div>
@@ -739,6 +754,10 @@ export function BrowseClient({
   // the filter drawer is open keeps scroll locked until both close.
   useBodyScrollLock(Boolean(openCard));
   useBodyScrollLock(drawerOpen);
+  // Phase 5 A6: trap Tab inside the filter drawer while it's open so keyboard
+  // users can't accidentally tab into the background page behind it.
+  const filterDrawerRef = useRef<HTMLElement>(null);
+  useFocusTrap(filterDrawerRef, drawerOpen);
 
   // Toast auto-dismiss
   useEffect(() => {
@@ -1086,6 +1105,7 @@ export function BrowseClient({
             type="button"
             className={cn("bt-role-chip", activeRole === r.key && "sel")}
             onClick={() => { updateUrl({ role: r.key === "All" ? null : r.key }); onSelect?.(); }}
+            aria-pressed={activeRole === r.key}
           >
             <div className="bt-rc-left">
               <span className="bt-rc-dot" style={{ background: r.dot }} />
@@ -1151,18 +1171,20 @@ export function BrowseClient({
                 <span className="bt-search-icon">⌕</span>
                 <input
                   className="bt-search-input"
-                  type="text"
+                  type="search"
                   value={searchInput}
                   onChange={(e) => setSearchInput(e.target.value)}
                   placeholder="Search by name, role, or skill (e.g. React, Salesforce, Gainsight)..."
+                  aria-label="Search candidates"
                 />
               </div>
               <select
                 className="bt-sort-select"
                 value={activeSort}
                 onChange={(e) => updateUrl({ sort: e.target.value === "name" ? "name" : null })}
+                aria-label="Sort candidates"
               >
-                <option value="match">Sort: Match Score</option>
+                <option value="match">Match Score</option>
                 <option value="name">Name A-Z</option>
               </select>
             </div>
@@ -1351,7 +1373,13 @@ export function BrowseClient({
             onClick={() => setDrawerOpen(false)}
             role="presentation"
           />
-          <aside className="bt-drawer" role="dialog" aria-label="Filters">
+          <aside
+            ref={filterDrawerRef}
+            className="bt-drawer"
+            role="dialog"
+            aria-modal="true"
+            aria-label="Filters"
+          >
             <div className="bt-drawer-header">
               <span className="bt-drawer-title">Filters</span>
               <button
