@@ -15,6 +15,7 @@ import {
   type Card,
   type EffectiveContact,
 } from "./_browse-client";
+import type { ProfileDetail } from "./actions";
 
 export type ProfileModalProps = {
   c: Card;
@@ -31,7 +32,39 @@ export type ProfileModalProps = {
   isUnlocking?: boolean;
   isSaving?: boolean;
   isViewingCv?: boolean;
+  // Phase 4 Lean Projection: arrives from fetchProfileDetail once the modal
+  // opens. While `detail` is null and `isLoadingDetail` is true, the modal
+  // shows skeleton placeholders for the detail-only sections.
+  detail?: ProfileDetail | null;
+  isLoadingDetail?: boolean;
 };
+
+// Phase 4 Lean Projection skeletons. Pure CSS via Tailwind animate-pulse;
+// no new dependency, no CSS-file edit. aria-hidden because content is
+// transient and screen-reader-friendly text appears once data arrives.
+function SummarySkeleton() {
+  return (
+    <div className="space-y-2" aria-hidden="true">
+      <div className="h-4 w-3/4 animate-pulse rounded bg-gray-200" />
+      <div className="h-4 w-full animate-pulse rounded bg-gray-200" />
+      <div className="h-4 w-2/3 animate-pulse rounded bg-gray-200" />
+    </div>
+  );
+}
+
+function ExperienceSkeleton() {
+  return (
+    <div className="space-y-4" aria-hidden="true">
+      {[0, 1].map((i) => (
+        <div key={i} className="space-y-2">
+          <div className="h-4 w-1/2 animate-pulse rounded bg-gray-200" />
+          <div className="h-3 w-1/3 animate-pulse rounded bg-gray-200" />
+          <div className="h-3 w-1/4 animate-pulse rounded bg-gray-200" />
+        </div>
+      ))}
+    </div>
+  );
+}
 
 export default function ProfileModal({
   c,
@@ -48,11 +81,16 @@ export default function ProfileModal({
   isUnlocking = false,
   isSaving = false,
   isViewingCv = false,
+  detail = null,
+  isLoadingDetail = false,
 }: ProfileModalProps) {
   const cfg = ROLE_CFG[c.type];
 
-  // Resolve degree + institution from either the demo string ("Degree — School")
-  // or the real-DB fields.
+  // Phase 4 Lean Projection: degree, institution, experience now live on
+  // `detail` (loaded lazily from fetchProfileDetail). `c.education` is the
+  // legacy demo-data composite string ("Degree — Institution") — still
+  // honoured for static preview/blurred cards that don't go through the
+  // server fetch.
   let degree = "";
   let school = "";
   if (c.education) {
@@ -60,14 +98,19 @@ export default function ProfileModal({
     degree = d?.trim() ?? "";
     school = s?.trim() ?? "";
   } else {
-    degree = c.degree ?? "";
-    school = c.institution ?? "";
+    degree = detail?.degree ?? "";
+    school = detail?.institution ?? "";
   }
   const hasEducation = Boolean(degree || school);
-  const eduInline = c.education ?? [c.degree, c.institution].filter(Boolean).join(" — ");
-  // Experience: always render the JSONB array if present. Empty array →
-  // explicit "No work experience added" empty state.
-  const hasExperienceArray = !!c.experience && c.experience.length > 0;
+  const eduInline =
+    c.education ?? [detail?.degree, detail?.institution].filter(Boolean).join(" — ");
+  const detailExperience = detail?.experience ?? [];
+  const hasExperienceArray = detailExperience.length > 0;
+  // Summary: list payload still ships c.bio (= row.summary, list-redacted).
+  // detail.summary is a freshly-redacted copy from fetchProfileDetail and is
+  // preferred when present (more recent unlock state may apply).
+  const summaryText = detail?.summary ?? c.bio ?? "";
+  const hasSummary = !!summaryText;
 
   // Focus trap — keep Tab focus within the modal panel
   useEffect(() => {
@@ -226,7 +269,12 @@ export default function ProfileModal({
         </div>
 
         <div className="bt-modal-body">
-          {c.bio && (
+          {/* Phase 4 Lean Projection: summary normally renders from c.bio
+              (still in list payload). detail.summary, when present, is
+              preferred — it's a freshly-redacted server copy. The skeleton
+              path only triggers when neither has resolved yet (rare; only
+              if a future change removes summary from the list query). */}
+          {hasSummary ? (
             <>
               <div className="bt-modal-sec-title">Summary</div>
               <p
@@ -239,15 +287,24 @@ export default function ProfileModal({
                   whiteSpace: "pre-line",
                 }}
               >
-                {c.bio}
+                {summaryText}
               </p>
             </>
-          )}
+          ) : isLoadingDetail ? (
+            <>
+              <div className="bt-modal-sec-title">Summary</div>
+              <div style={{ marginBottom: 20 }}>
+                <SummarySkeleton />
+              </div>
+            </>
+          ) : null}
 
           <div className="bt-modal-sec-title">Experience</div>
           <div style={{ marginBottom: 20 }}>
-            {hasExperienceArray ? (
-              c.experience?.map((exp, i) => (
+            {isLoadingDetail && !hasExperienceArray ? (
+              <ExperienceSkeleton />
+            ) : hasExperienceArray ? (
+              detailExperience.map((exp, i) => (
                 <div key={`${exp.company}-${i}`} className="bt-exp-item">
                   <div className="bt-exp-logo">🏢</div>
                   <div style={{ flex: 1 }}>

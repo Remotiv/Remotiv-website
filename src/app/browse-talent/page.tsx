@@ -111,10 +111,14 @@ export default async function BrowseTalentPage({
   let totalPages = 1;
 
   if (!shouldReturnEmpty) {
+    // Phase 4 Lean Projection: list query selects ONLY columns CardItem
+    // renders + columns rowToCard derives from. Modal-only fields (summary
+    // remains for CardItem.bio; experience, degree, institution moved to
+    // fetchProfileDetail). `industry` dropped — mapped but never displayed.
     let talentQuery = supabase
       .from("talent_profiles")
       .select(
-        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, industry, degree, institution, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, linkedin_url, github_url, experience, approved_at, created_at",
+        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, linkedin_url, github_url, approved_at, created_at",
       )
       .not("approved_at", "is", null);
 
@@ -215,6 +219,9 @@ export default async function BrowseTalentPage({
     if (isUnlocked) {
       return row;
     }
+    // Phase 4 Lean Projection: experience is no longer in the list payload —
+    // its redaction now lives in fetchProfileDetail (actions.ts). summary still
+    // ships in the list (for CardItem.bio) and is redacted here as before.
     return {
       ...row,
       email: null,
@@ -222,13 +229,6 @@ export default async function BrowseTalentPage({
       cv_url: null,
       linkedin_url: null,
       summary: redactContactInfo(row.summary),
-      experience: Array.isArray(row.experience)
-        ? row.experience.map((exp) => ({
-            ...exp,
-            title: exp.title != null ? (redactContactInfo(exp.title) ?? undefined) : exp.title,
-            company: exp.company != null ? (redactContactInfo(exp.company) ?? undefined) : exp.company,
-          }))
-        : row.experience,
     };
   });
 

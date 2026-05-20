@@ -436,3 +436,134 @@ export async function refreshTier(): Promise<RefreshTierResult> {
 
   return { ok: true, tier, creditsRemaining };
 }
+
+// ────────────────────────────────────────────────────────────────────────────
+// Phase 4 Lean Projection: fetchProfileDetail
+// Returns the modal-only fields (experience, education, plus a freshly-redacted
+// copy of summary) for a single candidate. Called lazily from BrowseClient
+// when the user opens ProfileModal — list payload no longer includes the
+// heavier JSONB/education fields.
+//
+// Visibility (mirrors the legacy page.tsx redaction):
+// - Non-unlocked, non-admin viewers: emails/phones inside freeform text are
+//   replaced with "[contact hidden]" (same regex + digit-count guard as the
+//   Phase 2 B2 hardened phone redaction).
+// - Unlocked subscribers + admins: raw values.
+// ────────────────────────────────────────────────────────────────────────────
+
+export type ProfileExperienceItem = {
+  title: string | null;
+  company: string | null;
+  dates: string | null;
+  skills: string[];
+};
+
+export type ProfileDetail = {
+  summary: string | null;
+  experience: ProfileExperienceItem[];
+  degree: string | null;
+  institution: string | null;
+};
+
+type FetchProfileDetailResult =
+  | { ok: true; detail: ProfileDetail }
+  | { ok: false; error: "not_found" | "internal_error" };
+
+export async function fetchProfileDetail(
+  candidateId: string,
+): Promise<FetchProfileDetailResult> {
+  if (typeof candidateId !== "string" || candidateId.length < 1 || candidateId.length > 100) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  const auth = await createClient();
+  const { data: authData } = await auth.auth.getUser();
+  const user = authData.user;
+
+  const service = createServiceClient();
+
+  // Fetch detail columns + viewer's unlock + admin status in parallel.
+  // The admin/unlock checks drive redaction; for anonymous viewers, both
+  // skip the DB hop entirely (resolved Promise placeholders below).
+  const [candidateResult, unlockResult, adminResult] = await Promise.all([
+    service
+      .from("talent_profiles")
+      .select("summary, experience, degree, institution")
+      .eq("id", candidateId)
+      .maybeSingle(),
+    user
+      ? auth
+          .from("unlock_events")
+          .select("id")
+          .eq("user_id", user.id)
+          .eq("candidate_id", candidateId)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    user
+      ? service
+          .from("admin_users")
+          .select("role, status")
+          .eq("user_id", user.id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+  ]);
+
+  if (candidateResult.error || !candidateResult.data) {
+    return { ok: false, error: "not_found" };
+  }
+
+  const candidate = candidateResult.data;
+  const isUnlocked = !!unlockResult.data;
+  const adminRow = adminResult.data as { role?: string; status?: string } | null;
+  const isAdmin =
+    (user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) ||
+    (adminRow?.status === "active" &&
+      (adminRow.role === "admin" || adminRow.role === "super_admin"));
+
+  // Mirror the email + Phase 2 B2 hardened-phone regex from page.tsx.
+  // If the digit count in the matched phone is outside the E.164 valid range
+  // (7–15), leave the match untouched — avoids false positives on years/scores.
+  const emailRegex = /[a-zA-Z0-9._%+-]+@[a-zA-Z0-9.-]+\.[a-zA-Z]{2,}/g;
+  const phoneRegex = /(?:\+\d{1,3}[\s.\-]?)?\(?\d{2,4}\)?(?:[\s.\-]?\d{2,4}){1,4}/g;
+  const needsRedaction = !isUnlocked && !isAdmin;
+  const redact = (text: string | null | undefined): string | null => {
+    if (text == null) return null;
+    if (!needsRedaction) return text;
+    return text
+      .replace(emailRegex, "[contact hidden]")
+      .replace(phoneRegex, (match) => {
+        const digitCount = (match.match(/\d/g) ?? []).length;
+        if (digitCount < 7 || digitCount > 15) return match;
+        return "[contact hidden]";
+      });
+  };
+
+  type RawExp = {
+    title?: string;
+    company?: string;
+    dates?: string;
+    start?: string;
+    end?: string;
+    skills?: string[];
+  };
+  const rawExperience: RawExp[] = Array.isArray(candidate.experience)
+    ? (candidate.experience as RawExp[])
+    : [];
+
+  const detail: ProfileDetail = {
+    summary: redact(candidate.summary as string | null),
+    experience: rawExperience.map((exp) => ({
+      title: redact(typeof exp.title === "string" ? exp.title : null),
+      company: redact(typeof exp.company === "string" ? exp.company : null),
+      dates:
+        typeof exp.dates === "string"
+          ? exp.dates
+          : [exp.start, exp.end].filter(Boolean).join(" – ") || null,
+      skills: Array.isArray(exp.skills) ? exp.skills : [],
+    })),
+    degree: redact(candidate.degree as string | null),
+    institution: redact(candidate.institution as string | null),
+  };
+
+  return { ok: true, detail };
+}

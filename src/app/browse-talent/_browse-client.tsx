@@ -20,11 +20,22 @@ const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
 const ProfileModal = dynamic(() => import("./_profile-modal"), {
   ssr: false,
 });
-import { getCvSignedUrl, refreshTier, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
+import {
+  fetchProfileDetail,
+  getCvSignedUrl,
+  refreshTier,
+  toggleSave,
+  unlockCandidate,
+  type ProfileDetail,
+  type UnlockResult,
+} from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
 // ── Types ────────────────────────────────────────────────────
 
+// Phase 4 Lean Projection: list-projection row shape. The columns
+// previously here (industry, degree, institution, experience) moved to
+// fetchProfileDetail (actions.ts) and are no longer in the SSR payload.
 export type TalentRow = {
   id: string;
   first_name: string;
@@ -32,9 +43,6 @@ export type TalentRow = {
   job_title: string | null;
   role_category: string | null;
   years_experience: number | null;
-  industry: string | null;
-  degree: string | null;
-  institution: string | null;
   city: string | null;
   country: string | null;
   email: string | null;
@@ -51,14 +59,6 @@ export type TalentRow = {
   avatar_url: string | null;
   linkedin_url: string | null;
   github_url: string | null;
-  experience: Array<{
-    title?: string;
-    company?: string;
-    start?: string;
-    end?: string;
-    dates?: string;
-    skills?: string[];
-  }> | null;
   approved_at: string | null;
   created_at: string | null;
 };
@@ -76,6 +76,11 @@ export type ExperienceItem = {
 
 // Phase 4 Bundle C: exported so the extracted _profile-modal.tsx and
 // _blurred-preview.ts can reference the same Card shape.
+// Phase 4 Lean Projection: detail-only fields (degree, institution,
+// experience) removed from Card — they live on ProfileDetail (./actions)
+// and arrive via fetchProfileDetail when the modal opens. `industry` was
+// dead (mapped but never displayed) and is dropped. `education` (demo-only
+// composite string) retained for static preview data in _blurred-preview.
 export type Card = {
   id: string;
   name: string;
@@ -86,7 +91,6 @@ export type Card = {
   location: string;
   exp: string;                    // "7 years" or "—"
   yearsExperience?: number | null; // numeric form for "X years experience in …"
-  industry?: string | null;
   available: boolean;
   score: number;
   highlights: string[];
@@ -98,15 +102,12 @@ export type Card = {
   hybrid?: boolean;
   onsite?: boolean;
   education?: string;             // demo data only ("Degree — Institution")
-  degree?: string | null;         // real-DB form
-  institution?: string | null;    // real-DB form
   lastActive: string;
   github: string | null;
   linkedin: string | null;
   email?: string | null;          // admin preview only
   phone?: string | null;          // admin preview only
   cvUrl?: string | null;          // admin preview only
-  experience?: ExperienceItem[];  // demo data only
 };
 
 // ── BT_ROLE_CFG (verbatim from HTML) ─────────────────────────
@@ -207,13 +208,11 @@ function rowToCard(r: TalentRow): Card {
   const type: RoleType = isRoleType(r.role_category) ? r.role_category : "Engineer";
   const skills = (r.skills ?? []).slice(0, 8);
 
-  // Derive role + years from the experience JSONB array (the form no longer
-  // collects standalone job_title / years_experience / industry).
-  // Latest entry = first item (form lists them top-to-bottom newest first).
-  const expArr = Array.isArray(r.experience) ? r.experience : [];
-  const latestExp = expArr[0];
-  const derivedRole = latestExp?.title?.trim() || r.job_title || "—";
-  const derivedYears = deriveYears(expArr) ?? r.years_experience ?? null;
+  // Phase 4 Lean Projection: experience JSONB is no longer in the list payload.
+  // Card-display fields that previously read from r.experience (latestExp title
+  // and derivedYears) now fall back to r.job_title and r.years_experience.
+  const derivedRole = r.job_title || "—";
+  const derivedYears = r.years_experience ?? null;
 
   const score = Math.min(99, 70 + (derivedYears ?? 0) * 2 + skills.length);
   const available = (r.availability ?? "").toLowerCase().includes("available");
@@ -232,7 +231,6 @@ function rowToCard(r: TalentRow): Card {
     location: [r.city, r.country].filter(Boolean).join(", ") || "—",
     exp: derivedYears != null ? `${derivedYears} years` : "—",
     yearsExperience: derivedYears,
-    industry: r.industry,
     available,
     score,
     highlights,
@@ -243,22 +241,14 @@ function rowToCard(r: TalentRow): Card {
     remote:   (r.work_location ?? "").toLowerCase().includes("remote"),
     hybrid:   (r.work_location ?? "").toLowerCase().includes("hybrid"),
     onsite:   (r.work_location ?? "").toLowerCase().includes("onsite"),
-    degree: r.degree,
-    institution: r.institution,
+    // Phase 4 Lean Projection: degree/institution/experience now populated
+    // via fetchProfileDetail when ProfileModal opens. Left undefined here.
     lastActive: fmtDaysAgo(r.created_at),
     github: r.github_url,
     linkedin: r.linkedin_url,
     email: r.email,
     phone: r.phone,
     cvUrl: r.cv_url,
-    experience: Array.isArray(r.experience) && r.experience.length > 0
-      ? r.experience.map((e) => ({
-          title:   typeof e.title   === "string" ? e.title   : "",
-          company: typeof e.company === "string" ? e.company : "",
-          dates:   typeof e.dates   === "string" ? e.dates   : "",
-          skills:  Array.isArray(e.skills) ? e.skills : [],
-        }))
-      : undefined,
   };
 }
 
@@ -681,6 +671,14 @@ export function BrowseClient({
   // B3/J2: persistent toast shown when the client tier prop disagrees with
   // the server-side tier (subscription cancelled mid-session).
   const [sessionStaleToast, setSessionStaleToast] = useState<boolean>(false);
+  // Phase 4 Lean Projection: session-lifetime cache of full profile detail
+  // (summary, experience, education). Populated by ensureProfileDetail on
+  // first card open; persists until page refresh. loadingDetailIds tracks
+  // in-flight fetches so the modal can render skeletons.
+  const [profileDetailCache, setProfileDetailCache] = useState<Map<string, ProfileDetail>>(
+    new Map(),
+  );
+  const [loadingDetailIds, setLoadingDetailIds] = useState<Set<string>>(new Set());
 
   // Sync unlock state when server props change (pagination/filter navigation).
   // Merge unlockedContactData instead of replacing it so client-side unlock results
@@ -764,6 +762,50 @@ export function BrowseClient({
     }, 300);
     return () => clearTimeout(handle);
   }, [searchInput, activeQuery, updateUrl]);
+
+  // Phase 4 Lean Projection: lazy-load the full profile detail. Idempotent —
+  // cache hit / in-flight short-circuit. Called from handleOpenCard below.
+  const ensureProfileDetail = useCallback(
+    async (candidateId: string): Promise<void> => {
+      if (profileDetailCache.has(candidateId)) return;
+      if (loadingDetailIds.has(candidateId)) return;
+      setLoadingDetailIds((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+      try {
+        const result = await fetchProfileDetail(candidateId);
+        if (result.ok) {
+          setProfileDetailCache((prev) => {
+            const next = new Map(prev);
+            next.set(candidateId, result.detail);
+            return next;
+          });
+        }
+        // On error: don't cache; modal renders without the extra detail.
+      } finally {
+        setLoadingDetailIds((prev) => {
+          const next = new Set(prev);
+          next.delete(candidateId);
+          return next;
+        });
+      }
+    },
+    [profileDetailCache, loadingDetailIds],
+  );
+
+  // Phase 4 Lean Projection: opens the modal AND fires the detail fetch.
+  // Fire-and-forget — modal renders immediately with list-projection data
+  // (name, role, skills, location, bio, …) and skeleton-fills the detail
+  // sections (experience, education) once fetchProfileDetail resolves.
+  const handleOpenCard = useCallback(
+    (card: Card) => {
+      setOpenCard(card);
+      void ensureProfileDetail(card.id);
+    },
+    [ensureProfileDetail],
+  );
 
   // Phase 4 D1: useCallback so CardItem's memo comparison stays stable. Deps
   // are the values the body actually reads; useState setters are guaranteed
@@ -1208,7 +1250,7 @@ export function BrowseClient({
                       key={c.id}
                       c={c}
                       saved={localSavedIds.has(c.id)}
-                      onView={() => setOpenCard(c)}
+                      onView={() => handleOpenCard(c)}
                       onSave={() => handleToggleSave(c.id)}
                       onLocked={handleLockedAction}
                       onViewCv={() => { void handleViewCv(c.id); }}
@@ -1360,6 +1402,8 @@ export function BrowseClient({
           isUnlocking={unlockingIds.has(openCard.id)}
           isSaving={savingIds.has(openCard.id)}
           isViewingCv={viewingCvIds.has(openCard.id)}
+          detail={profileDetailCache.get(openCard.id) ?? null}
+          isLoadingDetail={loadingDetailIds.has(openCard.id)}
         />
       )}
 
