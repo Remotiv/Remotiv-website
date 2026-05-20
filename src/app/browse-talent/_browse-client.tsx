@@ -2,12 +2,24 @@
 
 import "./browse-talent.css";
 import { memo, useCallback, useEffect, useMemo, useState } from "react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
-import PricingModal from "@/components/pricing-modal";
 import { cn } from "@/lib/utils";
+
+// Phase 4 Bundle C: code-split modals.
+// PricingModal only opens on a paywall-trigger click, so loading its bundle
+// up-front penalises every visitor. ssr:false is safe — never visible during SSR.
+const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
+  ssr: false,
+});
+// ProfileModal only opens when the user clicks a card. Lives in its own file
+// (./_profile-modal) and is fetched on first card-open.
+const ProfileModal = dynamic(() => import("./_profile-modal"), {
+  ssr: false,
+});
 import { getCvSignedUrl, refreshTier, toggleSave, unlockCandidate, type UnlockResult } from "./actions";
 import { useBodyScrollLock } from "@/hooks/use-body-scroll-lock";
 
@@ -51,18 +63,20 @@ export type TalentRow = {
   created_at: string | null;
 };
 
-type RoleType =
+export type RoleType =
   | "Engineer" | "SDR" | "CS" | "Design" | "Data"
   | "DevOps" | "QA" | "Marketing" | "Ops" | "Finance";
 
-type ExperienceItem = {
+export type ExperienceItem = {
   title: string;
   company: string;
   dates: string;
   skills: string[];
 };
 
-type Card = {
+// Phase 4 Bundle C: exported so the extracted _profile-modal.tsx and
+// _blurred-preview.ts can reference the same Card shape.
+export type Card = {
   id: string;
   name: string;
   initials: string;
@@ -101,7 +115,7 @@ const TOAST_DURATION_MS = 3500;
 
 const isFreeViewer = (tier: string): boolean => tier === "free";
 
-const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; label: string }> = {
+export const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; label: string }> = {
   Engineer:  { c: "#60a5fa", bg: "rgba(96,165,250,0.08)",  b: "rgba(96,165,250,0.3)",  label: "Engineer" },
   SDR:       { c: "#a78bfa", bg: "rgba(167,139,250,0.08)", b: "rgba(167,139,250,0.3)", label: "Sales / SDR" },
   CS:        { c: "#34d399", bg: "rgba(52,211,153,0.08)",  b: "rgba(52,211,153,0.3)",  label: "Customer Success" },
@@ -128,208 +142,9 @@ const ROLE_FILTERS: Array<{ key: "All" | RoleType; label: string; count: string;
   { key: "Finance",   label: "Finance & Accounting",  count: "2.8K",  dot: "#34d399" },
 ];
 
-const BLURRED_PREVIEW_CARDS: Card[] = [
-  {
-    id: "preview-1",
-    name: "Bilal R.",
-    initials: "BR",
-    role: "Senior Software Engineer",
-    type: "Engineer",
-    skills: ["React", "Node.js", "TypeScript", "AWS"],
-    location: "Lahore, Pakistan",
-    exp: "6 years",
-    available: true,
-    score: 92,
-    highlights: ["6 yrs experience"],
-    bio: "Full-stack engineer with strong product sense.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "Today",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-2",
-    name: "Hira S.",
-    initials: "HS",
-    role: "Product Designer",
-    type: "Design",
-    skills: ["Figma", "Design Systems", "User Research"],
-    location: "Karachi, Pakistan",
-    exp: "5 years",
-    available: true,
-    score: 88,
-    highlights: ["Design systems lead"],
-    bio: "Product designer focused on B2B SaaS workflows.",
-    fullTime: true,
-    partTime: true,
-    remote: true,
-    lastActive: "Yesterday",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-3",
-    name: "Usman K.",
-    initials: "UK",
-    role: "Sales Development Rep",
-    type: "SDR",
-    skills: ["HubSpot", "Salesforce", "Cold Outreach"],
-    location: "Islamabad, Pakistan",
-    exp: "3 years",
-    available: true,
-    score: 85,
-    highlights: ["Top quota attainment"],
-    bio: "SDR with consistent quota attainment.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "Today",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-4",
-    name: "Ayesha M.",
-    initials: "AM",
-    role: "Customer Success Manager",
-    type: "CS",
-    skills: ["Gainsight", "Onboarding", "QBRs"],
-    location: "Multan, Pakistan",
-    exp: "4 years",
-    available: true,
-    score: 90,
-    highlights: ["NPS uplift"],
-    bio: "CS lead specializing in onboarding US SaaS clients.",
-    fullTime: true,
-    partTime: true,
-    remote: true,
-    lastActive: "2 days ago",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-5",
-    name: "Tariq H.",
-    initials: "TH",
-    role: "Data Scientist",
-    type: "Data",
-    skills: ["Python", "TensorFlow", "SQL"],
-    location: "Faisalabad, Pakistan",
-    exp: "7 years",
-    available: false,
-    score: 94,
-    highlights: ["ML in production"],
-    bio: "Data scientist shipping ML pipelines at scale.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "1 week ago",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-6",
-    name: "Sana A.",
-    initials: "SA",
-    role: "DevOps Engineer",
-    type: "DevOps",
-    skills: ["AWS", "Terraform", "Kubernetes"],
-    location: "Lahore, Pakistan",
-    exp: "5 years",
-    available: true,
-    score: 87,
-    highlights: ["Cut infra cost 35%"],
-    bio: "DevOps engineer reducing infra cost via automation.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "Today",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-7",
-    name: "Hassan I.",
-    initials: "HI",
-    role: "QA Automation Engineer",
-    type: "QA",
-    skills: ["Cypress", "Selenium", "Jest"],
-    location: "Karachi, Pakistan",
-    exp: "4 years",
-    available: true,
-    score: 82,
-    highlights: ["80% test coverage"],
-    bio: "QA engineer focused on automation frameworks.",
-    fullTime: true,
-    partTime: true,
-    remote: true,
-    lastActive: "Yesterday",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-8",
-    name: "Mehwish K.",
-    initials: "MK",
-    role: "Performance Marketing Lead",
-    type: "Marketing",
-    skills: ["Google Ads", "Meta Ads", "Analytics"],
-    location: "Islamabad, Pakistan",
-    exp: "6 years",
-    available: true,
-    score: 89,
-    highlights: ["ROAS 4x+"],
-    bio: "Performance marketer managing 6-figure ad budgets.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "3 days ago",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-9",
-    name: "Faisal Q.",
-    initials: "FQ",
-    role: "Business Operations Manager",
-    type: "Ops",
-    skills: ["Notion", "Process Design", "OKRs"],
-    location: "Lahore, Pakistan",
-    exp: "8 years",
-    available: true,
-    score: 91,
-    highlights: ["Scaled ops 5x"],
-    bio: "Ops manager scaling startups from seed to Series B.",
-    fullTime: true,
-    partTime: false,
-    remote: true,
-    lastActive: "Today",
-    github: null,
-    linkedin: null,
-  },
-  {
-    id: "preview-10",
-    name: "Zainab N.",
-    initials: "ZN",
-    role: "Senior Accountant",
-    type: "Finance",
-    skills: ["QuickBooks", "Xero", "ACCA"],
-    location: "Multan, Pakistan",
-    exp: "5 years",
-    available: true,
-    score: 78,
-    highlights: ["ACCA qualified"],
-    bio: "ACCA-qualified accountant managing remote-client books.",
-    fullTime: true,
-    partTime: true,
-    remote: true,
-    lastActive: "Yesterday",
-    github: null,
-    linkedin: null,
-  },
-];
+// Phase 4 Bundle C: BLURRED_PREVIEW_CARDS moved to ./_blurred-preview.
+// It's dynamic-imported below inside BrowseClient when shouldShowPaywall is
+// true, so subscribers never download the ~6–10 KB fake-candidate payload.
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -467,7 +282,7 @@ function LiSvg() {
 
 // ── btScore() helper — verbatim from HTML ────────────────────
 
-function BtMatchBadge({ score }: { score: number }) {
+export function BtMatchBadge({ score }: { score: number }) {
   const c = score >= 95 ? "#49D7A7" : score >= 90 ? "#60a5fa" : "#fb923c";
   return (
     <div
@@ -484,7 +299,7 @@ function BtMatchBadge({ score }: { score: number }) {
 
 // ── Card item (matches .bt-cand-card structure exactly) ──────
 
-type EffectiveContact = {
+export type EffectiveContact = {
   email: string | null;
   phone: string | null;
   linkedin: string | null;
@@ -683,448 +498,15 @@ CardItem.displayName = "CardItem";
 
 // ── Profile modal (matches .bt-modal-overlay structure) ──────
 
-function ensureHttpUrl(url: string | null | undefined): string | null {
+export function ensureHttpUrl(url: string | null | undefined): string | null {
   if (!url) return null;
   return url.startsWith("http://") || url.startsWith("https://")
     ? url
     : `https://${url}`;
 }
 
-function ProfileModal({
-  c,
-  saved,
-  tier = "free",
-  isUnlocked,
-  canUnlock,
-  onUnlock,
-  effectiveContact,
-  onSave,
-  onClose,
-  onLocked,
-  onViewCv,
-  isUnlocking = false,
-  isSaving = false,
-  isViewingCv = false,
-}: {
-  c: Card;
-  saved: boolean;
-  tier?: "free" | "subscriber";
-  isUnlocked: boolean;
-  canUnlock: boolean;
-  onUnlock: () => void;
-  effectiveContact: EffectiveContact;
-  onSave: () => void;
-  onClose: () => void;
-  onLocked: () => void;
-  onViewCv: () => void;
-  isUnlocking?: boolean;
-  isSaving?: boolean;
-  isViewingCv?: boolean;
-}) {
-  const cfg = ROLE_CFG[c.type];
-
-  // Resolve degree + institution from either the demo string ("Degree — School")
-  // or the real-DB fields.
-  let degree = "";
-  let school = "";
-  if (c.education) {
-    const [d, s] = c.education.split("—");
-    degree = d?.trim() ?? "";
-    school = s?.trim() ?? "";
-  } else {
-    degree = c.degree ?? "";
-    school = c.institution ?? "";
-  }
-  const hasEducation = Boolean(degree || school);
-  const eduInline = c.education ?? [c.degree, c.institution].filter(Boolean).join(" — ");
-  // Experience: always render the JSONB array if present. Empty array →
-  // explicit "No work experience added" empty state.
-  const hasExperienceArray = !!c.experience && c.experience.length > 0;
-
-  // Focus trap — keep Tab focus within the modal panel
-  useEffect(() => {
-    const modalEl = document.querySelector(
-      '[role="dialog"][aria-labelledby="profile-modal-title"]',
-    ) as HTMLElement | null;
-    if (!modalEl) return;
-
-    const focusableSelector =
-      'a[href], button:not([disabled]), input:not([disabled]), [tabindex]:not([tabindex="-1"])';
-    const focusables = Array.from(modalEl.querySelectorAll<HTMLElement>(focusableSelector));
-    if (focusables.length === 0) return;
-
-    const first = focusables[0];
-    const last = focusables[focusables.length - 1];
-
-    const handler = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      if (e.shiftKey && document.activeElement === first) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && document.activeElement === last) {
-        e.preventDefault();
-        first.focus();
-      }
-    };
-
-    document.addEventListener("keydown", handler);
-    return () => document.removeEventListener("keydown", handler);
-  }, []);
-
-  // Focus the close button on open; restore focus to the triggering element on close.
-  useEffect(() => {
-    const previousActiveElement = document.activeElement as HTMLElement | null;
-
-    const timer = setTimeout(() => {
-      const closeButton = document.querySelector(
-        '[role="dialog"][aria-labelledby="profile-modal-title"] [aria-label="Close"]',
-      ) as HTMLElement | null;
-      closeButton?.focus();
-    }, 50);
-
-    return () => {
-      clearTimeout(timer);
-      previousActiveElement?.focus?.();
-    };
-  }, []);
-
-  return (
-    <div
-      className="bt-modal-overlay"
-      onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
-      role="presentation"
-    >
-      <div
-        className="bt-modal-panel"
-        onClick={(e) => e.stopPropagation()}
-        role="dialog"
-        aria-modal="true"
-        aria-labelledby="profile-modal-title"
-      >
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="bt-modal-close-btn"
-        >
-          <X size={16} color="#666" />
-        </button>
-        <div className="bt-modal-scroll">
-        {tier === "subscriber" && (
-          <div className="bt-admin-banner" role="status">
-            <span aria-hidden>🔓</span>
-            Admin Preview — viewing unlocked content
-          </div>
-        )}
-        <div className="bt-modal-header">
-          <div>
-            <div
-              className="bt-modal-avatar"
-              style={{ background: cfg.bg, borderColor: cfg.b, color: cfg.c }}
-            >
-              {c.initials}
-            </div>
-          </div>
-          <div className="bt-modal-meta">
-            <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <div id="profile-modal-title" className="bt-modal-name">{c.name}</div>
-              <BtMatchBadge score={c.score} />
-            </div>
-            <div className="bt-modal-role">{c.role}</div>
-            <div className="bt-modal-info">
-              <span aria-hidden="true">📍</span> {c.location} · {c.exp} experience{eduInline ? ` · ${eduInline}` : ""}
-            </div>
-            <div className="bt-profile-links">
-              {c.github && (
-                isUnlocked ? (
-                  <a
-                    className="bt-plink"
-                    href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    GitHub
-                  </a>
-                ) : canUnlock ? (
-                  <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
-                    GitHub · 1 credit
-                  </button>
-                ) : (
-                  <button type="button" className="bt-plink" onClick={onLocked}>GitHub</button>
-                )
-              )}
-              {isUnlocked && effectiveContact.linkedin ? (
-                <a
-                  className="bt-plink"
-                  href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  LinkedIn
-                </a>
-              ) : canUnlock ? (
-                <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
-                  LinkedIn · 1 credit
-                </button>
-              ) : (
-                <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
-              )}
-              {isUnlocked && effectiveContact.cvUrl ? (
-                <button
-                  type="button"
-                  className="bt-plink"
-                  onClick={onViewCv}
-                  disabled={isViewingCv}
-                  style={{ minWidth: 100 }}
-                >
-                  {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume ✦"}
-                </button>
-              ) : canUnlock ? (
-                <button
-                  type="button"
-                  className="bt-plink"
-                  onClick={onUnlock}
-                  title="Use 1 credit to unlock all contact details"
-                  disabled={isUnlocking}
-                  style={{ minWidth: 120 }}
-                >
-                  {isUnlocking ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume · 1 credit"}
-                </button>
-              ) : (
-                <button type="button" className="bt-plink" onClick={onLocked}>Resume ✦</button>
-              )}
-            </div>
-          </div>
-        </div>
-
-        <div className="bt-modal-body">
-          {c.bio && (
-            <>
-              <div className="bt-modal-sec-title">Summary</div>
-              <p
-                style={{
-                  margin: "0 0 20px",
-                  fontFamily: "'DM Sans',sans-serif",
-                  fontSize: "0.85rem",
-                  color: "#555",
-                  lineHeight: 1.7,
-                  whiteSpace: "pre-line",
-                }}
-              >
-                {c.bio}
-              </p>
-            </>
-          )}
-
-          <div className="bt-modal-sec-title">Experience</div>
-          <div style={{ marginBottom: 20 }}>
-            {hasExperienceArray ? (
-              c.experience?.map((exp, i) => (
-                <div key={`${exp.company}-${i}`} className="bt-exp-item">
-                  <div className="bt-exp-logo">🏢</div>
-                  <div style={{ flex: 1 }}>
-                    <div className="bt-exp-title">{exp.title}</div>
-                    <div className="bt-exp-company">{exp.company}</div>
-                    <div className="bt-exp-dates">{exp.dates}</div>
-                    <div className="bt-exp-skills">
-                      {(exp.skills ?? []).map((s, j) => (
-                        <span key={`${s}-${j}`} className="bt-exp-skill">{s}</span>
-                      ))}
-                    </div>
-                  </div>
-                </div>
-              ))
-            ) : (
-              <p
-                style={{
-                  margin: 0,
-                  padding: "16px 18px",
-                  border: "1px dashed rgba(0,0,0,0.1)",
-                  borderRadius: 12,
-                  fontFamily: "'DM Sans',sans-serif",
-                  fontSize: "0.82rem",
-                  color: "#aaa",
-                  textAlign: "center",
-                }}
-              >
-                No work experience added
-              </p>
-            )}
-          </div>
-
-          {hasEducation && (
-            <>
-              <div className="bt-modal-sec-title">Education</div>
-              <div style={{ marginBottom: 20 }}>
-                <div className="bt-edu-row">
-                  {degree && <div className="bt-edu-degree">{degree}</div>}
-                  {school && <div className="bt-edu-school">{school}</div>}
-                </div>
-              </div>
-            </>
-          )}
-
-          <div className="bt-modal-sec-title">Skills</div>
-          <div className="bt-modal-skills">
-            {c.skills.map((s) => (
-              <span key={s} className="bt-modal-skill">{s}</span>
-            ))}
-          </div>
-
-          <div className="bt-modal-sec-title">Open To</div>
-          <div className="bt-open-to" style={{ marginBottom: 20 }}>
-            {c.fullTime && (
-              <span className="bt-ot-tag" style={{ color: "#49D7A7", borderColor: "rgba(73,215,167,.3)", background: "rgba(73,215,167,.08)" }}>
-                Full-time
-              </span>
-            )}
-            {c.partTime && (
-              <span className="bt-ot-tag" style={{ color: "#34d399", borderColor: "rgba(52,211,153,.3)", background: "rgba(52,211,153,.07)" }}>
-                Part-time
-              </span>
-            )}
-            {c.contract && (
-              <span className="bt-ot-tag" style={{ color: "#a78bfa", borderColor: "rgba(167,139,250,.3)", background: "rgba(167,139,250,.07)" }}>
-                Contract
-              </span>
-            )}
-            {c.remote && (
-              <span className="bt-ot-tag" style={{ color: "#a78bfa", borderColor: "rgba(167,139,250,.3)", background: "rgba(167,139,250,.07)" }}>
-                Remote
-              </span>
-            )}
-            {c.hybrid && (
-              <span className="bt-ot-tag" style={{ color: "#fb923c", borderColor: "rgba(251,146,60,.3)", background: "rgba(251,146,60,.07)" }}>
-                Hybrid
-              </span>
-            )}
-            {c.onsite && (
-              <span className="bt-ot-tag" style={{ color: "#60a5fa", borderColor: "rgba(96,165,250,.3)", background: "rgba(96,165,250,.07)" }}>
-                Onsite
-              </span>
-            )}
-          </div>
-
-          {isUnlocked ? (
-            <div className="bt-unlocked-box">
-              <div className="bt-unlocked-head">
-                <span aria-hidden>🔓</span>
-                <div>
-                  <div className="bt-unlocked-title">Contact Details</div>
-                  <div className="bt-unlocked-sub">Contact details unlocked</div>
-                </div>
-              </div>
-              <div className="bt-unlocked-rows">
-                {effectiveContact.email && (
-                  <div className="bt-unlocked-row">
-                    <span className="bt-unlocked-label">Email</span>
-                    <a href={`mailto:${effectiveContact.email}`} className="bt-unlocked-link">{effectiveContact.email}</a>
-                  </div>
-                )}
-                {effectiveContact.phone && (
-                  <div className="bt-unlocked-row">
-                    <span className="bt-unlocked-label">Phone</span>
-                    <a href={`tel:${effectiveContact.phone}`} className="bt-unlocked-link">{effectiveContact.phone}</a>
-                  </div>
-                )}
-                {effectiveContact.linkedin && (
-                  <div className="bt-unlocked-row">
-                    <span className="bt-unlocked-label">LinkedIn</span>
-                    <a
-                      href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bt-unlocked-link"
-                    >
-                      {effectiveContact.linkedin}
-                    </a>
-                  </div>
-                )}
-                {effectiveContact.cvUrl && (
-                  <div className="bt-unlocked-row">
-                    <span className="bt-unlocked-label">CV</span>
-                    <button
-                      type="button"
-                      onClick={onViewCv}
-                      className="bt-unlocked-link"
-                      disabled={isViewingCv}
-                      style={{ minWidth: 88 }}
-                    >
-                      {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "View CV"}
-                    </button>
-                  </div>
-                )}
-              </div>
-            </div>
-          ) : (
-            <div className="bt-locked-box">
-              <div className="bt-locked-icon" aria-hidden="true">🔒</div>
-              <div>
-                <div className="bt-locked-title">Unlock Full Contact Details</div>
-                <div className="bt-locked-sub">
-                  {tier === "subscriber"
-                    ? "Use 1 credit to reveal phone, email, LinkedIn, and CV"
-                    : "Subscribe to view phone, email, LinkedIn, and references"}
-                </div>
-              </div>
-            </div>
-          )}
-
-          <div className="bt-modal-actions">
-            {!isUnlocked && (
-              canUnlock ? (
-                <button
-                  type="button"
-                  className="bt-btn-unlock"
-                  onClick={() => onUnlock()}
-                  disabled={isUnlocking}
-                  style={{ minWidth: 200 }}
-                >
-                  {isUnlocking ? (
-                    <Loader2 className="h-4 w-4 animate-spin" />
-                  ) : (
-                    "Unlock contact · 1 credit"
-                  )}
-                </button>
-              ) : tier === "free" ? (
-                <button
-                  type="button"
-                  className="bt-btn-unlock"
-                  onClick={() => { onClose(); onLocked(); }}
-                >
-                  Subscribe to Unlock
-                </button>
-              ) : (
-                <div className="bt-out-of-credits">
-                  <p>You&apos;ve used all your credits this month.</p>
-                  <button
-                    type="button"
-                    className="bt-btn-unlock"
-                    onClick={() => { onClose(); onLocked(); }}
-                  >
-                    Upgrade to Pro for 300 credits/month
-                  </button>
-                </div>
-              )
-            )}
-            <button
-              type="button"
-              className={cn("bt-btn-save-modal", saved && "saved")}
-              onClick={onSave}
-              disabled={isSaving}
-              style={{ minWidth: 140 }}
-            >
-              {isSaving ? (
-                <Loader2 className="h-4 w-4 animate-spin" />
-              ) : saved ? "♥ Saved" : "♡ Save Profile"}
-            </button>
-          </div>
-        </div>
-        </div>
-      </div>
-    </div>
-  );
-}
+// Phase 4 Bundle C: ProfileModal moved to ./_profile-modal and dynamic-imported
+// near the top of this file. Call site (<ProfileModal … />) is unchanged.
 
 // ── Hero (mosaic background, verbatim from HTML #bth-wrap) ───
 
@@ -1677,6 +1059,22 @@ export function BrowseClient({
   const isFiltered = activeRole !== "All" || activeQuery !== "";
   const visibleCards = cards;
   const shouldShowPaywall = tier === "free" && realProfiles.length > 0;
+
+  // Phase 4 Bundle C: lazy-load the blurred preview data ONLY when this
+  // viewer actually needs it (free tier hitting the paywall). The dynamic
+  // import returns a Promise; we mirror it into state so the JSX can render
+  // the cards once they're available. Subscribers never enter the effect.
+  const [blurredCards, setBlurredCards] = useState<Card[] | null>(null);
+  useEffect(() => {
+    if (!shouldShowPaywall || blurredCards) return;
+    let cancelled = false;
+    import("./_blurred-preview").then((mod) => {
+      if (!cancelled) setBlurredCards(mod.BLURRED_PREVIEW_CARDS);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [shouldShowPaywall, blurredCards]);
   const rangeStart = totalCount === 0 ? 0 : (currentPage - 1) * pageSize + 1;
   const rangeEnd = Math.min(currentPage * pageSize, totalCount);
   const candidateWord = totalCount === 1 ? "candidate" : "candidates";
@@ -1852,7 +1250,11 @@ export function BrowseClient({
                         aria-hidden="true"
                         inert
                       >
-                        {BLURRED_PREVIEW_CARDS.map((c, i) => (
+                        {/* Phase 4 Bundle C: blurredCards arrives from a
+                            dynamic import once shouldShowPaywall flips true.
+                            Until it loads, the overlay still renders on its
+                            own (the cards are decorative, behind a blur). */}
+                        {(blurredCards ?? []).map((c, i) => (
                           <CardItem
                             key={`blur-${c.id}`}
                             c={c}
