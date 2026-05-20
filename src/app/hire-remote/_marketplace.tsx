@@ -8,9 +8,11 @@ import {
   Globe,
   Lock,
   MapPin,
+  MessageCircle,
   Search,
   Unlock,
 } from "lucide-react";
+import HireRequestWizard from "./_hire-request-wizard";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -384,8 +386,8 @@ function ProfileDrawer({
           onClick={onUnlock}
           className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
-          <Unlock className="size-3.5" strokeWidth={2} />
-          Unlock Profile
+          <MessageCircle className="size-3.5" strokeWidth={2} />
+          Connect with Talent
         </button>
       </div>
 
@@ -729,6 +731,7 @@ export function HireMarketplace({
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [toast,    setToast]    = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -798,8 +801,9 @@ export function HireMarketplace({
     setSelected(null);
   }
 
-  function lockedAction() {
-    setToast("🔒 Subscribe to unlock full access — payment setup in progress.");
+  function openWizard() {
+    if (!selected) return;
+    setWizardOpen(true);
   }
 
   const drawerOpen = selected !== null;
@@ -921,13 +925,26 @@ export function HireMarketplace({
             <ProfileDrawer
               candidate={selected}
               onClose={handleClose}
-              onUnlock={lockedAction}
+              onUnlock={openWizard}
             />
           </>
         )}
       </div>
 
       {toast && <Toast msg={toast} />}
+
+      {selected && (
+        <HireRequestWizard
+          open={wizardOpen}
+          onClose={() => setWizardOpen(false)}
+          candidate={{
+            id: selected.id,
+            name: selected.maskedName,
+            rate: `$${selected.hourlyRate}/hr`,
+            role: selected.jobTitle,
+          }}
+        />
+      )}
     </section>
   );
 }

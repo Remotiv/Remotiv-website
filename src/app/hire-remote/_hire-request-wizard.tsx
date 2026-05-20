@@ -155,7 +155,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
       style={{
         position: "fixed",
         inset: 0,
-        zIndex: 100,
+        zIndex: 10000,
         background: "rgba(0,0,0,0.5)",
         display: "flex",
         alignItems: "center",
@@ -170,13 +170,16 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
         style={{
           background: "#fff",
           borderRadius: 16,
-          padding: 28,
+          padding: 0,
           width: "100%",
           maxWidth: 480,
-          maxHeight: "90vh",
-          overflowY: "auto",
+          maxHeight: "88vh",
+          display: "flex",
+          flexDirection: "column",
+          overflow: "hidden",
           boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
           fontFamily: "'DM Sans', system-ui, sans-serif",
+          position: "relative",
         }}
       >
         {/* honeypot */}
@@ -192,34 +195,40 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
         />
 
         {step !== 4 && (
+          <button
+            type="button"
+            onClick={onClose}
+            disabled={submitting}
+            aria-label="Close"
+            style={{
+              position: "absolute",
+              top: 12,
+              right: 12,
+              zIndex: 5,
+              background: "#fff",
+              border: "1px solid #e8e0db",
+              borderRadius: "50%",
+              width: 36,
+              height: 36,
+              display: "flex",
+              alignItems: "center",
+              justifyContent: "center",
+              cursor: submitting ? "not-allowed" : "pointer",
+              color: "#555",
+              boxShadow: "0 2px 8px rgba(0,0,0,0.08)",
+            }}
+          >
+            <X size={18} />
+          </button>
+        )}
+
+        <div style={{ overflowY: "auto", padding: 28, flex: 1 }}>
+        {step !== 4 && (
           <>
-            <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", marginBottom: 18 }}>
-              <div style={{ display: "flex", gap: 6, flex: 1 }}>
-                <div style={{ flex: 1, height: 4, background: step >= 1 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
-                <div style={{ flex: 1, height: 4, background: step >= 2 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
-                <div style={{ flex: 1, height: 4, background: step >= 3 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
-              </div>
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={submitting}
-                aria-label="Close"
-                style={{
-                  background: "transparent",
-                  border: "none",
-                  cursor: submitting ? "not-allowed" : "pointer",
-                  color: "#888",
-                  padding: 0,
-                  marginLeft: 14,
-                  display: "flex",
-                  alignItems: "center",
-                  minWidth: 32,
-                  minHeight: 32,
-                  justifyContent: "center",
-                }}
-              >
-                <X size={18} />
-              </button>
+            <div style={{ display: "flex", gap: 6, marginBottom: 18, paddingRight: 40 }}>
+              <div style={{ flex: 1, height: 4, background: step >= 1 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
+              <div style={{ flex: 1, height: 4, background: step >= 2 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
+              <div style={{ flex: 1, height: 4, background: step >= 3 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
             </div>
 
             <div style={{ fontSize: 11, color: "#7E47FF", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 500, marginBottom: 6 }}>
@@ -235,10 +244,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
               {step === 2 && "This helps us match your needs"}
               {step === 3 && "Our team responds within 24 hours"}
             </div>
-          </>
-        )}
 
-        {step === 1 && (
+            {step === 1 && (
           <div style={{ display: "flex", flexDirection: "column", gap: 10 }}>
             {ENGAGEMENT_OPTIONS.map((opt, idx) => {
               const selected = engagementType === opt.value;
@@ -466,110 +473,110 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
           </div>
         )}
 
-        {error && (
-          <div role="alert" style={{ background: "#fee", color: "#a23", padding: "10px 14px", borderRadius: 8, marginTop: 14, fontSize: 13 }}>
-            {error}
-          </div>
-        )}
+              {error && (
+                <div role="alert" style={{ background: "#fee", color: "#a23", padding: "10px 14px", borderRadius: 8, marginTop: 14, fontSize: 13 }}>
+                  {error}
+                </div>
+              )}
 
-        {step !== 4 && (
-          <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
-            {step === 1 ? (
-              <button
-                type="button"
-                onClick={onClose}
-                disabled={submitting}
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "1px solid #e8e0db",
-                  color: "#555",
-                  padding: 13,
-                  borderRadius: 10,
-                  fontWeight: 500,
-                  fontSize: 14,
-                  cursor: submitting ? "not-allowed" : "pointer",
-                  fontFamily: "inherit",
-                  minHeight: 44,
-                }}
-              >
-                Cancel
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
-                disabled={submitting}
-                style={{
-                  flex: 1,
-                  background: "transparent",
-                  border: "1px solid #e8e0db",
-                  color: "#555",
-                  padding: 13,
-                  borderRadius: 10,
-                  fontWeight: 500,
-                  fontSize: 14,
-                  cursor: submitting ? "not-allowed" : "pointer",
-                  fontFamily: "inherit",
-                  minHeight: 44,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                <ArrowLeft size={16} /> Back
-              </button>
-            )}
+              <div style={{ display: "flex", gap: 10, marginTop: 18 }}>
+                {step === 1 ? (
+                  <button
+                    type="button"
+                    onClick={onClose}
+                    disabled={submitting}
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: "1px solid #e8e0db",
+                      color: "#555",
+                      padding: 13,
+                      borderRadius: 10,
+                      fontWeight: 500,
+                      fontSize: 14,
+                      cursor: submitting ? "not-allowed" : "pointer",
+                      fontFamily: "inherit",
+                      minHeight: 44,
+                    }}
+                  >
+                    Cancel
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={() => setStep((s) => (s - 1) as 1 | 2 | 3)}
+                    disabled={submitting}
+                    style={{
+                      flex: 1,
+                      background: "transparent",
+                      border: "1px solid #e8e0db",
+                      color: "#555",
+                      padding: 13,
+                      borderRadius: 10,
+                      fontWeight: 500,
+                      fontSize: 14,
+                      cursor: submitting ? "not-allowed" : "pointer",
+                      fontFamily: "inherit",
+                      minHeight: 44,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                    }}
+                  >
+                    <ArrowLeft size={16} /> Back
+                  </button>
+                )}
 
-            {step < 3 ? (
-              <button
-                type="button"
-                onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
-                disabled={step === 1 ? !step1Valid : !step2Valid}
-                style={{
-                  flex: 2,
-                  background: (step === 1 ? step1Valid : step2Valid) ? "#7E47FF" : "#ccc",
-                  color: "#fff",
-                  border: "none",
-                  padding: 13,
-                  borderRadius: 10,
-                  fontWeight: 500,
-                  fontSize: 14,
-                  cursor: (step === 1 ? step1Valid : step2Valid) ? "pointer" : "not-allowed",
-                  fontFamily: "inherit",
-                  minHeight: 44,
-                  display: "flex",
-                  alignItems: "center",
-                  justifyContent: "center",
-                  gap: 6,
-                }}
-              >
-                Continue <ArrowRight size={16} />
-              </button>
-            ) : (
-              <button
-                type="button"
-                onClick={handleSubmit}
-                disabled={!step3Valid || submitting}
-                style={{
-                  flex: 2,
-                  background: step3Valid && !submitting ? "#49d7a7" : "#ccc",
-                  color: "#fff",
-                  border: "none",
-                  padding: 13,
-                  borderRadius: 10,
-                  fontWeight: 500,
-                  fontSize: 14,
-                  cursor: step3Valid && !submitting ? "pointer" : "not-allowed",
-                  fontFamily: "inherit",
-                  minHeight: 44,
-                }}
-              >
-                {submitting ? "Sending..." : "Send request →"}
-              </button>
-            )}
-          </div>
+                {step < 3 ? (
+                  <button
+                    type="button"
+                    onClick={() => setStep((s) => (s + 1) as 1 | 2 | 3)}
+                    disabled={step === 1 ? !step1Valid : !step2Valid}
+                    style={{
+                      flex: 2,
+                      background: (step === 1 ? step1Valid : step2Valid) ? "#7E47FF" : "#ccc",
+                      color: "#fff",
+                      border: "none",
+                      padding: 13,
+                      borderRadius: 10,
+                      fontWeight: 500,
+                      fontSize: 14,
+                      cursor: (step === 1 ? step1Valid : step2Valid) ? "pointer" : "not-allowed",
+                      fontFamily: "inherit",
+                      minHeight: 44,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      gap: 6,
+                    }}
+                  >
+                    Continue <ArrowRight size={16} />
+                  </button>
+                ) : (
+                  <button
+                    type="button"
+                    onClick={handleSubmit}
+                    disabled={!step3Valid || submitting}
+                    style={{
+                      flex: 2,
+                      background: step3Valid && !submitting ? "#49d7a7" : "#ccc",
+                      color: "#fff",
+                      border: "none",
+                      padding: 13,
+                      borderRadius: 10,
+                      fontWeight: 500,
+                      fontSize: 14,
+                      cursor: step3Valid && !submitting ? "pointer" : "not-allowed",
+                      fontFamily: "inherit",
+                      minHeight: 44,
+                    }}
+                  >
+                    {submitting ? "Sending..." : "Send request →"}
+                  </button>
+                )}
+              </div>
+          </>
         )}
 
         {step === 4 && (
@@ -614,6 +621,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
             </button>
           </div>
         )}
+        </div>
       </div>
     </div>
   );
