@@ -181,12 +181,11 @@ export default function ProfileModal({
           <X size={16} color="#666" />
         </button>
         <div className="bt-modal-scroll">
-        {tier === "subscriber" && (
-          <div className="bt-admin-banner" role="status">
-            <span aria-hidden>🔓</span>
-            Admin Preview — viewing unlocked content
-          </div>
-        )}
+        {/* Phase 6 A1: "Admin Preview" banner removed — it was rendered for
+            ALL subscribers (the condition was tier === "subscriber"), not just
+            admins, so paying users were seeing "Admin Preview" on every modal
+            open. If a true admin-only banner is ever wanted, thread isAdmin
+            explicitly as a prop. */}
         <div className="bt-modal-header">
           <div>
             <div
@@ -447,9 +446,12 @@ export default function ProfileModal({
               <div>
                 <div className="bt-locked-title">Unlock Full Contact Details</div>
                 <div className="bt-locked-sub">
+                  {/* Phase 6 A4: aligned "CV" wording across both branches
+                      (was "references" on the free tier). Matches the rest of
+                      the codebase (cv_url, cv_path, signed-URL flow). */}
                   {tier === "subscriber"
                     ? "Use 1 credit to reveal phone, email, LinkedIn, and CV"
-                    : "Subscribe to view phone, email, LinkedIn, and references"}
+                    : "Subscribe to view phone, email, LinkedIn, and CV"}
                 </div>
               </div>
             </div>

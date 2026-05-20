@@ -136,18 +136,21 @@ export const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; labe
   Finance:   { c: "#34d399", bg: "rgba(52,211,153,0.08)",  b: "rgba(52,211,153,0.3)",  label: "Finance" },
 };
 
+// Phase 6 A3: counts unified to whole-K format with conservative round-DOWN
+// (18.4K → 18K, 9.8K → 9K, etc). Inflated claims invite trust issues; rounding
+// down keeps marketing-side numbers consistent with the actual talent pool.
 const ROLE_FILTERS: Array<{ key: "All" | RoleType; label: string; count: string; dot: string }> = [
-  { key: "All",       label: "All Talent",            count: "50K+",  dot: "#49D7A7" },
-  { key: "Engineer",  label: "Software Engineers",    count: "18.4K", dot: "#60a5fa" },
-  { key: "SDR",       label: "SDR / Sales",           count: "12K",   dot: "#a78bfa" },
-  { key: "CS",        label: "Customer Success",      count: "9.8K",  dot: "#34d399" },
-  { key: "Design",    label: "Design & UX",           count: "6.2K",  dot: "#fb923c" },
-  { key: "Data",      label: "Data & AI",             count: "5.1K",  dot: "#818cf8" },
-  { key: "DevOps",    label: "DevOps & Cloud",        count: "4.8K",  dot: "#22d3ee" },
-  { key: "QA",        label: "Quality Assurance",     count: "3.9K",  dot: "#f87171" },
-  { key: "Marketing", label: "Marketing & Growth",    count: "4.2K",  dot: "#fbbf24" },
-  { key: "Ops",       label: "Business & Ops",        count: "3.4K",  dot: "#c084fc" },
-  { key: "Finance",   label: "Finance & Accounting",  count: "2.8K",  dot: "#34d399" },
+  { key: "All",       label: "All Talent",            count: "50K+", dot: "#49D7A7" },
+  { key: "Engineer",  label: "Software Engineers",    count: "18K",  dot: "#60a5fa" },
+  { key: "SDR",       label: "SDR / Sales",           count: "12K",  dot: "#a78bfa" },
+  { key: "CS",        label: "Customer Success",      count: "9K",   dot: "#34d399" },
+  { key: "Design",    label: "Design & UX",           count: "6K",   dot: "#fb923c" },
+  { key: "Data",      label: "Data & AI",             count: "5K",   dot: "#818cf8" },
+  { key: "DevOps",    label: "DevOps & Cloud",        count: "4K",   dot: "#22d3ee" },
+  { key: "QA",        label: "Quality Assurance",     count: "3K",   dot: "#f87171" },
+  { key: "Marketing", label: "Marketing & Growth",    count: "4K",   dot: "#fbbf24" },
+  { key: "Ops",       label: "Business & Ops",        count: "3K",   dot: "#c084fc" },
+  { key: "Finance",   label: "Finance & Accounting",  count: "2K",   dot: "#34d399" },
 ];
 
 // Phase 4 Bundle C: BLURRED_PREVIEW_CARDS moved to ./_blurred-preview.
@@ -582,12 +585,12 @@ function Hero() {
 
       <div className="bth-center">
         <h1 className="bth-heading">
-          <span className="bth-accent">1M+</span> Talent Profiles,
+          <span className="bth-accent">Million+</span> Talent Profiles,
           <br />
           Ready to Join Your Team
         </h1>
         <p className="bth-subtext">
-          Browse 1M+ engineers, sales talent, and operators from best companies
+          Browse Million+ engineers, sales talent, and operators from the best companies
           — find your next hire in hours, not weeks.
         </p>
       </div>
@@ -952,7 +955,7 @@ export function BrowseClient({
   const handleGetStartedFromModal = () => {
     setIsPricingModalOpen(false);
     // Auto-dismiss handled by the [toast] useEffect.
-    setToast("🔒 Subscriptions coming soon — payment integration in progress.");
+    setToast("🔒 Subscriptions coming soon. Check back later.");
   };
 
   // Phase 4 D1: useCallback so CardItem's memo stays stable.
@@ -1104,29 +1107,33 @@ export function BrowseClient({
     <>
       <div className="bt-sbox">
         <div className="bt-sbox-title">Talent Pool</div>
+        {/* Phase 6 A3: aligned with ROLE_FILTERS counts — same numbers, same
+            "K+" format, round-DOWN. Matches the chip values: All 50K+, Engineers
+            18K, SDR/Sales 12K, CS 9K, Design 6K. "Available Now" rounds the
+            previous 31,200+ to 31K+. */}
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Total Candidates</span>
-          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>50,000+</span>
+          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>50K+</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Engineers</span>
-          <span className="bt-pool-val" style={{ color: "#60a5fa" }}>18,400+</span>
+          <span className="bt-pool-val" style={{ color: "#60a5fa" }}>18K+</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">SDR / Sales</span>
-          <span className="bt-pool-val" style={{ color: "#a78bfa" }}>12,000+</span>
+          <span className="bt-pool-val" style={{ color: "#a78bfa" }}>12K+</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Customer Success</span>
-          <span className="bt-pool-val" style={{ color: "#34d399" }}>9,800+</span>
+          <span className="bt-pool-val" style={{ color: "#34d399" }}>9K+</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Designers</span>
-          <span className="bt-pool-val" style={{ color: "#fb923c" }}>6,200+</span>
+          <span className="bt-pool-val" style={{ color: "#fb923c" }}>6K+</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Available Now</span>
-          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>31,200+</span>
+          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>31K+</span>
         </div>
       </div>
 
@@ -1411,7 +1418,13 @@ export function BrowseClient({
                         aria-label="Subscription required"
                       >
                         <div className="bt-paywall-icon" aria-hidden="true">🔒</div>
-                        <div className="bt-paywall-title">10+ more candidates</div>
+                        {/* Phase 6 A5: dynamic count. Free tier sees the first
+                            15 rows; the gap is totalCount - 15. Math.max(_, 10)
+                            floors at 10+ so we never render "−2+" or "0+" if
+                            totalCount is unexpectedly small. */}
+                        <div className="bt-paywall-title">
+                          {Math.max(totalCount - 15, 10)}+ more candidates
+                        </div>
                         <div className="bt-paywall-sub">
                           Subscribe to unlock the full talent pool
                         </div>
@@ -1576,7 +1589,7 @@ export function BrowseClient({
             gap: 12,
           }}
         >
-          <span>Your subscription has changed.</span>
+          <span>Your subscription changed in another tab. Refresh to see updated access.</span>
           <button
             type="button"
             onClick={() => {
