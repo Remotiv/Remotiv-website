@@ -10,7 +10,6 @@ import {
   MapPin,
   Search,
   Unlock,
-  X,
 } from "lucide-react";
 
 // ── Types ────────────────────────────────────────────────────
@@ -713,7 +712,6 @@ export function HireMarketplace({
   const [selected, setSelected] = useState<Candidate | null>(null);
   const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
   const [toast,    setToast]    = useState<string | null>(null);
-  const [mobileDrawerOpen, setMobileDrawerOpen] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -721,17 +719,30 @@ export function HireMarketplace({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Lock body scroll ONLY when the mobile bottom-sheet is actually visible —
-  // i.e. drawer open AND a candidate selected AND viewport < lg breakpoint.
-  // Locking on desktop made the page un-scrollable behind the sticky drawer.
   useEffect(() => {
-    if (!mobileDrawerOpen || !selected) return;
-    if (typeof window === "undefined") return;
-    if (window.innerWidth >= 1024) return;
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => { document.body.style.overflow = prev; };
-  }, [mobileDrawerOpen, selected]);
+    if (!selected) return;
+    const count = Number.parseInt(document.body.dataset.scrollLocks ?? "0", 10);
+    document.body.dataset.scrollLocks = String(count + 1);
+    if (count === 0) document.body.style.overflow = "hidden";
+    return () => {
+      const current = Number.parseInt(document.body.dataset.scrollLocks ?? "1", 10);
+      const next = current - 1;
+      document.body.dataset.scrollLocks = String(next);
+      if (next <= 0) {
+        document.body.style.overflow = "";
+        delete document.body.dataset.scrollLocks;
+      }
+    };
+  }, [selected]);
+
+  useEffect(() => {
+    if (!selected) return;
+    const handler = (e: KeyboardEvent) => {
+      if (e.key === "Escape") setSelected(null);
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
+  }, [selected]);
 
   const filtered = useMemo(() => {
     const q = query.trim().toLowerCase();
@@ -763,25 +774,19 @@ export function HireMarketplace({
   const handleSelect = useCallback((candidate: Candidate) => {
     startTransition(() => {
       setSelected(candidate);
-      setMobileDrawerOpen(true);
     });
   }, []);
 
   function handleClose() {
     setSelected(null);
-    setMobileDrawerOpen(false);
   }
 
   function lockedAction() {
     setToast("🔒 Subscribe to unlock full access — payment setup in progress.");
   }
 
-  // Layout switches: full-width 2-col grid until a candidate is picked, then
-  // collapses to a single-column compact list with a sticky drawer on the side.
   const drawerOpen = selected !== null;
-  const listGridCls = drawerOpen
-    ? "grid grid-cols-1 gap-3"
-    : "grid grid-cols-1 gap-4";
+  const listGridCls = "grid grid-cols-1 gap-4";
 
   return (
     <section className="bg-[#f8f4f1] px-4 py-12 md:px-10">
@@ -796,93 +801,108 @@ export function HireMarketplace({
           query={query}     setQuery={setQuery}
         />
 
-        <div className="mt-6 flex items-baseline justify-between">
-          <h2 className="font-heading text-base font-bold text-[#111]">
-            <span className="text-[#1a9e73]">{filtered.length}</span> professionals found
-          </h2>
-          <span className="text-xs text-[#888]">Showing {visible.length} of {filtered.length}</span>
-        </div>
-
         <div
-          className={`mt-4 grid grid-cols-1 gap-6 ${
-            drawerOpen ? "lg:grid-cols-[3fr_2fr]" : "lg:grid-cols-1"
-          }`}
+          style={{
+            opacity: drawerOpen ? 0.3 : 1,
+            pointerEvents: drawerOpen ? "none" : "auto",
+            transition: "opacity 0.3s ease",
+          }}
         >
-          <div className={listGridCls}>
-            {visible.length === 0 ? (
-              data.length === 0 ? (
-                <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center">
-                  <p className="text-sm font-medium text-[#666]">No talent available right now.</p>
-                  <p className="mt-1 text-xs text-[#999]">Check back soon — new candidates are added regularly.</p>
-                </div>
-              ) : (
-                <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">
-                  No candidates match your filters.
-                </div>
-              )
-            ) : (
-              visible.map((c) => (
-                <CandidateCard
-                  key={c.id}
-                  candidate={c}
-                  selected={selected?.id === c.id}
-                  compact={drawerOpen}
-                  onSelect={handleSelect}
-                />
-              ))
-            )}
-
-            {pageSize < filtered.length && (
-              <button
-                type="button"
-                onClick={() => setPageSize((n) => n + PAGE_SIZE)}
-                className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-[#7E47FF]/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-[#7E47FF] transition-colors hover:border-[#7E47FF] hover:bg-[#7E47FF]/[0.06]"
-              >
-                Load More Profiles
-              </button>
-            )}
+          <div className="mt-6 flex items-baseline justify-between">
+            <h2 className="font-heading text-base font-bold text-[#111]">
+              <span className="text-[#1a9e73]">{filtered.length}</span> professionals found
+            </h2>
+            <span className="text-xs text-[#888]">Showing {visible.length} of {filtered.length}</span>
           </div>
 
-          {drawerOpen && (
-            <aside className="hidden lg:sticky lg:top-6 lg:block lg:self-start">
-              <ProfileDrawer
-                candidate={selected}
-                onClose={handleClose}
-                onUnlock={lockedAction}
-              />
-            </aside>
-          )}
+          <div className="mt-4 grid grid-cols-1 gap-6">
+            <div className={listGridCls}>
+              {visible.length === 0 ? (
+                data.length === 0 ? (
+                  <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center">
+                    <p className="text-sm font-medium text-[#666]">No talent available right now.</p>
+                    <p className="mt-1 text-xs text-[#999]">Check back soon — new candidates are added regularly.</p>
+                  </div>
+                ) : (
+                  <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">
+                    No candidates match your filters.
+                  </div>
+                )
+              ) : (
+                visible.map((c) => (
+                  <CandidateCard
+                    key={c.id}
+                    candidate={c}
+                    selected={selected?.id === c.id}
+                    compact={false}
+                    onSelect={handleSelect}
+                  />
+                ))
+              )}
+
+              {pageSize < filtered.length && (
+                <button
+                  type="button"
+                  onClick={() => setPageSize((n) => n + PAGE_SIZE)}
+                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-[#7E47FF]/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-[#7E47FF] transition-colors hover:border-[#7E47FF] hover:bg-[#7E47FF]/[0.06]"
+                >
+                  Load More Profiles
+                </button>
+              )}
+            </div>
+          </div>
         </div>
       </div>
 
-      {/* Mobile bottom-sheet drawer */}
-      {mobileDrawerOpen && selected && (
-        <div className="fixed inset-0 z-50 flex flex-col bg-black/40 lg:hidden">
-          <button
-            type="button"
-            aria-label="Close"
-            onClick={handleClose}
-            className="flex-1"
-          />
-          <div className="max-h-[92vh] overflow-y-auto rounded-t-3xl bg-[#f8f4f1] px-4 pb-8 pt-3">
-            <div className="mb-3 flex justify-end">
-              <button
-                type="button"
-                onClick={handleClose}
-                className="rounded-full bg-white p-2 text-[#666] shadow-sm"
-                aria-label="Close drawer"
-              >
-                <X className="size-4" strokeWidth={2} />
-              </button>
-            </div>
+      {/* Slide-in profile panel */}
+      <div
+        style={{
+          position: "fixed",
+          top: 0,
+          right: 0,
+          bottom: 0,
+          width: "min(96%, 1100px)",
+          background: "#fff",
+          boxShadow: "-4px 0 20px rgba(0,0,0,0.08)",
+          transform: drawerOpen ? "translateX(0)" : "translateX(110%)",
+          transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
+          overflowY: "auto",
+          zIndex: 50,
+          padding: "24px",
+        }}
+      >
+        {selected && (
+          <>
+            <button
+              type="button"
+              onClick={handleClose}
+              style={{
+                background: "transparent",
+                border: "none",
+                cursor: "pointer",
+                display: "flex",
+                alignItems: "center",
+                gap: 8,
+                color: "#7E47FF",
+                fontSize: 14,
+                fontWeight: 500,
+                padding: 0,
+                marginBottom: 24,
+                fontFamily: "'DM Sans', sans-serif",
+              }}
+              aria-label="Back to candidates"
+            >
+              <ArrowLeft size={18} />
+              Back to candidates
+            </button>
             <ProfileDrawer
               candidate={selected}
               onClose={handleClose}
               onUnlock={lockedAction}
             />
-          </div>
-        </div>
-      )}
+          </>
+        )}
+      </div>
 
       {toast && <Toast msg={toast} />}
     </section>
