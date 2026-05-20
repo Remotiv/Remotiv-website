@@ -1,7 +1,40 @@
+import type { Metadata } from "next";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { BrowseClient, type TalentRow } from "./_browse-client";
 
 export const dynamic = "force-dynamic";
+
+// Phase 6 C1: route-specific metadata. Overrides the root layout's marketing
+// title for this list-view page. Indexable (`?q=…` filter URLs are legitimate
+// landing pages — no noindex). Canonical path is relative; Next.js resolves
+// it against `metadataBase` (set in src/app/layout.tsx).
+export const metadata: Metadata = {
+  title: "Browse Talent — Remotiv",
+  description:
+    "Browse vetted senior engineers, sales talent, and operators. Filter by role, skill, and location. Hire top remote talent in hours, not weeks.",
+  alternates: {
+    canonical: "/browse-talent",
+  },
+  openGraph: {
+    title: "Browse Talent — Remotiv",
+    description:
+      "Browse vetted senior engineers, sales talent, and operators. Filter by role, skill, and location.",
+    url: "/browse-talent",
+    siteName: "Remotiv",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary_large_image",
+    title: "Browse Talent — Remotiv",
+    description:
+      "Browse vetted senior engineers, sales talent, and operators. Hire top remote talent in hours.",
+  },
+  robots: {
+    index: true,
+    follow: true,
+  },
+};
 
 const VALID_ROLES = [
   "All",
@@ -233,20 +266,50 @@ export default async function BrowseTalentPage({
   });
 
   return (
-    <BrowseClient
-      realProfiles={realProfiles}
-      tier={tier}
-      currentPage={Math.min(page, totalPages)}
-      totalPages={totalPages}
-      totalCount={totalCount}
-      pageSize={PAGE_SIZE}
-      activeRole={role}
-      activeQuery={q}
-      activeSort={sort}
-      unlockedIds={Array.from(unlockedIds)}
-      creditsRemaining={creditsRemaining}
-      isSavedView={isSavedView}
-      savedIds={savedIdsArr}
-    />
+    <>
+      {/* Phase 6 C2: BreadcrumbList JSON-LD for search engines. Two-level
+          breadcrumb (Home → Browse Talent). ItemList of candidates is
+          deliberately omitted: candidate previews could leak PII if indexed,
+          and the public list is paginated paywall content. */}
+      <script
+        type="application/ld+json"
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD requires raw script content
+        dangerouslySetInnerHTML={{
+          __html: JSON.stringify({
+            "@context": "https://schema.org",
+            "@type": "BreadcrumbList",
+            itemListElement: [
+              {
+                "@type": "ListItem",
+                position: 1,
+                name: "Home",
+                item: "https://remotiv.com/",
+              },
+              {
+                "@type": "ListItem",
+                position: 2,
+                name: "Browse Talent",
+                item: "https://remotiv.com/browse-talent",
+              },
+            ],
+          }),
+        }}
+      />
+      <BrowseClient
+        realProfiles={realProfiles}
+        tier={tier}
+        currentPage={Math.min(page, totalPages)}
+        totalPages={totalPages}
+        totalCount={totalCount}
+        pageSize={PAGE_SIZE}
+        activeRole={role}
+        activeQuery={q}
+        activeSort={sort}
+        unlockedIds={Array.from(unlockedIds)}
+        creditsRemaining={creditsRemaining}
+        isSavedView={isSavedView}
+        savedIds={savedIdsArr}
+      />
+    </>
   );
 }

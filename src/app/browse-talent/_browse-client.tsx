@@ -8,6 +8,7 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
+import Tooltip from "@/components/tooltip";
 // Phase 5 C1: ModalShell is imported statically (~1KB, ships in main chunk)
 // so it's available the instant a user clicks a dynamic-modal trigger.
 // Without `loading:`, first click sees a blank screen for ~100-500ms.
@@ -284,16 +285,24 @@ function LiSvg() {
 
 export function BtMatchBadge({ score }: { score: number }) {
   const c = score >= 95 ? "#49D7A7" : score >= 90 ? "#60a5fa" : "#fb923c";
+  // Phase 6 C3: tooltip explains the otherwise-cryptic score. Badge wrapper
+  // is now a <span> (was <div>) so it's valid HTML inside Tooltip's <span>;
+  // .bt-match-badge already uses display: inline-flex so visual is unchanged.
+  // tabIndex={0} makes the badge keyboard-focusable so the tooltip works for
+  // keyboard users, not just mouse hover.
   return (
-    <div
-      className="bt-match-badge"
-      style={{ background: `${c}12`, borderColor: `${c}40`, color: c }}
-    >
-      <svg width="8" height="8" viewBox="0 0 10 10" fill={c} role="img" aria-label="Match score">
-        <polygon points="5,0 6.2,3.8 10,3.8 7,6.1 8.1,10 5,7.6 1.9,10 3,6.1 0,3.8 3.8,3.8" />
-      </svg>
-      {score}%
-    </div>
+    <Tooltip content="Match Score: calculated from years of experience + skill count. Higher scores indicate a stronger match.">
+      <span
+        className="bt-match-badge"
+        style={{ background: `${c}12`, borderColor: `${c}40`, color: c }}
+        tabIndex={0}
+      >
+        <svg width="8" height="8" viewBox="0 0 10 10" fill={c} role="img" aria-label="Match score">
+          <polygon points="5,0 6.2,3.8 10,3.8 7,6.1 8.1,10 5,7.6 1.9,10 3,6.1 0,3.8 3.8,3.8" />
+        </svg>
+        {score}%
+      </span>
+    </Tooltip>
   );
 }
 
@@ -1276,7 +1285,13 @@ export function BrowseClient({
                   💳 <strong>{credits}</strong> credits remaining
                 </span>
               ) : (
-                <span className="bt-unlock-hint"><span aria-hidden="true">🔒</span> Subscribe to unlock contact details</span>
+                <Link
+                  href="/pricing"
+                  className="bt-unlock-hint"
+                  style={{ textDecoration: "none" }}
+                >
+                  <span aria-hidden="true">🔒</span> Subscribe to unlock contact details
+                </Link>
               )}
             </div>
 
