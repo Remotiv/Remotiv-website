@@ -8,17 +8,23 @@ import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
 import { cn } from "@/lib/utils";
+// Phase 5 C1: ModalShell is imported statically (~1KB, ships in main chunk)
+// so it's available the instant a user clicks a dynamic-modal trigger.
+// Without `loading:`, first click sees a blank screen for ~100-500ms.
+import ModalShell from "./_modal-shell";
 
 // Phase 4 Bundle C: code-split modals.
 // PricingModal only opens on a paywall-trigger click, so loading its bundle
 // up-front penalises every visitor. ssr:false is safe — never visible during SSR.
 const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
   ssr: false,
+  loading: () => <ModalShell />,
 });
 // ProfileModal only opens when the user clicks a card. Lives in its own file
 // (./_profile-modal) and is fetched on first card-open.
 const ProfileModal = dynamic(() => import("./_profile-modal"), {
   ssr: false,
+  loading: () => <ModalShell />,
 });
 import {
   fetchProfileDetail,
@@ -734,9 +740,23 @@ export function BrowseClient({
     return qs ? `${pathname}?${qs}` : pathname;
   }, [searchParams, pathname]);
 
-  const updateUrl = useCallback((updates: Record<string, string | null>) => {
-    router.push(buildUrl(updates));
-  }, [router, buildUrl]);
+  // Phase 5C follow-up: `scroll: false` on every navigation stops Next.js
+  // from auto-scrolling to the top of the page on URL changes (was causing
+  // a "jump to hero" bug on every search keystroke debounce). The optional
+  // `replace` flag lets search-input updates use router.replace (no history
+  // entry per keystroke) while filter/sort/pagination stays on router.push
+  // so the browser back button still works as expected.
+  const updateUrl = useCallback(
+    (updates: Record<string, string | null>, options?: { replace?: boolean }) => {
+      const next = buildUrl(updates);
+      if (options?.replace) {
+        router.replace(next, { scroll: false });
+      } else {
+        router.push(next, { scroll: false });
+      }
+    },
+    [router, buildUrl],
+  );
 
   // ESC closes the modal
   useEffect(() => {
@@ -772,13 +792,14 @@ export function BrowseClient({
     setSearchInput(activeQuery);
   }, [activeQuery]);
 
-  // Debounced search: 300ms after the last keystroke, push the typed value
-  // to the URL (which triggers a server re-render with the new filter).
+  // Phase 5C follow-up: 500ms debounce (was 300) — tested sweet spot; below
+  // ~400 feels jumpy while typing fast, above ~700 feels laggy. `replace: true`
+  // avoids littering the back-button history with one entry per keystroke.
   useEffect(() => {
     if (searchInput === activeQuery) return;
     const handle = setTimeout(() => {
-      updateUrl({ q: searchInput || null });
-    }, 300);
+      updateUrl({ q: searchInput || null }, { replace: true });
+    }, 500);
     return () => clearTimeout(handle);
   }, [searchInput, activeQuery, updateUrl]);
 
@@ -794,7 +815,19 @@ export function BrowseClient({
         return next;
       });
       try {
-        const result = await fetchProfileDetail(candidateId);
+        // Phase 5 C5: 10s timeout race. If fetchProfileDetail hangs on a slow
+        // network, we surface gracefully rather than letting the skeleton pulse
+        // forever. On timeout we don't cache anything (so re-opening the modal
+        // retries the fetch); loadingDetailIds is still cleared in `finally`
+        // so the skeleton stops, and the modal's existing empty-state fallback
+        // ("No work experience added", etc.) takes over.
+        const TIMEOUT_MS = 10_000;
+        const result = await Promise.race([
+          fetchProfileDetail(candidateId),
+          new Promise<{ ok: false; error: "timeout" }>((resolve) =>
+            setTimeout(() => resolve({ ok: false, error: "timeout" }), TIMEOUT_MS),
+          ),
+        ]);
         if (result.ok) {
           setProfileDetailCache((prev) => {
             const next = new Map(prev);
@@ -802,7 +835,7 @@ export function BrowseClient({
             return next;
           });
         }
-        // On error: don't cache; modal renders without the extra detail.
+        // On error / timeout: don't cache; modal renders without the extra detail.
       } finally {
         setLoadingDetailIds((prev) => {
           const next = new Set(prev);
@@ -1167,7 +1200,7 @@ export function BrowseClient({
               </button>
             </div>
             <div className="bt-search-bar">
-              <div className="bt-search-wrap">
+              <div className="bt-search-wrap" style={{ position: "relative" }}>
                 <span className="bt-search-icon">⌕</span>
                 <input
                   className="bt-search-input"
@@ -1177,6 +1210,37 @@ export function BrowseClient({
                   placeholder="Search by name, role, or skill (e.g. React, Salesforce, Gainsight)..."
                   aria-label="Search candidates"
                 />
+                {/* Phase 5 C2: explicit clear-X button. type="search" sometimes
+                    renders a native X on desktop Chrome but is inconsistent across
+                    browsers/mobile — this guarantees the affordance everywhere. */}
+                {searchInput && (
+                  <button
+                    type="button"
+                    onClick={() => {
+                      setSearchInput("");
+                      updateUrl({ q: null }, { replace: true });
+                    }}
+                    aria-label="Clear search"
+                    style={{
+                      position: "absolute",
+                      right: 12,
+                      top: "50%",
+                      transform: "translateY(-50%)",
+                      background: "transparent",
+                      border: "none",
+                      cursor: "pointer",
+                      padding: 4,
+                      display: "flex",
+                      alignItems: "center",
+                      justifyContent: "center",
+                      color: "#888",
+                      minHeight: 32,
+                      minWidth: 32,
+                    }}
+                  >
+                    <X style={{ width: 16, height: 16 }} aria-hidden="true" />
+                  </button>
+                )}
               </div>
               <select
                 className="bt-sort-select"
@@ -1287,7 +1351,7 @@ export function BrowseClient({
                     />
                   ))}
                   {tier === "subscriber" && currentPage < totalPages && (
-                    <div className="bt-load-more">
+                    <nav className="bt-load-more" aria-label="Pagination">
                       <button
                         type="button"
                         className="bt-load-btn"
@@ -1295,17 +1359,20 @@ export function BrowseClient({
                       >
                         Load more candidates
                       </button>
-                      <p className="bt-load-note">
+                      {/* Phase 5 C4: aria-live + aria-atomic so screen-reader
+                          users hear the full "Page X of Y" string each time it
+                          changes after a Load more / pagination navigation. */}
+                      <p className="bt-load-note" aria-live="polite" aria-atomic="true">
                         Page {currentPage} of {totalPages}
                       </p>
-                    </div>
+                    </nav>
                   )}
                   {tier === "subscriber" && currentPage === totalPages && totalPages > 1 && (
-                    <div className="bt-load-more">
-                      <p className="bt-load-note">
+                    <nav className="bt-load-more" aria-label="Pagination">
+                      <p className="bt-load-note" aria-live="polite" aria-atomic="true">
                         You&apos;ve viewed all {totalCount} candidates · Page {currentPage} of {totalPages}
                       </p>
-                    </div>
+                    </nav>
                   )}
                   {shouldShowPaywall && (
                     <div className="bt-blurred-section">
