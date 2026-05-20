@@ -228,7 +228,7 @@ export default function PricingPage() {
       <Navbar />
       <main className="flex-1">
         {/* Hero + pricing tiers */}
-        <section className="bg-remotiv-bg px-6 py-20 md:py-24">
+        <section className="bg-remotiv-bg px-6 py-20 sm:px-8 md:px-14 md:py-24">
           <div className="mx-auto mb-14 max-w-3xl text-center">
             <span className="mb-5 inline-block rounded-full bg-remotiv-green/[0.12] px-4 py-1.5 text-[0.78rem] font-semibold uppercase tracking-[0.1em] text-remotiv-green">
               Pricing
@@ -242,14 +242,14 @@ export default function PricingPage() {
             </p>
           </div>
 
-          <div className="mx-auto grid max-w-[1080px] items-stretch gap-6 md:grid-cols-3">
+          <div className="mx-auto grid max-w-[1080px] items-stretch gap-6 lg:grid-cols-3">
             {TIERS.map((tier) => (
               <article
                 key={tier.name}
                 className={cn(
-                  "relative flex flex-col rounded-3xl border p-9 shadow-[0_4px_24px_rgba(0,0,0,0.05)]",
+                  "relative flex flex-col rounded-3xl border p-7 shadow-[0_4px_24px_rgba(0,0,0,0.05)] sm:p-8 md:p-9",
                   tier.featured
-                    ? "border-remotiv-purple bg-remotiv-purple shadow-[0_12px_48px_rgba(126,71,255,0.28)] md:scale-[1.03]"
+                    ? "border-remotiv-purple bg-remotiv-purple shadow-[0_12px_48px_rgba(126,71,255,0.28)] lg:scale-[1.03]"
                     : "border-black/[0.07] bg-white",
                 )}
               >
@@ -267,7 +267,7 @@ export default function PricingPage() {
                   <div
                     className={cn(
                       "mb-1.5 font-heading font-extrabold leading-none text-remotiv-text-dark",
-                      tier.priceSuffix ? "text-[2.4rem]" : "text-[2rem]",
+                      tier.priceSuffix ? "text-[clamp(1.9rem,6vw,2.4rem)]" : "text-[clamp(1.6rem,5vw,2rem)]",
                     )}
                   >
                     {tier.price}
@@ -306,7 +306,7 @@ export default function PricingPage() {
                                 : "text-[#333]"
                               : tier.featured
                                 ? "text-white/40 line-through"
-                                : "text-[#aaa] line-through",
+                                : "text-[#888] line-through",
                           )}
                         >
                           {f.label}
@@ -333,7 +333,7 @@ export default function PricingPage() {
         </section>
 
         {/* Full-service hiring card */}
-        <section className="bg-remotiv-bg px-6 pb-24">
+        <section className="bg-remotiv-bg px-6 pb-24 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-12">
               <Eyebrow className="mb-3.5">Full-Service Hiring</Eyebrow>
@@ -397,7 +397,7 @@ export default function PricingPage() {
         </section>
 
         {/* Plan comparison */}
-        <section className="bg-white px-6 py-20">
+        <section className="bg-white px-6 py-20 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-14 text-center">
               <Eyebrow className="mb-3.5">Compare Plans</Eyebrow>
@@ -526,7 +526,7 @@ export default function PricingPage() {
         </section>
 
         {/* Trusted by */}
-        <section className="bg-white px-6 pb-24 pt-12">
+        <section className="bg-white px-6 pb-24 pt-12 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-14 text-center">
               <h2 className="mb-4 font-heading text-[clamp(1.9rem,3vw,2.6rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-remotiv-text-dark">
@@ -606,7 +606,7 @@ export default function PricingPage() {
         </section>
 
         {/* FAQ */}
-        <section className="bg-remotiv-bg px-6 py-24">
+        <section className="bg-remotiv-bg px-6 py-24 sm:px-8 md:px-14">
           <div className="mx-auto max-w-3xl">
             <div className="mb-12 text-center">
               <Eyebrow className="mb-3.5">FAQ</Eyebrow>
@@ -639,7 +639,7 @@ export default function PricingPage() {
         </section>
 
         {/* CTA */}
-        <section className="bg-white px-6 py-20">
+        <section className="bg-white px-6 py-20 sm:px-8 md:px-14">
           <div className="mx-auto max-w-4xl rounded-3xl bg-gradient-to-br from-remotiv-purple-light to-remotiv-purple p-10 text-center text-white md:p-14">
             <h2 className="mb-4 font-heading text-3xl font-extrabold tracking-[-0.02em] md:text-4xl">
               Ready to Hire Smarter?
