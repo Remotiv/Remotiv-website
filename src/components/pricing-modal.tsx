@@ -108,7 +108,7 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Close pricing"
           style={{
             position: "absolute",
             top: 16,

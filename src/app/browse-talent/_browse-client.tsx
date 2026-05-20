@@ -1297,7 +1297,7 @@ export function BrowseClient({
                 <div>
                   <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
                     <span style={{ fontSize: 22 }} aria-hidden="true">❤️</span>
-                    <h3 style={{ fontSize: 18, fontWeight: 500, margin: 0, color: "#111" }}>Saved profiles</h3>
+                    <h2 style={{ fontSize: 18, fontWeight: 500, margin: 0, color: "#111" }}>Saved profiles</h2>
                   </div>
                   <p style={{ fontSize: 13, color: "#666", margin: "4px 0 0 32px" }}>
                     Showing {realProfiles.length} saved candidate{realProfiles.length !== 1 ? "s" : ""}
@@ -1315,12 +1315,12 @@ export function BrowseClient({
                   <div className="bt-empty-state-icon" aria-hidden="true">
                     ❤️
                   </div>
-                  <h4 className="bt-empty-state-heading">Build your shortlist</h4>
+                  <h2 className="bt-empty-state-heading">Build your shortlist</h2>
                   <p className="bt-empty-state-subtext">
                     Click the heart icon on any candidate card to save them here for later review.
                   </p>
                   <Link href="/browse-talent" className="bt-empty-state-cta">
-                    ← Browse all candidates
+                    ← Back to all candidates
                   </Link>
                 </div>
               ) : cards.length === 0 ? (
@@ -1328,7 +1328,7 @@ export function BrowseClient({
                   <div className="bt-empty-state-icon" aria-hidden="true">
                     <Search size={28} color="#7E47FF" />
                   </div>
-                  <h4 className="bt-empty-state-heading">No candidates match</h4>
+                  <h2 className="bt-empty-state-heading">No candidates match</h2>
                   <p className="bt-empty-state-subtext" style={{ maxWidth: 400, marginLeft: "auto", marginRight: "auto" }}>
                     We couldn&apos;t find anyone matching your filters. Try different search terms or clear all filters.
                   </p>
@@ -1433,7 +1433,7 @@ export function BrowseClient({
                           className="bt-paywall-cta"
                           onClick={handleLockedAction}
                         >
-                          Subscribe to View
+                          Subscribe to Unlock
                         </button>
                       </div>
                     </div>

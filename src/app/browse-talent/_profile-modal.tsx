@@ -148,7 +148,7 @@ export default function ProfileModal({
 
     const timer = setTimeout(() => {
       const closeButton = document.querySelector(
-        '[role="dialog"][aria-labelledby="profile-modal-title"] [aria-label="Close"]',
+        '[role="dialog"][aria-labelledby="profile-modal-title"] [aria-label="Close profile"]',
       ) as HTMLElement | null;
       closeButton?.focus();
     }, 50);
@@ -175,7 +175,7 @@ export default function ProfileModal({
         <button
           type="button"
           onClick={onClose}
-          aria-label="Close"
+          aria-label="Close profile"
           className="bt-modal-close-btn"
         >
           <X size={16} color="#666" />
@@ -197,7 +197,7 @@ export default function ProfileModal({
           </div>
           <div className="bt-modal-meta">
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
-              <div id="profile-modal-title" className="bt-modal-name">{c.name}</div>
+              <h2 id="profile-modal-title" className="bt-modal-name">{c.name}</h2>
               <BtMatchBadge score={c.score} />
             </div>
             <div className="bt-modal-role">{c.role}</div>
@@ -275,7 +275,7 @@ export default function ProfileModal({
               if a future change removes summary from the list query). */}
           {hasSummary ? (
             <>
-              <div className="bt-modal-sec-title">Summary</div>
+              <h3 className="bt-modal-sec-title">Summary</h3>
               <p
                 style={{
                   margin: "0 0 20px",
@@ -291,14 +291,14 @@ export default function ProfileModal({
             </>
           ) : isLoadingDetail ? (
             <>
-              <div className="bt-modal-sec-title">Summary</div>
+              <h3 className="bt-modal-sec-title">Summary</h3>
               <div style={{ marginBottom: 20 }}>
                 <SummarySkeleton />
               </div>
             </>
           ) : null}
 
-          <div className="bt-modal-sec-title">Experience</div>
+          <h3 className="bt-modal-sec-title">Experience</h3>
           <div style={{ marginBottom: 20 }}>
             {isLoadingDetail && !hasExperienceArray ? (
               <ExperienceSkeleton />
@@ -338,7 +338,7 @@ export default function ProfileModal({
 
           {hasEducation && (
             <>
-              <div className="bt-modal-sec-title">Education</div>
+              <h3 className="bt-modal-sec-title">Education</h3>
               <div style={{ marginBottom: 20 }}>
                 <div className="bt-edu-row">
                   {degree && <div className="bt-edu-degree">{degree}</div>}
@@ -348,14 +348,14 @@ export default function ProfileModal({
             </>
           )}
 
-          <div className="bt-modal-sec-title">Skills</div>
+          <h3 className="bt-modal-sec-title">Skills</h3>
           <div className="bt-modal-skills">
             {c.skills.map((s) => (
               <span key={s} className="bt-modal-skill">{s}</span>
             ))}
           </div>
 
-          <div className="bt-modal-sec-title">Open To</div>
+          <h3 className="bt-modal-sec-title">Open To</h3>
           <div className="bt-open-to" style={{ marginBottom: 20 }}>
             {c.fullTime && (
               <span className="bt-ot-tag" style={{ color: "#49D7A7", borderColor: "rgba(73,215,167,.3)", background: "rgba(73,215,167,.08)" }}>
@@ -444,7 +444,7 @@ export default function ProfileModal({
             <div className="bt-locked-box">
               <div className="bt-locked-icon" aria-hidden="true">🔒</div>
               <div>
-                <div className="bt-locked-title">Unlock Full Contact Details</div>
+                <h3 className="bt-locked-title">Unlock Full Contact Details</h3>
                 <div className="bt-locked-sub">
                   {/* Phase 6 A4: aligned "CV" wording across both branches
                       (was "references" on the free tier). Matches the rest of

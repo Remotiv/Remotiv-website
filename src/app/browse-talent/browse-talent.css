@@ -584,3 +584,13 @@
           .bt-view-btn,
           .bt-save-btn { flex-shrink: 0; min-width: 0; }
         }
+        /* Phase 6 B2: heading-tag promotion (<div> → <h2>/<h3>) for modal
+           title, section titles and locked-state title. Existing classNames
+           already set the visual font-size/weight/colour; we only need to
+           zero the browser-default top margins that would otherwise push
+           these elements down inside their containers. */
+        .bt-modal-name,
+        .bt-modal-sec-title,
+        .bt-locked-title {
+          margin-top: 0;
+        }
