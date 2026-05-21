@@ -66,7 +66,7 @@ export function renderHireRequestClientEmail(data: HireRequestClientEmailData): 
       </div>
 
       <p style="margin: 0 0 0; color: #888; font-size: 13px; line-height: 1.6;">
-        Questions? Just reply to this email and our team will get back to you.
+        Questions? Just email talent@remotiv.work and our team will get back to you.
       </p>
 
     </div>
