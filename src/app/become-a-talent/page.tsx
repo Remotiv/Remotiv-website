@@ -273,6 +273,10 @@ export default function BecomeATalentPage() {
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvDragOver, setCvDragOver] = useState(false);
   const cvInputRef = useRef<HTMLInputElement>(null);
+  // Phase 3 M-photo-clear: ref on the photo input so the "Remove photo"
+  // button can reset its .value (otherwise picking the same file again
+  // wouldn't fire onChange).
+  const photoInputRef = useRef<HTMLInputElement>(null);
 
   // Form state — every text/select input is now controlled so values survive
   // step switches (each step unmounts when the user moves on).
@@ -305,7 +309,9 @@ export default function BecomeATalentPage() {
 
     if (!firstName.trim()) return "First name is required";
     if (!lastName.trim())  return "Last name is required";
-    if (!email.trim() || !emailRegex.test(email)) {
+    // Phase 3 M-trim: test against the trimmed value so a trailing space
+    // doesn't false-reject (pasting from email clients often leaves one).
+    if (!email.trim() || !emailRegex.test(email.trim())) {
       return "Please enter a valid email address";
     }
     if (!phone.trim() || phoneDigits.length < MIN_PHONE_DIGITS) {
@@ -424,6 +430,13 @@ export default function BecomeATalentPage() {
   };
 
   const addExperience = () => {
+    // Phase 3 L-exp-cap: client cap mirrors the Phase 2 server cap (30).
+    // Without this, a user could add 100 entries client-side and have the
+    // server silently truncate to 30 — saved profile loses entries.
+    if (experiences.length >= 30) {
+      setStep2Error("Maximum 30 work experiences reached.");
+      return;
+    }
     setExperiences((prev) => [...prev, makeEmptyExperience()]);
   };
 
@@ -439,11 +452,19 @@ export default function BecomeATalentPage() {
   };
 
   const handleSkillKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
-    if (e.key === "Enter") {
+    // Phase 3 L-skill-comma: also commit a skill on the comma key so users
+    // pasting "React, Node.js, Python" don't end up with one weird tag.
+    if (e.key === "Enter" || e.key === ",") {
       e.preventDefault();
-      const val = skillInput.trim();
+      // Strip a trailing comma (in case the user typed "React,") before trim.
+      const val = skillInput.replace(/,$/, "").trim();
       if (!val) return;
-      if (skills.length >= MAX_SKILLS) return;
+      // Phase 3 H1: was silent at cap; now surface a step-level error so the
+      // user understands why nothing is being added.
+      if (skills.length >= MAX_SKILLS) {
+        setStep2Error(`Maximum ${MAX_SKILLS} skills reached. Remove one to add more.`);
+        return;
+      }
       if (skills.includes(val)) return;
       setSkills((prev) => [...prev, val]);
       setSkillInput("");
@@ -452,6 +473,8 @@ export default function BecomeATalentPage() {
 
   const removeSkill = (tag: string) => {
     setSkills((prev) => prev.filter((s) => s !== tag));
+    // Phase 3 H1: clear the "maximum reached" error when the user makes room.
+    setStep2Error(null);
   };
 
   // Phase 1 R1 L1: ALLOWED_IMAGE_TYPES hoisted to module scope (was inline
@@ -547,6 +570,36 @@ export default function BecomeATalentPage() {
       }
 
       const fd = new FormData();
+      // Phase 3 H2: auto-derive job_title (= title of the newest experience,
+      // which is experiences[0] — users add their current role first, then
+      // older roles) and years_experience (= span from earliest start year
+      // to latest end year; "Present"/currentlyWorking → current year). The
+      // \d{4} regex tolerates "2021", "Jan 2021", "March 2021", etc. Without
+      // sending these, the API stored null and browse-talent rendered "—"
+      // for every Pakistan-market candidate.
+      const derivedJobTitle = experiences[0]?.title?.trim() ?? "";
+      const deriveYears = (): number => {
+        const currentYear = new Date().getFullYear();
+        let earliest = Number.POSITIVE_INFINITY;
+        let latest = 0;
+        for (const e of experiences) {
+          const startMatch = (e.start ?? "").match(/\d{4}/);
+          const startYear = startMatch ? Number.parseInt(startMatch[0], 10) : Number.NaN;
+          let endYear: number;
+          if (e.currentlyWorking) {
+            endYear = currentYear;
+          } else {
+            const endMatch = (e.end ?? "").match(/\d{4}/);
+            endYear = endMatch ? Number.parseInt(endMatch[0], 10) : Number.NaN;
+          }
+          if (!Number.isNaN(startYear)) earliest = Math.min(earliest, startYear);
+          if (!Number.isNaN(endYear))   latest   = Math.max(latest, endYear);
+        }
+        if (earliest === Number.POSITIVE_INFINITY || latest === 0) return 0;
+        return Math.max(0, latest - earliest);
+      };
+      const derivedYears = deriveYears();
+
       fd.append("first_name",     firstName);
       fd.append("last_name",      lastName);
       fd.append("email",          email);
@@ -555,8 +608,11 @@ export default function BecomeATalentPage() {
       fd.append("country",        country);
       fd.append("linkedin_url",   linkedinUrl);
       fd.append("github_url",     githubUrl);
-      // job_title / role_category / years_experience / industry are no longer
-      // collected directly — the API derives them from the experience array.
+      // Phase 3 H2: send derived job_title + years_experience to populate the
+      // API columns that were previously stored as null. role_category and
+      // industry remain unsent (null stays — out of scope this round).
+      if (derivedJobTitle) fd.append("job_title", derivedJobTitle);
+      if (derivedYears > 0) fd.append("years_experience", String(derivedYears));
       fd.append("degree",         degree);
       fd.append("institution",    institution);
       fd.append("summary",        summary);
@@ -630,6 +686,37 @@ export default function BecomeATalentPage() {
       setSubmitting(false);
     }
   };
+
+  // Phase 3 M-leave-warn: warn the user before they navigate away (browser
+  // back, tab close, reload) if they've started filling the form and haven't
+  // yet submitted. `beforeunload` doesn't fire after a successful submit
+  // because `submitted` flips true. Dirty-check is intentionally generous —
+  // ANY filled field counts as dirty.
+  useEffect(() => {
+    if (submitted) return;
+    const isDirty =
+      Boolean(firstName) || Boolean(lastName) || Boolean(email) ||
+      Boolean(phone) || Boolean(city) || Boolean(country) ||
+      Boolean(linkedinUrl) || Boolean(githubUrl) ||
+      Boolean(degree) || Boolean(institution) || Boolean(summary) ||
+      Boolean(cvFile) || Boolean(photoFile) ||
+      skills.length > 0 ||
+      experiences.some((e) => e.title || e.company || e.start || e.end);
+    if (!isDirty) return;
+    const handler = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      // Setting returnValue is required for the browser to actually show
+      // the prompt — the literal string is ignored by modern browsers
+      // (they show a localized "Leave site?" dialog instead).
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", handler);
+    return () => window.removeEventListener("beforeunload", handler);
+  }, [
+    firstName, lastName, email, phone, city, country,
+    linkedinUrl, githubUrl, degree, institution, summary,
+    cvFile, photoFile, skills, experiences, submitted,
+  ]);
 
   return (
     <>
@@ -750,6 +837,8 @@ export default function BecomeATalentPage() {
                                 placeholder="e.g. Sarah"
                                 value={firstName}
                                 onChange={(e) => setFirstName(e.target.value)}
+                                name="given-name"
+                                autoComplete="given-name"
                               />
                             </div>
                           </div>
@@ -763,6 +852,8 @@ export default function BecomeATalentPage() {
                               placeholder="e.g. Khan"
                               value={lastName}
                               onChange={(e) => setLastName(e.target.value)}
+                              name="family-name"
+                              autoComplete="family-name"
                             />
                           </div>
                         </div>
@@ -795,6 +886,8 @@ export default function BecomeATalentPage() {
                                 placeholder="you@example.com"
                                 value={email}
                                 onChange={(e) => setEmail(e.target.value)}
+                                name="email"
+                                autoComplete="email"
                               />
                             </div>
                           </div>
@@ -825,6 +918,8 @@ export default function BecomeATalentPage() {
                                 placeholder="+92 300 0000000"
                                 value={phone}
                                 onChange={(e) => setPhone(e.target.value)}
+                                name="tel"
+                                autoComplete="tel"
                               />
                             </div>
                           </div>
@@ -840,6 +935,8 @@ export default function BecomeATalentPage() {
                               placeholder="e.g. Lahore"
                               value={city}
                               onChange={(e) => setCity(e.target.value)}
+                              name="address-level2"
+                              autoComplete="address-level2"
                             />
                           </div>
                           <div className="bta-form-group">
@@ -850,6 +947,8 @@ export default function BecomeATalentPage() {
                               className="bta-select"
                               value={country}
                               onChange={(e) => setCountry(e.target.value)}
+                              name="country"
+                              autoComplete="country-name"
                             >
                               <option value="" disabled>
                                 Select country
@@ -892,6 +991,8 @@ export default function BecomeATalentPage() {
                                 placeholder="linkedin.com/in/yourname"
                                 value={linkedinUrl}
                                 onChange={(e) => setLinkedinUrl(e.target.value)}
+                                name="url"
+                                autoComplete="url"
                               />
                             </div>
                           </div>
@@ -900,7 +1001,12 @@ export default function BecomeATalentPage() {
                         <div className="bta-sec-title">Profile Photo</div>
                         <div className="bta-photo-wrap">
                           <label className="bta-photo-prev">
-                            <input type="file" accept="image/*" onChange={handlePhoto} />
+                            <input
+                              ref={photoInputRef}
+                              type="file"
+                              accept="image/*"
+                              onChange={handlePhoto}
+                            />
                             {photoPreview ? (
                               // biome-ignore lint/performance/noImgElement: local preview
                               <img
@@ -923,6 +1029,36 @@ export default function BecomeATalentPage() {
                               companies browsing talent.
                             </p>
                             <span className="bta-photo-btn">Upload Photo</span>
+                            {/* Phase 3 M-photo-clear: only render when a photo
+                                is selected. Resets state + the file input value
+                                so re-picking the same file still triggers onChange. */}
+                            {photoFile && (
+                              <button
+                                type="button"
+                                onClick={() => {
+                                  setPhotoFile(null);
+                                  setPhotoPreview(null);
+                                  setSubmitError(null);
+                                  if (photoInputRef.current) photoInputRef.current.value = "";
+                                }}
+                                style={{
+                                  marginLeft: 10,
+                                  background: "none",
+                                  border: "none",
+                                  padding: 0,
+                                  color: "#7E47FF",
+                                  fontWeight: 600,
+                                  cursor: "pointer",
+                                  font: "inherit",
+                                  textDecoration: "underline",
+                                  fontSize: ".72rem",
+                                  letterSpacing: ".06em",
+                                  textTransform: "uppercase",
+                                }}
+                              >
+                                Remove
+                              </button>
+                            )}
                           </div>
                         </div>
                       </div>
@@ -1084,9 +1220,14 @@ export default function BecomeATalentPage() {
                                   type="checkbox"
                                   checked={exp.currentlyWorking}
                                   onChange={(ev) =>
+                                    // Phase 3 L-uncheck-restore: don't clear
+                                    // `end` when ticking — just toggle the
+                                    // flag. The end input is already visually
+                                    // disabled via the existing style above;
+                                    // unticking now restores the original value
+                                    // (vs. forcing the user to re-type).
                                     updateExperience(exp.id, {
                                       currentlyWorking: ev.target.checked,
-                                      ...(ev.target.checked ? { end: "" } : {}),
                                     })
                                   }
                                   style={{ width: 18, height: 18, cursor: "pointer" }}
@@ -1145,6 +1286,7 @@ export default function BecomeATalentPage() {
                               value={skillInput}
                               onChange={(e) => setSkillInput(e.target.value)}
                               onKeyDown={handleSkillKey}
+                              maxLength={50}
                             />
                           </div>
                           <p className="bta-skill-hint">
@@ -1161,7 +1303,25 @@ export default function BecomeATalentPage() {
                             placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for."
                             value={summary}
                             onChange={(e) => setSummary(e.target.value)}
+                            maxLength={5000}
                           />
+                          {/* Phase 3 L-summary-max: visible char counter
+                              mirrors the maxLength + the Phase 2 server cap.
+                              Hidden until the user starts typing so the empty
+                              optional field doesn't get a counter chrome. */}
+                          {summary.length > 0 && (
+                            <div
+                              style={{
+                                marginTop: 4,
+                                fontSize: ".7rem",
+                                color: summary.length >= 5000 ? "#dc2626" : "#888",
+                                textAlign: "right",
+                              }}
+                              aria-live="polite"
+                            >
+                              {summary.length} / 5000
+                            </div>
+                          )}
                         </div>
                       </div>
                       {step2Error && (
@@ -1428,6 +1588,52 @@ export default function BecomeATalentPage() {
                           </div>
                           <div className="bta-upload-fmt">Required — PDF, DOC, or DOCX (max 5 MB)</div>
                         </div>
+                        {/* Phase 3 M-cv-clear (fixed): Remove button moved
+                            OUTSIDE the .bta-upload-zone. The zone's child
+                            <input type="file"> has position:absolute; inset:0
+                            (CSS L1891) so it overlays everything inside the
+                            zone — clicking ANY descendant first hits the
+                            invisible input, re-opening the picker. Mirrors
+                            the photo Remove pattern (sibling of the label,
+                            not nested inside it). */}
+                        {cvFile && (
+                          <div
+                            style={{
+                              marginTop: 10,
+                              fontSize: ".78rem",
+                              color: "#888",
+                              display: "flex",
+                              alignItems: "center",
+                              justifyContent: "space-between",
+                              gap: 10,
+                            }}
+                          >
+                            <span>Selected: {cvFile.name}</span>
+                            <button
+                              type="button"
+                              onClick={() => {
+                                setCvFile(null);
+                                setSubmitError(null);
+                                if (cvInputRef.current) cvInputRef.current.value = "";
+                              }}
+                              style={{
+                                background: "none",
+                                border: "none",
+                                padding: 0,
+                                color: "#7E47FF",
+                                fontWeight: 600,
+                                cursor: "pointer",
+                                font: "inherit",
+                                textDecoration: "underline",
+                                fontSize: ".72rem",
+                                letterSpacing: ".06em",
+                                textTransform: "uppercase",
+                              }}
+                            >
+                              Remove
+                            </button>
+                          </div>
+                        )}
 
                         <div className="bta-spacer" />
                         <div className="bta-sec-title">GitHub Profile</div>
@@ -1455,6 +1661,8 @@ export default function BecomeATalentPage() {
                               placeholder="github.com/yourusername"
                               value={githubUrl}
                               onChange={(e) => setGithubUrl(e.target.value)}
+                              name="github"
+                              autoComplete="url"
                             />
                           </div>
                         </div>
