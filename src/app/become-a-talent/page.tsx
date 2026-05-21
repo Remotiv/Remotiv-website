@@ -49,8 +49,25 @@ const AVAILABILITY_LABEL: Record<string, string> = {
   available: "Available Now", unavailable: "Not Available",
 };
 
+// Phase 1 R1 L1–L4: module-scope file-upload + form caps (was inline magics).
+const MAX_CV_BYTES = 5 * 1024 * 1024; // 5 MB
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024; // 2 MB
+const MAX_SKILLS = 15;
+const MIN_PHONE_DIGITS = 7;
+const ALLOWED_IMAGE_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+];
+
 type WorkExperience = {
-  id: number;
+  // Phase 1 R1 L5: was `number` from Date.now(); now string from
+  // crypto.randomUUID() to eliminate same-millisecond collision risk.
+  // `id` is only used as a React key + for equality lookup in
+  // updateExperience/removeExperience — string works identically.
+  id: string;
   title: string;
   company: string;
   start: string;
@@ -60,7 +77,7 @@ type WorkExperience = {
 };
 
 const makeEmptyExperience = (): WorkExperience => ({
-  id: Date.now(),
+  id: crypto.randomUUID(),
   title: "",
   company: "",
   start: "",
@@ -81,30 +98,10 @@ const STEPS = [
   { num: 4, label: "Upload CV" },
 ] as const;
 
-const ROLE_CATEGORIES = [
-  { value: "Engineer", label: "Engineer" },
-  { value: "SDR", label: "SDR / Sales" },
-  { value: "CS", label: "Customer Success" },
-  { value: "Design", label: "Design & UX" },
-  { value: "Data", label: "Data & AI" },
-  { value: "DevOps", label: "DevOps & Cloud" },
-  { value: "QA", label: "Quality Assurance" },
-  { value: "Marketing", label: "Marketing & Growth" },
-  { value: "Ops", label: "Business & Ops" },
-  { value: "Finance", label: "Finance & Accounting" },
-  { value: "Other", label: "Other" },
-];
-
-const INDUSTRIES = [
-  "Software & Technology",
-  "Design & Creative",
-  "Marketing & Growth",
-  "Finance & Accounting",
-  "Sales & Business Development",
-  "Customer Support",
-  "Data & Analytics",
-  "Other",
-];
+// Phase 1 R1 H2 + H3: ROLE_CATEGORIES and INDUSTRIES constants removed —
+// they were declared but never referenced anywhere. Both fields are now
+// derived from the work-experience array on the API side (see L453-454
+// comment in handleSubmit).
 
 const COUNTRIES = ["Pakistan", "United States", "United Kingdom", "Canada", "Australia", "Other"];
 
@@ -298,58 +295,131 @@ export default function BecomeATalentPage() {
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
 
-  const handleStep1Next = () => {
-    setStep1Error(null);
+  // Phase 1 R2 H1: pure validators — return the error string (or null when
+  // valid). Single source of truth for what counts as a valid step, used by
+  // (a) the Next-button handlers, (b) the step-bar forward-jump gate inside
+  // goToStep, and (c) handleSubmit's safety-net pre-validation.
+  const validateStep1Fields = (): string | null => {
     const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneDigits = phone.replace(/\D/g, "");
-    const linkedinValid = linkedinUrl.toLowerCase().includes("linkedin.com");
 
-    if (!firstName.trim()) { setStep1Error("First name is required"); return; }
-    if (!lastName.trim())  { setStep1Error("Last name is required"); return; }
+    if (!firstName.trim()) return "First name is required";
+    if (!lastName.trim())  return "Last name is required";
     if (!email.trim() || !emailRegex.test(email)) {
-      setStep1Error("Please enter a valid email address"); return;
+      return "Please enter a valid email address";
     }
-    if (!phone.trim() || phoneDigits.length < 7) {
-      setStep1Error("Please enter a valid phone number"); return;
+    if (!phone.trim() || phoneDigits.length < MIN_PHONE_DIGITS) {
+      return "Please enter a valid phone number";
     }
-    if (!city.trim())    { setStep1Error("City is required"); return; }
-    if (!country.trim()) { setStep1Error("Country is required"); return; }
-    if (!linkedinUrl.trim() || !linkedinValid) {
-      setStep1Error("Please enter a valid LinkedIn URL (linkedin.com/in/...)");
-      return;
+    if (!city.trim())    return "City is required";
+    if (!country.trim()) return "Country is required";
+
+    // Phase 1 R2 M1: hardened LinkedIn URL check — was a loose
+    // `.includes("linkedin.com")` which let "linkedin.com.evil.com" pass.
+    // Now parses the URL and verifies the hostname is exactly linkedin.com,
+    // www.linkedin.com, or a *.linkedin.com subdomain. Adds an https://
+    // fallback so users can type "linkedin.com/in/foo" without a scheme.
+    if (!linkedinUrl.trim()) {
+      return "Please enter a valid LinkedIn URL (linkedin.com/in/...)";
     }
-    goToStep(2);
+    const raw = linkedinUrl.trim();
+    const withProto = /^https?:\/\//i.test(raw) ? raw : `https://${raw}`;
+    let validLinkedIn = false;
+    try {
+      const host = new URL(withProto).hostname.toLowerCase();
+      validLinkedIn =
+        host === "linkedin.com" ||
+        host === "www.linkedin.com" ||
+        host.endsWith(".linkedin.com");
+    } catch {
+      validLinkedIn = false;
+    }
+    if (!validLinkedIn) {
+      return "Please enter a valid LinkedIn URL (linkedin.com/in/...)";
+    }
+
+    return null;
   };
 
-  const handleStep2Next = () => {
-    setStep2Error(null);
-
-    if (!degree.trim())      { setStep2Error("Degree / qualification is required"); return; }
-    if (!institution.trim()) { setStep2Error("Institution / university is required"); return; }
+  const validateStep2Fields = (): string | null => {
+    if (!degree.trim())      return "Degree / qualification is required";
+    if (!institution.trim()) return "Institution / university is required";
 
     if (experiences.length === 0) {
-      setStep2Error("Add at least one work experience entry");
-      return;
+      return "Add at least one work experience entry";
     }
 
     for (let i = 0; i < experiences.length; i++) {
       const e = experiences[i];
       const n = i + 1;
-      if (!e.title.trim())   { setStep2Error(`Experience ${n}: Job title is required`); return; }
-      if (!e.company.trim()) { setStep2Error(`Experience ${n}: Company is required`); return; }
-      if (!e.start.trim())   { setStep2Error(`Experience ${n}: Start date is required`); return; }
+      if (!e.title.trim())   return `Experience ${n}: Job title is required`;
+      if (!e.company.trim()) return `Experience ${n}: Company is required`;
+      if (!e.start.trim())   return `Experience ${n}: Start date is required`;
       if (!e.currentlyWorking && !e.end.trim()) {
-        setStep2Error(`Experience ${n}: End date is required (or tick "I currently work here")`);
-        return;
+        return `Experience ${n}: End date is required (or tick "I currently work here")`;
       }
     }
+    return null;
+  };
 
+  // Phase 1 R2 H1: Step 3 (Work Preferences) has no required-field
+  // validation — all four radio groups have default-selected values on
+  // initial state (available / fullTime / immediate / remote), so the form
+  // is always in a valid state. Helper returns null for symmetry with the
+  // step-gate loop in goToStep.
+  const validateStep3Fields = (): string | null => null;
+
+  const handleStep1Next = () => {
+    const err = validateStep1Fields();
+    if (err) { setStep1Error(err); return; }
+    setStep1Error(null);
+    goToStep(2);
+  };
+
+  const handleStep2Next = () => {
+    const err = validateStep2Fields();
+    if (err) { setStep2Error(err); return; }
+    setStep2Error(null);
     goToStep(3);
   };
 
   const goToStep = (target: number) => {
-    if (target < 1 || target > 4) return;
-    setStep(target);
+    const clamped = Math.min(Math.max(target, 1), 4);
+
+    // Backward navigation OR same-step: always allowed. The user might be
+    // returning to fix a field they noticed was wrong, so we don't gate.
+    if (clamped <= step) {
+      setStep(clamped);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+
+    // Phase 1 R2 H1: forward-jump gate — validate every step from the
+    // current up to (but not including) the target. On the first invalid
+    // step we stop there, surface its error, and DON'T jump further. This
+    // closes the bug where a user could click "Step 4" from Step 1 and
+    // submit empty Step 2 fields. handleSubmit also re-validates as a
+    // final safety net.
+    for (let s = step; s < clamped; s++) {
+      let stepErr: string | null = null;
+      if (s === 1) stepErr = validateStep1Fields();
+      else if (s === 2) stepErr = validateStep2Fields();
+      else if (s === 3) stepErr = validateStep3Fields();
+
+      if (stepErr) {
+        setStep(s);
+        if (s === 1) setStep1Error(stepErr);
+        else if (s === 2) setStep2Error(stepErr);
+        // s === 3 has no error state today (no required fields).
+        window.scrollTo({ top: 0, behavior: "smooth" });
+        return;
+      }
+    }
+
+    // All intermediate steps validated → clear stale errors and jump.
+    setStep1Error(null);
+    setStep2Error(null);
+    setStep(clamped);
     window.scrollTo({ top: 0, behavior: "smooth" });
   };
 
@@ -357,11 +427,11 @@ export default function BecomeATalentPage() {
     setExperiences((prev) => [...prev, makeEmptyExperience()]);
   };
 
-  const updateExperience = (id: number, patch: Partial<WorkExperience>) => {
+  const updateExperience = (id: string, patch: Partial<WorkExperience>) => {
     setExperiences((prev) => prev.map((e) => (e.id === id ? { ...e, ...patch } : e)));
   };
 
-  const removeExperience = (id: number) => {
+  const removeExperience = (id: string) => {
     setExperiences((prev) => {
       const next = prev.filter((e) => e.id !== id);
       return next.length === 0 ? [makeEmptyExperience()] : next;
@@ -373,7 +443,7 @@ export default function BecomeATalentPage() {
       e.preventDefault();
       const val = skillInput.trim();
       if (!val) return;
-      if (skills.length >= 15) return;
+      if (skills.length >= MAX_SKILLS) return;
       if (skills.includes(val)) return;
       setSkills((prev) => [...prev, val]);
       setSkillInput("");
@@ -384,14 +454,8 @@ export default function BecomeATalentPage() {
     setSkills((prev) => prev.filter((s) => s !== tag));
   };
 
-  const ALLOWED_IMAGE_TYPES = [
-    "image/jpeg",
-    "image/jpg",
-    "image/png",
-    "image/webp",
-    "image/gif",
-  ];
-
+  // Phase 1 R1 L1: ALLOWED_IMAGE_TYPES hoisted to module scope (was inline
+  // here, re-allocated on every render).
   const handlePhoto = (e: React.ChangeEvent<HTMLInputElement>) => {
     const file = e.target.files?.[0];
     if (!file) return;
@@ -399,6 +463,12 @@ export default function BecomeATalentPage() {
       setSubmitError(
         "Photo must be a JPG, PNG, WEBP, or GIF image.",
       );
+      return;
+    }
+    // Phase 1 R1 M3: 2 MB photo size cap — was unbounded; matches the CV
+    // size-guard pattern so users get a clear rejection on oversized files.
+    if (file.size > MAX_PHOTO_BYTES) {
+      setSubmitError("Photo must be under 2 MB.");
       return;
     }
     setSubmitError(null);
@@ -415,13 +485,48 @@ export default function BecomeATalentPage() {
       "application/msword",
       "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
     ];
-    if (!allowed.includes(file.type)) return;
-    if (file.size > 5 * 1024 * 1024) return;
+    // Phase 1 R1 M2: was silent return; now surfaces the rejection so the
+    // user understands why nothing happened after picking the wrong file.
+    if (!allowed.includes(file.type)) {
+      setSubmitError("File must be PDF, DOC, or DOCX.");
+      return;
+    }
+    if (file.size > MAX_CV_BYTES) {
+      setSubmitError("File must be under 5 MB.");
+      return;
+    }
+    setSubmitError(null);
     setCvFile(file);
   };
 
   const handleSubmit = async () => {
     setSubmitError(null);
+
+    // Phase 1 R2 H1: safety-net pre-validation. Even though goToStep gates
+    // forward jumps, this re-runs every step's validator before submit so
+    // a user who somehow bypassed the gate (or whose fields became invalid
+    // after stepping forward) can't submit broken data. On failure we move
+    // them BACK to the first invalid step + surface its error.
+    const s1Err = validateStep1Fields();
+    if (s1Err) {
+      setStep(1);
+      setStep1Error(s1Err);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const s2Err = validateStep2Fields();
+    if (s2Err) {
+      setStep(2);
+      setStep2Error(s2Err);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
+    const s3Err = validateStep3Fields();
+    if (s3Err) {
+      setStep(3);
+      window.scrollTo({ top: 0, behavior: "smooth" });
+      return;
+    }
 
     if (!cvFile) {
       setSubmitError("Please upload your CV to continue");
@@ -484,7 +589,21 @@ export default function BecomeATalentPage() {
       if (cvFile)        fd.append("cv",      cvFile);
       if (photoFile)     fd.append("photo",   photoFile);
 
-      const res = await fetch("/api/talent", { method: "POST", body: fd });
+      // Phase 1 R2 M4: 30s AbortController timeout — without this a stalled
+      // request leaves the user stuck on "Submitting..." indefinitely.
+      // Abort is surfaced as a distinct user-friendly message in the catch.
+      const controller = new AbortController();
+      const timeoutId = setTimeout(() => controller.abort(), 30_000);
+      let res: Response;
+      try {
+        res = await fetch("/api/talent", {
+          method: "POST",
+          body: fd,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (res.status === 409) {
         setSubmitState("duplicate");
@@ -498,7 +617,15 @@ export default function BecomeATalentPage() {
       setSubmitState("success");
       setSubmitted(true);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+      // Phase 1 R2 M4: distinguish timeout/abort from other failures so
+      // the user knows to retry vs. contact support.
+      if (err instanceof DOMException && err.name === "AbortError") {
+        setSubmitError(
+          "The request took too long. Please check your connection and try again.",
+        );
+      } else {
+        setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+      }
     } finally {
       setSubmitting(false);
     }
