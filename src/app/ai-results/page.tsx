@@ -1,11 +1,60 @@
 "use client";
 
-import { ArrowLeft, Bookmark, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Lock, MapPin } from "lucide-react";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
-import { Suspense, useMemo, useState } from "react";
+import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
-import { ROLE_CONFIG, type Talent, TALENT_POOL } from "@/lib/talent-pool";
+import { ROLE_CONFIG, type TalentType } from "@/lib/talent-pool";
+
+// ── API contract ─────────────────────────────────────────────
+
+type CandidateProfile = {
+  id: string;
+  first_name: string;
+  last_name: string | null;
+  job_title: string | null;
+  role_category: string | null;
+  skills: string[];
+  city: string | null;
+  country: string | null;
+  years_experience: number | null;
+  summary: string | null;
+  availability: string | null;
+  work_type: string | null;
+  github_url: string | null;
+  linkedin_url: string | null;
+  avatar_url: string | null;
+  status: string;
+  salary_min: number | null;
+  salary_max: number | null;
+};
+
+type EnrichedMatch = {
+  candidate_id: string;
+  match_percent: number;
+  why: string;
+  profile: CandidateProfile;
+};
+
+type ApiTier = "anonymous" | "free" | "subscriber";
+
+type ApiSuccess = {
+  results: EnrichedMatch[];
+  tier: ApiTier;
+  cached: boolean;
+  used: number;
+  limit: number;
+};
+
+type ApiRateLimit = {
+  error: "rate_limit";
+  used: number;
+  limit: number;
+  tier: ApiTier;
+};
+
+// ── Helpers ──────────────────────────────────────────────────
 
 function GithubIcon() {
   return (
@@ -23,12 +72,15 @@ function LinkedinIcon() {
   );
 }
 
-function ContactLink({ label, icon }: { label: string; icon?: React.ReactNode }) {
+function LockedContactLink({ label, icon }: { label: string; icon?: React.ReactNode }) {
   return (
     <button
       type="button"
-      className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
+      disabled
+      title="Sign up to unlock contact details"
+      className="flex cursor-not-allowed items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.02] px-3 py-1.5 text-[0.72rem] font-medium text-[#aaa]"
     >
+      <Lock className="size-3" strokeWidth={2} />
       {icon}
       {label}
     </button>
@@ -40,30 +92,109 @@ function scoreStars(score: number): string {
   return "★".repeat(filled) + "☆".repeat(5 - filled);
 }
 
-function rankTalent(query: string): Talent[] {
-  const tokens = query
-    .toLowerCase()
-    .split(/\s+/)
-    .filter((t) => t.length > 2);
-  if (tokens.length === 0) return [...TALENT_POOL].sort((a, b) => b.score - a.score);
-  return TALENT_POOL.map((t) => {
-    const haystack = [
-      t.role,
-      t.skills.join(" "),
-      t.exp,
-      t.location,
-      t.bio,
-      t.highlights.join(" "),
-    ]
-      .join(" ")
-      .toLowerCase();
-    const matches = tokens.reduce((acc, tok) => acc + (haystack.includes(tok) ? 1 : 0), 0);
-    return { talent: t, matches };
-  })
-    .filter((x) => x.matches > 0)
-    .sort((a, b) => b.matches - a.matches || b.talent.score - a.talent.score)
-    .map((x) => x.talent);
+function deriveType(roleCategory: string | null): TalentType {
+  const r = (roleCategory ?? "").toLowerCase();
+  if (/engineer|developer|software|devops|backend|frontend|fullstack|full[- ]?stack/.test(r)) return "Eng";
+  if (/design|ui|ux/.test(r)) return "Design";
+  if (/data|analyst|scientist|ml|machine learning/.test(r)) return "Data";
+  if (/product|manager|^pm$|owner/.test(r)) return "PM";
+  if (/ops|operations|support|customer|success/.test(r)) return "Ops";
+  return "Eng";
 }
+
+function initialsOf(first: string, last: string | null): string {
+  const a = first?.[0] ?? "";
+  const b = last?.[0] ?? "";
+  return `${a}${b}`.toUpperCase() || "??";
+}
+
+function isAvailableNow(availability: string | null): boolean {
+  if (!availability) return false;
+  return availability.toLowerCase().includes("available");
+}
+
+// ── Loading steps animation ─────────────────────────────────
+
+const STEPS = [
+  "Reading your requirements",
+  "Scanning thousands of profiles",
+  "Scoring with AI",
+  "Ranking your matches",
+];
+const STEP_DURATION_MS = 900;
+
+function LoadingSteps({ activeStep }: { activeStep: number }) {
+  return (
+    <div className="mx-auto flex max-w-[420px] flex-col gap-2">
+      {STEPS.map((label, i) => {
+        const done = i < activeStep;
+        const active = i === activeStep;
+        const stateClass = done
+          ? "border-[rgba(73,215,167,0.3)] bg-[rgba(73,215,167,0.06)] text-remotiv-green"
+          : active
+            ? "border-remotiv-green text-[#111]"
+            : "border-black/[0.08] text-[#aaa]";
+        const checkClass = done
+          ? "border-remotiv-green bg-remotiv-green text-[#111]"
+          : active
+            ? "animate-[aimStepPulse_1s_ease_infinite] border-[#111] bg-[#111] text-white"
+            : "border-black/[0.12] bg-remotiv-bg text-inherit";
+        return (
+          <div
+            key={label}
+            className={`flex items-center gap-3 rounded-xl border bg-white px-[18px] py-3 font-sans text-[0.78rem] font-semibold transition-all duration-300 ${stateClass}`}
+          >
+            <div
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-[0.65rem] font-bold transition-all ${checkClass}`}
+            >
+              {done ? "✓" : i + 1}
+            </div>
+            <span>{label}</span>
+          </div>
+        );
+      })}
+    </div>
+  );
+}
+
+function LoadingPanel({ query }: { query: string }) {
+  const [activeStep, setActiveStep] = useState(0);
+  useEffect(() => {
+    let cancelled = false;
+    let i = 0;
+    const tick = () => {
+      if (cancelled) return;
+      i = Math.min(i + 1, STEPS.length - 1);
+      setActiveStep(i);
+      if (i < STEPS.length - 1) {
+        setTimeout(tick, STEP_DURATION_MS);
+      }
+    };
+    const t = setTimeout(tick, STEP_DURATION_MS);
+    return () => {
+      cancelled = true;
+      clearTimeout(t);
+    };
+  }, []);
+
+  return (
+    <section className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20">
+      <div className="mx-auto mb-7 flex size-[68px] animate-[aimOrbPulse_1.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-remotiv-green text-[1.4rem] font-bold text-[#111]">
+        ✦
+      </div>
+      <h2 className="mb-2 font-heading text-[1.1rem] font-bold text-[#111]">
+        Finding Your Best Matches...
+      </h2>
+      <p className="mb-8 text-[0.82rem] text-[#777]">
+        &ldquo;{query.slice(0, 80)}
+        {query.length > 80 ? "…" : ""}&rdquo;
+      </p>
+      <LoadingSteps activeStep={activeStep} />
+    </section>
+  );
+}
+
+// ── Card components ─────────────────────────────────────────
 
 function ScoreBadge({ score }: { score: number }) {
   return (
@@ -82,17 +213,28 @@ function ScoreBadge({ score }: { score: number }) {
 }
 
 function TalentCard({
-  talent,
+  match,
   index,
   saved,
   onToggleSave,
 }: {
-  talent: Talent;
+  match: EnrichedMatch;
   index: number;
   saved: boolean;
-  onToggleSave: (id: number) => void;
+  onToggleSave: (id: string) => void;
 }) {
-  const cfg = ROLE_CONFIG[talent.type];
+  const p = match.profile;
+  const type = deriveType(p.role_category);
+  const cfg = ROLE_CONFIG[type];
+  const name = `${p.first_name}${p.last_name ? ` ${p.last_name}` : ""}`.trim() || "Talent";
+  const role = p.job_title || p.role_category || "Talent";
+  const location = [p.city, p.country].filter(Boolean).join(", ") || "Remote";
+  const exp =
+    p.years_experience != null ? `${p.years_experience} years` : "Experience not specified";
+  const available = isAvailableNow(p.availability);
+  const bio = (p.summary ?? "").trim();
+  const why = (match.why ?? "").trim();
+
   return (
     <article
       className="grid grid-cols-1 gap-6 rounded-[20px] border border-black/[0.07] bg-white p-6 transition-all hover:-translate-y-px hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] md:grid-cols-[1fr_auto]"
@@ -100,81 +242,77 @@ function TalentCard({
     >
       <div>
         <div className="mb-2 flex flex-wrap items-center gap-2.5">
-          <span className="font-heading text-[1.05rem] font-bold text-[#111]">{talent.name}</span>
+          <span className="font-heading text-[1.05rem] font-bold text-[#111]">{name}</span>
           <span
             className="rounded-md border px-2 py-[3px] text-[0.65rem] font-bold uppercase tracking-[0.08em]"
             style={{ color: cfg.color, borderColor: cfg.border, background: cfg.background }}
           >
             {cfg.label}
           </span>
-          <span
-            className={`text-[0.72rem] font-semibold ${
-              talent.available ? "text-remotiv-green" : "text-[#bbb]"
-            }`}
-          >
-            {talent.available ? "● Available" : "○ Unavailable"}
-          </span>
-          <span className="ml-auto font-sans text-[0.7rem] text-[#ccc]">{talent.lastActive}</span>
+          {p.availability && (
+            <span
+              className={`text-[0.72rem] font-semibold ${
+                available ? "text-remotiv-green" : "text-[#bbb]"
+              }`}
+            >
+              {available ? "● Available" : "○ Unavailable"}
+            </span>
+          )}
         </div>
 
         <div className="mb-2.5 flex flex-wrap items-center gap-1 font-sans text-[0.85rem] text-[#555]">
-          <span>{talent.role}</span>
+          <span>{role}</span>
           <span>·</span>
           <MapPin className="size-3" />
-          <span>{talent.location}</span>
+          <span>{location}</span>
           <span>·</span>
-          <span>{talent.exp} exp</span>
+          <span>{exp}</span>
         </div>
 
-        {talent.why && (
+        {why && (
           <div className="mb-2.5 flex items-start gap-2 rounded-[10px] border border-remotiv-green/[0.2] bg-remotiv-green/[0.07] px-3.5 py-2.5 font-sans text-[0.8rem] leading-[1.6] text-[#1d8c6b]">
             <span className="shrink-0 font-bold text-remotiv-green">✦</span>
-            {talent.why}
+            {why}
           </div>
         )}
 
-        <p className="mb-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">{talent.bio}</p>
+        {bio && (
+          <p className="mb-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">{bio}</p>
+        )}
 
-        <div className="mb-2.5 flex flex-wrap gap-1.5">
-          {talent.skills.map((s) => (
-            <span
-              key={s}
-              className="rounded-md border border-black/[0.07] bg-black/[0.03] px-2 py-[3px] text-[0.7rem] font-medium text-[#555]"
-            >
-              {s}
-            </span>
-          ))}
-        </div>
-
-        <div className="flex flex-wrap gap-1.5">
-          {talent.highlights.map((h) => (
-            <span
-              key={h}
-              className="rounded-md border border-remotiv-purple/[0.2] bg-remotiv-purple/[0.06] px-2 py-[3px] text-[0.7rem] font-medium text-remotiv-purple"
-            >
-              ✦ {h}
-            </span>
-          ))}
-        </div>
+        {p.skills && p.skills.length > 0 && (
+          <div className="mb-2.5 flex flex-wrap gap-1.5">
+            {p.skills.map((s) => (
+              <span
+                key={s}
+                className="rounded-md border border-black/[0.07] bg-black/[0.03] px-2 py-[3px] text-[0.7rem] font-medium text-[#555]"
+              >
+                {s}
+              </span>
+            ))}
+          </div>
+        )}
 
         <div className="mt-3 flex flex-wrap gap-1.5">
-          {talent.github && <ContactLink label="GitHub" icon={<GithubIcon />} />}
-          <ContactLink label="LinkedIn" icon={<LinkedinIcon />} />
-          <ContactLink label="Resume ✦" />
+          <LockedContactLink label="GitHub" icon={<GithubIcon />} />
+          <LockedContactLink label="LinkedIn" icon={<LinkedinIcon />} />
+          <LockedContactLink label="Resume ✦" />
         </div>
       </div>
 
       <div className="flex flex-row items-start gap-2 md:flex-col md:items-stretch">
-        <ScoreBadge score={talent.score} />
+        <ScoreBadge score={match.match_percent} />
         <button
           type="button"
-          className="rounded-xl bg-remotiv-purple px-5 py-2.5 font-heading text-[0.8rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+          disabled
+          title="Full profile view coming soon"
+          className="cursor-not-allowed rounded-xl bg-remotiv-purple/40 px-5 py-2.5 font-heading text-[0.8rem] font-semibold text-white"
         >
           View Profile
         </button>
         <button
           type="button"
-          onClick={() => onToggleSave(talent.id)}
+          onClick={() => onToggleSave(match.candidate_id)}
           className={`flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[0.8rem] font-semibold transition-colors ${
             saved
               ? "border-remotiv-purple bg-remotiv-purple/[0.08] text-remotiv-purple"
@@ -188,6 +326,8 @@ function TalentCard({
     </article>
   );
 }
+
+// ── Non-result states ───────────────────────────────────────
 
 function EmptyState() {
   return (
@@ -209,22 +349,163 @@ function EmptyState() {
   );
 }
 
+function RateLimitState({ used, limit }: { used: number; limit: number }) {
+  return (
+    <div className="px-6 py-20 text-center">
+      <div className="mb-5 text-5xl">⏳</div>
+      <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
+        You&apos;ve used all {limit} free searches today
+      </h3>
+      <p className="mb-7 font-sans text-[#777]">
+        {used}/{limit} searches used. Sign up for unlimited AI matching, faster results, and
+        contact unlock.
+        <br />
+        Free searches reset at midnight UTC.
+      </p>
+      <div className="flex flex-wrap items-center justify-center gap-3">
+        <Link
+          href="/pricing"
+          className="inline-flex items-center gap-2 rounded-[14px] bg-remotiv-purple px-7 py-3 font-heading text-[0.9rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+        >
+          See plans
+        </Link>
+        <Link
+          href="/ai-matching"
+          className="inline-flex items-center gap-2 rounded-[14px] border border-black/[0.1] bg-white px-6 py-3 font-heading text-[0.9rem] font-semibold text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
+        >
+          <ArrowLeft className="size-4" /> New Search
+        </Link>
+      </div>
+    </div>
+  );
+}
+
+function ErrorState() {
+  return (
+    <div className="px-6 py-20 text-center">
+      <div className="mb-5 text-5xl">⚠️</div>
+      <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
+        Something went wrong
+      </h3>
+      <p className="mb-7 font-sans text-[#777]">
+        We couldn&apos;t complete your search. Please try again in a moment.
+      </p>
+      <Link
+        href="/ai-matching"
+        className="inline-flex items-center gap-2 rounded-[14px] bg-remotiv-purple px-7 py-3 font-heading text-[0.9rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+      >
+        <ArrowLeft className="size-4" /> New Search
+      </Link>
+    </div>
+  );
+}
+
+// ── Main results content ────────────────────────────────────
+
+type ErrorKind = "none" | "empty" | "rate_limit" | "error";
+
 function ResultsContent() {
   const params = useSearchParams();
-  const query = params.get("q") ?? "";
-  const [shortlist, setShortlist] = useState<Set<number>>(new Set());
+  const query = (params.get("q") ?? "").trim();
+
+  const [results, setResults] = useState<EnrichedMatch[]>([]);
+  const [tier, setTier] = useState<ApiTier>("anonymous");
+  const [used, setUsed] = useState<number>(0);
+  const [limit, setLimit] = useState<number>(3);
+  const [, setCached] = useState<boolean>(false);
+  const [loading, setLoading] = useState<boolean>(true);
+  const [errorState, setErrorState] = useState<ErrorKind>("none");
+
+  const [shortlist, setShortlist] = useState<Set<string>>(new Set());
   const [showOnlySaved, setShowOnlySaved] = useState(false);
 
-  const ranked = useMemo(() => rankTalent(query), [query]);
-  const visible = showOnlySaved ? ranked.filter((t) => shortlist.has(t.id)) : ranked;
+  // Guard against React strict-mode double-invocation of effects in dev.
+  const lastFetchedQuery = useRef<string | null>(null);
 
-  function toggleSave(id: number) {
+  useEffect(() => {
+    if (!query) {
+      setLoading(false);
+      setErrorState("empty");
+      setResults([]);
+      return;
+    }
+    // Strict-mode rerun guard: same query already fetched this mount.
+    if (lastFetchedQuery.current === query) return;
+    lastFetchedQuery.current = query;
+
+    setLoading(true);
+    setErrorState("none");
+
+    // Stale-response detection uses the ref (not a closured cancelled flag).
+    // If the user navigates to a different ?q= mid-flight, the ref will have
+    // been updated by the new effect run and this resolver bails. Within a
+    // single query, the strict-mode rerun is a no-op (ref guard above).
+    fetch("/api/ai-matching", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ query }),
+    })
+      .then(async (res) => {
+        if (lastFetchedQuery.current !== query) return;
+        const body = (await res.json().catch(() => null)) as
+          | ApiSuccess
+          | ApiRateLimit
+          | null;
+        if (lastFetchedQuery.current !== query) return;
+        if (res.status === 429 && body && "error" in body && body.error === "rate_limit") {
+          setTier(body.tier);
+          setUsed(body.used);
+          setLimit(body.limit);
+          setErrorState("rate_limit");
+          setResults([]);
+          return;
+        }
+        if (!res.ok || !body || "error" in body) {
+          setErrorState("error");
+          setResults([]);
+          return;
+        }
+        const success = body as ApiSuccess;
+        setTier(success.tier);
+        setUsed(success.used);
+        setLimit(success.limit);
+        setCached(success.cached);
+        setResults(success.results);
+        setErrorState(success.results.length === 0 ? "empty" : "none");
+      })
+      .catch(() => {
+        if (lastFetchedQuery.current !== query) return;
+        setErrorState("error");
+        setResults([]);
+      })
+      .finally(() => {
+        if (lastFetchedQuery.current === query) setLoading(false);
+      });
+  }, [query]);
+
+  const toggleSave = useCallback((id: string) => {
     setShortlist((prev) => {
       const next = new Set(prev);
       if (next.has(id)) next.delete(id);
       else next.add(id);
       return next;
     });
+  }, []);
+
+  const visible = showOnlySaved
+    ? results.filter((r) => shortlist.has(r.candidate_id))
+    : results;
+
+  if (loading) {
+    return <LoadingPanel query={query} />;
+  }
+
+  if (errorState === "rate_limit") {
+    return <RateLimitState used={used} limit={limit} />;
+  }
+
+  if (errorState === "error") {
+    return <ErrorState />;
   }
 
   return (
@@ -236,7 +517,16 @@ function ResultsContent() {
           </div>
           {query && (
             <div className="mt-0.5 text-[0.78rem] text-[#777]">
-              Results for: <strong>&ldquo;{query.slice(0, 60)}{query.length > 60 ? "…" : ""}&rdquo;</strong>
+              Results for:{" "}
+              <strong>
+                &ldquo;{query.slice(0, 60)}
+                {query.length > 60 ? "…" : ""}&rdquo;
+              </strong>
+              {tier !== "subscriber" && (
+                <span className="ml-3 text-[#aaa]">
+                  · {used}/{limit} searches today
+                </span>
+              )}
             </div>
           )}
         </div>
@@ -267,12 +557,12 @@ function ResultsContent() {
         <EmptyState />
       ) : (
         <div className="mx-auto flex max-w-[900px] flex-col gap-2.5 px-6 pb-20 pt-6">
-          {visible.map((t, i) => (
+          {visible.map((m, i) => (
             <TalentCard
-              key={t.id}
-              talent={t}
+              key={m.candidate_id}
+              match={m}
               index={i}
-              saved={shortlist.has(t.id)}
+              saved={shortlist.has(m.candidate_id)}
               onToggleSave={toggleSave}
             />
           ))}
