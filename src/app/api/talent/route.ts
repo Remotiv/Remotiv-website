@@ -21,6 +21,45 @@ const ALLOWED_IMAGE_TYPES = [
 const MAX_CV_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_CV_TEXT_LENGTH = 100_000;
 
+// Phase 2 security: per-field length caps to stop an attacker bloating a
+// single submission to 10+ MB by POSTing a giant `summary` (or similar).
+// Generous enough that no legitimate user will hit them; client-side caps
+// are tighter still.
+const MAX_PHOTO_BYTES = 2 * 1024 * 1024; // 2 MB (mirrors client cap)
+const FIELD_MAX = {
+  name: 80,
+  email: 254,
+  phone: 40,
+  city: 100,
+  country: 100,
+  url: 300,
+  degree: 200,
+  institution: 200,
+  jobTitle: 200,
+  industry: 100,
+  roleCategory: 60,
+  summary: 5000,
+  skill: 50,
+  expField: 200,
+};
+const MAX_SKILLS = 30;
+const MAX_EXPERIENCES = 30;
+
+// Phase 2 security: enum value sets. The CLIENT sends the LABEL strings
+// (see *_LABEL maps in /become-a-talent/page.tsx and the FormData appends
+// at handleSubmit) — NOT the camelCase radio keys. So these arrays match
+// the labels exactly. Invalid values are coerced to the client's default
+// rather than rejected, to avoid breaking the happy path on any future
+// label drift.
+const VALID_AVAILABILITY = ["Available Now", "Not Available"];
+const DEFAULT_AVAILABILITY = "Available Now";
+const VALID_WORK_TYPE = ["Full-time", "Part-time", "Contract", "Any"];
+const DEFAULT_WORK_TYPE = "Full-time";
+const VALID_NOTICE_PERIOD = ["Immediate", "2 Weeks", "1 Month", "Negotiable"];
+const DEFAULT_NOTICE_PERIOD = "Immediate";
+const VALID_WORK_LOCATION = ["Remote", "Hybrid", "Onsite"];
+const DEFAULT_WORK_LOCATION = "Remote";
+
 function nullable(v: FormDataEntryValue | null): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
@@ -33,13 +72,36 @@ function intOrNull(v: FormDataEntryValue | null): number | null {
   return Number.isFinite(n) ? n : null;
 }
 
-function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
+// Phase 2 B3 + B4: `slug()` and `fileExt()` helpers removed — they were
+// only used to build the OLD predictable photo path `${slug(email)}-${timestamp}.${ext}`.
+// Photos now use `crypto.randomUUID()` + a MIME-derived extension, so no
+// user-controlled filename data goes into the storage path.
+
+// Phase 2 H1: clamp a text field to a max length (no-op on null).
+function cap(s: string | null, max: number): string | null {
+  return s == null ? null : s.slice(0, max);
 }
 
-function fileExt(name: string): string {
-  const m = name.toLowerCase().match(/\.([a-z0-9]+)$/);
-  return m ? m[1] : "bin";
+// Phase 2 H3: parse + validate a URL string against an allowed-host whitelist.
+// Accepts schemeless inputs ("linkedin.com/in/foo") by prepending https://.
+// Returns the normalized URL string when valid, null when invalid/empty.
+// Hosts match the exact host OR any subdomain (e.g. "pk.linkedin.com").
+function validUrl(raw: string | null, allowedHosts: string[]): string | null {
+  if (!raw) return null;
+  const trimmed = raw.trim();
+  if (!trimmed) return null;
+  try {
+    const withProto = /^https?:\/\//i.test(trimmed) ? trimmed : `https://${trimmed}`;
+    const url = new URL(withProto);
+    if (url.protocol !== "http:" && url.protocol !== "https:") return null;
+    const host = url.hostname.toLowerCase();
+    const ok = allowedHosts.some(
+      (h) => host === h || host.endsWith(`.${h}`),
+    );
+    return ok ? url.toString() : null;
+  } catch {
+    return null;
+  }
 }
 
 export async function POST(request: NextRequest) {
@@ -54,30 +116,61 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
 
-    const firstName       = nullable(form.get("first_name"));
-    const lastName        = nullable(form.get("last_name"));
-    const rawEmail        = nullable(form.get("email"));
+    // Phase 2 H1 + A-caps: every text field is clamped at parse time so a
+    // single submission can't bloat the DB row with a multi-megabyte value.
+    const firstName       = cap(nullable(form.get("first_name")), FIELD_MAX.name);
+    const lastName        = cap(nullable(form.get("last_name")),  FIELD_MAX.name);
+    const rawEmail        = cap(nullable(form.get("email")),      FIELD_MAX.email);
     const email           = rawEmail ? normalizeEmail(rawEmail) : null;
-    const rawPhone        = nullable(form.get("phone"));
+    const rawPhone        = cap(nullable(form.get("phone")),      FIELD_MAX.phone);
     const normalisedPhone = rawPhone ? normalizePhone(rawPhone) : "";
     const phone           = normalisedPhone || null;
-    const city            = nullable(form.get("city"));
-    const country         = nullable(form.get("country"));
-    const linkedin        = nullable(form.get("linkedin_url"));
-    const githubUrl       = nullable(form.get("github_url"));
-    const jobTitle        = nullable(form.get("job_title"));
-    const roleCategory    = nullable(form.get("role_category"));
-    const yearsExperience = intOrNull(form.get("years_experience"));
-    const industry        = nullable(form.get("industry"));
-    const degree          = nullable(form.get("degree"));
-    const institution     = nullable(form.get("institution"));
-    const summary         = nullable(form.get("summary"));
-    const availability    = nullable(form.get("availability"));
-    const workType        = nullable(form.get("work_type"));
-    const noticePeriod    = nullable(form.get("notice_period"));
-    const workLocation    = nullable(form.get("work_location"));
-    const salaryMin       = intOrNull(form.get("salary_min"));
-    const salaryMax       = intOrNull(form.get("salary_max"));
+    const city            = cap(nullable(form.get("city")),       FIELD_MAX.city);
+    const country         = cap(nullable(form.get("country")),    FIELD_MAX.country);
+    // Phase 2 H3: linkedin (REQUIRED by client) + github (optional) validated
+    // against a host whitelist + scheme check. linkedinRaw kept around so the
+    // required-field check below can distinguish "blank" from "invalid".
+    const linkedinRaw     = cap(nullable(form.get("linkedin_url")), FIELD_MAX.url);
+    const linkedin        = validUrl(linkedinRaw, ["linkedin.com"]);
+    const githubRaw       = cap(nullable(form.get("github_url")),   FIELD_MAX.url);
+    const githubUrl       = validUrl(githubRaw, ["github.com"]);
+    const jobTitle        = cap(nullable(form.get("job_title")),    FIELD_MAX.jobTitle);
+    const roleCategory    = cap(nullable(form.get("role_category")), FIELD_MAX.roleCategory);
+    // Phase 2 A5: clamp years_experience to a sane 0–70 range; null stays null.
+    const yearsParsed     = intOrNull(form.get("years_experience"));
+    const yearsExperience = yearsParsed == null
+      ? null
+      : Math.max(0, Math.min(70, yearsParsed));
+    const industry        = cap(nullable(form.get("industry")),    FIELD_MAX.industry);
+    const degree          = cap(nullable(form.get("degree")),      FIELD_MAX.degree);
+    const institution     = cap(nullable(form.get("institution")), FIELD_MAX.institution);
+    const summary         = cap(nullable(form.get("summary")),     FIELD_MAX.summary);
+    // Phase 2 A4: enum-validate the preference fields. Server receives the
+    // LABEL strings (e.g. "Available Now", "Full-time", "2 Weeks", "Remote")
+    // from page.tsx's *_LABEL maps. Invalid → coerce to the client's default
+    // rather than reject — never break a borderline-valid submission.
+    const rawAvailability = nullable(form.get("availability"));
+    const availability    = rawAvailability && VALID_AVAILABILITY.includes(rawAvailability)
+      ? rawAvailability : DEFAULT_AVAILABILITY;
+    const rawWorkType     = nullable(form.get("work_type"));
+    const workType        = rawWorkType && VALID_WORK_TYPE.includes(rawWorkType)
+      ? rawWorkType : DEFAULT_WORK_TYPE;
+    const rawNoticePeriod = nullable(form.get("notice_period"));
+    const noticePeriod    = rawNoticePeriod && VALID_NOTICE_PERIOD.includes(rawNoticePeriod)
+      ? rawNoticePeriod : DEFAULT_NOTICE_PERIOD;
+    const rawWorkLocation = nullable(form.get("work_location"));
+    const workLocation    = rawWorkLocation && VALID_WORK_LOCATION.includes(rawWorkLocation)
+      ? rawWorkLocation : DEFAULT_WORK_LOCATION;
+    // Phase 2 A6: clamp salary range to 0..100_000_000 (rupees) — guards
+    // against negative or absurd values; null stays null.
+    const salaryMinParsed = intOrNull(form.get("salary_min"));
+    const salaryMin       = salaryMinParsed == null
+      ? null
+      : Math.max(0, Math.min(100_000_000, salaryMinParsed));
+    const salaryMaxParsed = intOrNull(form.get("salary_max"));
+    const salaryMax       = salaryMaxParsed == null
+      ? null
+      : Math.max(0, Math.min(100_000_000, salaryMaxParsed));
     const cvText          = nullable(form.get("cv_text"));
 
     const skillsRaw = form.get("skills");
@@ -93,6 +186,8 @@ export async function POST(request: NextRequest) {
         skills = skillsRaw.split(",").map((s) => s.trim()).filter(Boolean);
       }
     }
+    // Phase 2 A2: cap skills array length + per-skill length.
+    skills = skills.slice(0, MAX_SKILLS).map((s) => s.slice(0, FIELD_MAX.skill));
 
     // Work history — JSON-encoded array of { title, company, start, end, dates, skills[] }.
     // Stored as jsonb on talent_profiles.experience.
@@ -128,6 +223,17 @@ export async function POST(request: NextRequest) {
         // ignore — leave experience empty
       }
     }
+    // Phase 2 A3: cap experience array length + per-field string length +
+    // per-entry nested skills array. Preserves the exact ExperienceItem
+    // shape the insert at L262 expects (jsonb experience column).
+    experience = experience.slice(0, MAX_EXPERIENCES).map((e) => ({
+      title:   e.title.slice(0,   FIELD_MAX.expField),
+      company: e.company.slice(0, FIELD_MAX.expField),
+      start:   e.start.slice(0,   FIELD_MAX.expField),
+      end:     e.end.slice(0,     FIELD_MAX.expField),
+      dates:   e.dates.slice(0,   FIELD_MAX.expField),
+      skills:  e.skills.slice(0, MAX_SKILLS).map((s) => s.slice(0, FIELD_MAX.skill)),
+    }));
 
     const cvFile    = form.get("cv")    as File | null;
     const photoFile = form.get("photo") as File | null;
@@ -141,6 +247,58 @@ export async function POST(request: NextRequest) {
     if (!isValidEmail(email)) {
       return NextResponse.json(
         { error: "Please enter a valid email address." },
+        { status: 400 },
+      );
+    }
+
+    // Phase 2 A1: mirror the client's Step 1 + Step 2 required-field gates
+    // server-side. The client validators (validateStep1Fields /
+    // validateStep2Fields in /become-a-talent/page.tsx) require: lastName,
+    // phone, city, country, linkedin (valid URL), degree, institution, and
+    // ≥1 experience entry. Without these server checks an attacker hitting
+    // the API directly could submit a profile with only firstName + email.
+    if (!lastName) {
+      return NextResponse.json({ error: "Last name is required." }, { status: 400 });
+    }
+    if (!phone) {
+      return NextResponse.json({ error: "A valid phone number is required." }, { status: 400 });
+    }
+    if (!city) {
+      return NextResponse.json({ error: "City is required." }, { status: 400 });
+    }
+    if (!country) {
+      return NextResponse.json({ error: "Country is required." }, { status: 400 });
+    }
+    // Phase 2 H3: linkedin is required + must validate. linkedinRaw is the
+    // pre-validation value — if it was non-empty but failed validUrl(), the
+    // user submitted a malformed/non-linkedin URL.
+    if (!linkedinRaw) {
+      return NextResponse.json(
+        { error: "LinkedIn URL is required." },
+        { status: 400 },
+      );
+    }
+    if (!linkedin) {
+      return NextResponse.json(
+        { error: "Please enter a valid LinkedIn URL (linkedin.com/in/...)." },
+        { status: 400 },
+      );
+    }
+    if (!degree) {
+      return NextResponse.json(
+        { error: "Degree / qualification is required." },
+        { status: 400 },
+      );
+    }
+    if (!institution) {
+      return NextResponse.json(
+        { error: "Institution / university is required." },
+        { status: 400 },
+      );
+    }
+    if (experience.length === 0) {
+      return NextResponse.json(
+        { error: "At least one work experience entry is required." },
         { status: 400 },
       );
     }
@@ -187,12 +345,18 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    const timestamp = Date.now();
-    const filenameSlug = slug(email);
-
     // 2. Upload photo if provided, otherwise pick a random avatar from /avatars
     let avatarUrl: string;
     if (photoFile && photoFile.size > 0) {
+      // Phase 2 H2: server-side 2 MB cap (client also caps at 2 MB but a
+      // direct API caller could POST a huge image otherwise — lambda OOM /
+      // bandwidth DoS). 413 Payload Too Large per the CV pattern.
+      if (photoFile.size > MAX_PHOTO_BYTES) {
+        return NextResponse.json(
+          { error: "Photo must be under 2 MB." },
+          { status: 413 },
+        );
+      }
       // Reject anything that isn't a common image type. We accept jpeg/jpg/png/webp/gif.
       if (photoFile.type && !ALLOWED_IMAGE_TYPES.includes(photoFile.type)) {
         return NextResponse.json(
@@ -200,19 +364,54 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const ext = fileExt(photoFile.name);
-      const path = `talent/photos/${filenameSlug}-${timestamp}.${ext}`;
+      // Read the bytes ONCE — used by both the magic-byte check below and
+      // the storage upload, so we don't pay arrayBuffer() twice.
       const buf = await photoFile.arrayBuffer();
-      // Always send the explicit MIME from the upload (falling back to image/jpeg
-      // when the browser didn't set one) so Supabase doesn't infer it as octet-stream.
-      const contentType = photoFile.type && ALLOWED_IMAGE_TYPES.includes(photoFile.type)
-        ? photoFile.type
-        : "image/jpeg";
+      const photoBytes = new Uint8Array(buf);
+      // Phase 2 B2: magic-byte check. Client-supplied MIME can be spoofed
+      // (a .php with Content-Type: image/jpeg passes the whitelist above).
+      // Detect by leading signature bytes:
+      //   JPG/JPEG : FF D8 FF
+      //   PNG      : 89 50 4E 47  ("\x89PNG")
+      //   WebP     : 52 49 46 46  ("RIFF" — full RIFF/WEBP magic is at offset 0/8)
+      //   GIF      : 47 49 46     ("GIF")
+      const isJpg = photoBytes.length >= 3 &&
+        photoBytes[0] === 0xff && photoBytes[1] === 0xd8 && photoBytes[2] === 0xff;
+      const isPng = photoBytes.length >= 4 &&
+        photoBytes[0] === 0x89 && photoBytes[1] === 0x50 &&
+        photoBytes[2] === 0x4e && photoBytes[3] === 0x47;
+      const isWebp = photoBytes.length >= 4 &&
+        photoBytes[0] === 0x52 && photoBytes[1] === 0x49 &&
+        photoBytes[2] === 0x46 && photoBytes[3] === 0x46;
+      const isGif = photoBytes.length >= 3 &&
+        photoBytes[0] === 0x47 && photoBytes[1] === 0x49 && photoBytes[2] === 0x46;
+      if (!isJpg && !isPng && !isWebp && !isGif) {
+        return NextResponse.json(
+          { error: "Photo must be a valid JPG, PNG, WebP, or GIF image." },
+          { status: 400 },
+        );
+      }
+      // Phase 2 B3 + B4: derive extension from the validated MIME (NOT from
+      // the user-supplied filename) AND use a randomUUID path (NOT a
+      // predictable email-slug + timestamp) so the public storage URL can't
+      // be enumerated or filename-spoofed (e.g. attack.jpg.html).
+      const photoExt = isJpg ? "jpg" : isPng ? "png" : isWebp ? "webp" : "gif";
+      const contentType = isJpg ? "image/jpeg"
+        : isPng ? "image/png"
+        : isWebp ? "image/webp"
+        : "image/gif";
+      const path = `talent/photos/${crypto.randomUUID()}.${photoExt}`;
       const { error: photoErr } = await supabase.storage
         .from("cvs")
         .upload(path, buf, { contentType, upsert: false });
       if (photoErr) {
-        return NextResponse.json({ error: photoErr.message }, { status: 500 });
+        // Phase 2 E1: log the real Supabase error server-side; return a
+        // generic message to the client so DB / storage internals don't leak.
+        console.error("[talent] photo upload failed:", photoErr);
+        return NextResponse.json(
+          { error: "Could not upload photo. Please try again." },
+          { status: 500 },
+        );
       }
       const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       avatarUrl = pUrl.publicUrl;
@@ -251,7 +450,12 @@ export async function POST(request: NextRequest) {
         .from("cvs")
         .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
       if (cvErr) {
-        return NextResponse.json({ error: cvErr.message }, { status: 500 });
+        // Phase 2 E1: log full Supabase error server-side, return generic.
+        console.error("[talent] cv upload failed:", cvErr);
+        return NextResponse.json(
+          { error: "Could not upload CV. Please try again." },
+          { status: 500 },
+        );
       }
       const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       cvUrl = cUrl.publicUrl;
@@ -294,12 +498,23 @@ export async function POST(request: NextRequest) {
     });
 
     if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      // Phase 2 E1: log full Postgres/Supabase error (constraint name,
+      // column, code) server-side; return a generic client message so DB
+      // schema details aren't reconnaissance-leaked over the public API.
+      console.error("[talent] insert failed:", insertError);
+      return NextResponse.json(
+        { error: "Could not save your profile. Please try again." },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected error.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    // Phase 2 E1: catch-all generic response; full error to server logs.
+    console.error("[talent] unexpected error:", err);
+    return NextResponse.json(
+      { error: "Something went wrong. Please try again." },
+      { status: 500 },
+    );
   }
 }
