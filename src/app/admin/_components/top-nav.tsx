@@ -8,6 +8,7 @@ import {
   Briefcase,
   Building2,
   FileText,
+  Handshake,
   KeyRound,
   Layers,
   LayoutDashboard,
@@ -47,6 +48,7 @@ const TOP_NAV: ReadonlyArray<NavItem> = [
   { label: "Applications",   href: "/admin/applications",   icon: FileText },
   { label: "Search",         href: "/admin/search",         icon: Search },
   { label: "Contacts",       href: "/admin/contacts",       icon: MessageSquare },
+  { label: "Hire Requests",  href: "/admin/hire-requests",  icon: Handshake },
   { label: "Team",           href: "/admin/team",           icon: Users },
 ];
 
