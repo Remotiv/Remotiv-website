@@ -305,30 +305,39 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // 1. Duplicate-by-email — exact match on lowercased email.
-    let emailMatch: { id: string } | null = null;
-    if (email) {
-      const { data } = await supabase
-        .from("talent_profiles")
-        .select("id")
-        .eq("email", email)
-        .maybeSingle();
-      emailMatch = (data as { id: string } | null) ?? null;
-    }
+    // 1+2. Phase 4 J3: duplicate-by-email + duplicate-by-phone in parallel.
+    // Both queries are independent (the 409 decision below combines them).
+    // Sequential = sum of latencies; parallel = max. Saves 50-150 ms.
+    // The `if`-guards (email present, normalisedPhone ≥ 7 digits) are kept
+    // defensively even though Phase 2 required-field checks above already
+    // guarantee both — if the guard fails, that branch resolves to a no-op.
+    const [emailDupeResult, phoneDupeResult] = await Promise.all([
+      email
+        ? supabase
+            .from("talent_profiles")
+            .select("id")
+            .eq("email", email)
+            .maybeSingle()
+        : Promise.resolve({ data: null }),
+      // Duplicate-by-phone — fetch the latest 100 phone-bearing rows and
+      // normalise both sides in JS (we can't apply normalizePhone in SQL
+      // without a generated column). Same pattern as /api/apply.
+      normalisedPhone.length >= 7
+        ? supabase
+            .from("talent_profiles")
+            .select("id, phone")
+            .not("phone", "is", null)
+            .order("created_at", { ascending: false })
+            .limit(100)
+        : Promise.resolve({ data: null }),
+    ]);
 
-    // 2. Duplicate-by-phone — fetch the latest 5,000 phone-bearing rows and
-    //    normalise both sides in JS (we can't apply normalizePhone in SQL
-    //    without a generated column). Same pattern as /api/apply.
+    const emailMatch: { id: string } | null =
+      (emailDupeResult.data as { id: string } | null) ?? null;
+
     let phoneMatch: { id: string } | null = null;
-    if (normalisedPhone.length >= 7) {
-      const { data: phoneRecords } = await supabase
-        .from("talent_profiles")
-        .select("id, phone")
-        .not("phone", "is", null)
-        .order("created_at", { ascending: false })
-        .limit(100);
-
-      const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
+    if (phoneDupeResult.data) {
+      const records = phoneDupeResult.data as Array<{ id: string; phone: string | null }>;
       const found = records.find(
         (r) => normalizePhone(r.phone ?? "") === normalisedPhone,
       );
@@ -345,8 +354,26 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Upload photo if provided, otherwise pick a random avatar from /avatars
-    let avatarUrl: string;
+    // 2 + 3. Phase 4 F1: validate both files upfront (CPU-only — caps, MIME,
+    // magic-bytes), then run the two storage uploads in parallel. Previously
+    // photo and CV uploaded sequentially (sum of latencies); now they upload
+    // concurrently (max of latencies). Saves 100-1000 ms when both files
+    // are present.
+    //
+    // Validation MUST stay before the parallel upload — size/MIME/magic-byte
+    // gating is per-file CPU work, and a rejection here should still return
+    // a per-file error without touching storage. ONLY the two network upload
+    // calls run in parallel.
+    //
+    // Orphan tradeoff (deferred): if photo upload succeeds but CV upload
+    // fails (or vice versa), one orphan object stays in storage. This was
+    // also possible with the sequential code (photo could succeed then CV
+    // fail). Cleanup is out of scope this round.
+
+    // -------- Photo: validate + prepare upload args --------
+    let photoUploadArgs:
+      | { path: string; buffer: ArrayBuffer; contentType: string }
+      | null = null;
     if (photoFile && photoFile.size > 0) {
       // Phase 2 H2: server-side 2 MB cap (client also caps at 2 MB but a
       // direct API caller could POST a huge image otherwise — lambda OOM /
@@ -396,35 +423,23 @@ export async function POST(request: NextRequest) {
       // predictable email-slug + timestamp) so the public storage URL can't
       // be enumerated or filename-spoofed (e.g. attack.jpg.html).
       const photoExt = isJpg ? "jpg" : isPng ? "png" : isWebp ? "webp" : "gif";
-      const contentType = isJpg ? "image/jpeg"
+      const photoContentType = isJpg ? "image/jpeg"
         : isPng ? "image/png"
         : isWebp ? "image/webp"
         : "image/gif";
-      const path = `talent/photos/${crypto.randomUUID()}.${photoExt}`;
-      const { error: photoErr } = await supabase.storage
-        .from("cvs")
-        .upload(path, buf, { contentType, upsert: false });
-      if (photoErr) {
-        // Phase 2 E1: log the real Supabase error server-side; return a
-        // generic message to the client so DB / storage internals don't leak.
-        console.error("[talent] photo upload failed:", photoErr);
-        return NextResponse.json(
-          { error: "Could not upload photo. Please try again." },
-          { status: 500 },
-        );
-      }
-      const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(path);
-      avatarUrl = pUrl.publicUrl;
-    } else {
-      // Deterministic gender-aware fallback. Same name → same avatar.
-      avatarUrl = getAvatarUrl(firstName, lastName);
+      photoUploadArgs = {
+        path: `talent/photos/${crypto.randomUUID()}.${photoExt}`,
+        buffer: buf,
+        contentType: photoContentType,
+      };
     }
 
-    // 3. Upload CV (optional — talent profile can exist without a CV early on).
+    // -------- CV: validate + prepare upload args --------
     //    Magic-byte gate: PDFs start with "%PDF" (0x25 0x50 0x44 0x46). The
     //    front-end accepts only PDF; this enforces the same on the server.
-    let cvUrl: string | null = null;
-    let cvPath: string | null = null;
+    let cvUploadArgs:
+      | { path: string; buffer: Buffer }
+      | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.size > MAX_CV_FILE_BYTES) {
         return NextResponse.json(
@@ -445,21 +460,67 @@ export async function POST(request: NextRequest) {
           { status: 400 },
         );
       }
-      const path = `talent/cvs/${crypto.randomUUID()}.pdf`;
-      const { error: cvErr } = await supabase.storage
-        .from("cvs")
-        .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
-      if (cvErr) {
-        // Phase 2 E1: log full Supabase error server-side, return generic.
-        console.error("[talent] cv upload failed:", cvErr);
-        return NextResponse.json(
-          { error: "Could not upload CV. Please try again." },
-          { status: 500 },
-        );
-      }
-      const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
+      cvUploadArgs = {
+        path: `talent/cvs/${crypto.randomUUID()}.pdf`,
+        buffer: cvBuffer,
+      };
+    }
+
+    // -------- Run both uploads concurrently --------
+    const [photoUploadResult, cvUploadResult] = await Promise.all([
+      photoUploadArgs
+        ? supabase.storage
+            .from("cvs")
+            .upload(photoUploadArgs.path, photoUploadArgs.buffer, {
+              contentType: photoUploadArgs.contentType,
+              upsert: false,
+            })
+        : Promise.resolve(null),
+      cvUploadArgs
+        ? supabase.storage
+            .from("cvs")
+            .upload(cvUploadArgs.path, cvUploadArgs.buffer, {
+              contentType: "application/pdf",
+              upsert: false,
+            })
+        : Promise.resolve(null),
+    ]);
+
+    // -------- Per-file error handling (Phase 2 E1 generic messages preserved) --------
+    if (photoUploadResult?.error) {
+      // Phase 2 E1: log the real Supabase error server-side; return a
+      // generic message to the client so DB / storage internals don't leak.
+      console.error("[talent] photo upload failed:", photoUploadResult.error);
+      return NextResponse.json(
+        { error: "Could not upload photo. Please try again." },
+        { status: 500 },
+      );
+    }
+    if (cvUploadResult?.error) {
+      // Phase 2 E1: log full Supabase error server-side, return generic.
+      console.error("[talent] cv upload failed:", cvUploadResult.error);
+      return NextResponse.json(
+        { error: "Could not upload CV. Please try again." },
+        { status: 500 },
+      );
+    }
+
+    // -------- Capture public URLs (getPublicUrl is sync — no parallel needed) --------
+    let avatarUrl: string;
+    if (photoUploadArgs) {
+      const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(photoUploadArgs.path);
+      avatarUrl = pUrl.publicUrl;
+    } else {
+      // Deterministic gender-aware fallback. Same name → same avatar.
+      avatarUrl = getAvatarUrl(firstName, lastName);
+    }
+
+    let cvUrl: string | null = null;
+    let cvPath: string | null = null;
+    if (cvUploadArgs) {
+      const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(cvUploadArgs.path);
       cvUrl = cUrl.publicUrl;
-      cvPath = path;
+      cvPath = cvUploadArgs.path;
     }
 
     // 4. Insert

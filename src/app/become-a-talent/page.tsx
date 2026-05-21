@@ -4,34 +4,60 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 
+// Phase 4 G2: one-time pdfjs worker URL setup flag. The URL assignment was
+// previously inside extractPdfText, running on every call. Now configured
+// at most once per session.
+let pdfWorkerConfigured = false;
+
 // ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
 async function extractPdfText(file: File): Promise<string> {
   const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
+  // Phase 4 G2: only set the worker URL the first time.
+  if (!pdfWorkerConfigured) {
+    pdfjs.GlobalWorkerOptions.workerSrc = new URL(
+      "pdfjs-dist/build/pdf.worker.min.mjs",
+      import.meta.url,
+    ).toString();
+    pdfWorkerConfigured = true;
+  }
 
   const buffer = await file.arrayBuffer();
   const doc = await pdfjs.getDocument({ data: buffer }).promise;
 
+  // Phase 4 G1a: cap at 10 pages. Server caps cv_text at 100 KB anyway, and
+  // typical CVs are 1–2 pages. A 30-page document would otherwise freeze the
+  // main thread for seconds while pdfjs walks every page sequentially.
   const lines: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    let lastY: number | null = null;
-    let line = "";
-    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
-      const y = item.transform[5];
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (line.trim()) lines.push(line.trim());
-        line = item.str;
-      } else {
-        line += (line ? " " : "") + item.str;
+  const maxPages = Math.min(doc.numPages, 10);
+  try {
+    for (let i = 1; i <= maxPages; i++) {
+      const page = await doc.getPage(i);
+      const content = await page.getTextContent();
+      let lastY: number | null = null;
+      let line = "";
+      for (const item of content.items as Array<{ str: string; transform: number[] }>) {
+        const y = item.transform[5];
+        if (lastY !== null && Math.abs(y - lastY) > 2) {
+          if (line.trim()) lines.push(line.trim());
+          line = item.str;
+        } else {
+          line += (line ? " " : "") + item.str;
+        }
+        lastY = y;
       }
-      lastY = y;
+      if (line.trim()) lines.push(line.trim());
     }
-    if (line.trim()) lines.push(line.trim());
+  } finally {
+    // Phase 4 H1: free the pdfjs worker document handle (worker holds a few
+    // MB of page state until destroyed). Wrapped in its own try so a
+    // destroy() failure can't override the actual result. The caller of
+    // extractPdfText already swallows extraction errors silently — preserve
+    // that contract.
+    try {
+      await doc.destroy();
+    } catch {
+      // ignore — best-effort cleanup
+    }
   }
   return lines.join("\n");
 }
@@ -258,6 +284,11 @@ export default function BecomeATalentPage() {
   const [step, setStep] = useState(1);
   const [submitted, setSubmitted] = useState(false);
   const [submitting, setSubmitting] = useState(false);
+  // Phase 4 G3: fine-grained submit status. Empty string = generic
+  // "Submitting…"; otherwise shows the current phase ("Extracting CV
+  // text…", "Uploading…"). Reset to "" alongside setSubmitting(false)
+  // in the finally block so a re-click after error starts clean.
+  const [submitStatus, setSubmitStatus] = useState<string>("");
 
   const [experiences, setExperiences] = useState<WorkExperience[]>(() => [makeEmptyExperience()]);
   const [skills, setSkills] = useState<string[]>([]);
@@ -277,6 +308,9 @@ export default function BecomeATalentPage() {
   // button can reset its .value (otherwise picking the same file again
   // wouldn't fire onChange).
   const photoInputRef = useRef<HTMLInputElement>(null);
+  // Phase 4 D1: ref that mirrors the "form is dirty" boolean — used by the
+  // beforeunload handler so the listener doesn't need to re-bind per keystroke.
+  const isDirtyRef = useRef(false);
 
   // Form state — every text/select input is now controlled so values survive
   // step switches (each step unmounts when the user moves on).
@@ -562,6 +596,9 @@ export default function BecomeATalentPage() {
       // Extract CV text in the browser when a PDF is attached.
       let cvText = "";
       if (cvFile && cvFile.type === "application/pdf") {
+        // Phase 4 G3: only show the extraction label when there's actually
+        // a PDF to extract. Non-PDF / no-CV paths jump straight to "Uploading…".
+        setSubmitStatus("Extracting CV text…");
         try {
           cvText = await extractPdfText(cvFile);
         } catch {
@@ -645,6 +682,11 @@ export default function BecomeATalentPage() {
       if (cvFile)        fd.append("cv",      cvFile);
       if (photoFile)     fd.append("photo",   photoFile);
 
+      // Phase 4 G3: flip to "Uploading…" so the user sees the phase change
+      // (PDF extraction → network upload). For non-PDF paths this is the
+      // first/only status string shown.
+      setSubmitStatus("Uploading…");
+
       // Phase 1 R2 M4: 30s AbortController timeout — without this a stalled
       // request leaves the user stuck on "Submitting..." indefinitely.
       // Abort is surfaced as a distinct user-friendly message in the catch.
@@ -684,17 +726,20 @@ export default function BecomeATalentPage() {
       }
     } finally {
       setSubmitting(false);
+      // Phase 4 G3: clear the phase label so a re-click after error starts
+      // with the generic "Submitting…" rather than a stale phase string.
+      setSubmitStatus("");
     }
   };
 
-  // Phase 3 M-leave-warn: warn the user before they navigate away (browser
-  // back, tab close, reload) if they've started filling the form and haven't
-  // yet submitted. `beforeunload` doesn't fire after a successful submit
-  // because `submitted` flips true. Dirty-check is intentionally generous —
-  // ANY filled field counts as dirty.
+  // Phase 4 D1: refactored from a 16-dep effect that re-bound the
+  // beforeunload listener on every keystroke. Now the dirty-check writes a
+  // ref (cheap assignment, no add/removeEventListener churn) and the
+  // listener binds ONCE on mount. The handler reads the latest dirty + submitted
+  // state via the ref at fire-time. Field list is identical to the previous
+  // dirty-check — only the binding strategy changed.
   useEffect(() => {
-    if (submitted) return;
-    const isDirty =
+    isDirtyRef.current =
       Boolean(firstName) || Boolean(lastName) || Boolean(email) ||
       Boolean(phone) || Boolean(city) || Boolean(country) ||
       Boolean(linkedinUrl) || Boolean(githubUrl) ||
@@ -702,8 +747,16 @@ export default function BecomeATalentPage() {
       Boolean(cvFile) || Boolean(photoFile) ||
       skills.length > 0 ||
       experiences.some((e) => e.title || e.company || e.start || e.end);
-    if (!isDirty) return;
+  }); // no dep array — runs after every render, just a single ref write
+
+  // Bind the beforeunload listener ONCE per "submitted" state. Reads the
+  // dirty-ref at fire-time so it stays current without re-binding on every
+  // keystroke. `submitted` is the only dep because that's the "stop warning"
+  // flag — when it flips true on success/duplicate, the listener silently
+  // returns from the handler (effectively disabled).
+  useEffect(() => {
     const handler = (e: BeforeUnloadEvent) => {
+      if (submitted || !isDirtyRef.current) return;
       e.preventDefault();
       // Setting returnValue is required for the browser to actually show
       // the prompt — the literal string is ignored by modern browsers
@@ -712,11 +765,7 @@ export default function BecomeATalentPage() {
     };
     window.addEventListener("beforeunload", handler);
     return () => window.removeEventListener("beforeunload", handler);
-  }, [
-    firstName, lastName, email, phone, city, country,
-    linkedinUrl, githubUrl, degree, institution, summary,
-    cvFile, photoFile, skills, experiences, submitted,
-  ]);
+  }, [submitted]);
 
   return (
     <>
@@ -1708,7 +1757,7 @@ export default function BecomeATalentPage() {
                             onClick={handleSubmit}
                             disabled={submitting}
                           >
-                            {submitting ? "Submitting..." : "Submit Profile"}
+                            {submitting ? (submitStatus || "Submitting...") : "Submit Profile"}
                             {!submitting && (
                               <svg
                                 width="12"
