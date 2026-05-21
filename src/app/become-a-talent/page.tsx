@@ -160,39 +160,48 @@ function GridBackground() {
     return () => ro.disconnect();
   }, []);
 
+  // Phase 0 D2: don't render the SVG until ResizeObserver has measured
+  // the wrapping div. Otherwise the first paint draws an empty SVG
+  // (viewBox="0 0 0 0") for ~1 frame, causing a visible flash. The
+  // wrapper div + hero content render normally; only the grid lines
+  // wait for measurement. Measurement completes within 1 frame on mount.
+  const measured = lines.w > 0 && lines.h > 0;
+
   return (
     <div ref={wrapRef} className="bat-wrap">
-      <svg
-        className="bat-grid-svg"
-        xmlns="http://www.w3.org/2000/svg"
-        aria-hidden="true"
-        viewBox={`0 0 ${lines.w} ${lines.h}`}
-        preserveAspectRatio="none"
-      >
-        <title>Background grid</title>
-        {lines.x.map((x) => (
-          <line
-            key={`vx-${x}`}
-            x1={x}
-            y1={0}
-            x2={x}
-            y2={lines.h}
-            stroke="#ccc8c0"
-            strokeWidth="0.5"
-          />
-        ))}
-        {lines.y.map((y) => (
-          <line
-            key={`hy-${y}`}
-            x1={0}
-            y1={y}
-            x2={lines.w}
-            y2={y}
-            stroke="#ccc8c0"
-            strokeWidth="0.5"
-          />
-        ))}
-      </svg>
+      {measured && (
+        <svg
+          className="bat-grid-svg"
+          xmlns="http://www.w3.org/2000/svg"
+          aria-hidden="true"
+          viewBox={`0 0 ${lines.w} ${lines.h}`}
+          preserveAspectRatio="none"
+        >
+          <title>Background grid</title>
+          {lines.x.map((x) => (
+            <line
+              key={`vx-${x}`}
+              x1={x}
+              y1={0}
+              x2={x}
+              y2={lines.h}
+              stroke="#ccc8c0"
+              strokeWidth="0.5"
+            />
+          ))}
+          {lines.y.map((y) => (
+            <line
+              key={`hy-${y}`}
+              x1={0}
+              y1={y}
+              x2={lines.w}
+              y2={y}
+              stroke="#ccc8c0"
+              strokeWidth="0.5"
+            />
+          ))}
+        </svg>
+      )}
 
       <div className="bat-content">
         <div className="bat-pill">
@@ -791,20 +800,7 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       {step1Error && (
-                        <div
-                          role="alert"
-                          style={{
-                            margin: "0 32px 16px",
-                            padding: "10px 14px",
-                            background: "rgba(239,68,68,0.08)",
-                            border: "1px solid rgba(239,68,68,0.25)",
-                            borderRadius: 10,
-                            color: "#dc2626",
-                            fontSize: "0.78rem",
-                            fontFamily: "'DM Sans',sans-serif",
-                            fontWeight: 500,
-                          }}
-                        >
+                        <div className="bta-form-error" role="alert">
                           {step1Error}
                         </div>
                       )}
@@ -966,7 +962,7 @@ export default function BecomeATalentPage() {
                                       ...(ev.target.checked ? { end: "" } : {}),
                                     })
                                   }
-                                  style={{ width: 16, height: 16, cursor: "pointer" }}
+                                  style={{ width: 18, height: 18, cursor: "pointer" }}
                                 />
                                 I currently work here
                               </label>
@@ -1042,20 +1038,7 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       {step2Error && (
-                        <div
-                          role="alert"
-                          style={{
-                            margin: "0 32px 16px",
-                            padding: "10px 14px",
-                            background: "rgba(239,68,68,0.08)",
-                            border: "1px solid rgba(239,68,68,0.25)",
-                            borderRadius: 10,
-                            color: "#dc2626",
-                            fontSize: "0.78rem",
-                            fontFamily: "'DM Sans',sans-serif",
-                            fontWeight: 500,
-                          }}
-                        >
+                        <div className="bta-form-error" role="alert">
                           {step2Error}
                         </div>
                       )}
@@ -1299,6 +1282,17 @@ export default function BecomeATalentPage() {
                                     e.stopPropagation();
                                     cvInputRef.current?.click();
                                   }}
+                                  style={{
+                                    background: "none",
+                                    border: "none",
+                                    padding: 0,
+                                    margin: 0,
+                                    color: "#7E47FF",
+                                    fontWeight: 600,
+                                    cursor: "pointer",
+                                    font: "inherit",
+                                    textDecoration: "underline",
+                                  }}
                                 >
                                   browse to upload
                                 </button>
@@ -1400,16 +1394,7 @@ export default function BecomeATalentPage() {
                           </button>
                         </div>
                       </div>
-                      <p
-                        style={{
-                          fontFamily: "'DM Sans',sans-serif",
-                          fontSize: "0.72rem",
-                          color: "#777",
-                          textAlign: "center",
-                          padding: "12px 32px 0",
-                          lineHeight: 1.65,
-                        }}
-                      >
+                      <p className="bta-tos-text">
                         By submitting your profile, you agree that your information may be shared
                         with verified companies and hiring teams on the Remotiv platform who have
                         an active subscription to access talent profiles.
@@ -1683,6 +1668,34 @@ export default function BecomeATalentPage() {
         .bta-exp-entry .bta-grid-2 { margin-bottom:10px; }
         .bta-avail-toggle-wrap { display:flex; flex-wrap:wrap; gap:8px; }
 
+        /* Phase 0 B1: shared error-banner class. Extracted from the two
+           identical inline styles (step1Error + step2Error). Mobile override
+           below in @media (max-width: 480px) tightens the 32px horizontal
+           margin to 20px so the banner aligns with .bta-form-body padding. */
+        .bta-form-error {
+          margin: 0 32px 16px;
+          padding: 10px 14px;
+          background: rgba(239, 68, 68, 0.08);
+          border: 1px solid rgba(239, 68, 68, 0.25);
+          border-radius: 10px;
+          color: #dc2626;
+          font-family: 'DM Sans', sans-serif;
+          font-size: 0.78rem;
+          font-weight: 500;
+        }
+
+        /* Phase 0 B2: TOS / legal text under the final Submit. Same 32px
+           horizontal padding gets tightened to 20px at <480px so the line
+           aligns with .bta-form-body. */
+        .bta-tos-text {
+          font-family: 'DM Sans', sans-serif;
+          font-size: 0.72rem;
+          color: #777;
+          text-align: center;
+          padding: 12px 32px 0;
+          line-height: 1.65;
+        }
+
         @media (max-width:1024px) {
           .bta-layout { grid-template-columns:1fr; }
           .bta-sidebar { display:none; }
@@ -1692,8 +1705,13 @@ export default function BecomeATalentPage() {
           .bta-grid-2 { grid-template-columns:1fr; }
           .bta-form-footer { flex-direction:column; align-items:flex-start; }
 
-          /* Steps bar — pin below mobile navbar (mobile-only) */
-          .bta-steps-bar { top: 64px; }
+          /* Steps bar — pin below mobile navbar (mobile-only).
+             Phase 0 D1+D3: respect iOS notch safe-area. env() defaults to
+             0px on browsers without support, so non-notched devices and
+             non-iOS resolve to exactly 64px (unchanged). On notched iOS
+             Safari, the inset is added so the bar never tucks under the
+             notch. Combined D1 (robust top) + D3 (safe-area) in one rule. */
+          .bta-steps-bar { top: calc(64px + env(safe-area-inset-top, 0px)); }
 
           /* Single-active-step mode */
           .bta-steps-inner {
@@ -1707,7 +1725,10 @@ export default function BecomeATalentPage() {
           .bta-step-counter {
             display: block;
             font-family: 'DM Sans', sans-serif;
-            font-size: .62rem;
+            /* Phase 0 B3: was .62rem (~9.9px), now .72rem (~11.5px) for
+               readability. Step-counter only renders mobile (base rule
+               is display:none), so this is mobile-only by construction. */
+            font-size: .72rem;
             font-weight: 600;
             letter-spacing: .14em;
             text-transform: uppercase;
@@ -1729,12 +1750,27 @@ export default function BecomeATalentPage() {
           .bat-stat-label { font-size: 10px; }
 
           /* Tap targets ≥ 44px */
-          .bta-exp-remove { width: 40px; height: 40px; top: 10px; right: 10px; }
+          /* Phase 0 A3: was 40×40, now 44×44 — WCAG 2.5.5 AAA touch target. */
+          .bta-exp-remove { width: 44px; height: 44px; top: 10px; right: 10px; }
           .bta-radio-opt { padding: 12px 16px; min-height: 44px; }
           .bta-photo-btn { padding: 10px 16px; }
 
-          /* Skill chip ✕ — invisible hit-area boost via negative margins */
-          .bta-stag-x { padding: 6px 8px; margin: -4px -6px -4px 0; }
+          /* Skill chip ✕ — Phase 0 A4: visible padding bump (was 6px 8px)
+             so the tap zone is clearly larger, not just hit-area-boosted. */
+          .bta-stag-x { padding: 8px 10px; margin: -4px -6px -4px 0; }
+
+          /* Phase 0 A1: form fields min-height 44px on mobile — meets
+             WCAG 2.5.5 AAA touch-target. Textarea excluded — its base
+             rule already sets min-height: 110px. */
+          .bta-input,
+          .bta-select {
+            min-height: 44px;
+          }
+
+          /* Phase 0 A2: add-experience CTA min-height 44px on mobile. */
+          .bta-add-exp-btn {
+            min-height: 44px;
+          }
         }
 
         @media (max-width: 640px) {
@@ -1771,6 +1807,20 @@ export default function BecomeATalentPage() {
 
           /* Skill input — allow tighter wrap when many tags */
           .bta-skill-inp { min-width: 80px; }
+
+          /* Phase 0 B1: align error banner with form-body 20px padding
+             (was 32px horizontal — visibly offset from input fields). */
+          .bta-form-error { margin: 0 20px 16px; }
+
+          /* Phase 0 B2: align TOS / legal text with form-body 20px padding. */
+          .bta-tos-text { padding: 12px 20px 0; }
+
+          /* Phase 0 B4: was .68rem (~10.9px), now .78rem (~12.5px). */
+          .bta-upload-fmt { font-size: .78rem; }
+
+          /* Phase 0 B5: tighten drop-zone vertical space on tiny screens
+             (was 40px 24px). */
+          .bta-upload-zone { padding: 24px 16px; }
         }
 
         @media (max-width: 430px) {
