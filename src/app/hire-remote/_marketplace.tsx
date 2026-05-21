@@ -557,18 +557,18 @@ function ProfileDrawer({
       >
         <div className="mb-3 flex items-center gap-2">
           <Lock className="size-4" strokeWidth={2} />
-          <p className="font-heading text-sm font-bold">Contact details locked</p>
+          <p className="font-heading text-sm font-bold">Unlock Contact Details</p>
         </div>
         <p className="mb-4 text-[12px] leading-[1.6] text-white/80">
-          Subscribe to view email, phone, and full profile — or pay per unlock.
+          Connect with our team and we&apos;ll arrange an introduction.
         </p>
         <button
           type="button"
           onClick={onUnlock}
           className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-3 font-heading text-sm font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90"
         >
-          <Lock className="size-4" strokeWidth={2} />
-          Unlock &amp; Contact
+          <MessageCircle className="size-4" strokeWidth={2} />
+          Connect with Talent
         </button>
       </div>
     </div>
