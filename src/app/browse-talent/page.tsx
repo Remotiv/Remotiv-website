@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import { canonicalUrl } from "@/lib/seo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { BrowseClient, type TalentRow } from "./_browse-client";
 
@@ -283,13 +284,16 @@ export default async function BrowseTalentPage({
                 "@type": "ListItem",
                 position: 1,
                 name: "Home",
-                item: "https://remotiv.com/",
+                // Phase 6 M2: was a hardcoded production-domain string — now
+                // sourced from src/lib/seo.ts so it can't drift from
+                // metadataBase.
+                item: canonicalUrl("/"),
               },
               {
                 "@type": "ListItem",
                 position: 2,
                 name: "Browse Talent",
-                item: "https://remotiv.com/browse-talent",
+                item: canonicalUrl("/browse-talent"),
               },
             ],
           }),

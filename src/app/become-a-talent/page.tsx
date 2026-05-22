@@ -147,7 +147,7 @@ const PERKS = [
   {
     icon: "🌍",
     title: "Global Opportunities",
-    sub: "Access jobs from the Pakistan, US, UK, and beyond.",
+    sub: "Access jobs from Pakistan, the US, the UK, and beyond.",
   },
   {
     icon: "💼",
@@ -239,8 +239,14 @@ function GridBackground() {
           <span className="bat-pill-text">Hiring Globally</span>
         </div>
 
-        <h1 className="bat-h1">Join the Remotiv</h1>
-        <h2 className="bat-h2">Talent Network</h2>
+        {/* Phase 6 H4: single h1 (was h1 + h2 split). Crawlers and SR users
+            now see the keyword-rich "Join the Remotiv Talent Network" as one
+            heading; the inner span carries the purple accent + line break for
+            the original two-line visual. */}
+        <h1 className="bat-h1">
+          Join the Remotiv{" "}
+          <span className="bat-h1-accent">Talent Network</span>
+        </h1>
 
         <p className="bat-sub">
           Connect with top companies and global employers. Submit your profile once — get matched
@@ -729,7 +735,7 @@ export default function BecomeATalentPage() {
       setSubmitStatus("Uploading…");
 
       // Phase 1 R2 M4: 30s AbortController timeout — without this a stalled
-      // request leaves the user stuck on "Submitting..." indefinitely.
+      // request leaves the user stuck on "Submitting…" indefinitely.
       // Abort is surfaced as a distinct user-friendly message in the catch.
       const controller = new AbortController();
       const timeoutId = setTimeout(() => controller.abort(), 30_000);
@@ -1404,7 +1410,7 @@ export default function BecomeATalentPage() {
                               </label>
                               <div className="bta-form-group">
                                 <label className="bta-label" htmlFor={`exp-${exp.id}-skills`}>
-                                  Skills Used <span className="bta-opt">optional</span>
+                                  Skills Used in This Role <span className="bta-opt">optional</span>
                                 </label>
                                 <input
                                   id={`exp-${exp.id}-skills`}
@@ -1475,7 +1481,7 @@ export default function BecomeATalentPage() {
                           <textarea
                             id="bta-summary"
                             className="bta-textarea"
-                            placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for."
+                            placeholder="Write a short bio — your experience, what you specialize in, and what opportunities you're looking for."
                             value={summary}
                             onChange={(e) => setSummary(e.target.value)}
                             maxLength={5000}
@@ -1736,7 +1742,7 @@ export default function BecomeATalentPage() {
                             type="file"
                             accept="application/pdf"
                             onChange={(e) => handleCv(e.target.files?.[0])}
-                            aria-label="Upload CV (PDF, DOC, or DOCX)"
+                            aria-label="Upload CV (PDF only)"
                           />
                           <div className="bta-upload-ico">📄</div>
                           <div className="bta-upload-title">
@@ -1771,7 +1777,7 @@ export default function BecomeATalentPage() {
                               </>
                             )}
                           </div>
-                          <div className="bta-upload-fmt">Required — PDF, DOC, or DOCX (max 5 MB)</div>
+                          <div className="bta-upload-fmt">Required — PDF only (max 5 MB)</div>
                         </div>
                         {/* Phase 3 M-cv-clear (fixed): Remove button moved
                             OUTSIDE the .bta-upload-zone. The zone's child
@@ -1904,7 +1910,7 @@ export default function BecomeATalentPage() {
                             disabled={submitting}
                             aria-busy={submitting}
                           >
-                            {submitting ? (submitStatus || "Submitting...") : "Submit Profile"}
+                            {submitting ? (submitStatus || "Submitting…") : "Submit Profile"}
                             {!submitting && (
                               <svg
                                 width="12"
@@ -2025,8 +2031,16 @@ export default function BecomeATalentPage() {
           font-family:'Sora',sans-serif; font-size:clamp(42px,5.5vw,64px); font-weight:800;
           line-height:1.05; letter-spacing:-2px; max-width:800px; text-align:center;
         }
-        .bat-h1 { color:#111; margin:0 0 4px; }
+        /* Phase 6 H4: h1 now wraps the accent span; total bottom margin
+           moved here from .bat-h2 (4px → 28px) so spacing to .bat-sub stays
+           visually identical to the previous two-element layout. */
+        .bat-h1 { color:#111; margin:0 0 28px; }
         .bat-h2 { color:#9886fe; margin:0 0 28px; }
+        /* Phase 6 H4: accent span inside the merged h1 — replicates the
+           previous .bat-h2 look (purple, block so it sits on its own line).
+           Font-family/size/weight inherit from the parent .bat-h1 so the
+           clamp() responsive sizing carries through unchanged. */
+        .bat-h1-accent { display:block; color:#9886fe; }
         .bat-sub { font-size:17px; color:#777; line-height:1.7; max-width:520px; margin:0 0 48px; text-align:center; font-weight:400; }
         .bat-stats {
           display:flex; align-items:stretch; background:#7E47FF; border-radius:20px;
