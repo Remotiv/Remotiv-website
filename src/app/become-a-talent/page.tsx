@@ -9,6 +9,13 @@ import { Navbar } from "@/components/navbar";
 // at most once per session.
 let pdfWorkerConfigured = false;
 
+// Phase 5 J1: respect prefers-reduced-motion for the 6 scroll-to-top calls
+// after step changes / submit safety-net. Users with vestibular triggers
+// get an instant jump instead of a smooth scroll.
+const prefersReducedMotion = (): boolean =>
+  typeof window !== "undefined" &&
+  window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
 // ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
 async function extractPdfText(file: File): Promise<string> {
   const pdfjs = await import("pdfjs-dist");
@@ -232,8 +239,8 @@ function GridBackground() {
           <span className="bat-pill-text">Hiring Globally</span>
         </div>
 
-        <div className="bat-h1">Join the Remotiv</div>
-        <div className="bat-h2">Talent Network</div>
+        <h1 className="bat-h1">Join the Remotiv</h1>
+        <h2 className="bat-h2">Talent Network</h2>
 
         <p className="bat-sub">
           Connect with top companies and global employers. Submit your profile once — get matched
@@ -311,6 +318,20 @@ export default function BecomeATalentPage() {
   // Phase 4 D1: ref that mirrors the "form is dirty" boolean — used by the
   // beforeunload handler so the listener doesn't need to re-bind per keystroke.
   const isDirtyRef = useRef(false);
+
+  // Phase 5 Round B (focus management): refs into the rendered DOM so we can
+  // move keyboard / screen-reader focus to the right element after async
+  // state transitions. All headings get `tabIndex={-1}` so they're focusable
+  // programmatically without entering the natural tab order.
+  const stepHeadingRef = useRef<HTMLHeadingElement>(null);
+  const step1ErrorRef = useRef<HTMLDivElement>(null);
+  const step2ErrorRef = useRef<HTMLDivElement>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+  const addExpBtnRef = useRef<HTMLButtonElement>(null);
+  const skillInputRef = useRef<HTMLInputElement>(null);
+  // Skip the very first render's step-heading focus so the page doesn't yank
+  // focus on initial load (user hasn't navigated yet).
+  const isFirstStepRenderRef = useRef(true);
 
   // Form state — every text/select input is now controlled so values survive
   // step switches (each step unmounts when the user moves on).
@@ -411,14 +432,26 @@ export default function BecomeATalentPage() {
 
   const handleStep1Next = () => {
     const err = validateStep1Fields();
-    if (err) { setStep1Error(err); return; }
+    if (err) {
+      setStep1Error(err);
+      // Phase 5 Round B E2: move focus to the error banner so keyboard / SR
+      // users land on the alert text. rAF defers until React has flushed the
+      // setStep1Error update and the banner is in the DOM.
+      requestAnimationFrame(() => step1ErrorRef.current?.focus());
+      return;
+    }
     setStep1Error(null);
     goToStep(2);
   };
 
   const handleStep2Next = () => {
     const err = validateStep2Fields();
-    if (err) { setStep2Error(err); return; }
+    if (err) {
+      setStep2Error(err);
+      // Phase 5 Round B E2: same pattern as Step 1.
+      requestAnimationFrame(() => step2ErrorRef.current?.focus());
+      return;
+    }
     setStep2Error(null);
     goToStep(3);
   };
@@ -430,7 +463,7 @@ export default function BecomeATalentPage() {
     // returning to fix a field they noticed was wrong, so we don't gate.
     if (clamped <= step) {
       setStep(clamped);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
       return;
     }
 
@@ -451,7 +484,7 @@ export default function BecomeATalentPage() {
         if (s === 1) setStep1Error(stepErr);
         else if (s === 2) setStep2Error(stepErr);
         // s === 3 has no error state today (no required fields).
-        window.scrollTo({ top: 0, behavior: "smooth" });
+        window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
         return;
       }
     }
@@ -460,7 +493,7 @@ export default function BecomeATalentPage() {
     setStep1Error(null);
     setStep2Error(null);
     setStep(clamped);
-    window.scrollTo({ top: 0, behavior: "smooth" });
+    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
   };
 
   const addExperience = () => {
@@ -483,6 +516,10 @@ export default function BecomeATalentPage() {
       const next = prev.filter((e) => e.id !== id);
       return next.length === 0 ? [makeEmptyExperience()] : next;
     });
+    // Phase 5 Round B E4: focus the "+ Add Work Experience" button — a stable
+    // target that survives the removal (unlike the removed row's siblings,
+    // which may shift or unmount). rAF defers until React re-renders.
+    requestAnimationFrame(() => addExpBtnRef.current?.focus());
   };
 
   const handleSkillKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -509,6 +546,10 @@ export default function BecomeATalentPage() {
     setSkills((prev) => prev.filter((s) => s !== tag));
     // Phase 3 H1: clear the "maximum reached" error when the user makes room.
     setStep2Error(null);
+    // Phase 5 Round B E5: return focus to the skill input — the natural next
+    // place a user goes after pruning a tag, and a stable target since the
+    // input persists across the re-render.
+    requestAnimationFrame(() => skillInputRef.current?.focus());
   };
 
   // Phase 1 R1 L1: ALLOWED_IMAGE_TYPES hoisted to module scope (was inline
@@ -568,20 +609,20 @@ export default function BecomeATalentPage() {
     if (s1Err) {
       setStep(1);
       setStep1Error(s1Err);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
       return;
     }
     const s2Err = validateStep2Fields();
     if (s2Err) {
       setStep(2);
       setStep2Error(s2Err);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
       return;
     }
     const s3Err = validateStep3Fields();
     if (s3Err) {
       setStep(3);
-      window.scrollTo({ top: 0, behavior: "smooth" });
+      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
       return;
     }
 
@@ -767,6 +808,25 @@ export default function BecomeATalentPage() {
     return () => window.removeEventListener("beforeunload", handler);
   }, [submitted]);
 
+  // Phase 5 Round B E1: on step change move focus to the new step's heading.
+  // Skip first render (focus would yank on page load) and skip while in the
+  // submitted state (the success-heading effect below owns focus then).
+  useEffect(() => {
+    if (isFirstStepRenderRef.current) {
+      isFirstStepRenderRef.current = false;
+      return;
+    }
+    if (submitted) return;
+    requestAnimationFrame(() => stepHeadingRef.current?.focus());
+  }, [step, submitted]);
+
+  // Phase 5 Round B E3: on submit success/duplicate move focus to the
+  // success/duplicate heading so SR users hear the outcome immediately.
+  useEffect(() => {
+    if (!submitted) return;
+    requestAnimationFrame(() => successHeadingRef.current?.focus());
+  }, [submitted]);
+
   return (
     <>
       <Navbar />
@@ -775,7 +835,12 @@ export default function BecomeATalentPage() {
           <GridBackground />
         </div>
 
-        <div className="bta-steps-bar">
+        <nav className="bta-steps-bar" aria-label="Form steps">
+          {/* Phase 5 C2: always-rendered SR-only step counter so screen-reader
+              users hear the current step regardless of viewport size (the
+              visible .bta-step-counter is mobile-only via display:none on
+              desktop in the styled-jsx CSS). */}
+          <span className="bta-sr-only">Step {step} of 4: {STEPS[step - 1].label}</span>
           <div className="bta-steps-inner">
             <span className="bta-step-counter">Step {step} · {STEPS[step - 1].label}</span>
             {STEPS.map((s, idx) => (
@@ -784,6 +849,7 @@ export default function BecomeATalentPage() {
                   type="button"
                   className={`bta-step ${step === s.num ? "active" : ""} ${step > s.num ? "done" : ""}`}
                   onClick={() => goToStep(s.num)}
+                  aria-current={step === s.num ? "step" : undefined}
                 >
                   <span className="bta-step-circle">{s.num}</span>
                   {s.label}
@@ -792,7 +858,7 @@ export default function BecomeATalentPage() {
               </div>
             ))}
           </div>
-        </div>
+        </nav>
 
         <div className="bta-layout">
           <div>
@@ -801,7 +867,9 @@ export default function BecomeATalentPage() {
                 submitState === "duplicate" ? (
                   <div className="bta-success" style={{ display: "block" }}>
                     <div className="bta-success-ico">👋</div>
-                    <div className="bta-success-title">Already in our network</div>
+                    <h2 className="bta-success-title" ref={successHeadingRef} tabIndex={-1}>
+                      Already in our network
+                    </h2>
                     <p className="bta-success-sub">
                       You&apos;re already in our talent network! We&apos;ll reach out when the right
                       opportunity comes along.
@@ -812,6 +880,7 @@ export default function BecomeATalentPage() {
                       rel="noopener noreferrer"
                       className="bta-success-btn"
                       style={{ background: "#7E47FF", color: "#fff" }}
+                      aria-label="Follow us on LinkedIn (opens in new tab)"
                     >
                       Follow us on LinkedIn →
                     </a>
@@ -819,7 +888,9 @@ export default function BecomeATalentPage() {
                 ) : (
                   <div className="bta-success" style={{ display: "block" }}>
                     <div className="bta-success-ico">🎉</div>
-                    <div className="bta-success-title">You&apos;re in the Network!</div>
+                    <h2 className="bta-success-title" ref={successHeadingRef} tabIndex={-1}>
+                      You&apos;re in the Network!
+                    </h2>
                     <p className="bta-success-sub">
                       Your profile is under review. We&apos;ll notify you once approved and matched.
                     </p>
@@ -834,8 +905,9 @@ export default function BecomeATalentPage() {
                         color: "#7E47FF",
                         fontWeight: 600,
                       }}
+                      aria-label="Follow Remotiv on LinkedIn (opens in new tab)"
                     >
-                      🔗 Follow Remotiv on LinkedIn
+                      <span aria-hidden="true">🔗 </span>Follow Remotiv on LinkedIn
                     </a>
                     <Link href="/jobs" className="bta-success-btn">
                       Browse Open Jobs →
@@ -847,21 +919,23 @@ export default function BecomeATalentPage() {
                   {step === 1 && (
                     <div className="bta-form-step active">
                       <div className="bta-form-header">
-                        <div className="bta-fh-icon">👤</div>
+                        <div className="bta-fh-icon" aria-hidden="true">👤</div>
                         <div>
-                          <div className="bta-fh-title">Personal Information</div>
+                          <h2 className="bta-fh-title" ref={stepHeadingRef} tabIndex={-1}>
+                            Personal Information
+                          </h2>
                           <div className="bta-fh-sub">
                             Tell us who you are — this stays private until matched
                           </div>
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">Basic Details</div>
+                        <h3 className="bta-sec-title">Basic Details</h3>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              First Name <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-firstName">
+                              First Name <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <div className="bta-input-wrap">
                               <span className="bta-input-icon">
                                 <svg
@@ -881,6 +955,7 @@ export default function BecomeATalentPage() {
                                 </svg>
                               </span>
                               <input
+                                id="bta-firstName"
                                 type="text"
                                 className="bta-input"
                                 placeholder="e.g. Sarah"
@@ -888,14 +963,16 @@ export default function BecomeATalentPage() {
                                 onChange={(e) => setFirstName(e.target.value)}
                                 name="given-name"
                                 autoComplete="given-name"
+                                aria-required="true"
                               />
                             </div>
                           </div>
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Last Name <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-lastName">
+                              Last Name <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <input
+                              id="bta-lastName"
                               type="text"
                               className="bta-input"
                               placeholder="e.g. Khan"
@@ -903,14 +980,15 @@ export default function BecomeATalentPage() {
                               onChange={(e) => setLastName(e.target.value)}
                               name="family-name"
                               autoComplete="family-name"
+                              aria-required="true"
                             />
                           </div>
                         </div>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Email Address <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-email">
+                              Email Address <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <div className="bta-input-wrap">
                               <span className="bta-input-icon">
                                 <svg
@@ -930,6 +1008,7 @@ export default function BecomeATalentPage() {
                                 </svg>
                               </span>
                               <input
+                                id="bta-email"
                                 type="email"
                                 className="bta-input"
                                 placeholder="you@example.com"
@@ -937,13 +1016,14 @@ export default function BecomeATalentPage() {
                                 onChange={(e) => setEmail(e.target.value)}
                                 name="email"
                                 autoComplete="email"
+                                aria-required="true"
                               />
                             </div>
                           </div>
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Phone Number <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-phone">
+                              Phone Number <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <div className="bta-input-wrap">
                               <span className="bta-input-icon">
                                 <svg
@@ -962,6 +1042,7 @@ export default function BecomeATalentPage() {
                                 </svg>
                               </span>
                               <input
+                                id="bta-phone"
                                 type="tel"
                                 className="bta-input"
                                 placeholder="+92 300 0000000"
@@ -969,16 +1050,18 @@ export default function BecomeATalentPage() {
                                 onChange={(e) => setPhone(e.target.value)}
                                 name="tel"
                                 autoComplete="tel"
+                                aria-required="true"
                               />
                             </div>
                           </div>
                         </div>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              City <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-city">
+                              City <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <input
+                              id="bta-city"
                               type="text"
                               className="bta-input"
                               placeholder="e.g. Lahore"
@@ -986,18 +1069,21 @@ export default function BecomeATalentPage() {
                               onChange={(e) => setCity(e.target.value)}
                               name="address-level2"
                               autoComplete="address-level2"
+                              aria-required="true"
                             />
                           </div>
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Country <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-country">
+                              Country <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <select
+                              id="bta-country"
                               className="bta-select"
                               value={country}
                               onChange={(e) => setCountry(e.target.value)}
                               name="country"
                               autoComplete="country-name"
+                              aria-required="true"
                             >
                               <option value="" disabled>
                                 Select country
@@ -1012,9 +1098,9 @@ export default function BecomeATalentPage() {
                         </div>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              LinkedIn Profile <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-linkedin">
+                              LinkedIn Profile <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <div className="bta-input-wrap">
                               <span className="bta-input-icon">
                                 <svg
@@ -1035,6 +1121,7 @@ export default function BecomeATalentPage() {
                                 </svg>
                               </span>
                               <input
+                                id="bta-linkedin"
                                 type="url"
                                 className="bta-input"
                                 placeholder="linkedin.com/in/yourname"
@@ -1042,12 +1129,13 @@ export default function BecomeATalentPage() {
                                 onChange={(e) => setLinkedinUrl(e.target.value)}
                                 name="url"
                                 autoComplete="url"
+                                aria-required="true"
                               />
                             </div>
                           </div>
                         </div>
                         <div className="bta-spacer" />
-                        <div className="bta-sec-title">Profile Photo</div>
+                        <h3 className="bta-sec-title">Profile Photo</h3>
                         <div className="bta-photo-wrap">
                           <label className="bta-photo-prev">
                             <input
@@ -1055,6 +1143,7 @@ export default function BecomeATalentPage() {
                               type="file"
                               accept="image/*"
                               onChange={handlePhoto}
+                              aria-label="Upload profile photo"
                             />
                             {photoPreview ? (
                               // biome-ignore lint/performance/noImgElement: local preview
@@ -1082,6 +1171,14 @@ export default function BecomeATalentPage() {
                                 is selected. Resets state + the file input value
                                 so re-picking the same file still triggers onChange. */}
                             {photoFile && (
+                              // Phase 5 Round B E5 (deferred): no explicit focus
+                              // move on photo-Remove. The native <input type="file">
+                              // is display:none so it can't receive focus, and the
+                              // <label> wrapping it has no stable id/ref. The
+                              // browser falls back to the document body, which is
+                              // acceptable here — the user just clicked, so the
+                              // implicit focus loss is expected. Revisit if SR
+                              // testing surfaces a complaint.
                               <button
                                 type="button"
                                 onClick={() => {
@@ -1112,7 +1209,12 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       {step1Error && (
-                        <div className="bta-form-error" role="alert">
+                        <div
+                          className="bta-form-error"
+                          role="alert"
+                          ref={step1ErrorRef}
+                          tabIndex={-1}
+                        >
                           {step1Error}
                         </div>
                       )}
@@ -1137,45 +1239,51 @@ export default function BecomeATalentPage() {
                   {step === 2 && (
                     <div className="bta-form-step active">
                       <div className="bta-form-header">
-                        <div className="bta-fh-icon">💼</div>
+                        <div className="bta-fh-icon" aria-hidden="true">💼</div>
                         <div>
-                          <div className="bta-fh-title">Professional Information</div>
+                          <h2 className="bta-fh-title" ref={stepHeadingRef} tabIndex={-1}>
+                            Professional Information
+                          </h2>
                           <div className="bta-fh-sub">
                             Your role, experience and skills — this powers your AI matching
                           </div>
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">Education</div>
+                        <h3 className="bta-sec-title">Education</h3>
                         <div className="bta-grid-2">
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Degree / Qualification <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-degree">
+                              Degree / Qualification <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <input
+                              id="bta-degree"
                               type="text"
                               className="bta-input"
                               placeholder="e.g. BS Computer Science"
                               value={degree}
                               onChange={(e) => setDegree(e.target.value)}
+                              aria-required="true"
                             />
                           </div>
                           <div className="bta-form-group">
-                            <div className="bta-label">
-                              Institution / University <span className="bta-req">*</span>
-                            </div>
+                            <label className="bta-label" htmlFor="bta-institution">
+                              Institution / University <span className="bta-req" aria-hidden="true">*</span>
+                            </label>
                             <input
+                              id="bta-institution"
                               type="text"
                               className="bta-input"
                               placeholder="e.g. University"
                               value={institution}
                               onChange={(e) => setInstitution(e.target.value)}
+                              aria-required="true"
                             />
                           </div>
                         </div>
 
                         <div className="bta-spacer" />
-                        <div className="bta-sec-title">Work Experience</div>
+                        <h3 className="bta-sec-title">Work Experience</h3>
                         <div>
                           {experiences.map((exp, idx) => (
                             <div key={exp.id} className="bta-exp-entry">
@@ -1189,10 +1297,11 @@ export default function BecomeATalentPage() {
                               </button>
                               <div className="bta-grid-2">
                                 <div className="bta-form-group">
-                                  <div className="bta-label">
-                                    Job Title <span className="bta-req">*</span>
-                                  </div>
+                                  <label className="bta-label" htmlFor={`exp-${exp.id}-title`}>
+                                    Job Title <span className="bta-req" aria-hidden="true">*</span>
+                                  </label>
                                   <input
+                                    id={`exp-${exp.id}-title`}
                                     type="text"
                                     className="bta-input"
                                     placeholder="e.g. Senior Software Engineer"
@@ -1200,13 +1309,16 @@ export default function BecomeATalentPage() {
                                     onChange={(e) =>
                                       updateExperience(exp.id, { title: e.target.value })
                                     }
+                                    aria-required="true"
+                                    aria-label={`Experience ${idx + 1} job title`}
                                   />
                                 </div>
                                 <div className="bta-form-group">
-                                  <div className="bta-label">
-                                    Company <span className="bta-req">*</span>
-                                  </div>
+                                  <label className="bta-label" htmlFor={`exp-${exp.id}-company`}>
+                                    Company <span className="bta-req" aria-hidden="true">*</span>
+                                  </label>
                                   <input
+                                    id={`exp-${exp.id}-company`}
                                     type="text"
                                     className="bta-input"
                                     placeholder="e.g. Remotiv"
@@ -1214,15 +1326,18 @@ export default function BecomeATalentPage() {
                                     onChange={(e) =>
                                       updateExperience(exp.id, { company: e.target.value })
                                     }
+                                    aria-required="true"
+                                    aria-label={`Experience ${idx + 1} company`}
                                   />
                                 </div>
                               </div>
                               <div className="bta-grid-2">
                                 <div className="bta-form-group">
-                                  <div className="bta-label">
-                                    Start Date <span className="bta-req">*</span>
-                                  </div>
+                                  <label className="bta-label" htmlFor={`exp-${exp.id}-start`}>
+                                    Start Date <span className="bta-req" aria-hidden="true">*</span>
+                                  </label>
                                   <input
+                                    id={`exp-${exp.id}-start`}
                                     type="text"
                                     className="bta-input"
                                     placeholder="e.g. 2021"
@@ -1230,11 +1345,14 @@ export default function BecomeATalentPage() {
                                     onChange={(e) =>
                                       updateExperience(exp.id, { start: e.target.value })
                                     }
+                                    aria-required="true"
+                                    aria-label={`Experience ${idx + 1} start date`}
                                   />
                                 </div>
                                 <div className="bta-form-group">
-                                  <div className="bta-label">End Date</div>
+                                  <label className="bta-label" htmlFor={`exp-${exp.id}-end`}>End Date</label>
                                   <input
+                                    id={`exp-${exp.id}-end`}
                                     type="text"
                                     className="bta-input"
                                     placeholder="e.g. 2024 or Present"
@@ -1248,6 +1366,7 @@ export default function BecomeATalentPage() {
                                         ? { opacity: 0.5, cursor: "not-allowed" }
                                         : undefined
                                     }
+                                    aria-label={`Experience ${idx + 1} end date`}
                                   />
                                 </div>
                               </div>
@@ -1284,10 +1403,11 @@ export default function BecomeATalentPage() {
                                 I currently work here
                               </label>
                               <div className="bta-form-group">
-                                <div className="bta-label">
+                                <label className="bta-label" htmlFor={`exp-${exp.id}-skills`}>
                                   Skills Used <span className="bta-opt">optional</span>
-                                </div>
+                                </label>
                                 <input
+                                  id={`exp-${exp.id}-skills`}
                                   type="text"
                                   className="bta-input"
                                   placeholder="e.g. React, Node.js, AWS (comma separated)"
@@ -1295,6 +1415,7 @@ export default function BecomeATalentPage() {
                                   onChange={(e) =>
                                     updateExperience(exp.id, { skills: e.target.value })
                                   }
+                                  aria-label={`Experience ${idx + 1} skills used`}
                                 />
                               </div>
                             </div>
@@ -1304,16 +1425,17 @@ export default function BecomeATalentPage() {
                           type="button"
                           className="bta-add-exp-btn"
                           onClick={addExperience}
+                          ref={addExpBtnRef}
                         >
                           + Add Work Experience
                         </button>
 
                         <div className="bta-spacer" />
-                        <div className="bta-sec-title">Skills & Summary</div>
+                        <h3 className="bta-sec-title">Skills &amp; Summary</h3>
                         <div className="bta-form-group" style={{ marginBottom: 6 }}>
-                          <div className="bta-label">
-                            Skills & Expertise <span className="bta-opt">optional</span>
-                          </div>
+                          <label className="bta-label" htmlFor="bta-skillInput">
+                            Skills &amp; Expertise <span className="bta-opt">optional</span>
+                          </label>
                           <div className="bta-skills-box">
                             {skills.map((tag) => (
                               <span key={tag} className="bta-stag">
@@ -1329,6 +1451,8 @@ export default function BecomeATalentPage() {
                               </span>
                             ))}
                             <input
+                              id="bta-skillInput"
+                              ref={skillInputRef}
                               className="bta-skill-inp"
                               type="text"
                               placeholder="Add a skill, press Enter..."
@@ -1336,18 +1460,20 @@ export default function BecomeATalentPage() {
                               onChange={(e) => setSkillInput(e.target.value)}
                               onKeyDown={handleSkillKey}
                               maxLength={50}
+                              aria-describedby="bta-skill-hint"
                             />
                           </div>
-                          <p className="bta-skill-hint">
+                          <p id="bta-skill-hint" className="bta-skill-hint">
                             Type a skill and press Enter to add. Up to 15 skills.
                           </p>
                         </div>
                         <div className="bta-spacer" />
                         <div className="bta-form-group">
-                          <div className="bta-label">
+                          <label className="bta-label" htmlFor="bta-summary">
                             Professional Summary <span className="bta-opt">optional</span>
-                          </div>
+                          </label>
                           <textarea
+                            id="bta-summary"
                             className="bta-textarea"
                             placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for."
                             value={summary}
@@ -1374,7 +1500,12 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       {step2Error && (
-                        <div className="bta-form-error" role="alert">
+                        <div
+                          className="bta-form-error"
+                          role="alert"
+                          ref={step2ErrorRef}
+                          tabIndex={-1}
+                        >
                           {step2Error}
                         </div>
                       )}
@@ -1403,16 +1534,18 @@ export default function BecomeATalentPage() {
                   {step === 3 && (
                     <div className="bta-form-step active">
                       <div className="bta-form-header">
-                        <div className="bta-fh-icon">⚙️</div>
+                        <div className="bta-fh-icon" aria-hidden="true">⚙️</div>
                         <div>
-                          <div className="bta-fh-title">Work Preferences</div>
+                          <h2 className="bta-fh-title" ref={stepHeadingRef} tabIndex={-1}>
+                            Work Preferences
+                          </h2>
                           <div className="bta-fh-sub">
                             How and when you want to work — helps us find your best match
                           </div>
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">Availability Status</div>
+                        <h3 className="bta-sec-title">Availability Status</h3>
                         <div className="bta-form-group" style={{ marginBottom: 20 }}>
                           <div className="bta-label">
                             Current Availability <span className="bta-req">*</span>
@@ -1455,7 +1588,7 @@ export default function BecomeATalentPage() {
                           </div>
                         </div>
 
-                        <div className="bta-sec-title">Work Setup</div>
+                        <h3 className="bta-sec-title">Work Setup</h3>
                         <div className="bta-form-group" style={{ marginBottom: 20 }}>
                           <div className="bta-label">
                             Work Type <span className="bta-req">*</span>
@@ -1570,18 +1703,20 @@ export default function BecomeATalentPage() {
                   {step === 4 && (
                     <div className="bta-form-step active">
                       <div className="bta-form-header">
-                        <div className="bta-fh-icon">📄</div>
+                        <div className="bta-fh-icon" aria-hidden="true">📄</div>
                         <div>
-                          <div className="bta-fh-title">CV / Resume Upload</div>
+                          <h2 className="bta-fh-title" ref={stepHeadingRef} tabIndex={-1}>
+                            CV / Resume Upload
+                          </h2>
                           <div className="bta-fh-sub">
                             Upload your latest CV — reviewed by our team and matched employers
                           </div>
                         </div>
                       </div>
                       <div className="bta-form-body">
-                        <div className="bta-sec-title">
-                          Upload your CV <span className="bta-req">*</span>
-                        </div>
+                        <h3 className="bta-sec-title">
+                          Upload your CV <span className="bta-req" aria-hidden="true">*</span>
+                        </h3>
                         {/** biome-ignore lint/a11y/noStaticElementInteractions: drag handlers on drop zone */}
                         <div
                           className={`bta-upload-zone ${cvDragOver ? "drag-over" : ""}`}
@@ -1601,6 +1736,7 @@ export default function BecomeATalentPage() {
                             type="file"
                             accept="application/pdf"
                             onChange={(e) => handleCv(e.target.files?.[0])}
+                            aria-label="Upload CV (PDF, DOC, or DOCX)"
                           />
                           <div className="bta-upload-ico">📄</div>
                           <div className="bta-upload-title">
@@ -1658,6 +1794,15 @@ export default function BecomeATalentPage() {
                             }}
                           >
                             <span>Selected: {cvFile.name}</span>
+                            {/* Phase 5 Round B E5 (deferred): no explicit
+                                focus move on CV-Remove. The CV <input
+                                type="file"> exists in the drop-zone but is
+                                covered by an absolute overlay so focusing it
+                                is unreliable, and the drop-zone div is not a
+                                natural focus target. The user clicked Remove
+                                from a known position; letting focus fall
+                                back to the body is acceptable. Revisit if SR
+                                testing surfaces a complaint. */}
                             <button
                               type="button"
                               onClick={() => {
@@ -1685,12 +1830,12 @@ export default function BecomeATalentPage() {
                         )}
 
                         <div className="bta-spacer" />
-                        <div className="bta-sec-title">GitHub Profile</div>
+                        <h3 className="bta-sec-title">GitHub Profile</h3>
                         <div className="bta-form-group">
-                          <div className="bta-label">
+                          <label className="bta-label" htmlFor="bta-github">
                             GitHub URL{" "}
                             <span className="bta-opt">optional — for engineers</span>
-                          </div>
+                          </label>
                           <div className="bta-input-wrap">
                             <span className="bta-input-icon">
                               <svg
@@ -1705,6 +1850,7 @@ export default function BecomeATalentPage() {
                               </svg>
                             </span>
                             <input
+                              id="bta-github"
                               type="url"
                               className="bta-input"
                               placeholder="github.com/yourusername"
@@ -1756,6 +1902,7 @@ export default function BecomeATalentPage() {
                             className="bta-btn-submit"
                             onClick={handleSubmit}
                             disabled={submitting}
+                            aria-busy={submitting}
                           >
                             {submitting ? (submitStatus || "Submitting...") : "Submit Profile"}
                             {!submitting && (
@@ -1828,6 +1975,34 @@ export default function BecomeATalentPage() {
 
       <style jsx global>{`
         .bta-root { background:#fff; font-family:'DM Sans',sans-serif; }
+        /* Phase 5 D1: focus-visible outline for keyboard navigation, scoped
+           to the form card + steps bar so it doesn't bleed into the navbar.
+           Preserves the existing border-color :focus rule on inputs as a
+           secondary signal. */
+        .bta-form-card button:focus-visible,
+        .bta-form-card a:focus-visible,
+        .bta-form-card input:focus-visible,
+        .bta-form-card select:focus-visible,
+        .bta-form-card textarea:focus-visible,
+        .bta-form-card [role="button"]:focus-visible,
+        .bta-steps-bar button:focus-visible {
+          outline: 2px solid #7E47FF;
+          outline-offset: 2px;
+        }
+        /* Phase 5 C2: visually-hidden utility for the always-rendered SR
+           step counter. Standard "sr-only" pattern (clip + 1px) so screen
+           readers announce the text while it's invisible to sighted users. */
+        .bta-sr-only {
+          position: absolute;
+          width: 1px;
+          height: 1px;
+          padding: 0;
+          margin: -1px;
+          overflow: hidden;
+          clip: rect(0, 0, 0, 0);
+          white-space: nowrap;
+          border: 0;
+        }
 
         .bat-outer { background:#fff; padding:24px; box-sizing:border-box; }
         .bat-wrap {
@@ -1867,7 +2042,7 @@ export default function BecomeATalentPage() {
         .bta-steps-inner { display:flex; align-items:center; justify-content:center; max-width:800px; margin:0 auto; padding:0 40px; overflow-x:auto; }
         .bta-step {
           display:flex; align-items:center; gap:10px; font-family:'DM Sans',sans-serif; font-size:.72rem;
-          font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#bbb; padding:16px 20px;
+          font-weight:600; letter-spacing:.06em; text-transform:uppercase; color:#888; padding:16px 20px;
           cursor:pointer; transition:color .2s; position:relative; white-space:nowrap; flex-shrink:0;
           background:none; border:none;
         }
@@ -1877,7 +2052,7 @@ export default function BecomeATalentPage() {
         .bta-step-circle {
           width:24px; height:24px; border-radius:50%; border:1.5px solid rgba(0,0,0,.15);
           display:flex; align-items:center; justify-content:center; font-size:.65rem; font-weight:700;
-          color:#bbb; flex-shrink:0; transition:all .25s;
+          color:#888; flex-shrink:0; transition:all .25s;
         }
         .bta-step.active .bta-step-circle { border-color:#49D7A7; background:#49D7A7; color:#111; }
         .bta-step.done .bta-step-circle { border-color:#49D7A7; color:#49D7A7; background:rgba(73,215,167,.1); }
@@ -1909,13 +2084,13 @@ export default function BecomeATalentPage() {
         .bta-form-group { display:flex; flex-direction:column; gap:6px; }
         .bta-label { font-size:.72rem; font-weight:700; letter-spacing:.06em; text-transform:uppercase; color:#555; display:flex; align-items:center; gap:6px; }
         .bta-req { color:#49D7A7; }
-        .bta-opt { font-size:.62rem; color:#bbb; background:rgba(0,0,0,.04); border:1px solid rgba(0,0,0,.08); border-radius:4px; padding:1px 6px; font-weight:500; letter-spacing:.04em; text-transform:none; }
+        .bta-opt { font-size:.7rem; color:#888; background:rgba(0,0,0,.04); border:1px solid rgba(0,0,0,.08); border-radius:4px; padding:1px 6px; font-weight:500; letter-spacing:.04em; text-transform:none; }
         .bta-input, .bta-select, .bta-textarea {
           width:100%; background:#fff; border:1px solid rgba(0,0,0,.1); border-radius:10px;
           padding:11px 14px; font-family:'DM Sans',sans-serif; font-size:.88rem; color:#111;
           outline:none; transition:border-color .2s; appearance:none;
         }
-        .bta-input::placeholder, .bta-textarea::placeholder { color:#bbb; }
+        .bta-input::placeholder, .bta-textarea::placeholder { color:#888; }
         .bta-input:focus, .bta-select:focus, .bta-textarea:focus { border-color:#49D7A7; }
         .bta-textarea { resize:vertical; min-height:110px; line-height:1.7; }
         .bta-select {
@@ -1923,7 +2098,7 @@ export default function BecomeATalentPage() {
           background-repeat:no-repeat; background-position:right 12px center; padding-right:36px; cursor:pointer;
         }
         .bta-input-wrap { position:relative; }
-        .bta-input-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#bbb; pointer-events:none; display:flex; align-items:center; }
+        .bta-input-icon { position:absolute; left:12px; top:50%; transform:translateY(-50%); color:#888; pointer-events:none; display:flex; align-items:center; }
         .bta-input-icon + .bta-input { padding-left:36px; }
         .bta-skills-box {
           background:#fff; border:1px solid rgba(0,0,0,.1); border-radius:10px;
@@ -1937,8 +2112,8 @@ export default function BecomeATalentPage() {
         .bta-stag-x { cursor:pointer; opacity:.5; transition:opacity .15s; font-size:.65rem; background:none; border:none; color:#1d8c6b; padding:0; line-height:1; }
         .bta-stag-x:hover { opacity:1; }
         .bta-skill-inp { border:none; outline:none; background:transparent; font-family:'DM Sans',sans-serif; font-size:.88rem; color:#111; min-width:120px; flex:1; }
-        .bta-skill-inp::placeholder { color:#bbb; }
-        .bta-skill-hint { font-size:.7rem; color:#bbb; margin-top:5px; }
+        .bta-skill-inp::placeholder { color:#888; }
+        .bta-skill-hint { font-size:.78rem; color:#888; margin-top:5px; }
         .bta-radio-group { display:flex; flex-wrap:wrap; gap:8px; }
         .bta-radio-opt {
           display:flex; align-items:center; gap:8px; padding:9px 16px; border:1.5px solid rgba(0,0,0,.1);
@@ -1961,7 +2136,7 @@ export default function BecomeATalentPage() {
         .bta-upload-title { font-family:'Sora',sans-serif; font-size:.82rem; font-weight:700; color:#111; margin-bottom:6px; }
         .bta-upload-sub { font-size:.78rem; color:#888; }
         .bta-upload-sub span { color:#49D7A7; cursor:pointer; font-weight:600; }
-        .bta-upload-fmt { font-size:.68rem; color:#bbb; margin-top:8px; }
+        .bta-upload-fmt { font-size:.78rem; color:#888; margin-top:8px; }
 
         .bta-photo-wrap { display:flex; align-items:center; gap:20px; }
         .bta-photo-prev {
@@ -1988,7 +2163,7 @@ export default function BecomeATalentPage() {
         .bta-info-box-body { font-size:.78rem; color:#777; line-height:1.75; }
 
         .bta-form-footer { padding:20px 32px; border-top:1px solid rgba(0,0,0,.07); display:flex; align-items:center; justify-content:space-between; gap:16px; }
-        .bta-footer-note { font-size:.7rem; color:#bbb; display:flex; align-items:center; gap:7px; }
+        .bta-footer-note { font-size:.78rem; color:#888; display:flex; align-items:center; gap:7px; }
         .bta-form-actions { display:flex; gap:10px; }
         .bta-btn-ghost {
           font-family:'Sora',sans-serif; font-size:.75rem; font-weight:700; letter-spacing:.06em;
@@ -2031,7 +2206,7 @@ export default function BecomeATalentPage() {
         .bta-perk-title { font-size:.8rem; font-weight:700; color:#111; margin-bottom:3px; }
         .bta-perk-sub { font-size:.75rem; color:#888; line-height:1.6; }
         .bta-divider { height:1px; background:rgba(0,0,0,.07); margin:16px 0; }
-        .bta-sstat-label { font-size:.65rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#bbb; margin-bottom:6px; }
+        .bta-sstat-label { font-size:.65rem; font-weight:700; letter-spacing:.12em; text-transform:uppercase; color:#888; margin-bottom:6px; }
         .bta-sstat-num { font-family:'Sora',sans-serif; font-size:1.9rem; font-weight:800; color:#111; line-height:1; }
         .bta-sstat-num em { color:#49D7A7; font-style:normal; }
         .bta-sstat-desc { font-size:.75rem; color:#888; margin-top:6px; line-height:1.65; }
