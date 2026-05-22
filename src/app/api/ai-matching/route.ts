@@ -2,6 +2,7 @@ import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import {
+  CANDIDATE_COLUMNS,
   type CandidateRow,
   type MatchResult,
   type Tier,
@@ -28,29 +29,75 @@ function getClientIp(request: NextRequest): string {
   );
 }
 
-// Strip contact fields. Phase 5 will wire per-candidate unlock; for now every
-// caller sees the same redacted view.
-function stripContact(row: CandidateRow): Omit<CandidateRow, "github_url" | "linkedin_url"> & {
-  github_url: null;
-  linkedin_url: null;
-} {
-  return {
-    ...row,
-    github_url: null,
-    linkedin_url: null,
-  };
+// Per-user saved + unlocked sets for the current candidate ids.
+// Anonymous viewers get empty sets (no DB calls).
+// Uses the service client to match the rest of the route's pattern.
+// saved_profiles / unlock_events both have per-user RLS; service client bypasses
+// it and the .eq("user_id", userId) gate is the authoritative filter here.
+async function fetchUserState(
+  userId: string | null,
+  candidateIds: string[],
+): Promise<{ savedSet: Set<string>; unlockedSet: Set<string> }> {
+  if (!userId || candidateIds.length === 0) {
+    return { savedSet: new Set(), unlockedSet: new Set() };
+  }
+  const supabase = createServiceClient();
+  const [savedRes, unlockedRes] = await Promise.all([
+    supabase
+      .from("saved_profiles")
+      .select("candidate_id")
+      .eq("user_id", userId)
+      .in("candidate_id", candidateIds),
+    supabase
+      .from("unlock_events")
+      .select("candidate_id")
+      .eq("user_id", userId)
+      .in("candidate_id", candidateIds),
+  ]);
+  const savedSet = new Set<string>(
+    (savedRes.data ?? []).map((r) => (r as { candidate_id: string }).candidate_id),
+  );
+  const unlockedSet = new Set<string>(
+    (unlockedRes.data ?? []).map((r) => (r as { candidate_id: string }).candidate_id),
+  );
+  return { savedSet, unlockedSet };
 }
 
-function enrichResults(
+// Enrich each ranked match with per-user state + conditional contact fields.
+// Contact (email/phone/cv_url/github_url/linkedin_url) is included only when
+// the viewer is a subscriber AND has an unlock_events row for this candidate.
+// Everyone else (anonymous, free, subscriber-but-not-unlocked) sees nulls.
+type EnrichedResult = MatchResult & {
+  saved: boolean;
+  unlocked: boolean;
+  profile: CandidateRow; // contact fields may be nulled in-place
+};
+
+function enrichWithUserState(
   matches: MatchResult[],
   candidates: CandidateRow[],
-): Array<MatchResult & { profile: ReturnType<typeof stripContact> }> {
+  savedSet: Set<string>,
+  unlockedSet: Set<string>,
+  tier: Tier,
+): EnrichedResult[] {
   const byId = new Map(candidates.map((c) => [c.id, c]));
-  const out: Array<MatchResult & { profile: ReturnType<typeof stripContact> }> = [];
+  const out: EnrichedResult[] = [];
   for (const m of matches) {
     const c = byId.get(m.candidate_id);
     if (!c) continue;
-    out.push({ ...m, profile: stripContact(c) });
+    const unlocked = tier === "subscriber" && unlockedSet.has(m.candidate_id);
+    const saved = savedSet.has(m.candidate_id);
+    const profile: CandidateRow = unlocked
+      ? c
+      : {
+          ...c,
+          email: null,
+          phone: null,
+          cv_url: null,
+          github_url: null,
+          linkedin_url: null,
+        };
+    out.push({ ...m, saved, unlocked, profile });
   }
   return out;
 }
@@ -120,14 +167,15 @@ export async function POST(request: NextRequest) {
     const supabase = createServiceClient();
     const { data: rows } = await supabase
       .from("talent_profiles")
-      .select(
-        "id, first_name, last_name, job_title, role_category, skills, city, country, years_experience, summary, availability, work_type, github_url, linkedin_url, avatar_url, status, salary_min, salary_max",
-      )
+      .select(CANDIDATE_COLUMNS)
       .in("id", ids)
       .not("approved_at", "is", null);
     const candidates = (rows ?? []) as CandidateRow[];
+    // Per-user enrichment applied fresh on every cache hit — the cached
+    // MatchResult[] is user-agnostic; saved/unlocked/contact state is not.
+    const { savedSet, unlockedSet } = await fetchUserState(userId, ids);
     return NextResponse.json({
-      results: enrichResults(cached, candidates),
+      results: enrichWithUserState(cached, candidates, savedSet, unlockedSet, tier),
       tier,
       cached: true,
       used: cachedLimitView.used,
@@ -168,12 +216,17 @@ export async function POST(request: NextRequest) {
   // STAGE 2: Claude ranking
   const ranked = await rankWithClaude(query, candidates);
 
-  // Cache + log the fresh search
+  // Cache + log the fresh search. Cached payload is user-agnostic (ids + % +
+  // why) — saved/unlocked/contact are applied per-user below, never cached.
   await setCached(cacheKey, query, ranked);
   await logSearch({ userId, ip, query });
 
+  // Per-user enrichment for THIS request (mirror cache-hit branch).
+  const rankedIds = ranked.map((r) => r.candidate_id);
+  const { savedSet, unlockedSet } = await fetchUserState(userId, rankedIds);
+
   return NextResponse.json({
-    results: enrichResults(ranked, candidates),
+    results: enrichWithUserState(ranked, candidates, savedSet, unlockedSet, tier),
     tier,
     cached: false,
     used: limitCheck.used + 1,

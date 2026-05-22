@@ -1,11 +1,19 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Lock, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Loader2, Lock, MapPin } from "lucide-react";
+import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
+import { getCvSignedUrl, toggleSave, unlockCandidate } from "@/app/browse-talent/actions";
 import { Navbar } from "@/components/navbar";
 import { ROLE_CONFIG, type TalentType } from "@/lib/talent-pool";
+
+// Dynamic-imported on first paywall trigger — matches browse-talent's pattern
+// so the modal's bundle isn't shipped to subscribers who never see it.
+const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
+  ssr: false,
+});
 
 // ── API contract ─────────────────────────────────────────────
 
@@ -22,6 +30,10 @@ type CandidateProfile = {
   summary: string | null;
   availability: string | null;
   work_type: string | null;
+  // Contact fields — real strings when subscriber + unlocked; null otherwise.
+  email: string | null;
+  phone: string | null;
+  cv_url: string | null;
   github_url: string | null;
   linkedin_url: string | null;
   avatar_url: string | null;
@@ -34,6 +46,11 @@ type EnrichedMatch = {
   candidate_id: string;
   match_percent: number;
   why: string;
+  // Phase 5A: per-user state from API. `saved` reflects saved_profiles; `unlocked`
+  // reflects unlock_events (subscriber-gated server-side). 5C will wire `unlocked`
+  // to the contact buttons; 5B only consumes `saved`.
+  saved: boolean;
+  unlocked: boolean;
   profile: CandidateProfile;
 };
 
@@ -72,18 +89,51 @@ function LinkedinIcon() {
   );
 }
 
-function LockedContactLink({ label, icon }: { label: string; icon?: React.ReactNode }) {
+function LockedContactLink({
+  label,
+  icon,
+  onClick,
+  loading = false,
+}: {
+  label: string;
+  icon?: React.ReactNode;
+  onClick: () => void;
+  loading?: boolean;
+}) {
   return (
     <button
       type="button"
-      disabled
-      title="Sign up to unlock contact details"
-      className="flex cursor-not-allowed items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.02] px-3 py-1.5 text-[0.72rem] font-medium text-[#aaa]"
+      onClick={onClick}
+      disabled={loading}
+      title="Unlock to view contact"
+      className="flex cursor-pointer items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.02] px-3 py-1.5 text-[0.72rem] font-medium text-[#888] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple disabled:cursor-wait disabled:opacity-60"
     >
-      <Lock className="size-3" strokeWidth={2} />
+      {loading ? <Loader2 className="size-3 animate-spin" /> : <Lock className="size-3" strokeWidth={2} />}
       {icon}
       {label}
     </button>
+  );
+}
+
+function UnlockedContactLink({
+  href,
+  label,
+  icon,
+}: {
+  href: string;
+  label: string;
+  icon?: React.ReactNode;
+}) {
+  return (
+    <a
+      href={href}
+      target="_blank"
+      rel="noopener noreferrer"
+      className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
+    >
+      {icon}
+      {label}
+    </a>
   );
 }
 
@@ -111,6 +161,15 @@ function initialsOf(first: string, last: string | null): string {
 function isAvailableNow(availability: string | null): boolean {
   if (!availability) return false;
   return availability.toLowerCase().includes("available");
+}
+
+// Prefix `https://` to a bare social-handle URL if missing — talent_profiles
+// stores LinkedIn/GitHub URLs in inconsistent forms (sometimes a full URL,
+// sometimes `linkedin.com/in/...`).
+function ensureHttpUrl(url: string | null): string | null {
+  if (!url) return null;
+  if (/^https?:\/\//i.test(url)) return url;
+  return `https://${url}`;
 }
 
 // ── Loading steps animation ─────────────────────────────────
@@ -216,12 +275,30 @@ function TalentCard({
   match,
   index,
   saved,
+  isUnlocked,
+  isUnlocking,
+  isViewingCv,
+  effectiveContact,
+  unlockNote,
   onToggleSave,
+  onUnlock,
+  onViewCv,
 }: {
   match: EnrichedMatch;
   index: number;
   saved: boolean;
+  isUnlocked: boolean;
+  isUnlocking: boolean;
+  isViewingCv: boolean;
+  effectiveContact: {
+    github: string | null;
+    linkedin: string | null;
+    cvUrl: string | null;
+  } | null;
+  unlockNote: string | null;
   onToggleSave: (id: string) => void;
+  onUnlock: (id: string) => void;
+  onViewCv: (id: string) => void;
 }) {
   const p = match.profile;
   const type = deriveType(p.role_category);
@@ -293,11 +370,76 @@ function TalentCard({
           </div>
         )}
 
-        <div className="mt-3 flex flex-wrap gap-1.5">
-          <LockedContactLink label="GitHub" icon={<GithubIcon />} />
-          <LockedContactLink label="LinkedIn" icon={<LinkedinIcon />} />
-          <LockedContactLink label="Resume ✦" />
-        </div>
+        {isUnlocked && effectiveContact ? (
+          <div className="mt-3 flex flex-wrap items-center gap-1.5">
+            <span className="rounded-full bg-remotiv-green/[0.12] px-2 py-[3px] text-[0.65rem] font-bold uppercase tracking-[0.08em] text-[#1d8c6b]">
+              ✓ Unlocked
+            </span>
+            {unlockNote && (
+              <span className="text-[0.7rem] text-[#1d8c6b]">{unlockNote}</span>
+            )}
+            {effectiveContact.github && (
+              <UnlockedContactLink
+                href={ensureHttpUrl(effectiveContact.github) ?? "#"}
+                label="GitHub"
+                icon={<GithubIcon />}
+              />
+            )}
+            {effectiveContact.linkedin && (
+              <UnlockedContactLink
+                href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
+                label="LinkedIn"
+                icon={<LinkedinIcon />}
+              />
+            )}
+            {/* Resume — the `cvs` bucket is private; cv_url is NOT directly
+                clickable. Mirror browse-talent: re-sign per click via the
+                server action. `effectiveContact.cvUrl` truthiness only tells
+                us a CV exists; the actual URL is fetched on click. */}
+            {effectiveContact.cvUrl && (
+              <button
+                type="button"
+                onClick={() => onViewCv(match.candidate_id)}
+                disabled={isViewingCv}
+                aria-busy={isViewingCv}
+                className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple disabled:cursor-wait disabled:opacity-70"
+              >
+                {isViewingCv ? (
+                  <Loader2 className="size-3 animate-spin" />
+                ) : (
+                  <>Resume ✦</>
+                )}
+              </button>
+            )}
+            {!effectiveContact.github &&
+              !effectiveContact.linkedin &&
+              !effectiveContact.cvUrl && (
+                <span className="text-[0.72rem] text-[#888]">
+                  No public contact links shared
+                </span>
+              )}
+          </div>
+        ) : (
+          <div className="mt-3 flex flex-wrap gap-1.5">
+            <LockedContactLink
+              label="GitHub"
+              icon={<GithubIcon />}
+              onClick={() => onUnlock(match.candidate_id)}
+              loading={isUnlocking}
+            />
+            <LockedContactLink
+              label="LinkedIn"
+              icon={<LinkedinIcon />}
+              onClick={() => onUnlock(match.candidate_id)}
+              loading={isUnlocking}
+            />
+            <LockedContactLink
+              label="Resume ✦"
+              onClick={() => onUnlock(match.candidate_id)}
+              loading={isUnlocking}
+            />
+          </div>
+        )}
       </div>
 
       <div className="flex flex-row items-start gap-2 md:flex-col md:items-stretch">
@@ -418,6 +560,31 @@ function ResultsContent() {
 
   const [shortlist, setShortlist] = useState<Set<string>>(new Set());
   const [showOnlySaved, setShowOnlySaved] = useState(false);
+  const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  // In-flight guard: prevent TOCTOU races on rapid double-clicks of the same row.
+  const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
+  // Phase 5C: per-card unlock state. unlockedSet is the canonical truth;
+  // unlockedContactData stores the freshly-revealed contact for just-now-unlocked
+  // rows (since the initial profile.* fields are null for those rows until the
+  // next API call). unlockingIds powers per-card spinner state.
+  const [unlockedSet, setUnlockedSet] = useState<Set<string>>(new Set());
+  const [unlockedContactData, setUnlockedContactData] = useState<
+    Map<
+      string,
+      {
+        email: string | null;
+        phone: string | null;
+        linkedinUrl: string | null;
+        cvUrl: string | null;
+      }
+    >
+  >(new Map());
+  const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set());
+  // Phase 5C fix: in-flight guard for Resume click (signed-URL re-fetch).
+  const [viewingCvIds, setViewingCvIds] = useState<Set<string>>(new Set());
+  // Per-card unlock note — tells the user whether a credit was charged or
+  // the candidate was already unlocked (e.g. from a prior browse-talent unlock).
+  const [lastUnlockNote, setLastUnlockNote] = useState<{ id: string; text: string } | null>(null);
 
   // Guard against React strict-mode double-invocation of effects in dev.
   const lastFetchedQuery = useRef<string | null>(null);
@@ -471,6 +638,24 @@ function ResultsContent() {
         setLimit(success.limit);
         setCached(success.cached);
         setResults(success.results);
+        // Phase 5B: reflect real saved state from the DB. The API returns
+        // `saved: boolean` per result based on saved_profiles for the current
+        // user. Anonymous users always get saved: false (no DB lookup).
+        setShortlist(
+          new Set(
+            success.results.filter((r) => r.saved).map((r) => r.candidate_id),
+          ),
+        );
+        // Phase 5C: reflect real unlock state. Same idea — server determines
+        // unlocked-on-load; client tracks just-now-unlocked separately in the
+        // Map. Reset the Map on every new search so stale entries from another
+        // query don't bleed across queries.
+        setUnlockedSet(
+          new Set(
+            success.results.filter((r) => r.unlocked).map((r) => r.candidate_id),
+          ),
+        );
+        setUnlockedContactData(new Map());
         setErrorState(success.results.length === 0 ? "empty" : "none");
       })
       .catch(() => {
@@ -483,14 +668,167 @@ function ResultsContent() {
       });
   }, [query]);
 
-  const toggleSave = useCallback((id: string) => {
-    setShortlist((prev) => {
-      const next = new Set(prev);
-      if (next.has(id)) next.delete(id);
-      else next.add(id);
-      return next;
-    });
-  }, []);
+  // Mirrors browse-talent/_browse-client.tsx's pattern: pre-check tier for the
+  // paywall path (no DB call), then optimistic flip + server toggleSave + rollback
+  // on failure. Subscription-required error reopens the pricing modal.
+  const handleToggleSave = useCallback(
+    async (candidateId: string) => {
+      // Non-subscribers (anonymous + free) → open pricing modal, do not call the server.
+      if (tier !== "subscriber") {
+        setIsPricingModalOpen(true);
+        return;
+      }
+      // In-flight guard against rapid double-clicks on the same row.
+      if (savingIds.has(candidateId)) return;
+      setSavingIds((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+
+      const wasSaved = shortlist.has(candidateId);
+
+      // Optimistic flip — bookmark icon updates instantly.
+      setShortlist((prev) => {
+        const next = new Set(prev);
+        if (wasSaved) next.delete(candidateId);
+        else next.add(candidateId);
+        return next;
+      });
+
+      try {
+        const result = await toggleSave(candidateId);
+        if (!result.success) {
+          // Roll back the optimistic flip.
+          setShortlist((prev) => {
+            const next = new Set(prev);
+            if (wasSaved) next.add(candidateId);
+            else next.delete(candidateId);
+            return next;
+          });
+          // Subscription stale / changed mid-session → re-prompt with pricing.
+          if ((result.error ?? "") === "Subscription required") {
+            setIsPricingModalOpen(true);
+          }
+          // Other errors fall through silently for now — the rollback already
+          // reverted the UI. Phase 5 polish can add per-error toasts later.
+        }
+      } finally {
+        setSavingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(candidateId);
+          return next;
+        });
+      }
+    },
+    [tier, savingIds, shortlist],
+  );
+
+  // Phase 5C: unlock click. Mirrors browse-talent's handleUnlock pattern:
+  // tier pre-check → in-flight guard → unlockCandidate → on success update
+  // unlockedSet + unlockedContactData. On no_credits / not_subscribed errors,
+  // open the PricingModal (this file has no toast system; the modal is the
+  // unified upgrade prompt).
+  const handleUnlock = useCallback(
+    async (candidateId: string) => {
+      // Non-subscribers (anonymous + free) → open pricing modal, no server call.
+      if (tier !== "subscriber") {
+        setIsPricingModalOpen(true);
+        return;
+      }
+      // Already unlocked? No-op (button shouldn't be locked, but defensive).
+      if (unlockedSet.has(candidateId)) return;
+      // In-flight guard against rapid double-clicks on the same card.
+      if (unlockingIds.has(candidateId)) return;
+      setUnlockingIds((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+
+      try {
+        const result = await unlockCandidate(candidateId);
+        if (result.success) {
+          setUnlockedSet((prev) => {
+            const next = new Set(prev);
+            next.add(candidateId);
+            return next;
+          });
+          setUnlockedContactData((prev) => {
+            const next = new Map(prev);
+            next.set(candidateId, {
+              email: result.email,
+              phone: result.phone,
+              linkedinUrl: result.linkedinUrl,
+              cvUrl: result.cvUrl,
+            });
+            return next;
+          });
+          // Tell the user whether a credit was charged or the unlock was free.
+          // alreadyUnlocked = the candidate was previously unlocked (browse-talent
+          // shares the same unlock_events table). The RPC explicitly skips the
+          // credit decrement in that path.
+          setLastUnlockNote({
+            id: candidateId,
+            text: result.alreadyUnlocked
+              ? "Already unlocked — no credit used"
+              : `Unlocked · ${result.creditsRemaining} credits left`,
+          });
+        } else {
+          // no_credits = subscriber out of credits this month.
+          // not_subscribed = subscription cancelled mid-session (stale prop).
+          // Both → PricingModal as the unified upgrade prompt.
+          if (result.error === "no_credits" || result.error === "not_subscribed") {
+            setIsPricingModalOpen(true);
+          }
+          // Other errors (candidate_not_found, internal_error, invalid_input,
+          // rate_limited): silent revert — the in-flight spinner clears in finally.
+        }
+      } finally {
+        setUnlockingIds((prev) => {
+          const next = new Set(prev);
+          next.delete(candidateId);
+          return next;
+        });
+      }
+    },
+    [tier, unlockedSet, unlockingIds],
+  );
+
+  // Phase 5C fix: Resume click → fetch a fresh 1-hour signed URL via
+  // getCvSignedUrl and open it. Mirrors browse-talent's handleViewCv exactly.
+  // The `cvs` storage bucket is private, so the raw cv_url stored on
+  // talent_profiles is never directly clickable — must be re-signed per click.
+  const handleViewCv = useCallback(
+    async (candidateId: string) => {
+      if (viewingCvIds.has(candidateId)) return;
+      setViewingCvIds((prev) => {
+        const next = new Set(prev);
+        next.add(candidateId);
+        return next;
+      });
+      try {
+        const result = await getCvSignedUrl(candidateId);
+        if (result.ok) {
+          window.open(result.url, "_blank", "noopener,noreferrer");
+          return;
+        }
+        // Auth/subscription errors → PricingModal (unified upgrade prompt for
+        // this file). cv_missing / internal_error fall through silently — the
+        // spinner clears in finally.
+        if (result.error === "not_authenticated" || result.error === "not_unlocked") {
+          setIsPricingModalOpen(true);
+        }
+      } finally {
+        setViewingCvIds((prev) => {
+          const next = new Set(prev);
+          next.delete(candidateId);
+          return next;
+        });
+      }
+    },
+    [viewingCvIds],
+  );
 
   const visible = showOnlySaved
     ? results.filter((r) => shortlist.has(r.candidate_id))
@@ -557,17 +895,48 @@ function ResultsContent() {
         <EmptyState />
       ) : (
         <div className="mx-auto flex max-w-[900px] flex-col gap-2.5 px-6 pb-20 pt-6">
-          {visible.map((m, i) => (
-            <TalentCard
-              key={m.candidate_id}
-              match={m}
-              index={i}
-              saved={shortlist.has(m.candidate_id)}
-              onToggleSave={toggleSave}
-            />
-          ))}
+          {visible.map((m, i) => {
+            const cardUnlocked = unlockedSet.has(m.candidate_id);
+            const local = unlockedContactData.get(m.candidate_id);
+            // Effective contact: prefer just-now-unlocked Map (freshest signed
+            // CV URL + latest contact); fall back to profile fields (real when
+            // the API determined this card was already unlocked on load).
+            // GitHub is never returned by unlockCandidate, so use the profile
+            // field — null right after a fresh unlock, but real on next fetch.
+            const effectiveContact = cardUnlocked
+              ? {
+                  github: m.profile.github_url ?? null,
+                  linkedin:
+                    local?.linkedinUrl ?? m.profile.linkedin_url ?? null,
+                  cvUrl: local?.cvUrl ?? m.profile.cv_url ?? null,
+                }
+              : null;
+            return (
+              <TalentCard
+                key={m.candidate_id}
+                match={m}
+                index={i}
+                saved={shortlist.has(m.candidate_id)}
+                isUnlocked={cardUnlocked}
+                isUnlocking={unlockingIds.has(m.candidate_id)}
+                isViewingCv={viewingCvIds.has(m.candidate_id)}
+                effectiveContact={effectiveContact}
+                unlockNote={
+                  lastUnlockNote?.id === m.candidate_id ? lastUnlockNote.text : null
+                }
+                onToggleSave={handleToggleSave}
+                onUnlock={handleUnlock}
+                onViewCv={handleViewCv}
+              />
+            );
+          })}
         </div>
       )}
+
+      <PricingModal
+        isOpen={isPricingModalOpen}
+        onClose={() => setIsPricingModalOpen(false)}
+      />
     </>
   );
 }

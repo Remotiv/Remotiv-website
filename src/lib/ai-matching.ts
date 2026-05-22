@@ -33,6 +33,11 @@ export interface CandidateRow {
   summary: string | null;
   availability: string | null;
   work_type: string | null;
+  // Contact fields — fetched so the route can conditionally include them per
+  // (subscriber + unlocked). NEVER sent to Claude (see candidateSummaryForPrompt).
+  email: string | null;
+  phone: string | null;
+  cv_url: string | null;
   github_url: string | null;
   linkedin_url: string | null;
   avatar_url: string | null;
@@ -185,8 +190,8 @@ export async function setCached(
 
 // ── 7. prefilterCandidates ───────────────────────────────────
 
-const CANDIDATE_COLUMNS =
-  "id, first_name, last_name, job_title, role_category, skills, city, country, years_experience, summary, availability, work_type, github_url, linkedin_url, avatar_url, status, salary_min, salary_max";
+export const CANDIDATE_COLUMNS =
+  "id, first_name, last_name, email, phone, cv_url, job_title, role_category, skills, city, country, years_experience, summary, availability, work_type, github_url, linkedin_url, avatar_url, status, salary_min, salary_max";
 
 export async function prefilterCandidates(
   query: string,
