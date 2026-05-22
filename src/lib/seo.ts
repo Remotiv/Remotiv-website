@@ -7,9 +7,15 @@
 export const CANONICAL_HOST = "https://remotiv-website-m3jo.vercel.app";
 
 /**
- * Builds an absolute URL from a path. Tolerates both "/foo" and "foo" inputs
- * so callers don't have to remember the leading slash. Used for JSON-LD
- * `item` fields (which must be absolute URLs per schema.org).
+ * Builds an absolute URL from a path. Tolerates "/foo", "foo", and even
+ * "//foo" (callers that accidentally pre-slash a leading "/"). All forms
+ * collapse to exactly ONE leading slash so the output is never the broken
+ * `https://host//foo`. Used for JSON-LD `item` fields (which must be
+ * absolute URLs per schema.org).
+ *
+ * Trailing-slash for root is preserved: canonicalUrl("/") → "https://host/".
  */
-export const canonicalUrl = (path: string): string =>
-  `${CANONICAL_HOST}${path.startsWith("/") ? path : `/${path}`}`;
+export const canonicalUrl = (path: string): string => {
+  const normalized = `/${path.replace(/^\/+/, "")}`;
+  return `${CANONICAL_HOST}${normalized}`;
+};

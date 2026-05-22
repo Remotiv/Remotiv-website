@@ -1,7 +1,7 @@
 "use client";
 
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { type RefObject, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 
 // Phase 4 G2: one-time pdfjs worker URL setup flag. The URL assignment was
@@ -15,6 +15,23 @@ let pdfWorkerConfigured = false;
 const prefersReducedMotion = (): boolean =>
   typeof window !== "undefined" &&
   window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
+// Light-check LR2: extracted helper for the 6 identical scroll-to-top calls
+// (was inline in goToStep ×3 and handleSubmit safety-net ×3). Defined AFTER
+// prefersReducedMotion because it reads it at call-time. Behaviour
+// byte-identical to the previous inline form.
+const scrollToTop = (): void => {
+  window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+};
+
+// Light-check LR1: extracted helper for the 6 identical focus-after-render
+// calls added across Phase 5 Round B (focus management). Generic on the
+// element type so any of HTMLHeadingElement / HTMLDivElement /
+// HTMLButtonElement / HTMLInputElement refs slot in without casting.
+// rAF defers until React has flushed the surrounding state update.
+const focusRef = <T extends HTMLElement>(ref: RefObject<T | null>): void => {
+  requestAnimationFrame(() => ref.current?.focus());
+};
 
 // ── Client-side PDF text extraction (mirrors admin bulk-upload helper)
 async function extractPdfText(file: File): Promise<string> {
@@ -443,7 +460,7 @@ export default function BecomeATalentPage() {
       // Phase 5 Round B E2: move focus to the error banner so keyboard / SR
       // users land on the alert text. rAF defers until React has flushed the
       // setStep1Error update and the banner is in the DOM.
-      requestAnimationFrame(() => step1ErrorRef.current?.focus());
+      focusRef(step1ErrorRef);
       return;
     }
     setStep1Error(null);
@@ -455,7 +472,7 @@ export default function BecomeATalentPage() {
     if (err) {
       setStep2Error(err);
       // Phase 5 Round B E2: same pattern as Step 1.
-      requestAnimationFrame(() => step2ErrorRef.current?.focus());
+      focusRef(step2ErrorRef);
       return;
     }
     setStep2Error(null);
@@ -469,7 +486,7 @@ export default function BecomeATalentPage() {
     // returning to fix a field they noticed was wrong, so we don't gate.
     if (clamped <= step) {
       setStep(clamped);
-      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      scrollToTop();
       return;
     }
 
@@ -490,7 +507,7 @@ export default function BecomeATalentPage() {
         if (s === 1) setStep1Error(stepErr);
         else if (s === 2) setStep2Error(stepErr);
         // s === 3 has no error state today (no required fields).
-        window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+        scrollToTop();
         return;
       }
     }
@@ -499,7 +516,7 @@ export default function BecomeATalentPage() {
     setStep1Error(null);
     setStep2Error(null);
     setStep(clamped);
-    window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+    scrollToTop();
   };
 
   const addExperience = () => {
@@ -525,7 +542,7 @@ export default function BecomeATalentPage() {
     // Phase 5 Round B E4: focus the "+ Add Work Experience" button — a stable
     // target that survives the removal (unlike the removed row's siblings,
     // which may shift or unmount). rAF defers until React re-renders.
-    requestAnimationFrame(() => addExpBtnRef.current?.focus());
+    focusRef(addExpBtnRef);
   };
 
   const handleSkillKey = (e: React.KeyboardEvent<HTMLInputElement>) => {
@@ -555,7 +572,7 @@ export default function BecomeATalentPage() {
     // Phase 5 Round B E5: return focus to the skill input — the natural next
     // place a user goes after pruning a tag, and a stable target since the
     // input persists across the re-render.
-    requestAnimationFrame(() => skillInputRef.current?.focus());
+    focusRef(skillInputRef);
   };
 
   // Phase 1 R1 L1: ALLOWED_IMAGE_TYPES hoisted to module scope (was inline
@@ -615,20 +632,20 @@ export default function BecomeATalentPage() {
     if (s1Err) {
       setStep(1);
       setStep1Error(s1Err);
-      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      scrollToTop();
       return;
     }
     const s2Err = validateStep2Fields();
     if (s2Err) {
       setStep(2);
       setStep2Error(s2Err);
-      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      scrollToTop();
       return;
     }
     const s3Err = validateStep3Fields();
     if (s3Err) {
       setStep(3);
-      window.scrollTo({ top: 0, behavior: prefersReducedMotion() ? "auto" : "smooth" });
+      scrollToTop();
       return;
     }
 
@@ -823,14 +840,14 @@ export default function BecomeATalentPage() {
       return;
     }
     if (submitted) return;
-    requestAnimationFrame(() => stepHeadingRef.current?.focus());
+    focusRef(stepHeadingRef);
   }, [step, submitted]);
 
   // Phase 5 Round B E3: on submit success/duplicate move focus to the
   // success/duplicate heading so SR users hear the outcome immediately.
   useEffect(() => {
     if (!submitted) return;
-    requestAnimationFrame(() => successHeadingRef.current?.focus());
+    focusRef(successHeadingRef);
   }, [submitted]);
 
   return (
