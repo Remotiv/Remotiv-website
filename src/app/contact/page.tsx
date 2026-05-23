@@ -82,8 +82,8 @@ const CONTACT_DETAILS = [
     title: "Email Us",
     value: (
       <>
-        <a href="mailto:waleed@remotiv.work" className="text-remotiv-text-light hover:text-remotiv-text-dark">
-          waleed@remotiv.work
+        <a href="mailto:talent@remotiv.work" className="text-remotiv-text-light hover:text-remotiv-text-dark">
+          talent@remotiv.work
         </a>
         <br />
         We reply within 24 hours
@@ -150,6 +150,8 @@ const INPUT_CLASS =
 
 const LABEL_CLASS = "mb-[5px] block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";
 
+const CLIENT_TIMEOUT_MS = 15000;
+
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
   const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
@@ -200,9 +202,9 @@ export default function ContactPage() {
             resolve({
               success: false,
               error:
-                "This is taking longer than expected. Please try again or email us at hello@remotiv.com.",
+                "This is taking longer than expected. Please try again or email us at talent@remotiv.work.",
             }),
-          15000,
+          CLIENT_TIMEOUT_MS,
         ),
       );
 
@@ -218,13 +220,13 @@ export default function ContactPage() {
         setStatus("idle");
         setErrorMessage(
           result.error ||
-            "We couldn't send your inquiry. Please try again or email us at hello@remotiv.com.",
+            "We couldn't send your inquiry. Please try again or email us at talent@remotiv.work.",
         );
       }
     } catch {
       setStatus("idle");
       setErrorMessage(
-        "Something unexpected happened. Please try again or email us at hello@remotiv.com.",
+        "Something unexpected happened. Please try again or email us at talent@remotiv.work.",
       );
     } finally {
       submitLockRef.current = false;
