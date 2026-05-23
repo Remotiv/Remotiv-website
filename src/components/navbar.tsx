@@ -193,6 +193,7 @@ export function Navbar({ variant = "default" }: NavbarProps) {
   return (
     <>
       <nav
+        data-nav={isHome ? undefined : ""}
         className={cn(
           "flex items-center justify-between",
           isHome

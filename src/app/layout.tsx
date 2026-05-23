@@ -74,6 +74,14 @@ export default function RootLayout({
 }>) {
   return (
     <html lang="en" className={`${sora.variable} ${dmSans.variable} h-full antialiased bg-background`}>
+      <head>
+        <style
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: critical-CSS inline style — prevents cold-load FOUC before Tailwind chunk arrives
+          dangerouslySetInnerHTML={{
+            __html: `html,body{background:#f8f4f1!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}`,
+          }}
+        />
+      </head>
       <body className="min-h-full flex flex-col overflow-x-hidden">
         <a href="#main" className="skip-link">
           Skip to main content
