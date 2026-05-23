@@ -1,13 +1,25 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Loader2, Lock, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Loader2, MapPin } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
 import { getCvSignedUrl, toggleSave, unlockCandidate } from "@/app/browse-talent/actions";
 import { Navbar } from "@/components/navbar";
-import { ROLE_CONFIG, type TalentType } from "@/lib/talent-pool";
+import {
+  type CandidateProfile,
+  type EnrichedMatch,
+  GithubIcon,
+  LinkedinIcon,
+  LockedContactLink,
+  ROLE_CONFIG,
+  ScoreBadge,
+  UnlockedContactLink,
+  deriveType,
+  ensureHttpUrl,
+  isAvailableNow,
+} from "./_shared";
 
 // Dynamic-imported on first paywall trigger — matches browse-talent's pattern
 // so the modal's bundle isn't shipped to subscribers who never see it.
@@ -15,44 +27,16 @@ const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
   ssr: false,
 });
 
+// In-place profile modal — code-split, only loaded on first View Profile click.
+// Replaces the prior deep-link to /browse-talent?id=… (which forced a re-search
+// on return, costing a Claude call + a daily quota slot).
+const AIProfileModal = dynamic(() => import("./_ai-profile-modal"), {
+  ssr: false,
+});
+
 // ── API contract ─────────────────────────────────────────────
-
-type CandidateProfile = {
-  id: string;
-  first_name: string;
-  last_name: string | null;
-  job_title: string | null;
-  role_category: string | null;
-  skills: string[];
-  city: string | null;
-  country: string | null;
-  years_experience: number | null;
-  summary: string | null;
-  availability: string | null;
-  work_type: string | null;
-  // Contact fields — real strings when subscriber + unlocked; null otherwise.
-  email: string | null;
-  phone: string | null;
-  cv_url: string | null;
-  github_url: string | null;
-  linkedin_url: string | null;
-  avatar_url: string | null;
-  status: string;
-  salary_min: number | null;
-  salary_max: number | null;
-};
-
-type EnrichedMatch = {
-  candidate_id: string;
-  match_percent: number;
-  why: string;
-  // Phase 5A: per-user state from API. `saved` reflects saved_profiles; `unlocked`
-  // reflects unlock_events (subscriber-gated server-side). 5C will wire `unlocked`
-  // to the contact buttons; 5B only consumes `saved`.
-  saved: boolean;
-  unlocked: boolean;
-  profile: CandidateProfile;
-};
+// CandidateProfile + EnrichedMatch live in ./_shared so the AI profile modal
+// can import the same shape without a circular dep on this file.
 
 type ApiTier = "anonymous" | "free" | "subscriber";
 
@@ -73,104 +57,8 @@ type ApiRateLimit = {
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function GithubIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-3">
-      <path d="M12 0C5.37 0 0 5.37 0 12c0 5.31 3.435 9.795 8.205 11.385.6.105.825-.255.825-.57 0-.285-.015-1.23-.015-2.235-3.015.555-3.795-.735-4.035-1.41-.135-.345-.72-1.41-1.23-1.695-.42-.225-1.02-.78-.015-.795.945-.015 1.62.87 1.845 1.23 1.08 1.815 2.805 1.305 3.495.99.105-.78.42-1.305.765-1.605-2.67-.3-5.46-1.335-5.46-5.925 0-1.305.465-2.385 1.23-3.225-.12-.3-.54-1.53.12-3.18 0 0 1.005-.315 3.3 1.23.96-.27 1.98-.405 3-.405s2.04.135 3 .405c2.295-1.56 3.3-1.23 3.3-1.23.66 1.65.24 2.88.12 3.18.765.84 1.23 1.905 1.23 3.225 0 4.605-2.805 5.625-5.475 5.925.435.375.81 1.095.81 2.22 0 1.605-.015 2.895-.015 3.3 0 .315.225.69.825.57A12.02 12.02 0 0 0 24 12c0-6.63-5.37-12-12-12z" />
-    </svg>
-  );
-}
-
-function LinkedinIcon() {
-  return (
-    <svg viewBox="0 0 24 24" fill="currentColor" aria-hidden="true" className="size-3">
-      <path d="M20.447 20.452h-3.554v-5.569c0-1.328-.027-3.037-1.852-3.037-1.853 0-2.136 1.445-2.136 2.939v5.667H9.351V9h3.414v1.561h.046c.477-.9 1.637-1.85 3.37-1.85 3.601 0 4.267 2.37 4.267 5.455v6.286zM5.337 7.433a2.062 2.062 0 0 1-2.063-2.065 2.064 2.064 0 1 1 2.063 2.065zm1.782 13.019H3.555V9h3.564v11.452zM22.225 0H1.771C.792 0 0 .774 0 1.729v20.542C0 23.227.792 24 1.771 24h20.451C23.2 24 24 23.227 24 22.271V1.729C24 .774 23.2 0 22.222 0h.003z" />
-    </svg>
-  );
-}
-
-function LockedContactLink({
-  label,
-  icon,
-  onClick,
-  loading = false,
-}: {
-  label: string;
-  icon?: React.ReactNode;
-  onClick: () => void;
-  loading?: boolean;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      disabled={loading}
-      title="Unlock to view contact"
-      className="flex cursor-pointer items-center gap-1.5 rounded-full border border-black/[0.08] bg-black/[0.02] px-3 py-1.5 text-[0.72rem] font-medium text-[#888] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple disabled:cursor-wait disabled:opacity-60"
-    >
-      {loading ? <Loader2 className="size-3 animate-spin" /> : <Lock className="size-3" strokeWidth={2} />}
-      {icon}
-      {label}
-    </button>
-  );
-}
-
-function UnlockedContactLink({
-  href,
-  label,
-  icon,
-}: {
-  href: string;
-  label: string;
-  icon?: React.ReactNode;
-}) {
-  return (
-    <a
-      href={href}
-      target="_blank"
-      rel="noopener noreferrer"
-      className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
-    >
-      {icon}
-      {label}
-    </a>
-  );
-}
-
-function scoreStars(score: number): string {
-  const filled = score >= 95 ? 5 : score >= 88 ? 4 : score >= 75 ? 3 : score >= 60 ? 2 : 1;
-  return "★".repeat(filled) + "☆".repeat(5 - filled);
-}
-
-function deriveType(roleCategory: string | null): TalentType {
-  const r = (roleCategory ?? "").toLowerCase();
-  if (/engineer|developer|software|devops|backend|frontend|fullstack|full[- ]?stack/.test(r)) return "Eng";
-  if (/design|ui|ux/.test(r)) return "Design";
-  if (/data|analyst|scientist|ml|machine learning/.test(r)) return "Data";
-  if (/product|manager|^pm$|owner/.test(r)) return "PM";
-  if (/ops|operations|support|customer|success/.test(r)) return "Ops";
-  return "Eng";
-}
-
-function initialsOf(first: string, last: string | null): string {
-  const a = first?.[0] ?? "";
-  const b = last?.[0] ?? "";
-  return `${a}${b}`.toUpperCase() || "??";
-}
-
-function isAvailableNow(availability: string | null): boolean {
-  if (!availability) return false;
-  return availability.toLowerCase().includes("available");
-}
-
-// Prefix `https://` to a bare social-handle URL if missing — talent_profiles
-// stores LinkedIn/GitHub URLs in inconsistent forms (sometimes a full URL,
-// sometimes `linkedin.com/in/...`).
-function ensureHttpUrl(url: string | null): string | null {
-  if (!url) return null;
-  if (/^https?:\/\//i.test(url)) return url;
-  return `https://${url}`;
-}
+// Icons, contact links, deriveType, ensureHttpUrl, ScoreBadge, etc. now live
+// in ./_shared so the in-place profile modal can render the same primitives.
 
 // ── Loading steps animation ─────────────────────────────────
 
@@ -255,21 +143,7 @@ function LoadingPanel({ query }: { query: string }) {
 
 // ── Card components ─────────────────────────────────────────
 
-function ScoreBadge({ score }: { score: number }) {
-  return (
-    <div className="flex min-w-[100px] flex-col items-center rounded-[14px] border border-remotiv-green/[0.25] bg-remotiv-green/[0.08] px-[18px] py-3.5">
-      <div className="font-heading text-[2rem] font-extrabold leading-none text-remotiv-green">
-        {score}%
-      </div>
-      <div className="mt-1 text-[0.6rem] font-bold uppercase tracking-[0.1em] text-[#777]">
-        AI Match
-      </div>
-      <div className="mt-0.5 text-[0.7rem] tracking-[2px] text-remotiv-green">
-        {scoreStars(score)}
-      </div>
-    </div>
-  );
-}
+// ScoreBadge now lives in ./_shared (used by both card + modal).
 
 function TalentCard({
   match,
@@ -283,6 +157,7 @@ function TalentCard({
   onToggleSave,
   onUnlock,
   onViewCv,
+  onOpenProfile,
 }: {
   match: EnrichedMatch;
   index: number;
@@ -299,6 +174,7 @@ function TalentCard({
   onToggleSave: (id: string) => void;
   onUnlock: (id: string) => void;
   onViewCv: (id: string) => void;
+  onOpenProfile: (id: string) => void;
 }) {
   const p = match.profile;
   const type = deriveType(p.role_category);
@@ -442,13 +318,12 @@ function TalentCard({
         )}
       </div>
 
-      <div className="flex flex-row items-start gap-2 md:flex-col md:items-stretch">
+      <div className="flex flex-col items-stretch gap-2">
         <ScoreBadge score={match.match_percent} />
         <button
           type="button"
-          disabled
-          title="Full profile view coming soon"
-          className="cursor-not-allowed rounded-xl bg-remotiv-purple/40 px-5 py-2.5 font-heading text-[0.8rem] font-semibold text-white"
+          onClick={() => onOpenProfile(match.candidate_id)}
+          className="rounded-xl bg-remotiv-purple px-5 py-2.5 text-center font-heading text-[0.8rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
         >
           View Profile
         </button>
@@ -561,6 +436,16 @@ function ResultsContent() {
   const [shortlist, setShortlist] = useState<Set<string>>(new Set());
   const [showOnlySaved, setShowOnlySaved] = useState(false);
   const [isPricingModalOpen, setIsPricingModalOpen] = useState(false);
+  // In-place profile modal: id of the result whose profile is open, or null.
+  const [openProfileId, setOpenProfileId] = useState<string | null>(null);
+  // Mirrors browse-talent's "Subscriptions coming soon" toast — shown when the
+  // user clicks Get Started inside the PricingModal (Stripe not wired yet).
+  const [comingSoonToast, setComingSoonToast] = useState(false);
+  useEffect(() => {
+    if (!comingSoonToast) return;
+    const t = setTimeout(() => setComingSoonToast(false), 3000);
+    return () => clearTimeout(t);
+  }, [comingSoonToast]);
   // In-flight guard: prevent TOCTOU races on rapid double-clicks of the same row.
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
   // Phase 5C: per-card unlock state. unlockedSet is the canonical truth;
@@ -927,6 +812,7 @@ function ResultsContent() {
                 onToggleSave={handleToggleSave}
                 onUnlock={handleUnlock}
                 onViewCv={handleViewCv}
+                onOpenProfile={setOpenProfileId}
               />
             );
           })}
@@ -936,7 +822,61 @@ function ResultsContent() {
       <PricingModal
         isOpen={isPricingModalOpen}
         onClose={() => setIsPricingModalOpen(false)}
+        // Mirror browse-talent: Stripe isn't wired yet, so the Get Started CTA
+        // closes the modal and surfaces a coming-soon toast instead of routing
+        // the user to /signup.
+        onGetStarted={() => {
+          setIsPricingModalOpen(false);
+          setComingSoonToast(true);
+        }}
       />
+
+      {comingSoonToast && (
+        <div
+          role="status"
+          className="fixed bottom-6 left-1/2 z-[1000] -translate-x-1/2 rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white shadow-xl"
+        >
+          🔒 Subscriptions coming soon. Check back later.
+        </div>
+      )}
+
+      {/* In-place profile modal. Render when an id is open AND that id is
+          still in the result set; pass through the SAME per-card state +
+          handlers so unlock/save/CV state stays in sync with the card. */}
+      {(() => {
+        if (!openProfileId) return null;
+        const openMatch = results.find((r) => r.candidate_id === openProfileId);
+        if (!openMatch) return null;
+        const cardUnlocked = unlockedSet.has(openMatch.candidate_id);
+        const local = unlockedContactData.get(openMatch.candidate_id);
+        const effectiveContact = cardUnlocked
+          ? {
+              github: openMatch.profile.github_url ?? null,
+              linkedin: local?.linkedinUrl ?? openMatch.profile.linkedin_url ?? null,
+              cvUrl: local?.cvUrl ?? openMatch.profile.cv_url ?? null,
+            }
+          : null;
+        return (
+          <AIProfileModal
+            match={openMatch}
+            isUnlocked={cardUnlocked}
+            isUnlocking={unlockingIds.has(openMatch.candidate_id)}
+            isSaving={savingIds.has(openMatch.candidate_id)}
+            isViewingCv={viewingCvIds.has(openMatch.candidate_id)}
+            saved={shortlist.has(openMatch.candidate_id)}
+            effectiveContact={effectiveContact}
+            unlockNote={
+              lastUnlockNote?.id === openMatch.candidate_id
+                ? lastUnlockNote.text
+                : null
+            }
+            onClose={() => setOpenProfileId(null)}
+            onToggleSave={handleToggleSave}
+            onUnlock={handleUnlock}
+            onViewCv={handleViewCv}
+          />
+        );
+      })()}
     </>
   );
 }

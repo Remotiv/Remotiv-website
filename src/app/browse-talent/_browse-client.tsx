@@ -655,6 +655,8 @@ export function BrowseClient({
   creditsRemaining,
   isSavedView,
   savedIds,
+  initialOpenId = null,
+  deepLinkedCard = null,
 }: {
   realProfiles: TalentRow[];
   tier?: "free" | "subscriber";
@@ -669,10 +671,23 @@ export function BrowseClient({
   creditsRemaining: number;
   isSavedView: boolean;
   savedIds: string[];
+  // Phase 6 deep-link. `initialOpenId` is the candidate id to auto-open on
+  // mount. `deepLinkedCard` is that row's data — kept separate from
+  // `realProfiles` so the visible grid stays capped at PAGE_SIZE (preserves
+  // the free-tier scrape cap).
+  initialOpenId?: string | null;
+  deepLinkedCard?: TalentRow | null;
 }) {
   const cards: Card[] = useMemo(() => {
     return realProfiles.map(rowToCard);
   }, [realProfiles]);
+
+  // Phase 6 deep-link: transform the deep-linked row via the same rowToCard
+  // transformer. Never added to `cards` — used only by the auto-open effect.
+  const deepLinkedCardObj: Card | null = useMemo(
+    () => (deepLinkedCard ? rowToCard(deepLinkedCard) : null),
+    [deepLinkedCard],
+  );
 
   const [searchInput, setSearchInput] = useState(activeQuery);
   const [localSavedIds, setLocalSavedIds] = useState<Set<string>>(() => new Set(savedIds));
@@ -870,6 +885,26 @@ export function BrowseClient({
     },
     [ensureProfileDetail],
   );
+
+  // Phase 6 deep-link: if mounted with ?id=<uuid>, auto-open that candidate's
+  // modal exactly as if the user had clicked the card. Prefers a card from the
+  // visible grid (no duplicate work) and falls back to the separately-fetched
+  // deepLinkedCardObj. Strips the ?id= from the URL post-open so the back
+  // button + reload behave naturally (the modal stays open until user closes).
+  // Runs once on mount; biome-ignore the empty deps because this is intentional.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: deep-link runs once at mount
+  useEffect(() => {
+    if (!initialOpenId) return;
+    const existing = cards.find((c) => c.id === initialOpenId);
+    if (existing) {
+      handleOpenCard(existing);
+    } else if (deepLinkedCardObj && deepLinkedCardObj.id === initialOpenId) {
+      handleOpenCard(deepLinkedCardObj);
+    } else {
+      return; // id given but candidate not found — leave URL alone for diagnostics
+    }
+    updateUrl({ id: null }, { replace: true });
+  }, []);
 
   // Phase 4 D1: useCallback so CardItem's memo comparison stays stable. Deps
   // are the values the body actually reads; useState setters are guaranteed

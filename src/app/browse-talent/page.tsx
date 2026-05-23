@@ -70,9 +70,16 @@ export default async function BrowseTalentPage({
     sort?: string;
     page?: string;
     view?: string;
+    // Phase 6 deep-link: ?id=<uuid> auto-opens that candidate's profile modal.
+    // The candidate is fetched separately and passed as deepLinkedCard so it
+    // does NOT widen the visible grid past the free-tier 15-row cap.
+    id?: string;
   }>;
 }) {
   const params = await searchParams;
+  // Validate uuid shape (defense against arbitrary strings hitting the DB).
+  const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+  const deepLinkId = params.id && UUID_REGEX.test(params.id) ? params.id : null;
 
   const roleParam = params.role ?? "All";
   const role: RoleFilter = (VALID_ROLES as readonly string[]).includes(roleParam)
@@ -203,12 +210,34 @@ export default async function BrowseTalentPage({
     }
   }
 
+  // Phase 6 deep-link: if ?id=<uuid> was provided and the candidate is NOT in
+  // the current paginated list, fetch that single row separately. Kept out of
+  // `rows` so the visible grid stays capped at PAGE_SIZE (defense vs scrape
+  // bypass) — passed to BrowseClient as `deepLinkedCard` and rendered only
+  // inside the auto-opened modal.
+  let deepLinkedRow: TalentRow | null = null;
+  if (deepLinkId && !rows.some((r) => r.id === deepLinkId)) {
+    const { data } = await supabase
+      .from("talent_profiles")
+      .select(
+        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, linkedin_url, github_url, approved_at, created_at",
+      )
+      .eq("id", deepLinkId)
+      .not("approved_at", "is", null)
+      .maybeSingle();
+    deepLinkedRow = (data ?? null) as TalentRow | null;
+  }
+
   // Fetch user's unlock_events for visibility check.
   // Free users get empty set (they see no unlocks even if rows exist —
   // Phase B-3 Q7 Option B: subscription gates visibility).
   let unlockedIds: Set<string> = new Set();
   if (tier === "subscriber" && user?.id) {
+    // Include the deep-linked id so its unlock state is reflected in the modal.
     const candidateIds = rows.map((r) => r.id);
+    if (deepLinkedRow && !candidateIds.includes(deepLinkedRow.id)) {
+      candidateIds.push(deepLinkedRow.id);
+    }
     if (candidateIds.length > 0) {
       const { data: unlockRows } = await auth
         .from("unlock_events")
@@ -248,14 +277,9 @@ export default async function BrowseTalentPage({
   // - Free tier: all rows stripped (4 contact fields nulled + freeform redacted).
   // - Subscriber tier: only rows in unlockedIds keep their contact fields.
   //   github_url is never stripped (Q11: public/social signal).
-  const realProfiles: TalentRow[] = rows.map((row) => {
+  const stripIfLocked = (row: TalentRow): TalentRow => {
     const isUnlocked = tier === "subscriber" && unlockedIds.has(row.id);
-    if (isUnlocked) {
-      return row;
-    }
-    // Phase 4 Lean Projection: experience is no longer in the list payload —
-    // its redaction now lives in fetchProfileDetail (actions.ts). summary still
-    // ships in the list (for CardItem.bio) and is redacted here as before.
+    if (isUnlocked) return row;
     return {
       ...row,
       email: null,
@@ -264,7 +288,11 @@ export default async function BrowseTalentPage({
       linkedin_url: null,
       summary: redactContactInfo(row.summary),
     };
-  });
+  };
+  const realProfiles: TalentRow[] = rows.map(stripIfLocked);
+  const deepLinkedCard: TalentRow | null = deepLinkedRow
+    ? stripIfLocked(deepLinkedRow)
+    : null;
 
   return (
     <>
@@ -313,6 +341,8 @@ export default async function BrowseTalentPage({
         creditsRemaining={creditsRemaining}
         isSavedView={isSavedView}
         savedIds={savedIdsArr}
+        initialOpenId={deepLinkId}
+        deepLinkedCard={deepLinkedCard}
       />
     </>
   );

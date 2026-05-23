@@ -84,7 +84,10 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
         right: 0,
         bottom: 0,
         background: "rgba(0,0,0,0.45)",
-        zIndex: 200,
+        // Raised from 200 → 600 so PricingModal stacks above the AI Matching
+        // profile modal (z-[500]). Browse-talent closes its profile modal
+        // before opening PricingModal so it never stacks them — safe bump.
+        zIndex: 600,
         display: "flex",
         alignItems: "center",
         justifyContent: "center",

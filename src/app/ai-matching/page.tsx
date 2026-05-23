@@ -22,7 +22,7 @@ const HOW_IT_WORKS = [
   {
     step: "02",
     title: "AI Scans & Ranks",
-    body: "Our engine reads our vetted talent pool and scores each candidate against your exact requirements in seconds.",
+    body: "Our engine reads our talent pool and scores each candidate against your exact requirements in seconds.",
   },
   {
     step: "03",
@@ -70,7 +70,7 @@ export default function AIMatchingPage() {
           IN <em className="not-italic text-remotiv-purple">SECONDS</em>
         </h1>
         <p className="mx-auto mb-10 max-w-[520px] font-sans text-[1.05rem] text-[#777]">
-          Describe any role. Remotiv AI scans our vetted talent pool and ranks the best matches —
+          Describe any role. Remotiv AI scans our talent pool and ranks the best matches —
           no forms, no waiting.
         </p>
 
