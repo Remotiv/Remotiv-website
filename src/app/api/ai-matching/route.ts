@@ -73,6 +73,11 @@ type EnrichedResult = MatchResult & {
   profile: CandidateRow; // contact fields may be nulled in-place
 };
 
+// C1 floor — kill cards Claude scored too low to be useful. Defense-in-depth
+// for the engine's own []-on-fallback fix in rankWithClaude. Genuine matches
+// score 50-95+; this only drops near-zero outliers and total fallbacks.
+const MIN_DISPLAY_SCORE = 20;
+
 function enrichWithUserState(
   matches: MatchResult[],
   candidates: CandidateRow[],
@@ -83,6 +88,9 @@ function enrichWithUserState(
   const byId = new Map(candidates.map((c) => [c.id, c]));
   const out: EnrichedResult[] = [];
   for (const m of matches) {
+    // C1 floor: silently drop near-zero / fallback scores so the UI never
+    // renders a "0% AI MATCH" card. Genuine matches are well above this.
+    if (m.match_percent < MIN_DISPLAY_SCORE) continue;
     const c = byId.get(m.candidate_id);
     if (!c) continue;
     const unlocked = tier === "subscriber" && unlockedSet.has(m.candidate_id);

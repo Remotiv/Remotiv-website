@@ -747,7 +747,7 @@ function ResultsContent() {
               </strong>
               {tier !== "subscriber" && (
                 <span className="ml-3 text-[#aaa]">
-                  · {used}/{limit} searches today
+                  · {used} of {limit} free searches today
                 </span>
               )}
             </div>

@@ -59,11 +59,18 @@ type Props = {
 };
 
 function formatSalary(min: number | null, max: number | null): string | null {
-  if (min == null && max == null) return null;
+  // Treat 0 as absent — talent_profiles sometimes stores 0 as placeholder
+  // rather than null, and "$0" would mislead.
+  let lo = min && min > 0 ? min : null;
+  let hi = max && max > 0 ? max : null;
+  if (lo == null && hi == null) return null;
+  // Defensive swap if the data has them reversed (low–high should always read
+  // left to right).
+  if (lo != null && hi != null && lo > hi) [lo, hi] = [hi, lo];
   const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
-  if (min != null && max != null) return `${fmt(min)} – ${fmt(max)}`;
-  if (min != null) return `${fmt(min)}+`;
-  if (max != null) return `up to ${fmt(max)}`;
+  if (lo != null && hi != null) return `${fmt(lo)} – ${fmt(hi)}`;
+  if (lo != null) return `${fmt(lo)}+`;
+  if (hi != null) return `up to ${fmt(hi)}`;
   return null;
 }
 

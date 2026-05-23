@@ -330,12 +330,11 @@ export async function rankWithClaude(
 
     const parsed = parseMatchJson(text);
     if (!parsed) {
-      console.error("[ai-matching] Claude returned non-JSON. Falling back.", text.slice(0, 200));
-      return candidates.slice(0, TOP_N).map((c) => ({
-        candidate_id: c.id,
-        match_percent: 0,
-        why: "",
-      }));
+      // Source fix for C1: return [] on Claude parse-fail rather than fabricated
+      // zero-scored cards. The route surfaces an EmptyState rather than a wall
+      // of "0% AI MATCH" cards that look broken. Logged for diagnostics.
+      console.error("[ai-matching] Claude returned non-JSON. Returning empty.", text.slice(0, 200));
+      return [];
     }
 
     // Filter to ids that actually exist in our candidate set (guard against
@@ -343,11 +342,9 @@ export async function rankWithClaude(
     const validIds = new Set(candidates.map((c) => c.id));
     return parsed.filter((m) => validIds.has(m.candidate_id)).slice(0, TOP_N);
   } catch (e) {
-    console.error("[ai-matching] Claude call threw. Falling back.", e);
-    return candidates.slice(0, TOP_N).map((c) => ({
-      candidate_id: c.id,
-      match_percent: 0,
-      why: "",
-    }));
+    // Same C1 source fix on auth/network/SDK throws. Caller sees [] →
+    // EmptyState. The error log gives ops a signal something's wrong.
+    console.error("[ai-matching] Claude call threw. Returning empty.", e);
+    return [];
   }
 }
