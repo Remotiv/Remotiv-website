@@ -43,7 +43,7 @@ const BENEFITS = [
 // per-day availability.
 function dayCellClass(dayNum: number | null, todayNum: number): string {
   if (dayNum === null) return "pointer-events-none opacity-0";
-  if (dayNum === todayNum) return "bg-[#c9ff85] font-semibold text-[#2a5c00]";
+  if (dayNum === todayNum) return "bg-remotiv-lime-card font-semibold text-[#2a5c00]";
   return "text-[#333]";
 }
 
@@ -137,17 +137,17 @@ export default function BookAMeetingPage() {
   }
 
   return (
-    <div className="min-h-screen bg-[#f8f4f1] font-sans">
+    <div className="min-h-screen bg-remotiv-bg font-sans">
       <Navbar />
 
       <section className="px-6 pt-10 pb-4 md:px-10">
         <div className="mx-auto max-w-[1100px]">
-          <div className="relative flex flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-[#c9ff85] p-6 sm:p-8 md:p-14 lg:min-h-[440px] lg:flex-row lg:items-center">
+          <div className="relative flex flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-remotiv-lime-card p-6 sm:p-8 md:p-14 lg:min-h-[440px] lg:flex-row lg:items-center">
             <div className="flex flex-col gap-5 lg:w-[340px] lg:shrink-0">
               <span className="w-fit rounded-full bg-white/85 px-[18px] py-2 text-sm text-[#1a1a1a]">
                 Available this week for a 30-min call
               </span>
-              <h2 className="font-heading text-4xl font-bold leading-[1.15] text-[#111]">
+              <h2 className="font-heading text-4xl font-bold leading-[1.15] text-remotiv-text-dark">
                 Book a call in seconds, hire in days
               </h2>
               <p className="text-[15px] leading-[1.65] text-[#333]">
@@ -166,7 +166,7 @@ export default function BookAMeetingPage() {
               <div className="relative w-full max-w-[370px] rounded-[20px] bg-white p-4 shadow-[0_4px_32px_rgba(0,0,0,0.10)] sm:p-5 lg:absolute lg:right-0 lg:top-0 lg:w-[370px] lg:max-w-full">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-[10px]">
-                    <div className="flex size-9 items-center justify-center rounded-[10px] bg-[#7E47FF]">
+                    <div className="flex size-9 items-center justify-center rounded-[10px] bg-remotiv-purple">
                       <svg
                         width="18"
                         height="18"
@@ -192,13 +192,13 @@ export default function BookAMeetingPage() {
                       </svg>
                     </div>
                     <div>
-                      <div className="font-heading text-[15px] font-semibold text-[#111]">
+                      <div className="font-heading text-[15px] font-semibold text-remotiv-text-dark">
                         {monthName}
                       </div>
                       <div className="mt-px text-xs text-[#888]">{year}</div>
                     </div>
                   </div>
-                  <div className="font-heading text-[22px] font-bold text-[#111]">
+                  <div className="font-heading text-[22px] font-bold text-remotiv-text-dark">
                     Availability
                   </div>
                 </div>
@@ -223,17 +223,17 @@ export default function BookAMeetingPage() {
                 </div>
               </div>
 
-              <div className="absolute right-[370px] top-[220px] hidden rounded-full bg-[#7E47FF] px-4 py-[7px] text-[13px] font-medium text-white lg:block">
+              <div className="absolute right-[370px] top-[220px] hidden rounded-full bg-remotiv-purple px-4 py-[7px] text-[13px] font-medium text-white lg:block">
                 Your Advisor
               </div>
 
               <div className="absolute right-[340px] top-[248px] hidden w-[228px] rounded-2xl bg-white p-[14px] shadow-[0_4px_24px_rgba(0,0,0,0.13)] lg:block">
-                <div className="mb-[3px] font-heading text-xs font-semibold text-[#111]">
+                <div className="mb-[3px] font-heading text-xs font-semibold text-remotiv-text-dark">
                   Discovery Call &mdash; Remotiv
                 </div>
                 <div className="mb-[9px] text-[11px] text-[#888]">Sarah K.</div>
                 <div className="mb-[10px] flex items-center gap-[6px] text-[11px] text-[#666]">
-                  <div className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-[#7E47FF]">
+                  <div className="flex size-[18px] shrink-0 items-center justify-center rounded-[5px] bg-remotiv-purple">
                     <svg
                       width="10"
                       height="10"
@@ -263,10 +263,10 @@ export default function BookAMeetingPage() {
                 <div className="flex items-end justify-between gap-2">
                   <div className="rounded-lg bg-[#f5f5f5] px-[10px] py-[7px]">
                     <div className="flex items-center gap-1 text-[10px] text-[#aaa]">
-                      <span className="inline-block size-[7px] rounded-[2px] bg-[#c9ff85]" />
+                      <span className="inline-block size-[7px] rounded-[2px] bg-remotiv-lime-card" />
                       Duration
                     </div>
-                    <div className="mt-0.5 font-heading text-xl font-bold leading-none text-[#111]">
+                    <div className="mt-0.5 font-heading text-xl font-bold leading-none text-remotiv-text-dark">
                       30
                     </div>
                     <div className="text-[10px] text-[#888]">min</div>
@@ -287,20 +287,20 @@ export default function BookAMeetingPage() {
         </div>
       </section>
 
-      <section className="bg-[#f8f4f1] py-16 md:py-24">
+      <section className="bg-remotiv-bg py-16 md:py-24">
         <div className="mx-auto max-w-7xl px-6 lg:px-8">
           <div className="grid grid-cols-1 items-start gap-12 lg:grid-cols-5">
             <div className="lg:sticky lg:top-24 lg:col-span-2">
-              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-[#7E47FF]/20 bg-[#7E47FF]/10 px-4 py-1.5">
-                <span className="size-2 animate-pulse rounded-full bg-[#49D7A7]" />
-                <span className="text-xs font-bold uppercase tracking-widest text-[#7E47FF]">
+              <div className="mb-6 inline-flex items-center gap-2 rounded-full border border-remotiv-purple/20 bg-remotiv-purple/10 px-4 py-1.5">
+                <span className="size-2 animate-pulse rounded-full bg-remotiv-green" />
+                <span className="text-xs font-bold uppercase tracking-widest text-remotiv-purple">
                   Available Now
                 </span>
               </div>
 
-              <h2 className="mb-4 font-heading text-4xl font-bold leading-tight text-[#111] md:text-5xl">
+              <h2 className="mb-4 font-heading text-4xl font-bold leading-tight text-remotiv-text-dark md:text-5xl">
                 Schedule a call{" "}
-                <span className="text-[#7E47FF]">that fits your timezone</span>
+                <span className="text-remotiv-purple">that fits your timezone</span>
               </h2>
 
               <p className="mb-8 text-lg leading-relaxed text-gray-600">
@@ -337,7 +337,7 @@ export default function BookAMeetingPage() {
                       {item.icon}
                     </div>
                     <div>
-                      <p className="text-sm font-semibold text-[#111]">
+                      <p className="text-sm font-semibold text-remotiv-text-dark">
                         {item.title}
                       </p>
                       <p className="mt-0.5 text-xs text-gray-500">
@@ -354,13 +354,13 @@ export default function BookAMeetingPage() {
                 </p>
                 <div className="flex flex-wrap items-center gap-4">
                   <div className="-space-x-2 flex">
-                    <div className="flex size-8 items-center justify-center rounded-full bg-[#7E47FF] text-xs font-bold text-white ring-2 ring-white">
+                    <div className="flex size-8 items-center justify-center rounded-full bg-remotiv-purple text-xs font-bold text-white ring-2 ring-white">
                       JC
                     </div>
-                    <div className="flex size-8 items-center justify-center rounded-full bg-[#49D7A7] text-xs font-bold text-white ring-2 ring-white">
+                    <div className="flex size-8 items-center justify-center rounded-full bg-remotiv-green text-xs font-bold text-white ring-2 ring-white">
                       SM
                     </div>
-                    <div className="flex size-8 items-center justify-center rounded-full bg-[#9886FE] text-xs font-bold text-white ring-2 ring-white">
+                    <div className="flex size-8 items-center justify-center rounded-full bg-remotiv-purple-light text-xs font-bold text-white ring-2 ring-white">
                       OF
                     </div>
                     <div className="flex size-8 items-center justify-center rounded-full bg-gray-700 text-[10px] font-bold text-white ring-2 ring-white">
@@ -376,7 +376,7 @@ export default function BookAMeetingPage() {
 
             <div className="lg:col-span-3">
               <div className="overflow-hidden rounded-3xl border border-gray-100 bg-white shadow-xl">
-                <div className="bg-gradient-to-r from-[#7E47FF] to-[#9886FE] px-6 py-4 text-white">
+                <div className="bg-gradient-to-r from-remotiv-purple to-remotiv-purple-light px-6 py-4 text-white">
                   <p className="mb-1 text-xs font-bold uppercase tracking-widest opacity-80">
                     Book your slot
                   </p>
@@ -391,7 +391,7 @@ export default function BookAMeetingPage() {
 
               <div className="mt-6 grid grid-cols-3 gap-4 text-center">
                 <div className="rounded-2xl border border-gray-100 bg-white p-4">
-                  <p className="font-heading text-2xl font-bold text-[#7E47FF]">
+                  <p className="font-heading text-2xl font-bold text-remotiv-purple">
                     48hr
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
@@ -399,7 +399,7 @@ export default function BookAMeetingPage() {
                   </p>
                 </div>
                 <div className="rounded-2xl border border-gray-100 bg-white p-4">
-                  <p className="font-heading text-2xl font-bold text-[#49D7A7]">
+                  <p className="font-heading text-2xl font-bold text-remotiv-green">
                     100+
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
@@ -407,7 +407,7 @@ export default function BookAMeetingPage() {
                   </p>
                 </div>
                 <div className="rounded-2xl border border-gray-100 bg-white p-4">
-                  <p className="font-heading text-2xl font-bold text-[#111]">
+                  <p className="font-heading text-2xl font-bold text-remotiv-text-dark">
                     60%
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
@@ -433,7 +433,7 @@ export default function BookAMeetingPage() {
       <section id="booking-form" className="px-6 pt-4 pb-12 md:px-10">
         <div className="mx-auto max-w-[1100px]">
           {submitted ? (
-            <div className="rounded-3xl bg-[#9886fe] p-6 text-center text-white sm:p-8 md:p-10">
+            <div className="rounded-3xl bg-remotiv-purple-light p-6 text-center text-white sm:p-8 md:p-10">
               <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-white/20">
                 <Check className="size-7" />
               </div>
@@ -444,9 +444,9 @@ export default function BookAMeetingPage() {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
-              <div className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10">
+              <div className="rounded-3xl bg-remotiv-purple-light p-6 sm:p-8 md:p-10">
                 <div className="mb-5 inline-flex w-fit items-center gap-[7px] rounded-full bg-white/20 px-4 py-1.5 font-heading text-[11px] font-semibold tracking-[0.08em] text-white">
-                  <span className="size-[7px] shrink-0 rounded-full bg-[#c9ff85]" />
+                  <span className="size-[7px] shrink-0 rounded-full bg-remotiv-lime-card" />
                   BOOK A MEETING
                 </div>
                 <h2 className="mb-4 font-heading text-[32px] font-bold leading-[1.1] text-white sm:text-[44px] sm:leading-[1.08]">
@@ -475,7 +475,7 @@ export default function BookAMeetingPage() {
                   ))}
                 </ul>
                 <div className="rounded-2xl bg-black/20 px-6 py-[22px]">
-                  <p className="mb-2.5 font-heading text-[10px] font-semibold uppercase tracking-[0.12em] text-[#c9ff85]">
+                  <p className="mb-2.5 font-heading text-[10px] font-semibold uppercase tracking-[0.12em] text-remotiv-lime-card">
                     Our Guarantee
                   </p>
                   <p className="mb-[7px] font-heading text-base font-bold text-white">
@@ -489,7 +489,7 @@ export default function BookAMeetingPage() {
 
               <form
                 onSubmit={handleSubmit}
-                className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10"
+                className="rounded-3xl bg-remotiv-purple-light p-6 sm:p-8 md:p-10"
               >
                 {/* Honeypot — hidden from humans, filled by bots */}
                 <input
@@ -613,7 +613,7 @@ export default function BookAMeetingPage() {
 const inputClass =
   "w-full rounded-[10px] border-[1.5px] border-white/30 bg-white/20 px-[15px] py-3 text-base text-white outline-none placeholder:text-white/45 transition-colors focus:border-white/70 sm:text-sm";
 
-const selectClass = `${inputClass} cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22 viewBox=%220 0 12 8%22><path fill=%22rgba(255,255,255,0.55)%22 d=%22M6 8L0 0h12z%22/></svg>')] bg-[length:10px] bg-[position:right_14px_center] bg-no-repeat pr-9 text-white/80 [&>option]:bg-white [&>option]:text-[#111]`;
+const selectClass = `${inputClass} cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22 viewBox=%220 0 12 8%22><path fill=%22rgba(255,255,255,0.55)%22 d=%22M6 8L0 0h12z%22/></svg>')] bg-[length:10px] bg-[position:right_14px_center] bg-no-repeat pr-9 text-white/80 [&>option]:bg-white [&>option]:text-remotiv-text-dark`;
 
 function Field({
   label,
