@@ -2,7 +2,8 @@
 
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
-import { cloneElement, type ReactElement, useEffect, useId, useState } from "react";
+import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useState } from "react";
+import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
 import { submitBooking } from "./actions";
 
@@ -29,47 +30,6 @@ function CalendlyEmbed() {
   );
 }
 
-type DayKind = "green" | "orange" | "red" | "plain" | "empty";
-type CalendarDay = { num: number | null; kind: DayKind };
-
-const CALENDAR_DAYS: CalendarDay[] = [
-  { num: null, kind: "empty" },
-  { num: null, kind: "empty" },
-  { num: null, kind: "empty" },
-  { num: 1, kind: "orange" },
-  { num: 2, kind: "green" },
-  { num: 3, kind: "green" },
-  { num: 4, kind: "plain" },
-  { num: 5, kind: "plain" },
-  { num: 6, kind: "green" },
-  { num: 7, kind: "green" },
-  { num: 8, kind: "red" },
-  { num: 9, kind: "green" },
-  { num: 10, kind: "orange" },
-  { num: 11, kind: "plain" },
-  { num: 12, kind: "plain" },
-  { num: 13, kind: "green" },
-  { num: 14, kind: "green" },
-  { num: 15, kind: "plain" },
-  { num: 16, kind: "orange" },
-  { num: 17, kind: "green" },
-  { num: null, kind: "empty" },
-  { num: 19, kind: "plain" },
-  { num: 20, kind: "green" },
-  { num: 21, kind: "orange" },
-  { num: 22, kind: "green" },
-  { num: 23, kind: "plain" },
-  { num: 24, kind: "green" },
-  { num: null, kind: "empty" },
-  { num: 26, kind: "plain" },
-  { num: 27, kind: "green" },
-  { num: 28, kind: "plain" },
-  { num: 29, kind: "green" },
-  { num: 30, kind: "orange" },
-  { num: null, kind: "empty" },
-  { num: null, kind: "empty" },
-];
-
 const BENEFITS = [
   "We respond within 24 hours",
   "No retainer — you only pay when you hire",
@@ -78,13 +38,26 @@ const BENEFITS = [
   "Dedicated point of contact throughout",
 ] as const;
 
-const DAY_STYLES: Record<DayKind, string> = {
-  green: "bg-[#c9ff85] text-[#2a5c00]",
-  orange: "bg-[#FFD97A] text-[#7a4800]",
-  red: "bg-[#ff6b6b] font-semibold text-white",
-  plain: "text-[#333]",
-  empty: "pointer-events-none opacity-0",
-};
+// Decorative calendar only — the real scheduler is the Calendly iframe below.
+// We render the current month with today highlighted, but make no claim about
+// per-day availability.
+function dayCellClass(dayNum: number | null, todayNum: number): string {
+  if (dayNum === null) return "pointer-events-none opacity-0";
+  if (dayNum === todayNum) return "bg-[#c9ff85] font-semibold text-[#2a5c00]";
+  return "text-[#333]";
+}
+
+function buildMonthCells(date: Date): (number | null)[] {
+  const year = date.getFullYear();
+  const month = date.getMonth();
+  const leading = new Date(year, month, 1).getDay();
+  const daysInMonth = new Date(year, month + 1, 0).getDate();
+  const totalCells = Math.ceil((leading + daysInMonth) / 7) * 7;
+  return Array.from({ length: totalCells }, (_, i) => {
+    const dayNum = i - leading + 1;
+    return dayNum >= 1 && dayNum <= daysInMonth ? dayNum : null;
+  });
+}
 
 type BookingFormState = {
   full_name: string;
@@ -112,6 +85,14 @@ export default function BookAMeetingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState<BookingFormState>(EMPTY_BOOKING);
+  // Calendar month is computed client-side after mount so the static prerender
+  // doesn't bake in a stale month at build time.
+  const [now, setNow] = useState<Date | null>(null);
+  useEffect(() => setNow(new Date()), []);
+  const monthName = now?.toLocaleString("en-US", { month: "long" }) ?? "";
+  const year = now?.getFullYear() ?? "";
+  const todayNum = now?.getDate() ?? 0;
+  const monthCells = now ? buildMonthCells(now) : [];
 
   function setField<K extends keyof BookingFormState>(
     key: K,
@@ -120,35 +101,48 @@ export default function BookAMeetingPage() {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
 
-  async function handleSubmit(e: React.FormEvent) {
+  async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     setErrorMsg(null);
-    if (!form.full_name.trim() || !form.email.trim()) {
+    const trimmedEmail = form.email.trim();
+    if (!form.full_name.trim() || !trimmedEmail) {
       setErrorMsg("Name and work email are required.");
       return;
     }
-    setSubmitting(true);
-    const result = await submitBooking(form);
-    setSubmitting(false);
-    if (!result.success) {
-      setErrorMsg(result.error);
+    // M3: client uses the same isValidEmail the server runs so we catch
+    // typos before paying the round-trip cost.
+    if (!isValidEmail(trimmedEmail)) {
+      setErrorMsg("Please enter a valid email address.");
       return;
     }
-    track("booking_submitted", {
-      source: "book_a_meeting_form",
-    });
-    setSubmitted(true);
+    setSubmitting(true);
+    try {
+      const result = await submitBooking(form);
+      if (!result.success) {
+        setErrorMsg(result.error);
+        return;
+      }
+      track("booking_submitted", {
+        source: "book_a_meeting_form",
+      });
+      setSubmitted(true);
+    } catch {
+      // M4: network/runtime failures used to leave submitting=true forever.
+      setErrorMsg(
+        "Something went wrong. Please try again or email us at talent@remotiv.work.",
+      );
+    } finally {
+      setSubmitting(false);
+    }
   }
 
   return (
     <div className="min-h-screen bg-[#f8f4f1] font-sans">
       <Navbar />
 
-      {/* Calendar preview section */}
       <section className="px-6 pt-10 pb-4 md:px-10">
         <div className="mx-auto max-w-[1100px]">
           <div className="relative flex flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-[#c9ff85] p-6 sm:p-8 md:p-14 lg:min-h-[440px] lg:flex-row lg:items-center">
-            {/* Left */}
             <div className="flex flex-col gap-5 lg:w-[340px] lg:shrink-0">
               <span className="w-fit rounded-full bg-white/85 px-[18px] py-2 text-sm text-[#1a1a1a]">
                 Available this week for a 30-min call
@@ -168,9 +162,7 @@ export default function BookAMeetingPage() {
               </a>
             </div>
 
-            {/* Right */}
             <div className="relative flex-1 lg:h-[400px]">
-              {/* Calendar card */}
               <div className="relative w-full max-w-[370px] rounded-[20px] bg-white p-4 shadow-[0_4px_32px_rgba(0,0,0,0.10)] sm:p-5 lg:absolute lg:right-0 lg:top-0 lg:w-[370px] lg:max-w-full">
                 <div className="mb-4 flex items-center justify-between">
                   <div className="flex items-center gap-[10px]">
@@ -201,9 +193,9 @@ export default function BookAMeetingPage() {
                     </div>
                     <div>
                       <div className="font-heading text-[15px] font-semibold text-[#111]">
-                        April
+                        {monthName}
                       </div>
-                      <div className="mt-px text-xs text-[#888]">2026</div>
+                      <div className="mt-px text-xs text-[#888]">{year}</div>
                     </div>
                   </div>
                   <div className="font-heading text-[22px] font-bold text-[#111]">
@@ -220,23 +212,21 @@ export default function BookAMeetingPage() {
                       {d}
                     </div>
                   ))}
-                  {CALENDAR_DAYS.map((day, i) => (
+                  {monthCells.map((dayNum, i) => (
                     <div
                       key={i}
-                      className={`mx-auto flex size-8 items-center justify-center rounded-full text-[13px] sm:size-9 ${DAY_STYLES[day.kind]}`}
+                      className={`mx-auto flex size-8 items-center justify-center rounded-full text-[13px] sm:size-9 ${dayCellClass(dayNum, todayNum)}`}
                     >
-                      {day.num ?? ""}
+                      {dayNum ?? ""}
                     </div>
                   ))}
                 </div>
               </div>
 
-              {/* Your Advisor pill */}
               <div className="absolute right-[370px] top-[220px] hidden rounded-full bg-[#7E47FF] px-4 py-[7px] text-[13px] font-medium text-white lg:block">
                 Your Advisor
               </div>
 
-              {/* Task card */}
               <div className="absolute right-[340px] top-[248px] hidden w-[228px] rounded-2xl bg-white p-[14px] shadow-[0_4px_24px_rgba(0,0,0,0.13)] lg:block">
                 <div className="mb-[3px] font-heading text-xs font-semibold text-[#111]">
                   Discovery Call &mdash; Remotiv
@@ -430,7 +420,6 @@ export default function BookAMeetingPage() {
         </div>
       </section>
 
-      {/* Divider — sends user down to the email form alternative */}
       <section className="px-6 py-8 md:px-10">
         <div className="mx-auto flex max-w-[1100px] items-center gap-4">
           <span className="h-px flex-1 bg-black/10" />
@@ -441,7 +430,6 @@ export default function BookAMeetingPage() {
         </div>
       </section>
 
-      {/* Booking form */}
       <section id="booking-form" className="px-6 pt-4 pb-12 md:px-10">
         <div className="mx-auto max-w-[1100px]">
           {submitted ? (
@@ -456,7 +444,6 @@ export default function BookAMeetingPage() {
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
-              {/* Left panel */}
               <div className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10">
                 <div className="mb-5 inline-flex w-fit items-center gap-[7px] rounded-full bg-white/20 px-4 py-1.5 font-heading text-[11px] font-semibold tracking-[0.08em] text-white">
                   <span className="size-[7px] shrink-0 rounded-full bg-[#c9ff85]" />
@@ -500,7 +487,6 @@ export default function BookAMeetingPage() {
                 </div>
               </div>
 
-              {/* Right form panel */}
               <form
                 onSubmit={handleSubmit}
                 className="rounded-3xl bg-[#9886fe] p-6 sm:p-8 md:p-10"
@@ -525,6 +511,8 @@ export default function BookAMeetingPage() {
                       <input
                         type="text"
                         required
+                        maxLength={100}
+                        autoComplete="name"
                         placeholder="Your name"
                         className={inputClass}
                         value={form.full_name}
@@ -534,6 +522,8 @@ export default function BookAMeetingPage() {
                     <Field label="Company">
                       <input
                         type="text"
+                        maxLength={100}
+                        autoComplete="organization"
                         placeholder="Company name"
                         className={inputClass}
                         value={form.company}
@@ -545,6 +535,8 @@ export default function BookAMeetingPage() {
                     <input
                       type="email"
                       required
+                      maxLength={254}
+                      autoComplete="email"
                       placeholder="you@company.com"
                       className={inputClass}
                       value={form.email}
@@ -570,6 +562,7 @@ export default function BookAMeetingPage() {
                   </Field>
                   <Field label="Tell Us About the Role">
                     <textarea
+                      maxLength={5000}
                       placeholder="Describe the role, tech stack, seniority level, and timeline..."
                       className={`${inputClass} h-24 resize-none leading-relaxed`}
                       value={form.message}

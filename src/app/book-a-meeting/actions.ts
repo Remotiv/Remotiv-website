@@ -19,10 +19,19 @@ export type BookingInput = {
 type Result = { success: true } | { success: false; error: string };
 
 const GENERIC_ERROR =
-  "We couldn't book your call. Please try again or email us at hello@remotiv.com.";
+  "We couldn't book your call. Please try again or email us at talent@remotiv.work.";
 
 const RATE_LIMIT_WINDOW_MS = 5 * 60 * 1000;
 const RATE_LIMIT_MAX = 3;
+
+const FIELD_LIMITS = {
+  full_name: 100,
+  email: 254,
+  company: 100,
+  service: 50,
+  message: 5000,
+  preferred_time: 50,
+} as const;
 
 const globalForRateLimit = globalThis as typeof globalThis & {
   __submitBookingBuckets?: Map<string, { count: number; resetAt: number }>;
@@ -66,6 +75,27 @@ export async function submitBooking(data: BookingInput): Promise<Result> {
       success: false,
       error: "Too many submissions. Please wait a moment and try again.",
     };
+  }
+
+  // Reject oversize payloads before any further work. Returns a generic
+  // error so a probing client can't enumerate per-field caps.
+  if ((data.full_name ?? "").length > FIELD_LIMITS.full_name) {
+    return { success: false, error: GENERIC_ERROR };
+  }
+  if ((data.email ?? "").length > FIELD_LIMITS.email) {
+    return { success: false, error: GENERIC_ERROR };
+  }
+  if ((data.company ?? "").length > FIELD_LIMITS.company) {
+    return { success: false, error: GENERIC_ERROR };
+  }
+  if ((data.service ?? "").length > FIELD_LIMITS.service) {
+    return { success: false, error: GENERIC_ERROR };
+  }
+  if ((data.message ?? "").length > FIELD_LIMITS.message) {
+    return { success: false, error: GENERIC_ERROR };
+  }
+  if ((data.preferred_time ?? "").length > FIELD_LIMITS.preferred_time) {
+    return { success: false, error: GENERIC_ERROR };
   }
 
   const fullName = trimRequired(data.full_name);
