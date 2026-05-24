@@ -1,6 +1,9 @@
+import Image from "next/image";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 
+// NOTE: stat values here are mirrored in IMPACT_STATS below — keep both in sync.
+// Shared values: "200+", "85%", "24hrs". 1M+ is hero-only.
 const HERO_STATS = [
   { num: "200", suffix: "+", label: "Professionals placed with global teams" },
   { num: "24", suffix: "hrs", label: "From brief to shortlist delivered" },
@@ -8,6 +11,7 @@ const HERO_STATS = [
   { num: "1M", suffix: "+", label: "Talent profiles in our network" },
 ];
 
+// NOTE: stat values here are mirrored in HERO_STATS above — keep both in sync.
 const IMPACT_STATS = [
   {
     stat: "200+",
@@ -91,12 +95,35 @@ const VALUES = [
   },
 ];
 
-const TEAM = [
-  { name: "Alex Chen", role: "CEO & Co-founder", initials: "AC" },
-  { name: "Sarah Miller", role: "CTO & Co-founder", initials: "SM" },
-  { name: "James Wilson", role: "Head of Talent", initials: "JW" },
-  { name: "Priya Patel", role: "Head of Operations", initials: "PP" },
+const TEAM: { name: string; role: string; avatar: string | null }[] = [
+  {
+    name: "Waleed Khan",
+    role: "Founder",
+    avatar: null,
+  },
+  {
+    name: "Syed Muhammad Awais Naqvi",
+    role: "Co-founder",
+    avatar: null,
+  },
+  {
+    name: "Hassan Shahzad",
+    role: "Head of Growth",
+    avatar: null,
+  },
 ];
+
+// Derive a 2-letter monogram from a full name for the avatar fallback.
+// Used only when `avatar` is null; once a real /team-avatars/*.webp is added
+// to a member, the <img> branch takes over and this is skipped.
+const getInitials = (name: string): string =>
+  name
+    .split(/\s+/)
+    .map((w) => w[0])
+    .filter(Boolean)
+    .slice(0, 2)
+    .join("")
+    .toUpperCase();
 
 const SECTION_HEADING = "text-center font-heading text-[clamp(2rem,4vw,3.2rem)] font-extrabold leading-[1.1] tracking-[-0.03em] text-[#111]";
 const SECTION_SUB = "mx-auto mb-14 mt-5 max-w-[580px] text-center text-base leading-[1.7] text-[#777]";
@@ -105,7 +132,7 @@ export default function AboutPage() {
   return (
     <>
       <Navbar />
-      <main className="flex-1 bg-white">
+      <main id="main" className="flex-1 bg-white">
         {/* Hero */}
         <section className="bg-[#f8f4f1] px-6 py-16 md:px-14 md:pt-[72px] md:pb-20">
           <div className="mx-auto w-full max-w-[1280px]">
@@ -127,29 +154,15 @@ export default function AboutPage() {
             </p>
 
             <div className="grid items-stretch gap-5 md:grid-cols-2">
-              {/* Left: image placeholder */}
-              <div className="relative flex min-h-[280px] flex-col items-center justify-center gap-3.5 overflow-hidden rounded-3xl border border-dashed border-black/15 bg-[#e8e4e1] md:min-h-[480px]">
-                <div className="pointer-events-none absolute inset-0 bg-gradient-to-br from-remotiv-green/[0.06] to-remotiv-purple/[0.06]" />
-                <div className="relative z-10 flex size-16 items-center justify-center rounded-[20px] bg-black/[0.07]">
-                  <svg
-                    viewBox="0 0 40 40"
-                    fill="none"
-                    aria-hidden="true"
-                    className="size-[30px] opacity-40"
-                  >
-                    <rect x="4" y="4" width="32" height="32" rx="6" stroke="#111" strokeWidth="1.8" />
-                    <circle cx="20" cy="16" r="5.5" stroke="#111" strokeWidth="1.8" />
-                    <path
-                      d="M9 34c0-6.075 4.925-9 11-9s11 2.925 11 9"
-                      stroke="#111"
-                      strokeWidth="1.8"
-                      strokeLinecap="round"
-                    />
-                  </svg>
-                </div>
-                <div className="relative z-10 text-[0.78rem] font-semibold uppercase tracking-[0.06em] text-black/35">
-                  Image coming soon
-                </div>
+              <div className="relative w-full h-full min-h-[280px] md:min-h-[420px] rounded-2xl overflow-hidden">
+                <Image
+                  src="/team-avatars/office.webp"
+                  alt="The Remotiv team at work"
+                  fill
+                  priority
+                  sizes="(max-width: 768px) 100vw, 50vw"
+                  className="object-cover"
+                />
               </div>
 
               {/* Right: dark content card */}
@@ -179,7 +192,7 @@ export default function AboutPage() {
                         {s.num}
                         <span className="text-[1.1rem] text-remotiv-green">{s.suffix}</span>
                       </div>
-                      <div className="text-[0.8rem] leading-[1.4] text-white/45">{s.label}</div>
+                      <div className="text-[0.8rem] leading-[1.4] text-white/60">{s.label}</div>
                     </div>
                   ))}
                 </div>
@@ -271,16 +284,30 @@ export default function AboutPage() {
               The operators, engineers, and recruiters who make every placement possible.
             </p>
 
-            <div className="grid gap-5 sm:grid-cols-2 lg:grid-cols-4">
+            <div className="mx-auto grid max-w-4xl grid-cols-1 gap-5 sm:grid-cols-2 lg:grid-cols-3">
               {TEAM.map((m) => (
                 <div
                   key={m.name}
                   className="flex flex-col items-center rounded-3xl border border-black/[0.08] bg-white p-7 text-center transition-all duration-200 hover:-translate-y-0.5 hover:shadow-[0_8px_40px_rgba(0,0,0,0.08)]"
                 >
-                  <div className="mb-5 flex size-20 items-center justify-center rounded-full bg-gradient-to-br from-remotiv-purple-light to-remotiv-purple font-heading text-xl font-bold text-white">
-                    {m.initials}
+                  <div
+                    aria-hidden="true"
+                    className="mb-5 flex size-20 items-center justify-center overflow-hidden rounded-full bg-gradient-to-br from-remotiv-purple-light to-remotiv-purple font-heading text-xl font-bold text-white"
+                  >
+                    {m.avatar ? (
+                      // biome-ignore lint/performance/noImgElement: avatar slot is a fixed 80×80 circle; <Image> overhead unnecessary for a small static asset
+                      <img
+                        src={m.avatar}
+                        alt=""
+                        className="size-full object-cover"
+                      />
+                    ) : (
+                      getInitials(m.name)
+                    )}
                   </div>
-                  <h3 className="font-heading font-bold text-[#111]">{m.name}</h3>
+                  <h3 className="text-balance font-heading font-bold leading-tight text-[#111]">
+                    {m.name}
+                  </h3>
                   <p className="mt-1 text-sm text-[#777]">{m.role}</p>
                 </div>
               ))}
