@@ -4,6 +4,7 @@ import { track } from "@vercel/analytics";
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
 import { type FormEvent, useRef, useState } from "react";
 import { submitContact } from "./actions";
+import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
 
 const INQUIRY_CARDS = [
@@ -154,14 +155,14 @@ const CLIENT_TIMEOUT_MS = 15000;
 
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
-  const [errors, setErrors] = useState<{ name?: boolean; email?: boolean }>({});
+  const [errors, setErrors] = useState<{ name?: boolean; email?: boolean; message?: boolean }>({});
   const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const submitLockRef = useRef(false);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
-    if (key === "name" || key === "email") {
+    if (key === "name" || key === "email" || key === "message") {
       setErrors((prev) => ({ ...prev, [key]: false }));
     }
     if (errorMessage) setErrorMessage(null);
@@ -186,8 +187,15 @@ export default function ContactPage() {
     submitLockRef.current = true;
 
     setErrorMessage(null);
-    const nextErrors = { name: !form.name.trim(), email: !form.email.trim() };
-    if (nextErrors.name || nextErrors.email) {
+    const emailTrimmed = form.email.trim();
+    const nextErrors = {
+      name: !form.name.trim(),
+      // Empty OR invalid format flags email — uses the SAME isValidEmail the
+      // server runs, so client and server agree on what counts as valid.
+      email: !emailTrimmed || !isValidEmail(emailTrimmed),
+      message: !form.message.trim(),
+    };
+    if (nextErrors.name || nextErrors.email || nextErrors.message) {
       setErrors(nextErrors);
       submitLockRef.current = false;
       return;
@@ -469,6 +477,7 @@ export default function ContactPage() {
                       className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                       placeholder="Tell us how we can help..."
                       value={form.message}
+                      aria-invalid={errors.message ? true : undefined}
                       aria-describedby={errorMessage ? "ct-form-error" : undefined}
                       onChange={(e) => update("message", e.target.value)}
                     />

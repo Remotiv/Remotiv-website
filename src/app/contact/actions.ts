@@ -122,9 +122,7 @@ export async function submitContact(data: ContactInput): Promise<Result> {
       company,
       service,
       message,
-    })
-    .select()
-    .single();
+    });
 
   if (error) {
     // Log full details server-side for diagnostics; return a generic
