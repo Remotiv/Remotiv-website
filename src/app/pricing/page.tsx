@@ -20,11 +20,11 @@ const TIERS: readonly Tier[] = [
   {
     name: "Starter",
     price: "$49",
-    priceSuffix: "/ month",
+    priceSuffix: "USD / month",
     description: "For companies exploring the talent pool",
     features: [
       { label: "Browse the full Remotiv talent pool" },
-      { label: "View candidate profiles with Resume" },
+      { label: "View candidate profiles with resumes" },
       { label: "Unlock up to 30 contact details per month" },
       { label: "Advanced filters", included: false },
       { label: "Dedicated account manager", included: false },
@@ -35,7 +35,7 @@ const TIERS: readonly Tier[] = [
   {
     name: "Pro",
     price: "$499",
-    priceSuffix: "/ month",
+    priceSuffix: "USD / month",
     description: "For teams actively hiring at scale",
     features: [
       { label: "Everything in Starter" },
@@ -210,10 +210,19 @@ function Eyebrow({ children, className }: { children: ReactNode; className?: str
 }
 
 function ComparisonCell({ value, featured }: { value: FeatureValue; featured?: boolean }) {
-  if (value === true) return <CheckCircle className="size-7" />;
+  if (value === true)
+    return (
+      <>
+        <CheckCircle className="size-7" />
+        <span className="sr-only">Included</span>
+      </>
+    );
   if (value === false)
     return (
-      <span className="inline-block h-[2px] w-5 rounded bg-[#ccc]" aria-hidden="true" />
+      <>
+        <span className="inline-block h-[2px] w-5 rounded bg-[#ccc]" aria-hidden="true" />
+        <span className="sr-only">Not included</span>
+      </>
     );
   return (
     <span className={cn("text-[0.9rem]", featured ? "font-medium text-[#111]" : "text-[#444]")}>
@@ -226,8 +235,7 @@ export default function PricingPage() {
   return (
     <>
       <Navbar />
-      <main className="flex-1">
-        {/* Hero + pricing tiers */}
+      <main id="main" className="flex-1">
         <section className="bg-remotiv-bg px-6 py-20 sm:px-8 md:px-14 md:py-24">
           <div className="mx-auto mb-14 max-w-3xl text-center">
             <span className="mb-5 inline-block rounded-full bg-remotiv-green/[0.12] px-4 py-1.5 text-[0.78rem] font-semibold uppercase tracking-[0.1em] text-remotiv-green">
@@ -255,9 +263,9 @@ export default function PricingPage() {
               >
                 <div className="mb-7 rounded-2xl bg-white p-6">
                   <div className="mb-4 flex items-center justify-between">
-                    <div className="font-heading text-[1.1rem] font-bold text-remotiv-text-dark">
+                    <h3 className="font-heading text-[1.1rem] font-bold text-remotiv-text-dark">
                       {tier.name}
-                    </div>
+                    </h3>
                     {tier.featured && (
                       <span className="rounded-full bg-remotiv-purple px-3 py-[5px] text-[0.72rem] font-semibold tracking-wide text-white">
                         Most Popular
@@ -278,6 +286,9 @@ export default function PricingPage() {
                       </span>
                     )}
                   </div>
+                  {tier.priceSuffix && (
+                    <p className="mt-1 text-sm text-[#6b6b6b]">Billed monthly</p>
+                  )}
                   <p className="mt-2 text-[0.88rem] leading-snug text-remotiv-text-light">
                     {tier.description}
                   </p>
@@ -286,6 +297,14 @@ export default function PricingPage() {
                 <ul className="mb-8 flex flex-1 flex-col gap-[13px]">
                   {tier.features.map((f) => {
                     const included = f.included !== false;
+                    let featureTextClass: string;
+                    if (included) {
+                      featureTextClass = tier.featured ? "text-white" : "text-[#333]";
+                    } else {
+                      featureTextClass = tier.featured
+                        ? "text-white/40 line-through"
+                        : "text-[#6b6b6b] line-through";
+                    }
                     return (
                       <li
                         key={f.label}
@@ -298,19 +317,7 @@ export default function PricingPage() {
                             className={tier.featured ? "bg-white/20" : "bg-black/[0.08]"}
                           />
                         )}
-                        <span
-                          className={cn(
-                            included
-                              ? tier.featured
-                                ? "text-white"
-                                : "text-[#333]"
-                              : tier.featured
-                                ? "text-white/40 line-through"
-                                : "text-[#888] line-through",
-                          )}
-                        >
-                          {f.label}
-                        </span>
+                        <span className={featureTextClass}>{f.label}</span>
                       </li>
                     );
                   })}
@@ -332,7 +339,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* Full-service hiring card */}
         <section className="bg-remotiv-bg px-6 pb-24 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-12">
@@ -396,7 +402,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* Plan comparison */}
         <section className="bg-white px-6 py-20 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-14 text-center">
@@ -419,18 +424,18 @@ export default function PricingPage() {
                 </colgroup>
                 <thead>
                   <tr>
-                    <th className="pb-7 text-left font-heading text-[1.05rem] font-bold text-remotiv-text-dark">
+                    <th scope="col" className="pb-7 text-left font-heading text-[1.05rem] font-bold text-remotiv-text-dark">
                       Plan features
                     </th>
-                    <th className="pb-7 text-center font-heading text-base font-bold text-remotiv-text-dark">
+                    <th scope="col" className="pb-7 text-center font-heading text-base font-bold text-remotiv-text-dark">
                       Starter Plan
                     </th>
-                    <th className="px-0 pb-7 text-center">
+                    <th scope="col" className="px-0 pb-7 text-center">
                       <span className="mx-2 block rounded-t-3xl bg-[#f0f8f5] px-3 py-4 font-heading text-base font-bold text-remotiv-text-dark">
                         Pro Plan
                       </span>
                     </th>
-                    <th className="pb-7 text-center font-heading text-base font-bold text-remotiv-text-dark">
+                    <th scope="col" className="pb-7 text-center font-heading text-base font-bold text-remotiv-text-dark">
                       Enterprise Plan
                     </th>
                   </tr>
@@ -446,9 +451,9 @@ export default function PricingPage() {
                           isLast && "border-b border-black/[0.07]",
                         )}
                       >
-                        <td className="py-[18px] pl-0 text-left text-[0.93rem] font-medium text-[#333]">
+                        <th scope="row" className="py-[18px] pl-0 text-left text-[0.93rem] font-medium text-[#333]">
                           {row.feature}
-                        </td>
+                        </th>
                         <td className="py-[18px] text-center">
                           <ComparisonCell value={row.starter} />
                         </td>
@@ -491,9 +496,9 @@ export default function PricingPage() {
                         isPro ? "bg-[#f0f8f5]" : "bg-white",
                       )}
                     >
-                      <div className="font-heading text-[1.1rem] font-bold text-remotiv-text-dark">
+                      <h3 className="font-heading text-[1.1rem] font-bold text-remotiv-text-dark">
                         {plan} Plan
-                      </div>
+                      </h3>
                       {isPro && (
                         <span className="mt-1 inline-block rounded-full bg-remotiv-green px-2.5 py-[3px] text-[0.68rem] font-bold uppercase tracking-wide text-white">
                           Most Popular
@@ -525,7 +530,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* Trusted by */}
         <section className="bg-white px-6 pb-24 pt-12 sm:px-8 md:px-14">
           <div className="mx-auto max-w-[1080px]">
             <div className="mb-14 text-center">
@@ -554,7 +558,7 @@ export default function PricingPage() {
                     <div className="mb-2.5 font-heading text-base font-bold text-white">
                       {s.label}
                     </div>
-                    <div className="text-[0.88rem] leading-relaxed text-[#777]">{s.desc}</div>
+                    <div className="text-[0.88rem] leading-relaxed text-white/70">{s.desc}</div>
                   </div>
                 ))}
               </div>
@@ -605,7 +609,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* FAQ */}
         <section className="bg-remotiv-bg px-6 py-24 sm:px-8 md:px-14">
           <div className="mx-auto max-w-3xl">
             <div className="mb-12 text-center">
@@ -638,7 +641,6 @@ export default function PricingPage() {
           </div>
         </section>
 
-        {/* CTA */}
         <section className="bg-white px-6 py-20 sm:px-8 md:px-14">
           <div className="mx-auto max-w-4xl rounded-3xl bg-gradient-to-br from-remotiv-purple-light to-remotiv-purple p-10 text-center text-white md:p-14">
             <h2 className="mb-4 font-heading text-3xl font-extrabold tracking-[-0.02em] md:text-4xl">
@@ -652,7 +654,7 @@ export default function PricingPage() {
               href="/book-a-meeting"
               className="inline-block rounded-full bg-white px-8 py-4 font-heading font-bold text-remotiv-purple transition-transform hover:-translate-y-0.5"
             >
-              Book A Meeting
+              Book a Meeting
             </Link>
           </div>
         </section>
