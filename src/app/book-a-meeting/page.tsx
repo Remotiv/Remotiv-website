@@ -2,7 +2,7 @@
 
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
-import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useState } from "react";
+import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
 import { submitBooking } from "./actions";
@@ -11,6 +11,8 @@ const CALENDLY_URL =
   "https://calendly.com/waleed-izww/intro-call?hide_event_type_details=1&hide_gdpr_banner=1";
 
 function CalendlyEmbed() {
+  const [scriptFailed, setScriptFailed] = useState(false);
+
   useEffect(() => {
     const id = "calendly-widget-script";
     if (document.getElementById(id)) return;
@@ -18,6 +20,7 @@ function CalendlyEmbed() {
     s.id = id;
     s.src = "https://assets.calendly.com/assets/external/widget.js";
     s.async = true;
+    s.onerror = () => setScriptFailed(true);
     document.body.appendChild(s);
   }, []);
 
@@ -26,7 +29,19 @@ function CalendlyEmbed() {
       className="calendly-inline-widget overflow-hidden rounded-3xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
       data-url={CALENDLY_URL}
       style={{ minWidth: 320, height: 700 }}
-    />
+    >
+      {scriptFailed && (
+        <div className="flex h-full items-center justify-center p-6 text-center text-sm text-[#666]">
+          <p>
+            Having trouble loading the scheduler?{" "}
+            <a href="#booking-form" className="underline">
+              Use the form below
+            </a>{" "}
+            to request a time.
+          </p>
+        </div>
+      )}
+    </div>
   );
 }
 
@@ -85,6 +100,10 @@ export default function BookAMeetingPage() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState<BookingFormState>(EMPTY_BOOKING);
+  // Synchronous guard against rapid double-clicks: disabled={submitting} only
+  // takes effect after React commits, leaving a microsecond window. Mirrors
+  // contact's pattern.
+  const submitLockRef = useRef(false);
   // Calendar month is computed client-side after mount so the static prerender
   // doesn't bake in a stale month at build time.
   const [now, setNow] = useState<Date | null>(null);
@@ -99,20 +118,32 @@ export default function BookAMeetingPage() {
     value: BookingFormState[K],
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
+    if (errorMsg) setErrorMsg(null);
+  }
+
+  function resetBookingForm() {
+    setForm(EMPTY_BOOKING);
+    setErrorMsg(null);
+    setSubmitted(false);
+    submitLockRef.current = false;
   }
 
   async function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setErrorMsg(null);
     const trimmedEmail = form.email.trim();
     if (!form.full_name.trim() || !trimmedEmail) {
       setErrorMsg("Name and work email are required.");
+      submitLockRef.current = false;
       return;
     }
     // M3: client uses the same isValidEmail the server runs so we catch
     // typos before paying the round-trip cost.
     if (!isValidEmail(trimmedEmail)) {
       setErrorMsg("Please enter a valid email address.");
+      submitLockRef.current = false;
       return;
     }
     setSubmitting(true);
@@ -133,6 +164,7 @@ export default function BookAMeetingPage() {
       );
     } finally {
       setSubmitting(false);
+      submitLockRef.current = false;
     }
   }
 
@@ -441,6 +473,13 @@ export default function BookAMeetingPage() {
               <p className="mt-3 text-white/80">
                 We&apos;ll reach out within 24 hours to confirm your slot.
               </p>
+              <button
+                type="button"
+                onClick={resetBookingForm}
+                className="mt-6 inline-flex w-fit items-center gap-2 rounded-full bg-[#111] px-7 py-[14px] text-[15px] font-medium text-white"
+              >
+                Book another call
+              </button>
             </div>
           ) : (
             <div className="grid gap-4 md:grid-cols-2">
