@@ -2,7 +2,7 @@
 
 import { track } from "@vercel/analytics";
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
-import { type FormEvent, useRef, useState } from "react";
+import { type FormEvent, useEffect, useRef, useState } from "react";
 import { submitContact } from "./actions";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
@@ -106,9 +106,9 @@ const CONTACT_DETAILS = [
 ];
 
 const TRUST_CHECKS = [
-  "We respond within 24 hours",
+  "We reply within 24 hours",
   "No commitment required to reach out",
-  "100% confidential — your data stays private",
+  "Your data is encrypted and kept 100% confidential.",
 ];
 
 const TRUST_AVATARS = [
@@ -147,11 +147,17 @@ const INITIAL_FORM: FormState = {
 };
 
 const INPUT_CLASS =
-  "w-full rounded-lg bg-[#f5f5f5] px-3 py-3 text-base text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-[#ff6b6b] sm:py-[9px] sm:text-xs";
+  "w-full min-h-11 rounded-lg bg-[#f5f5f5] px-3 py-3 text-base text-[#333] font-sans outline-none transition-colors focus:bg-[#efefef] focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E47FF] focus-visible:ring-offset-1 aria-[invalid=true]:outline aria-[invalid=true]:outline-2 aria-[invalid=true]:outline-[#ff6b6b] sm:min-h-0 sm:py-[9px] sm:text-xs";
 
 const LABEL_CLASS = "mb-[5px] block text-[10px] font-semibold uppercase tracking-[0.06em] text-[#666]";
 
 const CLIENT_TIMEOUT_MS = 15000;
+
+// Client-side per-field error copy. ERROR_EMAIL mirrors the exact wording the
+// server returns from actions.ts so client + server agree on the message too.
+const ERROR_NAME = "Please enter your name.";
+const ERROR_EMAIL = "Please enter a valid email address.";
+const ERROR_MESSAGE = "Please enter a message.";
 
 export default function ContactPage() {
   const [form, setForm] = useState<FormState>(INITIAL_FORM);
@@ -159,6 +165,18 @@ export default function ContactPage() {
   const [status, setStatus] = useState<"idle" | "sending" | "success">("idle");
   const [errorMessage, setErrorMessage] = useState<string | null>(null);
   const submitLockRef = useRef(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const messageRef = useRef<HTMLTextAreaElement>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  // M2: move focus to the success heading once the success card renders so
+  // keyboard + SR users land in the new content instead of on a now-unmounted button.
+  useEffect(() => {
+    if (status === "success") {
+      successHeadingRef.current?.focus();
+    }
+  }, [status]);
 
   function update<K extends keyof FormState>(key: K, value: FormState[K]) {
     setForm((prev) => ({ ...prev, [key]: value }));
@@ -173,9 +191,13 @@ export default function ContactPage() {
       setForm((prev) => ({ ...prev, service: targetService }));
     }
     if (typeof document !== "undefined") {
+      // L2: respect prefers-reduced-motion — fall back to instant scroll when set.
+      const prefersReducedMotion =
+        typeof window !== "undefined" &&
+        window.matchMedia?.("(prefers-reduced-motion: reduce)").matches;
       document
         .getElementById("contact-form")
-        ?.scrollIntoView({ behavior: "smooth", block: "start" });
+        ?.scrollIntoView({ behavior: prefersReducedMotion ? "auto" : "smooth", block: "start" });
     }
   }
 
@@ -197,6 +219,11 @@ export default function ContactPage() {
     };
     if (nextErrors.name || nextErrors.email || nextErrors.message) {
       setErrors(nextErrors);
+      // M1: focus the first invalid field in DOM order so keyboard + SR users
+      // land on the problem instead of having to hunt for the red outline.
+      if (nextErrors.name) nameRef.current?.focus();
+      else if (nextErrors.email) emailRef.current?.focus();
+      else if (nextErrors.message) messageRef.current?.focus();
       submitLockRef.current = false;
       return;
     }
@@ -269,17 +296,17 @@ export default function ContactPage() {
           {INQUIRY_CARDS.map((card) => (
             <div
               key={card.title}
-              className="flex flex-col items-center rounded-3xl border border-black/[0.07] bg-white px-6 pb-8 pt-10 text-center shadow-[0_2px_16px_rgba(0,0,0,0.05)] transition-all duration-200 hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(0,0,0,0.1)] sm:px-9 sm:pb-10 sm:pt-12"
+              className="flex flex-col items-center rounded-3xl border border-black/[0.07] bg-white px-6 pb-8 pt-10 text-center shadow-[0_2px_16px_rgba(0,0,0,0.05)] motion-safe:transition-all motion-safe:duration-200 motion-safe:hover:-translate-y-1 hover:shadow-[0_8px_40px_rgba(0,0,0,0.1)] sm:px-9 sm:pb-10 sm:pt-12"
             >
               <div className="mb-7 flex size-[120px] items-center justify-center">{card.illustration}</div>
-              <h3 className="mb-3 font-heading text-xl font-bold text-remotiv-text-dark">{card.title}</h3>
+              <h2 className="mb-3 font-heading text-xl font-bold text-remotiv-text-dark">{card.title}</h2>
               <p className="mb-7 max-w-[280px] text-[0.92rem] leading-[1.65] text-remotiv-text-light">
                 {card.description}
               </p>
               <button
                 type="button"
                 onClick={() => jumpToForm(card.targetService)}
-                className="inline-flex items-center gap-2 rounded-full bg-[#111] px-7 py-[13px] text-sm font-semibold text-white transition-all hover:-translate-y-0.5 hover:bg-[#333]"
+                className="inline-flex items-center gap-2 rounded-full bg-[#111] px-7 py-[13px] text-sm font-semibold text-white motion-safe:transition-all motion-safe:hover:-translate-y-0.5 hover:bg-[#333]"
               >
                 {card.cta}
                 <ArrowRight className="size-3.5" />
@@ -330,8 +357,8 @@ export default function ContactPage() {
               With Remotiv?
             </h2>
             <p className="mb-6 text-[13px] leading-[1.75] text-[#111]/75">
-              Tell us what you need. Whether it&apos;s hiring remote talent or a partnership question — we&apos;ll get
-              back to you within 24 hours.
+              Tell us what you need. Whether it&apos;s hiring remote talent or a partnership question — we&apos;ll
+              reply within 24 hours.
             </p>
             <ul className="mb-7 flex flex-col gap-2.5">
               {TRUST_CHECKS.map((check) => (
@@ -362,10 +389,14 @@ export default function ContactPage() {
               {status === "success" ? (
                 <div role="status" aria-live="polite" className="py-6 text-center">
                   <div className="mb-3 text-4xl">✅</div>
-                  <h3 className="mb-2 font-heading text-base font-bold text-remotiv-text-dark">
+                  <h3
+                    ref={successHeadingRef}
+                    tabIndex={-1}
+                    className="mb-2 font-heading text-base font-bold text-remotiv-text-dark focus:outline-none"
+                  >
                     Inquiry Sent!
                   </h3>
-                  <p className="text-[13px] text-remotiv-text-mid">We&apos;ll get back to you within 24 hours.</p>
+                  <p className="text-[13px] text-remotiv-text-mid">We&apos;ll reply within 24 hours.</p>
                   <button
                     type="button"
                     onClick={resetForm}
@@ -404,6 +435,7 @@ export default function ContactPage() {
                         Full Name <span className="text-red-500" aria-hidden="true">*</span>
                       </label>
                       <input
+                        ref={nameRef}
                         id="ct-name"
                         type="text"
                         required
@@ -412,9 +444,16 @@ export default function ContactPage() {
                         placeholder="Your name"
                         value={form.name}
                         aria-invalid={errors.name ? true : undefined}
-                        aria-describedby={errorMessage ? "ct-form-error" : undefined}
+                        aria-describedby={
+                          errors.name ? "ct-name-error" : errorMessage ? "ct-form-error" : undefined
+                        }
                         onChange={(e) => update("name", e.target.value)}
                       />
+                      {errors.name && (
+                        <p id="ct-name-error" role="alert" className="mt-1 text-xs text-[#ff6b6b]">
+                          {ERROR_NAME}
+                        </p>
+                      )}
                     </div>
                     <div>
                       <label className={LABEL_CLASS} htmlFor="ct-company">
@@ -437,6 +476,7 @@ export default function ContactPage() {
                       Work Email <span className="text-red-500" aria-hidden="true">*</span>
                     </label>
                     <input
+                      ref={emailRef}
                       id="ct-email"
                       type="email"
                       required
@@ -445,9 +485,16 @@ export default function ContactPage() {
                       placeholder="you@company.com"
                       value={form.email}
                       aria-invalid={errors.email ? true : undefined}
-                      aria-describedby={errorMessage ? "ct-form-error" : undefined}
+                      aria-describedby={
+                        errors.email ? "ct-email-error" : errorMessage ? "ct-form-error" : undefined
+                      }
                       onChange={(e) => update("email", e.target.value)}
                     />
+                    {errors.email && (
+                      <p id="ct-email-error" role="alert" className="mt-1 text-xs text-[#ff6b6b]">
+                        {ERROR_EMAIL}
+                      </p>
+                    )}
                   </div>
                   <div className="mb-2.5">
                     <label className={LABEL_CLASS} htmlFor="ct-service">
@@ -469,29 +516,38 @@ export default function ContactPage() {
                   </div>
                   <div className="mb-2.5">
                     <label className={LABEL_CLASS} htmlFor="ct-message">
-                      Message
+                      Message <span className="text-red-500" aria-hidden="true">*</span>
                     </label>
                     <textarea
+                      ref={messageRef}
                       id="ct-message"
+                      required
                       maxLength={5000}
                       className={`${INPUT_CLASS} min-h-[68px] resize-none`}
                       placeholder="Tell us how we can help..."
                       value={form.message}
                       aria-invalid={errors.message ? true : undefined}
-                      aria-describedby={errorMessage ? "ct-form-error" : undefined}
+                      aria-describedby={
+                        errors.message ? "ct-message-error" : errorMessage ? "ct-form-error" : undefined
+                      }
                       onChange={(e) => update("message", e.target.value)}
                     />
+                    {errors.message && (
+                      <p id="ct-message-error" role="alert" className="mt-1 text-xs text-[#ff6b6b]">
+                        {ERROR_MESSAGE}
+                      </p>
+                    )}
                   </div>
                   <button
                     type="submit"
                     disabled={status === "sending"}
-                    className="mb-2.5 min-h-11 w-full rounded-[10px] bg-remotiv-lime-card px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] transition-all hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
+                    className="mb-2.5 min-h-11 w-full rounded-[10px] bg-remotiv-lime-card px-3 py-3.5 font-heading text-xs font-bold uppercase tracking-[0.06em] text-[#111] motion-safe:transition-all motion-safe:hover:-translate-y-0.5 hover:bg-[#b8f060] disabled:cursor-not-allowed disabled:opacity-60 sm:py-3"
                   >
                     {status === "sending" ? "Sending…" : "Send Inquiry →"}
                   </button>
                   <p className="flex items-center justify-center gap-1 text-center text-[10px] text-[#666]">
                     <Lock className="size-[9px]" />
-                    Your data is encrypted and 100% confidential
+                    Your data is encrypted and kept 100% confidential.
                   </p>
                 </form>
               )}
