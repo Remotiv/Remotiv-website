@@ -17,7 +17,7 @@ import { createPortal } from "react-dom";
 // the transformed card instead of bottom-left of the viewport. Starter (no
 // transform) wasn't affected, which is what made the bug per-tier.
 const TOAST_DURATION_MS = 3500;
-const TOAST_MESSAGE = "🔒 Subscriptions coming soon. Check back later.";
+const TOAST_MESSAGE = "🔒 Subscriptions launching soon.";
 
 export function TierCTA({ label, className }: { label: string; className: string }) {
   const [toast, setToast] = useState<string | null>(null);

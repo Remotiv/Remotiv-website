@@ -1,7 +1,7 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Navbar } from "@/components/navbar";
-import { PLAN_PRICING } from "@/lib/plans";
+import { PLANS } from "@/lib/plans";
 import { cn } from "@/lib/utils";
 import { TierCTA } from "./_tier-cta";
 
@@ -20,49 +20,30 @@ interface Tier {
 
 const TIERS: readonly Tier[] = [
   {
-    name: PLAN_PRICING.starter.name,
-    price: PLAN_PRICING.starter.price,
-    priceSuffix: PLAN_PRICING.starter.priceSuffix,
+    name: PLANS.starter.name,
+    price: PLANS.starter.price,
+    priceSuffix: PLANS.starter.priceSuffix,
     description: "For companies exploring the talent pool",
-    features: [
-      { label: "Browse the full Remotiv talent pool" },
-      { label: "View candidate profiles with resumes" },
-      { label: "Unlock up to 30 contact details per month" },
-      { label: "Advanced filters", included: false },
-      { label: "Dedicated account manager", included: false },
-    ],
+    features: PLANS.starter.features,
     cta: "Get Started",
     href: "/signup",
   },
   {
-    name: PLAN_PRICING.pro.name,
-    price: PLAN_PRICING.pro.price,
-    priceSuffix: PLAN_PRICING.pro.priceSuffix,
+    name: PLANS.pro.name,
+    price: PLANS.pro.price,
+    priceSuffix: PLANS.pro.priceSuffix,
     description: "For teams actively hiring at scale",
-    features: [
-      { label: "Everything in Starter" },
-      { label: "300 Profiles/mo" },
-      { label: "Advanced filters — role, stack, seniority, availability, salary" },
-      { label: "Save and shortlist candidates" },
-      { label: "Priority support" },
-    ],
+    features: PLANS.pro.features,
     cta: "Get Started",
     href: "/signup",
     featured: true,
   },
   {
-    name: PLAN_PRICING.enterprise.name,
-    price: PLAN_PRICING.enterprise.price,
-    priceSuffix: PLAN_PRICING.enterprise.priceSuffix,
+    name: PLANS.enterprise.name,
+    price: PLANS.enterprise.price,
+    priceSuffix: PLANS.enterprise.priceSuffix,
     description: "For companies who want Remotiv to do the heavy lifting",
-    features: [
-      { label: "Everything in Pro" },
-      { label: "Our recruiters source and vet candidates for you" },
-      { label: "AI-powered matching to your exact role requirements" },
-      { label: "Unlimited talent access" },
-      { label: "90-day free replacement guarantee" },
-      { label: "Dedicated success manager" },
-    ],
+    features: PLANS.enterprise.features,
     cta: "Get a Quote",
     href: "/contact",
   },

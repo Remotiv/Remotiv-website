@@ -5,7 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { X, Check } from "lucide-react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
-import { PLAN_PRICING } from "@/lib/plans";
+import { PLANS } from "@/lib/plans";
 
 const PURPLE = "#7E47FF";
 const BG = "#f8f4f1";
@@ -142,19 +142,18 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
         <div style={{ display: "grid", gridTemplateColumns: "repeat(auto-fit, minmax(200px, 1fr))", gap: 10 }}>
           {/* STARTER */}
           <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 14, padding: "18px 14px", display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>{PLAN_PRICING.starter.name}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>{PLANS.starter.name}</div>
             <div style={{ display: "flex", alignItems: "baseline", gap: 4, marginBottom: 4 }}>
-              <div style={{ fontSize: 28, fontWeight: 700, color: "#111", letterSpacing: "-1px" }}>{PLAN_PRICING.starter.price}</div>
-              {PLAN_PRICING.starter.priceSuffix && (
-                <div style={{ fontSize: 11, color: "#666" }}>{PLAN_PRICING.starter.priceSuffix}</div>
+              <div style={{ fontSize: 28, fontWeight: 700, color: "#111", letterSpacing: "-1px" }}>{PLANS.starter.price}</div>
+              {PLANS.starter.priceSuffix && (
+                <div style={{ fontSize: 11, color: "#666" }}>{PLANS.starter.priceSuffix}</div>
               )}
             </div>
             <p style={{ fontSize: 11, color: "#666", margin: "0 0 14px 0", lineHeight: 1.4 }}>For companies exploring the talent pool</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16, fontSize: 11, flex: 1 }}>
-              <FeatureRow text="Browse full talent pool" />
-              <FeatureRow text="View profiles with resume" />
-              <FeatureRow text="30 contact unlocks/mo" />
-              <FeatureRow text="Advanced filters" disabled />
+              {PLANS.starter.features.map((f) => (
+                <FeatureRow key={f.label} text={f.label} disabled={f.included === false} />
+              ))}
             </div>
             <button
               type="button"
@@ -184,22 +183,20 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
             >
               Most Popular
             </div>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 8 }}>{PLAN_PRICING.pro.name}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#fff", marginBottom: 8 }}>{PLANS.pro.name}</div>
             <div style={{ background: "#fff", borderRadius: 8, padding: 8, marginBottom: 8 }}>
               <div style={{ display: "flex", alignItems: "baseline", gap: 4 }}>
-                <div style={{ fontSize: 24, fontWeight: 700, color: PURPLE, letterSpacing: "-1px" }}>{PLAN_PRICING.pro.price}</div>
-                {PLAN_PRICING.pro.priceSuffix && (
-                  <div style={{ fontSize: 11, color: "#888" }}>{PLAN_PRICING.pro.priceSuffix}</div>
+                <div style={{ fontSize: 24, fontWeight: 700, color: PURPLE, letterSpacing: "-1px" }}>{PLANS.pro.price}</div>
+                {PLANS.pro.priceSuffix && (
+                  <div style={{ fontSize: 11, color: "#888" }}>{PLANS.pro.priceSuffix}</div>
                 )}
               </div>
             </div>
             <p style={{ fontSize: 11, color: "#ddd", margin: "0 0 14px 0", lineHeight: 1.4 }}>For teams actively hiring at scale</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16, fontSize: 11, flex: 1 }}>
-              <FeatureRow text="Everything in Starter" dark />
-              <FeatureRow text="300 unlocks/mo" dark />
-              <FeatureRow text="Advanced filters" dark />
-              <FeatureRow text="Save and shortlist" dark />
-              <FeatureRow text="Priority support" dark />
+              {PLANS.pro.features.map((f) => (
+                <FeatureRow key={f.label} text={f.label} dark disabled={f.included === false} />
+              ))}
             </div>
             <button
               type="button"
@@ -212,15 +209,13 @@ export default function PricingModal({ isOpen, onClose, onGetStarted }: PricingM
 
           {/* CUSTOM */}
           <div style={{ background: "#fff", border: "1px solid #e8e0db", borderRadius: 14, padding: "18px 14px", display: "flex", flexDirection: "column" }}>
-            <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>{PLAN_PRICING.enterprise.name}</div>
-            <div style={{ fontSize: 22, fontWeight: 700, color: "#111", letterSpacing: "-0.5px", marginBottom: 4 }}>{PLAN_PRICING.enterprise.price}</div>
+            <div style={{ fontSize: 14, fontWeight: 600, color: "#111", marginBottom: 8 }}>{PLANS.enterprise.name}</div>
+            <div style={{ fontSize: 22, fontWeight: 700, color: "#111", letterSpacing: "-0.5px", marginBottom: 4 }}>{PLANS.enterprise.price}</div>
             <p style={{ fontSize: 11, color: "#666", margin: "0 0 14px 0", lineHeight: 1.4 }}>For companies who want Remotiv to do the heavy lifting</p>
             <div style={{ display: "flex", flexDirection: "column", gap: 8, marginBottom: 16, fontSize: 11, flex: 1 }}>
-              <FeatureRow text="Everything in Pro" />
-              <FeatureRow text="Recruiters source for you" />
-              <FeatureRow text="AI-powered matching" />
-              <FeatureRow text="Dedicated manager" />
-              <FeatureRow text="90-day replacement" />
+              {PLANS.enterprise.features.map((f) => (
+                <FeatureRow key={f.label} text={f.label} disabled={f.included === false} />
+              ))}
             </div>
             <Link
               href="/contact"
