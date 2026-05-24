@@ -56,6 +56,7 @@ export default function CalendlyEmbed() {
   return (
     <div
       ref={containerRef}
+      aria-label="Booking calendar"
       className="calendly-inline-widget overflow-hidden rounded-3xl bg-white shadow-[0_4px_24px_rgba(0,0,0,0.08)]"
       data-url={CALENDLY_URL}
       style={{ minWidth: 320, height: 700 }}

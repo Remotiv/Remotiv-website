@@ -2,12 +2,12 @@
 
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
-import { cloneElement, type FormEvent, type ReactElement, useId, useRef, useState } from "react";
+import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from "react";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { submitBooking } from "./actions";
 
 const BENEFITS = [
-  "We respond within 24 hours",
+  "We reply within 24 hours",
   "No retainer — you only pay when you hire",
   "Curated shortlist within 24 hours of your brief",
   "90-day replacement guarantee on every placement",
@@ -40,10 +40,25 @@ export default function BookingForm() {
   const [submitting, setSubmitting] = useState(false);
   const [errorMsg, setErrorMsg] = useState<string | null>(null);
   const [form, setForm] = useState<BookingFormState>(EMPTY_BOOKING);
+  // Single-error model: track which client-validated field tripped the guard
+  // so we can wire aria-invalid + focus the right control. Mirrors contact's
+  // per-field-error pattern, scaled down to the two fields validated client-side.
+  const [invalidField, setInvalidField] = useState<"full_name" | "email" | null>(null);
   // Synchronous guard against rapid double-clicks: disabled={submitting} only
   // takes effect after React commits, leaving a microsecond window. Mirrors
   // contact's pattern.
   const submitLockRef = useRef(false);
+  const nameRef = useRef<HTMLInputElement>(null);
+  const emailRef = useRef<HTMLInputElement>(null);
+  const successHeadingRef = useRef<HTMLHeadingElement>(null);
+
+  // Move focus to the success heading when the success card mounts so keyboard
+  // + SR users land on the new content instead of on the now-unmounted submit.
+  useEffect(() => {
+    if (submitted) {
+      successHeadingRef.current?.focus();
+    }
+  }, [submitted]);
 
   function setField<K extends keyof BookingFormState>(
     key: K,
@@ -51,11 +66,13 @@ export default function BookingForm() {
   ) {
     setForm((prev) => ({ ...prev, [key]: value }));
     if (errorMsg) setErrorMsg(null);
+    if (invalidField) setInvalidField(null);
   }
 
   function resetBookingForm() {
     setForm(EMPTY_BOOKING);
     setErrorMsg(null);
+    setInvalidField(null);
     setSubmitted(false);
     submitLockRef.current = false;
   }
@@ -65,9 +82,14 @@ export default function BookingForm() {
     if (submitLockRef.current) return;
     submitLockRef.current = true;
     setErrorMsg(null);
+    setInvalidField(null);
     const trimmedEmail = form.email.trim();
     if (!form.full_name.trim() || !trimmedEmail) {
       setErrorMsg("Name and work email are required.");
+      const which: "full_name" | "email" = !form.full_name.trim() ? "full_name" : "email";
+      setInvalidField(which);
+      if (which === "full_name") nameRef.current?.focus();
+      else emailRef.current?.focus();
       submitLockRef.current = false;
       return;
     }
@@ -75,6 +97,8 @@ export default function BookingForm() {
     // typos before paying the round-trip cost.
     if (!isValidEmail(trimmedEmail)) {
       setErrorMsg("Please enter a valid email address.");
+      setInvalidField("email");
+      emailRef.current?.focus();
       submitLockRef.current = false;
       return;
     }
@@ -105,14 +129,20 @@ export default function BookingForm() {
       <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-white/20">
         <Check className="size-7" />
       </div>
-      <h2 className="font-heading text-3xl font-bold">Request received</h2>
+      <h2
+        ref={successHeadingRef}
+        tabIndex={-1}
+        className="font-heading text-3xl font-bold focus:outline-none"
+      >
+        Request received
+      </h2>
       <p className="mt-3 text-white/80">
-        We&apos;ll reach out within 24 hours to confirm your slot.
+        We&apos;ll reply within 24 hours to confirm your slot.
       </p>
       <button
         type="button"
         onClick={resetBookingForm}
-        className="mt-6 inline-flex w-fit items-center gap-2 rounded-full bg-[#111] px-7 py-[14px] text-[15px] font-medium text-white"
+        className="mt-6 inline-flex w-fit items-center gap-2 rounded-full bg-[#111] px-7 py-[14px] text-[15px] font-medium text-white focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E47FF] focus-visible:ring-offset-2"
       >
         Book another call
       </button>
@@ -182,8 +212,9 @@ export default function BookingForm() {
         </p>
         <div className="flex flex-col gap-[14px]">
           <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
-            <Field label="Full Name">
+            <Field label="Full Name" required>
               <input
+                ref={nameRef}
                 type="text"
                 required
                 maxLength={100}
@@ -191,6 +222,8 @@ export default function BookingForm() {
                 placeholder="Your name"
                 className={inputClass}
                 value={form.full_name}
+                aria-invalid={invalidField === "full_name" ? true : undefined}
+                aria-describedby={errorMsg ? "bf-error" : undefined}
                 onChange={(e) => setField("full_name", e.target.value)}
               />
             </Field>
@@ -206,8 +239,9 @@ export default function BookingForm() {
               />
             </Field>
           </div>
-          <Field label="Work Email">
+          <Field label="Work Email" required>
             <input
+              ref={emailRef}
               type="email"
               required
               maxLength={254}
@@ -215,10 +249,12 @@ export default function BookingForm() {
               placeholder="you@company.com"
               className={inputClass}
               value={form.email}
+              aria-invalid={invalidField === "email" ? true : undefined}
+              aria-describedby={errorMsg ? "bf-error" : undefined}
               onChange={(e) => setField("email", e.target.value)}
             />
           </Field>
-          <Field label="What Are You Looking For?">
+          <Field label="What Are You Looking For?" required>
             <select
               required
               className={selectClass}
@@ -244,7 +280,7 @@ export default function BookingForm() {
               onChange={(e) => setField("message", e.target.value)}
             />
           </Field>
-          <Field label="Preferred Call Time">
+          <Field label="Preferred Call Time" required>
             <select
               required
               className={selectClass}
@@ -259,20 +295,25 @@ export default function BookingForm() {
             </select>
           </Field>
           {errorMsg && (
-            <p className="rounded-lg bg-red-500/15 px-3 py-2 text-xs font-medium text-white">
+            <p
+              id="bf-error"
+              role="alert"
+              aria-live="assertive"
+              className="rounded-lg bg-red-500/15 px-3 py-2 text-xs font-medium text-white"
+            >
               {errorMsg}
             </p>
           )}
           <button
             type="submit"
             disabled={submitting}
-            className="mt-1.5 w-full rounded-xl bg-[#111] px-4 py-[17px] font-heading text-[15px] font-bold tracking-wide text-white transition-colors hover:bg-[#222] active:scale-[0.985] disabled:opacity-60"
+            className="mt-1.5 w-full rounded-xl bg-[#111] px-4 py-[17px] font-heading text-[15px] font-bold tracking-wide text-white transition-colors hover:bg-[#222] motion-safe:active:scale-[0.985] disabled:opacity-60 focus-visible:outline-none focus-visible:ring-2 focus-visible:ring-[#7E47FF] focus-visible:ring-offset-2"
           >
             {submitting ? "Booking…" : "Book My Call →"}
           </button>
           <p className="mt-1 flex items-center justify-center gap-1.5 text-center text-xs text-white/70">
             <Lock className="size-3" />
-            Your information is encrypted and 100% confidential
+            Your data is encrypted and kept 100% confidential.
           </p>
         </div>
       </form>
@@ -281,15 +322,17 @@ export default function BookingForm() {
 }
 
 const inputClass =
-  "w-full rounded-[10px] border-[1.5px] border-white/30 bg-white/20 px-[15px] py-3 text-base text-white outline-none placeholder:text-white/45 transition-colors focus:border-white/70 sm:text-sm";
+  "w-full min-h-11 rounded-[10px] border-[1.5px] border-white/30 bg-white/20 px-[15px] py-3 text-base text-white outline-none placeholder:text-white/45 transition-colors focus:border-white/70 sm:min-h-0 sm:text-sm";
 
 const selectClass = `${inputClass} cursor-pointer appearance-none bg-[url('data:image/svg+xml;utf8,<svg xmlns=%22http://www.w3.org/2000/svg%22 width=%2212%22 height=%228%22 viewBox=%220 0 12 8%22><path fill=%22rgba(255,255,255,0.55)%22 d=%22M6 8L0 0h12z%22/></svg>')] bg-[length:10px] bg-[position:right_14px_center] bg-no-repeat pr-9 text-white/80 [&>option]:bg-white [&>option]:text-remotiv-text-dark`;
 
 function Field({
   label,
+  required,
   children,
 }: {
   label: string;
+  required?: boolean;
   children: ReactElement<{ id?: string }>;
 }) {
   const id = useId();
@@ -300,6 +343,12 @@ function Field({
         className="font-heading text-[10px] font-semibold uppercase tracking-[0.1em] text-white/75"
       >
         {label}
+        {required && (
+          <>
+            {" "}
+            <span className="text-red-500" aria-hidden="true">*</span>
+          </>
+        )}
       </label>
       {cloneElement(children, { id })}
     </div>
