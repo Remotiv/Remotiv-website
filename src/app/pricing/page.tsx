@@ -1,7 +1,9 @@
 import Link from "next/link";
 import type { ReactNode } from "react";
 import { Navbar } from "@/components/navbar";
+import { PLAN_PRICING } from "@/lib/plans";
 import { cn } from "@/lib/utils";
+import { TierCTA } from "./_tier-cta";
 
 type FeatureValue = boolean | string;
 
@@ -18,9 +20,9 @@ interface Tier {
 
 const TIERS: readonly Tier[] = [
   {
-    name: "Starter",
-    price: "$49",
-    priceSuffix: "USD / month",
+    name: PLAN_PRICING.starter.name,
+    price: PLAN_PRICING.starter.price,
+    priceSuffix: PLAN_PRICING.starter.priceSuffix,
     description: "For companies exploring the talent pool",
     features: [
       { label: "Browse the full Remotiv talent pool" },
@@ -33,9 +35,9 @@ const TIERS: readonly Tier[] = [
     href: "/signup",
   },
   {
-    name: "Pro",
-    price: "$499",
-    priceSuffix: "USD / month",
+    name: PLAN_PRICING.pro.name,
+    price: PLAN_PRICING.pro.price,
+    priceSuffix: PLAN_PRICING.pro.priceSuffix,
     description: "For teams actively hiring at scale",
     features: [
       { label: "Everything in Starter" },
@@ -49,8 +51,9 @@ const TIERS: readonly Tier[] = [
     featured: true,
   },
   {
-    name: "Custom Enterprise",
-    price: "Let's talk",
+    name: PLAN_PRICING.enterprise.name,
+    price: PLAN_PRICING.enterprise.price,
+    priceSuffix: PLAN_PRICING.enterprise.priceSuffix,
     description: "For companies who want Remotiv to do the heavy lifting",
     features: [
       { label: "Everything in Pro" },
@@ -251,7 +254,18 @@ export default function PricingPage() {
           </div>
 
           <div className="mx-auto grid max-w-[1080px] items-stretch gap-6 lg:grid-cols-3">
-            {TIERS.map((tier) => (
+            {TIERS.map((tier) => {
+              const ctaClassName = cn(
+                "mt-auto block rounded-[14px] px-6 py-[15px] text-center text-[0.97rem] font-bold transition-all hover:-translate-y-0.5",
+                tier.featured
+                  ? "bg-white text-remotiv-purple hover:bg-white/90"
+                  : "bg-remotiv-green text-remotiv-text-dark hover:bg-remotiv-green-light",
+              );
+              // Enterprise tier routes to a real contact page; Starter/Pro
+              // open the shared PricingModal (Stripe not wired yet, so the
+              // modal's CTA surfaces a coming-soon toast).
+              const isContactCTA = tier.href === "/contact";
+              return (
               <article
                 key={tier.name}
                 className={cn(
@@ -323,19 +337,16 @@ export default function PricingPage() {
                   })}
                 </ul>
 
-                <Link
-                  href={tier.href}
-                  className={cn(
-                    "mt-auto block rounded-[14px] px-6 py-[15px] text-center text-[0.97rem] font-bold transition-all hover:-translate-y-0.5",
-                    tier.featured
-                      ? "bg-white text-remotiv-purple hover:bg-white/90"
-                      : "bg-remotiv-green text-remotiv-text-dark hover:bg-remotiv-green-light",
-                  )}
-                >
-                  {tier.cta}
-                </Link>
+                {isContactCTA ? (
+                  <Link href={tier.href} className={ctaClassName}>
+                    {tier.cta}
+                  </Link>
+                ) : (
+                  <TierCTA label={tier.cta} className={ctaClassName} />
+                )}
               </article>
-            ))}
+              );
+            })}
           </div>
         </section>
 
