@@ -59,6 +59,10 @@ const DAILY_LIMIT = 3;
 const PREFILTER_LIMIT = 40;
 const CACHE_TTL_HOURS = 9;
 const TOP_N = 10;
+const CLAUDE_MAX_TOKENS = 2048;
+const PROMPT_SKILLS_LIMIT = 12;
+const PROMPT_SUMMARY_LIMIT = 320;
+const WHY_MAX_LEN = 280;
 
 const STOPWORDS = new Set([
   "the", "and", "for", "with", "who", "has", "have", "are", "you",
@@ -276,7 +280,7 @@ function parseMatchJson(raw: string): MatchResult[] | null {
         typeof r.match_percent === "number"
           ? Math.max(0, Math.min(100, Math.round(r.match_percent)))
           : null;
-      const why = typeof r.why === "string" ? r.why.slice(0, 280) : "";
+      const why = typeof r.why === "string" ? r.why.slice(0, WHY_MAX_LEN) : "";
       if (!id || pct == null) continue;
       out.push({ candidate_id: id, match_percent: pct, why });
     }
@@ -288,11 +292,11 @@ function parseMatchJson(raw: string): MatchResult[] | null {
 
 function candidateSummaryForPrompt(c: CandidateRow): string {
   const name = `${c.first_name}${c.last_name ? " " + c.last_name : ""}`.trim();
-  const skills = c.skills?.length ? c.skills.slice(0, 12).join(", ") : "—";
+  const skills = c.skills?.length ? c.skills.slice(0, PROMPT_SKILLS_LIMIT).join(", ") : "—";
   const loc = [c.city, c.country].filter(Boolean).join(", ") || "—";
   const exp = c.years_experience != null ? `${c.years_experience} yrs` : "—";
   const role = c.job_title || c.role_category || "—";
-  const summary = (c.summary || "").slice(0, 320).replace(/\s+/g, " ");
+  const summary = (c.summary || "").slice(0, PROMPT_SUMMARY_LIMIT).replace(/\s+/g, " ");
   return `id: ${c.id}\nname: ${name}\nrole: ${role}\nlocation: ${loc}\nexperience: ${exp}\nskills: ${skills}\nsummary: ${summary || "—"}`;
 }
 
@@ -320,7 +324,7 @@ export async function rankWithClaude(
     const anthropic = getAnthropic();
     const response = await anthropic.messages.create({
       model: AI_MATCHING_MODEL,
-      max_tokens: 2048,
+      max_tokens: CLAUDE_MAX_TOKENS,
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });

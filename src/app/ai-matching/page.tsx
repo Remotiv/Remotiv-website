@@ -2,7 +2,7 @@
 
 import { Search, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { type FormEvent, type KeyboardEvent, useState } from "react";
 import { Navbar } from "@/components/navbar";
 
 const SUGGESTIONS = [
@@ -43,12 +43,12 @@ export default function AIMatchingPage() {
     router.push(`/ai-results?q=${encodeURIComponent(q)}`);
   }
 
-  function handleSubmit(e: React.FormEvent) {
+  function handleSubmit(e: FormEvent<HTMLFormElement>) {
     e.preventDefault();
     runSearch(query);
   }
 
-  function handleKeyDown(e: React.KeyboardEvent<HTMLTextAreaElement>) {
+  function handleKeyDown(e: KeyboardEvent<HTMLTextAreaElement>) {
     if (e.key === "Enter" && e.ctrlKey) {
       e.preventDefault();
       runSearch(query);

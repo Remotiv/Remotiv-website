@@ -68,10 +68,15 @@ export function isAvailableNow(availability: string | null): boolean {
 }
 
 // Prefix `https://` to a bare URL if missing — talent_profiles stores
-// LinkedIn/GitHub URLs in inconsistent forms.
+// LinkedIn/GitHub URLs in inconsistent forms. Reject any non-http(s) scheme
+// (javascript:, data:, mailto:, ftp:, etc.) by returning null; callers
+// fall back to "#" so the link is rendered as inert.
 export function ensureHttpUrl(url: string | null): string | null {
   if (!url) return null;
   if (/^https?:\/\//i.test(url)) return url;
+  // RFC 3986 scheme = letter followed by letters/digits/+/-/.
+  // If a scheme is present but isn't http(s), it's not a web link we trust.
+  if (/^[a-z][a-z0-9+.\-]*:/i.test(url)) return null;
   return `https://${url}`;
 }
 

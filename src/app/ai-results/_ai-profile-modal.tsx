@@ -212,9 +212,7 @@ export default function AIProfileModal({
           <X className="size-4" strokeWidth={2} />
         </button>
 
-        {/* Scrollable body */}
         <div className="overflow-y-auto px-5 pb-5 pt-6 sm:px-7 sm:pb-6 sm:pt-7">
-          {/* Header: avatar + name + role badge + location */}
           <div className="mb-5 grid grid-cols-1 gap-5 sm:grid-cols-[auto_1fr_auto] sm:items-start">
             <div
               className="flex size-16 items-center justify-center rounded-2xl font-heading text-[1.2rem] font-extrabold"
@@ -274,12 +272,10 @@ export default function AIProfileModal({
             </div>
           </div>
 
-          {/* Mobile-only ScoreBadge (centered) */}
           <div className="mb-4 flex justify-center sm:hidden">
             <ScoreBadge score={match.match_percent} />
           </div>
 
-          {/* Why callout */}
           {match.why && (
             <div className="mb-5 flex items-start gap-2 rounded-[12px] border border-remotiv-green/[0.2] bg-remotiv-green/[0.07] px-4 py-3 font-sans text-[0.85rem] leading-[1.6] text-[#1d8c6b]">
               <span className="shrink-0 font-bold text-remotiv-green">✦</span>
@@ -287,7 +283,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Quick facts */}
           {(p.work_type || salary || p.years_experience != null) && (
             <div className="mb-5 grid grid-cols-1 gap-2 sm:grid-cols-3">
               {p.work_type && (
@@ -319,7 +314,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Skills */}
           {p.skills && p.skills.length > 0 && (
             <div className="mb-5">
               <SectionLabel>Skills</SectionLabel>
@@ -336,7 +330,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Summary */}
           {summary && (
             <div className="mb-5">
               <SectionLabel>About</SectionLabel>
@@ -346,7 +339,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Experience (lazy) */}
           {(isLoadingDetail || experience.length > 0) && (
             <div className="mb-5">
               <SectionLabel>Experience</SectionLabel>
@@ -392,7 +384,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Education */}
           {hasEducation && (
             <div className="mb-5">
               <SectionLabel>Education</SectionLabel>
@@ -411,7 +402,6 @@ export default function AIProfileModal({
             </div>
           )}
 
-          {/* Contact section */}
           <div className="mb-2">
             <SectionLabel>Contact</SectionLabel>
             {isUnlocked && effectiveContact ? (
@@ -483,7 +473,6 @@ export default function AIProfileModal({
           </div>
         </div>
 
-        {/* Footer */}
         <div className="flex shrink-0 items-center justify-between gap-3 border-t border-black/[0.07] bg-white px-5 py-3 sm:px-7 sm:py-4">
           <button
             type="button"
