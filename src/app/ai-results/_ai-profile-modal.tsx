@@ -88,9 +88,9 @@ function ExperienceSkeleton() {
     <div className="space-y-3" aria-hidden="true">
       {[0, 1, 2].map((i) => (
         <div key={i} className="space-y-1.5">
-          <div className="h-3.5 w-1/2 animate-pulse rounded bg-black/[0.06]" />
-          <div className="h-3 w-1/3 animate-pulse rounded bg-black/[0.05]" />
-          <div className="h-3 w-1/4 animate-pulse rounded bg-black/[0.05]" />
+          <div className="h-3.5 w-1/2 motion-safe:animate-pulse rounded bg-black/[0.06]" />
+          <div className="h-3 w-1/3 motion-safe:animate-pulse rounded bg-black/[0.05]" />
+          <div className="h-3 w-1/4 motion-safe:animate-pulse rounded bg-black/[0.05]" />
         </div>
       ))}
     </div>
@@ -173,12 +173,40 @@ export default function AIProfileModal({
     };
   }, []);
 
-  // Initial focus on the close button — minimal a11y for v1 without a full
-  // focus-trap implementation. Tab still naturally moves to the next focusable.
+  // Initial focus on the close button so keyboard users start inside the modal.
+  // Tab/Shift+Tab are trapped by the keydown handler below.
   const closeBtnRef = useRef<HTMLButtonElement>(null);
   useEffect(() => {
     const t = setTimeout(() => closeBtnRef.current?.focus(), 50);
     return () => clearTimeout(t);
+  }, []);
+
+  // Focus trap: wrap Tab / Shift+Tab at the modal's first/last focusable.
+  // Re-queries on every keypress because the modal content changes as the
+  // detail fetch resolves (Experience/Education sections mount in).
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    const handler = (e: KeyboardEvent) => {
+      if (e.key !== "Tab") return;
+      const root = dialogRef.current;
+      if (!root) return;
+      const focusable = root.querySelectorAll<HTMLElement>(
+        'button:not([disabled]), a[href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])',
+      );
+      if (focusable.length === 0) return;
+      const first = focusable[0];
+      const last = focusable[focusable.length - 1];
+      const active = document.activeElement as HTMLElement | null;
+      if (e.shiftKey && active === first) {
+        e.preventDefault();
+        last.focus();
+      } else if (!e.shiftKey && active === last) {
+        e.preventDefault();
+        first.focus();
+      }
+    };
+    document.addEventListener("keydown", handler);
+    return () => document.removeEventListener("keydown", handler);
   }, []);
 
   // Prefer freshly-fetched (and possibly redacted) summary; fall back to what
@@ -189,6 +217,7 @@ export default function AIProfileModal({
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="ai-profile-modal-title"

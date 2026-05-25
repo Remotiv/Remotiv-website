@@ -170,7 +170,12 @@ function LoadingPanel({ query }: { query: string }) {
 
   return (
     <>
-      <section className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20">
+      <section
+        role="status"
+        aria-live="polite"
+        aria-busy="true"
+        className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20"
+      >
         <div className="mx-auto mb-7 flex size-[68px] motion-safe:animate-[aimOrbPulse_1.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-remotiv-green text-[1.4rem] font-bold text-[#111]">
           ✦
         </div>
@@ -241,7 +246,7 @@ function TalentCard({
 
   return (
     <article
-      className="grid grid-cols-1 gap-6 rounded-[20px] border border-black/[0.07] bg-white p-6 transition-all hover:-translate-y-px hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] md:grid-cols-[1fr_auto]"
+      className="grid grid-cols-1 gap-6 rounded-[20px] border border-black/[0.07] bg-white p-6 motion-safe:transition-all motion-safe:hover:-translate-y-px hover:shadow-[0_12px_40px_rgba(0,0,0,0.08)] md:grid-cols-[1fr_auto]"
       style={{ animation: `btFadeIn .35s ease ${index * 0.04}s both` }}
     >
       <div>
@@ -381,6 +386,7 @@ function TalentCard({
         <button
           type="button"
           onClick={() => onToggleSave(match.candidate_id)}
+          aria-pressed={saved}
           className={`flex items-center justify-center gap-1.5 rounded-xl border px-5 py-2.5 text-[0.8rem] font-semibold transition-colors ${
             saved
               ? "border-remotiv-purple bg-remotiv-purple/[0.08] text-remotiv-purple"
@@ -399,7 +405,7 @@ function TalentCard({
 
 function EmptyState() {
   return (
-    <div className="px-6 py-20 text-center">
+    <div role="status" className="px-6 py-20 text-center">
       <div className="mb-5 text-5xl">🔍</div>
       <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">No matches found</h3>
       <p className="mb-7 font-sans text-[#777]">
@@ -428,7 +434,7 @@ function RateLimitState({
 }) {
   if (kind === "burst") {
     return (
-      <div className="px-6 py-20 text-center">
+      <div role="status" className="px-6 py-20 text-center">
         <div className="mb-5 text-5xl">⏳</div>
         <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
           You&apos;re sending requests too quickly
@@ -448,7 +454,7 @@ function RateLimitState({
     );
   }
   return (
-    <div className="px-6 py-20 text-center">
+    <div role="status" className="px-6 py-20 text-center">
       <div className="mb-5 text-5xl">⏳</div>
       <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
         You&apos;ve used all {limit} free searches today
@@ -479,7 +485,7 @@ function RateLimitState({
 
 function NoQueryState() {
   return (
-    <div className="px-6 py-20 text-center">
+    <div role="status" className="px-6 py-20 text-center">
       <div className="mb-5 text-5xl">✦</div>
       <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">Start your search</h3>
       <p className="mb-7 font-sans text-[#777]">
@@ -497,7 +503,7 @@ function NoQueryState() {
 
 function ErrorState() {
   return (
-    <div className="px-6 py-20 text-center">
+    <div role="alert" className="px-6 py-20 text-center">
       <div className="mb-5 text-5xl">⚠️</div>
       <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
         Something went wrong
@@ -584,6 +590,22 @@ function ResultsContent() {
 
   // Guard against React strict-mode double-invocation of effects in dev.
   const lastFetchedQuery = useRef<string | null>(null);
+  // M2 + M3: ref to the results h1 so we can move focus when a search resolves
+  // successfully. focusedForQueryRef gates the effect to fire ONCE per successful
+  // search (not on every render), and resets implicitly when query changes.
+  const resultsHeadingRef = useRef<HTMLHeadingElement>(null);
+  const focusedForQueryRef = useRef<string | null>(null);
+  useEffect(() => {
+    if (
+      !loading &&
+      errorState === "none" &&
+      results.length > 0 &&
+      focusedForQueryRef.current !== query
+    ) {
+      focusedForQueryRef.current = query;
+      resultsHeadingRef.current?.focus();
+    }
+  }, [loading, errorState, results.length, query]);
 
   useEffect(() => {
     if (!query) {
@@ -864,9 +886,13 @@ function ResultsContent() {
     <>
       <div className="flex flex-wrap items-center justify-between gap-3 border-b border-black/[0.07] bg-white px-14 py-5">
         <div>
-          <div className="font-heading text-[1rem] font-bold text-[#111]">
+          <h1
+            ref={resultsHeadingRef}
+            tabIndex={-1}
+            className="font-heading text-[1rem] font-bold text-[#111] focus:outline-none"
+          >
             Showing <span className="text-remotiv-purple">{visible.length}</span> matched profiles
-          </div>
+          </h1>
           {query && (
             <div className="mt-0.5 text-[0.78rem] text-[#777]">
               Results for:{" "}
@@ -887,7 +913,7 @@ function ResultsContent() {
           <button
             type="button"
             onClick={() => setShowOnlySaved((v) => !v)}
-            className={`flex cursor-pointer items-center gap-1.5 rounded-full border-[1.5px] px-4 py-1.5 font-sans text-[0.82rem] font-medium transition-colors ${
+            className={`flex min-h-11 cursor-pointer items-center gap-1.5 rounded-full border-[1.5px] px-4 py-1.5 font-sans text-[0.82rem] font-medium transition-colors sm:min-h-0 ${
               showOnlySaved
                 ? "border-remotiv-purple bg-remotiv-purple/[0.08] text-remotiv-purple"
                 : "border-black/[0.1] bg-transparent text-[#444] hover:border-remotiv-purple hover:text-remotiv-purple"
@@ -898,7 +924,7 @@ function ResultsContent() {
           </button>
           <Link
             href="/ai-matching"
-            className="flex items-center gap-1.5 rounded-full bg-remotiv-purple px-[18px] py-2 font-sans text-[0.82rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+            className="flex min-h-11 items-center gap-1.5 rounded-full bg-remotiv-purple px-[18px] py-2 font-sans text-[0.82rem] font-semibold text-white transition-colors hover:bg-[#6a38e0] sm:min-h-0"
           >
             <ArrowLeft className="size-3.5" /> New Search
           </Link>
