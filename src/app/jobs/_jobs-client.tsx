@@ -57,6 +57,25 @@ function fmtSalary(min: number | null, max: number | null): string {
   return `Up to ${fmt(max!)}/yr`;
 }
 
+/**
+ * Client-side wrapper for the on-demand detail fetch. Delegates to the
+ * /api/jobs?id=<uuid> branch, which calls back into lib/jobs.getJobById on
+ * the server. We can't import getJobById directly here because lib/jobs.ts
+ * transitively imports next/headers (server-only) — Turbopack errors at
+ * build time on that boundary cross. Returns null on 404 / network error so
+ * the caller's "no longer available" branch fires cleanly.
+ */
+async function getJobById(id: string): Promise<Job | null> {
+  if (!id) return null;
+  try {
+    const res = await fetch(`/api/jobs?id=${encodeURIComponent(id)}`);
+    if (!res.ok) return null;
+    return (await res.json()) as Job;
+  } catch {
+    return null;
+  }
+}
+
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -74,6 +93,12 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   // (see isFirstRender ref) to avoid an immediate redundant client fetch.
   const [loading, setLoading] = useState(false);
   const [activeId, setActiveId] = useState<string | null>(null);
+  // Full job (with description) for the open detail panel. The list query
+  // omits description for payload size, so when activeId is set we lazily
+  // fetch the full row via getJobById. detailLoading shows a skeleton in
+  // the JobDetail panel during the fetch.
+  const [activeJob, setActiveJob] = useState<Job | null>(null);
+  const [detailLoading, setDetailLoading] = useState(false);
 
   // Skip-first-refetch guard: the refetch effect fires once on mount because
   // useEffect always runs after the initial render. Without this guard it
@@ -232,6 +257,37 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     }
     fetchJobs(selectedCategory, experience, contract, selectedLanguage);
   }, [fetchJobs, selectedCategory, experience, contract, selectedLanguage]);
+
+  // Lazy-fetch the full job (with description) when a detail panel opens.
+  // Closing the panel (activeId → null) clears activeJob immediately so the
+  // next open shows a loading state instead of stale data.
+  useEffect(() => {
+    if (!activeId) {
+      setActiveJob(null);
+      setDetailLoading(false);
+      return;
+    }
+    let cancelled = false;
+    setActiveJob(null);
+    setDetailLoading(true);
+    getJobById(activeId).then((job) => {
+      if (cancelled) return;
+      setDetailLoading(false);
+      if (!job) {
+        // Job closed or removed between list-load and detail-open. Surface
+        // a brief "no longer available" state by keeping activeJob null
+        // (JobDetail handles the null+!loading case below) — don't slam
+        // activeId to null because that would close the panel before the
+        // user sees the message.
+        setActiveJob(null);
+        return;
+      }
+      setActiveJob(job);
+    });
+    return () => {
+      cancelled = true;
+    };
+  }, [activeId]);
 
   const applyFilters = () => {
     setSelectedCategory(pendingCategory);
@@ -552,7 +608,11 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
             ) : (
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {rows.map((row) => {
-                  const activeJob = row.find((j) => j.id === activeId);
+                  // The panel slot belongs to whichever row contains the
+                  // active card. Full job content (incl. description) comes
+                  // from activeJob state, populated lazily by getJobById.
+                  const hasActivePanel =
+                    activeId !== null && row.some((j) => j.id === activeId);
                   return (
                     <div
                       key={row.map((j) => j.id).join("-")}
@@ -568,14 +628,17 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                           onToggleFavorite={toggleFavorite}
                         />
                       ))}
-                      {activeJob ? (
+                      {hasActivePanel && activeId ? (
                         <JobDetail
-                          key={`detail-${activeJob.id}`}
+                          key={`detail-${activeId}`}
                           job={activeJob}
-                          isFavorited={favorites.has(activeJob.id)}
-                          onToggleFavorite={() => toggleFavorite(activeJob.id)}
+                          loading={detailLoading}
+                          isFavorited={favorites.has(activeId)}
+                          onToggleFavorite={() => toggleFavorite(activeId)}
                           onClose={() => setActiveId(null)}
-                          onApply={() => setApplyJob(activeJob)}
+                          onApply={() => {
+                            if (activeJob) setApplyJob(activeJob);
+                          }}
                         />
                       ) : null}
                     </div>
@@ -916,17 +979,55 @@ const JobCard = memo(function JobCard({
 
 function JobDetail({
   job,
+  loading,
   isFavorited,
   onToggleFavorite,
   onClose,
   onApply,
 }: {
-  job: Job;
+  job: Job | null;
+  loading: boolean;
   isFavorited: boolean;
   onToggleFavorite: () => void;
   onClose: () => void;
   onApply: () => void;
 }) {
+  // Loading: full detail (with description) is being fetched via getJobById.
+  if (loading) {
+    return (
+      <div className="relative col-span-full flex min-h-[200px] items-center justify-center rounded-[20px] bg-remotiv-purple p-6 md:p-10">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
+        >
+          <X className="size-4 text-white" strokeWidth={2.5} />
+        </button>
+        <p className="text-[0.85rem] text-white/65">Loading job details…</p>
+      </div>
+    );
+  }
+
+  // Loaded but null = job was closed/removed between list-load and detail-open.
+  if (!job) {
+    return (
+      <div className="relative col-span-full flex min-h-[200px] items-center justify-center rounded-[20px] bg-remotiv-purple p-6 md:p-10">
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
+        >
+          <X className="size-4 text-white" strokeWidth={2.5} />
+        </button>
+        <p className="text-[0.9rem] text-white/75">
+          This position is no longer available.
+        </p>
+      </div>
+    );
+  }
+
   return (
     <div className="relative col-span-full grid grid-cols-1 gap-6 rounded-[20px] bg-remotiv-purple p-6 md:grid-cols-2 md:gap-10 md:p-10">
       <button

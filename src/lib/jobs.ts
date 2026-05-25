@@ -1,13 +1,27 @@
-// Server-side helper for the initial (unfiltered) jobs fetch.
-// Mirrors the default branch of src/app/api/jobs/route.ts EXACTLY — same
-// table, same filter (status="open"), same ordering, same limit. Used by the
-// /jobs server-component page to put the initial card list in the SSR'd HTML
-// so the user sees jobs immediately (no client-fetch waterfall).
+// Server-side helpers for the /jobs page.
 //
-// The /api/jobs route stays the source for FILTER CHANGES (category, exp,
-// contract, language) — the client island still calls it on filter change.
+// LIST_SELECT — the lean column projection used by the card-grid query. Skips
+// `description` (potentially KB-sized free text) since the list view only
+// shows title/company/location/tags. /api/jobs/route.ts imports this same
+// constant so both surfaces stay in sync.
+//
+// getInitialJobs() — runs server-side from src/app/jobs/page.tsx with NO
+// filters, returns the top-100-most-recent OPEN jobs (matches /api/jobs's
+// default branch). Falls back to [] on Supabase error so the client gets
+// the "Couldn't load positions. Retry" UX.
+//
+// getJobById() — server-side helper used by /api/jobs/route.ts when a
+// `?id=<uuid>` query param is present. Fetches the FULL row (including
+// description) for the detail panel. The client island can't import this
+// directly (createServiceClient pulls server-only `next/headers`), so the
+// client hits the API route which delegates here.
 
 import { createServiceClient } from "@/lib/supabase/server";
+
+export const LIST_SELECT =
+  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,status,created_at";
+
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 export interface Job {
   id: string;
@@ -22,7 +36,9 @@ export interface Job {
   category: string;
   experience_level: string;
   language: string;
-  description: string | null;
+  /** Optional because list-view queries omit it for payload size. The detail
+   *  panel populates it via getJobById(). */
+  description?: string | null;
   status: string;
   created_at: string;
 }
@@ -32,7 +48,7 @@ export async function getInitialJobs(): Promise<Job[]> {
 
   const { data, error } = await supabase
     .from("jobs")
-    .select("*")
+    .select(LIST_SELECT)
     .eq("status", "open")
     .order("created_at", { ascending: false })
     .limit(100);
@@ -43,5 +59,22 @@ export async function getInitialJobs(): Promise<Job[]> {
     return [];
   }
 
-  return (data ?? []) as Job[];
+  return (data ?? []) as unknown as Job[];
+}
+
+export async function getJobById(id: string): Promise<Job | null> {
+  // Reject non-UUID input before any DB work — see UUID_REGEX above.
+  if (!id || !UUID_REGEX.test(id)) return null;
+
+  const supabase = createServiceClient();
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("id", id)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (error) return null;
+  return (data as Job | null) ?? null;
 }
