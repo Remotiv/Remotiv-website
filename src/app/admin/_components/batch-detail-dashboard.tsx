@@ -52,6 +52,7 @@ import {
   type ClientBatch,
   type SourceType,
 } from "@/app/admin/client-batches/actions";
+import { getClientCvSignedUrl } from "@/app/client/actions";
 
 // Bulk upload modal lazy-loaded — only fetched the first time the admin
 // clicks the "Bulk Upload CVs" button.
@@ -1053,6 +1054,22 @@ export function BatchDetailDashboard({
     }
   }
 
+  async function handleBatchCandidateCv(candidateId: string) {
+    const result = await getClientCvSignedUrl(candidateId);
+    if (!result.ok) {
+      const messages: Record<string, string> = {
+        not_authenticated: "Your session has expired. Please log in again.",
+        not_authorized: "You are not authorized to view this CV.",
+        cv_missing: "CV file unavailable — please contact support.",
+        internal_error: "Could not load CV. Please try again.",
+      };
+      setToast(messages[result.error] ?? "Could not load CV. Please try again.");
+      return;
+    }
+    const win = window.open(result.url, "_blank", "noopener,noreferrer");
+    if (!win) setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+  }
+
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
   const pageItems = paginate(candidates, page);
@@ -1288,16 +1305,14 @@ export function BatchDetailDashboard({
                     </td>
                     <td className="px-3 py-2">
                       {c.cv_url ? (
-                        <a
-                          href={c.cv_url}
-                          target="_blank"
-                          rel="noopener noreferrer"
-                          onClick={(e) => e.stopPropagation()}
+                        <button
+                          type="button"
+                          onClick={(e) => { e.stopPropagation(); handleBatchCandidateCv(c.id); }}
                           className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2 py-0.5 text-[10px] font-semibold text-remotiv-purple hover:bg-remotiv-purple/20"
                         >
                           <Eye className="size-3" strokeWidth={2} />
                           View
-                        </a>
+                        </button>
                       ) : (
                         <span className="text-gray-300">—</span>
                       )}
