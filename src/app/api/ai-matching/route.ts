@@ -115,8 +115,14 @@ export async function POST(request: NextRequest) {
   // someone scripting a tight loop, regardless of tier.
   const rl = rateLimit(request, { bucketKey: "ai-matching" });
   if (!rl.ok) {
+    // Use the same error discriminator the daily-limit path uses so the client
+    // routes both 429s to RateLimitState. Burst path has no used/limit numbers,
+    // so they're omitted; the client treats their absence as "burst, not daily".
     return NextResponse.json(
-      { error: "Too many requests. Please try again later." },
+      {
+        error: "rate_limit",
+        message: "Too many requests. Please slow down and try again in a minute.",
+      },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
     );
   }

@@ -2,7 +2,7 @@
 
 import { Search, Zap } from "lucide-react";
 import { useRouter } from "next/navigation";
-import { type FormEvent, type KeyboardEvent, useState } from "react";
+import { type FormEvent, type KeyboardEvent, useEffect, useState } from "react";
 import { Navbar } from "@/components/navbar";
 
 const SUGGESTIONS = [
@@ -31,10 +31,20 @@ const HOW_IT_WORKS = [
   },
 ];
 
+const MAX_QUERY_LEN = 500;
+
 export default function AIMatchingPage() {
   const router = useRouter();
   const [query, setQuery] = useState("");
   const [submitting, setSubmitting] = useState(false);
+  // F6: Next App Router can restore this client component (with state) when
+  // the user hits Back from /ai-results, leaving the submit button stuck on
+  // "Searching…". Reset on every mount/restore — runSearch only sets
+  // submitting=true immediately before navigating away, so resetting here
+  // never interrupts an in-flight search.
+  useEffect(() => {
+    setSubmitting(false);
+  }, []);
 
   function runSearch(raw: string) {
     const q = raw.trim();
@@ -89,9 +99,13 @@ export default function AIMatchingPage() {
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
             rows={4}
+            maxLength={MAX_QUERY_LEN}
             placeholder="e.g. Senior React developer, 5+ years, AWS knowledge preferred, Lahore based, US timezone comfortable…"
             className="min-h-[100px] w-full resize-y border-none bg-transparent py-2.5 text-left font-sans text-base leading-[1.7] text-[#111] outline-none placeholder:text-[#bbb] sm:text-[0.95rem]"
           />
+          <div className="mb-2 text-right font-sans text-[0.7rem] text-[#aaa]">
+            {query.length}/{MAX_QUERY_LEN}
+          </div>
           <button
             type="submit"
             disabled={!query.trim() || submitting}

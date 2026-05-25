@@ -50,9 +50,11 @@ type ApiSuccess = {
 
 type ApiRateLimit = {
   error: "rate_limit";
-  used: number;
-  limit: number;
-  tier: ApiTier;
+  // Present on the daily-limit path; absent on the burst-limit path.
+  used?: number;
+  limit?: number;
+  tier?: ApiTier;
+  message?: string;
 };
 
 // ── Helpers ──────────────────────────────────────────────────
@@ -366,7 +368,36 @@ function EmptyState() {
   );
 }
 
-function RateLimitState({ used, limit }: { used: number; limit: number }) {
+function RateLimitState({
+  kind,
+  used,
+  limit,
+}: {
+  kind: RateLimitKind;
+  used: number;
+  limit: number;
+}) {
+  if (kind === "burst") {
+    return (
+      <div className="px-6 py-20 text-center">
+        <div className="mb-5 text-5xl">⏳</div>
+        <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
+          You&apos;re sending requests too quickly
+        </h3>
+        <p className="mb-7 font-sans text-[#777]">
+          Please wait a minute and try again.
+        </p>
+        <div className="flex flex-wrap items-center justify-center gap-3">
+          <Link
+            href="/ai-matching"
+            className="inline-flex items-center gap-2 rounded-[14px] border border-black/[0.1] bg-white px-6 py-3 font-heading text-[0.9rem] font-semibold text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
+          >
+            <ArrowLeft className="size-4" /> New Search
+          </Link>
+        </div>
+      </div>
+    );
+  }
   return (
     <div className="px-6 py-20 text-center">
       <div className="mb-5 text-5xl">⏳</div>
@@ -397,6 +428,24 @@ function RateLimitState({ used, limit }: { used: number; limit: number }) {
   );
 }
 
+function NoQueryState() {
+  return (
+    <div className="px-6 py-20 text-center">
+      <div className="mb-5 text-5xl">✦</div>
+      <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">Start your search</h3>
+      <p className="mb-7 font-sans text-[#777]">
+        Describe who you&apos;re hiring for and our AI will rank the best-fit candidates.
+      </p>
+      <Link
+        href="/ai-matching"
+        className="inline-flex items-center gap-2 rounded-[14px] bg-remotiv-purple px-7 py-3 font-heading text-[0.9rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
+      >
+        <ArrowLeft className="size-4" /> Start a search
+      </Link>
+    </div>
+  );
+}
+
 function ErrorState() {
   return (
     <div className="px-6 py-20 text-center">
@@ -419,7 +468,8 @@ function ErrorState() {
 
 // ── Main results content ────────────────────────────────────
 
-type ErrorKind = "none" | "empty" | "rate_limit" | "error";
+type ErrorKind = "none" | "empty" | "no_query" | "rate_limit" | "error";
+type RateLimitKind = "daily" | "burst";
 
 function ResultsContent() {
   const params = useSearchParams();
@@ -432,6 +482,18 @@ function ResultsContent() {
   const [, setCached] = useState<boolean>(false);
   const [loading, setLoading] = useState<boolean>(true);
   const [errorState, setErrorState] = useState<ErrorKind>("none");
+  // F10: distinguish daily-quota 429 from per-minute burst 429 so RateLimitState
+  // can show the right copy. Both 429s share the discriminator error: "rate_limit";
+  // burst lacks used/limit numbers.
+  const [rateLimitKind, setRateLimitKind] = useState<RateLimitKind>("daily");
+  // F23: lightweight inline notice for CV-open failures (no toast system on this
+  // page; mirrors comingSoonToast's render pattern but with variable text).
+  const [cvNotice, setCvNotice] = useState<string | null>(null);
+  useEffect(() => {
+    if (!cvNotice) return;
+    const t = setTimeout(() => setCvNotice(null), 4000);
+    return () => clearTimeout(t);
+  }, [cvNotice]);
 
   const [shortlist, setShortlist] = useState<Set<string>>(new Set());
   const [showOnlySaved, setShowOnlySaved] = useState(false);
@@ -477,7 +539,9 @@ function ResultsContent() {
   useEffect(() => {
     if (!query) {
       setLoading(false);
-      setErrorState("empty");
+      // F11: distinct state — "no_query" means the user landed here without
+      // a search, not that their search returned zero matches.
+      setErrorState("no_query");
       setResults([]);
       return;
     }
@@ -505,9 +569,16 @@ function ResultsContent() {
           | null;
         if (lastFetchedQuery.current !== query) return;
         if (res.status === 429 && body && "error" in body && body.error === "rate_limit") {
-          setTier(body.tier);
-          setUsed(body.used);
-          setLimit(body.limit);
+          // F10: presence of `limit` on the body discriminates daily-quota
+          // (has used/limit/tier) from per-minute burst (none of those).
+          if (typeof body.limit === "number") {
+            setRateLimitKind("daily");
+            if (body.tier) setTier(body.tier);
+            setUsed(body.used ?? 0);
+            setLimit(body.limit);
+          } else {
+            setRateLimitKind("burst");
+          }
           setErrorState("rate_limit");
           setResults([]);
           return;
@@ -695,14 +766,19 @@ function ResultsContent() {
       try {
         const result = await getCvSignedUrl(candidateId);
         if (result.ok) {
+          // Clear any stale CV notice from a prior failed attempt.
+          setCvNotice(null);
           window.open(result.url, "_blank", "noopener,noreferrer");
           return;
         }
-        // Auth/subscription errors → PricingModal (unified upgrade prompt for
-        // this file). cv_missing / internal_error fall through silently — the
-        // spinner clears in finally.
+        // Auth/subscription errors → PricingModal (unified upgrade prompt).
         if (result.error === "not_authenticated" || result.error === "not_unlocked") {
           setIsPricingModalOpen(true);
+        } else if (result.error === "cv_missing") {
+          setCvNotice("This candidate hasn't uploaded a resume.");
+        } else {
+          // internal_error or any other unexpected !ok branch.
+          setCvNotice("Couldn't open the resume. Please try again.");
         }
       } finally {
         setViewingCvIds((prev) => {
@@ -723,8 +799,12 @@ function ResultsContent() {
     return <LoadingPanel query={query} />;
   }
 
+  if (errorState === "no_query") {
+    return <NoQueryState />;
+  }
+
   if (errorState === "rate_limit") {
-    return <RateLimitState used={used} limit={limit} />;
+    return <RateLimitState kind={rateLimitKind} used={used} limit={limit} />;
   }
 
   if (errorState === "error") {
@@ -837,6 +917,16 @@ function ResultsContent() {
           className="fixed bottom-6 left-1/2 z-[1000] -translate-x-1/2 rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white shadow-xl"
         >
           🔒 Subscriptions coming soon. Check back later.
+        </div>
+      )}
+
+      {cvNotice && (
+        <div
+          role="alert"
+          aria-live="polite"
+          className="fixed bottom-6 left-1/2 z-[1000] -translate-x-1/2 rounded-xl bg-[#111] px-5 py-3 text-sm font-medium text-white shadow-xl"
+        >
+          {cvNotice}
         </div>
       )}
 
