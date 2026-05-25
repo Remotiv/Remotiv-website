@@ -9,11 +9,30 @@ import { isValidEmail } from "@/app/admin/lib/validators";
 // direct API call (e.g. from a script) must not be able to slip through.
 const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
 
+// jobId, when present, MUST be a real UUID. Otherwise it'd be interpolated
+// directly into the storage path (folder = jobId ?? "manual"), allowing
+// `../` or other injection patterns to escape the bucket layout.
+const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+
 // Defensive bounds against weaponised inputs:
 //   - 10 MB raw PDF
 //   - 100 KB extracted text (more than any real CV)
+//   - per-text-field length caps below
 const MAX_CV_FILE_BYTES = 10 * 1024 * 1024;
 const MAX_CV_TEXT_LENGTH = 100_000;
+const MAX_NAME_LENGTH = 100;
+const MAX_JOB_TITLE_LENGTH = 200;
+const MAX_PHONE_LENGTH = 50;
+const MAX_NOTES_LENGTH = 2000;
+
+// Shared error message — never leaks Supabase/Postgres details to the client.
+// Real failures are logged server-side via console.error.
+const GENERIC_ERROR_MESSAGE = "Submission failed. Please try again.";
+const GENERIC_INVALID_MESSAGE = "Invalid submission.";
+
+// Storage bucket + DB table names — single source of truth.
+const CV_BUCKET = "cvs";
+const APPLICATIONS_TABLE = "job_applications";
 
 function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
@@ -47,14 +66,43 @@ export async function POST(request: NextRequest) {
     const linkedin  = nullable(form.get("linkedin_url"));
     const notes     = nullable(form.get("notes"));
     const cvText    = nullable(form.get("cv_text"));
-    const source    = ((form.get("source") as string) || "job_application") as
-      | "job_application"
-      | "manual_upload";
-    const cvFile    = form.get("cv") as File | null;
+    // Guard the `source` field: only accept the two known string values.
+    const sourceRaw = form.get("source");
+    const source: "job_application" | "manual_upload" =
+      sourceRaw === "manual_upload" ? "manual_upload" : "job_application";
+    // Guard the `cv` field: must be a File, not a string. A renamed field
+    // (e.g. text) would otherwise type-assert through and crash on .size.
+    const cvFieldValue = form.get("cv");
+    const cvFile = cvFieldValue instanceof File ? cvFieldValue : null;
 
     if (!firstName || !cvFile) {
       return NextResponse.json(
         { error: "First name and CV are required." },
+        { status: 400 },
+      );
+    }
+
+    // Length caps on every user-supplied text field. Reject early — before
+    // any DB read or storage write — so an attacker can't pad rows or stall
+    // queries with multi-MB strings. Generic message so we don't tell them
+    // which field tripped.
+    if (
+      firstName.length > MAX_NAME_LENGTH ||
+      (lastName !== null && lastName.length > MAX_NAME_LENGTH) ||
+      (jobTitle !== null && jobTitle.length > MAX_JOB_TITLE_LENGTH) ||
+      (phone !== null && phone.length > MAX_PHONE_LENGTH) ||
+      (notes !== null && notes.length > MAX_NOTES_LENGTH)
+    ) {
+      return NextResponse.json(
+        { error: GENERIC_INVALID_MESSAGE },
+        { status: 400 },
+      );
+    }
+
+    // jobId, when present, MUST be a real UUID — see UUID_REGEX comment.
+    if (jobId !== null && !UUID_REGEX.test(jobId)) {
+      return NextResponse.json(
+        { error: GENERIC_INVALID_MESSAGE },
         { status: 400 },
       );
     }
@@ -118,7 +166,7 @@ export async function POST(request: NextRequest) {
       let emailMatch: { id: string } | null = null;
       if (email) {
         const { data } = await supabase
-          .from("job_applications")
+          .from(APPLICATIONS_TABLE)
           .select("id")
           .eq("email", email)
           .maybeSingle();
@@ -130,7 +178,7 @@ export async function POST(request: NextRequest) {
       let phoneMatch: { id: string } | null = null;
       if (normalizedPhone.length >= 7) {
         const { data: phoneRecords } = await supabase
-          .from("job_applications")
+          .from(APPLICATIONS_TABLE)
           .select("id, phone")
           .not("phone", "is", null)
           .order("created_at", { ascending: false })
@@ -161,15 +209,19 @@ export async function POST(request: NextRequest) {
     const path = `${folder}/${crypto.randomUUID()}.pdf`;
 
     const { error: uploadError } = await supabase.storage
-      .from("cvs")
+      .from(CV_BUCKET)
       .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
 
     if (uploadError) {
-      return NextResponse.json({ error: uploadError.message }, { status: 500 });
+      console.error("[/api/apply] storage upload failed:", uploadError);
+      return NextResponse.json(
+        { error: GENERIC_ERROR_MESSAGE },
+        { status: 500 },
+      );
     }
 
     // 2. Get public URL
-    const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
+    const { data: urlData } = supabase.storage.from(CV_BUCKET).getPublicUrl(path);
     const cvUrl = urlData.publicUrl;
 
     // 3. If a manual job title was typed, create a placeholder job and link it.
@@ -196,7 +248,7 @@ export async function POST(request: NextRequest) {
     }
 
     // 4. Insert application (service role bypasses RLS)
-    const { error: insertError } = await supabase.from("job_applications").insert({
+    const { error: insertError } = await supabase.from(APPLICATIONS_TABLE).insert({
       job_id: resolvedJobId,
       first_name: firstName,
       last_name: lastName,
@@ -212,12 +264,32 @@ export async function POST(request: NextRequest) {
     });
 
     if (insertError) {
-      return NextResponse.json({ error: insertError.message }, { status: 500 });
+      console.error("[/api/apply] DB insert failed:", insertError);
+      // Rollback: the CV is already in storage but its DB row never landed.
+      // Delete the orphaned object so storage doesn't accumulate junk PDFs.
+      // Wrap the cleanup so its own failure can't mask the original 500.
+      try {
+        await supabase.storage.from(CV_BUCKET).remove([path]);
+      } catch (cleanupErr) {
+        console.error(
+          "[/api/apply] rollback delete failed (CV orphaned at",
+          path,
+          "):",
+          cleanupErr,
+        );
+      }
+      return NextResponse.json(
+        { error: GENERIC_ERROR_MESSAGE },
+        { status: 500 },
+      );
     }
 
     return NextResponse.json({ success: true });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected error.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[/api/apply] unexpected error:", err);
+    return NextResponse.json(
+      { error: GENERIC_ERROR_MESSAGE },
+      { status: 500 },
+    );
   }
 }

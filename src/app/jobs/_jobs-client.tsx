@@ -41,6 +41,13 @@ const LANGUAGES = ["English", "Urdu", "Arabic"];
 const LS_FAVORITES = "favoriteJobs";
 const LS_SAVED_SEARCH = "savedJobSearch";
 
+const CONTACT_EMAIL = "talent@remotiv.work";
+const LINKEDIN_URL = "https://www.linkedin.com/company/remotiv-inc/";
+
+// Server cap is 10 MB; align the client so the UX rejects what the API would
+// reject anyway. See MAX_CV_FILE_BYTES in src/app/api/apply/route.ts.
+const MAX_CV_CLIENT_BYTES = 10 * 1024 * 1024;
+
 type SavedSearch = {
   searchQuery: string;
   locationFilter: string;
@@ -150,7 +157,10 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     try {
       const raw = localStorage.getItem(LS_FAVORITES);
       if (raw) setFavorites(new Set(JSON.parse(raw) as string[]));
-    } catch {}
+    } catch {
+      // localStorage unavailable (private mode / quota / disabled) — non-fatal,
+      // user just won't see their previously-favorited jobs restored.
+    }
 
     try {
       const raw = localStorage.getItem(LS_SAVED_SEARCH);
@@ -164,7 +174,10 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
         setPendingContract(new Set(s.pendingContract ?? []));
         setPendingLanguage(s.pendingLanguage ?? "");
       }
-    } catch {}
+    } catch {
+      // localStorage unavailable or saved-search JSON corrupt — non-fatal,
+      // user just gets the default empty filter state.
+    }
   }, []);
 
   // Auto-dismiss save toast
@@ -181,7 +194,10 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
       else next.add(id);
       try {
         localStorage.setItem(LS_FAVORITES, JSON.stringify([...next]));
-      } catch {}
+      } catch {
+        // localStorage unavailable / quota exceeded — favorite is still in
+        // component state for the current session, just won't persist.
+      }
       return next;
     });
   }, []);
@@ -198,7 +214,10 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     };
     try {
       localStorage.setItem(LS_SAVED_SEARCH, JSON.stringify(payload));
-    } catch {}
+    } catch {
+      // localStorage unavailable / quota exceeded — toast still fires so the
+      // user gets feedback; saved search just won't persist across sessions.
+    }
     setSaveToast(true);
   };
 
@@ -367,7 +386,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
           </section>
 
           <section className="rounded-[20px] bg-remotiv-purple px-5 py-6 sm:px-8 sm:py-8 md:px-10 md:pb-9">
-            <h2 className="mb-6 font-heading text-[clamp(1.2rem,2vw,1.6rem)] font-normal uppercase text-[#111]">
+            <h2 className="mb-6 font-heading text-[clamp(1.2rem,2vw,1.6rem)] font-normal uppercase text-remotiv-text-dark">
               Discover your dream job
             </h2>
             <div className="flex flex-col gap-3 sm:flex-row sm:flex-wrap sm:items-center">
@@ -514,7 +533,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                 {favorites.size > 0 && (
                   <span className={cn(
                     "flex size-4 items-center justify-center rounded-full text-[10px] font-bold",
-                    showFavorites ? "bg-remotiv-green text-[#111]" : "bg-gray-100 text-gray-500",
+                    showFavorites ? "bg-remotiv-green text-remotiv-text-dark" : "bg-gray-100 text-gray-500",
                   )}>
                     {favorites.size}
                   </span>
@@ -688,7 +707,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
         <ApplyModal job={applyJob} onClose={() => setApplyJob(null)} />
       )}
 
-      {/* Save search toast */}
       {saveToast && (
         <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3 shadow-xl">
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-remotiv-green">
@@ -752,8 +770,8 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
       setCvFile(null);
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
-      setCvError("File must be under 5 MB.");
+    if (file.size > MAX_CV_CLIENT_BYTES) {
+      setCvError("File must be under 10 MB.");
       setCvFile(null);
       return;
     }
@@ -806,7 +824,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   }
 
   const INPUT_CLS =
-    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-[#111] outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
+    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-remotiv-text-dark outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
   const LABEL_CLS =
     "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
 
@@ -819,7 +837,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
     >
       <div className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16">
         {/* Header — sticky, never scrolls away */}
-        <div className="relative shrink-0 rounded-t-[20px] bg-[#7E47FF] px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
+        <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
           <button
             type="button"
             onClick={onClose}
@@ -838,12 +856,12 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
         <div className="flex-1 overflow-y-auto rounded-b-[20px]">
           {duplicateMsg ? (
             <div className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8 sm:py-10">
-              <div className="flex size-20 items-center justify-center rounded-full bg-[#7E47FF]/10">
-                <CheckCircle className="size-10 text-[#7E47FF]" strokeWidth={1.5} />
+              <div className="flex size-20 items-center justify-center rounded-full bg-remotiv-purple/10">
+                <CheckCircle className="size-10 text-remotiv-purple" strokeWidth={1.5} />
               </div>
 
               <div>
-                <h3 className="font-heading text-xl font-bold text-[#111]">
+                <h3 className="font-heading text-xl font-bold text-remotiv-text-dark">
                   You&apos;re already in our talent pool! 🎉
                 </h3>
                 <p className="mt-3 text-[0.9rem] leading-relaxed text-[#666]">
@@ -853,21 +871,21 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
                 </p>
               </div>
 
-              <div className="w-full rounded-2xl bg-[#F8F4F1] px-6 py-5 text-left">
+              <div className="w-full rounded-2xl bg-remotiv-bg px-6 py-5 text-left">
                 <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#999]">
                   Want to apply for a specific role or update your details?
                 </p>
                 <a
-                  href="mailto:talent@remotiv.work"
-                  className="flex items-center gap-2 text-[0.9rem] font-medium text-[#7E47FF] hover:underline"
+                  href={`mailto:${CONTACT_EMAIL}`}
+                  className="flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
                 >
-                  📧 talent@remotiv.work
+                  📧 {CONTACT_EMAIL}
                 </a>
                 <a
-                  href="https://www.linkedin.com/company/remotiv-inc/"
+                  href={LINKEDIN_URL}
                   target="_blank"
                   rel="noopener noreferrer"
-                  className="mt-2 flex items-center gap-2 text-[0.9rem] font-medium text-[#7E47FF] hover:underline"
+                  className="mt-2 flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
                 >
                   🔗 linkedin.com/company/remotiv-inc
                 </a>
@@ -886,8 +904,8 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
               <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
                 <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
               </div>
-              <h3 className="font-heading text-lg font-bold text-[#111]">Application Submitted!</h3>
-              <p className="text-[0.88rem] leading-relaxed text-[#777]">
+              <h3 className="font-heading text-lg font-bold text-remotiv-text-dark">Application Submitted!</h3>
+              <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
                 We&apos;ll be in touch soon. This window will close automatically.
               </p>
             </div>
@@ -955,7 +973,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
               </div>
 
               <div className="mt-4">
-                <label className={LABEL_CLS}>CV / Resume (PDF, max 5 MB)</label>
+                <label className={LABEL_CLS}>CV / Resume (PDF, max 10 MB)</label>
                 <button
                   type="button"
                   onClick={() => fileRef.current?.click()}
@@ -973,7 +991,7 @@ function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
                   <span
                     className={cn(
                       "truncate text-[0.85rem]",
-                      cvFile ? "font-medium text-[#111]" : "text-[#bbb]",
+                      cvFile ? "font-medium text-remotiv-text-dark" : "text-[#bbb]",
                     )}
                   >
                     {cvFile ? cvFile.name : "Click to upload your CV…"}
@@ -1029,7 +1047,7 @@ function FilterGroup({
 }) {
   return (
     <div className="mb-6">
-      <span className="mb-3 block text-[0.82rem] font-bold text-[#111]">{label}</span>
+      <span className="mb-3 block text-[0.82rem] font-bold text-remotiv-text-dark">{label}</span>
       {children}
     </div>
   );
@@ -1091,10 +1109,10 @@ function CheckItem({
         )}
       >
         {checked ? (
-          <span className="text-[0.6rem] font-extrabold text-[#111]">✓</span>
+          <span className="text-[0.6rem] font-extrabold text-remotiv-text-dark">✓</span>
         ) : null}
       </span>
-      <span className="text-[0.85rem] text-[#444]">{label}</span>
+      <span className="text-[0.85rem] text-remotiv-text-mid">{label}</span>
     </button>
   );
 }
@@ -1127,7 +1145,7 @@ function SearchField({
         placeholder={placeholder}
         value={value}
         onChange={(e) => onChange(e.target.value)}
-        className="min-w-0 flex-1 border-0 bg-transparent text-base sm:text-[0.75rem] text-[#111] outline-none placeholder:text-[#bbb]"
+        className="min-w-0 flex-1 border-0 bg-transparent text-base sm:text-[0.75rem] text-remotiv-text-dark outline-none placeholder:text-[#bbb]"
       />
     </div>
   );
@@ -1170,7 +1188,7 @@ function JobCard({
             }}
             aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={isFavorited}
-            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-[#111]"
+            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-remotiv-text-dark"
           >
             <Bookmark
               className="size-4"
@@ -1182,7 +1200,7 @@ function JobCard({
             type="button"
             onClick={(e) => e.stopPropagation()}
             aria-label="More options"
-            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-[#111]"
+            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-remotiv-text-dark"
           >
             <MoreHorizontal className="size-4" strokeWidth={2} />
           </button>
@@ -1193,16 +1211,16 @@ function JobCard({
         <div className="mb-3 text-[0.78rem] text-[#666]">
           Posted {timeAgo(job.created_at)}
         </div>
-        <div className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-[#111]">
+        <div className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-remotiv-text-dark">
           {job.title}
         </div>
-        <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-[#777]">
+        <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-remotiv-text-light">
           <span>{job.company}</span>
           <Star className="size-3 fill-remotiv-green text-remotiv-green" />
           <span>{job.company_rating.toFixed(1)}</span>
         </div>
-        <div className="mb-4 text-[0.82rem] text-[#777]">{job.location}</div>
-        <div className="mb-4 text-[0.9rem] font-semibold text-[#444]">
+        <div className="mb-4 text-[0.82rem] text-remotiv-text-light">{job.location}</div>
+        <div className="mb-4 text-[0.9rem] font-semibold text-remotiv-text-mid">
           Salary: {fmtSalary(job.salary_min, job.salary_max)}
         </div>
         <div className="flex flex-wrap gap-1.5">
