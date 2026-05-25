@@ -2,6 +2,7 @@
 
 import { CheckCircle, Upload, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 
@@ -72,6 +73,14 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const [success, setSuccess] = useState(false);
   const [duplicateMsg, setDuplicateMsg] = useState(false);
   const fileRef = useRef<HTMLInputElement>(null);
+  // Focus trap + focus-restore. The hook (src/hooks/use-focus-trap.ts) moves
+  // initial focus into the modal on mount, cycles Tab/Shift+Tab within it,
+  // and restores focus to the previously-focused element (the "Apply now"
+  // button in JobDetail) on unmount. Mirrors PricingModal's wiring exactly.
+  // Modal mounts only when the parent passes a non-null job, so `active` is
+  // simply true while the component lives.
+  const modalRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(modalRef, true);
 
   // Auto-close after success
   useEffect(() => {
@@ -167,7 +176,10 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       aria-modal="true"
       aria-labelledby="apply-modal-title"
     >
-      <div className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16">
+      <div
+        ref={modalRef}
+        className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16"
+      >
         {/* Header — sticky, never scrolls away */}
         <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
           <button
@@ -245,8 +257,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
             <form onSubmit={handleSubmit} className="px-5 py-5 sm:px-7 sm:py-6">
               <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
                 <div>
-                  <label className={LABEL_CLS}>First Name</label>
+                  <label htmlFor="apply-firstName" className={LABEL_CLS}>
+                    First Name<span aria-hidden="true"> *</span>
+                  </label>
                   <input
+                    id="apply-firstName"
                     required
                     type="text"
                     placeholder="Jane"
@@ -256,8 +271,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                   />
                 </div>
                 <div>
-                  <label className={LABEL_CLS}>Last Name</label>
+                  <label htmlFor="apply-lastName" className={LABEL_CLS}>
+                    Last Name<span aria-hidden="true"> *</span>
+                  </label>
                   <input
+                    id="apply-lastName"
                     required
                     type="text"
                     placeholder="Smith"
@@ -269,8 +287,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </div>
 
               <div className="mt-4">
-                <label className={LABEL_CLS}>Email</label>
+                <label htmlFor="apply-email" className={LABEL_CLS}>
+                  Email<span aria-hidden="true"> *</span>
+                </label>
                 <input
+                  id="apply-email"
                   required
                   type="email"
                   placeholder="jane@example.com"
@@ -281,8 +302,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </div>
 
               <div className="mt-4">
-                <label className={LABEL_CLS}>Phone Number</label>
+                <label htmlFor="apply-phone" className={LABEL_CLS}>
+                  Phone Number<span aria-hidden="true"> *</span>
+                </label>
                 <input
+                  id="apply-phone"
                   required
                   type="tel"
                   placeholder="+1 555 000 0000"
@@ -293,8 +317,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </div>
 
               <div className="mt-4">
-                <label className={LABEL_CLS}>LinkedIn URL</label>
+                <label htmlFor="apply-linkedin" className={LABEL_CLS}>
+                  LinkedIn URL<span aria-hidden="true"> *</span>
+                </label>
                 <input
+                  id="apply-linkedin"
                   required
                   type="url"
                   placeholder="https://linkedin.com/in/yourname"
@@ -305,9 +332,16 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </div>
 
               <div className="mt-4">
-                <label className={LABEL_CLS}>CV / Resume (PDF, max 10 MB)</label>
+                <label
+                  htmlFor="apply-cv"
+                  id="apply-cv-label"
+                  className={LABEL_CLS}
+                >
+                  CV / Resume (PDF, max 10 MB)<span aria-hidden="true"> *</span>
+                </label>
                 <button
                   type="button"
+                  aria-labelledby="apply-cv-label"
                   onClick={() => fileRef.current?.click()}
                   className={cn(
                     "flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3.5 text-left transition-colors",
@@ -330,6 +364,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                   </span>
                 </button>
                 <input
+                  id="apply-cv"
                   ref={fileRef}
                   type="file"
                   accept="application/pdf"

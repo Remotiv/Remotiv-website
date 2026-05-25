@@ -396,7 +396,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   return (
     <>
       <Navbar />
-      <main className="min-h-screen bg-[#FAFAFA] font-sans">
+      <main id="main" className="min-h-screen bg-[#FAFAFA] font-sans">
         <div className="flex flex-col gap-2 px-5 pt-6 sm:px-6 md:px-6">
           <section className="grid grid-cols-1 gap-4 md:grid-cols-2">
             <div className="flex min-h-[280px] flex-col rounded-[20px] bg-[#0e0e0e] p-6 sm:p-8 md:p-10">
