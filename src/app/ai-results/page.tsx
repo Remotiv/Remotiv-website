@@ -62,7 +62,10 @@ type ApiRateLimit = {
 // Icons, contact links, deriveType, ensureHttpUrl, ScoreBadge, etc. now live
 // in ./_shared so the in-place profile modal can render the same primitives.
 
-// ── Loading steps animation ─────────────────────────────────
+// ── Loading state ───────────────────────────────────────────
+// Animated steps panel on top (brand identity) + skeleton cards below in the
+// SAME container the real results use, so the transition from loading →
+// results has zero layout shift.
 
 const STEPS = [
   "Reading your requirements",
@@ -86,15 +89,15 @@ function LoadingSteps({ activeStep }: { activeStep: number }) {
         const checkClass = done
           ? "border-remotiv-green bg-remotiv-green text-[#111]"
           : active
-            ? "animate-[aimStepPulse_1s_ease_infinite] border-[#111] bg-[#111] text-white"
+            ? "motion-safe:animate-[aimStepPulse_1s_ease_infinite] border-[#111] bg-[#111] text-white"
             : "border-black/[0.12] bg-remotiv-bg text-inherit";
         return (
           <div
             key={label}
-            className={`flex items-center gap-3 rounded-xl border bg-white px-[18px] py-3 font-sans text-[0.78rem] font-semibold transition-all duration-300 ${stateClass}`}
+            className={`flex items-center gap-3 rounded-xl border bg-white px-[18px] py-3 font-sans text-[0.78rem] font-semibold motion-safe:transition-all duration-300 ${stateClass}`}
           >
             <div
-              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-[0.65rem] font-bold transition-all ${checkClass}`}
+              className={`flex size-6 shrink-0 items-center justify-center rounded-full border text-[0.65rem] font-bold motion-safe:transition-all ${checkClass}`}
             >
               {done ? "✓" : i + 1}
             </div>
@@ -103,6 +106,45 @@ function LoadingSteps({ activeStep }: { activeStep: number }) {
         );
       })}
     </div>
+  );
+}
+
+function SkeletonBar({ className }: { className: string }) {
+  return <div aria-hidden="true" className={`motion-safe:animate-pulse rounded bg-black/[0.06] ${className}`} />;
+}
+
+function SkeletonCard() {
+  return (
+    <article
+      aria-hidden="true"
+      className="grid grid-cols-1 gap-6 rounded-[20px] border border-black/[0.07] bg-white p-6 md:grid-cols-[1fr_auto]"
+    >
+      <div>
+        <div className="mb-2 flex flex-wrap items-center gap-2.5">
+          <SkeletonBar className="h-4 w-32" />
+          <SkeletonBar className="h-4 w-14" />
+        </div>
+        <SkeletonBar className="mb-2.5 h-3 w-3/5" />
+        <SkeletonBar className="mb-2.5 h-12 w-full" />
+        <SkeletonBar className="mb-3 h-3 w-4/5" />
+        <div className="mb-2.5 flex flex-wrap gap-1.5">
+          <SkeletonBar className="h-5 w-16" />
+          <SkeletonBar className="h-5 w-20" />
+          <SkeletonBar className="h-5 w-14" />
+          <SkeletonBar className="h-5 w-24" />
+        </div>
+        <div className="mt-3 flex flex-wrap gap-1.5">
+          <SkeletonBar className="h-7 w-20 !rounded-full" />
+          <SkeletonBar className="h-7 w-24 !rounded-full" />
+          <SkeletonBar className="h-7 w-20 !rounded-full" />
+        </div>
+      </div>
+      <div className="flex flex-col items-stretch gap-2">
+        <SkeletonBar className="h-[88px] w-[100px] !rounded-[14px]" />
+        <SkeletonBar className="h-9 w-full !rounded-xl" />
+        <SkeletonBar className="h-9 w-full !rounded-xl" />
+      </div>
+    </article>
   );
 }
 
@@ -127,19 +169,26 @@ function LoadingPanel({ query }: { query: string }) {
   }, []);
 
   return (
-    <section className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20">
-      <div className="mx-auto mb-7 flex size-[68px] animate-[aimOrbPulse_1.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-remotiv-green text-[1.4rem] font-bold text-[#111]">
-        ✦
+    <>
+      <section className="bg-remotiv-bg px-6 py-16 text-center sm:px-10 sm:py-20">
+        <div className="mx-auto mb-7 flex size-[68px] motion-safe:animate-[aimOrbPulse_1.5s_ease-in-out_infinite] items-center justify-center rounded-full bg-remotiv-green text-[1.4rem] font-bold text-[#111]">
+          ✦
+        </div>
+        <h2 className="mb-2 font-heading text-[1.1rem] font-bold text-[#111]">
+          Finding Your Best Matches…
+        </h2>
+        <p className="mb-8 text-[0.82rem] text-[#777]">
+          &ldquo;{query.slice(0, 80)}
+          {query.length > 80 ? "…" : ""}&rdquo;
+        </p>
+        <LoadingSteps activeStep={activeStep} />
+      </section>
+      <div className="mx-auto flex max-w-[900px] flex-col gap-2.5 px-6 pb-20 pt-6">
+        {[0, 1, 2, 3, 4].map((i) => (
+          <SkeletonCard key={i} />
+        ))}
       </div>
-      <h2 className="mb-2 font-heading text-[1.1rem] font-bold text-[#111]">
-        Finding Your Best Matches...
-      </h2>
-      <p className="mb-8 text-[0.82rem] text-[#777]">
-        &ldquo;{query.slice(0, 80)}
-        {query.length > 80 ? "…" : ""}&rdquo;
-      </p>
-      <LoadingSteps activeStep={activeStep} />
-    </section>
+    </>
   );
 }
 
@@ -356,7 +405,7 @@ function EmptyState() {
       <p className="mb-7 font-sans text-[#777]">
         We couldn&apos;t find profiles matching your exact criteria.
         <br />
-        Try broadening your search or register as a talent.
+        Try broadening your search or using different keywords.
       </p>
       <Link
         href="/ai-matching"
@@ -405,7 +454,7 @@ function RateLimitState({
         You&apos;ve used all {limit} free searches today
       </h3>
       <p className="mb-7 font-sans text-[#777]">
-        {used}/{limit} searches used. Sign up for unlimited AI matching, faster results, and
+        {used}/{limit} searches used. Sign up for unlimited AI Matching, faster results, and
         contact unlock.
         <br />
         Free searches reset at midnight UTC.

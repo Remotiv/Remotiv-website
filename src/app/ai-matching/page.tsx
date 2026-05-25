@@ -71,8 +71,8 @@ export default function AIMatchingPage() {
 
       <section className="relative px-6 pb-10 pt-[72px] text-center">
         <div className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-remotiv-purple/[0.18] bg-remotiv-purple/[0.08] px-4 py-1.5 font-sans text-[0.8rem] font-medium text-remotiv-purple">
-          <span className="size-1.5 animate-[aimPulse_2s_ease-in-out_infinite] rounded-full bg-remotiv-purple" />
-          AI-Powered Talent Matching
+          <span className="size-1.5 motion-safe:animate-[aimPulse_2s_ease-in-out_infinite] rounded-full bg-remotiv-purple" />
+          AI Matching
         </div>
         <h1 className="mx-auto mb-4 w-full font-heading text-[clamp(2rem,4vw,3rem)] font-bold leading-[1.15] text-[#111]">
           FIND YOUR PERFECT CANDIDATE
@@ -86,15 +86,19 @@ export default function AIMatchingPage() {
 
         <form
           onSubmit={handleSubmit}
-          className="mx-auto mb-7 flex max-w-[760px] flex-col items-stretch overflow-hidden rounded-[20px] border-[1.5px] border-black/[0.09] bg-white px-5 pb-0 pt-5 shadow-[0_8px_32px_rgba(0,0,0,0.07)] transition-all focus-within:border-remotiv-purple focus-within:shadow-[0_0_0_4px_rgba(126,71,255,0.1),0_8px_32px_rgba(0,0,0,0.07)]"
+          className="mx-auto mb-7 flex max-w-[760px] flex-col items-stretch overflow-hidden rounded-[20px] border-[1.5px] border-black/[0.09] bg-white px-5 pb-0 pt-5 shadow-[0_8px_32px_rgba(0,0,0,0.07)] motion-safe:transition-all focus-within:border-remotiv-purple focus-within:shadow-[0_0_0_4px_rgba(126,71,255,0.1),0_8px_32px_rgba(0,0,0,0.07)]"
         >
           <div className="mb-2.5 flex items-center gap-2">
             <Search className="size-4 shrink-0 text-[#aaa]" strokeWidth={2} />
-            <span className="font-sans text-[0.65rem] font-bold uppercase tracking-[0.16em] text-remotiv-green">
+            <label
+              htmlFor="ai-query"
+              className="font-sans text-[0.65rem] font-bold uppercase tracking-[0.16em] text-remotiv-green"
+            >
               Describe the role you are hiring for
-            </span>
+            </label>
           </div>
           <textarea
+            id="ai-query"
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             onKeyDown={handleKeyDown}
@@ -109,7 +113,7 @@ export default function AIMatchingPage() {
           <button
             type="submit"
             disabled={!query.trim() || submitting}
-            className="-mx-5 mt-0 flex items-center justify-center gap-2 border-t border-black/[0.06] bg-remotiv-purple p-[15px] font-heading text-[0.9rem] font-semibold text-white transition-all hover:-translate-y-px hover:bg-[#6a38e0] active:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#bbb] disabled:hover:translate-y-0"
+            className="-mx-5 mt-0 flex items-center justify-center gap-2 border-t border-black/[0.06] bg-remotiv-purple p-[15px] font-heading text-[0.9rem] font-semibold text-white motion-safe:transition-all motion-safe:hover:-translate-y-px hover:bg-[#6a38e0] motion-safe:active:translate-y-0 disabled:cursor-not-allowed disabled:bg-[#bbb] disabled:hover:translate-y-0"
           >
             <Zap className="size-4" strokeWidth={2.2} />
             {submitting ? "Searching…" : <>✦ &nbsp;Find Best Matches</>}
@@ -118,7 +122,7 @@ export default function AIMatchingPage() {
 
         <div className="mx-auto flex max-w-[760px] flex-wrap justify-center gap-2.5">
           <p className="mb-0 w-full text-center font-sans text-[0.9rem] text-[#666]">
-            Try a search like:
+            Try searching for:
           </p>
           {SUGGESTIONS.map((s) => (
             <button
@@ -128,7 +132,7 @@ export default function AIMatchingPage() {
                 setQuery(s);
                 runSearch(s);
               }}
-              className="min-h-11 cursor-pointer rounded-full border-[1.5px] border-black/[0.09] bg-white px-[18px] py-[9px] font-sans text-[0.84rem] text-[#555] transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.04] hover:text-remotiv-purple"
+              className="min-h-11 cursor-pointer rounded-full border-[1.5px] border-black/[0.09] bg-white px-[18px] py-[9px] font-sans text-[0.84rem] text-[#555] motion-safe:transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.04] hover:text-remotiv-purple"
             >
               {s}
             </button>
@@ -145,9 +149,9 @@ export default function AIMatchingPage() {
           <h2 className="mb-10 font-heading text-[clamp(1.8rem,3vw,2.6rem)] font-extrabold tracking-[-0.03em] text-[#111]">
             Three Steps to <span className="text-remotiv-green">Your Next Hire</span>
           </h2>
-          <div className="grid grid-cols-1 gap-4 md:grid-cols-3">
+          <ol className="grid list-none grid-cols-1 gap-4 p-0 md:grid-cols-3">
             {HOW_IT_WORKS.map((item, i) => (
-              <div
+              <li
                 key={item.step}
                 className="rounded-[20px] border border-black/[0.08] bg-white px-7 py-8"
               >
@@ -161,9 +165,9 @@ export default function AIMatchingPage() {
                   {item.title}
                 </div>
                 <div className="text-[0.85rem] leading-[1.75] text-[#777]">{item.body}</div>
-              </div>
+              </li>
             ))}
-          </div>
+          </ol>
         </div>
       </section>
     </div>
