@@ -224,3 +224,107 @@ export async function moveApplicationToTalent(
   revalidatePath("/admin/talent");
   return { success: true, data: { talent_id: (inserted as { id: string }).id } };
 }
+
+// ============================================================================
+// K1 Phase 5: signed-URL CV access for /admin/applications
+// ----------------------------------------------------------------------------
+// The `cvs` storage bucket was flipped to private (Migration 004, K1 Phase 1)
+// but this dashboard kept rendering legacy <a href={app.cv_url}> direct links
+// pointing at /storage/v1/object/public/cvs/... — those return Supabase's
+// "Bucket not found" error against a private bucket. This action mirrors the
+// working pattern in browse-talent/actions.ts (getCvSignedUrl + signCvUrlAndLog)
+// but queries `job_applications` instead of `talent_profiles`, so admin views
+// of applicant CVs land on a short-lived signed URL backed by the same audit
+// log every other CV grant writes to.
+//
+// Cannot directly import from browse-talent/actions.ts (second-Mac territory)
+// — the helpers below replicate just what's needed for the admin/applications
+// surface. Keep them in sync if the canonical helpers there change shape.
+// ============================================================================
+
+const CV_BUCKET = "cvs";
+const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour — matches the canonical TTL in browse-talent/actions.ts
+
+/**
+ * Extract a bucket-relative path from a legacy public URL string. Mirrors
+ * `deriveCvPathFromUrl` in browse-talent/actions.ts — used as a fallback for
+ * older job_applications rows that have only `cv_url` and no `cv_path`.
+ */
+function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
+  if (!cvUrl) return null;
+  const match = String(cvUrl).match(
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+  );
+  return match ? match[1] : null;
+}
+
+export type ApplicationCvSignedUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: "not_authenticated" | "cv_missing" | "internal_error" };
+
+export async function getApplicationCvSignedUrl(
+  applicationId: string,
+): Promise<ApplicationCvSignedUrlResult> {
+  // Input shape gate — same defensive check pattern used elsewhere.
+  if (typeof applicationId !== "string" || applicationId.length < 1 || applicationId.length > 100) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  // requireAdmin throws if the caller isn't a logged-in admin. Convert that
+  // throw into the discriminated-union shape so the client gets a clean
+  // typed error instead of a server-action rejection.
+  let adminCtx;
+  try {
+    adminCtx = await requireAdmin();
+  } catch {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const service = createServiceClient();
+
+  const { data: appRow, error: appErr } = await service
+    .from("job_applications")
+    .select("cv_path, cv_url")
+    .eq("id", applicationId)
+    .maybeSingle();
+  if (appErr || !appRow) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  // Prefer cv_path (the modern storage-relative key); fall back to extracting
+  // it from a legacy cv_url for older rows that pre-date Migration 004's
+  // backfill. Either way, what createSignedUrl wants is the bucket-relative
+  // path, not the full URL.
+  const cvPath =
+    (appRow.cv_path as string | null) ??
+    deriveCvPathFromUrl(appRow.cv_url as string | null);
+  if (!cvPath) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  const { data: signed, error: signErr } = await service.storage
+    .from(CV_BUCKET)
+    .createSignedUrl(cvPath, CV_SIGNED_URL_TTL_SECONDS);
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  // Fire-and-forget audit log. Never await — a logging failure must not
+  // block a successful grant. Schema (migration 004):
+  //   user_id, candidate_id, source_table, was_admin, granted_at (default now())
+  // Even though job_applications.id isn't strictly a "candidate", the table
+  // is generic — source_table distinguishes the row's true origin.
+  service
+    .from("signed_url_logs")
+    .insert({
+      user_id: adminCtx.user.id,
+      candidate_id: applicationId,
+      source_table: "job_applications",
+      was_admin: true,
+    })
+    .then(({ error }) => {
+      if (error) console.error("[signed_url_logs insert]", error);
+    });
+
+  return { ok: true, url: signed.signedUrl };
+}
