@@ -1,18 +1,8 @@
 "use client";
 
-import {
-  Bookmark,
-  Briefcase,
-  Globe,
-  MapPin,
-  MoreHorizontal,
-  Search,
-  Star,
-  X,
-  CheckCircle,
-  Upload,
-} from "lucide-react";
-import { useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { Bookmark, Briefcase, Globe, MapPin, Search, Star, X } from "lucide-react";
+import dynamic from "next/dynamic";
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
@@ -20,6 +10,11 @@ import "./jobs.css";
 
 // Re-export Job for any local consumers — type-only, no runtime cost.
 export type { Job };
+
+// ApplyModal is dynamically imported so its ~300 LOC + PDF.js boilerplate
+// (~600 KB on first parse) doesn't ship in the initial /jobs bundle for
+// users who never click "Apply now".
+const ApplyModal = dynamic(() => import("./_apply-modal"));
 
 type ExperienceLevel = "Entry" | "Intermediate" | "Expert";
 type ContractType = "Full time" | "Part time" | "Contract";
@@ -41,13 +36,6 @@ const LANGUAGES = ["English", "Urdu", "Arabic"];
 const LS_FAVORITES = "favoriteJobs";
 const LS_SAVED_SEARCH = "savedJobSearch";
 
-const CONTACT_EMAIL = "talent@remotiv.work";
-const LINKEDIN_URL = "https://www.linkedin.com/company/remotiv-inc/";
-
-// Server cap is 10 MB; align the client so the UX rejects what the API would
-// reject anyway. See MAX_CV_FILE_BYTES in src/app/api/apply/route.ts.
-const MAX_CV_CLIENT_BYTES = 10 * 1024 * 1024;
-
 type SavedSearch = {
   searchQuery: string;
   locationFilter: string;
@@ -67,42 +55,6 @@ function fmtSalary(min: number | null, max: number | null): string {
   }
   if (min) return `From ${fmt(min)}/yr`;
   return `Up to ${fmt(max!)}/yr`;
-}
-
-/**
- * Extract plain text from a PDF in the browser via PDF.js. Mirrors the helper
- * used by the admin bulk-upload modal. Worker is bundled from node_modules so
- * we avoid CDN fetches at runtime.
- */
-async function extractPdfText(file: File): Promise<string> {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
-
-  const buffer = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: buffer }).promise;
-
-  const lines: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    let lastY: number | null = null;
-    let line = "";
-    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
-      const y = item.transform[5];
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (line.trim()) lines.push(line.trim());
-        line = item.str;
-      } else {
-        line += (line ? " " : "") + item.str;
-      }
-      lastY = y;
-    }
-    if (line.trim()) lines.push(line.trim());
-  }
-  return lines.join("\n");
 }
 
 function timeAgo(iso: string): string {
@@ -166,13 +118,29 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
       const raw = localStorage.getItem(LS_SAVED_SEARCH);
       if (raw) {
         const s = JSON.parse(raw) as SavedSearch;
+        // Text filters (client-side only) — go straight into active state so
+        // they filter the visible list on mount.
         setSearchQuery(s.searchQuery ?? "");
         setLocationFilter(s.locationFilter ?? "");
         setWorkMode(s.workMode ?? "");
-        setPendingCategory(s.pendingCategory ?? "");
-        setPendingExperience(new Set(s.pendingExperience ?? []));
-        setPendingContract(new Set(s.pendingContract ?? []));
-        setPendingLanguage(s.pendingLanguage ?? "");
+        // Server-filters: populate BOTH pending (so sidebar shows the choices)
+        // AND applied (so the list auto-filters). This makes saved-search
+        // restoration fully consistent with the text-filter behaviour above.
+        // The applied-filter useEffect will fire once isFirstRender flips
+        // false (its first scheduled run) and then re-fire when these state
+        // changes commit — naturally fetching the filtered list.
+        const cat = s.pendingCategory ?? "";
+        const exp = new Set(s.pendingExperience ?? []);
+        const ctr = new Set(s.pendingContract ?? []);
+        const lang = s.pendingLanguage ?? "";
+        setPendingCategory(cat);
+        setPendingExperience(exp);
+        setPendingContract(ctr);
+        setPendingLanguage(lang);
+        setSelectedCategory(cat);
+        setExperience(exp);
+        setContract(ctr);
+        setSelectedLanguage(lang);
       }
     } catch {
       // localStorage unavailable or saved-search JSON corrupt — non-fatal,
@@ -186,6 +154,13 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     const t = setTimeout(() => setSaveToast(false), 2500);
     return () => clearTimeout(t);
   }, [saveToast]);
+
+  // Stable handler passed to every memoized JobCard. Without useCallback the
+  // ref changes per parent render → memo comparison fails → all cards re-render
+  // on every keystroke in the search box.
+  const handleCardSelect = useCallback((id: string) => {
+    setActiveId((prev) => (prev === id ? null : id));
+  }, []);
 
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {
@@ -319,6 +294,14 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
 
   const rows = useMemo(() => chunk(filteredJobs, 3), [filteredJobs]);
 
+  // Used by the empty-state branch to distinguish "filtered to nothing" from
+  // "fetch failed and we have nothing to show". Only server-filters count —
+  // client-side text filters (search / location / workMode) don't trigger a
+  // refetch, so an empty result with text filters is a legitimate no-match.
+  const hasAppliedFilters = Boolean(
+    selectedCategory || experience.size || contract.size || selectedLanguage,
+  );
+
   // ESC key closes drawer
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
@@ -411,12 +394,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                 onChange={setWorkMode}
                 size="sm"
               />
-              <button
-                type="button"
-                className="w-full shrink-0 whitespace-nowrap rounded-full bg-[#111] px-4 py-3 text-xs font-semibold text-white sm:w-auto sm:py-1.5"
-              >
-                Advanced search
-              </button>
               <button
                 type="button"
                 onClick={handleSaveSearch}
@@ -546,11 +523,32 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                 Loading jobs…
               </div>
             ) : filteredJobs.length === 0 ? (
-              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
-                {showFavorites
-                  ? "No favorited jobs yet. Click the bookmark icon on any job to save it."
-                  : "No open positions match your filters."}
-              </div>
+              showFavorites ? (
+                <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
+                  No favorited jobs yet. Click the bookmark icon on any job to save it.
+                </div>
+              ) : hasAppliedFilters ? (
+                <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
+                  No open positions match your filters.
+                </div>
+              ) : (
+                // No filters AND no jobs → this is almost certainly a server
+                // fetch error during initial render (lib/jobs.ts swallows
+                // Supabase errors and returns []). Give the user a Retry that
+                // bypasses isFirstRender by directly invoking fetchJobs.
+                <div className="flex h-48 flex-col items-center justify-center gap-3 text-[0.9rem] text-[#666]">
+                  <p>Couldn&apos;t load positions.</p>
+                  <button
+                    type="button"
+                    onClick={() =>
+                      fetchJobs(selectedCategory, experience, contract, selectedLanguage)
+                    }
+                    className="rounded-full bg-[#111] px-5 py-2 text-[0.82rem] font-semibold text-white transition-opacity hover:opacity-80"
+                  >
+                    Retry
+                  </button>
+                </div>
+              )
             ) : (
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
                 {rows.map((row) => {
@@ -566,15 +564,8 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                           job={job}
                           isActive={job.id === activeId}
                           isFavorited={favorites.has(job.id)}
-                          onSelect={() =>
-                            setActiveId((prev) =>
-                              prev === job.id ? null : job.id,
-                            )
-                          }
-                          onToggleFavorite={(e) => {
-                            e.stopPropagation();
-                            toggleFavorite(job.id);
-                          }}
+                          onSelect={handleCardSelect}
+                          onToggleFavorite={toggleFavorite}
                         />
                       ))}
                       {activeJob ? (
@@ -721,314 +712,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   );
 }
 
-// ── Apply Modal ──────────────────────────────────────────────
-
-const EMPTY_APPLY = {
-  firstName: "",
-  lastName: "",
-  email: "",
-  phone: "",
-  linkedin: "",
-};
-
-function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
-  const [form, setForm] = useState(EMPTY_APPLY);
-  const [cvFile, setCvFile] = useState<File | null>(null);
-  const [cvError, setCvError] = useState<string | null>(null);
-  const [submitting, setSubmitting] = useState(false);
-  const [submitError, setSubmitError] = useState<string | null>(null);
-  const [success, setSuccess] = useState(false);
-  const [duplicateMsg, setDuplicateMsg] = useState(false);
-  const fileRef = useRef<HTMLInputElement>(null);
-
-  // Auto-close after success
-  useEffect(() => {
-    if (!success) return;
-    const t = setTimeout(onClose, 3000);
-    return () => clearTimeout(t);
-  }, [success, onClose]);
-
-  // Close on Escape
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
-
-  function setField(key: keyof typeof EMPTY_APPLY, value: string) {
-    setForm((prev) => ({ ...prev, [key]: value }));
-  }
-
-  function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
-    const file = e.target.files?.[0] ?? null;
-    setCvError(null);
-    if (!file) { setCvFile(null); return; }
-    if (file.type !== "application/pdf") {
-      setCvError("Only PDF files are accepted.");
-      setCvFile(null);
-      return;
-    }
-    if (file.size > MAX_CV_CLIENT_BYTES) {
-      setCvError("File must be under 10 MB.");
-      setCvFile(null);
-      return;
-    }
-    setCvFile(file);
-  }
-
-  async function handleSubmit(e: React.FormEvent) {
-    e.preventDefault();
-    if (!cvFile) { setCvError("Please upload your CV (PDF)."); return; }
-
-    setSubmitting(true);
-    setSubmitError(null);
-
-    try {
-      // Extract CV text in the browser — PDF.js works flawlessly here, so the
-      // server doesn't need to parse PDFs at all.
-      let cvText = "";
-      try {
-        cvText = await extractPdfText(cvFile);
-      } catch {
-        // silent — the application still submits without searchable text
-      }
-
-      const fd = new FormData();
-      fd.append("job_id",       job.id);
-      fd.append("first_name",   form.firstName);
-      fd.append("last_name",    form.lastName);
-      fd.append("email",        form.email);
-      fd.append("phone",        form.phone);
-      fd.append("linkedin_url", form.linkedin);
-      fd.append("cv",           cvFile);
-      if (cvText.trim()) fd.append("cv_text", cvText);
-
-      const res = await fetch("/api/apply", { method: "POST", body: fd });
-
-      if (res.status === 409) {
-        setDuplicateMsg(true);
-        return;
-      }
-
-      const json = await res.json() as { success?: boolean; error?: string };
-      if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
-
-      setSuccess(true);
-    } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
-    } finally {
-      setSubmitting(false);
-    }
-  }
-
-  const INPUT_CLS =
-    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-remotiv-text-dark outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
-  const LABEL_CLS =
-    "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
-
-  return (
-    <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="apply-modal-title"
-    >
-      <div className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16">
-        {/* Header — sticky, never scrolls away */}
-        <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute right-4 top-6 flex size-11 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
-          >
-            <X className="size-4" strokeWidth={2.5} />
-          </button>
-          <p id="apply-modal-title" className="mb-1 font-heading text-xl font-bold leading-tight text-white">
-            {job.title}
-          </p>
-          <p className="text-sm text-white/65">{job.company}</p>
-        </div>
-
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto rounded-b-[20px]">
-          {duplicateMsg ? (
-            <div className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8 sm:py-10">
-              <div className="flex size-20 items-center justify-center rounded-full bg-remotiv-purple/10">
-                <CheckCircle className="size-10 text-remotiv-purple" strokeWidth={1.5} />
-              </div>
-
-              <div>
-                <h3 className="font-heading text-xl font-bold text-remotiv-text-dark">
-                  You&apos;re already in our talent pool! 🎉
-                </h3>
-                <p className="mt-3 text-[0.9rem] leading-relaxed text-[#666]">
-                  It looks like your profile and CV are already with us. Our team
-                  reviews every application carefully and will reach out when the
-                  right opportunity comes along.
-                </p>
-              </div>
-
-              <div className="w-full rounded-2xl bg-remotiv-bg px-6 py-5 text-left">
-                <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#999]">
-                  Want to apply for a specific role or update your details?
-                </p>
-                <a
-                  href={`mailto:${CONTACT_EMAIL}`}
-                  className="flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
-                >
-                  📧 {CONTACT_EMAIL}
-                </a>
-                <a
-                  href={LINKEDIN_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
-                >
-                  🔗 linkedin.com/company/remotiv-inc
-                </a>
-              </div>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-full min-h-11 rounded-xl bg-[#111] py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#333]"
-              >
-                Got it
-              </button>
-            </div>
-          ) : success ? (
-            <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
-              <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
-                <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
-              </div>
-              <h3 className="font-heading text-lg font-bold text-remotiv-text-dark">Application Submitted!</h3>
-              <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
-                We&apos;ll be in touch soon. This window will close automatically.
-              </p>
-            </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="px-5 py-5 sm:px-7 sm:py-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
-                <div>
-                  <label className={LABEL_CLS}>First Name</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder="Jane"
-                    value={form.firstName}
-                    onChange={(e) => setField("firstName", e.target.value)}
-                    className={INPUT_CLS}
-                  />
-                </div>
-                <div>
-                  <label className={LABEL_CLS}>Last Name</label>
-                  <input
-                    required
-                    type="text"
-                    placeholder="Smith"
-                    value={form.lastName}
-                    onChange={(e) => setField("lastName", e.target.value)}
-                    className={INPUT_CLS}
-                  />
-                </div>
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS}>Email</label>
-                <input
-                  required
-                  type="email"
-                  placeholder="jane@example.com"
-                  value={form.email}
-                  onChange={(e) => setField("email", e.target.value)}
-                  className={INPUT_CLS}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS}>Phone Number</label>
-                <input
-                  required
-                  type="tel"
-                  placeholder="+1 555 000 0000"
-                  value={form.phone}
-                  onChange={(e) => setField("phone", e.target.value)}
-                  className={INPUT_CLS}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS}>LinkedIn URL</label>
-                <input
-                  required
-                  type="url"
-                  placeholder="https://linkedin.com/in/yourname"
-                  value={form.linkedin}
-                  onChange={(e) => setField("linkedin", e.target.value)}
-                  className={INPUT_CLS}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label className={LABEL_CLS}>CV / Resume (PDF, max 10 MB)</label>
-                <button
-                  type="button"
-                  onClick={() => fileRef.current?.click()}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3.5 text-left transition-colors",
-                    cvFile
-                      ? "border-remotiv-green/40 bg-remotiv-green/5"
-                      : "border-black/10 bg-[#FAFAFA] hover:border-remotiv-purple/30",
-                  )}
-                >
-                  <Upload
-                    className={cn("size-4 shrink-0", cvFile ? "text-remotiv-green" : "text-[#aaa]")}
-                    strokeWidth={2}
-                  />
-                  <span
-                    className={cn(
-                      "truncate text-[0.85rem]",
-                      cvFile ? "font-medium text-remotiv-text-dark" : "text-[#bbb]",
-                    )}
-                  >
-                    {cvFile ? cvFile.name : "Click to upload your CV…"}
-                  </span>
-                </button>
-                <input
-                  ref={fileRef}
-                  type="file"
-                  accept="application/pdf"
-                  onChange={handleFileChange}
-                  className="hidden"
-                />
-                {cvError && (
-                  <p className="mt-1.5 text-[0.78rem] text-red-500">{cvError}</p>
-                )}
-              </div>
-
-              {submitError && (
-                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-[0.82rem] text-red-600">
-                  {submitError}
-                </p>
-              )}
-
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-6 w-full rounded-xl bg-[#111] py-4 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
-              >
-                {submitting ? "Submitting…" : "Submit Application"}
-              </button>
-            </form>
-          )}
-        </div>
-      </div>
-    </div>
-  );
-}
 
 function chunk<T>(arr: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -1151,7 +834,10 @@ function SearchField({
   );
 }
 
-function JobCard({
+// JobCard re-renders are kept O(changed-cards) via React.memo + id-based
+// callback signatures from the parent. Without this, typing in the search
+// box re-rendered all ~100 cards per keystroke.
+const JobCard = memo(function JobCard({
   job,
   isActive,
   isFavorited,
@@ -1161,8 +847,8 @@ function JobCard({
   job: Job;
   isActive: boolean;
   isFavorited: boolean;
-  onSelect: () => void;
-  onToggleFavorite: (e: React.MouseEvent) => void;
+  onSelect: (id: string) => void;
+  onToggleFavorite: (id: string) => void;
 }) {
   return (
     <article
@@ -1173,7 +859,7 @@ function JobCard({
     >
       <button
         type="button"
-        onClick={onSelect}
+        onClick={() => onSelect(job.id)}
         aria-label={`View ${job.title} job details`}
         className="absolute inset-0 z-0 rounded-[20px]"
       />
@@ -1184,7 +870,7 @@ function JobCard({
             type="button"
             onClick={(e) => {
               e.stopPropagation();
-              onToggleFavorite(e);
+              onToggleFavorite(job.id);
             }}
             aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
             aria-pressed={isFavorited}
@@ -1195,14 +881,6 @@ function JobCard({
               strokeWidth={2}
               fill={isFavorited ? "currentColor" : "none"}
             />
-          </button>
-          <button
-            type="button"
-            onClick={(e) => e.stopPropagation()}
-            aria-label="More options"
-            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-remotiv-text-dark"
-          >
-            <MoreHorizontal className="size-4" strokeWidth={2} />
           </button>
         </div>
       ) : null}
@@ -1234,7 +912,7 @@ function JobCard({
       </div>
     </article>
   );
-}
+});
 
 function JobDetail({
   job,
