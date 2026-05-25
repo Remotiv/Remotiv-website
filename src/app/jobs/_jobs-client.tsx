@@ -2,8 +2,10 @@
 
 import { Bookmark, Briefcase, Globe, MapPin, Search, Star, X } from "lucide-react";
 import dynamic from "next/dynamic";
+import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import "./jobs.css";
@@ -128,6 +130,14 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
 
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
   const drawerCloseBtnRef = useRef<HTMLButtonElement>(null);
+  // Focus trap on the mobile filter drawer — gated on filtersDrawerOpen so
+  // Tab stays inside the drawer's controls and doesn't escape to the page
+  // behind the backdrop. Mirrors the apply modal / pricing modal pattern.
+  // The pre-existing rAF auto-focus on drawerCloseBtnRef stays — the hook's
+  // own initial-focus targets the same close button (first focusable in the
+  // drawer), so both agree.
+  const drawerRef = useRef<HTMLElement>(null);
+  useFocusTrap(drawerRef, filtersDrawerOpen);
 
   // Restore favorites + saved search from localStorage on mount
   useEffect(() => {
@@ -534,14 +544,14 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
               onClick={applyFilters}
               className="w-full min-h-11 rounded-xl bg-[#111] px-3 py-4 font-heading text-[0.78rem] font-bold text-white"
             >
-              Apply filter
+              Apply filters
             </button>
             <button
               type="button"
               onClick={resetFilters}
               className="mt-2.5 w-full min-h-11 bg-transparent px-3 py-2.5 text-[0.82rem] text-[#666]"
             >
-              Reset filter
+              Reset filters
             </button>
           </aside>
 
@@ -575,7 +585,11 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
             </div>
 
             {loading ? (
-              <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
+              <div
+                aria-live="polite"
+                aria-busy="true"
+                className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]"
+              >
                 Loading jobs…
               </div>
             ) : filteredJobs.length === 0 ? (
@@ -584,8 +598,17 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   No favorited jobs yet. Click the bookmark icon on any job to save it.
                 </div>
               ) : hasAppliedFilters ? (
-                <div className="flex h-48 items-center justify-center text-[0.9rem] text-[#666]">
-                  No open positions match your filters.
+                <div className="flex h-48 flex-col items-center justify-center gap-2 text-[0.9rem] text-[#666]">
+                  <p>No open positions match your filters.</p>
+                  <p className="text-[0.85rem]">
+                    Don&apos;t see your role?{" "}
+                    <Link
+                      href="/become-a-talent"
+                      className="font-medium text-remotiv-purple hover:underline"
+                    >
+                      Join our talent network
+                    </Link>
+                  </p>
                 </div>
               ) : (
                 // No filters AND no jobs → this is almost certainly a server
@@ -603,6 +626,16 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   >
                     Retry
                   </button>
+                  <p className="text-[0.85rem]">
+                    Or{" "}
+                    <Link
+                      href="/become-a-talent"
+                      className="font-medium text-remotiv-purple hover:underline"
+                    >
+                      join our talent network
+                    </Link>{" "}
+                    to get matched.
+                  </p>
                 </div>
               )
             ) : (
@@ -658,6 +691,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
             role="presentation"
           />
           <aside
+            ref={drawerRef}
             className="jobs-drawer"
             role="dialog"
             aria-modal="true"
@@ -740,7 +774,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   setFiltersDrawerOpen(false);
                 }}
               >
-                Reset
+                Reset filters
               </button>
               <button
                 type="button"
@@ -750,7 +784,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   setFiltersDrawerOpen(false);
                 }}
               >
-                Apply Filters
+                Apply filters
               </button>
             </div>
           </aside>
@@ -762,9 +796,13 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
       )}
 
       {saveToast && (
-        <div className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3 shadow-xl">
+        <div
+          role="status"
+          aria-live="polite"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3 shadow-xl"
+        >
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-remotiv-green">
-            <svg viewBox="0 0 12 12" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
               <polyline points="1.5 6.5 4.5 9.5 10.5 2.5" />
             </svg>
           </span>
@@ -843,6 +881,8 @@ function CheckItem({
   return (
     <button
       type="button"
+      role="checkbox"
+      aria-checked={checked}
       onClick={onToggle}
       className="-mx-2 mb-2.5 flex min-h-11 w-full cursor-pointer select-none items-center gap-2.5 rounded-md px-2 text-left"
     >
@@ -952,9 +992,9 @@ const JobCard = memo(function JobCard({
         <div className="mb-3 text-[0.78rem] text-[#666]">
           Posted {timeAgo(job.created_at)}
         </div>
-        <div className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-remotiv-text-dark">
+        <h3 className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-remotiv-text-dark">
           {job.title}
-        </div>
+        </h3>
         <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-remotiv-text-light">
           <span>{job.company}</span>
           <Star className="size-3 fill-remotiv-green text-remotiv-green" />
@@ -1043,9 +1083,9 @@ function JobDetail({
         <div className="mb-2.5 text-[0.72rem] text-white/55">
           Posted {timeAgo(job.created_at)}
         </div>
-        <div className="mb-1.5 font-heading text-[1.6rem] font-bold text-white">
+        <h2 className="mb-1.5 font-heading text-[1.6rem] font-bold text-white">
           {job.title}
-        </div>
+        </h2>
         <div className="mb-1 flex items-center gap-1 text-[0.85rem] text-white/65">
           <span>{job.company}</span>
           <Star className="size-3.5 fill-remotiv-green text-remotiv-green" />
@@ -1077,6 +1117,7 @@ function JobDetail({
             type="button"
             onClick={onToggleFavorite}
             aria-label={isFavorited ? "Remove from favorites" : "Save job"}
+            aria-pressed={isFavorited}
             className={cn(
               "flex size-11 items-center justify-center rounded-full transition-colors",
               isFavorited ? "bg-remotiv-green/20" : "bg-white/15 hover:bg-white/25",

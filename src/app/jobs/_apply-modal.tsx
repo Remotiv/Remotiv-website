@@ -167,7 +167,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const INPUT_CLS =
     "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-remotiv-text-dark outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
   const LABEL_CLS =
-    "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#888]";
+    "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#6b6b6b]";
 
   return (
     <div
@@ -190,9 +190,9 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
           >
             <X className="size-4" strokeWidth={2.5} />
           </button>
-          <p id="apply-modal-title" className="mb-1 font-heading text-xl font-bold leading-tight text-white">
+          <h2 id="apply-modal-title" className="mb-1 font-heading text-xl font-bold leading-tight text-white">
             {job.title}
-          </p>
+          </h2>
           <p className="text-sm text-white/65">{job.company}</p>
         </div>
 
@@ -216,7 +216,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </div>
 
               <div className="w-full rounded-2xl bg-remotiv-bg px-6 py-5 text-left">
-                <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#999]">
+                <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#6b6b6b]">
                   Want to apply for a specific role or update your details?
                 </p>
                 <a
@@ -244,7 +244,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </button>
             </div>
           ) : success ? (
-            <div className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
+            <div role="status" className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
               <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
                 <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
               </div>
@@ -372,12 +372,12 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                   className="hidden"
                 />
                 {cvError && (
-                  <p className="mt-1.5 text-[0.78rem] text-red-500">{cvError}</p>
+                  <p role="alert" className="mt-1.5 text-[0.78rem] text-red-500">{cvError}</p>
                 )}
               </div>
 
               {submitError && (
-                <p className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-[0.82rem] text-red-600">
+                <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-[0.82rem] text-red-600">
                   {submitError}
                 </p>
               )}

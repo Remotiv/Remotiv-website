@@ -5,7 +5,11 @@
 
 export default function Loading() {
   return (
-    <div className="min-h-screen bg-[#FAFAFA] px-5 pt-6 sm:px-6 md:px-6 animate-pulse">
+    <div
+      aria-busy="true"
+      aria-label="Loading jobs"
+      className="min-h-screen bg-[#FAFAFA] px-5 pt-6 sm:px-6 md:px-6 animate-pulse"
+    >
       {/* Hero strip (2-up) */}
       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
         <div className="min-h-[280px] rounded-[20px] bg-[#0e0e0e]/80" />
