@@ -1,6 +1,7 @@
 "use client";
 
-import { memo, startTransition, useCallback, useEffect, useMemo, useState } from "react";
+import { memo, useCallback, useEffect, useRef, useState } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import {
   ArrowLeft,
   Clock,
@@ -206,7 +207,8 @@ const AVAIL_FILTERS = ["Any", "Available Now", "Available Later"] as const;
 const ENGLISH_FILTERS = ["Any", "Fluent", "Professional", "Basic"] as const;
 
 // English-proficiency ordering used by the level filter. Higher = more fluent.
-// Selecting "Professional" matches Native + Fluent + Professional (at-or-above).
+// KEEP IN SYNC with the trigger in migration 012 and the server route's
+// ENGLISH_LEVEL_RANK constant (src/app/api/hire-remote/candidates/route.ts).
 const ENGLISH_LEVEL_RANK: Record<string, number> = {
   Native: 4,
   Fluent: 3,
@@ -216,6 +218,11 @@ const ENGLISH_LEVEL_RANK: Record<string, number> = {
 
 const TOAST_DURATION_MS = 2800;
 const RATE_FILTER_MAX = 200;
+
+// Debounce delay for free-text inputs and the rate slider before re-fetching
+// from the server. ~350ms is the sweet spot found in /browse-talent — below
+// ~300 feels jumpy while typing, above ~500 feels laggy.
+const FILTER_DEBOUNCE_MS = 350;
 
 const AVATAR_PALETTE = [
   { bg: "#EDE8FF", text: "#7E47FF" },
@@ -236,17 +243,6 @@ function avatarColors(id: string): { bg: string; text: string } {
 
 function isAvailable(c: Candidate): boolean {
   return c.availability.toLowerCase().includes("available now");
-}
-
-function expBucketMatch(filter: string, jobs: Job[]): boolean {
-  if (filter === "Any") return true;
-  // Treat each employment row as ~3 yrs avg if no parse — simple heuristic for demo.
-  const years = jobs.length * 3;
-  if (filter === "0–2 yrs")  return years <= 2;
-  if (filter === "3–5 yrs")  return years >= 3 && years <= 5;
-  if (filter === "6–10 yrs") return years >= 6 && years <= 10;
-  if (filter === "10+ yrs")  return years > 10;
-  return true;
 }
 
 // ── Avatar ───────────────────────────────────────────────────
@@ -715,32 +711,238 @@ function Toast({ msg }: { msg: string }) {
   );
 }
 
+// ── Debounce helper ──────────────────────────────────────────
+
+function useDebounced<T>(value: T, ms: number): T {
+  const [debounced, setDebounced] = useState(value);
+  useEffect(() => {
+    const t = setTimeout(() => setDebounced(value), ms);
+    return () => clearTimeout(t);
+  }, [value, ms]);
+  return debounced;
+}
+
+// ── Filter shape + helpers used by URL sync + fetch ──────────
+
+type Filters = {
+  role: string;
+  skills: string;
+  rate: number;
+  exp: string;
+  avail: string;
+  english: string;
+  q: string;
+};
+
+const DEFAULT_FILTERS: Filters = {
+  role: "All Roles",
+  skills: "",
+  rate: RATE_FILTER_MAX,
+  exp: "Any",
+  avail: "Any",
+  english: "Any",
+  q: "",
+};
+
+function filtersFromSearchParams(sp: URLSearchParams): Filters {
+  const rateRaw = Number.parseInt(sp.get("rate") ?? "", 10);
+  return {
+    role: sp.get("role") ?? DEFAULT_FILTERS.role,
+    skills: sp.get("skills") ?? DEFAULT_FILTERS.skills,
+    rate: Number.isFinite(rateRaw)
+      ? Math.max(0, Math.min(rateRaw, RATE_FILTER_MAX))
+      : DEFAULT_FILTERS.rate,
+    exp: sp.get("exp") ?? DEFAULT_FILTERS.exp,
+    avail: sp.get("avail") ?? DEFAULT_FILTERS.avail,
+    english: sp.get("english") ?? DEFAULT_FILTERS.english,
+    q: sp.get("q") ?? DEFAULT_FILTERS.q,
+  };
+}
+
+function filtersAreDefault(f: Filters): boolean {
+  return (
+    f.role === DEFAULT_FILTERS.role &&
+    f.skills === DEFAULT_FILTERS.skills &&
+    f.rate === DEFAULT_FILTERS.rate &&
+    f.exp === DEFAULT_FILTERS.exp &&
+    f.avail === DEFAULT_FILTERS.avail &&
+    f.english === DEFAULT_FILTERS.english &&
+    f.q === DEFAULT_FILTERS.q
+  );
+}
+
+function buildQueryString(f: Filters, page: number): string {
+  const sp = new URLSearchParams();
+  if (f.role !== DEFAULT_FILTERS.role) sp.set("role", f.role);
+  if (f.skills) sp.set("skills", f.skills);
+  if (f.rate < RATE_FILTER_MAX) sp.set("rate", String(f.rate));
+  if (f.exp !== DEFAULT_FILTERS.exp) sp.set("exp", f.exp);
+  if (f.avail !== DEFAULT_FILTERS.avail) sp.set("avail", f.avail);
+  if (f.english !== DEFAULT_FILTERS.english) sp.set("english", f.english);
+  if (f.q) sp.set("q", f.q);
+  if (page > 1) sp.set("page", String(page));
+  return sp.toString();
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
-const PAGE_SIZE = 6;
-
 export function HireMarketplace({
-  realProfiles,
+  initialCandidates,
+  initialTotal,
 }: {
-  realProfiles?: RemoteProfileRow[];
-} = {}) {
-  const data = useMemo<Candidate[]>(
-    () => (realProfiles ?? []).map(rowToCandidate),
-    [realProfiles],
+  initialCandidates: RemoteProfileRow[];
+  initialTotal: number;
+}) {
+  const router = useRouter();
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+
+  // Lazy init filter state from the URL on first render. Subsequent URL
+  // changes do NOT re-init state (we own state and write back to the URL
+  // via router.replace below).
+  const initial = filtersFromSearchParams(new URLSearchParams(searchParams.toString()));
+
+  const [role,    setRole]    = useState<string>(initial.role);
+  const [skills,  setSkills]  = useState<string>(initial.skills);
+  const [rate,    setRate]    = useState<number>(initial.rate);
+  const [exp,     setExp]     = useState<string>(initial.exp);
+  const [avail,   setAvail]   = useState<string>(initial.avail);
+  const [english, setEnglish] = useState<string>(initial.english);
+  const [query,   setQuery]   = useState<string>(initial.q);
+
+  // Debounced versions used by the fetch + URL sync so dragging the slider
+  // or typing into a text field doesn't fire one request per keystroke.
+  const debouncedSkills = useDebounced(skills, FILTER_DEBOUNCE_MS);
+  const debouncedRate   = useDebounced(rate,   FILTER_DEBOUNCE_MS);
+  const debouncedQuery  = useDebounced(query,  FILTER_DEBOUNCE_MS);
+
+  const [candidates, setCandidates] = useState<RemoteProfileRow[]>(initialCandidates);
+  const [total,      setTotal]      = useState<number>(initialTotal);
+  const [page,       setPage]       = useState<number>(1);
+  const [loading,    setLoading]    = useState<boolean>(false);
+  const [hasMore,    setHasMore]    = useState<boolean>(initialCandidates.length < initialTotal);
+
+  const [selected,   setSelected]   = useState<Candidate | null>(null);
+  const [toast,      setToast]      = useState<string | null>(null);
+  const [wizardOpen, setWizardOpen] = useState(false);
+
+  // Request-ID guard: if a slower in-flight fetch resolves AFTER a newer one
+  // we started, drop the stale result. Avoids the "type fast and see results
+  // from your previous query" race. Counter pattern is safer than an
+  // AbortController here (Strict-Mode double-effect can abort the first run
+  // and starve the second — bit us on the AI-matching page before).
+  const fetchIdRef = useRef(0);
+  const isInitialMount = useRef(true);
+
+  const fetchCandidates = useCallback(
+    async (filters: Filters, nextPage: number, append: boolean): Promise<void> => {
+      const reqId = ++fetchIdRef.current;
+      setLoading(true);
+      try {
+        const qs = buildQueryString(filters, nextPage);
+        const url = `/api/hire-remote/candidates${qs ? `?${qs}` : ""}`;
+        const res = await fetch(url, { cache: "no-store" });
+        if (reqId !== fetchIdRef.current) return;
+        if (!res.ok) {
+          setToast("Couldn't load candidates. Please try again.");
+          return;
+        }
+        const json = (await res.json()) as {
+          candidates?: RemoteProfileRow[];
+          total?: number;
+          hasMore?: boolean;
+        };
+        if (reqId !== fetchIdRef.current) return;
+
+        const incoming = Array.isArray(json.candidates) ? json.candidates : [];
+        const newTotal = typeof json.total === "number" ? json.total : 0;
+
+        setCandidates((prev) => (append ? [...prev, ...incoming] : incoming));
+        setTotal(newTotal);
+        setHasMore(Boolean(json.hasMore));
+      } catch {
+        if (reqId !== fetchIdRef.current) return;
+        setToast("Couldn't load candidates. Please try again.");
+      } finally {
+        if (reqId === fetchIdRef.current) setLoading(false);
+      }
+    },
+    [],
   );
 
-  const [role,    setRole]    = useState<string>("All Roles");
-  const [skills,  setSkills]  = useState<string>("");
-  const [rate,    setRate]    = useState<number>(10);
-  const [exp,     setExp]     = useState<string>("Any");
-  const [avail,   setAvail]   = useState<string>("Any");
-  const [english, setEnglish] = useState<string>("Any");
-  const [query,   setQuery]   = useState<string>("");
+  // Filter-change effect: when any of the (debounced) filter values change,
+  // reset to page 1 and replace results. The first mount skips this — the
+  // SSR data in initialCandidates already matches the default filters, and
+  // re-fetching the same query would be wasted work. If the URL specified
+  // non-default filters, we still need a fetch (SSR loaded defaults), so
+  // we only skip when the initial filters are the defaults.
+  useEffect(() => {
+    const current: Filters = {
+      role,
+      skills: debouncedSkills,
+      rate: debouncedRate,
+      exp,
+      avail,
+      english,
+      q: debouncedQuery,
+    };
 
-  const [selected, setSelected] = useState<Candidate | null>(null);
-  const [pageSize, setPageSize] = useState<number>(PAGE_SIZE);
-  const [toast,    setToast]    = useState<string | null>(null);
-  const [wizardOpen, setWizardOpen] = useState(false);
+    if (isInitialMount.current) {
+      isInitialMount.current = false;
+      // SSR already loaded page 1 with default filters. If the URL params
+      // match the defaults, the initial data is correct — no fetch needed.
+      if (filtersAreDefault(current)) {
+        return;
+      }
+    }
+
+    // Sync URL (replace so the back button doesn't step through every
+    // keystroke). scroll: false stops Next from jumping to the top of the
+    // page on every filter change.
+    const qs = buildQueryString(current, 1);
+    router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+
+    setPage(1);
+    fetchCandidates(current, 1, false);
+  }, [
+    role,
+    debouncedSkills,
+    debouncedRate,
+    exp,
+    avail,
+    english,
+    debouncedQuery,
+    pathname,
+    router,
+    fetchCandidates,
+  ]);
+
+  function loadMore(): void {
+    if (loading || !hasMore) return;
+    const current: Filters = {
+      role,
+      skills: debouncedSkills,
+      rate: debouncedRate,
+      exp,
+      avail,
+      english,
+      q: debouncedQuery,
+    };
+    const next = page + 1;
+    setPage(next);
+    fetchCandidates(current, next, true);
+  }
+
+  function clearFilters(): void {
+    setRole(DEFAULT_FILTERS.role);
+    setSkills(DEFAULT_FILTERS.skills);
+    setRate(DEFAULT_FILTERS.rate);
+    setExp(DEFAULT_FILTERS.exp);
+    setAvail(DEFAULT_FILTERS.avail);
+    setEnglish(DEFAULT_FILTERS.english);
+    setQuery(DEFAULT_FILTERS.q);
+    // The filter-change effect above will pick up the state reset and re-fetch.
+  }
 
   useEffect(() => {
     if (!toast) return;
@@ -773,45 +975,8 @@ export function HireMarketplace({
     return () => document.removeEventListener("keydown", handler);
   }, [selected]);
 
-  const filtered = useMemo(() => {
-    const q = query.trim().toLowerCase();
-    const skillsQ = skills.trim().toLowerCase();
-    return data.filter((c) => {
-      if (role !== "All Roles") {
-        const t = c.jobTitle.toLowerCase();
-        if (!t.includes(role.split(" ")[0].toLowerCase())) return false;
-      }
-      if (skillsQ && !c.skills.some((s) => s.toLowerCase().includes(skillsQ))) return false;
-      if (c.hourlyRate > rate) return false;
-      if (!expBucketMatch(exp, c.employmentHistory)) return false;
-      if (avail === "Available Now"     && !isAvailable(c)) return false;
-      if (avail === "Available Later"   &&  isAvailable(c)) return false;
-      if (english !== "Any") {
-        const required = ENGLISH_LEVEL_RANK[english] ?? 0;
-        const englishEntry = c.languages.find((l) =>
-          l.name.toLowerCase().includes("english"),
-        );
-        if (!englishEntry) return false;
-        const actual = ENGLISH_LEVEL_RANK[englishEntry.level] ?? 0;
-        if (actual < required) return false;
-      }
-      if (q) {
-        const blob = `${c.maskedName} ${c.jobTitle} ${c.bio} ${c.location} ${c.skills.join(" ")}`.toLowerCase();
-        if (!blob.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [data, role, skills, rate, exp, avail, english, query]);
-
-  const visible = filtered.slice(0, pageSize);
-
-  // Stable identity so memoised CandidateCard rows skip re-render on selection
-  // changes. The body is wrapped in startTransition to keep the layout reflow
-  // off the main thread.
   const handleSelect = useCallback((candidate: Candidate) => {
-    startTransition(() => {
-      setSelected(candidate);
-    });
+    setSelected(candidate);
   }, []);
 
   function handleClose() {
@@ -824,7 +989,16 @@ export function HireMarketplace({
   }
 
   const drawerOpen = selected !== null;
-  const listGridCls = "grid grid-cols-1 gap-4";
+  const visibleCandidates = candidates.map(rowToCandidate);
+  const showClearFilters = !filtersAreDefault({
+    role,
+    skills: debouncedSkills,
+    rate: debouncedRate,
+    exp,
+    avail,
+    english,
+    q: debouncedQuery,
+  });
 
   return (
     <section className="bg-[#f8f4f1] px-4 py-12 md:px-10">
@@ -846,17 +1020,42 @@ export function HireMarketplace({
             transition: "opacity 0.3s ease",
           }}
         >
-          <div className="mt-6 flex items-baseline justify-between">
+          <div className="mt-6 flex items-baseline justify-between gap-3">
             <h2 className="font-heading text-base font-bold text-remotiv-text-dark">
-              <span className="text-[#1a9e73]">{filtered.length}</span> professionals found
+              <span className="text-[#1a9e73]">{total}</span> professionals found
             </h2>
-            <span className="text-xs text-[#888]">Showing {visible.length} of {filtered.length}</span>
+            <div className="flex items-center gap-3">
+              {showClearFilters && (
+                <button
+                  type="button"
+                  onClick={clearFilters}
+                  className="text-xs font-semibold text-remotiv-purple transition-colors hover:underline"
+                >
+                  Clear filters
+                </button>
+              )}
+              <span className="text-xs text-[#888]">
+                Showing {candidates.length} of {total}
+              </span>
+            </div>
           </div>
 
-          <div className="mt-4 grid grid-cols-1 gap-6">
-            <div className={listGridCls}>
-              {visible.length === 0 ? (
-                data.length === 0 ? (
+          <div
+            className="mt-4 grid grid-cols-1 gap-6"
+            style={{
+              opacity: loading && candidates.length === 0 ? 0.5 : 1,
+              transition: "opacity 0.2s ease",
+            }}
+          >
+            <div className="grid grid-cols-1 gap-4">
+              {candidates.length === 0 ? (
+                loading ? (
+                  <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center text-sm text-[#aaa]">
+                    Loading candidates…
+                  </div>
+                ) : total === 0 && filtersAreDefault({
+                  role, skills: debouncedSkills, rate: debouncedRate, exp, avail, english, q: debouncedQuery,
+                }) ? (
                   <div className="rounded-2xl border border-dashed border-black/10 bg-white py-14 text-center">
                     <p className="text-sm font-medium text-[#666]">No talent available right now.</p>
                     <p className="mt-1 text-xs text-[#999]">Check back soon — new candidates are added regularly.</p>
@@ -867,7 +1066,7 @@ export function HireMarketplace({
                   </div>
                 )
               ) : (
-                visible.map((c) => (
+                visibleCandidates.map((c) => (
                   <CandidateCard
                     key={c.id}
                     candidate={c}
@@ -878,13 +1077,14 @@ export function HireMarketplace({
                 ))
               )}
 
-              {pageSize < filtered.length && (
+              {hasMore && candidates.length > 0 && (
                 <button
                   type="button"
-                  onClick={() => setPageSize((n) => n + PAGE_SIZE)}
-                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-remotiv-purple/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-remotiv-purple transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.06] active:scale-[0.98] active:opacity-90"
+                  onClick={loadMore}
+                  disabled={loading}
+                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-remotiv-purple/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-remotiv-purple transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.06] active:scale-[0.98] active:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
-                  Load More Profiles
+                  {loading ? "Loading…" : "Load More Profiles"}
                 </button>
               )}
             </div>
@@ -892,7 +1092,6 @@ export function HireMarketplace({
         </div>
       </div>
 
-      {/* Backdrop — mobile only, tap to close */}
       {drawerOpen && (
         <button
           type="button"
@@ -905,7 +1104,6 @@ export function HireMarketplace({
         />
       )}
 
-      {/* Slide-in profile panel */}
       <div
         className="p-6 max-lg:p-4"
         style={{

@@ -1,6 +1,6 @@
+import { headers } from "next/headers";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
-import { createServiceClient } from "@/lib/supabase/server";
 import { HireMarketplace, type RemoteProfileRow } from "./_marketplace";
 
 export const dynamic = "force-dynamic";
@@ -12,30 +12,48 @@ const HERO_STATS = [
   "98% client satisfaction",
 ] as const;
 
-export default async function HireRemotePage() {
-  const supabase = createServiceClient();
-  // H1: explicit column allow-list — DO NOT add email, phone, linkedin_url,
-  // cv_url, cv_path, cv_text, photo_url, photo_path, or any admin/internal
-  // field here. These ship to the browser as serialised props on the client
-  // <HireMarketplace>; the entire "Connect with Talent" funnel exists to gate
-  // contact info. Booleans (*_verified) are safe — they're badges, not data.
-  const { data } = await supabase
-    .from("hire_remote_profiles")
-    .select(
-      "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, languages, email_verified, id_verified, phone_verified, skills, employment_history, education, portfolio",
-    )
-    .eq("status", "approved")
-    .not("approved_at", "is", null)
-    .order("approved_at", { ascending: false });
+// SSR page-1 fetch against our own API. Uses the request host so dev / preview
+// / prod all work without an env var. The API returns the same explicit
+// column allow-list (no email/phone/cv_*/photo_*) that this page used to read
+// directly, so nothing sensitive is added to the SSR payload.
+async function fetchInitialPage(): Promise<{
+  candidates: RemoteProfileRow[];
+  total: number;
+}> {
+  try {
+    const h = await headers();
+    const host = h.get("host") ?? "localhost:3000";
+    const proto =
+      h.get("x-forwarded-proto") ?? (host.startsWith("localhost") ? "http" : "https");
+    const baseUrl = `${proto}://${host}`;
 
-  const realProfiles = (data ?? []) as RemoteProfileRow[];
+    const res = await fetch(`${baseUrl}/api/hire-remote/candidates?page=1`, {
+      cache: "no-store",
+    });
+    if (!res.ok) return { candidates: [], total: 0 };
+
+    const json: unknown = await res.json();
+    if (!json || typeof json !== "object") return { candidates: [], total: 0 };
+    const j = json as { candidates?: unknown; total?: unknown };
+
+    return {
+      candidates: Array.isArray(j.candidates) ? (j.candidates as RemoteProfileRow[]) : [],
+      total: typeof j.total === "number" ? j.total : 0,
+    };
+  } catch {
+    return { candidates: [], total: 0 };
+  }
+}
+
+export default async function HireRemotePage() {
+  const { candidates, total } = await fetchInitialPage();
 
   return (
     <>
       <Navbar />
       <main className="bg-remotiv-bg">
         <HeroSection />
-        <HireMarketplace realProfiles={realProfiles} />
+        <HireMarketplace initialCandidates={candidates} initialTotal={total} />
         <HowItWorks />
         <QuoteCta />
       </main>
