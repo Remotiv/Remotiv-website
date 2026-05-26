@@ -33,6 +33,7 @@ import { TopNav } from "./top-nav";
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   deleteRemoteTalentProfile,
+  getRemoteTalentCvSignedUrl,
   saveRemoteTalentNote,
   updateRemoteTalentStatus,
   updateRemoteTalentVerification,
@@ -364,6 +365,33 @@ function ProfileDrawer({
     }
   }
 
+  async function handleRemoteTalentCv(profileId: string, mode: "view" | "download") {
+    const result = await getRemoteTalentCvSignedUrl(profileId);
+    if (!result.ok) {
+      const messages: Record<typeof result.error, string> = {
+        not_authenticated: "Your session has expired. Please log in again.",
+        cv_missing: "CV file unavailable — please contact support.",
+        internal_error: "Could not load CV. Please try again.",
+      };
+      onToast(messages[result.error] ?? "Could not load CV. Please try again.");
+      return;
+    }
+    if (mode === "view") {
+      const win = window.open(result.url, "_blank", "noopener,noreferrer");
+      if (!win) {
+        onToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
+      }
+      return;
+    }
+    const a = document.createElement("a");
+    a.href = result.url;
+    a.download = "";
+    a.rel = "noopener noreferrer";
+    document.body.appendChild(a);
+    a.click();
+    a.remove();
+  }
+
   const verifBadges: string[] = [];
   if (profile.email_verified) verifBadges.push("Email");
   if (profile.id_verified) verifBadges.push("ID");
@@ -619,23 +647,22 @@ function ProfileDrawer({
           {profile.cv_url && (
             <DrawerSection title="CV">
               <div className="flex gap-2">
-                <a
-                  href={profile.cv_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
+                <button
+                  type="button"
+                  onClick={() => handleRemoteTalentCv(profile.id, "view")}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-3 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <Eye className="size-3.5" strokeWidth={2} />
                   View CV
-                </a>
-                <a
-                  href={profile.cv_url}
-                  download
+                </button>
+                <button
+                  type="button"
+                  onClick={() => handleRemoteTalentCv(profile.id, "download")}
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   <Download className="size-3.5" strokeWidth={2} />
                   Download CV
-                </a>
+                </button>
               </div>
             </DrawerSection>
           )}

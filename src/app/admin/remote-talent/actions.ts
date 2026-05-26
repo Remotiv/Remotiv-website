@@ -65,6 +65,7 @@ export type RemoteTalentProfile = {
   cv_url: string | null;
   cv_text: string | null;
   photo_url: string | null;
+  photo_path: string | null;
 
   status: RemoteTalentStatus;
   email_verified: boolean;
@@ -79,6 +80,8 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
+const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;
+
 export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]> {
   await requireAdmin();
   const supabase = createServiceClient();
@@ -92,7 +95,28 @@ export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]
     return [];
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
+  const rows = ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
+
+  // Pre-sign photo URLs for rows that have a photo_path. The cvs bucket is
+  // private; the stored photo_url (legacy getPublicUrl result) is non-functional.
+  // We replace photo_url in-place with a fresh 1-hour signed URL so the admin
+  // dashboard component renders without any change. Old rows without photo_path
+  // fall through with their (broken) photo_url unchanged — the dashboard's
+  // <Image> error path / initials fallback already handles that case.
+  const signed = await Promise.all(
+    rows.map(async (row) => {
+      if (!row.photo_path) return row;
+      const { data: signedData, error: signErr } = await supabase.storage
+        .from("cvs")
+        .createSignedUrl(row.photo_path, PHOTO_SIGNED_URL_TTL_SECONDS);
+      if (signErr || !signedData?.signedUrl) {
+        return { ...row, photo_url: null };
+      }
+      return { ...row, photo_url: signedData.signedUrl };
+    }),
+  );
+
+  return signed;
 }
 
 export async function updateRemoteTalentStatus(
@@ -182,6 +206,82 @@ export async function deleteRemoteTalentProfile(
   return { success: true, data: undefined };
 }
 
+// ============================================================================
+// K1 Phase 5: signed-URL CV access for /admin/remote-talent
+// Mirrors getApplicationCvSignedUrl in admin/applications/actions.ts exactly —
+// same bucket, same TTL, same deriveCvPathFromUrl fallback, same audit log.
+// Only difference: queries hire_remote_profiles instead of job_applications.
+// ============================================================================
+
+const CV_BUCKET = "cvs";
+const CV_SIGNED_URL_TTL_SECONDS = 60 * 60;
+
+function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
+  if (!cvUrl) return null;
+  const match = String(cvUrl).match(
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+  );
+  return match ? match[1] : null;
+}
+
+export type RemoteTalentCvSignedUrlResult =
+  | { ok: true; url: string }
+  | { ok: false; error: "not_authenticated" | "cv_missing" | "internal_error" };
+
+export async function getRemoteTalentCvSignedUrl(
+  profileId: string,
+): Promise<RemoteTalentCvSignedUrlResult> {
+  if (typeof profileId !== "string" || profileId.length < 1 || profileId.length > 100) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  let adminCtx;
+  try {
+    adminCtx = await requireAdmin();
+  } catch {
+    return { ok: false, error: "not_authenticated" };
+  }
+
+  const service = createServiceClient();
+
+  const { data: profileRow, error: profileErr } = await service
+    .from("hire_remote_profiles")
+    .select("cv_path, cv_url")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (profileErr || !profileRow) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  const cvPath =
+    (profileRow.cv_path as string | null) ??
+    deriveCvPathFromUrl(profileRow.cv_url as string | null);
+  if (!cvPath) {
+    return { ok: false, error: "cv_missing" };
+  }
+
+  const { data: signed, error: signErr } = await service.storage
+    .from(CV_BUCKET)
+    .createSignedUrl(cvPath, CV_SIGNED_URL_TTL_SECONDS);
+  if (signErr || !signed?.signedUrl) {
+    return { ok: false, error: "internal_error" };
+  }
+
+  service
+    .from("signed_url_logs")
+    .insert({
+      user_id: adminCtx.user.id,
+      candidate_id: profileId,
+      source_table: "hire_remote_profiles",
+      was_admin: true,
+    })
+    .then(({ error }) => {
+      if (error) console.error("[signed_url_logs insert]", error);
+    });
+
+  return { ok: true, url: signed.signedUrl };
+}
+
 function normaliseRow(r: Record<string, unknown>): RemoteTalentProfile {
   const educationRaw = r.education;
   const education: EducationObj | null =
@@ -229,6 +329,7 @@ function normaliseRow(r: Record<string, unknown>): RemoteTalentProfile {
     cv_url: (r.cv_url as string | null) ?? null,
     cv_text: (r.cv_text as string | null) ?? null,
     photo_url: (r.photo_url as string | null) ?? null,
+    photo_path: (r.photo_path as string | null) ?? null,
 
     status: ((r.status as RemoteTalentStatus) ?? "pending"),
     email_verified: r.email_verified === true,
