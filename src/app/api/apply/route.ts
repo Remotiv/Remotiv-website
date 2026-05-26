@@ -220,10 +220,6 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    // 2. Get public URL
-    const { data: urlData } = supabase.storage.from(CV_BUCKET).getPublicUrl(path);
-    const cvUrl = urlData.publicUrl;
-
     // 3. If a manual job title was typed, create a placeholder job and link it.
     //    Job title from a dropdown is referenced via job_id directly.
     let resolvedJobId: string | null = jobId;
@@ -255,7 +251,7 @@ export async function POST(request: NextRequest) {
       email,
       phone,
       linkedin_url: linkedin,
-      cv_url: cvUrl,
+      cv_url: null,
       cv_path: path,
       cv_text: boundedCvText,
       status: "new",
