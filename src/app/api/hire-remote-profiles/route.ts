@@ -217,6 +217,18 @@ export async function POST(request: NextRequest) {
         { status: 400 },
       );
     }
+    // M1 server-mirror: if a future availability date was supplied, it must be
+    // strictly in the future. Client also enforces this, but never trust the
+    // client.
+    if (availableFromDate) {
+      const chosenDate = new Date(availableFromDate);
+      if (Number.isNaN(chosenDate.getTime()) || chosenDate <= new Date()) {
+        return NextResponse.json(
+          { error: "future_date_invalid" },
+          { status: 400 },
+        );
+      }
+    }
     if (languages.length === 0) {
       return NextResponse.json(
         { error: "At least one language is required." },
@@ -254,11 +266,23 @@ export async function POST(request: NextRequest) {
       phoneMatch = found ? { id: found.id } : null;
     }
 
-    if (emailMatch || phoneMatch) {
+    // M2: distinguish email-dup from phone-dup so the client can render the
+    // correct channel-specific message. Email is checked first so a row that
+    // matches both surfaces as a duplicate_email.
+    if (emailMatch) {
       return NextResponse.json(
         {
-          error: "duplicate",
-          message: "You've already applied with this email",
+          error: "duplicate_email",
+          message: "You've already applied with this email address.",
+        },
+        { status: 409 },
+      );
+    }
+    if (phoneMatch) {
+      return NextResponse.json(
+        {
+          error: "duplicate_phone",
+          message: "You've already applied with this phone number.",
         },
         { status: 409 },
       );

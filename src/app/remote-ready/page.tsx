@@ -239,6 +239,24 @@ export default function RemoteReadyPage() {
   // name (website_url) and silently fake-succeeds.
   const [websiteUrl, setWebsiteUrl] = useState("");
 
+  // M3 — synchronous double-submit lock (microsecond race with React's
+  // disabled-button commit). Mirrors contact/book-a-meeting's pattern.
+  const submitLockRef = useRef(false);
+
+  // M5 — track the furthest step the user has actually advanced past via a
+  // Next click. The visual "done" indicator only marks steps reached this way,
+  // not steps skipped through via the step-jump button.
+  const [highestStep, setHighestStep] = useState(1);
+
+  // Inline notice for the skills field — "Skill already added" when the user
+  // hits Enter on a duplicate. Auto-dismisses after 2s.
+  const [skillError, setSkillError] = useState<string | null>(null);
+  useEffect(() => {
+    if (!skillError) return;
+    const t = setTimeout(() => setSkillError(null), 2000);
+    return () => clearTimeout(t);
+  }, [skillError]);
+
   function validateStep1(): string | null {
     const phoneDigits = phone.replace(/\D/g, "");
     // Reject lookalikes (evil.tld/linkedin.com); require the canonical
@@ -266,6 +284,12 @@ export default function RemoteReadyPage() {
     if (!eduInstitution.trim() || !eduDegree.trim()) {
       return "Education institution and degree are required";
     }
+    for (const p of portfolio) {
+      const u = p.url.trim();
+      if (u && !/^https?:\/\//i.test(u)) {
+        return "Portfolio URLs must start with https://";
+      }
+    }
     return null;
   }
 
@@ -282,6 +306,14 @@ export default function RemoteReadyPage() {
     }
     if (availability === "future" && !futureDate) {
       return "Please choose a future availability date";
+    }
+    if (availability === "future" && futureDate) {
+      const chosen = new Date(futureDate);
+      const today = new Date();
+      today.setHours(0, 0, 0, 0);
+      if (chosen <= today) {
+        return "Please choose a future date (tomorrow or later)";
+      }
     }
     if (languages.length === 0) return "Add at least 1 language";
     if (languages.some((l) => !l.name.trim())) return "Every language entry needs a name";
@@ -331,6 +363,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep1Error(err); return; }
     setStep1Error(null);
     setStep(2);
+    setHighestStep((prev) => Math.max(prev, 2));
     scrollToForm();
   }
 
@@ -339,6 +372,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep2Error(err); return; }
     setStep2Error(null);
     setStep(3);
+    setHighestStep((prev) => Math.max(prev, 3));
     scrollToForm();
   }
 
@@ -347,6 +381,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep3Error(err); return; }
     setStep3Error(null);
     setStep(4);
+    setHighestStep((prev) => Math.max(prev, 4));
     scrollToForm();
   }
 
@@ -390,7 +425,12 @@ export default function RemoteReadyPage() {
     if (e.key !== "Enter") return;
     e.preventDefault();
     const v = skillInput.trim();
-    if (!v || skills.length >= SKILLS_MAX || skills.includes(v)) return;
+    if (!v || skills.length >= SKILLS_MAX) return;
+    if (skills.includes(v)) {
+      setSkillError("Skill already added");
+      return;
+    }
+    setSkillError(null);
     setSkills((prev) => [...prev, v]);
     setSkillInput("");
   }
@@ -432,6 +472,11 @@ export default function RemoteReadyPage() {
   }
 
   async function handleSubmit() {
+    // M3: synchronous double-submit guard — disabled={submitting} only flips
+    // after React commits, leaving a microsecond race window.
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
+    try {
     setStep1Error(null);
     setStep2Error(null);
     setStep3Error(null);
@@ -536,10 +581,15 @@ export default function RemoteReadyPage() {
       });
 
       if (res.status === 409) {
+        const body = (await res.json().catch(() => ({}))) as { error?: string };
+        if (body.error === "duplicate_email") {
+          setStep4Error("You've already applied with this email address.");
+        } else if (body.error === "duplicate_phone") {
+          setStep4Error("You've already applied with this phone number.");
+        } else {
+          setStep4Error("You've already applied. We'll be in touch soon.");
+        }
         setSubmitting(false);
-        setStep4Error(
-          "You've already applied with this email. We'll be in touch soon.",
-        );
         return;
       }
 
@@ -549,7 +599,14 @@ export default function RemoteReadyPage() {
         try {
           const data = (await res.json()) as { message?: string; error?: string };
           if (data.message) message = data.message;
-          else if (data.error && data.error !== "duplicate") message = data.error;
+          else if (
+            data.error &&
+            data.error !== "duplicate" &&
+            data.error !== "duplicate_email" &&
+            data.error !== "duplicate_phone"
+          ) {
+            message = data.error;
+          }
         } catch {
           // Ignore JSON parse errors and use the default message.
         }
@@ -565,6 +622,9 @@ export default function RemoteReadyPage() {
       setStep4Error(
         "Something went wrong. Please email us at talent@remotiv.work if this persists.",
       );
+    }
+    } finally {
+      submitLockRef.current = false;
     }
   }
 
@@ -613,7 +673,7 @@ export default function RemoteReadyPage() {
               <div key={s.num} className="contents">
                 <button
                   type="button"
-                  className={`bta-step ${step === s.num ? "active" : ""} ${step > s.num ? "done" : ""}`}
+                  className={`bta-step ${step === s.num ? "active" : ""} ${highestStep > s.num ? "done" : ""}`}
                   onClick={() => goToStep(s.num)}
                 >
                   <span className="bta-step-circle">
@@ -692,6 +752,7 @@ export default function RemoteReadyPage() {
                       setSkillInput={setSkillInput}
                       handleSkillKey={handleSkillKey}
                       removeSkill={removeSkill}
+                      skillError={skillError}
                       employment={employment}
                       addEmployment={addEmployment}
                       updateEmployment={updateEmployment}
@@ -898,6 +959,7 @@ function Step2(props: {
   skills: string[];   skillInput: string; setSkillInput: (v: string) => void;
   handleSkillKey: (e: React.KeyboardEvent<HTMLInputElement>) => void;
   removeSkill: (tag: string) => void;
+  skillError: string | null;
   employment: EmploymentEntry[];
   addEmployment: () => void;
   updateEmployment: (id: number, patch: Partial<EmploymentEntry>) => void;
@@ -959,6 +1021,11 @@ function Step2(props: {
               onKeyDown={props.handleSkillKey}
             />
           </div>
+          {props.skillError && (
+            <p role="alert" aria-live="polite" className="bta-skill-hint">
+              {props.skillError}
+            </p>
+          )}
         </Field>
 
         <div className="bta-spacer" />
