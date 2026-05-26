@@ -15,10 +15,10 @@ const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
 // Defensive bounds against weaponised inputs:
-//   - 10 MB raw PDF
+//   - 5 MB raw PDF (matches the Supabase bucket upload limit)
 //   - 100 KB extracted text (more than any real CV)
 //   - per-text-field length caps below
-const MAX_CV_FILE_BYTES = 10 * 1024 * 1024;
+const MAX_CV_FILE_BYTES = 5 * 1024 * 1024;
 const MAX_CV_TEXT_LENGTH = 100_000;
 const MAX_NAME_LENGTH = 100;
 const MAX_JOB_TITLE_LENGTH = 200;
@@ -119,7 +119,7 @@ export async function POST(request: NextRequest) {
 
     if (cvFile.size > MAX_CV_FILE_BYTES) {
       return NextResponse.json(
-        { error: "CV file is too large (max 10 MB)." },
+        { error: "CV file is too large (max 5 MB)." },
         { status: 413 },
       );
     }
