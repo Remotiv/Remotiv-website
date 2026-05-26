@@ -3,14 +3,12 @@
 import { memo, startTransition, useCallback, useEffect, useMemo, useState } from "react";
 import {
   ArrowLeft,
-  Briefcase,
   Clock,
   Globe,
   Lock,
   MapPin,
   MessageCircle,
   Search,
-  Unlock,
 } from "lucide-react";
 import HireRequestWizard from "./_hire-request-wizard";
 
@@ -60,7 +58,6 @@ export type RemoteProfileRow = {
   id: string;
   first_name: string;
   last_name: string;
-  email?: string;
   city: string | null;
   country: string | null;
   time_zone: string | null;
@@ -208,6 +205,18 @@ const EXP_FILTERS = ["Any", "0–2 yrs", "3–5 yrs", "6–10 yrs", "10+ yrs"] a
 const AVAIL_FILTERS = ["Any", "Available Now", "Available Later"] as const;
 const ENGLISH_FILTERS = ["Any", "Fluent", "Professional", "Basic"] as const;
 
+// English-proficiency ordering used by the level filter. Higher = more fluent.
+// Selecting "Professional" matches Native + Fluent + Professional (at-or-above).
+const ENGLISH_LEVEL_RANK: Record<string, number> = {
+  Native: 4,
+  Fluent: 3,
+  Professional: 2,
+  Basic: 1,
+};
+
+const TOAST_DURATION_MS = 2800;
+const RATE_FILTER_MAX = 200;
+
 const AVATAR_PALETTE = [
   { bg: "#EDE8FF", text: "#7E47FF" },
   { bg: "#D9F7ED", text: "#1A8F65" },
@@ -283,7 +292,7 @@ const CandidateCard = memo(function CandidateCard({
       onClick={() => onSelect(candidate)}
       className={`group flex w-full flex-col gap-3 rounded-2xl border bg-white text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(0,0,0,0.06)] active:scale-[0.98] active:opacity-90 ${
         selected
-          ? "border-l-[3px] border-l-[#49D7A7] border-t-black/[0.06] border-r-black/[0.06] border-b-black/[0.06]"
+          ? "border-l-[3px] border-l-remotiv-green border-t-black/[0.06] border-r-black/[0.06] border-b-black/[0.06]"
           : "border-black/[0.06]"
       } ${compact ? "px-5 py-5" : "px-6 py-6"}`}
     >
@@ -292,16 +301,16 @@ const CandidateCard = memo(function CandidateCard({
         <div className="min-w-0 flex-1">
           <div className="flex flex-wrap items-start justify-between gap-2 max-lg:flex-col">
             <div className="flex flex-wrap items-center gap-2">
-              <p className={`font-heading font-bold text-[#111] ${compact ? "text-base" : "text-lg"}`}>
+              <p className={`font-heading font-bold text-remotiv-text-dark ${compact ? "text-base" : "text-lg"}`}>
                 {candidate.maskedName}
               </p>
               <span className="text-[12px] text-[#888]">· {candidate.location}</span>
             </div>
             <div className="shrink-0 text-right max-lg:flex max-lg:items-center max-lg:gap-2 max-lg:text-left">
-              <p className="font-heading text-base font-extrabold text-[#111]">${candidate.hourlyRate}/hr</p>
+              <p className="font-heading text-base font-extrabold text-remotiv-text-dark">${candidate.hourlyRate}/hr</p>
               {available ? (
-                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#1a9e73] max-lg:mt-0">
-                  <span className="size-1.5 rounded-full bg-[#49D7A7]" />
+                <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-remotiv-green/10 px-2.5 py-0.5 text-[10px] font-semibold text-[#1a9e73] max-lg:mt-0">
+                  <span className="size-1.5 rounded-full bg-remotiv-green" />
                   Available Now
                 </span>
               ) : (
@@ -337,7 +346,7 @@ const CandidateCard = memo(function CandidateCard({
       )}
 
       <div className="mt-1 flex items-center justify-end">
-        <span className="inline-flex items-center justify-center rounded-xl border border-[#49D7A7]/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-all group-hover:bg-[#49D7A7]/10 group-active:scale-[0.98] group-active:opacity-90 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
+        <span className="inline-flex items-center justify-center rounded-xl border border-remotiv-green/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-all group-hover:bg-remotiv-green/10 group-active:scale-[0.98] group-active:opacity-90 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
           View Profile →
         </span>
       </div>
@@ -351,7 +360,7 @@ function Section({ title, children }: { title: string; children: React.ReactNode
   return (
     <section>
       <p className="mb-2 flex items-center gap-2 text-[10px] font-bold uppercase tracking-widest text-[#1a9e73]">
-        <span aria-hidden className="block h-px w-3 bg-[#49D7A7]" />
+        <span aria-hidden className="block h-px w-3 bg-remotiv-green" />
         {title}
       </p>
       {children}
@@ -376,7 +385,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-all hover:text-[#111] active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-all hover:text-remotiv-text-dark active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <ArrowLeft className="size-3.5" strokeWidth={2} />
           Back
@@ -384,7 +393,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-[#7E47FF] px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-remotiv-purple px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <MessageCircle className="size-3.5" strokeWidth={2} />
           Connect with Talent
@@ -403,9 +412,9 @@ function ProfileDrawer({
           {candidate.initials}
         </span>
         <div className="min-w-0 flex-1">
-          <p className="font-heading text-lg font-bold text-[#111]">{candidate.maskedName}</p>
+          <p className="font-heading text-lg font-bold text-remotiv-text-dark">{candidate.maskedName}</p>
           {available && (
-            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[#1a9e73]">
+            <span className="mt-1 inline-flex items-center gap-1 rounded-full bg-remotiv-green/10 px-2 py-0.5 text-[10px] font-bold uppercase tracking-widest text-[#1a9e73]">
               <span aria-hidden>⚡</span>
               Available Now
             </span>
@@ -420,7 +429,7 @@ function ProfileDrawer({
         </div>
       </div>
 
-      <div className="rounded-xl bg-[#49D7A7]/8 px-4 py-3">
+      <div className="rounded-xl bg-remotiv-green/8 px-4 py-3">
         <p className="text-[10px] font-semibold uppercase tracking-widest text-[#1a9e73]">Hourly rate</p>
         <p className="font-heading text-2xl font-extrabold text-[#1a9e73]">${candidate.hourlyRate}/hr</p>
       </div>
@@ -461,7 +470,7 @@ function ProfileDrawer({
             {candidate.verifications.map((v) => (
               <span
                 key={v}
-                className="inline-flex items-center gap-1 rounded-full bg-[#49D7A7]/10 px-2.5 py-1 text-[10px] font-semibold text-[#1a9e73]"
+                className="inline-flex items-center gap-1 rounded-full bg-remotiv-green/10 px-2.5 py-1 text-[10px] font-semibold text-[#1a9e73]"
               >
                 ✓ {v}
               </span>
@@ -491,11 +500,11 @@ function ProfileDrawer({
             {candidate.employmentHistory.map((j, i) => (
               <div
                 key={`${j.company}-${i}`}
-                className="rounded-xl border-l-[3px] border-l-[#7E47FF] bg-[#f8f8f8] px-4 py-3"
+                className="rounded-xl border-l-[3px] border-l-remotiv-purple bg-[#f8f8f8] px-4 py-3"
               >
                 <div className="flex items-start justify-between gap-3">
                   <div className="min-w-0">
-                    <p className="font-heading text-sm font-bold text-[#111]">{j.title}</p>
+                    <p className="font-heading text-sm font-bold text-remotiv-text-dark">{j.title}</p>
                     <p className="text-xs text-[#777]">{j.company}</p>
                   </div>
                   <p className="shrink-0 text-right text-[10px] text-[#aaa]">{j.dates}</p>
@@ -515,7 +524,7 @@ function ProfileDrawer({
 
       <Section title="Education">
         <div className="rounded-xl bg-[#f8f8f8] px-4 py-3">
-          <p className="font-heading text-sm font-bold text-[#111]">{candidate.education.degree}</p>
+          <p className="font-heading text-sm font-bold text-remotiv-text-dark">{candidate.education.degree}</p>
           <p className="text-xs text-[#777]">{candidate.education.institution}</p>
           {candidate.education.dates && (
             <p className="mt-0.5 text-[10px] text-[#aaa]">{candidate.education.dates}</p>
@@ -528,7 +537,7 @@ function ProfileDrawer({
           <div className="flex flex-col gap-2.5">
             {candidate.portfolio.map((p, i) => (
               <div key={`${p.title}-${i}`} className="rounded-xl bg-[#f8f8f8] px-4 py-3">
-                <p className="font-heading text-sm font-bold text-[#111]">{p.title}</p>
+                <p className="font-heading text-sm font-bold text-remotiv-text-dark">{p.title}</p>
                 <p className="text-[11px] text-[#888]">{p.role}</p>
                 <p className="mt-1 text-[12px] leading-[1.65] text-[#555]">{p.description}</p>
                 {p.url && (
@@ -536,7 +545,7 @@ function ProfileDrawer({
                     href={p.url}
                     target="_blank"
                     rel="noopener noreferrer"
-                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-[#7E47FF] hover:underline"
+                    className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-remotiv-purple hover:underline"
                   >
                     Visit Project →
                   </a>
@@ -553,7 +562,7 @@ function ProfileDrawer({
 
       <div
         className="rounded-2xl px-5 py-5 text-white"
-        style={{ background: "linear-gradient(135deg, #7E47FF 0%, #5934C4 100%)" }}
+        style={{ background: "linear-gradient(135deg, var(--remotiv-purple) 0%, #5934C4 100%)" }}
       >
         <div className="mb-3 flex items-center gap-2">
           <Lock className="size-4" strokeWidth={2} />
@@ -578,7 +587,7 @@ function ProfileDrawer({
 // ── Filter Bar ───────────────────────────────────────────────
 
 const SELECT_CLS =
-  "h-11 cursor-pointer rounded-xl border border-black/[0.08] bg-white px-3.5 text-sm text-[#333] outline-none transition-colors focus:border-[#7E47FF]";
+  "h-11 cursor-pointer rounded-xl border border-black/[0.08] bg-white px-3.5 text-sm text-[#333] outline-none transition-colors focus:border-remotiv-purple";
 
 function FilterBar({
   role, setRole,
@@ -623,15 +632,15 @@ function FilterBar({
       <div className="mt-3 rounded-2xl border border-black/[0.06] bg-white px-4 py-3 lg:hidden">
         <div className="mb-2 flex items-center justify-between">
           <span className="text-xs font-medium text-[#666]">Rate</span>
-          <span className="text-sm font-semibold text-[#111]">${rate}/hr</span>
+          <span className="text-sm font-semibold text-remotiv-text-dark">${rate}/hr</span>
         </div>
         <input
           type="range"
           min={0}
-          max={200}
+          max={RATE_FILTER_MAX}
           value={rate}
           onChange={(e) => setRate(Number.parseInt(e.target.value, 10))}
-          className="w-full accent-[#49D7A7]"
+          className="w-full accent-remotiv-green"
         />
       </div>
 
@@ -653,12 +662,12 @@ function FilterBar({
           <input
             type="range"
             min={0}
-            max={200}
+            max={RATE_FILTER_MAX}
             value={rate}
             onChange={(e) => setRate(Number.parseInt(e.target.value, 10))}
-            className="flex-1 accent-[#49D7A7]"
+            className="flex-1 accent-remotiv-green"
           />
-          <span className="whitespace-nowrap text-xs font-bold text-[#111]">${rate}/hr</span>
+          <span className="whitespace-nowrap text-xs font-bold text-remotiv-text-dark">${rate}/hr</span>
         </div>
 
         <select value={exp} onChange={(e) => setExp(e.target.value)} className={`${SELECT_CLS} lg:w-32`}>
@@ -686,7 +695,7 @@ function FilterBar({
 
         <button
           type="button"
-          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-[#49D7A7] px-5 font-heading text-sm font-bold text-[#111] transition-all hover:bg-[#3bc495] active:scale-[0.98] active:opacity-90"
+          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-remotiv-green px-5 font-heading text-sm font-bold text-[#111] transition-all hover:bg-[#3bc495] active:scale-[0.98] active:opacity-90"
         >
           <Search className="size-4" strokeWidth={2.5} />
           Search
@@ -735,7 +744,7 @@ export function HireMarketplace({
 
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2800);
+    const t = setTimeout(() => setToast(null), TOAST_DURATION_MS);
     return () => clearTimeout(t);
   }, [toast]);
 
@@ -777,7 +786,15 @@ export function HireMarketplace({
       if (!expBucketMatch(exp, c.employmentHistory)) return false;
       if (avail === "Available Now"     && !isAvailable(c)) return false;
       if (avail === "Available Later"   &&  isAvailable(c)) return false;
-      void english;
+      if (english !== "Any") {
+        const required = ENGLISH_LEVEL_RANK[english] ?? 0;
+        const englishEntry = c.languages.find((l) =>
+          l.name.toLowerCase().includes("english"),
+        );
+        if (!englishEntry) return false;
+        const actual = ENGLISH_LEVEL_RANK[englishEntry.level] ?? 0;
+        if (actual < required) return false;
+      }
       if (q) {
         const blob = `${c.maskedName} ${c.jobTitle} ${c.bio} ${c.location} ${c.skills.join(" ")}`.toLowerCase();
         if (!blob.includes(q)) return false;
@@ -830,7 +847,7 @@ export function HireMarketplace({
           }}
         >
           <div className="mt-6 flex items-baseline justify-between">
-            <h2 className="font-heading text-base font-bold text-[#111]">
+            <h2 className="font-heading text-base font-bold text-remotiv-text-dark">
               <span className="text-[#1a9e73]">{filtered.length}</span> professionals found
             </h2>
             <span className="text-xs text-[#888]">Showing {visible.length} of {filtered.length}</span>
@@ -865,7 +882,7 @@ export function HireMarketplace({
                 <button
                   type="button"
                   onClick={() => setPageSize((n) => n + PAGE_SIZE)}
-                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-[#7E47FF]/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-[#7E47FF] transition-all hover:border-[#7E47FF] hover:bg-[#7E47FF]/[0.06] active:scale-[0.98] active:opacity-90"
+                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-remotiv-purple/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-remotiv-purple transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.06] active:scale-[0.98] active:opacity-90"
                 >
                   Load More Profiles
                 </button>
@@ -915,7 +932,7 @@ export function HireMarketplace({
               <button
                 type="button"
                 onClick={handleClose}
-                className="flex min-h-[44px] cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 font-sans text-sm font-medium text-[#7E47FF] transition-all active:scale-[0.98] active:opacity-90"
+                className="flex min-h-[44px] cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 font-sans text-sm font-medium text-remotiv-purple transition-all active:scale-[0.98] active:opacity-90"
                 aria-label="Back to candidates"
               >
                 <ArrowLeft size={18} />

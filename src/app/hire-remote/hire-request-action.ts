@@ -29,7 +29,7 @@ export type HireRequestInput = {
 type Result = { success: true } | { success: false; error: string };
 
 const GENERIC_ERROR =
-  "We couldn't send your request. Please try again or email us at waleed.nazim@remotiv.work.";
+  "We couldn't send your request. Please try again or email us at talent@remotiv.work.";
 
 const RATE_LIMIT_MAX = 3;
 const RATE_LIMIT_WINDOW_MS = 60_000;
@@ -167,7 +167,7 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
     return { success: false, error: GENERIC_ERROR };
   }
 
-  const teamEmail = process.env.RESEND_TEAM_EMAIL ?? "waleed.nazim@remotiv.work";
+  const teamEmail = process.env.RESEND_TEAM_EMAIL ?? "talent@remotiv.work";
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv-website-m3jo.vercel.app";
   const adminUrl = `${siteUrl}/admin/hire-requests`;
 

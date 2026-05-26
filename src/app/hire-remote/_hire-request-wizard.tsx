@@ -2,6 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
+import { isValidEmail } from "@/app/admin/lib/validators";
 import { submitHireRequest } from "./hire-request-action";
 
 type EngagementType = "per_hour" | "per_month" | "full_time";
@@ -37,10 +38,6 @@ const ENGAGEMENT_OPTIONS: { value: EngagementType; title: string; subtitle: stri
   { value: "full_time", title: "Full time", subtitle: "Long-term hire, dedicated" },
 ];
 
-function isValidEmail(s: string): boolean {
-  return /^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(s);
-}
-
 export default function HireRequestWizard({ open, onClose, candidate }: HireRequestWizardProps) {
   const [step, setStep] = useState<1 | 2 | 3 | 4>(1);
   const [submitting, setSubmitting] = useState(false);
@@ -58,6 +55,18 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
   const [notes, setNotes] = useState<string>("");
 
   const [companyUrl, setCompanyUrl] = useState<string>("");
+
+  // M5: synchronous double-submit lock — disabled={submitting} only flips
+  // after React commits, leaving a microsecond race window.
+  const submitLockRef = useRef(false);
+  // M6: focus the success heading when step 4 mounts so keyboard + SR users
+  // land on the new content instead of losing focus to <body>.
+  const successHeadingRef = useRef<HTMLDivElement>(null);
+  useEffect(() => {
+    if (step !== 4) return;
+    const t = setTimeout(() => successHeadingRef.current?.focus(), 50);
+    return () => clearTimeout(t);
+  }, [step]);
 
   useEffect(() => {
     if (!open) {
@@ -121,27 +130,33 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
 
   const handleSubmit = useCallback(async () => {
     if (!step3Valid || !engagementType || !timeline) return;
+    if (submitLockRef.current) return;
+    submitLockRef.current = true;
     setSubmitting(true);
     setError(null);
-    const result = await submitHireRequest({
-      engagementType,
-      budgetRange,
-      projectDescription: projectDescription.trim(),
-      timeline,
-      fullName: fullName.trim(),
-      email: email.trim().toLowerCase(),
-      company: company.trim(),
-      notes: notes.trim() || undefined,
-      candidateId: candidate.id,
-      candidateName: candidate.name,
-      candidateRate: candidate.rate,
-      companyUrl,
-    });
-    setSubmitting(false);
-    if (result.success) {
-      setStep(4);
-    } else {
-      setError(result.error);
+    try {
+      const result = await submitHireRequest({
+        engagementType,
+        budgetRange,
+        projectDescription: projectDescription.trim(),
+        timeline,
+        fullName: fullName.trim(),
+        email: email.trim().toLowerCase(),
+        company: company.trim(),
+        notes: notes.trim() || undefined,
+        candidateId: candidate.id,
+        candidateName: candidate.name,
+        candidateRate: candidate.rate,
+        companyUrl,
+      });
+      if (result.success) {
+        setStep(4);
+      } else {
+        setError(result.error);
+      }
+    } finally {
+      setSubmitting(false);
+      submitLockRef.current = false;
     }
   }, [step3Valid, engagementType, budgetRange, projectDescription, timeline, fullName, email, company, notes, candidate, companyUrl]);
 
@@ -225,10 +240,23 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
         <div style={{ overflowY: "auto", padding: 28, flex: 1 }}>
         {step !== 4 && (
           <>
-            <div style={{ display: "flex", gap: 6, marginBottom: 18, paddingRight: 40 }}>
-              <div style={{ flex: 1, height: 4, background: step >= 1 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
-              <div style={{ flex: 1, height: 4, background: step >= 2 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
-              <div style={{ flex: 1, height: 4, background: step >= 3 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }} />
+            <div
+              role="group"
+              aria-label={`Step ${step} of 3`}
+              style={{ display: "flex", gap: 6, marginBottom: 18, paddingRight: 40 }}
+            >
+              <div
+                aria-current={step === 1 ? "step" : undefined}
+                style={{ flex: 1, height: 4, background: step >= 1 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }}
+              />
+              <div
+                aria-current={step === 2 ? "step" : undefined}
+                style={{ flex: 1, height: 4, background: step >= 2 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }}
+              />
+              <div
+                aria-current={step === 3 ? "step" : undefined}
+                style={{ flex: 1, height: 4, background: step >= 3 ? "#7E47FF" : "#e8e0db", borderRadius: 999 }}
+              />
             </div>
 
             <div style={{ fontSize: 11, color: "#7E47FF", letterSpacing: "0.14em", textTransform: "uppercase", fontWeight: 500, marginBottom: 6 }}>
@@ -584,7 +612,13 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
             <div style={{ width: 64, height: 64, background: "#EAF3DE", borderRadius: "50%", display: "flex", alignItems: "center", justifyContent: "center", margin: "0 auto 18px" }}>
               <Check size={32} color="#3B6D11" strokeWidth={2.5} />
             </div>
-            <div style={{ fontSize: 22, fontWeight: 500, color: "#111", marginBottom: 8 }}>Request sent!</div>
+            <div
+              ref={successHeadingRef}
+              tabIndex={-1}
+              style={{ fontSize: 22, fontWeight: 500, color: "#111", marginBottom: 8, outline: "none" }}
+            >
+              Request sent!
+            </div>
             <div style={{ fontSize: 14, color: "#666", lineHeight: 1.6, marginBottom: 24 }}>
               Our team will reach out to <strong>{email}</strong> within 24 hours to discuss hiring {candidate.name}.
             </div>

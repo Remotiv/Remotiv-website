@@ -14,9 +14,16 @@ const HERO_STATS = [
 
 export default async function HireRemotePage() {
   const supabase = createServiceClient();
+  // H1: explicit column allow-list — DO NOT add email, phone, linkedin_url,
+  // cv_url, cv_path, cv_text, photo_url, photo_path, or any admin/internal
+  // field here. These ship to the browser as serialised props on the client
+  // <HireMarketplace>; the entire "Connect with Talent" funnel exists to gate
+  // contact info. Booleans (*_verified) are safe — they're badges, not data.
   const { data } = await supabase
     .from("hire_remote_profiles")
-    .select("*")
+    .select(
+      "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, languages, email_verified, id_verified, phone_verified, skills, employment_history, education, portfolio",
+    )
     .eq("status", "approved")
     .not("approved_at", "is", null)
     .order("approved_at", { ascending: false });
