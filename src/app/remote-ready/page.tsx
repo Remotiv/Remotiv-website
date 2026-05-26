@@ -2,7 +2,16 @@
 
 import "./remote-ready.css";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import {
+  Children,
+  cloneElement,
+  isValidElement,
+  type ReactElement,
+  useEffect,
+  useId,
+  useRef,
+  useState,
+} from "react";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
 
@@ -183,7 +192,8 @@ function FooterNote() {
         <rect x="3" y="11" width="18" height="11" rx="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
-      Your data is encrypted and only shared with matched employers.
+      Your data is encrypted and only shared with matched employers. Questions?
+      Email <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>.
     </div>
   );
 }
@@ -337,6 +347,25 @@ export default function RemoteReadyPage() {
     }
   }
 
+  // Focus the new step's heading after React renders the new step. Mirrors
+  // contact/book-a-meeting's focus-on-success pattern — keyboard + SR users
+  // land in the new content instead of losing focus to <body>.
+  function focusStepHeader() {
+    if (typeof window === "undefined") return;
+    setTimeout(() => {
+      document.getElementById("bta-fh-title")?.focus();
+    }, 50);
+  }
+
+  // Focus the error region after a validation failure so SR users hear it and
+  // keyboard users can read it without hunting.
+  function focusStepError() {
+    if (typeof window === "undefined") return;
+    setTimeout(() => {
+      document.getElementById("bta-step-error")?.focus();
+    }, 50);
+  }
+
   function goToStep(target: number) {
     if (target < 1 || target > STEPS.length) return;
     if (target > step) {
@@ -350,39 +379,44 @@ export default function RemoteReadyPage() {
           setStepError(s, err);
           setStep(s);
           scrollToForm();
+          focusStepError();
           return;
         }
       }
     }
     setStep(target);
     scrollToForm();
+    focusStepHeader();
   }
 
   function handleStep1Next() {
     const err = validateStep1();
-    if (err) { setStep1Error(err); return; }
+    if (err) { setStep1Error(err); focusStepError(); return; }
     setStep1Error(null);
     setStep(2);
     setHighestStep((prev) => Math.max(prev, 2));
     scrollToForm();
+    focusStepHeader();
   }
 
   function handleStep2Next() {
     const err = validateStep2();
-    if (err) { setStep2Error(err); return; }
+    if (err) { setStep2Error(err); focusStepError(); return; }
     setStep2Error(null);
     setStep(3);
     setHighestStep((prev) => Math.max(prev, 3));
     scrollToForm();
+    focusStepHeader();
   }
 
   function handleStep3Next() {
     const err = validateStep3();
-    if (err) { setStep3Error(err); return; }
+    if (err) { setStep3Error(err); focusStepError(); return; }
     setStep3Error(null);
     setStep(4);
     setHighestStep((prev) => Math.max(prev, 4));
     scrollToForm();
+    focusStepHeader();
   }
 
   function addEmployment() {
@@ -500,6 +534,7 @@ export default function RemoteReadyPage() {
         setStepError(v.num, err);
         setStep(v.num);
         scrollToForm();
+        focusStepError();
         return;
       }
     }
@@ -638,14 +673,14 @@ export default function RemoteReadyPage() {
               <span className="bat-pill-now">Now</span>
               <span className="bat-pill-text">Become Remote-Ready</span>
             </div>
-            <div className="bat-h1">Get hired by global companies,</div>
+            <h1 className="bat-h1">Get hired by global companies,</h1>
             <div className="bat-h2">on your terms.</div>
             <p className="bat-sub">
               Set your hourly rate. We connect you with global clients across the
               US, UK, Europe, and Middle East who need your skills.
             </p>
             <p className="bat-sub" style={{ marginTop: -32 }}>
-              Join Remotiv&apos;s talent network — engineers, designers, AI
+              Join Remotiv talent network — engineers, designers, AI
               experts, doctors, PhDs, and domain specialists earning
               $25–$200/hr from anywhere in Pakistan.
             </p>
@@ -669,21 +704,32 @@ export default function RemoteReadyPage() {
         <div className="bta-steps-bar">
           <div className="bta-steps-inner">
             <span className="bta-step-counter">Step {step} · {STEPS[step - 1].label}</span>
-            {STEPS.map((s, idx) => (
-              <div key={s.num} className="contents">
-                <button
-                  type="button"
-                  className={`bta-step ${step === s.num ? "active" : ""} ${highestStep > s.num ? "done" : ""}`}
-                  onClick={() => goToStep(s.num)}
-                >
-                  <span className="bta-step-circle">
-                    <span className="bta-step-num">{s.num}</span>
-                  </span>
-                  {s.label}
-                </button>
-                {idx < STEPS.length - 1 && <span className="bta-step-line" />}
-              </div>
-            ))}
+            {STEPS.map((s, idx) => {
+              const isDone = highestStep > s.num;
+              const isCurrent = step === s.num;
+              const stateSuffix = isCurrent
+                ? " (current)"
+                : isDone
+                  ? " (completed)"
+                  : "";
+              return (
+                <div key={s.num} className="contents">
+                  <button
+                    type="button"
+                    aria-current={isCurrent ? "step" : undefined}
+                    aria-label={`Step ${s.num}: ${s.label}${stateSuffix}`}
+                    className={`bta-step ${isCurrent ? "active" : ""} ${isDone ? "done" : ""}`}
+                    onClick={() => goToStep(s.num)}
+                  >
+                    <span className="bta-step-circle" aria-hidden="true">
+                      <span className="bta-step-num">{isDone ? "✓" : s.num}</span>
+                    </span>
+                    {s.label}
+                  </button>
+                  {idx < STEPS.length - 1 && <span className="bta-step-line" aria-hidden="true" />}
+                </div>
+              );
+            })}
           </div>
         </div>
 
@@ -711,10 +757,11 @@ export default function RemoteReadyPage() {
               {submitted ? (
                 <div className="bta-success" style={{ display: "block" }}>
                   <div className="bta-success-ico">🎉</div>
-                  <div className="bta-success-title">You&apos;re In!</div>
+                  <h2 className="bta-success-title">You&apos;re In!</h2>
                   <p className="bta-success-sub">
-                    Your profile is under review. We&apos;ll notify you once
-                    approved and matched with global clients.
+                    Your profile is under review. We typically review applications
+                    within 3 business days — watch for an email from
+                    talent@remotiv.work (check your spam folder too).
                   </p>
                   <a
                     href="https://www.linkedin.com/company/remotiv-inc/"
@@ -831,9 +878,16 @@ const ERROR_BOX_STYLE: React.CSSProperties = {
 function FormHeader({ icon, title, sub }: { icon: string; title: string; sub: string }) {
   return (
     <div className="bta-form-header">
-      <div className="bta-fh-icon">{icon}</div>
+      <div className="bta-fh-icon" aria-hidden="true">{icon}</div>
       <div>
-        <div className="bta-fh-title">{title}</div>
+        <h2
+          id="bta-fh-title"
+          tabIndex={-1}
+          className="bta-fh-title"
+          style={{ outline: "none" }}
+        >
+          {title}
+        </h2>
         <div className="bta-fh-sub">{sub}</div>
       </div>
     </div>
@@ -848,12 +902,36 @@ function Field({
   hint?: string;
   children: React.ReactNode;
 }) {
+  const id = useId();
+  // Inject id (and aria-required for required fields) into the FIRST valid
+  // child element only — that's the form control. Sibling children like
+  // character counters, hint <p>s, or duplicate-tag notices pass through
+  // unchanged.
+  let injected = false;
+  const wired = Children.map(children, (child) => {
+    if (!injected && isValidElement(child)) {
+      injected = true;
+      const extra: { id: string; "aria-required"?: boolean } = { id };
+      if (required) extra["aria-required"] = true;
+      return cloneElement(
+        child as ReactElement<{ id?: string; "aria-required"?: boolean }>,
+        extra,
+      );
+    }
+    return child;
+  });
   return (
     <div className="bta-form-group">
-      <div className="bta-label">
-        {label} {required && <span className="bta-req">*</span>}
-      </div>
-      {children}
+      <label htmlFor={id} className="bta-label">
+        {label}
+        {required && (
+          <>
+            {" "}
+            <span className="bta-req" aria-hidden="true">*</span>
+          </>
+        )}
+      </label>
+      {wired}
       {hint && <p className="bta-skill-hint">{hint}</p>}
     </div>
   );
@@ -878,7 +956,7 @@ function Step1(props: {
       <FormHeader icon="👤" title="Personal Information" sub="Tell us who you are — this stays private until matched" />
 
       <div className="bta-form-body">
-        <div className="bta-sec-title">Basic Details</div>
+        <h3 className="bta-sec-title">Basic Details</h3>
         <div className="bta-grid-2">
           <Field label="First Name" required>
             <input type="text" className="bta-input" placeholder="e.g. Sarah"
@@ -936,7 +1014,16 @@ function Step1(props: {
         </div>
       </div>
 
-      {props.error && <div role="alert" style={ERROR_BOX_STYLE}>{props.error}</div>}
+      {props.error && (
+        <div
+          id="bta-step-error"
+          role="alert"
+          tabIndex={-1}
+          style={{ ...ERROR_BOX_STYLE, outline: "none" }}
+        >
+          {props.error}
+        </div>
+      )}
 
       <div className="bta-form-footer">
         <FooterNote />
@@ -981,12 +1068,12 @@ function Step2(props: {
       <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this powers your AI matching" />
 
       <div className="bta-form-body">
-        <div className="bta-sec-title">Headline</div>
+        <h3 className="bta-sec-title">Headline</h3>
         <Field label="Job Titles" required>
           <input
             type="text"
             className="bta-input"
-            placeholder="Full Stack Developer | Backend Developer | Web Developer"
+            placeholder="Full Stack Developer, Backend Developer, Web Developer"
             value={props.jobTitles}
             onChange={(e) => props.setJobTitles(e.target.value)}
           />
@@ -1003,7 +1090,7 @@ function Step2(props: {
         </Field>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Skills</div>
+        <h3 className="bta-sec-title">Skills</h3>
         <Field label="Skills & Expertise" required hint={`Type a skill and press Enter. Add at least ${SKILLS_MIN}.`}>
           <div className="bta-skills-box">
             {props.skills.map((tag) => (
@@ -1029,7 +1116,7 @@ function Step2(props: {
         </Field>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Employment History</div>
+        <h3 className="bta-sec-title">Employment History</h3>
         {props.employment.map((exp, idx) => (
           <div key={exp.id} className="bta-exp-entry">
             <button
@@ -1075,7 +1162,7 @@ function Step2(props: {
         </button>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Education</div>
+        <h3 className="bta-sec-title">Education</h3>
         <div className="bta-grid-2">
           <Field label="Institution" required>
             <input type="text" className="bta-input" placeholder="e.g. FAST University"
@@ -1098,10 +1185,10 @@ function Step2(props: {
         </div>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">
+        <h3 className="bta-sec-title">
           Portfolio
           <span style={{ color: "#bbb", fontSize: ".62rem", marginLeft: 6 }}>(Optional)</span>
-        </div>
+        </h3>
         <p className="bta-help-text">
           Recommended for engineers, designers, and other technical roles.
           Sales, customer success, and operations candidates can skip this section.
@@ -1151,7 +1238,16 @@ function Step2(props: {
         </button>
       </div>
 
-      {props.error && <div role="alert" style={ERROR_BOX_STYLE}>{props.error}</div>}
+      {props.error && (
+        <div
+          id="bta-step-error"
+          role="alert"
+          tabIndex={-1}
+          style={{ ...ERROR_BOX_STYLE, outline: "none" }}
+        >
+          {props.error}
+        </div>
+      )}
 
       <div className="bta-form-footer">
         <FooterNote />
@@ -1187,7 +1283,7 @@ function Step3(props: {
       <FormHeader icon="⚙️" title="Work Preferences" sub="Set your rate, availability, and how you like to work" />
 
       <div className="bta-form-body">
-        <div className="bta-sec-title">Rate & Hours</div>
+        <h3 className="bta-sec-title">Rate & Hours</h3>
         <div className="bta-grid-2">
           <Field label="Hourly Rate (USD)" required hint={`Between $${RATE_MIN} and $${RATE_MAX} per hour`}>
             <input
@@ -1202,41 +1298,50 @@ function Step3(props: {
           </Field>
         </div>
 
-        <div className="bta-form-group" style={{ marginTop: 18 }}>
-          <div className="bta-label">Hours per Week <span className="bta-req">*</span></div>
+        <fieldset
+          className="bta-form-group"
+          style={{ marginTop: 18, border: "none", margin: 0, padding: 0 }}
+        >
+          <legend className="bta-label">Hours per Week <span className="bta-req" aria-hidden="true">*</span></legend>
           <div className="bta-radio-group">
             {(Object.keys(HOURS_LABEL) as HoursOpt[]).map((v) => (
               <label key={v} className={`bta-radio-opt ${props.hoursPerWeek === v ? "sel" : ""}`}>
                 <input type="radio" name="brr-hours" checked={props.hoursPerWeek === v} onChange={() => props.setHoursPerWeek(v)} />
-                <span className="bta-rdot" />
+                <span className="bta-rdot" aria-hidden="true" />
                 {HOURS_LABEL[v]}
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Work Setup</div>
-        <div className="bta-form-group" style={{ marginBottom: 20 }}>
-          <div className="bta-label">Work Type <span className="bta-req">*</span></div>
+        <h3 className="bta-sec-title">Work Setup</h3>
+        <fieldset
+          className="bta-form-group"
+          style={{ marginBottom: 20, border: "none", margin: "0 0 20px", padding: 0 }}
+        >
+          <legend className="bta-label">Work Type <span className="bta-req" aria-hidden="true">*</span></legend>
           <div className="bta-radio-group">
             {(Object.keys(WORK_TYPE_LABEL) as WorkTypeOpt[]).map((v) => (
               <label key={v} className={`bta-radio-opt ${props.workType === v ? "sel" : ""}`}>
                 <input type="radio" name="brr-wt" checked={props.workType === v} onChange={() => props.setWorkType(v)} />
-                <span className="bta-rdot" />
+                <span className="bta-rdot" aria-hidden="true" />
                 {WORK_TYPE_LABEL[v]}
               </label>
             ))}
           </div>
-        </div>
+        </fieldset>
 
-        <div className="bta-form-group" style={{ marginBottom: 20 }}>
-          <div className="bta-label">Availability <span className="bta-req">*</span></div>
+        <fieldset
+          className="bta-form-group"
+          style={{ marginBottom: 20, border: "none", margin: "0 0 20px", padding: 0 }}
+        >
+          <legend className="bta-label">Availability <span className="bta-req" aria-hidden="true">*</span></legend>
           <div className="bta-radio-group">
             {(Object.keys(AVAIL_LABEL) as AvailabilityOpt[]).map((v) => (
               <label key={v} className={`bta-radio-opt ${props.availability === v ? "sel" : ""}`}>
                 <input type="radio" name="brr-av" checked={props.availability === v} onChange={() => props.setAvailability(v)} />
-                <span className="bta-rdot" />
+                <span className="bta-rdot" aria-hidden="true" />
                 {AVAIL_LABEL[v]}
               </label>
             ))}
@@ -1251,10 +1356,10 @@ function Step3(props: {
               />
             </div>
           )}
-        </div>
+        </fieldset>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Languages</div>
+        <h3 className="bta-sec-title">Languages</h3>
         {props.languages.map((lang, idx) => (
           <div key={lang.id} className="bta-exp-entry">
             <button
@@ -1287,7 +1392,16 @@ function Step3(props: {
         </button>
       </div>
 
-      {props.error && <div role="alert" style={ERROR_BOX_STYLE}>{props.error}</div>}
+      {props.error && (
+        <div
+          id="bta-step-error"
+          role="alert"
+          tabIndex={-1}
+          style={{ ...ERROR_BOX_STYLE, outline: "none" }}
+        >
+          {props.error}
+        </div>
+      )}
 
       <div className="bta-form-footer">
         <FooterNote />
@@ -1323,8 +1437,11 @@ function Step4(props: {
       <FormHeader icon="📄" title="Verification & Documents" sub="Optionally upload your portfolio, CV, or other supporting documents" />
 
       <div className="bta-form-body">
-        <div className="bta-sec-title">Upload your Portfolio, CV or other Documents <span style={{ color: "#bbb", fontSize: ".62rem", marginLeft: 6 }}>(Optional)</span></div>
+        <h3 className="bta-sec-title">Upload your Portfolio, CV or other Documents <span style={{ color: "#bbb", fontSize: ".62rem", marginLeft: 6 }}>(Optional)</span></h3>
         <div
+          role="button"
+          tabIndex={0}
+          aria-label="Upload CV — drag and drop, or press Enter to browse files"
           className={`bta-upload-zone ${props.cvDragOver ? "drag-over" : ""}`}
           onDragOver={(e) => { e.preventDefault(); props.setCvDragOver(true); }}
           onDragLeave={() => props.setCvDragOver(false)}
@@ -1332,6 +1449,12 @@ function Step4(props: {
             e.preventDefault();
             props.setCvDragOver(false);
             props.handleCv(e.dataTransfer.files?.[0]);
+          }}
+          onKeyDown={(e) => {
+            if (e.key === "Enter" || e.key === " ") {
+              e.preventDefault();
+              props.cvInputRef.current?.click();
+            }
           }}
         >
           <input
@@ -1363,7 +1486,7 @@ function Step4(props: {
         </div>
 
         <div className="bta-spacer" />
-        <div className="bta-sec-title">Profile Photo <span style={{ color: "#bbb", fontSize: ".62rem", marginLeft: 6 }}>(optional)</span></div>
+        <h3 className="bta-sec-title">Profile Photo <span style={{ color: "#bbb", fontSize: ".62rem", marginLeft: 6 }}>(optional)</span></h3>
         <div className="bta-photo-wrap">
           {/* biome-ignore lint/a11y/noLabelWithoutControl: file input is rendered inside */}
           <label className="bta-photo-prev">
@@ -1399,7 +1522,16 @@ function Step4(props: {
         </div>
       </div>
 
-      {props.error && <div role="alert" style={ERROR_BOX_STYLE}>{props.error}</div>}
+      {props.error && (
+        <div
+          id="bta-step-error"
+          role="alert"
+          tabIndex={-1}
+          style={{ ...ERROR_BOX_STYLE, outline: "none" }}
+        >
+          {props.error}
+        </div>
+      )}
 
       <div className="bta-form-footer">
         <FooterNote />
