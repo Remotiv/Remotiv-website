@@ -3,7 +3,18 @@
 import "./remote-ready.css";
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
+import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
+
+// Validation thresholds — keep client and server in agreement (server caps
+// CV/photo at 5 MB via MAX_CV_BYTES / MAX_PHOTO_BYTES in the API route).
+const MAX_CV_SIZE_BYTES = 5 * 1024 * 1024;
+const BIO_MIN_CHARS = 50;
+const SKILLS_MIN = 3;
+const SKILLS_MAX = 20;
+const PHONE_MIN_DIGITS = 7;
+const RATE_MIN = 10;
+const RATE_MAX = 999;
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -223,14 +234,20 @@ export default function RemoteReadyPage() {
   const [photoPreview, setPhotoPreview] = useState<string | null>(null);
   const [step4Error, setStep4Error]   = useState<string | null>(null);
 
+  // Honeypot — bots fill this hidden input; humans leave it blank. Mirrors
+  // contact/book-a-meeting's pattern. Server also checks via the same field
+  // name (website_url) and silently fake-succeeds.
+  const [websiteUrl, setWebsiteUrl] = useState("");
+
   function validateStep1(): string | null {
-    const emailRegex = /^[^\s@]+@[^\s@]+\.[^\s@]+$/;
     const phoneDigits = phone.replace(/\D/g, "");
-    const linkedinValid = linkedinUrl.toLowerCase().includes("linkedin.com");
+    // Reject lookalikes (evil.tld/linkedin.com); require the canonical
+    // linkedin.com/in/ profile path.
+    const linkedinValid = /^https?:\/\/(www\.)?linkedin\.com\/in\//i.test(linkedinUrl.trim());
     if (!firstName.trim()) return "First name is required";
     if (!lastName.trim())  return "Last name is required";
-    if (!email.trim() || !emailRegex.test(email)) return "Please enter a valid email address";
-    if (!phone.trim() || phoneDigits.length < 7) return "Please enter a valid phone number";
+    if (!email.trim() || !isValidEmail(email.trim())) return "Please enter a valid email address";
+    if (!phone.trim() || phoneDigits.length < PHONE_MIN_DIGITS) return "Please enter a valid phone number";
     if (!city.trim())     return "City is required";
     if (!country.trim())  return "Country is required";
     if (!timezone.trim()) return "Time zone is required";
@@ -242,8 +259,8 @@ export default function RemoteReadyPage() {
 
   function validateStep2(): string | null {
     if (!jobTitles.trim()) return "Job titles are required";
-    if (bio.trim().length < 50) return "Bio must be at least 50 characters";
-    if (skills.length < 3) return "Add at least 3 skill tags";
+    if (bio.trim().length < BIO_MIN_CHARS) return `Bio must be at least ${BIO_MIN_CHARS} characters`;
+    if (skills.length < SKILLS_MIN) return `Add at least ${SKILLS_MIN} skill tags`;
     const validEmployment = employment.filter((e) => e.title.trim() || e.company.trim());
     if (validEmployment.length === 0) return "Add at least 1 employment entry";
     if (!eduInstitution.trim() || !eduDegree.trim()) {
@@ -256,6 +273,12 @@ export default function RemoteReadyPage() {
     const rateNum = Number.parseFloat(hourlyRate);
     if (!hourlyRate.trim() || !Number.isFinite(rateNum) || rateNum < 0) {
       return "Please enter a valid hourly rate";
+    }
+    if (rateNum < RATE_MIN) {
+      return `Hourly rate must be at least $${RATE_MIN}`;
+    }
+    if (rateNum > RATE_MAX) {
+      return `Hourly rate must not exceed $${RATE_MAX}`;
     }
     if (availability === "future" && !futureDate) {
       return "Please choose a future availability date";
@@ -272,8 +295,12 @@ export default function RemoteReadyPage() {
     else if (stepNum === 4) setStep4Error(msg);
   }
 
-  function scrollToTop() {
-    if (typeof window !== "undefined") {
+  function scrollToForm() {
+    if (typeof window === "undefined") return;
+    const target = document.querySelector(".bta-form-card");
+    if (target) {
+      target.scrollIntoView({ behavior: "smooth", block: "start" });
+    } else {
       window.scrollTo({ top: 0, behavior: "smooth" });
     }
   }
@@ -290,13 +317,13 @@ export default function RemoteReadyPage() {
           setStep3Error(null);
           setStepError(s, err);
           setStep(s);
-          scrollToTop();
+          scrollToForm();
           return;
         }
       }
     }
     setStep(target);
-    scrollToTop();
+    scrollToForm();
   }
 
   function handleStep1Next() {
@@ -304,7 +331,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep1Error(err); return; }
     setStep1Error(null);
     setStep(2);
-    scrollToTop();
+    scrollToForm();
   }
 
   function handleStep2Next() {
@@ -312,7 +339,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep2Error(err); return; }
     setStep2Error(null);
     setStep(3);
-    scrollToTop();
+    scrollToForm();
   }
 
   function handleStep3Next() {
@@ -320,7 +347,7 @@ export default function RemoteReadyPage() {
     if (err) { setStep3Error(err); return; }
     setStep3Error(null);
     setStep(4);
-    scrollToTop();
+    scrollToForm();
   }
 
   function addEmployment() {
@@ -363,7 +390,7 @@ export default function RemoteReadyPage() {
     if (e.key !== "Enter") return;
     e.preventDefault();
     const v = skillInput.trim();
-    if (!v || skills.length >= 20 || skills.includes(v)) return;
+    if (!v || skills.length >= SKILLS_MAX || skills.includes(v)) return;
     setSkills((prev) => [...prev, v]);
     setSkillInput("");
   }
@@ -396,7 +423,7 @@ export default function RemoteReadyPage() {
       setStep4Error("CV must be a PDF, DOC, or DOCX file.");
       return;
     }
-    if (file.size > 5 * 1024 * 1024) {
+    if (file.size > MAX_CV_SIZE_BYTES) {
       setStep4Error("CV must be under 5 MB.");
       return;
     }
@@ -410,6 +437,13 @@ export default function RemoteReadyPage() {
     setStep3Error(null);
     setStep4Error(null);
 
+    // Honeypot — silently fake success for bots that filled the hidden field.
+    // No network call, no validation feedback (so the bot doesn't learn it was rejected).
+    if (websiteUrl.trim().length > 0) {
+      setSubmitted(true);
+      return;
+    }
+
     const validators: { num: number; run: () => string | null }[] = [
       { num: 1, run: validateStep1 },
       { num: 2, run: validateStep2 },
@@ -420,7 +454,7 @@ export default function RemoteReadyPage() {
       if (err) {
         setStepError(v.num, err);
         setStep(v.num);
-        scrollToTop();
+        scrollToForm();
         return;
       }
     }
@@ -493,6 +527,7 @@ export default function RemoteReadyPage() {
 
     if (cvFile) fd.set("cv", cvFile);
     if (photoFile) fd.set("photo", photoFile);
+    fd.set("website_url", websiteUrl);
 
     try {
       const res = await fetch("/api/hire-remote-profiles", {
@@ -509,7 +544,8 @@ export default function RemoteReadyPage() {
       }
 
       if (!res.ok) {
-        let message = "Something went wrong. Please try again.";
+        let message =
+          "Something went wrong. Please email us at talent@remotiv.work if this persists.";
         try {
           const data = (await res.json()) as { message?: string; error?: string };
           if (data.message) message = data.message;
@@ -526,7 +562,9 @@ export default function RemoteReadyPage() {
       setSubmitted(true);
     } catch {
       setSubmitting(false);
-      setStep4Error("Something went wrong. Please try again.");
+      setStep4Error(
+        "Something went wrong. Please email us at talent@remotiv.work if this persists.",
+      );
     }
   }
 
@@ -592,6 +630,24 @@ export default function RemoteReadyPage() {
         <div className="bta-layout" style={{ gridTemplateColumns: "1fr" }}>
           <div>
             <div className="bta-form-card">
+              {/* Honeypot — hidden from humans, filled by bots */}
+              <input
+                type="text"
+                name="website_url"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: -9999,
+                  width: 0,
+                  height: 0,
+                  opacity: 0,
+                  pointerEvents: "none",
+                }}
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+              />
               {submitted ? (
                 <div className="bta-success" style={{ display: "block" }}>
                   <div className="bta-success-ico">🎉</div>
@@ -881,12 +937,12 @@ function Step2(props: {
             value={props.bio}
             onChange={(e) => props.setBio(e.target.value)}
           />
-          <p className="bta-skill-hint">{props.bio.trim().length}/50 characters minimum</p>
+          <p className="bta-skill-hint">{props.bio.trim().length}/{BIO_MIN_CHARS} characters minimum</p>
         </Field>
 
         <div className="bta-spacer" />
         <div className="bta-sec-title">Skills</div>
-        <Field label="Skills & Expertise" required hint="Type a skill and press Enter. Add at least 3.">
+        <Field label="Skills & Expertise" required hint={`Type a skill and press Enter. Add at least ${SKILLS_MIN}.`}>
           <div className="bta-skills-box">
             {props.skills.map((tag) => (
               <span key={tag} className="bta-stag">
@@ -1066,12 +1122,13 @@ function Step3(props: {
       <div className="bta-form-body">
         <div className="bta-sec-title">Rate & Hours</div>
         <div className="bta-grid-2">
-          <Field label="Hourly Rate (USD)" required>
+          <Field label="Hourly Rate (USD)" required hint={`Between $${RATE_MIN} and $${RATE_MAX} per hour`}>
             <input
               type="number"
               className="bta-input"
               placeholder="e.g. 35"
-              min={0}
+              min={RATE_MIN}
+              max={RATE_MAX}
               value={props.hourlyRate}
               onChange={(e) => props.setHourlyRate(e.target.value)}
             />

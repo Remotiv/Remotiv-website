@@ -20,6 +20,12 @@ const ALLOWED_CV_TYPES = [
   "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
 ];
 
+const MAX_CV_BYTES = 5 * 1024 * 1024;
+const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
+const PHONE_DEDUP_LIMIT = 5000;
+const CV_STORAGE_PREFIX = "hire-remote/cvs/";
+const PHOTO_STORAGE_PREFIX = "hire-remote/photos/";
+
 function nullable(v: FormDataEntryValue | null): string | null {
   if (typeof v !== "string") return null;
   const t = v.trim();
@@ -67,6 +73,14 @@ export async function POST(request: NextRequest) {
 
   try {
     const form = await request.formData();
+
+    // Honeypot — bots fill the hidden `website_url` input; humans leave it
+    // blank. Silently fake success so the bot doesn't learn its submission
+    // was rejected. Mirror contact/book-a-meeting's server-side check.
+    const honeypot = form.get("website_url");
+    if (typeof honeypot === "string" && honeypot.trim().length > 0) {
+      return NextResponse.json({ success: true });
+    }
 
     // Personal
     const firstName       = nullable(form.get("first_name"));
@@ -221,8 +235,8 @@ export async function POST(request: NextRequest) {
       .maybeSingle();
     const emailMatch = (emailRow as { id: string } | null) ?? null;
 
-    // 2. Duplicate-by-phone — fetch the latest 5,000 phone-bearing rows and
-    //    normalise both sides in JS. Same pattern as /api/apply and
+    // 2. Duplicate-by-phone — fetch the latest PHONE_DEDUP_LIMIT phone-bearing
+    //    rows and normalise both sides in JS. Same pattern as /api/apply and
     //    /api/talent (no SQL-side normalisation without a generated column).
     let phoneMatch: { id: string } | null = null;
     if (normalisedPhone.length >= 7) {
@@ -231,7 +245,7 @@ export async function POST(request: NextRequest) {
         .select("id, phone")
         .not("phone", "is", null)
         .order("created_at", { ascending: false })
-        .limit(100);
+        .limit(PHONE_DEDUP_LIMIT);
 
       const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
       const found = records.find(
@@ -260,6 +274,12 @@ export async function POST(request: NextRequest) {
     let cvUrl: string | null = null;
     let cvPath: string | null = null;
     if (cvFile && cvFile.size > 0) {
+      if (cvFile.size > MAX_CV_BYTES) {
+        return NextResponse.json(
+          { error: "CV must be under 5 MB." },
+          { status: 400 },
+        );
+      }
       if (cvFile.type && !ALLOWED_CV_TYPES.includes(cvFile.type)) {
         return NextResponse.json(
           { error: `Unsupported CV type: ${cvFile.type}. Use PDF, DOC, or DOCX.` },
@@ -282,7 +302,7 @@ export async function POST(request: NextRequest) {
         }
       }
       const ext = fileExt(cvFile.name, "pdf");
-      const path = `hire-remote/cvs/${crypto.randomUUID()}.${ext}`;
+      const path = `${CV_STORAGE_PREFIX}${crypto.randomUUID()}.${ext}`;
       const { error: cvErr } = await supabase.storage
         .from("cvs")
         .upload(path, cvBuffer, {
@@ -297,9 +317,18 @@ export async function POST(request: NextRequest) {
       cvPath = path;
     }
 
-    // 3. Upload photo (optional)
+    // 3. Upload photo (optional). The cvs bucket is private; we store only
+    //    photo_path so the admin list query can re-sign a fresh URL at read
+    //    time (mirror of cv_path). photo_url is left null going forward.
     let photoUrl: string | null = null;
+    let photoPath: string | null = null;
     if (photoFile && photoFile.size > 0) {
+      if (photoFile.size > MAX_PHOTO_BYTES) {
+        return NextResponse.json(
+          { error: "Photo must be under 5 MB." },
+          { status: 400 },
+        );
+      }
       if (photoFile.type && !ALLOWED_IMAGE_TYPES.includes(photoFile.type)) {
         return NextResponse.json(
           { error: `Unsupported photo type: ${photoFile.type}. Use JPG, PNG, WEBP, or GIF.` },
@@ -307,7 +336,7 @@ export async function POST(request: NextRequest) {
         );
       }
       const ext = fileExt(photoFile.name, "jpg");
-      const path = `hire-remote/photos/${filenameSlug}-${timestamp}.${ext}`;
+      const path = `${PHOTO_STORAGE_PREFIX}${filenameSlug}-${timestamp}.${ext}`;
       const buf = await photoFile.arrayBuffer();
       const contentType =
         photoFile.type && ALLOWED_IMAGE_TYPES.includes(photoFile.type)
@@ -319,8 +348,7 @@ export async function POST(request: NextRequest) {
       if (photoErr) {
         return NextResponse.json({ error: photoErr.message }, { status: 500 });
       }
-      const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(path);
-      photoUrl = pUrl.publicUrl;
+      photoPath = path;
     }
 
     // 4. Insert
@@ -354,9 +382,10 @@ export async function POST(request: NextRequest) {
         cv_path: cvPath,
         cv_text: cvText,
         photo_url: photoUrl,
+        photo_path: photoPath,
 
         status: "pending",
-        email_verified: true,
+        email_verified: false,
         id_verified: false,
         phone_verified: false,
       });

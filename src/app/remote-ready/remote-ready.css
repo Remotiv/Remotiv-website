@@ -15,17 +15,17 @@
   display:inline-flex; align-items:center; gap:8px; background:#fff;
   border:0.5px solid #ddd8d0; border-radius:999px; padding:5px 16px 5px 6px; margin:0 0 32px;
 }
-.bat-pill-now { background:#c9ff85; color:#3a5c08; font-size:12px; font-weight:700; border-radius:999px; padding:3px 12px; line-height:1.4; }
+.bat-pill-now { background:var(--remotiv-lime-card); color:#3a5c08; font-size:12px; font-weight:700; border-radius:999px; padding:3px 12px; line-height:1.4; }
 .bat-pill-text { font-size:13px; color:#444; font-weight:500; }
 .bat-h1, .bat-h2 {
   font-family:'Sora',sans-serif; font-size:clamp(42px,5.5vw,64px); font-weight:800;
   line-height:1.05; letter-spacing:-2px; max-width:800px; text-align:center;
 }
-.bat-h1 { color:#111; margin:0 0 4px; }
-.bat-h2 { color:#9886fe; margin:0 0 28px; }
+.bat-h1 { color:var(--remotiv-text-dark); margin:0 0 4px; }
+.bat-h2 { color:var(--remotiv-purple-light); margin:0 0 28px; }
 .bat-sub { font-size:17px; color:#777; line-height:1.7; max-width:640px; margin:0 0 48px; text-align:center; font-weight:400; }
 .bat-stats {
-  display:flex; align-items:stretch; background:#7E47FF; border-radius:20px;
+  display:flex; align-items:stretch; background:var(--remotiv-purple); border-radius:20px;
   overflow:hidden; width:100%; max-width:860px;
 }
 .bat-stat {
@@ -34,7 +34,7 @@
 }
 .bat-stat:last-child { border-right:none; }
 .bat-stat-num { font-family:'Sora',sans-serif; font-size:36px; font-weight:800; color:#fff; line-height:1; margin:0 0 14px; letter-spacing:-1px; white-space:nowrap; }
-.bat-stat-days { font-family:'Sora',sans-serif; font-size:22px; font-weight:700; color:#c9ff85; line-height:1; margin-left:4px; }
+.bat-stat-days { font-family:'Sora',sans-serif; font-size:22px; font-weight:700; color:var(--remotiv-lime-card); line-height:1; margin-left:4px; }
 .bat-stat-label { font-size:11px; font-weight:600; color:rgba(255,255,255,.65); letter-spacing:.1em; text-transform:uppercase; white-space:nowrap; }
 
 .bta-steps-bar { background:#fff; border-bottom:1px solid rgba(0,0,0,.07); position:sticky; top:0; z-index:50; }
@@ -46,7 +46,7 @@
   cursor:pointer; transition:color .2s; position:relative; white-space:nowrap; flex-shrink:0;
   background:none; border:none;
 }
-.bta-step.active { color:#111; }
+.bta-step.active { color:var(--remotiv-text-dark); }
 .bta-step.done { color:#888; }
 .bta-step.active::after { content:''; position:absolute; bottom:0; left:0; right:0; height:2.5px; background:#49D7A7; border-radius:2px; }
 .bta-step-circle {
@@ -77,7 +77,7 @@
   width:44px; height:44px; background:rgba(73,215,167,.1); border:1px solid rgba(73,215,167,.2);
   border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.1rem; flex-shrink:0;
 }
-.bta-fh-title { font-family:'Sora',sans-serif; font-size:.95rem; font-weight:700; color:#111; }
+.bta-fh-title { font-family:'Sora',sans-serif; font-size:.95rem; font-weight:700; color:var(--remotiv-text-dark); }
 .bta-fh-sub { font-size:.78rem; color:#888; margin-top:3px; }
 .bta-form-body { padding:28px 32px; }
 .bta-sec-title {
@@ -95,7 +95,7 @@
 .bta-opt { font-size:.62rem; color:#bbb; background:rgba(0,0,0,.04); border:1px solid rgba(0,0,0,.08); border-radius:4px; padding:1px 6px; font-weight:500; letter-spacing:.04em; text-transform:none; }
 .bta-input, .bta-select, .bta-textarea {
   width:100%; background:#fff; border:1px solid rgba(0,0,0,.1); border-radius:10px;
-  padding:11px 14px; font-family:'DM Sans',sans-serif; font-size:.88rem; color:#111;
+  padding:11px 14px; font-family:'DM Sans',sans-serif; font-size:.88rem; color:var(--remotiv-text-dark);
   outline:none; transition:border-color .2s; appearance:none;
 }
 .bta-input::placeholder, .bta-textarea::placeholder { color:#bbb; }
@@ -116,7 +116,7 @@
 }
 .bta-stag-x { cursor:pointer; opacity:.5; transition:opacity .15s; font-size:.65rem; background:none; border:none; color:#1d8c6b; padding:0; line-height:1; }
 .bta-stag-x:hover { opacity:1; }
-.bta-skill-inp { border:none; outline:none; background:transparent; font-family:'DM Sans',sans-serif; font-size:.88rem; color:#111; min-width:120px; flex:1; }
+.bta-skill-inp { border:none; outline:none; background:transparent; font-family:'DM Sans',sans-serif; font-size:.88rem; color:var(--remotiv-text-dark); min-width:120px; flex:1; }
 .bta-skill-inp::placeholder { color:#bbb; }
 .bta-skill-hint { font-size:.7rem; color:#bbb; margin-top:5px; }
 .bta-radio-group { display:flex; flex-wrap:wrap; gap:8px; }
@@ -138,7 +138,7 @@
 .bta-upload-zone:hover, .bta-upload-zone.drag-over { border-color:#49D7A7; background:rgba(73,215,167,.04); }
 .bta-upload-zone input[type="file"] { position:absolute; inset:0; opacity:0; cursor:pointer; width:100%; height:100%; }
 .bta-upload-ico { width:48px; height:48px; background:rgba(73,215,167,.1); border:1px solid rgba(73,215,167,.2); border-radius:12px; display:flex; align-items:center; justify-content:center; font-size:1.3rem; margin:0 auto 14px; }
-.bta-upload-title { font-family:'Sora',sans-serif; font-size:.82rem; font-weight:700; color:#111; margin-bottom:6px; }
+.bta-upload-title { font-family:'Sora',sans-serif; font-size:.82rem; font-weight:700; color:var(--remotiv-text-dark); margin-bottom:6px; }
 .bta-upload-sub { font-size:.78rem; color:#888; }
 .bta-upload-sub button { color:#49D7A7; cursor:pointer; font-weight:600; background:none; border:none; padding:0; font-family:inherit; font-size:inherit; }
 .bta-upload-fmt { font-size:.68rem; color:#bbb; margin-top:8px; }
@@ -187,7 +187,7 @@
 
 .bta-success { text-align:center; padding:80px 40px; }
 .bta-success-ico { width:68px; height:68px; background:rgba(73,215,167,.1); border:1px solid rgba(73,215,167,.3); border-radius:50%; display:flex; align-items:center; justify-content:center; font-size:1.8rem; margin:0 auto 24px; }
-.bta-success-title { font-family:'Sora',sans-serif; font-size:1.3rem; font-weight:700; color:#111; margin-bottom:12px; }
+.bta-success-title { font-family:'Sora',sans-serif; font-size:1.3rem; font-weight:700; color:var(--remotiv-text-dark); margin-bottom:12px; }
 .bta-success-sub { font-size:.88rem; color:#777; line-height:1.75; max-width:380px; margin:0 auto; }
 .bta-success-btn {
   display:inline-block; margin-top:28px; font-family:'Sora',sans-serif; font-size:.82rem;
@@ -195,11 +195,11 @@
   border-radius:12px; padding:14px 32px; cursor:pointer; text-decoration:none;
 }
 .bta-add-exp-btn {
-  font-family:'DM Sans',sans-serif; font-size:.78rem; font-weight:600; color:#7E47FF;
+  font-family:'DM Sans',sans-serif; font-size:.78rem; font-weight:600; color:var(--remotiv-purple);
   background:rgba(126,71,255,.07); border:1.5px dashed rgba(126,71,255,.3); border-radius:10px;
   padding:10px 20px; cursor:pointer; width:100%; transition:all .18s; margin-top:4px;
 }
-.bta-add-exp-btn:hover { background:rgba(126,71,255,.12); border-color:#7E47FF; }
+.bta-add-exp-btn:hover { background:rgba(126,71,255,.12); border-color:var(--remotiv-purple); }
 .bta-exp-entry { background:#fff; border:1px solid rgba(0,0,0,.09); border-radius:14px; padding:20px 20px 14px; margin-bottom:12px; position:relative; }
 .bta-exp-remove {
   position:absolute; top:14px; right:14px; width:26px; height:26px; background:rgba(0,0,0,.05);
