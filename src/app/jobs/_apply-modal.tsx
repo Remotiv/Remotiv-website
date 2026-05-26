@@ -13,9 +13,9 @@ import { cn } from "@/lib/utils";
 const CONTACT_EMAIL = "talent@remotiv.work";
 const LINKEDIN_URL = "https://www.linkedin.com/company/remotiv-inc/";
 
-// Server cap is 10 MB; align the client so the UX rejects what the API would
+// Server cap is 5 MB; align the client so the UX rejects what the API would
 // reject anyway. See MAX_CV_FILE_BYTES in src/app/api/apply/route.ts.
-const MAX_CV_CLIENT_BYTES = 10 * 1024 * 1024;
+const MAX_CV_CLIENT_BYTES = 5 * 1024 * 1024;
 
 const EMPTY_APPLY = {
   firstName: "",
@@ -112,7 +112,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       return;
     }
     if (file.size > MAX_CV_CLIENT_BYTES) {
-      setCvError("File must be under 10 MB.");
+      setCvError("File must be under 5 MB.");
       setCvFile(null);
       return;
     }
@@ -337,7 +337,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                   id="apply-cv-label"
                   className={LABEL_CLS}
                 >
-                  CV / Resume (PDF, max 10 MB)<span aria-hidden="true"> *</span>
+                  CV / Resume (PDF, max 5 MB)<span aria-hidden="true"> *</span>
                 </label>
                 <button
                   type="button"
