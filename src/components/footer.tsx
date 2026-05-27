@@ -18,6 +18,7 @@ const footerLinks = [
       { label: "Browse Talent", href: "/browse-talent" },
       { label: "Hire Remote", href: "/hire-remote" },
       { label: "AI Matching", href: "/ai-matching" },
+      { label: "Pricing", href: "/pricing" },
     ],
   },
   {
@@ -26,7 +27,6 @@ const footerLinks = [
       { label: "Become a Talent", href: "/become-a-talent" },
       { label: "Become Remote-Ready", href: "/remote-ready" },
       { label: "Jobs", href: "/jobs" },
-      { label: "Talent Login", href: "/talent/login" },
     ],
   },
   {

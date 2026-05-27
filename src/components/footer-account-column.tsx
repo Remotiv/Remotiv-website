@@ -87,8 +87,8 @@ export function FooterAccountColumn() {
             </Link>
           </li>
           <li>
-            <Link href="/pricing" className="text-sm text-[#555] transition-colors hover:text-remotiv-green">
-              Pricing
+            <Link href="/talent/login" className="text-sm text-[#555] transition-colors hover:text-remotiv-green">
+              Talent Login
             </Link>
           </li>
           <li className="mt-2">
@@ -121,8 +121,8 @@ export function FooterAccountColumn() {
           </Link>
         </li>
         <li>
-          <Link href="/pricing" className="text-sm text-[#555] transition-colors hover:text-remotiv-green">
-            Pricing
+          <Link href="/talent/login" className="text-sm text-[#555] transition-colors hover:text-remotiv-green">
+            Talent Login
           </Link>
         </li>
       </ul>
