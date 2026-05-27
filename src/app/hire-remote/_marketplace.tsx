@@ -286,7 +286,8 @@ const CandidateCard = memo(function CandidateCard({
     <button
       type="button"
       onClick={() => onSelect(candidate)}
-      className={`group flex w-full flex-col gap-3 rounded-2xl border bg-white text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(0,0,0,0.06)] active:scale-[0.98] active:opacity-90 ${
+      aria-label={`View ${candidate.maskedName}'s profile, ${candidate.jobTitle}`}
+      className={`group flex w-full flex-col gap-3 rounded-2xl border bg-white text-left shadow-[0_2px_10px_rgba(0,0,0,0.04)] motion-safe:transition-all hover:-translate-y-0.5 hover:shadow-[0_6px_22px_rgba(0,0,0,0.06)] active:scale-[0.98] active:opacity-90 ${
         selected
           ? "border-l-[3px] border-l-remotiv-green border-t-black/[0.06] border-r-black/[0.06] border-b-black/[0.06]"
           : "border-black/[0.06]"
@@ -342,7 +343,7 @@ const CandidateCard = memo(function CandidateCard({
       )}
 
       <div className="mt-1 flex items-center justify-end">
-        <span className="inline-flex items-center justify-center rounded-xl border border-remotiv-green/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] transition-all group-hover:bg-remotiv-green/10 group-active:scale-[0.98] group-active:opacity-90 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
+        <span className="inline-flex items-center justify-center rounded-xl border border-remotiv-green/40 px-3.5 py-1.5 text-xs font-semibold text-[#1a9e73] motion-safe:transition-all group-hover:bg-remotiv-green/10 group-active:scale-[0.98] group-active:opacity-90 max-lg:min-h-[40px] max-lg:px-4 max-lg:py-2">
           View Profile →
         </span>
       </div>
@@ -381,7 +382,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onClose}
-          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] transition-all hover:text-remotiv-text-dark active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="flex items-center gap-1.5 text-xs font-semibold text-[#666] motion-safe:transition-all hover:text-remotiv-text-dark active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <ArrowLeft className="size-3.5" strokeWidth={2} />
           Back
@@ -389,7 +390,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="inline-flex items-center gap-1.5 rounded-xl bg-remotiv-purple px-3.5 py-1.5 text-xs font-semibold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
+          className="inline-flex items-center gap-1.5 rounded-xl bg-remotiv-purple px-3.5 py-1.5 text-xs font-semibold text-white motion-safe:transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3 max-lg:text-sm"
         >
           <MessageCircle className="size-3.5" strokeWidth={2} />
           Connect with Talent
@@ -468,7 +469,7 @@ function ProfileDrawer({
                 key={v}
                 className="inline-flex items-center gap-1 rounded-full bg-remotiv-green/10 px-2.5 py-1 text-[10px] font-semibold text-[#1a9e73]"
               >
-                ✓ {v}
+                <span aria-hidden="true">✓</span> {v}
               </span>
             ))}
           </div>
@@ -543,7 +544,7 @@ function ProfileDrawer({
                     rel="noopener noreferrer"
                     className="mt-2 inline-flex items-center gap-1 text-xs font-semibold text-remotiv-purple hover:underline"
                   >
-                    Visit Project →
+                    Visit Project →<span className="sr-only"> (opens in new tab)</span>
                   </a>
                 )}
               </div>
@@ -570,7 +571,7 @@ function ProfileDrawer({
         <button
           type="button"
           onClick={onUnlock}
-          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-3 font-heading text-sm font-bold text-white transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90"
+          className="flex w-full items-center justify-center gap-2 rounded-xl bg-[#111] px-5 py-3 font-heading text-sm font-bold text-white motion-safe:transition-all hover:opacity-90 active:scale-[0.98] active:opacity-90"
         >
           <MessageCircle className="size-4" strokeWidth={2} />
           Connect with Talent
@@ -583,7 +584,7 @@ function ProfileDrawer({
 // ── Filter Bar ───────────────────────────────────────────────
 
 const SELECT_CLS =
-  "h-11 cursor-pointer rounded-xl border border-black/[0.08] bg-white px-3.5 text-sm text-[#333] outline-none transition-colors focus:border-remotiv-purple";
+  "h-11 cursor-pointer rounded-xl border border-black/[0.08] bg-white px-3.5 text-sm text-[#333] outline-none motion-safe:transition-colors focus:border-remotiv-purple";
 
 function FilterBar({
   role, setRole,
@@ -609,7 +610,9 @@ function FilterBar({
         <button
           type="button"
           onClick={() => setMobileOpen((v) => !v)}
-          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333] transition-all active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3"
+          aria-expanded={mobileOpen}
+          aria-controls="mobile-filter-panel"
+          className="rounded-xl border border-black/[0.08] bg-white px-3 py-2 text-xs font-semibold text-[#333] motion-safe:transition-all active:scale-[0.98] active:opacity-90 max-lg:min-h-[44px] max-lg:px-4 max-lg:py-3"
         >
           Filters {mobileOpen ? "▴" : "▾"}
         </button>
@@ -620,6 +623,7 @@ function FilterBar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search…"
+            aria-label="Search candidates"
             className="h-11 flex-1 bg-transparent text-sm outline-none placeholder:text-[#bbb]"
           />
         </div>
@@ -636,12 +640,24 @@ function FilterBar({
           max={RATE_FILTER_MAX}
           value={rate}
           onChange={(e) => setRate(Number.parseInt(e.target.value, 10))}
+          aria-label="Maximum hourly rate"
+          aria-valuemin={0}
+          aria-valuemax={RATE_FILTER_MAX}
+          aria-valuenow={rate}
           className="w-full accent-remotiv-green"
         />
       </div>
 
-      <div className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center lg:gap-2 ${mobileOpen ? "" : "hidden lg:flex"}`}>
-        <select value={role} onChange={(e) => setRole(e.target.value)} className={`${SELECT_CLS} lg:w-36`}>
+      <div
+        id="mobile-filter-panel"
+        className={`grid grid-cols-1 gap-2 sm:grid-cols-2 lg:flex lg:items-center lg:gap-2 ${mobileOpen ? "" : "hidden lg:flex"}`}
+      >
+        <select
+          value={role}
+          onChange={(e) => setRole(e.target.value)}
+          aria-label="Filter by role"
+          className={`${SELECT_CLS} lg:w-36`}
+        >
           {FILTER_ROLES.map((r) => <option key={r} value={r}>{r}</option>)}
         </select>
 
@@ -650,6 +666,7 @@ function FilterBar({
           value={skills}
           onChange={(e) => setSkills(e.target.value)}
           placeholder="Skills"
+          aria-label="Filter by skill"
           className={`${SELECT_CLS} placeholder:text-[#bbb] lg:w-32`}
         />
 
@@ -661,20 +678,39 @@ function FilterBar({
             max={RATE_FILTER_MAX}
             value={rate}
             onChange={(e) => setRate(Number.parseInt(e.target.value, 10))}
+            aria-label="Maximum hourly rate"
+            aria-valuemin={0}
+            aria-valuemax={RATE_FILTER_MAX}
+            aria-valuenow={rate}
             className="flex-1 accent-remotiv-green"
           />
           <span className="whitespace-nowrap text-xs font-bold text-remotiv-text-dark">${rate}/hr</span>
         </div>
 
-        <select value={exp} onChange={(e) => setExp(e.target.value)} className={`${SELECT_CLS} lg:w-32`}>
+        <select
+          value={exp}
+          onChange={(e) => setExp(e.target.value)}
+          aria-label="Filter by experience"
+          className={`${SELECT_CLS} lg:w-32`}
+        >
           {EXP_FILTERS.map((v) => <option key={v} value={v}>{v === "Any" ? "Experience" : v}</option>)}
         </select>
 
-        <select value={avail} onChange={(e) => setAvail(e.target.value)} className={`${SELECT_CLS} lg:w-36`}>
+        <select
+          value={avail}
+          onChange={(e) => setAvail(e.target.value)}
+          aria-label="Filter by availability"
+          className={`${SELECT_CLS} lg:w-36`}
+        >
           {AVAIL_FILTERS.map((v) => <option key={v} value={v}>{v === "Any" ? "Availability" : v}</option>)}
         </select>
 
-        <select value={english} onChange={(e) => setEnglish(e.target.value)} className={`${SELECT_CLS} lg:w-32`}>
+        <select
+          value={english}
+          onChange={(e) => setEnglish(e.target.value)}
+          aria-label="Filter by English level"
+          className={`${SELECT_CLS} lg:w-32`}
+        >
           {ENGLISH_FILTERS.map((v) => <option key={v} value={v}>{v === "Any" ? "English Level" : v}</option>)}
         </select>
 
@@ -685,17 +721,10 @@ function FilterBar({
             value={query}
             onChange={(e) => setQuery(e.target.value)}
             placeholder="Search by role, skill, or keyword…"
+            aria-label="Search candidates"
             className="h-11 flex-1 min-w-0 bg-transparent text-sm outline-none placeholder:text-[#bbb]"
           />
         </div>
-
-        <button
-          type="button"
-          className="inline-flex h-11 items-center justify-center gap-1.5 rounded-xl bg-remotiv-green px-5 font-heading text-sm font-bold text-[#111] transition-all hover:bg-[#3bc495] active:scale-[0.98] active:opacity-90"
-        >
-          <Search className="size-4" strokeWidth={2.5} />
-          Search
-        </button>
       </div>
     </div>
   );
@@ -705,7 +734,12 @@ function FilterBar({
 
 function Toast({ msg }: { msg: string }) {
   return (
-    <div className="fixed z-[70] rounded-xl bg-[#111] px-4 py-3 font-sans text-sm font-medium text-white shadow-xl lg:bottom-6 lg:right-6 max-lg:bottom-4 max-lg:left-4 max-lg:right-4">
+    <div
+      role="status"
+      aria-live="polite"
+      aria-atomic="true"
+      className="fixed z-[70] rounded-xl bg-[#111] px-4 py-3 font-sans text-sm font-medium text-white shadow-xl lg:bottom-6 lg:right-6 max-lg:bottom-4 max-lg:left-4 max-lg:right-4"
+    >
       {msg}
     </div>
   );
@@ -825,6 +859,22 @@ export function HireMarketplace({
   const [selected,   setSelected]   = useState<Candidate | null>(null);
   const [toast,      setToast]      = useState<string | null>(null);
   const [wizardOpen, setWizardOpen] = useState(false);
+
+  // First focusable element inside the drawer panel (the "Back to candidates"
+  // button) — gets focus when the drawer opens so keyboard + SR users land
+  // inside the dialog instead of on body.
+  const drawerCloseButtonRef = useRef<HTMLButtonElement>(null);
+  // Card button that opened the drawer — focus returns here on close so the
+  // user lands back in the grid at the row they came from.
+  const drawerTriggerRef = useRef<HTMLElement | null>(null);
+
+  // OS-level reduced-motion preference. Evaluated once at mount. Used to
+  // disable the drawer slide + dimming transitions for users who opted out
+  // at the OS level (we still need the state changes to happen — just not
+  // the animation between them).
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 
   // Request-ID guard: if a slower in-flight fetch resolves AFTER a newer one
   // we started, drop the stale result. Avoids the "type fast and see results
@@ -976,12 +1026,31 @@ export function HireMarketplace({
   }, [selected]);
 
   const handleSelect = useCallback((candidate: Candidate) => {
+    // Capture the triggering card so we can restore focus on close.
+    const active = typeof document !== "undefined" ? document.activeElement : null;
+    drawerTriggerRef.current =
+      active instanceof HTMLElement ? active : null;
     setSelected(candidate);
   }, []);
 
   function handleClose() {
     setSelected(null);
+    // Return focus to the card that opened the drawer so keyboard users
+    // don't fall to <body>. 50ms gives React a tick to unmount the drawer.
+    const target = drawerTriggerRef.current;
+    if (target) {
+      setTimeout(() => target.focus(), 50);
+    }
   }
+
+  // Move focus into the drawer when it opens so SR users hear the dialog
+  // announcement and keyboard users land inside instead of on body. 100ms
+  // covers the slide-in transition.
+  useEffect(() => {
+    if (selected === null) return;
+    const t = setTimeout(() => drawerCloseButtonRef.current?.focus(), 100);
+    return () => clearTimeout(t);
+  }, [selected]);
 
   function openWizard() {
     if (!selected) return;
@@ -1017,10 +1086,14 @@ export function HireMarketplace({
           style={{
             opacity: drawerOpen ? 0.3 : 1,
             pointerEvents: drawerOpen ? "none" : "auto",
-            transition: "opacity 0.3s ease",
+            transition: prefersReducedMotion ? "none" : "opacity 0.3s ease",
           }}
         >
-          <div className="mt-6 flex items-baseline justify-between gap-3">
+          <div
+            className="mt-6 flex items-baseline justify-between gap-3"
+            aria-live="polite"
+            aria-atomic="true"
+          >
             <h2 className="font-heading text-base font-bold text-remotiv-text-dark">
               <span className="text-[#1a9e73]">{total}</span> professionals found
             </h2>
@@ -1029,7 +1102,7 @@ export function HireMarketplace({
                 <button
                   type="button"
                   onClick={clearFilters}
-                  className="text-xs font-semibold text-remotiv-purple transition-colors hover:underline"
+                  className="text-xs font-semibold text-remotiv-purple motion-safe:transition-colors hover:underline"
                 >
                   Clear filters
                 </button>
@@ -1044,7 +1117,7 @@ export function HireMarketplace({
             className="mt-4 grid grid-cols-1 gap-6"
             style={{
               opacity: loading && candidates.length === 0 ? 0.5 : 1,
-              transition: "opacity 0.2s ease",
+              transition: prefersReducedMotion ? "none" : "opacity 0.2s ease",
             }}
           >
             <div className="grid grid-cols-1 gap-4">
@@ -1082,7 +1155,8 @@ export function HireMarketplace({
                   type="button"
                   onClick={loadMore}
                   disabled={loading}
-                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-remotiv-purple/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-remotiv-purple transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.06] active:scale-[0.98] active:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
+                  aria-busy={loading || undefined}
+                  className="mt-2 justify-self-center rounded-2xl border-[1.5px] border-remotiv-purple/30 bg-white px-8 py-3 font-heading text-sm font-semibold text-remotiv-purple motion-safe:transition-all hover:border-remotiv-purple hover:bg-remotiv-purple/[0.06] active:scale-[0.98] active:opacity-90 disabled:cursor-not-allowed disabled:opacity-60"
                 >
                   {loading ? "Loading…" : "Load More Profiles"}
                 </button>
@@ -1099,12 +1173,17 @@ export function HireMarketplace({
           onClick={handleClose}
           className="fixed inset-0 z-40 bg-black/40 lg:hidden"
           style={{
-            transition: "opacity 0.3s ease",
+            transition: prefersReducedMotion ? "none" : "opacity 0.3s ease",
           }}
         />
       )}
 
       <div
+        role="dialog"
+        aria-modal="true"
+        aria-label="Candidate profile"
+        aria-hidden={!drawerOpen}
+        id="candidate-profile-drawer"
         className="p-6 max-lg:p-4"
         style={{
           position: "fixed",
@@ -1115,7 +1194,9 @@ export function HireMarketplace({
           background: "#fff",
           boxShadow: "-4px 0 20px rgba(0,0,0,0.08)",
           transform: drawerOpen ? "translateX(0)" : "translateX(110%)",
-          transition: "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
+          transition: prefersReducedMotion
+            ? "none"
+            : "transform 0.35s cubic-bezier(0.4, 0, 0.2, 1)",
           overflowY: "auto",
           overscrollBehavior: "contain",
           WebkitOverflowScrolling: "touch",
@@ -1128,9 +1209,10 @@ export function HireMarketplace({
               className="sticky top-0 z-10 -mx-6 -mt-6 mb-4 border-b border-[#e8e0db] bg-white px-6 pb-3 pt-4 max-lg:-mx-4 max-lg:-mt-4 max-lg:px-4"
             >
               <button
+                ref={drawerCloseButtonRef}
                 type="button"
                 onClick={handleClose}
-                className="flex min-h-[44px] cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 font-sans text-sm font-medium text-remotiv-purple transition-all active:scale-[0.98] active:opacity-90"
+                className="flex min-h-[44px] cursor-pointer items-center gap-2 border-0 bg-transparent px-2 py-2.5 font-sans text-sm font-medium text-remotiv-purple motion-safe:transition-all active:scale-[0.98] active:opacity-90"
                 aria-label="Back to candidates"
               >
                 <ArrowLeft size={18} />

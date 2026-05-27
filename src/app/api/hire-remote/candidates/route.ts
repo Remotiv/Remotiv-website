@@ -134,7 +134,13 @@ export async function GET(request: NextRequest) {
     .range(from, to);
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Log internally; surface a generic message so internal schema/column
+    // info doesn't leak through the network tab.
+    console.error("[hire-remote/candidates] Supabase query error:", error);
+    return NextResponse.json(
+      { error: "Couldn't load candidates. Please try again." },
+      { status: 500 },
+    );
   }
 
   const total = count ?? 0;

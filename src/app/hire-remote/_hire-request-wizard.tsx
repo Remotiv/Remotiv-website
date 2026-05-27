@@ -56,6 +56,15 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
 
   const [companyUrl, setCompanyUrl] = useState<string>("");
 
+  const [emailTouched, setEmailTouched] = useState<boolean>(false);
+
+  // OS-level reduced-motion preference. Evaluated once at mount — fine for
+  // a modal that doesn't persist across sessions. Used to disable the option-
+  // button + send-button inline transitions for users who opted out.
+  const prefersReducedMotion =
+    typeof window !== "undefined" &&
+    window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+
   // M5: synchronous double-submit lock — disabled={submitting} only flips
   // after React commits, leaving a microsecond race window.
   const submitLockRef = useRef(false);
@@ -81,6 +90,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
         setCompany("");
         setNotes("");
         setCompanyUrl("");
+        setEmailTouched(false);
         setError(null);
         setSubmitting(false);
       }, 300);
@@ -127,6 +137,13 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
   const step1Valid = engagementType !== null;
   const step2Valid = budgetRange !== "" && projectDescription.trim().length > 0 && timeline !== "";
   const step3Valid = fullName.trim().length > 0 && isValidEmail(email.trim()) && company.trim().length > 0;
+
+  // Surface a per-field email error AFTER the user has interacted with the
+  // input (blur) and the value is non-empty + invalid. We don't show the
+  // error while still typing (would be jarring) or on an empty field (the
+  // user hasn't given a value yet — no error to report).
+  const emailHasInlineError =
+    emailTouched && email.trim().length > 0 && !isValidEmail(email.trim());
 
   const handleSubmit = useCallback(async () => {
     if (!step3Valid || !engagementType || !timeline) return;
@@ -291,7 +308,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                     cursor: "pointer",
                     textAlign: "left",
                     fontFamily: "inherit",
-                    transition: "all 0.15s",
+                    transition: prefersReducedMotion ? "none" : "all 0.15s",
                   }}
                   aria-pressed={selected}
                 >
@@ -329,7 +346,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                         fontWeight: selected ? 500 : 400,
                         cursor: "pointer",
                         fontFamily: "inherit",
-                        transition: "all 0.15s",
+                        transition: prefersReducedMotion ? "none" : "all 0.15s",
                       }}
                       aria-pressed={selected}
                     >
@@ -351,6 +368,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                 placeholder="Briefly describe what you need this person to do (e.g., build a SaaS landing page, manage growth campaigns, integrate APIs...)"
                 rows={4}
                 maxLength={5000}
+                required
+                aria-required="true"
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -374,6 +393,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                 id="hire-wizard-timeline"
                 value={timeline}
                 onChange={(e) => setTimeline(e.target.value as Timeline)}
+                required
+                aria-required="true"
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -408,6 +429,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                 onChange={(e) => setFullName(e.target.value)}
                 maxLength={100}
                 placeholder="Sarah Chen"
+                required
+                aria-required="true"
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -430,19 +453,33 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                 type="email"
                 value={email}
                 onChange={(e) => setEmail(e.target.value)}
+                onBlur={() => setEmailTouched(true)}
                 maxLength={254}
                 placeholder="sarah@company.com"
+                required
+                aria-required="true"
+                aria-invalid={emailHasInlineError || undefined}
+                aria-describedby={emailHasInlineError ? "hire-wizard-email-error" : undefined}
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
                   padding: "10px 12px",
-                  border: "1px solid #e8e0db",
+                  border: `1px solid ${emailHasInlineError ? "#dc2626" : "#e8e0db"}`,
                   borderRadius: 8,
                   fontSize: 14,
                   background: "#fff",
                   fontFamily: "inherit",
                 }}
               />
+              {emailHasInlineError && (
+                <div
+                  id="hire-wizard-email-error"
+                  role="alert"
+                  style={{ marginTop: 6, fontSize: 12, color: "#dc2626" }}
+                >
+                  Please enter a valid email address.
+                </div>
+              )}
             </div>
 
             <div>
@@ -456,6 +493,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                 onChange={(e) => setCompany(e.target.value)}
                 maxLength={100}
                 placeholder="Acme Inc."
+                required
+                aria-required="true"
                 style={{
                   width: "100%",
                   boxSizing: "border-box",
@@ -586,6 +625,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
                     type="button"
                     onClick={handleSubmit}
                     disabled={!step3Valid || submitting}
+                    aria-busy={submitting || undefined}
                     style={{
                       flex: 2,
                       background: step3Valid && !submitting ? "#49d7a7" : "#ccc",
@@ -630,7 +670,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
               <ol style={{ margin: 0, paddingLeft: 18, fontSize: 13, color: "#555", lineHeight: 1.8 }}>
                 <li>We review your request</li>
                 <li>Match you with the right talent</li>
-                <li>Schedule an intro call within 24 hours</li>
+                <li>Schedule an intro call</li>
               </ol>
             </div>
 

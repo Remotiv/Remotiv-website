@@ -51,7 +51,7 @@ export default async function HireRemotePage() {
   return (
     <>
       <Navbar />
-      <main className="bg-remotiv-bg">
+      <main id="main" className="bg-remotiv-bg">
         <HeroSection />
         <HireMarketplace initialCandidates={candidates} initialTotal={total} />
         <HowItWorks />
