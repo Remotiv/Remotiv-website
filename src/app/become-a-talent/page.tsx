@@ -933,6 +933,17 @@ export default function BecomeATalentPage() {
                     >
                       <span aria-hidden="true">🔗 </span>Follow Remotiv on LinkedIn
                     </a>
+                    <Link
+                      href="/talent/login"
+                      className="bta-success-btn"
+                      style={{
+                        background: "#fff",
+                        color: "#7E47FF",
+                        border: "1.5px solid #7E47FF",
+                      }}
+                    >
+                      Edit or manage your profile →
+                    </Link>
                     <Link href="/jobs" className="bta-success-btn">
                       Browse Open Jobs →
                     </Link>

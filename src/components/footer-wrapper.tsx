@@ -12,6 +12,8 @@ const HIDDEN_PREFIXES = [
   "/forgot-password",
   "/reset-password",
   "/auth/callback",
+  "/talent/login",
+  "/talent/dashboard",
 ];
 
 export function FooterWrapper() {

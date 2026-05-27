@@ -771,6 +771,17 @@ export default function RemoteReadyPage() {
                   >
                     🔗 Follow Remotiv on LinkedIn
                   </a>
+                  <Link
+                    href="/talent/login"
+                    className="bta-success-btn"
+                    style={{
+                      background: "#fff",
+                      color: "#7E47FF",
+                      border: "1.5px solid #7E47FF",
+                    }}
+                  >
+                    Edit or manage your profile →
+                  </Link>
                   <Link href="/hire-remote" className="bta-success-btn">
                     View Hire Remote →
                   </Link>
