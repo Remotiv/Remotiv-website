@@ -1,9 +1,11 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimToNull } from "@/app/admin/lib/validators";
+import type { InviteStatus } from "@/lib/claim-status";
 
 export type TalentStatus =
   | "pending"
@@ -49,6 +51,7 @@ export type TalentProfile = {
   cv_url: string | null;
   status: TalentStatus;
   approved_at: string | null;
+  claimed_at: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -138,6 +141,101 @@ export async function saveTalentNote(
   return { success: true, data: undefined };
 }
 
+// ============================================================================
+// Phase 2: Talent claim — invite-status fetch + send-invite call
+// ----------------------------------------------------------------------------
+// Reads from talent_claim_tokens (created in a separate migration). Returns
+// the most-recent token status per profile id. Profiles with no token row
+// are absent from the map; the UI maps "absent" → "not_invited".
+// ============================================================================
+
+export async function fetchTalentInviteStatuses(
+  profileIds: string[],
+): Promise<Record<string, InviteStatus>> {
+  await requireAdmin();
+  if (profileIds.length === 0) return {};
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("talent_claim_tokens")
+    .select("candidate_id, status, created_at")
+    .in("candidate_id", profileIds)
+    .eq("source_table", "talent_profiles")
+    .order("created_at", { ascending: false });
+
+  if (error) {
+    console.error("[talent_claim_tokens] read failed:", error);
+    return {};
+  }
+
+  const result: Record<string, InviteStatus> = {};
+  for (const row of (data ?? []) as Array<{
+    candidate_id: string;
+    status: string;
+  }>) {
+    // First row per candidate wins because the query is ordered desc.
+    if (result[row.candidate_id]) continue;
+    result[row.candidate_id] = row.status as InviteStatus;
+  }
+  return result;
+}
+
+export async function sendClaimInvites(
+  profileIds: string[],
+  sourceTable: "talent_profiles" | "hire_remote_profiles",
+): Promise<{ success: boolean; sent: number; skipped: unknown[]; error?: string }> {
+  await requireAdmin();
+
+  const baseUrl =
+    process.env.NEXT_PUBLIC_SITE_URL ??
+    "https://remotiv-website-m3jo.vercel.app";
+
+  // Forward the caller's session cookies so the API route's requireAdmin()
+  // gate sees the same user. Without this, the server-to-self fetch arrives
+  // unauthenticated and the route returns 403.
+  const cookieStore = await cookies();
+  const cookieHeader = cookieStore
+    .getAll()
+    .map((c) => `${c.name}=${c.value}`)
+    .join("; ");
+
+  try {
+    const res = await fetch(`${baseUrl}/api/admin/send-invite`, {
+      method: "POST",
+      cache: "no-store",
+      headers: {
+        "Content-Type": "application/json",
+        Cookie: cookieHeader,
+      },
+      body: JSON.stringify({ profileIds, sourceTable }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      sent?: number;
+      skipped?: unknown[];
+      error?: string;
+    };
+
+    if (!res.ok) {
+      return {
+        success: false,
+        sent: 0,
+        skipped: [],
+        error: json.error ?? "Request failed",
+      };
+    }
+
+    return {
+      success: true,
+      sent: typeof json.sent === "number" ? json.sent : 0,
+      skipped: Array.isArray(json.skipped) ? json.skipped : [],
+    };
+  } catch (e) {
+    console.error("[sendClaimInvites] fetch error:", e);
+    return { success: false, sent: 0, skipped: [], error: "Network error" };
+  }
+}
+
 function normaliseRow(r: Record<string, unknown>): TalentProfile {
   return {
     id: r.id as string,
@@ -177,6 +275,7 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
     cv_url: (r.cv_url as string | null) ?? null,
     status: ((r.status as TalentStatus) ?? "pending"),
     approved_at: (r.approved_at as string | null) ?? null,
+    claimed_at: (r.claimed_at as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
   };

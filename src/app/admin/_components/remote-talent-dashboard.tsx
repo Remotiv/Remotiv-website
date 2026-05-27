@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
@@ -33,14 +33,21 @@ import { TopNav } from "./top-nav";
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   deleteRemoteTalentProfile,
+  fetchRemoteInviteStatuses,
   getRemoteTalentCvSignedUrl,
   saveRemoteTalentNote,
+  sendRemoteClaimInvites,
   updateRemoteTalentStatus,
   updateRemoteTalentVerification,
   type RemoteTalentProfile,
   type RemoteTalentStatus,
 } from "@/app/admin/remote-talent/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
+import {
+  INVITE_STATUS_COLOR,
+  INVITE_STATUS_LABEL,
+  type InviteStatus,
+} from "@/lib/claim-status";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -160,22 +167,44 @@ function Avatar({
 function ProfileCard({
   profile,
   canApprove,
+  isSelected,
+  onToggleSelect,
+  inviteStatus,
+  onSendInvite,
   onView,
   onApprove,
 }: {
   profile: RemoteTalentProfile;
   canApprove: boolean;
+  isSelected: boolean;
+  onToggleSelect: (id: string) => void;
+  inviteStatus: InviteStatus;
+  onSendInvite: (id: string) => void;
   onView: () => void;
   onApprove: () => void;
 }) {
   const available = isAvailableNow(profile);
   const visibleSkills = profile.skills.slice(0, 4);
   const extraSkills = Math.max(0, profile.skills.length - visibleSkills.length);
+  const inviteColor = INVITE_STATUS_COLOR[inviteStatus];
+  const inviteLabel = INVITE_STATUS_LABEL[inviteStatus];
+  const showSendButton =
+    inviteStatus === "not_invited" || inviteStatus === "expired";
+  const showResendButton =
+    inviteStatus === "pending" || inviteStatus === "opened";
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-black/[0.05] bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
       <div className="flex items-center justify-between">
         <div className="flex items-center gap-2">
+          <input
+            type="checkbox"
+            checked={isSelected}
+            onChange={() => onToggleSelect(profile.id)}
+            onClick={(e) => e.stopPropagation()}
+            aria-label={`Select ${profile.first_name} ${profile.last_name}`.trim()}
+            className="size-4 cursor-pointer accent-remotiv-purple"
+          />
           <span
             className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
               available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
@@ -247,7 +276,7 @@ function ProfileCard({
         {profile.work_type && <span>· {profile.work_type}</span>}
       </div>
 
-      <div className="mt-auto flex gap-2 pt-1">
+      <div className="mt-auto flex flex-wrap items-center gap-2 pt-1">
         <button
           type="button"
           onClick={onView}
@@ -255,6 +284,37 @@ function ProfileCard({
         >
           View Profile
         </button>
+        <span
+          style={{
+            background: inviteColor.bg,
+            color: inviteColor.text,
+            border: `1px solid ${inviteColor.border}`,
+            borderRadius: "99px",
+            fontSize: "10px",
+            fontWeight: 700,
+            padding: "2px 8px",
+          }}
+        >
+          {inviteLabel}
+        </span>
+        {showSendButton && (
+          <button
+            type="button"
+            onClick={() => onSendInvite(profile.id)}
+            className="rounded-lg border border-[#7E47FF] px-2 py-1 text-[10px] font-bold text-[#7E47FF] transition-colors hover:bg-[#f0ebff]"
+          >
+            Send Invite
+          </button>
+        )}
+        {showResendButton && (
+          <button
+            type="button"
+            onClick={() => onSendInvite(profile.id)}
+            className="rounded-lg border border-gray-200 px-2 py-1 text-[10px] font-bold text-gray-400 transition-colors hover:bg-gray-50"
+          >
+            Resend
+          </button>
+        )}
         {canApprove && profile.status === "pending" && (
           <button
             type="button"
@@ -289,6 +349,8 @@ const STAGE_ACTIONS: StageAction[] = [
 function ProfileDrawer({
   profile,
   isSuperAdmin,
+  inviteStatus,
+  onSendInvite,
   onClose,
   onSetStatus,
   onReset,
@@ -297,6 +359,8 @@ function ProfileDrawer({
 }: {
   profile: RemoteTalentProfile;
   isSuperAdmin: boolean;
+  inviteStatus: InviteStatus;
+  onSendInvite: (id: string) => void;
   onClose: () => void;
   onSetStatus: (status: RemoteTalentStatus) => Promise<void>;
   onReset: () => Promise<void>;
@@ -722,6 +786,42 @@ function ProfileDrawer({
             </DrawerSection>
           )}
 
+          {/* Claim Invite — let the candidate claim their own profile */}
+          <DrawerSection title="Claim Invite">
+            <div className="mb-2 flex items-center gap-2">
+              <span
+                style={{
+                  background: INVITE_STATUS_COLOR[inviteStatus].bg,
+                  color: INVITE_STATUS_COLOR[inviteStatus].text,
+                  border: `1px solid ${INVITE_STATUS_COLOR[inviteStatus].border}`,
+                  borderRadius: "99px",
+                  fontSize: "10px",
+                  fontWeight: 700,
+                  padding: "2px 8px",
+                }}
+              >
+                {INVITE_STATUS_LABEL[inviteStatus]}
+              </span>
+              {profile.claimed_at && (
+                <span className="text-[10px] text-gray-400">
+                  on {new Date(profile.claimed_at).toLocaleDateString()}
+                </span>
+              )}
+            </div>
+            {inviteStatus !== "claimed" && (
+              <button
+                type="button"
+                onClick={() => onSendInvite(profile.id)}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[#7E47FF] bg-[#7E47FF]/10 px-3 py-2.5 text-xs font-semibold text-[#7E47FF] transition-colors hover:bg-[#7E47FF]/20"
+              >
+                <Mail className="size-3.5" strokeWidth={2} />
+                {inviteStatus === "not_invited" || inviteStatus === "expired"
+                  ? "Send Invite"
+                  : "Resend Invite"}
+              </button>
+            )}
+          </DrawerSection>
+
           {/* Stage */}
           <DrawerSection title="Stage">
             {canReset && (
@@ -1047,6 +1147,11 @@ export function RemoteTalentDashboard({
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [toast, setToast] = useState<string | null>(null);
 
+  // Phase 2: claim invites — invite status map, bulk-select set, send flag.
+  const [inviteStatuses, setInviteStatuses] = useState<Record<string, InviteStatus>>({});
+  const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
+  const [bulkSending, setBulkSending] = useState(false);
+
   const [deleteTarget, setDeleteTarget] = useState<RemoteTalentProfile | null>(null);
   const [deleting, setDeleting] = useState(false);
 
@@ -1180,6 +1285,71 @@ export function RemoteTalentDashboard({
     }
   }
 
+  // ── Phase 2: claim invites ─────────────────────────────────
+  useEffect(() => {
+    if (profiles.length === 0) return;
+    const ids = profiles.map((p) => p.id);
+    fetchRemoteInviteStatuses(ids)
+      .then(setInviteStatuses)
+      .catch(() => {
+        // Silent fail — UI defaults to "not_invited" when the map is empty.
+      });
+  }, [profiles]);
+
+  const allIds = profiles.map((p) => p.id);
+  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
+  const toggleSelectAll = () =>
+    setSelectedIds(allSelected ? new Set() : new Set(allIds));
+  const toggleSelect = useCallback((id: string) => {
+    setSelectedIds((prev) => {
+      const next = new Set(prev);
+      if (next.has(id)) {
+        next.delete(id);
+      } else {
+        next.add(id);
+      }
+      return next;
+    });
+  }, []);
+
+  const handleSendInvite = useCallback(
+    async (profileId: string) => {
+      const result = await sendRemoteClaimInvites([profileId]);
+      if (result.success) {
+        setToast("Claim invite sent");
+        const updated = await fetchRemoteInviteStatuses(
+          profiles.map((p) => p.id),
+        );
+        setInviteStatuses(updated);
+      } else {
+        setToast(result.error ?? "Failed to send invite");
+      }
+    },
+    [profiles],
+  );
+
+  async function handleBulkSendInvite() {
+    if (selectedIds.size === 0) return;
+    setBulkSending(true);
+    const result = await sendRemoteClaimInvites(Array.from(selectedIds));
+    setBulkSending(false);
+    if (result.success) {
+      setToast(`Invites sent to ${result.sent} candidate(s)`);
+      setSelectedIds(new Set());
+      const updated = await fetchRemoteInviteStatuses(
+        profiles.map((p) => p.id),
+      );
+      setInviteStatuses(updated);
+    } else {
+      setToast(result.error ?? "Failed to send invites");
+    }
+  }
+
+  function inviteStatusFor(profile: RemoteTalentProfile): InviteStatus {
+    if (profile.claimed_at) return "claimed";
+    return inviteStatuses[profile.id] ?? "not_invited";
+  }
+
   return (
     <div className="min-h-screen bg-remotiv-bg">
       <TopNav email={email} userRole={userRole} />
@@ -1290,6 +1460,44 @@ export function RemoteTalentDashboard({
           </aside>
 
           <div>
+            {/* Select-all + bulk toolbar */}
+            <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-black/[0.05] bg-white px-4 py-3">
+              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-gray-700">
+                <input
+                  type="checkbox"
+                  checked={allSelected}
+                  onChange={toggleSelectAll}
+                  aria-label="Select all profiles"
+                  className="size-4 cursor-pointer accent-remotiv-purple"
+                />
+                Select all
+              </label>
+              {selectedIds.size > 0 && (
+                <>
+                  <span className="text-xs text-gray-500">
+                    {selectedIds.size} selected
+                  </span>
+                  <button
+                    type="button"
+                    onClick={handleBulkSendInvite}
+                    disabled={bulkSending}
+                    className="rounded-lg bg-[#7E47FF] px-3 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {bulkSending
+                      ? "Sending..."
+                      : `Send Claim Email (${selectedIds.size})`}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setSelectedIds(new Set())}
+                    className="text-xs text-gray-400 transition-colors hover:text-gray-600"
+                  >
+                    Clear
+                  </button>
+                </>
+              )}
+            </div>
+
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-20 text-center">
                 <Briefcase className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
@@ -1305,6 +1513,10 @@ export function RemoteTalentDashboard({
                       key={p.id}
                       profile={p}
                       canApprove={isSuperAdmin}
+                      isSelected={selectedIds.has(p.id)}
+                      onToggleSelect={toggleSelect}
+                      inviteStatus={inviteStatusFor(p)}
+                      onSendInvite={handleSendInvite}
                       onView={() => setOpenId(p.id)}
                       onApprove={() => handleSetStatus(p, "approved")}
                     />
@@ -1419,6 +1631,8 @@ export function RemoteTalentDashboard({
         <ProfileDrawer
           profile={openProfile}
           isSuperAdmin={isSuperAdmin}
+          inviteStatus={inviteStatusFor(openProfile)}
+          onSendInvite={handleSendInvite}
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}
           onReset={() => handleResetToApproved(openProfile)}

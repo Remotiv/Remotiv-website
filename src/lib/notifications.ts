@@ -6,7 +6,8 @@ export type NotificationEvent =
   | "client_note"
   | "stage_change"
   | "candidate_added"
-  | "new_inquiry";
+  | "new_inquiry"
+  | "profile_claimed";
 
 export type NotificationInput = {
   event_type: NotificationEvent;
