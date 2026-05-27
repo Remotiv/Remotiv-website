@@ -1314,15 +1314,30 @@ export function RemoteTalentDashboard({
 
   const handleSendInvite = useCallback(
     async (profileId: string) => {
-      const result = await sendRemoteClaimInvites([profileId]);
-      if (result.success) {
-        setToast("Claim invite sent");
-        const updated = await fetchRemoteInviteStatuses(
-          profiles.map((p) => p.id),
-        );
-        setInviteStatuses(updated);
-      } else {
-        setToast(result.error ?? "Failed to send invite");
+      // sendRemoteClaimInvites is a server action that calls requireAdmin()
+      // before its own try/catch wraps the fetch. If requireAdmin throws
+      // (session expired, not an admin, etc.) the rejected promise reaches
+      // here. Without the outer try/catch the await would unwind silently
+      // and neither setToast branch would run — that's the silent-fail bug.
+      try {
+        const result = await sendRemoteClaimInvites([profileId]);
+        if (result.success) {
+          setToast("Claim invite sent");
+          try {
+            const updated = await fetchRemoteInviteStatuses(
+              profiles.map((p) => p.id),
+            );
+            setInviteStatuses(updated);
+          } catch (refreshErr) {
+            // Refresh failure shouldn't wipe the success toast — log only.
+            console.error("[handleSendInvite] refresh failed:", refreshErr);
+          }
+        } else {
+          setToast(result.error ?? "Failed to send invite");
+        }
+      } catch (err) {
+        console.error("[handleSendInvite] threw:", err);
+        setToast("Failed to send invite");
       }
     },
     [profiles],
@@ -1331,17 +1346,27 @@ export function RemoteTalentDashboard({
   async function handleBulkSendInvite() {
     if (selectedIds.size === 0) return;
     setBulkSending(true);
-    const result = await sendRemoteClaimInvites(Array.from(selectedIds));
-    setBulkSending(false);
-    if (result.success) {
-      setToast(`Invites sent to ${result.sent} candidate(s)`);
-      setSelectedIds(new Set());
-      const updated = await fetchRemoteInviteStatuses(
-        profiles.map((p) => p.id),
-      );
-      setInviteStatuses(updated);
-    } else {
-      setToast(result.error ?? "Failed to send invites");
+    try {
+      const result = await sendRemoteClaimInvites(Array.from(selectedIds));
+      if (result.success) {
+        setToast(`Invites sent to ${result.sent} candidate(s)`);
+        setSelectedIds(new Set());
+        try {
+          const updated = await fetchRemoteInviteStatuses(
+            profiles.map((p) => p.id),
+          );
+          setInviteStatuses(updated);
+        } catch (refreshErr) {
+          console.error("[handleBulkSendInvite] refresh failed:", refreshErr);
+        }
+      } else {
+        setToast(result.error ?? "Failed to send invites");
+      }
+    } catch (err) {
+      console.error("[handleBulkSendInvite] threw:", err);
+      setToast("Failed to send invites");
+    } finally {
+      setBulkSending(false);
     }
   }
 
