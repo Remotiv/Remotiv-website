@@ -1,25 +1,12 @@
 import { NextResponse } from "next/server";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/app/admin/lib/validators";
-import { sendEmail } from "@/lib/email/send";
-import {
-  claimVerificationSubject,
-  renderClaimVerificationEmail,
-} from "@/lib/email/templates/claim-verification";
 
 export const runtime = "nodejs";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://remotiv-website-m3jo.vercel.app";
-
-const NEUTRAL_MESSAGE =
-  "If we found a matching profile, you'll receive an email shortly.";
-
-// Same collision check used by /api/claim/verify. Inlined (not extracted to a
-// shared helper) because Phase 3A's scoping limits new files to the explicit
-// list. Keep in sync with verify/route.ts if changing the rule.
+// Email collision check helper — talent emails must not collide with
+// admin or client users (already enforced in Phases 1–3A).
 async function emailHasAdminOrClientCollision(
   service: ReturnType<typeof createServiceClient>,
   email: string,
@@ -53,6 +40,9 @@ async function emailHasAdminOrClientCollision(
   }
 }
 
+const NEUTRAL_MESSAGE =
+  "If we found a matching profile, you'll receive a 6-digit code shortly.";
+
 export async function POST(request: Request) {
   const rl = rateLimit(request, {
     bucketKey: "claim-initiate",
@@ -85,60 +75,37 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "email_conflict" });
   }
 
-  // Profile existence check. We only mint a magic link if a row exists in
-  // either talent pool — but the response stays neutral either way so an
-  // attacker can't enumerate registered emails from the API surface.
+  // Profile existence check — we only send a code if a profile exists.
+  // Response stays neutral either way to prevent email enumeration.
   const { data: talentRow } = await service
     .from("talent_profiles")
-    .select("id, first_name")
+    .select("id")
     .eq("email", normalisedEmail)
     .maybeSingle();
 
-  let firstName: string | null =
-    (talentRow as { first_name: string | null } | null)?.first_name ?? null;
   let profileExists = Boolean(talentRow);
   if (!profileExists) {
     const { data: remoteRow } = await service
       .from("hire_remote_profiles")
-      .select("id, first_name")
+      .select("id")
       .eq("email", normalisedEmail)
       .maybeSingle();
     profileExists = Boolean(remoteRow);
-    if (remoteRow) {
-      firstName =
-        (remoteRow as { first_name: string | null }).first_name ?? null;
-    }
   }
 
   if (profileExists) {
-    // Mint a magic link via the admin API (no PKCE, deterministic) and send
-    // the resulting actionLink through our branded Resend template. Errors
-    // are logged but we still return the neutral success message so the
-    // attacker model can't time-distinguish "email sent" from "no profile".
-    const { data: linkData, error: linkErr } =
-      await service.auth.admin.generateLink({
-        type: "magiclink",
-        email: normalisedEmail,
-        options: {
-          redirectTo: `${BASE_URL}/talent/verify`,
-        },
-      });
-
-    if (linkErr || !linkData?.properties?.action_link) {
-      console.error("[claim/initiate] generateLink failed:", linkErr);
-    } else {
-      const candidateName =
-        firstName?.trim() || normalisedEmail.split("@")[0] || "there";
-      sendEmail({
-        to: normalisedEmail,
-        subject: claimVerificationSubject,
-        html: renderClaimVerificationEmail({
-          candidateName,
-          loginUrl: linkData.properties.action_link,
-        }),
-      }).catch((err) =>
-        console.error("[claim/initiate] email send failed:", err),
-      );
+    // signInWithOtp sends a 6-digit code via Supabase's configured SMTP
+    // (Resend, in this project). Custom branding is set via the Supabase
+    // Dashboard's "Magic Link" email template using the {{ .Token }} variable.
+    // shouldCreateUser:true creates an auth.users row on first claim so
+    // verifyOtp can succeed for first-time claimers.
+    const supabase = await createClient();
+    const { error: otpErr } = await supabase.auth.signInWithOtp({
+      email: normalisedEmail,
+      options: { shouldCreateUser: true },
+    });
+    if (otpErr) {
+      console.error("[claim/initiate] signInWithOtp failed:", otpErr);
     }
   }
 

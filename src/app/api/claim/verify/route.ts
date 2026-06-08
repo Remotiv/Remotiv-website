@@ -6,51 +6,12 @@ export const runtime = "nodejs";
 
 type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
-const BASE_URL =
-  process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://remotiv-website-m3jo.vercel.app";
-
-// Looks up the (possibly-existing) auth.users row for an email and, if found,
-// returns true iff that user_id has a row in admin_users OR clients. We can't
-// query admin_users / clients directly by email because neither table has an
-// email column — emails live in auth.users. The notifications module uses the
-// same listUsers approach for the super-admin lookup.
-async function emailHasAdminOrClientCollision(
-  service: ReturnType<typeof createServiceClient>,
-  email: string,
-): Promise<boolean> {
-  const normalised = email.toLowerCase();
-  try {
-    const { data } = await service.auth.admin.listUsers({ perPage: 200 });
-    const match = data?.users?.find(
-      (u) => u.email?.toLowerCase() === normalised,
-    );
-    if (!match?.id) return false;
-
-    const { data: adminRow } = await service
-      .from("admin_users")
-      .select("id")
-      .eq("user_id", match.id)
-      .maybeSingle();
-    if (adminRow) return true;
-
-    const { data: clientRow } = await service
-      .from("clients")
-      .select("id")
-      .eq("user_id", match.id)
-      .maybeSingle();
-    if (clientRow) return true;
-
-    return false;
-  } catch (e) {
-    // If listUsers fails for any reason, fail open (assume no collision) and
-    // log — refusing every login on a transient Supabase admin-API hiccup
-    // would be worse than the rare false-negative collision.
-    console.error("[claim/verify] collision check failed:", e);
-    return false;
-  }
-}
-
+// Token verification path (admin invite flow):
+// The admin "Send Claim Email" button still creates a talent_claim_tokens row
+// and emails the candidate a tokenized URL: /talent/login?token=xxx
+// On that URL load, the login client posts here to (a) validate the token
+// and (b) trigger signInWithOtp on the linked profile's email so the
+// candidate receives an OTP code via Supabase.
 export async function POST(request: Request) {
   const rl = rateLimit(request, {
     bucketKey: "claim-verify",
@@ -72,7 +33,7 @@ export async function POST(request: Request) {
   }
 
   const { token } = (body ?? {}) as { token?: unknown };
-  if (typeof token !== "string" || token.length === 0 || token.length > 200) {
+  if (typeof token !== "string" || !token) {
     return NextResponse.json({ error: "Missing token" }, { status: 400 });
   }
 
@@ -93,67 +54,44 @@ export async function POST(request: Request) {
     candidate_id: string;
     source_table: SourceTable;
     status: string;
-    expires_at: string | null;
+    expires_at: string;
   };
 
   if (row.status === "claimed") {
     return NextResponse.json({ ok: false, reason: "already_claimed" });
   }
-
-  const expiresAtMs = row.expires_at ? Date.parse(row.expires_at) : 0;
-  if (row.status === "expired" || expiresAtMs < Date.now()) {
+  if (new Date(row.expires_at) < new Date() || row.status === "expired") {
     return NextResponse.json({ ok: false, reason: "expired" });
   }
 
+  // Look up the candidate's email from the linked profile
   const { data: profile } = await service
     .from(row.source_table)
     .select("email, first_name")
     .eq("id", row.candidate_id)
     .maybeSingle();
 
-  if (!profile) {
-    return NextResponse.json({ ok: false, reason: "invalid" });
-  }
-
-  const profileRow = profile as {
-    email: string | null;
-    first_name: string | null;
-  };
-  const candidateEmail = profileRow.email?.trim();
+  const candidateEmail = (profile as { email: string | null } | null)?.email;
   if (!candidateEmail) {
-    return NextResponse.json({ ok: false, reason: "invalid" });
+    return NextResponse.json({ ok: false, reason: "no_email" });
   }
 
-  if (await emailHasAdminOrClientCollision(service, candidateEmail)) {
-    return NextResponse.json({ ok: false, reason: "email_conflict" });
-  }
+  const candidateFirstName =
+    (profile as { first_name: string | null } | null)?.first_name ?? null;
 
-  // Mark the token as opened (status='opened', opened_at=now) — only if still
-  // pending. If already opened from a prior click, leave it alone.
+  // Mark token as opened
   await service
     .from("talent_claim_tokens")
     .update({ status: "opened", opened_at: new Date().toISOString() })
     .eq("id", row.id)
     .eq("status", "pending");
 
-  const { data: linkData, error: linkErr } =
-    await service.auth.admin.generateLink({
-      type: "magiclink",
-      email: candidateEmail,
-      options: {
-        redirectTo: `${BASE_URL}/talent/verify`,
-      },
-    });
-
-  if (linkErr || !linkData?.properties?.action_link) {
-    console.error("[claim/verify] generateLink failed:", linkErr);
-    return NextResponse.json({ ok: false, reason: "auth_error" });
-  }
-
+  // Return the email so the login client can call /api/claim/initiate
+  // with it (which sends the OTP code). The candidate types the 6-digit
+  // code into the same /talent/login UI.
   return NextResponse.json({
     ok: true,
     email: candidateEmail,
-    firstName: profileRow.first_name ?? null,
-    actionLink: linkData.properties.action_link,
+    firstName: candidateFirstName,
   });
 }
