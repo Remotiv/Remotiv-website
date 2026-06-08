@@ -178,134 +178,206 @@ export function TalentLoginClient({
     step.kind === "error" ? REASON_BANNER[step.reason] : null;
 
   return (
-    <main className="flex min-h-screen items-center justify-center bg-[#f8f4f1] px-4 py-10">
-      <div className="w-full max-w-md rounded-2xl border border-black/[0.06] bg-white p-8 shadow-sm">
-        <Link
-          href="/"
-          className="mb-6 inline-block font-heading text-xl font-bold text-remotiv-purple"
-        >
+    <main className="flex min-h-screen flex-col bg-white md:flex-row">
+      <aside className="hidden flex-col justify-between bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light p-10 md:flex md:w-5/12 lg:w-1/2 lg:p-14">
+        <div>
+          <Link
+            href="/"
+            className="font-heading text-2xl font-bold text-white"
+          >
+            Remotiv.
+          </Link>
+          <h1 className="mt-12 font-heading text-4xl font-bold leading-tight text-white lg:text-5xl">
+            Welcome back to your career.
+          </h1>
+          <p className="mt-4 max-w-md text-base text-white/80">
+            Claim or manage your Remotiv talent profile in 3 simple steps.
+          </p>
+          <ol className="mt-10 flex flex-col gap-4">
+            <li className="flex items-center gap-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white font-heading text-sm font-bold text-remotiv-purple">
+                1
+              </span>
+              <span className="text-sm text-white/90">Enter your email</span>
+            </li>
+            <li className="flex items-center gap-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white font-heading text-sm font-bold text-remotiv-purple">
+                2
+              </span>
+              <span className="text-sm text-white/90">
+                Get a 6-digit code
+              </span>
+            </li>
+            <li className="flex items-center gap-4">
+              <span className="flex h-8 w-8 shrink-0 items-center justify-center rounded-full bg-white font-heading text-sm font-bold text-remotiv-purple">
+                3
+              </span>
+              <span className="text-sm text-white/90">Claim your profile</span>
+            </li>
+          </ol>
+        </div>
+        <div className="grid grid-cols-3 gap-3">
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+            <p className="font-heading text-2xl font-bold text-white">
+              1,000+
+            </p>
+            <p className="mt-1 text-[11px] uppercase tracking-widest text-white/70">
+              Talent
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+            <p className="font-heading text-2xl font-bold text-white">100+</p>
+            <p className="mt-1 text-[11px] uppercase tracking-widest text-white/70">
+              Companies
+            </p>
+          </div>
+          <div className="rounded-2xl border border-white/15 bg-white/10 p-4 backdrop-blur">
+            <p className="font-heading text-2xl font-bold text-white">24hr</p>
+            <p className="mt-1 text-[11px] uppercase tracking-widest text-white/70">
+              Hiring
+            </p>
+          </div>
+        </div>
+      </aside>
+
+      <div className="flex items-center justify-between bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light px-6 py-4 md:hidden">
+        <Link href="/" className="font-heading text-lg font-bold text-white">
           Remotiv.
         </Link>
-        <h1 className="font-heading text-2xl font-bold text-gray-900">
-          Talent Login
-        </h1>
-        <p className="mt-1 text-sm text-gray-500">
-          Sign in to claim or manage your profile.
-        </p>
-
-        {reasonBanner && !stepError && (
-          <p
-            role="status"
-            aria-live="polite"
-            className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
-          >
-            {reasonBanner}
-          </p>
-        )}
-        {stepError && (
-          <p
-            role="alert"
-            aria-live="assertive"
-            className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
-          >
-            {stepError}
-          </p>
-        )}
-
-        {step.kind === "email" && (
-          <form onSubmit={handleEmailSubmit} className="mt-6 flex flex-col gap-3">
-            <label
-              htmlFor="talent-email"
-              className="text-[10px] font-semibold uppercase tracking-widest text-gray-400"
-            >
-              Email
-            </label>
-            <input
-              id="talent-email"
-              type="email"
-              required
-              aria-required="true"
-              value={email}
-              onChange={(e) => setEmail(e.target.value)}
-              placeholder="you@example.com"
-              className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none ring-remotiv-purple/30 focus:border-remotiv-purple focus:ring-2"
-            />
-            <button
-              type="submit"
-              disabled={busy}
-              className="mt-2 rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {busy ? "Sending…" : "Send me a 6-digit code"}
-            </button>
-          </form>
-        )}
-
-        {step.kind === "code" && (
-          <form onSubmit={handleCodeSubmit} className="mt-6 flex flex-col gap-3">
-            {message && (
-              <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
-                {message}
-              </p>
-            )}
-            <label
-              htmlFor="talent-code"
-              className="text-[10px] font-semibold uppercase tracking-widest text-gray-400"
-            >
-              6-digit code
-            </label>
-            <input
-              id="talent-code"
-              type="text"
-              inputMode="numeric"
-              pattern="\d{6}"
-              maxLength={6}
-              required
-              aria-required="true"
-              value={code}
-              onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
-              placeholder="000000"
-              // biome-ignore lint/a11y/noAutofocus: OTP flow — focus is expected on the code field as soon as it appears
-              autoFocus
-              className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center font-mono text-2xl tracking-[0.5em] outline-none ring-remotiv-purple/30 focus:border-remotiv-purple focus:ring-2"
-            />
-            {error && (
-              <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-                {error}
-              </p>
-            )}
-            <button
-              type="submit"
-              disabled={busy}
-              className="mt-2 rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-            >
-              {busy ? "Verifying…" : "Verify & sign in"}
-            </button>
-            <button
-              type="button"
-              onClick={handleBackToEmail}
-              className="text-xs text-gray-400 hover:text-gray-600"
-            >
-              Use a different email
-            </button>
-          </form>
-        )}
-
-        {step.kind === "email" && error && (
-          <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
-            {error}
-          </p>
-        )}
-
-        <p className="mt-6 text-center text-xs text-gray-400">
-          Trouble signing in? Email{" "}
-          <a
-            href="mailto:talent@remotiv.work"
-            className="text-remotiv-purple hover:underline"
-          >
-            talent@remotiv.work
-          </a>
+        <p className="text-xs text-white/80">
+          Talent Portal — Sign in to claim your profile
         </p>
       </div>
+
+      <section className="flex flex-1 flex-col justify-center bg-[#f8f4f1] px-6 py-10 md:w-7/12 md:px-12 lg:w-1/2 lg:px-16">
+        <div className="mx-auto w-full max-w-md">
+          <h1 className="font-heading text-3xl font-bold text-gray-900">
+            Talent Login
+          </h1>
+          <p className="mt-1 text-sm text-gray-500">
+            Sign in to claim or manage your profile.
+          </p>
+
+          {reasonBanner && !stepError && (
+            <p
+              role="status"
+              aria-live="polite"
+              className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
+            >
+              {reasonBanner}
+            </p>
+          )}
+          {stepError && (
+            <p
+              role="alert"
+              aria-live="assertive"
+              className="mt-5 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700"
+            >
+              {stepError}
+            </p>
+          )}
+
+          {step.kind === "email" && (
+            <form
+              onSubmit={handleEmailSubmit}
+              className="mt-6 flex flex-col gap-3"
+            >
+              <label
+                htmlFor="talent-email"
+                className="text-[10px] font-semibold uppercase tracking-widest text-gray-400"
+              >
+                Email
+              </label>
+              <input
+                id="talent-email"
+                type="email"
+                required
+                aria-required="true"
+                value={email}
+                onChange={(e) => setEmail(e.target.value)}
+                placeholder="you@example.com"
+                className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-sm outline-none ring-remotiv-purple/30 focus:border-remotiv-purple focus:ring-2"
+              />
+              <button
+                type="submit"
+                disabled={busy}
+                className="mt-2 rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? "Sending…" : "Send me a 6-digit code"}
+              </button>
+            </form>
+          )}
+
+          {step.kind === "code" && (
+            <form
+              onSubmit={handleCodeSubmit}
+              className="mt-6 flex flex-col gap-3"
+            >
+              {message && (
+                <p className="rounded-xl border border-green-200 bg-green-50 px-4 py-3 text-sm text-green-800">
+                  {message}
+                </p>
+              )}
+              <label
+                htmlFor="talent-code"
+                className="text-[10px] font-semibold uppercase tracking-widest text-gray-400"
+              >
+                6-digit code
+              </label>
+              <input
+                id="talent-code"
+                type="text"
+                inputMode="numeric"
+                pattern="\d{6}"
+                maxLength={6}
+                required
+                aria-required="true"
+                value={code}
+                onChange={(e) => setCode(e.target.value.replace(/\D/g, ""))}
+                placeholder="000000"
+                // biome-ignore lint/a11y/noAutofocus: OTP flow — focus is expected on the code field as soon as it appears
+                autoFocus
+                className="rounded-xl border border-gray-200 bg-white px-4 py-3 text-center font-mono text-2xl tracking-[0.5em] outline-none ring-remotiv-purple/30 focus:border-remotiv-purple focus:ring-2"
+              />
+              {error && (
+                <p className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+                  {error}
+                </p>
+              )}
+              <button
+                type="submit"
+                disabled={busy}
+                className="mt-2 rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {busy ? "Verifying…" : "Verify & sign in"}
+              </button>
+              <button
+                type="button"
+                onClick={handleBackToEmail}
+                className="text-xs text-gray-400 hover:text-gray-600"
+              >
+                Use a different email
+              </button>
+            </form>
+          )}
+
+          {step.kind === "email" && error && (
+            <p className="mt-3 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </p>
+          )}
+
+          <p className="mt-6 text-center text-xs text-gray-400">
+            Trouble signing in? Email{" "}
+            <a
+              href="mailto:talent@remotiv.work"
+              className="text-remotiv-purple hover:underline"
+            >
+              talent@remotiv.work
+            </a>
+          </p>
+        </div>
+      </section>
     </main>
   );
 }
