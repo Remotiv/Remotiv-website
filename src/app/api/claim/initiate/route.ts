@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { sendEmail } from "@/lib/email/send";
+import {
+  claimVerificationSubject,
+  renderClaimVerificationEmail,
+} from "@/lib/email/templates/claim-verification";
 
 export const runtime = "nodejs";
 
@@ -80,37 +85,60 @@ export async function POST(request: Request) {
     return NextResponse.json({ ok: false, reason: "email_conflict" });
   }
 
-  // Profile existence check. We only fire the OTP if a row exists in either
-  // talent pool — but the response stays neutral either way so an attacker
-  // can't enumerate registered emails from the API surface.
+  // Profile existence check. We only mint a magic link if a row exists in
+  // either talent pool — but the response stays neutral either way so an
+  // attacker can't enumerate registered emails from the API surface.
   const { data: talentRow } = await service
     .from("talent_profiles")
-    .select("id")
+    .select("id, first_name")
     .eq("email", normalisedEmail)
     .maybeSingle();
 
+  let firstName: string | null =
+    (talentRow as { first_name: string | null } | null)?.first_name ?? null;
   let profileExists = Boolean(talentRow);
   if (!profileExists) {
     const { data: remoteRow } = await service
       .from("hire_remote_profiles")
-      .select("id")
+      .select("id, first_name")
       .eq("email", normalisedEmail)
       .maybeSingle();
     profileExists = Boolean(remoteRow);
+    if (remoteRow) {
+      firstName =
+        (remoteRow as { first_name: string | null }).first_name ?? null;
+    }
   }
 
   if (profileExists) {
-    // Fire-and-forget OTP send. Errors are logged but we still return the
-    // neutral success message so the attacker model can't time-distinguish
-    // "OTP sent" from "no profile".
-    const { error: otpErr } = await service.auth.signInWithOtp({
-      email: normalisedEmail,
-      options: {
-        emailRedirectTo: `${BASE_URL}/auth/callback?next=/talent/dashboard`,
-      },
-    });
-    if (otpErr) {
-      console.error("[claim/initiate] signInWithOtp failed:", otpErr);
+    // Mint a magic link via the admin API (no PKCE, deterministic) and send
+    // the resulting actionLink through our branded Resend template. Errors
+    // are logged but we still return the neutral success message so the
+    // attacker model can't time-distinguish "email sent" from "no profile".
+    const { data: linkData, error: linkErr } =
+      await service.auth.admin.generateLink({
+        type: "magiclink",
+        email: normalisedEmail,
+        options: {
+          redirectTo: `${BASE_URL}/talent/verify`,
+        },
+      });
+
+    if (linkErr || !linkData?.properties?.action_link) {
+      console.error("[claim/initiate] generateLink failed:", linkErr);
+    } else {
+      const candidateName =
+        firstName?.trim() || normalisedEmail.split("@")[0] || "there";
+      sendEmail({
+        to: normalisedEmail,
+        subject: claimVerificationSubject,
+        html: renderClaimVerificationEmail({
+          candidateName,
+          loginUrl: linkData.properties.action_link,
+        }),
+      }).catch((err) =>
+        console.error("[claim/initiate] email send failed:", err),
+      );
     }
   }
 

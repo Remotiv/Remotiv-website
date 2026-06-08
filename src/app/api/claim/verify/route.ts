@@ -141,7 +141,7 @@ export async function POST(request: Request) {
       type: "magiclink",
       email: candidateEmail,
       options: {
-        redirectTo: `${BASE_URL}/auth/callback?next=/talent/dashboard`,
+        redirectTo: `${BASE_URL}/talent/verify`,
       },
     });
 

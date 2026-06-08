@@ -13,6 +13,7 @@ const HIDDEN_PREFIXES = [
   "/reset-password",
   "/auth/callback",
   "/talent/login",
+  "/talent/verify",
   "/talent/dashboard",
 ];
 

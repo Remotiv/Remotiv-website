@@ -65,8 +65,11 @@ export function TalentLoginClient({
             email: json.email ?? "",
             firstName: json.firstName ?? null,
           });
-          // Hard navigation: Supabase magic-link URLs need a full document
-          // load to set their auth cookies, not a client-side router.push.
+          // Use hard navigation: Supabase admin-generated magic links contain
+          // a one-shot verify token; client-side router.push would not perform
+          // the verify roundtrip correctly. window.location.href forces a full
+          // document load through /auth/callback which then exchanges the code
+          // into a session cookie.
           window.location.href = json.actionLink;
           return;
         }
