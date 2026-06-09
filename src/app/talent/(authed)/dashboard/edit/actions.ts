@@ -35,6 +35,11 @@ const JOB_TITLE_MAX = 120;
 const SUMMARY_MAX = 5000;
 const YEARS_MAX = 70;
 const SALARY_MAX = 100_000_000;
+const SKILLS_MAX = 30;
+const SKILL_CHAR_MAX = 50;
+const EXPERIENCE_MAX = 30;
+const EXPERIENCE_FIELD_MAX = 200;
+const EXPERIENCE_SKILLS_MAX = 30;
 
 const COUNTRY_OPTIONS = [
   "Pakistan",
@@ -508,4 +513,185 @@ export async function updateTalentAvailabilitySalary(
     success: true,
     data: { availability, workType, salaryMin, salaryMax },
   };
+}
+
+type ExperienceEntryInput = {
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  currentlyWorking: boolean;
+  skills: string[];
+};
+
+type ExperienceEntryStored = {
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  dates: string;
+  skills: string[];
+};
+
+type UpdateSkillsExperienceInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  skills: string[];
+  experience: ExperienceEntryInput[];
+};
+
+type SkillsExperienceData = {
+  skills: string[];
+  experience: ExperienceEntryStored[];
+};
+
+function normaliseSkillsArray(input: string[]): string[] {
+  const out: string[] = [];
+  const seen = new Set<string>();
+  for (const raw of input) {
+    if (typeof raw !== "string") continue;
+    const trimmed = raw.trim();
+    if (!trimmed) continue;
+    const capped = trimmed.slice(0, SKILL_CHAR_MAX);
+    const lower = capped.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    out.push(capped);
+  }
+  return out;
+}
+
+function buildDatesString(
+  start: string,
+  end: string,
+  currentlyWorking: boolean,
+): string {
+  const s = start.trim();
+  const e = currentlyWorking ? "Present" : end.trim();
+  if (!s && !e) return "";
+  if (!s) return e;
+  if (!e) return s;
+  return `${s} – ${e}`;
+}
+
+export async function updateTalentSkillsExperience(
+  input: UpdateSkillsExperienceInput,
+): Promise<MutationResult<SkillsExperienceData>> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  if (!Array.isArray(input.skills)) {
+    return { success: false, error: "Skills must be a list." };
+  }
+  if (!Array.isArray(input.experience)) {
+    return { success: false, error: "Experience must be a list." };
+  }
+
+  for (const raw of input.skills) {
+    if (typeof raw === "string" && raw.trim().length > SKILL_CHAR_MAX) {
+      return {
+        success: false,
+        error: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+      };
+    }
+  }
+  const skills = normaliseSkillsArray(input.skills);
+  if (skills.length > SKILLS_MAX) {
+    return { success: false, error: `You can list up to ${SKILLS_MAX} skills.` };
+  }
+
+  const storedExperience: ExperienceEntryStored[] = [];
+  for (const entry of input.experience) {
+    if (!entry || typeof entry !== "object") continue;
+    const title = (entry.title ?? "").trim();
+    const company = (entry.company ?? "").trim();
+    const start = (entry.start ?? "").trim();
+    const endRaw = (entry.end ?? "").trim();
+    const currentlyWorking = Boolean(entry.currentlyWorking);
+    if (!title && !company) continue;
+    if (title.length > EXPERIENCE_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Job title must be ${EXPERIENCE_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (company.length > EXPERIENCE_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Company must be ${EXPERIENCE_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (start.length > EXPERIENCE_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Start must be ${EXPERIENCE_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (!currentlyWorking && endRaw.length > EXPERIENCE_FIELD_MAX) {
+      return {
+        success: false,
+        error: `End must be ${EXPERIENCE_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    const rawSkills = Array.isArray(entry.skills) ? entry.skills : [];
+    for (const s of rawSkills) {
+      if (typeof s === "string" && s.trim().length > SKILL_CHAR_MAX) {
+        return {
+          success: false,
+          error: `Each per-role skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+        };
+      }
+    }
+    const rowSkills = normaliseSkillsArray(rawSkills);
+    if (rowSkills.length > EXPERIENCE_SKILLS_MAX) {
+      return {
+        success: false,
+        error: `Each role can list up to ${EXPERIENCE_SKILLS_MAX} skills.`,
+      };
+    }
+    const end = currentlyWorking ? "Present" : endRaw;
+    storedExperience.push({
+      title,
+      company,
+      start,
+      end,
+      dates: buildDatesString(start, endRaw, currentlyWorking),
+      skills: rowSkills,
+    });
+  }
+  if (storedExperience.length > EXPERIENCE_MAX) {
+    return {
+      success: false,
+      error: `You can list up to ${EXPERIENCE_MAX} experiences.`,
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from(sourceTable)
+    .update({ skills, experience: storedExperience })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateTalentSkillsExperience] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { skills, experience: storedExperience } };
 }

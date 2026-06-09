@@ -9,6 +9,7 @@ import {
   updateTalentBasicInfo,
   updateTalentLocation,
   updateTalentProfessional,
+  updateTalentSkillsExperience,
 } from "./actions";
 
 export type EditableProfile = {
@@ -87,6 +88,12 @@ const WORK_TYPE_OPTIONS = [
   "Any",
 ] as const;
 
+const SKILLS_MAX = 30;
+const SKILL_CHAR_MAX = 50;
+const EXPERIENCE_MAX = 30;
+const EXPERIENCE_FIELD_MAX = 200;
+const EXPERIENCE_SKILLS_MAX = 30;
+
 function ChevronRightIcon() {
   return (
     <svg
@@ -113,6 +120,82 @@ function LockIcon() {
       <path d="M8 1.5a3 3 0 00-3 3V6H4a1 1 0 00-1 1v6.5A1.5 1.5 0 004.5 15h7a1.5 1.5 0 001.5-1.5V7a1 1 0 00-1-1h-1V4.5a3 3 0 00-3-3zm-1.5 3a1.5 1.5 0 013 0V6h-3V4.5z" />
     </svg>
   );
+}
+
+function TrashIcon() {
+  return (
+    <svg
+      aria-hidden="true"
+      viewBox="0 0 16 16"
+      width="13"
+      height="13"
+      fill="currentColor"
+    >
+      <path d="M5 1.5a.5.5 0 01.5-.5h5a.5.5 0 010 1H10v1h3.5a.5.5 0 010 1H13v9a2 2 0 01-2 2H5a2 2 0 01-2-2V4h-.5a.5.5 0 010-1H6v-1H5.5a.5.5 0 01-.5-.5zM5 4v9a1 1 0 001 1h4a1 1 0 001-1V4H5zm2 1.5a.5.5 0 011 0v6a.5.5 0 01-1 0v-6zm3 0a.5.5 0 011 0v6a.5.5 0 01-1 0v-6z" />
+    </svg>
+  );
+}
+
+type ExperienceRowState = {
+  uiId: string;
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  currentlyWorking: boolean;
+  skillsStr: string;
+};
+
+function makeEmptyExperienceRow(): ExperienceRowState {
+  return {
+    uiId: `row-${Math.random().toString(36).slice(2)}`,
+    title: "",
+    company: "",
+    start: "",
+    end: "",
+    currentlyWorking: false,
+    skillsStr: "",
+  };
+}
+
+function parseSkillsArrayFromRaw(raw: unknown): string[] {
+  if (!Array.isArray(raw)) return [];
+  return raw
+    .filter((s): s is string => typeof s === "string")
+    .map((s) => s.trim())
+    .filter((s) => s.length > 0);
+}
+
+function parseExperienceRowsFromRaw(raw: unknown): ExperienceRowState[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, i) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const end = typeof o.end === "string" ? o.end : "";
+    const currentlyWorking = end === "Present";
+    const skillsArr = Array.isArray(o.skills)
+      ? (o.skills as unknown[]).filter(
+          (s): s is string => typeof s === "string",
+        )
+      : [];
+    return {
+      uiId: `row-${i}-${Math.random().toString(36).slice(2)}`,
+      title: typeof o.title === "string" ? o.title : "",
+      company: typeof o.company === "string" ? o.company : "",
+      start: typeof o.start === "string" ? o.start : "",
+      end: currentlyWorking ? "" : end,
+      currentlyWorking,
+      skillsStr: skillsArr.join(", "),
+    };
+  });
+}
+
+function skillsExpFilledCount(p: EditableProfile): number {
+  let n = 0;
+  const s = parseSkillsArrayFromRaw(p.raw.skills);
+  if (s.length > 0) n += 1;
+  const e = Array.isArray(p.raw.experience) ? p.raw.experience : [];
+  if (e.length > 0) n += 1;
+  return n;
 }
 
 function basicInfoFilledCount(p: EditableProfile): number {
@@ -266,6 +349,28 @@ export function EditClient({
     salaryMax: string;
   } | null>(null);
 
+  const [skillsList, setSkillsList] = useState<string[]>([]);
+  const [skillInput, setSkillInput] = useState("");
+  const [expRows, setExpRows] = useState<ExperienceRowState[]>([]);
+  const [skillsExpErrors, setSkillsExpErrors] = useState<{
+    general?: string;
+    rows?: Record<
+      string,
+      {
+        title?: string;
+        company?: string;
+        start?: string;
+        end?: string;
+        skillsStr?: string;
+      }
+    >;
+  }>({});
+  const [skillsExpSaving, setSkillsExpSaving] = useState(false);
+  const [skillsExpSnapshot, setSkillsExpSnapshot] = useState<{
+    skills: string[];
+    expRows: ExperienceRowState[];
+  } | null>(null);
+
   useEffect(() => {
     if (!activeProfile) {
       setBasicFirstName("");
@@ -287,6 +392,10 @@ export function EditClient({
       setAvailSalaryMin("");
       setAvailSalaryMax("");
       setAvailSnapshot(null);
+      setSkillsList([]);
+      setSkillInput("");
+      setExpRows([]);
+      setSkillsExpSnapshot(null);
       return;
     }
     const next = {
@@ -353,6 +462,16 @@ export function EditClient({
     setAvailSalaryMax(availNext.salaryMax);
     setAvailSnapshot(availNext);
     setAvailErrors({});
+
+    const seededSkills = parseSkillsArrayFromRaw(activeProfile.raw.skills);
+    const seededExpRows = parseExperienceRowsFromRaw(
+      activeProfile.raw.experience,
+    );
+    setSkillsList(seededSkills);
+    setSkillInput("");
+    setExpRows(seededExpRows);
+    setSkillsExpErrors({});
+    setSkillsExpSnapshot({ skills: seededSkills, expRows: seededExpRows });
   }, [activeProfile]);
 
   useEffect(() => {
@@ -625,6 +744,199 @@ export function EditClient({
     }
   }
 
+  function commitSkillInput() {
+    const raw = skillInput.trim();
+    if (!raw) return;
+    if (raw.length > SKILL_CHAR_MAX) {
+      setSkillsExpErrors((prev) => ({
+        ...prev,
+        general: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+      }));
+      return;
+    }
+    const lower = raw.toLowerCase();
+    if (skillsList.some((s) => s.toLowerCase() === lower)) {
+      setSkillInput("");
+      return;
+    }
+    if (skillsList.length >= SKILLS_MAX) {
+      setSkillsExpErrors((prev) => ({
+        ...prev,
+        general: `You can list up to ${SKILLS_MAX} skills.`,
+      }));
+      return;
+    }
+    setSkillsList((prev) => [...prev, raw]);
+    setSkillInput("");
+    setSkillsExpErrors((prev) => ({ ...prev, general: undefined }));
+  }
+
+  function handleSkillInputKeyDown(e: React.KeyboardEvent<HTMLInputElement>) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commitSkillInput();
+    } else if (
+      e.key === "Backspace" &&
+      skillInput === "" &&
+      skillsList.length > 0
+    ) {
+      setSkillsList((prev) => prev.slice(0, -1));
+    }
+  }
+
+  function removeSkillAt(index: number) {
+    setSkillsList((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function addExperienceRow() {
+    if (expRows.length >= EXPERIENCE_MAX) {
+      setSkillsExpErrors((prev) => ({
+        ...prev,
+        general: `You can list up to ${EXPERIENCE_MAX} experiences.`,
+      }));
+      return;
+    }
+    setExpRows((prev) => [...prev, makeEmptyExperienceRow()]);
+  }
+
+  function removeExperienceRow(uiId: string) {
+    setExpRows((prev) => prev.filter((r) => r.uiId !== uiId));
+  }
+
+  function updateExperienceRow(
+    uiId: string,
+    patch: Partial<ExperienceRowState>,
+  ) {
+    setExpRows((prev) =>
+      prev.map((r) => (r.uiId === uiId ? { ...r, ...patch } : r)),
+    );
+  }
+
+  function handleSkillsExpCancel() {
+    if (!skillsExpSnapshot) return;
+    setSkillsList(skillsExpSnapshot.skills);
+    setSkillInput("");
+    setExpRows(skillsExpSnapshot.expRows);
+    setSkillsExpErrors({});
+  }
+
+  async function handleSkillsExpSave() {
+    if (!activeProfile) return;
+
+    let pendingSkills = [...skillsList];
+    const raw = skillInput.trim();
+    if (raw) {
+      if (raw.length > SKILL_CHAR_MAX) {
+        setSkillsExpErrors({
+          general: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+        });
+        return;
+      }
+      if (!pendingSkills.some((s) => s.toLowerCase() === raw.toLowerCase())) {
+        if (pendingSkills.length >= SKILLS_MAX) {
+          setSkillsExpErrors({
+            general: `You can list up to ${SKILLS_MAX} skills.`,
+          });
+          return;
+        }
+        pendingSkills = [...pendingSkills, raw];
+      }
+    }
+
+    const rowErrors: Record<
+      string,
+      {
+        title?: string;
+        company?: string;
+        start?: string;
+        end?: string;
+        skillsStr?: string;
+      }
+    > = {};
+    for (const row of expRows) {
+      const rowErr: {
+        title?: string;
+        company?: string;
+        start?: string;
+        end?: string;
+        skillsStr?: string;
+      } = {};
+      if (row.title.length > EXPERIENCE_FIELD_MAX)
+        rowErr.title = `≤${EXPERIENCE_FIELD_MAX} chars.`;
+      if (row.company.length > EXPERIENCE_FIELD_MAX)
+        rowErr.company = `≤${EXPERIENCE_FIELD_MAX} chars.`;
+      if (row.start.length > EXPERIENCE_FIELD_MAX)
+        rowErr.start = `≤${EXPERIENCE_FIELD_MAX} chars.`;
+      if (
+        !row.currentlyWorking &&
+        row.end.length > EXPERIENCE_FIELD_MAX
+      )
+        rowErr.end = `≤${EXPERIENCE_FIELD_MAX} chars.`;
+      const rowSkills = row.skillsStr
+        .split(",")
+        .map((s) => s.trim())
+        .filter(Boolean);
+      if (rowSkills.some((s) => s.length > SKILL_CHAR_MAX))
+        rowErr.skillsStr = `Each skill ≤${SKILL_CHAR_MAX} chars.`;
+      if (rowSkills.length > EXPERIENCE_SKILLS_MAX)
+        rowErr.skillsStr = `Up to ${EXPERIENCE_SKILLS_MAX} skills per row.`;
+      if (Object.keys(rowErr).length > 0) rowErrors[row.uiId] = rowErr;
+    }
+    if (Object.keys(rowErrors).length > 0) {
+      setSkillsExpErrors({ rows: rowErrors });
+      return;
+    }
+
+    setSkillsExpErrors({});
+    setSkillsExpSaving(true);
+    try {
+      const experienceInput = expRows.map((r) => ({
+        title: r.title.trim(),
+        company: r.company.trim(),
+        start: r.start.trim(),
+        end: r.end.trim(),
+        currentlyWorking: r.currentlyWorking,
+        skills: r.skillsStr
+          .split(",")
+          .map((s) => s.trim())
+          .filter(Boolean),
+      }));
+
+      const result = await updateTalentSkillsExperience({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        skills: pendingSkills,
+        experience: experienceInput,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+
+      const savedSkills = result.data.skills;
+      const savedRows = result.data.experience.map((entry, i) => ({
+        uiId: `row-${i}-${Math.random().toString(36).slice(2)}`,
+        title: entry.title,
+        company: entry.company,
+        start: entry.start,
+        end: entry.end === "Present" ? "" : entry.end,
+        currentlyWorking: entry.end === "Present",
+        skillsStr: entry.skills.join(", "),
+      }));
+      setSkillsList(savedSkills);
+      setSkillInput("");
+      setExpRows(savedRows);
+      setSkillsExpSnapshot({ skills: savedSkills, expRows: savedRows });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] skills/experience save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setSkillsExpSaving(false);
+    }
+  }
+
   async function handleBasicSave() {
     if (!activeProfile) return;
     const errors: typeof basicErrors = {};
@@ -719,6 +1031,7 @@ export function EditClient({
   const locCount = locationFilledCount(activeProfile);
   const profCount = professionalFilledCount(activeProfile);
   const availCount = availSalaryFilledCount(activeProfile);
+  const skillsCount = skillsExpFilledCount(activeProfile);
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
@@ -776,7 +1089,10 @@ export function EditClient({
     {
       key: "skills",
       title: "Skills & experience",
-      badge: { className: "bg-gray-100 text-gray-600", label: "Coming soon" },
+      badge: {
+        className: ofNBadgeClass(skillsCount, 2),
+        label: ofNBadgeLabel(skillsCount, 2),
+      },
     },
     {
       key: "cv",
@@ -1281,7 +1597,248 @@ export function EditClient({
                   )}
 
                   {section.key === "skills" && (
-                    <p className="text-sm text-gray-500">Coming in 4.2C.</p>
+                    <div>
+                      <div className="mb-6">
+                        <p className={`${LABEL_CLASS} mb-2 block`}>Skills</p>
+                        <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-white p-2">
+                          {skillsList.map((s, i) => (
+                            <span
+                              key={`${s}-${i}`}
+                              className="inline-flex items-center gap-1 rounded-full bg-remotiv-purple/10 px-2.5 py-1 text-xs font-semibold text-remotiv-purple"
+                            >
+                              {s}
+                              <button
+                                type="button"
+                                onClick={() => removeSkillAt(i)}
+                                aria-label={`Remove ${s}`}
+                                className="ml-0.5 text-remotiv-purple hover:opacity-70"
+                              >
+                                ×
+                              </button>
+                            </span>
+                          ))}
+                          <input
+                            type="text"
+                            value={skillInput}
+                            onChange={(e) => setSkillInput(e.target.value)}
+                            onKeyDown={handleSkillInputKeyDown}
+                            onBlur={commitSkillInput}
+                            placeholder={
+                              skillsList.length === 0
+                                ? "Type a skill and press Enter"
+                                : ""
+                            }
+                            maxLength={SKILL_CHAR_MAX}
+                            className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none"
+                          />
+                        </div>
+                        <p className="mt-1 text-[11px] text-gray-400">
+                          {skillsList.length} / {SKILLS_MAX} · press Enter or
+                          comma to add
+                        </p>
+                      </div>
+
+                      <div>
+                        <p className={`${LABEL_CLASS} mb-2 block`}>
+                          Experience
+                        </p>
+                        {expRows.length === 0 && (
+                          <p className="mb-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                            No experiences yet. Add your first below.
+                          </p>
+                        )}
+                        <div className="flex flex-col gap-3">
+                          {expRows.map((row) => {
+                            const rowErr =
+                              skillsExpErrors.rows?.[row.uiId] ?? {};
+                            return (
+                              <div
+                                key={row.uiId}
+                                className="rounded-xl border border-gray-200 bg-white p-4"
+                              >
+                                <div className="mb-3 flex items-center justify-between">
+                                  <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                                    Role
+                                  </span>
+                                  <button
+                                    type="button"
+                                    onClick={() =>
+                                      removeExperienceRow(row.uiId)
+                                    }
+                                    aria-label="Remove this experience"
+                                    className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-red-50 hover:text-red-700"
+                                  >
+                                    <TrashIcon /> Remove
+                                  </button>
+                                </div>
+                                <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                  <label className="flex flex-col gap-1">
+                                    <span className={LABEL_CLASS}>
+                                      Job title
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={row.title}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          title: e.target.value,
+                                        })
+                                      }
+                                      maxLength={EXPERIENCE_FIELD_MAX}
+                                      className={INPUT_CLASS}
+                                    />
+                                    {rowErr.title && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.title}
+                                      </span>
+                                    )}
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className={LABEL_CLASS}>Company</span>
+                                    <input
+                                      type="text"
+                                      value={row.company}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          company: e.target.value,
+                                        })
+                                      }
+                                      maxLength={EXPERIENCE_FIELD_MAX}
+                                      className={INPUT_CLASS}
+                                    />
+                                    {rowErr.company && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.company}
+                                      </span>
+                                    )}
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className={LABEL_CLASS}>Start</span>
+                                    <input
+                                      type="text"
+                                      value={row.start}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          start: e.target.value,
+                                        })
+                                      }
+                                      maxLength={EXPERIENCE_FIELD_MAX}
+                                      placeholder="2020-03"
+                                      className={INPUT_CLASS}
+                                    />
+                                    {rowErr.start && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.start}
+                                      </span>
+                                    )}
+                                  </label>
+                                  <label className="flex flex-col gap-1">
+                                    <span className={LABEL_CLASS}>End</span>
+                                    <input
+                                      type="text"
+                                      value={
+                                        row.currentlyWorking
+                                          ? "Present"
+                                          : row.end
+                                      }
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          end: e.target.value,
+                                        })
+                                      }
+                                      maxLength={EXPERIENCE_FIELD_MAX}
+                                      placeholder="2022-12"
+                                      disabled={row.currentlyWorking}
+                                      className={
+                                        row.currentlyWorking
+                                          ? `${INPUT_CLASS} bg-gray-50 text-gray-500`
+                                          : INPUT_CLASS
+                                      }
+                                    />
+                                    {rowErr.end && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.end}
+                                      </span>
+                                    )}
+                                  </label>
+                                  <label className="flex items-center gap-2 md:col-span-2">
+                                    <input
+                                      type="checkbox"
+                                      checked={row.currentlyWorking}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          currentlyWorking: e.target.checked,
+                                          end: e.target.checked ? "" : row.end,
+                                        })
+                                      }
+                                      className="h-4 w-4 rounded border-gray-300 text-remotiv-purple focus:ring-remotiv-purple"
+                                    />
+                                    <span className="text-xs text-gray-700">
+                                      I currently work here
+                                    </span>
+                                  </label>
+                                  <label className="flex flex-col gap-1 md:col-span-2">
+                                    <span className={LABEL_CLASS}>
+                                      Skills used
+                                    </span>
+                                    <input
+                                      type="text"
+                                      value={row.skillsStr}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          skillsStr: e.target.value,
+                                        })
+                                      }
+                                      placeholder="React, TypeScript, Node.js (comma-separated)"
+                                      className={INPUT_CLASS}
+                                    />
+                                    {rowErr.skillsStr && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.skillsStr}
+                                      </span>
+                                    )}
+                                  </label>
+                                </div>
+                              </div>
+                            );
+                          })}
+                        </div>
+                        {expRows.length < EXPERIENCE_MAX && (
+                          <button
+                            type="button"
+                            onClick={addExperienceRow}
+                            className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-gray-300 bg-white py-3 text-xs font-semibold text-gray-600 hover:border-remotiv-purple hover:text-remotiv-purple"
+                          >
+                            + Add another experience
+                          </button>
+                        )}
+                      </div>
+
+                      {skillsExpErrors.general && (
+                        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          {skillsExpErrors.general}
+                        </p>
+                      )}
+
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleSkillsExpCancel}
+                          disabled={skillsExpSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleSkillsExpSave}
+                          disabled={skillsExpSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {skillsExpSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "cv" && (
