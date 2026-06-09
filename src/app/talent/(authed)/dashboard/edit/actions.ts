@@ -40,6 +40,13 @@ const SKILL_CHAR_MAX = 50;
 const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
 const EXPERIENCE_SKILLS_MAX = 30;
+const REMOTE_URL_MAX = 500;
+
+// Verbatim regex from src/app/remote-ready/page.tsx:274 — intake form
+// requires a `linkedin.com/in/...` profile URL. Server and intake must
+// match exactly so users can't bypass intake validation via the edit page.
+const REMOTE_LINKEDIN_REGEX =
+  /^https?:\/\/(www\.)?linkedin\.com\/in\//i;
 
 const COUNTRY_OPTIONS = [
   "Pakistan",
@@ -694,4 +701,218 @@ export async function updateTalentSkillsExperience(
   revalidatePath("/talent/dashboard/edit");
 
   return { success: true, data: { skills, experience: storedExperience } };
+}
+
+type UpdateRemoteBasicInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  firstName: string;
+  lastName: string;
+  phone: string;
+  linkedinUrl: string;
+};
+
+type RemoteBasicData = {
+  firstName: string;
+  lastName: string;
+  phone: string;
+  linkedinUrl: string;
+};
+
+const REMOTE_NAME_MAX = 120;
+
+export async function updateRemoteBasicInfo(
+  input: UpdateRemoteBasicInput,
+): Promise<MutationResult<RemoteBasicData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  const firstName = input.firstName.trim();
+  const lastName = input.lastName.trim();
+  if (!firstName) {
+    return { success: false, error: "First name is required." };
+  }
+  if (firstName.length > REMOTE_NAME_MAX) {
+    return {
+      success: false,
+      error: `First name must be ${REMOTE_NAME_MAX} characters or fewer.`,
+    };
+  }
+  if (!lastName) {
+    return { success: false, error: "Last name is required." };
+  }
+  if (lastName.length > REMOTE_NAME_MAX) {
+    return {
+      success: false,
+      error: `Last name must be ${REMOTE_NAME_MAX} characters or fewer.`,
+    };
+  }
+
+  const phoneRaw = input.phone.trim();
+  if (!phoneRaw) {
+    return { success: false, error: "Phone number is required." };
+  }
+  if (phoneRaw.length > PHONE_MAX) {
+    return { success: false, error: "Phone number is too long." };
+  }
+  const phoneDigits = normalizePhone(phoneRaw);
+  if (phoneDigits.length < 7) {
+    return {
+      success: false,
+      error: "Phone number must have at least 7 digits.",
+    };
+  }
+
+  const linkedinTrimmed = input.linkedinUrl.trim();
+  if (!linkedinTrimmed) {
+    return {
+      success: false,
+      error: "Please enter a valid LinkedIn profile URL (https://linkedin.com/in/your-name).",
+    };
+  }
+  if (linkedinTrimmed.length > REMOTE_URL_MAX) {
+    return { success: false, error: "LinkedIn URL is too long." };
+  }
+  if (!REMOTE_LINKEDIN_REGEX.test(linkedinTrimmed)) {
+    return {
+      success: false,
+      error: "Please enter a valid LinkedIn profile URL (https://linkedin.com/in/your-name).",
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({
+      first_name: firstName,
+      last_name: lastName,
+      phone: phoneDigits,
+      linkedin_url: linkedinTrimmed,
+    })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteBasicInfo] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: {
+      firstName,
+      lastName,
+      phone: phoneDigits,
+      linkedinUrl: linkedinTrimmed,
+    },
+  };
+}
+
+type UpdateRemoteLocationInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  city: string;
+  country: string;
+  timeZone: string;
+};
+
+type RemoteLocationData = {
+  city: string;
+  country: string;
+  timeZone: string;
+};
+
+function isKnownTimeZoneServer(tz: string): boolean {
+  try {
+    const list =
+      typeof Intl !== "undefined" &&
+      typeof (
+        Intl as { supportedValuesOf?: (k: string) => string[] }
+      ).supportedValuesOf === "function"
+        ? (Intl as { supportedValuesOf: (k: string) => string[] })
+            .supportedValuesOf("timeZone")
+        : [];
+    return list.includes(tz);
+  } catch {
+    return false;
+  }
+}
+
+export async function updateRemoteLocation(
+  input: UpdateRemoteLocationInput,
+): Promise<MutationResult<RemoteLocationData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  const cityTrimmed = input.city.trim();
+  if (cityTrimmed.length > CITY_MAX) {
+    return {
+      success: false,
+      error: `City must be ${CITY_MAX} characters or fewer.`,
+    };
+  }
+  const city = cityTrimmed.length === 0 ? null : cityTrimmed;
+
+  const countryTrimmed = input.country.trim();
+  let country: string | null = null;
+  if (countryTrimmed.length > 0) {
+    if (!(COUNTRY_OPTIONS as readonly string[]).includes(countryTrimmed)) {
+      return { success: false, error: "Please pick a country from the list." };
+    }
+    country = countryTrimmed;
+  }
+
+  const tzTrimmed = input.timeZone.trim();
+  let timeZone: string | null = null;
+  if (tzTrimmed.length > 0) {
+    if (!isKnownTimeZoneServer(tzTrimmed)) {
+      return { success: false, error: "Invalid time zone." };
+    }
+    timeZone = tzTrimmed;
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({ city, country, time_zone: timeZone })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteLocation] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: {
+      city: city ?? "",
+      country: country ?? "",
+      timeZone: timeZone ?? "",
+    },
+  };
 }

@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  updateRemoteBasicInfo,
+  updateRemoteLocation,
   updateTalentAvailabilitySalary,
   updateTalentBasicInfo,
   updateTalentLocation,
@@ -31,7 +33,13 @@ type SectionKey =
   | "professional"
   | "availability"
   | "skills"
+  | "employment"
+  | "education"
+  | "languages"
+  | "portfolio"
   | "cv";
+
+type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
 const INPUT_CLASS =
   "rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm outline-none ring-remotiv-purple/30 focus:border-remotiv-purple focus:ring-2";
@@ -93,6 +101,42 @@ const SKILL_CHAR_MAX = 50;
 const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
 const EXPERIENCE_SKILLS_MAX = 30;
+
+// Verbatim from intake form: src/app/remote-ready/page.tsx:274.
+const REMOTE_LINKEDIN_REGEX =
+  /^https?:\/\/(www\.)?linkedin\.com\/in\//i;
+
+type TimeZoneGroup = { region: string; zones: string[] };
+
+const TIME_ZONE_GROUPS: TimeZoneGroup[] = (() => {
+  const supported =
+    typeof Intl !== "undefined" &&
+    typeof (Intl as { supportedValuesOf?: (k: string) => string[] })
+      .supportedValuesOf === "function"
+      ? (Intl as { supportedValuesOf: (k: string) => string[] })
+          .supportedValuesOf("timeZone")
+      : [];
+  const map = new Map<string, string[]>();
+  for (const tz of supported) {
+    const region = tz.split("/")[0] ?? "Other";
+    if (!map.has(region)) map.set(region, []);
+    map.get(region)?.push(tz);
+  }
+  return Array.from(map.entries())
+    .sort(([a], [b]) => a.localeCompare(b))
+    .map(([region, zones]) => ({
+      region,
+      zones: [...zones].sort((a, b) => a.localeCompare(b)),
+    }));
+})();
+
+function isKnownTimeZone(tz: string): boolean {
+  if (!tz) return true;
+  for (const g of TIME_ZONE_GROUPS) {
+    if (g.zones.includes(tz)) return true;
+  }
+  return false;
+}
 
 function ChevronRightIcon() {
   return (
@@ -223,6 +267,9 @@ function locationFilledCount(p: EditableProfile): number {
   let n = 0;
   if ((p.raw.city as string | null)?.trim()) n += 1;
   if ((p.raw.country as string | null)?.trim()) n += 1;
+  if (p.sourceTable === "hire_remote_profiles") {
+    if ((p.raw.time_zone as string | null)?.trim()) n += 1;
+  }
   return n;
 }
 
@@ -258,6 +305,103 @@ function ofNBadgeLabel(count: number, total: number): string {
   if (count === total) return "Complete";
   if (count === 0) return "Empty";
   return `${count} of ${total} filled`;
+}
+
+type SectionDef = {
+  key: SectionKey;
+  title: string;
+  badge: { className: string; label: string };
+};
+
+const COMING_SOON_BADGE = {
+  className: "bg-gray-100 text-gray-600",
+  label: "Coming soon",
+};
+
+const LOCKED_BADGE = {
+  className: "bg-gray-100 text-gray-600",
+  label: "Locked",
+};
+
+function getSectionsForPool(
+  sourceTable: SourceTable,
+  counts: {
+    basic: number;
+    location: number;
+    professional: number;
+    availability: number;
+    skills: number;
+    professionalBadge: { className: string; label: string };
+  },
+): SectionDef[] {
+  if (sourceTable === "talent_profiles") {
+    return [
+      {
+        key: "basic",
+        title: "Basic info",
+        badge: {
+          className: basicInfoBadgeClass(counts.basic),
+          label: basicInfoBadgeLabel(counts.basic),
+        },
+      },
+      {
+        key: "location",
+        title: "Location",
+        badge: {
+          className: ofNBadgeClass(counts.location, 2),
+          label: ofNBadgeLabel(counts.location, 2),
+        },
+      },
+      {
+        key: "professional",
+        title: "Professional details",
+        badge: counts.professionalBadge,
+      },
+      {
+        key: "availability",
+        title: "Availability & salary",
+        badge: {
+          className: ofNBadgeClass(counts.availability, 4),
+          label: ofNBadgeLabel(counts.availability, 4),
+        },
+      },
+      {
+        key: "skills",
+        title: "Skills & experience",
+        badge: {
+          className: ofNBadgeClass(counts.skills, 2),
+          label: ofNBadgeLabel(counts.skills, 2),
+        },
+      },
+      { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
+    ];
+  }
+  return [
+    {
+      key: "basic",
+      title: "Basic info",
+      badge: {
+        className: ofNBadgeClass(counts.basic, 4),
+        label: ofNBadgeLabel(counts.basic, 4),
+      },
+    },
+    {
+      key: "location",
+      title: "Location & time zone",
+      badge: {
+        className: ofNBadgeClass(counts.location, 3),
+        label: ofNBadgeLabel(counts.location, 3),
+      },
+    },
+    { key: "professional", title: "Professional details", badge: COMING_SOON_BADGE },
+    { key: "availability", title: "Availability & work type", badge: COMING_SOON_BADGE },
+    { key: "skills", title: "Skills", badge: COMING_SOON_BADGE },
+    { key: "employment", title: "Employment history", badge: COMING_SOON_BADGE },
+    { key: "education", title: "Education", badge: COMING_SOON_BADGE },
+    { key: "languages", title: "Languages", badge: COMING_SOON_BADGE },
+    { key: "portfolio", title: "Portfolio", badge: COMING_SOON_BADGE },
+    { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
+  ];
 }
 
 export function EditClient({
@@ -300,14 +444,17 @@ export function EditClient({
 
   const [locCity, setLocCity] = useState("");
   const [locCountry, setLocCountry] = useState("");
+  const [locTimeZone, setLocTimeZone] = useState("");
   const [locErrors, setLocErrors] = useState<{
     city?: string;
     country?: string;
+    timeZone?: string;
   }>({});
   const [locSaving, setLocSaving] = useState(false);
   const [locSnapshot, setLocSnapshot] = useState<{
     city: string;
     country: string;
+    timeZone: string;
   } | null>(null);
 
   const [profJobTitle, setProfJobTitle] = useState("");
@@ -380,6 +527,7 @@ export function EditClient({
       setBasicSnapshot(null);
       setLocCity("");
       setLocCountry("");
+      setLocTimeZone("");
       setLocSnapshot(null);
       setProfJobTitle("");
       setProfRoleCategory("");
@@ -417,9 +565,13 @@ export function EditClient({
       country: ((raw.country as string | null) ?? "").trim()
         ? (raw.country as string)
         : "",
+      timeZone: ((raw.time_zone as string | null) ?? "").trim()
+        ? (raw.time_zone as string)
+        : "",
     };
     setLocCity(locNext.city);
     setLocCountry(locNext.country);
+    setLocTimeZone(locNext.timeZone);
     setLocSnapshot(locNext);
     setLocErrors({});
 
@@ -514,6 +666,7 @@ export function EditClient({
     if (!locSnapshot) return;
     setLocCity(locSnapshot.city);
     setLocCountry(locSnapshot.country);
+    setLocTimeZone(locSnapshot.timeZone);
     setLocErrors({});
   }
 
@@ -522,28 +675,61 @@ export function EditClient({
     const errors: typeof locErrors = {};
     const city = locCity.trim();
     const country = locCountry.trim();
+    const timeZone = locTimeZone.trim();
     if (city.length > 120) errors.city = "Must be 120 characters or fewer.";
     if (country && !(COUNTRY_OPTIONS as readonly string[]).includes(country)) {
       errors.country = "Pick a country from the list.";
+    }
+    if (
+      activeProfile.sourceTable === "hire_remote_profiles" &&
+      timeZone &&
+      !isKnownTimeZone(timeZone)
+    ) {
+      errors.timeZone = "Pick a time zone from the list.";
     }
     setLocErrors(errors);
     if (Object.keys(errors).length > 0) return;
     setLocSaving(true);
     try {
-      const result = await updateTalentLocation({
-        profileId: activeProfile.id,
-        sourceTable: activeProfile.sourceTable,
-        city: city || null,
-        country: country || null,
-      });
+      const result =
+        activeProfile.sourceTable === "talent_profiles"
+          ? await updateTalentLocation({
+              profileId: activeProfile.id,
+              sourceTable: activeProfile.sourceTable,
+              city: city || null,
+              country: country || null,
+            })
+          : await updateRemoteLocation({
+              profileId: activeProfile.id,
+              sourceTable: activeProfile.sourceTable,
+              city,
+              country,
+              timeZone,
+            });
       if (!result.success) {
         setToast(result.error || "Couldn't save — try again.");
         return;
       }
-      const saved = result.data;
-      setLocCity(saved.city ?? "");
-      setLocCountry(saved.country ?? "");
-      setLocSnapshot({ city: saved.city ?? "", country: saved.country ?? "" });
+      const savedCity =
+        "city" in result.data && result.data.city !== null
+          ? (result.data.city as string)
+          : "";
+      const savedCountry =
+        "country" in result.data && result.data.country !== null
+          ? (result.data.country as string)
+          : "";
+      const savedTimeZone =
+        "timeZone" in result.data
+          ? ((result.data as { timeZone: string }).timeZone ?? "")
+          : "";
+      setLocCity(savedCity);
+      setLocCountry(savedCountry);
+      setLocTimeZone(savedTimeZone);
+      setLocSnapshot({
+        city: savedCity,
+        country: savedCountry,
+        timeZone: savedTimeZone,
+      });
       setToast("Saved");
       router.refresh();
     } catch (err) {
@@ -944,43 +1130,78 @@ export function EditClient({
     const ln = basicLastName.trim();
     const phoneRaw = basicPhone.trim();
     const linkRaw = basicLinkedin.trim();
+    const isRemote = activeProfile.sourceTable === "hire_remote_profiles";
+    const nameMax = isRemote ? 120 : 80;
+
     if (!fn) errors.firstName = "First name is required.";
-    else if (fn.length > 80) errors.firstName = "Must be 80 characters or fewer.";
+    else if (fn.length > nameMax)
+      errors.firstName = `Must be ${nameMax} characters or fewer.`;
     if (!ln) errors.lastName = "Last name is required.";
-    else if (ln.length > 80) errors.lastName = "Must be 80 characters or fewer.";
-    if (phoneRaw && phoneRaw.length < 7) {
-      errors.phone = "Phone number looks too short.";
+    else if (ln.length > nameMax)
+      errors.lastName = `Must be ${nameMax} characters or fewer.`;
+
+    if (isRemote) {
+      if (!phoneRaw) {
+        errors.phone = "Phone number is required.";
+      } else if (phoneRaw.length < 7) {
+        errors.phone = "Phone number looks too short.";
+      }
+      if (!linkRaw) {
+        errors.linkedinUrl = "LinkedIn profile URL is required.";
+      } else if (!REMOTE_LINKEDIN_REGEX.test(linkRaw)) {
+        errors.linkedinUrl =
+          "Use your linkedin.com/in/your-name URL (include https://).";
+      }
+    } else {
+      if (phoneRaw && phoneRaw.length < 7) {
+        errors.phone = "Phone number looks too short.";
+      }
+      if (linkRaw && !linkRaw.toLowerCase().includes("linkedin.com")) {
+        errors.linkedinUrl = "Use your linkedin.com URL.";
+      }
     }
-    if (linkRaw && !linkRaw.toLowerCase().includes("linkedin.com")) {
-      errors.linkedinUrl = "Use your linkedin.com URL.";
-    }
+
     setBasicErrors(errors);
     if (Object.keys(errors).length > 0) return;
 
     setBasicSaving(true);
     try {
-      const result = await updateTalentBasicInfo({
-        profileId: activeProfile.id,
-        sourceTable: activeProfile.sourceTable,
-        firstName: fn,
-        lastName: ln,
-        phone: phoneRaw || null,
-        linkedinUrl: linkRaw || null,
-      });
+      const result = isRemote
+        ? await updateRemoteBasicInfo({
+            profileId: activeProfile.id,
+            sourceTable: activeProfile.sourceTable,
+            firstName: fn,
+            lastName: ln,
+            phone: phoneRaw,
+            linkedinUrl: linkRaw,
+          })
+        : await updateTalentBasicInfo({
+            profileId: activeProfile.id,
+            sourceTable: activeProfile.sourceTable,
+            firstName: fn,
+            lastName: ln,
+            phone: phoneRaw || null,
+            linkedinUrl: linkRaw || null,
+          });
       if (!result.success) {
         setToast(result.error || "Couldn't save — try again.");
         return;
       }
-      const saved = result.data;
-      setBasicFirstName(saved.firstName);
-      setBasicLastName(saved.lastName);
-      setBasicPhone(saved.phone ?? "");
-      setBasicLinkedin(saved.linkedinUrl ?? "");
+      const savedPhone =
+        "phone" in result.data ? (result.data.phone ?? "") : "";
+      const savedLinkedin =
+        "linkedinUrl" in result.data
+          ? (result.data.linkedinUrl ?? "")
+          : "";
+      setBasicFirstName(result.data.firstName);
+      setBasicLastName(result.data.lastName);
+      setBasicPhone(savedPhone);
+      setBasicLinkedin(savedLinkedin);
       setBasicSnapshot({
-        firstName: saved.firstName,
-        lastName: saved.lastName,
-        phone: saved.phone ?? "",
-        linkedin: saved.linkedinUrl ?? "",
+        firstName: result.data.firstName,
+        lastName: result.data.lastName,
+        phone: savedPhone,
+        linkedin: savedLinkedin,
       });
       setToast("Saved");
       router.refresh();
@@ -1052,54 +1273,14 @@ export function EditClient({
               label: `${profCount} of 5 filled`,
             };
 
-  const sections: Array<{
-    key: SectionKey;
-    title: string;
-    badge: { className: string; label: string };
-  }> = [
-    {
-      key: "basic",
-      title: "Basic info",
-      badge: {
-        className: basicInfoBadgeClass(basicCount),
-        label: basicInfoBadgeLabel(basicCount),
-      },
-    },
-    {
-      key: "location",
-      title: "Location",
-      badge: {
-        className: ofNBadgeClass(locCount, 2),
-        label: ofNBadgeLabel(locCount, 2),
-      },
-    },
-    {
-      key: "professional",
-      title: "Professional details",
-      badge: professionalBadge,
-    },
-    {
-      key: "availability",
-      title: "Availability & salary",
-      badge: {
-        className: ofNBadgeClass(availCount, 4),
-        label: ofNBadgeLabel(availCount, 4),
-      },
-    },
-    {
-      key: "skills",
-      title: "Skills & experience",
-      badge: {
-        className: ofNBadgeClass(skillsCount, 2),
-        label: ofNBadgeLabel(skillsCount, 2),
-      },
-    },
-    {
-      key: "cv",
-      title: "CV & photo",
-      badge: { className: "bg-gray-100 text-gray-600", label: "Locked" },
-    },
-  ];
+  const sections = getSectionsForPool(activeProfile.sourceTable, {
+    basic: basicCount,
+    location: locCount,
+    professional: profCount,
+    availability: availCount,
+    skills: skillsCount,
+    professionalBadge,
+  });
 
   return (
     <main className="min-h-screen bg-remotiv-bg p-4 font-sans md:p-8">
@@ -1195,160 +1376,366 @@ export function EditClient({
                   id={`section-${section.key}`}
                   className="border-t border-black/[0.06] px-5 py-5"
                 >
-                  {section.key === "basic" && (
-                    <div>
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>First name</span>
-                          <input
-                            type="text"
-                            value={basicFirstName}
-                            onChange={(e) => setBasicFirstName(e.target.value)}
-                            maxLength={80}
-                            aria-invalid={Boolean(basicErrors.firstName)}
-                            className={INPUT_CLASS}
-                          />
-                          {basicErrors.firstName && (
-                            <span className="text-xs text-red-600">
-                              {basicErrors.firstName}
-                            </span>
-                          )}
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>Last name</span>
-                          <input
-                            type="text"
-                            value={basicLastName}
-                            onChange={(e) => setBasicLastName(e.target.value)}
-                            maxLength={80}
-                            aria-invalid={Boolean(basicErrors.lastName)}
-                            className={INPUT_CLASS}
-                          />
-                          {basicErrors.lastName && (
-                            <span className="text-xs text-red-600">
-                              {basicErrors.lastName}
-                            </span>
-                          )}
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>Phone</span>
-                          <input
-                            type="tel"
-                            value={basicPhone}
-                            onChange={(e) => setBasicPhone(e.target.value)}
-                            maxLength={40}
-                            placeholder="+92 300 0000000"
-                            aria-invalid={Boolean(basicErrors.phone)}
-                            className={INPUT_CLASS}
-                          />
-                          {basicErrors.phone && (
-                            <span className="text-xs text-red-600">
-                              {basicErrors.phone}
-                            </span>
-                          )}
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>LinkedIn URL</span>
-                          <input
-                            type="url"
-                            value={basicLinkedin}
-                            onChange={(e) => setBasicLinkedin(e.target.value)}
-                            maxLength={300}
-                            placeholder="linkedin.com/in/yourname"
-                            aria-invalid={Boolean(basicErrors.linkedinUrl)}
-                            className={INPUT_CLASS}
-                          />
-                          {basicErrors.linkedinUrl && (
-                            <span className="text-xs text-red-600">
-                              {basicErrors.linkedinUrl}
-                            </span>
-                          )}
-                        </label>
-                      </div>
-                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={handleBasicCancel}
-                          disabled={basicSaving}
-                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleBasicSave}
-                          disabled={basicSaving}
-                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                        >
-                          {basicSaving ? "Saving…" : "Save changes"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
-
-                  {section.key === "location" && (
-                    <div>
-                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>City</span>
-                          <input
-                            type="text"
-                            value={locCity}
-                            onChange={(e) => setLocCity(e.target.value)}
-                            maxLength={120}
-                            aria-invalid={Boolean(locErrors.city)}
-                            className={INPUT_CLASS}
-                          />
-                          {locErrors.city && (
-                            <span className="text-xs text-red-600">
-                              {locErrors.city}
-                            </span>
-                          )}
-                        </label>
-                        <label className="flex flex-col gap-1.5">
-                          <span className={LABEL_CLASS}>Country</span>
-                          <select
-                            value={locCountry}
-                            onChange={(e) => setLocCountry(e.target.value)}
-                            aria-invalid={Boolean(locErrors.country)}
-                            className={INPUT_CLASS}
+                  {section.key === "basic" &&
+                    activeProfile.sourceTable === "talent_profiles" && (
+                      <div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>First name</span>
+                            <input
+                              type="text"
+                              value={basicFirstName}
+                              onChange={(e) =>
+                                setBasicFirstName(e.target.value)
+                              }
+                              maxLength={80}
+                              aria-invalid={Boolean(basicErrors.firstName)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.firstName && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.firstName}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Last name</span>
+                            <input
+                              type="text"
+                              value={basicLastName}
+                              onChange={(e) =>
+                                setBasicLastName(e.target.value)
+                              }
+                              maxLength={80}
+                              aria-invalid={Boolean(basicErrors.lastName)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.lastName && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.lastName}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Phone</span>
+                            <input
+                              type="tel"
+                              value={basicPhone}
+                              onChange={(e) => setBasicPhone(e.target.value)}
+                              maxLength={40}
+                              placeholder="+92 300 0000000"
+                              aria-invalid={Boolean(basicErrors.phone)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.phone && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.phone}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>LinkedIn URL</span>
+                            <input
+                              type="url"
+                              value={basicLinkedin}
+                              onChange={(e) =>
+                                setBasicLinkedin(e.target.value)
+                              }
+                              maxLength={300}
+                              placeholder="linkedin.com/in/yourname"
+                              aria-invalid={Boolean(basicErrors.linkedinUrl)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.linkedinUrl && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.linkedinUrl}
+                              </span>
+                            )}
+                          </label>
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleBasicCancel}
+                            disabled={basicSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
                           >
-                            <option value="">—</option>
-                            {COUNTRY_OPTIONS.map((c) => (
-                              <option key={c} value={c}>
-                                {c}
-                              </option>
-                            ))}
-                          </select>
-                          {locErrors.country && (
-                            <span className="text-xs text-red-600">
-                              {locErrors.country}
-                            </span>
-                          )}
-                        </label>
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleBasicSave}
+                            disabled={basicSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {basicSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
                       </div>
-                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
-                        <button
-                          type="button"
-                          onClick={handleLocationCancel}
-                          disabled={locSaving}
-                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
-                        >
-                          Cancel
-                        </button>
-                        <button
-                          type="button"
-                          onClick={handleLocationSave}
-                          disabled={locSaving}
-                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                        >
-                          {locSaving ? "Saving…" : "Save changes"}
-                        </button>
-                      </div>
-                    </div>
-                  )}
+                    )}
 
-                  {section.key === "professional" && (
+                  {section.key === "basic" &&
+                    activeProfile.sourceTable === "hire_remote_profiles" && (
+                      <div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>First name</span>
+                            <input
+                              type="text"
+                              value={basicFirstName}
+                              onChange={(e) =>
+                                setBasicFirstName(e.target.value)
+                              }
+                              maxLength={120}
+                              aria-invalid={Boolean(basicErrors.firstName)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.firstName && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.firstName}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Last name</span>
+                            <input
+                              type="text"
+                              value={basicLastName}
+                              onChange={(e) =>
+                                setBasicLastName(e.target.value)
+                              }
+                              maxLength={120}
+                              aria-invalid={Boolean(basicErrors.lastName)}
+                              className={INPUT_CLASS}
+                            />
+                            {basicErrors.lastName && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.lastName}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Phone</span>
+                            <input
+                              type="tel"
+                              value={basicPhone}
+                              onChange={(e) => setBasicPhone(e.target.value)}
+                              maxLength={40}
+                              placeholder="+1 415 0000000"
+                              aria-invalid={Boolean(basicErrors.phone)}
+                              className={INPUT_CLASS}
+                              required
+                            />
+                            {basicErrors.phone && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.phone}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>LinkedIn URL</span>
+                            <input
+                              type="url"
+                              value={basicLinkedin}
+                              onChange={(e) =>
+                                setBasicLinkedin(e.target.value)
+                              }
+                              maxLength={500}
+                              placeholder="https://linkedin.com/in/your-name"
+                              aria-invalid={Boolean(basicErrors.linkedinUrl)}
+                              className={INPUT_CLASS}
+                              required
+                            />
+                            <p className="mt-1 text-[11px] text-gray-500">
+                              Must be a LinkedIn profile URL
+                              (https://linkedin.com/in/your-name)
+                            </p>
+                            {basicErrors.linkedinUrl && (
+                              <span className="text-xs text-red-600">
+                                {basicErrors.linkedinUrl}
+                              </span>
+                            )}
+                          </label>
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleBasicCancel}
+                            disabled={basicSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleBasicSave}
+                            disabled={basicSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {basicSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  {section.key === "location" &&
+                    activeProfile.sourceTable === "talent_profiles" && (
+                      <div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>City</span>
+                            <input
+                              type="text"
+                              value={locCity}
+                              onChange={(e) => setLocCity(e.target.value)}
+                              maxLength={120}
+                              aria-invalid={Boolean(locErrors.city)}
+                              className={INPUT_CLASS}
+                            />
+                            {locErrors.city && (
+                              <span className="text-xs text-red-600">
+                                {locErrors.city}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Country</span>
+                            <select
+                              value={locCountry}
+                              onChange={(e) => setLocCountry(e.target.value)}
+                              aria-invalid={Boolean(locErrors.country)}
+                              className={INPUT_CLASS}
+                            >
+                              <option value="">—</option>
+                              {COUNTRY_OPTIONS.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                            {locErrors.country && (
+                              <span className="text-xs text-red-600">
+                                {locErrors.country}
+                              </span>
+                            )}
+                          </label>
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleLocationCancel}
+                            disabled={locSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleLocationSave}
+                            disabled={locSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {locSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  {section.key === "location" &&
+                    activeProfile.sourceTable === "hire_remote_profiles" && (
+                      <div>
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>City</span>
+                            <input
+                              type="text"
+                              value={locCity}
+                              onChange={(e) => setLocCity(e.target.value)}
+                              maxLength={120}
+                              aria-invalid={Boolean(locErrors.city)}
+                              className={INPUT_CLASS}
+                            />
+                            {locErrors.city && (
+                              <span className="text-xs text-red-600">
+                                {locErrors.city}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Country</span>
+                            <select
+                              value={locCountry}
+                              onChange={(e) => setLocCountry(e.target.value)}
+                              aria-invalid={Boolean(locErrors.country)}
+                              className={INPUT_CLASS}
+                            >
+                              <option value="">—</option>
+                              {COUNTRY_OPTIONS.map((c) => (
+                                <option key={c} value={c}>
+                                  {c}
+                                </option>
+                              ))}
+                            </select>
+                            {locErrors.country && (
+                              <span className="text-xs text-red-600">
+                                {locErrors.country}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5 md:col-span-2">
+                            <span className={LABEL_CLASS}>Time zone</span>
+                            <select
+                              value={locTimeZone}
+                              onChange={(e) => setLocTimeZone(e.target.value)}
+                              aria-invalid={Boolean(locErrors.timeZone)}
+                              className={INPUT_CLASS}
+                            >
+                              <option value="">Select a time zone…</option>
+                              {TIME_ZONE_GROUPS.map((g) => (
+                                <optgroup key={g.region} label={g.region}>
+                                  {g.zones.map((z) => (
+                                    <option key={z} value={z}>
+                                      {z}
+                                    </option>
+                                  ))}
+                                </optgroup>
+                              ))}
+                            </select>
+                            {locErrors.timeZone && (
+                              <span className="text-xs text-red-600">
+                                {locErrors.timeZone}
+                              </span>
+                            )}
+                          </label>
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleLocationCancel}
+                            disabled={locSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleLocationSave}
+                            disabled={locSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {locSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
+                    )}
+
+                  {section.key === "professional" &&
+                    activeProfile.sourceTable === "hire_remote_profiles" && (
+                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                    )}
+
+                  {section.key === "professional" &&
+                    activeProfile.sourceTable === "talent_profiles" && (
                     <div>
                       <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
                         <label className="flex flex-col gap-1.5">
@@ -1470,7 +1857,13 @@ export function EditClient({
                     </div>
                   )}
 
-                  {section.key === "availability" && (
+                  {section.key === "availability" &&
+                    activeProfile.sourceTable === "hire_remote_profiles" && (
+                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                    )}
+
+                  {section.key === "availability" &&
+                    activeProfile.sourceTable === "talent_profiles" && (
                     <div>
                       <div className="flex flex-col gap-5">
                         <fieldset className="flex flex-col gap-2">
@@ -1596,7 +1989,13 @@ export function EditClient({
                     </div>
                   )}
 
-                  {section.key === "skills" && (
+                  {section.key === "skills" &&
+                    activeProfile.sourceTable === "hire_remote_profiles" && (
+                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                    )}
+
+                  {section.key === "skills" &&
+                    activeProfile.sourceTable === "talent_profiles" && (
                     <div>
                       <div className="mb-6">
                         <p className={`${LABEL_CLASS} mb-2 block`}>Skills</p>
@@ -1839,6 +2238,22 @@ export function EditClient({
                         </button>
                       </div>
                     </div>
+                  )}
+
+                  {section.key === "employment" && (
+                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
+                  )}
+
+                  {section.key === "education" && (
+                    <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                  )}
+
+                  {section.key === "languages" && (
+                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
+                  )}
+
+                  {section.key === "portfolio" && (
+                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
                   )}
 
                   {section.key === "cv" && (
