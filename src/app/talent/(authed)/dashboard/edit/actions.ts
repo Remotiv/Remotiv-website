@@ -30,6 +30,57 @@ type MutationResult<T> =
 const NAME_MAX = 80;
 const URL_MAX = 300;
 const PHONE_MAX = 40;
+const CITY_MAX = 120;
+const JOB_TITLE_MAX = 120;
+const SUMMARY_MAX = 5000;
+const YEARS_MAX = 70;
+const SALARY_MAX = 100_000_000;
+
+const COUNTRY_OPTIONS = [
+  "Pakistan",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "Other",
+] as const;
+
+const ROLE_CATEGORY_OPTIONS = [
+  "Engineer",
+  "SDR",
+  "CS",
+  "Design",
+  "Data",
+  "DevOps",
+  "QA",
+  "Marketing",
+  "Ops",
+  "Finance",
+  "Other",
+] as const;
+
+const INDUSTRY_OPTIONS = [
+  "FinTech",
+  "EdTech",
+  "HealthTech",
+  "E-commerce",
+  "SaaS",
+  "Logistics",
+  "Media & Entertainment",
+  "AI/ML",
+  "Cybersecurity",
+  "Gaming",
+  "Travel",
+  "Other",
+] as const;
+
+const AVAILABILITY_OPTIONS = ["Available Now", "Not Available"] as const;
+const WORK_TYPE_OPTIONS = [
+  "Full-time",
+  "Part-time",
+  "Contract",
+  "Any",
+] as const;
 
 function normaliseLinkedinUrl(raw: string): string | null {
   const trimmed = raw.trim();
@@ -141,5 +192,320 @@ export async function updateTalentBasicInfo(
       phone: normalisedPhone,
       linkedinUrl: normalisedLinkedin,
     },
+  };
+}
+
+type UpdateLocationInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  city: string | null;
+  country: string | null;
+};
+
+type LocationData = { city: string | null; country: string | null };
+
+export async function updateTalentLocation(
+  input: UpdateLocationInput,
+): Promise<MutationResult<LocationData>> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  let city: string | null = null;
+  if (input.city) {
+    const trimmed = input.city.trim();
+    if (trimmed.length > CITY_MAX) {
+      return { success: false, error: `City must be ${CITY_MAX} characters or fewer.` };
+    }
+    city = trimmed.length === 0 ? null : trimmed;
+  }
+
+  let country: string | null = null;
+  if (input.country) {
+    const trimmed = input.country.trim();
+    if (trimmed.length === 0) {
+      country = null;
+    } else if (!(COUNTRY_OPTIONS as readonly string[]).includes(trimmed)) {
+      return { success: false, error: "Please pick a country from the list." };
+    } else {
+      country = trimmed;
+    }
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from(sourceTable)
+    .update({ city, country })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateTalentLocation] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { city, country } };
+}
+
+type UpdateProfessionalInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  jobTitle: string | null;
+  roleCategory: string | null;
+  yearsExperience: number | null;
+  industry: string | null;
+  summary: string | null;
+};
+
+type ProfessionalData = {
+  jobTitle: string | null;
+  roleCategory: string | null;
+  yearsExperience: number | null;
+  industry: string | null;
+  summary: string | null;
+};
+
+export async function updateTalentProfessional(
+  input: UpdateProfessionalInput,
+): Promise<MutationResult<ProfessionalData>> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  let jobTitle: string | null = null;
+  if (input.jobTitle) {
+    const trimmed = input.jobTitle.trim();
+    if (trimmed.length > JOB_TITLE_MAX) {
+      return {
+        success: false,
+        error: `Job title must be ${JOB_TITLE_MAX} characters or fewer.`,
+      };
+    }
+    jobTitle = trimmed.length === 0 ? null : trimmed;
+  }
+
+  let roleCategory: string | null = null;
+  if (input.roleCategory) {
+    const trimmed = input.roleCategory.trim();
+    if (trimmed.length === 0) {
+      roleCategory = null;
+    } else if (!(ROLE_CATEGORY_OPTIONS as readonly string[]).includes(trimmed)) {
+      return {
+        success: false,
+        error: "Please pick a role category from the list.",
+      };
+    } else {
+      roleCategory = trimmed;
+    }
+  }
+
+  let yearsExperience: number | null = null;
+  if (input.yearsExperience !== null && input.yearsExperience !== undefined) {
+    if (!Number.isFinite(input.yearsExperience)) {
+      return { success: false, error: "Years of experience must be a number." };
+    }
+    if (!Number.isInteger(input.yearsExperience)) {
+      return { success: false, error: "Years of experience must be a whole number." };
+    }
+    if (input.yearsExperience < 0 || input.yearsExperience > YEARS_MAX) {
+      return {
+        success: false,
+        error: `Years of experience must be between 0 and ${YEARS_MAX}.`,
+      };
+    }
+    yearsExperience = input.yearsExperience;
+  }
+
+  let industry: string | null = null;
+  if (input.industry) {
+    const trimmed = input.industry.trim();
+    if (trimmed.length === 0) {
+      industry = null;
+    } else if (!(INDUSTRY_OPTIONS as readonly string[]).includes(trimmed)) {
+      return { success: false, error: "Please pick an industry from the list." };
+    } else {
+      industry = trimmed;
+    }
+  }
+
+  let summary: string | null = null;
+  if (input.summary) {
+    const trimmed = input.summary.trim();
+    if (trimmed.length > SUMMARY_MAX) {
+      return {
+        success: false,
+        error: `Summary must be ${SUMMARY_MAX} characters or fewer.`,
+      };
+    }
+    summary = trimmed.length === 0 ? null : trimmed;
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from(sourceTable)
+    .update({
+      job_title: jobTitle,
+      role_category: roleCategory,
+      years_experience: yearsExperience,
+      industry,
+      summary,
+    })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateTalentProfessional] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: { jobTitle, roleCategory, yearsExperience, industry, summary },
+  };
+}
+
+type UpdateAvailabilitySalaryInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  availability: string | null;
+  workType: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+};
+
+type AvailabilitySalaryData = {
+  availability: string | null;
+  workType: string | null;
+  salaryMin: number | null;
+  salaryMax: number | null;
+};
+
+export async function updateTalentAvailabilitySalary(
+  input: UpdateAvailabilitySalaryInput,
+): Promise<MutationResult<AvailabilitySalaryData>> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  let availability: string | null = null;
+  if (input.availability) {
+    const trimmed = input.availability.trim();
+    if (trimmed.length === 0) {
+      availability = null;
+    } else if (!(AVAILABILITY_OPTIONS as readonly string[]).includes(trimmed)) {
+      return { success: false, error: "Pick an availability option from the list." };
+    } else {
+      availability = trimmed;
+    }
+  }
+
+  let workType: string | null = null;
+  if (input.workType) {
+    const trimmed = input.workType.trim();
+    if (trimmed.length === 0) {
+      workType = null;
+    } else if (!(WORK_TYPE_OPTIONS as readonly string[]).includes(trimmed)) {
+      return { success: false, error: "Pick a work type from the list." };
+    } else {
+      workType = trimmed;
+    }
+  }
+
+  function validateSalary(
+    value: number | null,
+    label: string,
+  ): { ok: true; value: number | null } | { ok: false; error: string } {
+    if (value === null || value === undefined) return { ok: true, value: null };
+    if (!Number.isFinite(value)) {
+      return { ok: false, error: `${label} must be a number.` };
+    }
+    if (!Number.isInteger(value)) {
+      return { ok: false, error: `${label} must be a whole number.` };
+    }
+    if (value < 0 || value > SALARY_MAX) {
+      return {
+        ok: false,
+        error: `${label} must be between 0 and ${SALARY_MAX.toLocaleString()}.`,
+      };
+    }
+    return { ok: true, value };
+  }
+
+  const minCheck = validateSalary(input.salaryMin, "Minimum salary");
+  if (!minCheck.ok) return { success: false, error: minCheck.error };
+  const maxCheck = validateSalary(input.salaryMax, "Maximum salary");
+  if (!maxCheck.ok) return { success: false, error: maxCheck.error };
+  const salaryMin = minCheck.value;
+  const salaryMax = maxCheck.value;
+
+  if (salaryMin !== null && salaryMax !== null && salaryMin > salaryMax) {
+    return {
+      success: false,
+      error: "Minimum salary must be less than or equal to maximum.",
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from(sourceTable)
+    .update({
+      availability,
+      work_type: workType,
+      salary_min: salaryMin,
+      salary_max: salaryMax,
+    })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateTalentAvailabilitySalary] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: { availability, workType, salaryMin, salaryMax },
   };
 }

@@ -4,7 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
-import { updateTalentBasicInfo } from "./actions";
+import {
+  updateTalentAvailabilitySalary,
+  updateTalentBasicInfo,
+  updateTalentLocation,
+  updateTalentProfessional,
+} from "./actions";
 
 export type EditableProfile = {
   id: string;
@@ -32,6 +37,55 @@ const INPUT_CLASS =
 
 const LABEL_CLASS =
   "text-[10px] font-semibold uppercase tracking-widest text-gray-500";
+
+const COUNTRY_OPTIONS = [
+  "Pakistan",
+  "United States",
+  "United Kingdom",
+  "Canada",
+  "Australia",
+  "Other",
+] as const;
+
+// Stored DB values are short keys (canonical: admin talent-dashboard.tsx
+// CATEGORY_LABELS). The labels here are display-only — the option `value`
+// is the key that goes to the DB.
+const ROLE_CATEGORY_OPTIONS: ReadonlyArray<{ value: string; label: string }> = [
+  { value: "Engineer", label: "Engineer" },
+  { value: "SDR", label: "SDR / Sales" },
+  { value: "CS", label: "Customer Success" },
+  { value: "Design", label: "Design & UX" },
+  { value: "Data", label: "Data & AI" },
+  { value: "DevOps", label: "DevOps & Cloud" },
+  { value: "QA", label: "QA" },
+  { value: "Marketing", label: "Marketing & Growth" },
+  { value: "Ops", label: "Business & Ops" },
+  { value: "Finance", label: "Finance & Accounting" },
+  { value: "Other", label: "Other" },
+];
+
+const INDUSTRY_OPTIONS = [
+  "FinTech",
+  "EdTech",
+  "HealthTech",
+  "E-commerce",
+  "SaaS",
+  "Logistics",
+  "Media & Entertainment",
+  "AI/ML",
+  "Cybersecurity",
+  "Gaming",
+  "Travel",
+  "Other",
+] as const;
+
+const AVAILABILITY_OPTIONS = ["Available Now", "Not Available"] as const;
+const WORK_TYPE_OPTIONS = [
+  "Full-time",
+  "Part-time",
+  "Contract",
+  "Any",
+] as const;
 
 function ChevronRightIcon() {
   return (
@@ -82,6 +136,47 @@ function basicInfoBadgeLabel(count: number): string {
   return `${count} of 4 filled`;
 }
 
+function locationFilledCount(p: EditableProfile): number {
+  let n = 0;
+  if ((p.raw.city as string | null)?.trim()) n += 1;
+  if ((p.raw.country as string | null)?.trim()) n += 1;
+  return n;
+}
+
+function professionalFilledCount(p: EditableProfile): number {
+  let n = 0;
+  if ((p.raw.job_title as string | null)?.trim()) n += 1;
+  if ((p.raw.role_category as string | null)?.trim()) n += 1;
+  const years = p.raw.years_experience;
+  if (typeof years === "number" && years >= 0 && years <= 70) n += 1;
+  if ((p.raw.industry as string | null)?.trim()) n += 1;
+  if ((p.raw.summary as string | null)?.trim()) n += 1;
+  return n;
+}
+
+function availSalaryFilledCount(p: EditableProfile): number {
+  let n = 0;
+  if ((p.raw.availability as string | null)?.trim()) n += 1;
+  if ((p.raw.work_type as string | null)?.trim()) n += 1;
+  const min = p.raw.salary_min;
+  if (typeof min === "number" && min > 0) n += 1;
+  const max = p.raw.salary_max;
+  if (typeof max === "number" && max > 0) n += 1;
+  return n;
+}
+
+function ofNBadgeClass(count: number, total: number): string {
+  if (count === total) return "bg-green-100 text-green-700";
+  if (count === 0) return "bg-red-100 text-red-700";
+  return "bg-amber-100 text-amber-800";
+}
+
+function ofNBadgeLabel(count: number, total: number): string {
+  if (count === total) return "Complete";
+  if (count === 0) return "Empty";
+  return `${count} of ${total} filled`;
+}
+
 export function EditClient({
   email,
   profiles,
@@ -120,6 +215,57 @@ export function EditClient({
     linkedin: string;
   } | null>(null);
 
+  const [locCity, setLocCity] = useState("");
+  const [locCountry, setLocCountry] = useState("");
+  const [locErrors, setLocErrors] = useState<{
+    city?: string;
+    country?: string;
+  }>({});
+  const [locSaving, setLocSaving] = useState(false);
+  const [locSnapshot, setLocSnapshot] = useState<{
+    city: string;
+    country: string;
+  } | null>(null);
+
+  const [profJobTitle, setProfJobTitle] = useState("");
+  const [profRoleCategory, setProfRoleCategory] = useState("");
+  const [profYearsExperience, setProfYearsExperience] = useState("");
+  const [profIndustry, setProfIndustry] = useState("");
+  const [profSummary, setProfSummary] = useState("");
+  const [profErrors, setProfErrors] = useState<{
+    jobTitle?: string;
+    roleCategory?: string;
+    yearsExperience?: string;
+    industry?: string;
+    summary?: string;
+  }>({});
+  const [profSaving, setProfSaving] = useState(false);
+  const [profSnapshot, setProfSnapshot] = useState<{
+    jobTitle: string;
+    roleCategory: string;
+    yearsExperience: string;
+    industry: string;
+    summary: string;
+  } | null>(null);
+
+  const [availAvailability, setAvailAvailability] = useState("");
+  const [availWorkType, setAvailWorkType] = useState("");
+  const [availSalaryMin, setAvailSalaryMin] = useState("");
+  const [availSalaryMax, setAvailSalaryMax] = useState("");
+  const [availErrors, setAvailErrors] = useState<{
+    availability?: string;
+    workType?: string;
+    salaryMin?: string;
+    salaryMax?: string;
+  }>({});
+  const [availSaving, setAvailSaving] = useState(false);
+  const [availSnapshot, setAvailSnapshot] = useState<{
+    availability: string;
+    workType: string;
+    salaryMin: string;
+    salaryMax: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!activeProfile) {
       setBasicFirstName("");
@@ -127,6 +273,20 @@ export function EditClient({
       setBasicPhone("");
       setBasicLinkedin("");
       setBasicSnapshot(null);
+      setLocCity("");
+      setLocCountry("");
+      setLocSnapshot(null);
+      setProfJobTitle("");
+      setProfRoleCategory("");
+      setProfYearsExperience("");
+      setProfIndustry("");
+      setProfSummary("");
+      setProfSnapshot(null);
+      setAvailAvailability("");
+      setAvailWorkType("");
+      setAvailSalaryMin("");
+      setAvailSalaryMax("");
+      setAvailSnapshot(null);
       return;
     }
     const next = {
@@ -141,6 +301,58 @@ export function EditClient({
     setBasicLinkedin(next.linkedin);
     setBasicSnapshot(next);
     setBasicErrors({});
+
+    const raw = activeProfile.raw;
+    const locNext = {
+      city: ((raw.city as string | null) ?? "").trim() ? (raw.city as string) : "",
+      country: ((raw.country as string | null) ?? "").trim()
+        ? (raw.country as string)
+        : "",
+    };
+    setLocCity(locNext.city);
+    setLocCountry(locNext.country);
+    setLocSnapshot(locNext);
+    setLocErrors({});
+
+    const yearsRaw = raw.years_experience;
+    const profNext = {
+      jobTitle: ((raw.job_title as string | null) ?? "") || "",
+      roleCategory: ((raw.role_category as string | null) ?? "") || "",
+      yearsExperience:
+        typeof yearsRaw === "number" && Number.isFinite(yearsRaw)
+          ? String(yearsRaw)
+          : "",
+      industry: ((raw.industry as string | null) ?? "") || "",
+      summary: ((raw.summary as string | null) ?? "") || "",
+    };
+    setProfJobTitle(profNext.jobTitle);
+    setProfRoleCategory(profNext.roleCategory);
+    setProfYearsExperience(profNext.yearsExperience);
+    setProfIndustry(profNext.industry);
+    setProfSummary(profNext.summary);
+    setProfSnapshot(profNext);
+    setProfErrors({});
+
+    const minRaw = raw.salary_min;
+    const maxRaw = raw.salary_max;
+    const availNext = {
+      availability: ((raw.availability as string | null) ?? "") || "",
+      workType: ((raw.work_type as string | null) ?? "") || "",
+      salaryMin:
+        typeof minRaw === "number" && Number.isFinite(minRaw)
+          ? String(minRaw)
+          : "",
+      salaryMax:
+        typeof maxRaw === "number" && Number.isFinite(maxRaw)
+          ? String(maxRaw)
+          : "",
+    };
+    setAvailAvailability(availNext.availability);
+    setAvailWorkType(availNext.workType);
+    setAvailSalaryMin(availNext.salaryMin);
+    setAvailSalaryMax(availNext.salaryMax);
+    setAvailSnapshot(availNext);
+    setAvailErrors({});
   }, [activeProfile]);
 
   useEffect(() => {
@@ -177,6 +389,240 @@ export function EditClient({
     setBasicPhone(basicSnapshot.phone);
     setBasicLinkedin(basicSnapshot.linkedin);
     setBasicErrors({});
+  }
+
+  function handleLocationCancel() {
+    if (!locSnapshot) return;
+    setLocCity(locSnapshot.city);
+    setLocCountry(locSnapshot.country);
+    setLocErrors({});
+  }
+
+  async function handleLocationSave() {
+    if (!activeProfile) return;
+    const errors: typeof locErrors = {};
+    const city = locCity.trim();
+    const country = locCountry.trim();
+    if (city.length > 120) errors.city = "Must be 120 characters or fewer.";
+    if (country && !(COUNTRY_OPTIONS as readonly string[]).includes(country)) {
+      errors.country = "Pick a country from the list.";
+    }
+    setLocErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+    setLocSaving(true);
+    try {
+      const result = await updateTalentLocation({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        city: city || null,
+        country: country || null,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      setLocCity(saved.city ?? "");
+      setLocCountry(saved.country ?? "");
+      setLocSnapshot({ city: saved.city ?? "", country: saved.country ?? "" });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] location save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setLocSaving(false);
+    }
+  }
+
+  function handleProfessionalCancel() {
+    if (!profSnapshot) return;
+    setProfJobTitle(profSnapshot.jobTitle);
+    setProfRoleCategory(profSnapshot.roleCategory);
+    setProfYearsExperience(profSnapshot.yearsExperience);
+    setProfIndustry(profSnapshot.industry);
+    setProfSummary(profSnapshot.summary);
+    setProfErrors({});
+  }
+
+  async function handleProfessionalSave() {
+    if (!activeProfile) return;
+    const errors: typeof profErrors = {};
+    const jobTitle = profJobTitle.trim();
+    const roleCategory = profRoleCategory.trim();
+    const industry = profIndustry.trim();
+    const summary = profSummary.trim();
+    const yearsRaw = profYearsExperience.trim();
+
+    if (jobTitle.length > 120) errors.jobTitle = "Must be 120 characters or fewer.";
+    if (
+      roleCategory &&
+      !ROLE_CATEGORY_OPTIONS.some((o) => o.value === roleCategory)
+    ) {
+      errors.roleCategory = "Pick a role category from the list.";
+    }
+    if (industry && !(INDUSTRY_OPTIONS as readonly string[]).includes(industry)) {
+      errors.industry = "Pick an industry from the list.";
+    }
+    if (summary.length > 5000) {
+      errors.summary = "Must be 5000 characters or fewer.";
+    }
+
+    let yearsExperience: number | null = null;
+    if (yearsRaw.length > 0) {
+      const parsed = Number(yearsRaw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        errors.yearsExperience = "Whole number between 0 and 70.";
+      } else if (parsed < 0 || parsed > 70) {
+        errors.yearsExperience = "Must be between 0 and 70.";
+      } else {
+        yearsExperience = parsed;
+      }
+    }
+
+    setProfErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setProfSaving(true);
+    try {
+      const result = await updateTalentProfessional({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        jobTitle: jobTitle || null,
+        roleCategory: roleCategory || null,
+        yearsExperience,
+        industry: industry || null,
+        summary: summary || null,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      setProfJobTitle(saved.jobTitle ?? "");
+      setProfRoleCategory(saved.roleCategory ?? "");
+      setProfYearsExperience(
+        saved.yearsExperience !== null ? String(saved.yearsExperience) : "",
+      );
+      setProfIndustry(saved.industry ?? "");
+      setProfSummary(saved.summary ?? "");
+      setProfSnapshot({
+        jobTitle: saved.jobTitle ?? "",
+        roleCategory: saved.roleCategory ?? "",
+        yearsExperience:
+          saved.yearsExperience !== null ? String(saved.yearsExperience) : "",
+        industry: saved.industry ?? "",
+        summary: saved.summary ?? "",
+      });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] professional save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setProfSaving(false);
+    }
+  }
+
+  function handleAvailSalaryCancel() {
+    if (!availSnapshot) return;
+    setAvailAvailability(availSnapshot.availability);
+    setAvailWorkType(availSnapshot.workType);
+    setAvailSalaryMin(availSnapshot.salaryMin);
+    setAvailSalaryMax(availSnapshot.salaryMax);
+    setAvailErrors({});
+  }
+
+  async function handleAvailSalarySave() {
+    if (!activeProfile) return;
+    const errors: typeof availErrors = {};
+    const availability = availAvailability.trim();
+    const workType = availWorkType.trim();
+    const minRaw = availSalaryMin.trim();
+    const maxRaw = availSalaryMax.trim();
+
+    if (
+      availability &&
+      !(AVAILABILITY_OPTIONS as readonly string[]).includes(availability)
+    ) {
+      errors.availability = "Pick an option from the list.";
+    }
+    if (workType && !(WORK_TYPE_OPTIONS as readonly string[]).includes(workType)) {
+      errors.workType = "Pick an option from the list.";
+    }
+
+    let salaryMin: number | null = null;
+    if (minRaw.length > 0) {
+      const parsed = Number(minRaw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        errors.salaryMin = "Whole number, no decimals.";
+      } else if (parsed < 0 || parsed > 100_000_000) {
+        errors.salaryMin = "Out of range.";
+      } else {
+        salaryMin = parsed;
+      }
+    }
+
+    let salaryMax: number | null = null;
+    if (maxRaw.length > 0) {
+      const parsed = Number(maxRaw);
+      if (!Number.isFinite(parsed) || !Number.isInteger(parsed)) {
+        errors.salaryMax = "Whole number, no decimals.";
+      } else if (parsed < 0 || parsed > 100_000_000) {
+        errors.salaryMax = "Out of range.";
+      } else {
+        salaryMax = parsed;
+      }
+    }
+
+    if (
+      salaryMin !== null &&
+      salaryMax !== null &&
+      salaryMin > salaryMax
+    ) {
+      errors.salaryMax = "Maximum must be ≥ minimum.";
+    }
+
+    setAvailErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setAvailSaving(true);
+    try {
+      const result = await updateTalentAvailabilitySalary({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        availability: availability || null,
+        workType: workType || null,
+        salaryMin,
+        salaryMax,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      setAvailAvailability(saved.availability ?? "");
+      setAvailWorkType(saved.workType ?? "");
+      setAvailSalaryMin(
+        saved.salaryMin !== null ? String(saved.salaryMin) : "",
+      );
+      setAvailSalaryMax(
+        saved.salaryMax !== null ? String(saved.salaryMax) : "",
+      );
+      setAvailSnapshot({
+        availability: saved.availability ?? "",
+        workType: saved.workType ?? "",
+        salaryMin: saved.salaryMin !== null ? String(saved.salaryMin) : "",
+        salaryMax: saved.salaryMax !== null ? String(saved.salaryMax) : "",
+      });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] availability save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setAvailSaving(false);
+    }
   }
 
   async function handleBasicSave() {
@@ -270,10 +716,28 @@ export function EditClient({
 
   const completePct = activeProfile.matchScore.pct;
   const basicCount = basicInfoFilledCount(activeProfile);
+  const locCount = locationFilledCount(activeProfile);
+  const profCount = professionalFilledCount(activeProfile);
+  const availCount = availSalaryFilledCount(activeProfile);
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
-  const showBoostBadge = !rawSummary?.trim() || !rawRoleCategory?.trim();
+  const summaryEmpty = !rawSummary?.trim();
+  const roleCategoryEmpty = !rawRoleCategory?.trim();
+  const showBoostBadge =
+    profCount > 0 && profCount < 5 && (summaryEmpty || roleCategoryEmpty);
+
+  const professionalBadge: { className: string; label: string } =
+    profCount === 5
+      ? { className: "bg-green-100 text-green-700", label: "Complete" }
+      : profCount === 0
+        ? { className: "bg-red-100 text-red-700", label: "Empty" }
+        : showBoostBadge
+          ? { className: "bg-amber-100 text-amber-800", label: "Boost score" }
+          : {
+              className: "bg-amber-100 text-amber-800",
+              label: `${profCount} of 5 filled`,
+            };
 
   const sections: Array<{
     key: SectionKey;
@@ -291,19 +755,23 @@ export function EditClient({
     {
       key: "location",
       title: "Location",
-      badge: { className: "bg-gray-100 text-gray-600", label: "Coming soon" },
+      badge: {
+        className: ofNBadgeClass(locCount, 2),
+        label: ofNBadgeLabel(locCount, 2),
+      },
     },
     {
       key: "professional",
       title: "Professional details",
-      badge: showBoostBadge
-        ? { className: "bg-amber-100 text-amber-800", label: "Boost score" }
-        : { className: "bg-gray-100 text-gray-600", label: "Coming soon" },
+      badge: professionalBadge,
     },
     {
       key: "availability",
       title: "Availability & salary",
-      badge: { className: "bg-gray-100 text-gray-600", label: "Coming soon" },
+      badge: {
+        className: ofNBadgeClass(availCount, 4),
+        label: ofNBadgeLabel(availCount, 4),
+      },
     },
     {
       key: "skills",
@@ -503,27 +971,317 @@ export function EditClient({
                   )}
 
                   {section.key === "location" && (
-                    <p className="text-sm text-gray-500">
-                      Coming in the next prompt (4.2B).
-                    </p>
+                    <div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>City</span>
+                          <input
+                            type="text"
+                            value={locCity}
+                            onChange={(e) => setLocCity(e.target.value)}
+                            maxLength={120}
+                            aria-invalid={Boolean(locErrors.city)}
+                            className={INPUT_CLASS}
+                          />
+                          {locErrors.city && (
+                            <span className="text-xs text-red-600">
+                              {locErrors.city}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Country</span>
+                          <select
+                            value={locCountry}
+                            onChange={(e) => setLocCountry(e.target.value)}
+                            aria-invalid={Boolean(locErrors.country)}
+                            className={INPUT_CLASS}
+                          >
+                            <option value="">—</option>
+                            {COUNTRY_OPTIONS.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                          {locErrors.country && (
+                            <span className="text-xs text-red-600">
+                              {locErrors.country}
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleLocationCancel}
+                          disabled={locSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLocationSave}
+                          disabled={locSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {locSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "professional" && (
-                    <p className="text-sm text-gray-500">
-                      Coming in the next prompt (4.2B).
-                    </p>
+                    <div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Job title</span>
+                          <input
+                            type="text"
+                            value={profJobTitle}
+                            onChange={(e) => setProfJobTitle(e.target.value)}
+                            maxLength={120}
+                            aria-invalid={Boolean(profErrors.jobTitle)}
+                            className={INPUT_CLASS}
+                          />
+                          {profErrors.jobTitle && (
+                            <span className="text-xs text-red-600">
+                              {profErrors.jobTitle}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Role category</span>
+                          <select
+                            value={profRoleCategory}
+                            onChange={(e) => setProfRoleCategory(e.target.value)}
+                            aria-invalid={Boolean(profErrors.roleCategory)}
+                            className={INPUT_CLASS}
+                          >
+                            <option value="">—</option>
+                            {ROLE_CATEGORY_OPTIONS.map((o) => (
+                              <option key={o.value} value={o.value}>
+                                {o.label}
+                              </option>
+                            ))}
+                          </select>
+                          {profErrors.roleCategory && (
+                            <span className="text-xs text-red-600">
+                              {profErrors.roleCategory}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Years of experience</span>
+                          <input
+                            type="number"
+                            min={0}
+                            max={70}
+                            step={1}
+                            value={profYearsExperience}
+                            onChange={(e) =>
+                              setProfYearsExperience(e.target.value)
+                            }
+                            aria-invalid={Boolean(profErrors.yearsExperience)}
+                            className={INPUT_CLASS}
+                          />
+                          {profErrors.yearsExperience && (
+                            <span className="text-xs text-red-600">
+                              {profErrors.yearsExperience}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Industry</span>
+                          <select
+                            value={profIndustry}
+                            onChange={(e) => setProfIndustry(e.target.value)}
+                            aria-invalid={Boolean(profErrors.industry)}
+                            className={INPUT_CLASS}
+                          >
+                            <option value="">—</option>
+                            {INDUSTRY_OPTIONS.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                          </select>
+                          {profErrors.industry && (
+                            <span className="text-xs text-red-600">
+                              {profErrors.industry}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5 md:col-span-2">
+                          <span className={LABEL_CLASS}>Summary</span>
+                          <textarea
+                            rows={5}
+                            maxLength={5000}
+                            value={profSummary}
+                            onChange={(e) => setProfSummary(e.target.value)}
+                            aria-invalid={Boolean(profErrors.summary)}
+                            className={INPUT_CLASS}
+                          />
+                          <span className="text-[11px] text-gray-400">
+                            {profSummary.length} / 5000
+                          </span>
+                          {profErrors.summary && (
+                            <span className="text-xs text-red-600">
+                              {profErrors.summary}
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleProfessionalCancel}
+                          disabled={profSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleProfessionalSave}
+                          disabled={profSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {profSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "availability" && (
-                    <p className="text-sm text-gray-500">
-                      Coming in the next prompt (4.2B).
-                    </p>
+                    <div>
+                      <div className="flex flex-col gap-5">
+                        <fieldset className="flex flex-col gap-2">
+                          <legend className={LABEL_CLASS}>Availability</legend>
+                          <div className="flex flex-wrap gap-2">
+                            {AVAILABILITY_OPTIONS.map((opt) => {
+                              const selected = availAvailability === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => setAvailAvailability(opt)}
+                                  className={
+                                    selected
+                                      ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                                      : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                  }
+                                  aria-pressed={selected}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {availErrors.availability && (
+                            <span className="text-xs text-red-600">
+                              {availErrors.availability}
+                            </span>
+                          )}
+                        </fieldset>
+
+                        <fieldset className="flex flex-col gap-2">
+                          <legend className={LABEL_CLASS}>Work type</legend>
+                          <div className="flex flex-wrap gap-2">
+                            {WORK_TYPE_OPTIONS.map((opt) => {
+                              const selected = availWorkType === opt;
+                              return (
+                                <button
+                                  key={opt}
+                                  type="button"
+                                  onClick={() => setAvailWorkType(opt)}
+                                  className={
+                                    selected
+                                      ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                                      : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                  }
+                                  aria-pressed={selected}
+                                >
+                                  {opt}
+                                </button>
+                              );
+                            })}
+                          </div>
+                          {availErrors.workType && (
+                            <span className="text-xs text-red-600">
+                              {availErrors.workType}
+                            </span>
+                          )}
+                        </fieldset>
+
+                        <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>
+                              Salary min (USD / month)
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100_000_000}
+                              step={1}
+                              value={availSalaryMin}
+                              onChange={(e) => setAvailSalaryMin(e.target.value)}
+                              aria-invalid={Boolean(availErrors.salaryMin)}
+                              className={INPUT_CLASS}
+                            />
+                            {availErrors.salaryMin && (
+                              <span className="text-xs text-red-600">
+                                {availErrors.salaryMin}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>
+                              Salary max (USD / month)
+                            </span>
+                            <input
+                              type="number"
+                              min={0}
+                              max={100_000_000}
+                              step={1}
+                              value={availSalaryMax}
+                              onChange={(e) => setAvailSalaryMax(e.target.value)}
+                              aria-invalid={Boolean(availErrors.salaryMax)}
+                              className={INPUT_CLASS}
+                            />
+                            {availErrors.salaryMax && (
+                              <span className="text-xs text-red-600">
+                                {availErrors.salaryMax}
+                              </span>
+                            )}
+                          </label>
+                        </div>
+                      </div>
+
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleAvailSalaryCancel}
+                          disabled={availSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleAvailSalarySave}
+                          disabled={availSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {availSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "skills" && (
-                    <p className="text-sm text-gray-500">
-                      Coming in the next prompt (4.2B).
-                    </p>
+                    <p className="text-sm text-gray-500">Coming in 4.2C.</p>
                   )}
 
                   {section.key === "cv" && (
