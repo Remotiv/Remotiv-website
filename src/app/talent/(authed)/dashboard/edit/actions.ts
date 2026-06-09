@@ -41,12 +41,39 @@ const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
 const EXPERIENCE_SKILLS_MAX = 30;
 const REMOTE_URL_MAX = 500;
+const JOB_TITLES_MAX = 200;
+const BIO_MIN = 50;
+const BIO_MAX = 2000;
+const HOURLY_RATE_MIN = 10;
+const HOURLY_RATE_MAX = 999;
+const EDU_FIELD_MAX = 200;
 
 // Verbatim regex from src/app/remote-ready/page.tsx:274 — intake form
 // requires a `linkedin.com/in/...` profile URL. Server and intake must
 // match exactly so users can't bypass intake validation via the edit page.
 const REMOTE_LINKEDIN_REGEX =
   /^https?:\/\/(www\.)?linkedin\.com\/in\//i;
+
+// Verbatim from intake form src/app/remote-ready/page.tsx:118-135.
+const REMOTE_HOURS_PER_WEEK_OPTIONS = [
+  "More than 30 hrs/week",
+  "20-30 hrs/week",
+  "Less than 20 hrs/week",
+] as const;
+
+const REMOTE_WORK_TYPE_OPTIONS = [
+  "Open to contract-to-hire",
+  "Contract only",
+  "Full-time",
+  "Part-time",
+] as const;
+
+// Verbatim from intake AVAIL_LABEL (src/app/remote-ready/page.tsx:131-135).
+// "now" → "Available Now" (capital N), "twoWeeks" → "Available within 2 weeks".
+const REMOTE_AVAIL_LABELS: Record<"now" | "twoWeeks", string> = {
+  now: "Available Now",
+  twoWeeks: "Available within 2 weeks",
+};
 
 const COUNTRY_OPTIONS = [
   "Pakistan",
@@ -914,5 +941,402 @@ export async function updateRemoteLocation(
       country: country ?? "",
       timeZone: timeZone ?? "",
     },
+  };
+}
+
+type UpdateRemoteProfessionalInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  jobTitles: string;
+  bio: string;
+  hourlyRate: string;
+  hoursPerWeek: string;
+};
+
+type RemoteProfessionalData = {
+  jobTitles: string;
+  bio: string;
+  hourlyRate: number | null;
+  hoursPerWeek: string;
+};
+
+export async function updateRemoteProfessional(
+  input: UpdateRemoteProfessionalInput,
+): Promise<MutationResult<RemoteProfessionalData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  const jobTitlesTrimmed = input.jobTitles.trim();
+  if (jobTitlesTrimmed.length > JOB_TITLES_MAX) {
+    return {
+      success: false,
+      error: `Job titles must be ${JOB_TITLES_MAX} characters or fewer.`,
+    };
+  }
+  const jobTitles = jobTitlesTrimmed.length === 0 ? null : jobTitlesTrimmed;
+
+  const bioTrimmed = input.bio.trim();
+  let bio: string | null = null;
+  if (bioTrimmed.length > 0) {
+    if (bioTrimmed.length < BIO_MIN) {
+      return {
+        success: false,
+        error: `Bio must be at least ${BIO_MIN} characters.`,
+      };
+    }
+    if (bioTrimmed.length > BIO_MAX) {
+      return {
+        success: false,
+        error: `Bio must be ${BIO_MAX} characters or fewer.`,
+      };
+    }
+    bio = bioTrimmed;
+  }
+
+  // Match intake parseFloat (src/app/remote-ready/page.tsx:591). Allows
+  // decimals; we still clamp to integer range 10..999 client-side via
+  // step=1 but server-side accept any numeric in range.
+  const rateRaw = input.hourlyRate.trim();
+  let hourlyRate: number | null = null;
+  if (rateRaw.length > 0) {
+    const parsed = Number.parseFloat(rateRaw);
+    if (!Number.isFinite(parsed)) {
+      return {
+        success: false,
+        error: `Hourly rate must be between $${HOURLY_RATE_MIN} and $${HOURLY_RATE_MAX}.`,
+      };
+    }
+    if (parsed < HOURLY_RATE_MIN || parsed > HOURLY_RATE_MAX) {
+      return {
+        success: false,
+        error: `Hourly rate must be between $${HOURLY_RATE_MIN} and $${HOURLY_RATE_MAX}.`,
+      };
+    }
+    hourlyRate = parsed;
+  }
+
+  const hoursTrimmed = input.hoursPerWeek.trim();
+  let hoursPerWeek: string | null = null;
+  if (hoursTrimmed.length > 0) {
+    if (
+      !(REMOTE_HOURS_PER_WEEK_OPTIONS as readonly string[]).includes(
+        hoursTrimmed,
+      )
+    ) {
+      return {
+        success: false,
+        error: "Pick an hours-per-week option from the list.",
+      };
+    }
+    hoursPerWeek = hoursTrimmed;
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({
+      job_titles: jobTitles,
+      bio,
+      hourly_rate: hourlyRate,
+      hours_per_week: hoursPerWeek,
+    })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteProfessional] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: {
+      jobTitles: jobTitles ?? "",
+      bio: bio ?? "",
+      hourlyRate,
+      hoursPerWeek: hoursPerWeek ?? "",
+    },
+  };
+}
+
+type RemoteAvailChoice = "" | "now" | "twoWeeks" | "future";
+
+type UpdateRemoteAvailWorkInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  availChoice: RemoteAvailChoice;
+  availableFromDate: string;
+  workType: string;
+};
+
+type RemoteAvailWorkData = {
+  availability: string;
+  availableFromDate: string;
+  workType: string;
+};
+
+export async function updateRemoteAvailabilityWorkType(
+  input: UpdateRemoteAvailWorkInput,
+): Promise<MutationResult<RemoteAvailWorkData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  const choice = input.availChoice;
+  if (
+    choice !== "" &&
+    choice !== "now" &&
+    choice !== "twoWeeks" &&
+    choice !== "future"
+  ) {
+    return { success: false, error: "Invalid availability choice." };
+  }
+
+  let availability: string | null = null;
+  let availableFromDate: string | null = null;
+
+  if (choice === "now") {
+    availability = REMOTE_AVAIL_LABELS.now;
+  } else if (choice === "twoWeeks") {
+    availability = REMOTE_AVAIL_LABELS.twoWeeks;
+  } else if (choice === "future") {
+    const dateRaw = input.availableFromDate.trim();
+    if (!dateRaw) {
+      return { success: false, error: "Pick a date." };
+    }
+    if (!/^\d{4}-\d{2}-\d{2}$/.test(dateRaw)) {
+      return { success: false, error: "Pick a valid date." };
+    }
+    const chosen = new Date(dateRaw);
+    if (Number.isNaN(chosen.getTime())) {
+      return { success: false, error: "Pick a valid date." };
+    }
+    // Match intake (route.ts:225): strictly future, not today.
+    if (chosen <= new Date()) {
+      return {
+        success: false,
+        error: "Pick a future date (tomorrow or later).",
+      };
+    }
+    availability = `Available from ${dateRaw}`;
+    availableFromDate = dateRaw;
+  }
+
+  const wtTrimmed = input.workType.trim();
+  let workType: string | null = null;
+  if (wtTrimmed.length > 0) {
+    if (
+      !(REMOTE_WORK_TYPE_OPTIONS as readonly string[]).includes(wtTrimmed)
+    ) {
+      return {
+        success: false,
+        error: "Pick a work-type option from the list.",
+      };
+    }
+    workType = wtTrimmed;
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({
+      availability,
+      available_from_date: availableFromDate,
+      work_type: workType,
+    })
+    .eq("id", profileId);
+  if (error) {
+    console.error(
+      "[updateRemoteAvailabilityWorkType] update failed:",
+      error,
+    );
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: {
+      availability: availability ?? "",
+      availableFromDate: availableFromDate ?? "",
+      workType: workType ?? "",
+    },
+  };
+}
+
+type UpdateRemoteSkillsInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  skills: string[];
+};
+
+type RemoteSkillsData = { skills: string[] };
+
+export async function updateRemoteSkills(
+  input: UpdateRemoteSkillsInput,
+): Promise<MutationResult<RemoteSkillsData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!Array.isArray(input.skills)) {
+    return { success: false, error: "Skills must be a list." };
+  }
+  for (const raw of input.skills) {
+    if (typeof raw === "string" && raw.trim().length > SKILL_CHAR_MAX) {
+      return {
+        success: false,
+        error: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+      };
+    }
+  }
+  const skills = normaliseSkillsArray(input.skills);
+  if (skills.length > SKILLS_MAX) {
+    return { success: false, error: `You can list up to ${SKILLS_MAX} skills.` };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({ skills })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteSkills] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { skills } };
+}
+
+type UpdateRemoteEducationInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  institution: string;
+  degree: string;
+  start: string;
+  end: string;
+};
+
+type RemoteEducationData = {
+  institution: string;
+  degree: string;
+  start: string;
+  end: string;
+  dates: string;
+};
+
+export async function updateRemoteEducation(
+  input: UpdateRemoteEducationInput,
+): Promise<MutationResult<RemoteEducationData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  const institution = input.institution.trim();
+  const degree = input.degree.trim();
+  const start = input.start.trim();
+  const end = input.end.trim();
+
+  for (const [name, value] of [
+    ["Institution", institution],
+    ["Degree", degree],
+    ["Start", start],
+    ["End", end],
+  ] as const) {
+    if (value.length > EDU_FIELD_MAX) {
+      return {
+        success: false,
+        error: `${name} must be ${EDU_FIELD_MAX} characters or fewer.`,
+      };
+    }
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const allEmpty =
+    !institution && !degree && !start && !end;
+
+  let updatePayload: { education: null } | {
+    education: {
+      institution: string;
+      degree: string;
+      start: string;
+      end: string;
+      dates: string;
+    };
+  };
+  let datesOut = "";
+  if (allEmpty) {
+    updatePayload = { education: null };
+  } else {
+    // Verbatim intake join: src/app/remote-ready/page.tsx:556
+    // dates: [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("–")
+    // — en-dash U+2013, NO surrounding spaces.
+    datesOut = [start, end].filter(Boolean).join("–");
+    updatePayload = {
+      education: { institution, degree, start, end, dates: datesOut },
+    };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update(updatePayload)
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteEducation] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return {
+    success: true,
+    data: { institution, degree, start, end, dates: datesOut },
   };
 }

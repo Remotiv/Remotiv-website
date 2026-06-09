@@ -5,8 +5,12 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  updateRemoteAvailabilityWorkType,
   updateRemoteBasicInfo,
+  updateRemoteEducation,
   updateRemoteLocation,
+  updateRemoteProfessional,
+  updateRemoteSkills,
   updateTalentAvailabilitySalary,
   updateTalentBasicInfo,
   updateTalentLocation,
@@ -101,6 +105,36 @@ const SKILL_CHAR_MAX = 50;
 const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
 const EXPERIENCE_SKILLS_MAX = 30;
+
+// Verbatim from src/app/remote-ready/page.tsx (HOURS_LABEL line 118-122,
+// WORK_TYPE_LABEL line 124-129, AVAIL_LABEL line 131-135).
+const REMOTE_HOURS_PER_WEEK_OPTIONS = [
+  "More than 30 hrs/week",
+  "20-30 hrs/week",
+  "Less than 20 hrs/week",
+] as const;
+
+const REMOTE_WORK_TYPE_OPTIONS = [
+  "Open to contract-to-hire",
+  "Contract only",
+  "Full-time",
+  "Part-time",
+] as const;
+
+const REMOTE_AVAIL_CHOICES = [
+  { value: "now", label: "Available Now" },
+  { value: "twoWeeks", label: "Available within 2 weeks" },
+  { value: "future", label: "Available from a future date" },
+] as const;
+
+const BIO_MIN = 50;
+const BIO_MAX = 2000;
+const JOB_TITLES_MAX = 200;
+const HOURLY_RATE_MIN = 10;
+const HOURLY_RATE_MAX = 999;
+const EDU_FIELD_MAX = 200;
+
+type RemoteAvailChoice = "" | "now" | "twoWeeks" | "future";
 
 // Verbatim from intake form: src/app/remote-ready/page.tsx:274.
 const REMOTE_LINKEDIN_REGEX =
@@ -242,6 +276,54 @@ function skillsExpFilledCount(p: EditableProfile): number {
   return n;
 }
 
+function remoteProfessionalFilledCount(p: EditableProfile): number {
+  let n = 0;
+  if ((p.raw.job_titles as string | null)?.trim()) n += 1;
+  if ((p.raw.bio as string | null)?.trim()) n += 1;
+  if (p.raw.hourly_rate != null) n += 1;
+  if ((p.raw.hours_per_week as string | null)?.trim()) n += 1;
+  return n;
+}
+
+function remoteAvailWorkTypeFilledCount(p: EditableProfile): number {
+  let n = 0;
+  if ((p.raw.availability as string | null)?.trim()) n += 1;
+  if ((p.raw.work_type as string | null)?.trim()) n += 1;
+  return n;
+}
+
+function remoteSkillsFilledCount(p: EditableProfile): number {
+  const s = parseSkillsArrayFromRaw(p.raw.skills);
+  return s.length > 0 ? 1 : 0;
+}
+
+function remoteEducationFilledCount(p: EditableProfile): number {
+  const eduRaw =
+    (p.raw.education ?? null) as Record<string, unknown> | null;
+  if (!eduRaw || typeof eduRaw !== "object" || Array.isArray(eduRaw)) {
+    return 0;
+  }
+  let n = 0;
+  if (typeof eduRaw.institution === "string" && eduRaw.institution.trim()) {
+    n += 1;
+  }
+  if (typeof eduRaw.degree === "string" && eduRaw.degree.trim()) {
+    n += 1;
+  }
+  const hasStart =
+    typeof eduRaw.start === "string" && (eduRaw.start as string).trim();
+  const hasEnd =
+    typeof eduRaw.end === "string" && (eduRaw.end as string).trim();
+  if (hasStart || hasEnd) {
+    if (hasStart) n += 1;
+    if (hasEnd) n += 1;
+  } else if (typeof eduRaw.dates === "string" && eduRaw.dates.trim()) {
+    // Legacy intake row — combined dates string only.
+    n += 2;
+  }
+  return n;
+}
+
 function basicInfoFilledCount(p: EditableProfile): number {
   let n = 0;
   if (p.firstName.trim()) n += 1;
@@ -332,6 +414,10 @@ function getSectionsForPool(
     availability: number;
     skills: number;
     professionalBadge: { className: string; label: string };
+    remoteProf: number;
+    remoteAvail: number;
+    remoteSkills: number;
+    remoteEdu: number;
   },
 ): SectionDef[] {
   if (sourceTable === "talent_profiles") {
@@ -393,11 +479,39 @@ function getSectionsForPool(
         label: ofNBadgeLabel(counts.location, 3),
       },
     },
-    { key: "professional", title: "Professional details", badge: COMING_SOON_BADGE },
-    { key: "availability", title: "Availability & work type", badge: COMING_SOON_BADGE },
-    { key: "skills", title: "Skills", badge: COMING_SOON_BADGE },
+    {
+      key: "professional",
+      title: "Professional details",
+      badge: {
+        className: ofNBadgeClass(counts.remoteProf, 4),
+        label: ofNBadgeLabel(counts.remoteProf, 4),
+      },
+    },
+    {
+      key: "availability",
+      title: "Availability & work type",
+      badge: {
+        className: ofNBadgeClass(counts.remoteAvail, 2),
+        label: ofNBadgeLabel(counts.remoteAvail, 2),
+      },
+    },
+    {
+      key: "skills",
+      title: "Skills",
+      badge:
+        counts.remoteSkills === 1
+          ? { className: "bg-green-100 text-green-700", label: "Complete" }
+          : { className: "bg-red-100 text-red-700", label: "Empty" },
+    },
     { key: "employment", title: "Employment history", badge: COMING_SOON_BADGE },
-    { key: "education", title: "Education", badge: COMING_SOON_BADGE },
+    {
+      key: "education",
+      title: "Education",
+      badge: {
+        className: ofNBadgeClass(counts.remoteEdu, 4),
+        label: ofNBadgeLabel(counts.remoteEdu, 4),
+      },
+    },
     { key: "languages", title: "Languages", badge: COMING_SOON_BADGE },
     { key: "portfolio", title: "Portfolio", badge: COMING_SOON_BADGE },
     { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
@@ -518,6 +632,68 @@ export function EditClient({
     expRows: ExperienceRowState[];
   } | null>(null);
 
+  const [remoteJobTitles, setRemoteJobTitles] = useState("");
+  const [remoteBio, setRemoteBio] = useState("");
+  const [remoteHourlyRate, setRemoteHourlyRate] = useState("");
+  const [remoteHoursPerWeek, setRemoteHoursPerWeek] = useState("");
+  const [remoteProfErrors, setRemoteProfErrors] = useState<{
+    jobTitles?: string;
+    bio?: string;
+    hourlyRate?: string;
+    hoursPerWeek?: string;
+  }>({});
+  const [remoteProfSaving, setRemoteProfSaving] = useState(false);
+  const [remoteProfSnapshot, setRemoteProfSnapshot] = useState<{
+    jobTitles: string;
+    bio: string;
+    hourlyRate: string;
+    hoursPerWeek: string;
+  } | null>(null);
+
+  const [remoteAvailChoice, setRemoteAvailChoice] =
+    useState<RemoteAvailChoice>("");
+  const [remoteAvailFromDate, setRemoteAvailFromDate] = useState("");
+  const [remoteWorkType, setRemoteWorkType] = useState("");
+  const [remoteAvailErrors, setRemoteAvailErrors] = useState<{
+    availability?: string;
+    availableFromDate?: string;
+    workType?: string;
+  }>({});
+  const [remoteAvailSaving, setRemoteAvailSaving] = useState(false);
+  const [remoteAvailSnapshot, setRemoteAvailSnapshot] = useState<{
+    availChoice: RemoteAvailChoice;
+    availableFromDate: string;
+    workType: string;
+  } | null>(null);
+
+  const [remoteSkillsList, setRemoteSkillsList] = useState<string[]>([]);
+  const [remoteSkillInput, setRemoteSkillInput] = useState("");
+  const [remoteSkillsErrors, setRemoteSkillsErrors] = useState<{
+    general?: string;
+  }>({});
+  const [remoteSkillsSaving, setRemoteSkillsSaving] = useState(false);
+  const [remoteSkillsSnapshot, setRemoteSkillsSnapshot] = useState<
+    string[] | null
+  >(null);
+
+  const [remoteEduInstitution, setRemoteEduInstitution] = useState("");
+  const [remoteEduDegree, setRemoteEduDegree] = useState("");
+  const [remoteEduStart, setRemoteEduStart] = useState("");
+  const [remoteEduEnd, setRemoteEduEnd] = useState("");
+  const [remoteEduErrors, setRemoteEduErrors] = useState<{
+    institution?: string;
+    degree?: string;
+    start?: string;
+    end?: string;
+  }>({});
+  const [remoteEduSaving, setRemoteEduSaving] = useState(false);
+  const [remoteEduSnapshot, setRemoteEduSnapshot] = useState<{
+    institution: string;
+    degree: string;
+    start: string;
+    end: string;
+  } | null>(null);
+
   useEffect(() => {
     if (!activeProfile) {
       setBasicFirstName("");
@@ -544,6 +720,23 @@ export function EditClient({
       setSkillInput("");
       setExpRows([]);
       setSkillsExpSnapshot(null);
+      setRemoteJobTitles("");
+      setRemoteBio("");
+      setRemoteHourlyRate("");
+      setRemoteHoursPerWeek("");
+      setRemoteProfSnapshot(null);
+      setRemoteAvailChoice("");
+      setRemoteAvailFromDate("");
+      setRemoteWorkType("");
+      setRemoteAvailSnapshot(null);
+      setRemoteSkillsList([]);
+      setRemoteSkillInput("");
+      setRemoteSkillsSnapshot(null);
+      setRemoteEduInstitution("");
+      setRemoteEduDegree("");
+      setRemoteEduStart("");
+      setRemoteEduEnd("");
+      setRemoteEduSnapshot(null);
       return;
     }
     const next = {
@@ -624,6 +817,107 @@ export function EditClient({
     setExpRows(seededExpRows);
     setSkillsExpErrors({});
     setSkillsExpSnapshot({ skills: seededSkills, expRows: seededExpRows });
+
+    if (activeProfile.sourceTable === "hire_remote_profiles") {
+      const r = activeProfile.raw;
+
+      const profNext = {
+        jobTitles: ((r.job_titles as string | null) ?? "").trim(),
+        bio: ((r.bio as string | null) ?? "").trim(),
+        hourlyRate: r.hourly_rate != null ? String(r.hourly_rate) : "",
+        hoursPerWeek: ((r.hours_per_week as string | null) ?? "").trim(),
+      };
+      setRemoteJobTitles(profNext.jobTitles);
+      setRemoteBio(profNext.bio);
+      setRemoteHourlyRate(profNext.hourlyRate);
+      setRemoteHoursPerWeek(profNext.hoursPerWeek);
+      setRemoteProfSnapshot(profNext);
+      setRemoteProfErrors({});
+
+      const availLabel = ((r.availability as string | null) ?? "").trim();
+      const availFromIso =
+        ((r.available_from_date as string | null) ?? "").trim();
+      let availChoice: RemoteAvailChoice = "";
+      let availFromDate = "";
+      if (availLabel.startsWith("Available from ")) {
+        availChoice = "future";
+        availFromDate = availFromIso;
+      } else if (availLabel === "Available Now") {
+        availChoice = "now";
+      } else if (availLabel === "Available within 2 weeks") {
+        availChoice = "twoWeeks";
+      }
+      const wt = ((r.work_type as string | null) ?? "").trim();
+      const availNext = {
+        availChoice,
+        availableFromDate: availFromDate,
+        workType: wt,
+      };
+      setRemoteAvailChoice(availNext.availChoice);
+      setRemoteAvailFromDate(availNext.availableFromDate);
+      setRemoteWorkType(availNext.workType);
+      setRemoteAvailSnapshot(availNext);
+      setRemoteAvailErrors({});
+
+      const remoteSkillsSeed = parseSkillsArrayFromRaw(r.skills);
+      setRemoteSkillsList(remoteSkillsSeed);
+      setRemoteSkillInput("");
+      setRemoteSkillsSnapshot(remoteSkillsSeed);
+      setRemoteSkillsErrors({});
+
+      const eduRaw =
+        (r.education ?? null) as Record<string, unknown> | null;
+      let eduInstitution = "";
+      let eduDegree = "";
+      let eduStart = "";
+      let eduEnd = "";
+      if (eduRaw && typeof eduRaw === "object" && !Array.isArray(eduRaw)) {
+        if (typeof eduRaw.institution === "string") {
+          eduInstitution = eduRaw.institution;
+        }
+        if (typeof eduRaw.degree === "string") {
+          eduDegree = eduRaw.degree;
+        }
+        if (typeof eduRaw.start === "string") {
+          eduStart = eduRaw.start;
+        }
+        if (typeof eduRaw.end === "string") {
+          eduEnd = eduRaw.end;
+        }
+        // Legacy fallback: rows written by the public intake form before
+        // this patch store only a combined `dates` string. Parse it back
+        // into start/end so users don't see empty inputs on first load.
+        if (
+          !eduStart &&
+          !eduEnd &&
+          typeof eduRaw.dates === "string" &&
+          eduRaw.dates.trim()
+        ) {
+          // Intake join: [start, end].filter(Boolean).join("–")
+          // — en-dash U+2013, no surrounding spaces.
+          const parts = (eduRaw.dates as string).split("–");
+          if (parts.length === 2) {
+            eduStart = parts[0].trim();
+            eduEnd = parts[1].trim();
+          } else if (parts.length === 1) {
+            // Ambiguous (start-only OR end-only). Default to start.
+            eduStart = parts[0].trim();
+          }
+        }
+      }
+      const edu = {
+        institution: eduInstitution,
+        degree: eduDegree,
+        start: eduStart,
+        end: eduEnd,
+      };
+      setRemoteEduInstitution(edu.institution);
+      setRemoteEduDegree(edu.degree);
+      setRemoteEduStart(edu.start);
+      setRemoteEduEnd(edu.end);
+      setRemoteEduSnapshot(edu);
+      setRemoteEduErrors({});
+    }
   }, [activeProfile]);
 
   useEffect(() => {
@@ -1123,6 +1417,330 @@ export function EditClient({
     }
   }
 
+  function handleRemoteProfCancel() {
+    if (!remoteProfSnapshot) return;
+    setRemoteJobTitles(remoteProfSnapshot.jobTitles);
+    setRemoteBio(remoteProfSnapshot.bio);
+    setRemoteHourlyRate(remoteProfSnapshot.hourlyRate);
+    setRemoteHoursPerWeek(remoteProfSnapshot.hoursPerWeek);
+    setRemoteProfErrors({});
+  }
+
+  async function handleRemoteProfSave() {
+    if (!activeProfile) return;
+    const errors: typeof remoteProfErrors = {};
+    const jobTitles = remoteJobTitles.trim();
+    const bio = remoteBio.trim();
+    const hourlyRate = remoteHourlyRate.trim();
+    const hoursPerWeek = remoteHoursPerWeek.trim();
+
+    if (jobTitles.length > JOB_TITLES_MAX) {
+      errors.jobTitles = `Must be ${JOB_TITLES_MAX} characters or fewer.`;
+    }
+    if (bio.length > 0) {
+      if (bio.length < BIO_MIN) {
+        errors.bio = `At least ${BIO_MIN} characters.`;
+      } else if (bio.length > BIO_MAX) {
+        errors.bio = `${BIO_MAX} characters or fewer.`;
+      }
+    }
+    if (hourlyRate.length > 0) {
+      const parsed = Number.parseFloat(hourlyRate);
+      if (!Number.isFinite(parsed)) {
+        errors.hourlyRate = "Numeric value required.";
+      } else if (parsed < HOURLY_RATE_MIN || parsed > HOURLY_RATE_MAX) {
+        errors.hourlyRate = `Between $${HOURLY_RATE_MIN} and $${HOURLY_RATE_MAX}.`;
+      }
+    }
+    if (
+      hoursPerWeek.length > 0 &&
+      !(REMOTE_HOURS_PER_WEEK_OPTIONS as readonly string[]).includes(
+        hoursPerWeek,
+      )
+    ) {
+      errors.hoursPerWeek = "Pick an option from the list.";
+    }
+
+    setRemoteProfErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setRemoteProfSaving(true);
+    try {
+      const result = await updateRemoteProfessional({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        jobTitles,
+        bio,
+        hourlyRate,
+        hoursPerWeek,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      const savedRate =
+        saved.hourlyRate !== null ? String(saved.hourlyRate) : "";
+      setRemoteJobTitles(saved.jobTitles);
+      setRemoteBio(saved.bio);
+      setRemoteHourlyRate(savedRate);
+      setRemoteHoursPerWeek(saved.hoursPerWeek);
+      setRemoteProfSnapshot({
+        jobTitles: saved.jobTitles,
+        bio: saved.bio,
+        hourlyRate: savedRate,
+        hoursPerWeek: saved.hoursPerWeek,
+      });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote prof save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setRemoteProfSaving(false);
+    }
+  }
+
+  function handleRemoteAvailCancel() {
+    if (!remoteAvailSnapshot) return;
+    setRemoteAvailChoice(remoteAvailSnapshot.availChoice);
+    setRemoteAvailFromDate(remoteAvailSnapshot.availableFromDate);
+    setRemoteWorkType(remoteAvailSnapshot.workType);
+    setRemoteAvailErrors({});
+  }
+
+  async function handleRemoteAvailSave() {
+    if (!activeProfile) return;
+    const errors: typeof remoteAvailErrors = {};
+    const workType = remoteWorkType.trim();
+    const availableFromDate = remoteAvailFromDate.trim();
+
+    if (remoteAvailChoice === "future") {
+      if (!availableFromDate) {
+        errors.availableFromDate = "Pick a date.";
+      } else if (!/^\d{4}-\d{2}-\d{2}$/.test(availableFromDate)) {
+        errors.availableFromDate = "Pick a valid date.";
+      } else {
+        const chosen = new Date(availableFromDate);
+        const today = new Date();
+        today.setHours(0, 0, 0, 0);
+        if (Number.isNaN(chosen.getTime()) || chosen <= today) {
+          errors.availableFromDate = "Pick a future date (tomorrow or later).";
+        }
+      }
+    }
+    if (
+      workType.length > 0 &&
+      !(REMOTE_WORK_TYPE_OPTIONS as readonly string[]).includes(workType)
+    ) {
+      errors.workType = "Pick an option from the list.";
+    }
+
+    setRemoteAvailErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setRemoteAvailSaving(true);
+    try {
+      const result = await updateRemoteAvailabilityWorkType({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        availChoice: remoteAvailChoice,
+        availableFromDate:
+          remoteAvailChoice === "future" ? availableFromDate : "",
+        workType,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      let nextChoice: RemoteAvailChoice = "";
+      if (saved.availability.startsWith("Available from ")) {
+        nextChoice = "future";
+      } else if (saved.availability === "Available Now") {
+        nextChoice = "now";
+      } else if (saved.availability === "Available within 2 weeks") {
+        nextChoice = "twoWeeks";
+      }
+      setRemoteAvailChoice(nextChoice);
+      setRemoteAvailFromDate(saved.availableFromDate);
+      setRemoteWorkType(saved.workType);
+      setRemoteAvailSnapshot({
+        availChoice: nextChoice,
+        availableFromDate: saved.availableFromDate,
+        workType: saved.workType,
+      });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote avail save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setRemoteAvailSaving(false);
+    }
+  }
+
+  function commitRemoteSkillInput() {
+    const raw = remoteSkillInput.trim();
+    if (!raw) return;
+    if (raw.length > SKILL_CHAR_MAX) {
+      setRemoteSkillsErrors({
+        general: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+      });
+      return;
+    }
+    const lower = raw.toLowerCase();
+    if (remoteSkillsList.some((s) => s.toLowerCase() === lower)) {
+      setRemoteSkillInput("");
+      return;
+    }
+    if (remoteSkillsList.length >= SKILLS_MAX) {
+      setRemoteSkillsErrors({
+        general: `You can list up to ${SKILLS_MAX} skills.`,
+      });
+      return;
+    }
+    setRemoteSkillsList((prev) => [...prev, raw]);
+    setRemoteSkillInput("");
+    setRemoteSkillsErrors({});
+  }
+
+  function handleRemoteSkillKeyDown(
+    e: React.KeyboardEvent<HTMLInputElement>,
+  ) {
+    if (e.key === "Enter" || e.key === ",") {
+      e.preventDefault();
+      commitRemoteSkillInput();
+    } else if (
+      e.key === "Backspace" &&
+      remoteSkillInput === "" &&
+      remoteSkillsList.length > 0
+    ) {
+      setRemoteSkillsList((prev) => prev.slice(0, -1));
+    }
+  }
+
+  function removeRemoteSkillAt(index: number) {
+    setRemoteSkillsList((prev) => prev.filter((_, i) => i !== index));
+  }
+
+  function handleRemoteSkillsCancel() {
+    if (!remoteSkillsSnapshot) return;
+    setRemoteSkillsList(remoteSkillsSnapshot);
+    setRemoteSkillInput("");
+    setRemoteSkillsErrors({});
+  }
+
+  async function handleRemoteSkillsSave() {
+    if (!activeProfile) return;
+    let pending = [...remoteSkillsList];
+    const raw = remoteSkillInput.trim();
+    if (raw) {
+      if (raw.length > SKILL_CHAR_MAX) {
+        setRemoteSkillsErrors({
+          general: `Each skill must be ${SKILL_CHAR_MAX} characters or fewer.`,
+        });
+        return;
+      }
+      if (!pending.some((s) => s.toLowerCase() === raw.toLowerCase())) {
+        if (pending.length >= SKILLS_MAX) {
+          setRemoteSkillsErrors({
+            general: `You can list up to ${SKILLS_MAX} skills.`,
+          });
+          return;
+        }
+        pending = [...pending, raw];
+      }
+    }
+    setRemoteSkillsErrors({});
+    setRemoteSkillsSaving(true);
+    try {
+      const result = await updateRemoteSkills({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        skills: pending,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      setRemoteSkillsList(result.data.skills);
+      setRemoteSkillInput("");
+      setRemoteSkillsSnapshot(result.data.skills);
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote skills save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setRemoteSkillsSaving(false);
+    }
+  }
+
+  function handleRemoteEduCancel() {
+    if (!remoteEduSnapshot) return;
+    setRemoteEduInstitution(remoteEduSnapshot.institution);
+    setRemoteEduDegree(remoteEduSnapshot.degree);
+    setRemoteEduStart(remoteEduSnapshot.start);
+    setRemoteEduEnd(remoteEduSnapshot.end);
+    setRemoteEduErrors({});
+  }
+
+  async function handleRemoteEduSave() {
+    if (!activeProfile) return;
+    const errors: typeof remoteEduErrors = {};
+    const institution = remoteEduInstitution.trim();
+    const degree = remoteEduDegree.trim();
+    const start = remoteEduStart.trim();
+    const end = remoteEduEnd.trim();
+
+    if (institution.length > EDU_FIELD_MAX)
+      errors.institution = `Must be ${EDU_FIELD_MAX} characters or fewer.`;
+    if (degree.length > EDU_FIELD_MAX)
+      errors.degree = `Must be ${EDU_FIELD_MAX} characters or fewer.`;
+    if (start.length > EDU_FIELD_MAX)
+      errors.start = `Must be ${EDU_FIELD_MAX} characters or fewer.`;
+    if (end.length > EDU_FIELD_MAX)
+      errors.end = `Must be ${EDU_FIELD_MAX} characters or fewer.`;
+
+    setRemoteEduErrors(errors);
+    if (Object.keys(errors).length > 0) return;
+
+    setRemoteEduSaving(true);
+    try {
+      const result = await updateRemoteEducation({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        institution,
+        degree,
+        start,
+        end,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const saved = result.data;
+      setRemoteEduInstitution(saved.institution);
+      setRemoteEduDegree(saved.degree);
+      setRemoteEduStart(saved.start);
+      setRemoteEduEnd(saved.end);
+      setRemoteEduSnapshot({
+        institution: saved.institution,
+        degree: saved.degree,
+        start: saved.start,
+        end: saved.end,
+      });
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote edu save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setRemoteEduSaving(false);
+    }
+  }
+
   async function handleBasicSave() {
     if (!activeProfile) return;
     const errors: typeof basicErrors = {};
@@ -1253,6 +1871,10 @@ export function EditClient({
   const profCount = professionalFilledCount(activeProfile);
   const availCount = availSalaryFilledCount(activeProfile);
   const skillsCount = skillsExpFilledCount(activeProfile);
+  const remoteProfCount = remoteProfessionalFilledCount(activeProfile);
+  const remoteAvailCount = remoteAvailWorkTypeFilledCount(activeProfile);
+  const remoteSkillsCount = remoteSkillsFilledCount(activeProfile);
+  const remoteEduCount = remoteEducationFilledCount(activeProfile);
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
@@ -1280,6 +1902,10 @@ export function EditClient({
     availability: availCount,
     skills: skillsCount,
     professionalBadge,
+    remoteProf: remoteProfCount,
+    remoteAvail: remoteAvailCount,
+    remoteSkills: remoteSkillsCount,
+    remoteEdu: remoteEduCount,
   });
 
   return (
@@ -1731,7 +2357,131 @@ export function EditClient({
 
                   {section.key === "professional" &&
                     activeProfile.sourceTable === "hire_remote_profiles" && (
-                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                      <div>
+                        <div className="flex flex-col gap-4">
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Job title(s)</span>
+                            <input
+                              type="text"
+                              value={remoteJobTitles}
+                              onChange={(e) =>
+                                setRemoteJobTitles(e.target.value)
+                              }
+                              maxLength={JOB_TITLES_MAX}
+                              placeholder="Full Stack Developer, Backend Developer"
+                              aria-invalid={Boolean(remoteProfErrors.jobTitles)}
+                              className={INPUT_CLASS}
+                            />
+                            {remoteProfErrors.jobTitles && (
+                              <span className="text-xs text-red-600">
+                                {remoteProfErrors.jobTitles}
+                              </span>
+                            )}
+                          </label>
+                          <label className="flex flex-col gap-1.5">
+                            <span className={LABEL_CLASS}>Bio</span>
+                            <textarea
+                              rows={5}
+                              maxLength={BIO_MAX}
+                              value={remoteBio}
+                              onChange={(e) => setRemoteBio(e.target.value)}
+                              aria-invalid={Boolean(remoteProfErrors.bio)}
+                              className={INPUT_CLASS}
+                            />
+                            <span
+                              className={
+                                remoteBio.length > 0 &&
+                                remoteBio.length < BIO_MIN
+                                  ? "text-[11px] text-red-600"
+                                  : "text-[11px] text-gray-400"
+                              }
+                            >
+                              {remoteBio.length} / {BIO_MAX}
+                              {remoteBio.length > 0 && remoteBio.length < BIO_MIN
+                                ? ` · ${BIO_MIN} minimum`
+                                : ""}
+                            </span>
+                            {remoteProfErrors.bio && (
+                              <span className="text-xs text-red-600">
+                                {remoteProfErrors.bio}
+                              </span>
+                            )}
+                          </label>
+                          <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                            <label className="flex flex-col gap-1.5">
+                              <span className={LABEL_CLASS}>
+                                Hourly rate (USD)
+                              </span>
+                              <input
+                                type="number"
+                                min={HOURLY_RATE_MIN}
+                                max={HOURLY_RATE_MAX}
+                                step={1}
+                                value={remoteHourlyRate}
+                                onChange={(e) =>
+                                  setRemoteHourlyRate(e.target.value)
+                                }
+                                aria-invalid={Boolean(remoteProfErrors.hourlyRate)}
+                                placeholder={`${HOURLY_RATE_MIN}–${HOURLY_RATE_MAX}`}
+                                className={INPUT_CLASS}
+                              />
+                              {remoteProfErrors.hourlyRate && (
+                                <span className="text-xs text-red-600">
+                                  {remoteProfErrors.hourlyRate}
+                                </span>
+                              )}
+                            </label>
+                          </div>
+                          <fieldset className="flex flex-col gap-2">
+                            <legend className={LABEL_CLASS}>
+                              Hours per week
+                            </legend>
+                            <div className="flex flex-wrap gap-2">
+                              {REMOTE_HOURS_PER_WEEK_OPTIONS.map((opt) => {
+                                const selected = remoteHoursPerWeek === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => setRemoteHoursPerWeek(opt)}
+                                    aria-pressed={selected}
+                                    className={
+                                      selected
+                                        ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                                        : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    }
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {remoteProfErrors.hoursPerWeek && (
+                              <span className="text-xs text-red-600">
+                                {remoteProfErrors.hoursPerWeek}
+                              </span>
+                            )}
+                          </fieldset>
+                        </div>
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRemoteProfCancel}
+                            disabled={remoteProfSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoteProfSave}
+                            disabled={remoteProfSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {remoteProfSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
                     )}
 
                   {section.key === "professional" &&
@@ -1859,7 +2609,113 @@ export function EditClient({
 
                   {section.key === "availability" &&
                     activeProfile.sourceTable === "hire_remote_profiles" && (
-                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                      <div>
+                        <div className="flex flex-col gap-5">
+                          <fieldset className="flex flex-col gap-2">
+                            <legend className={LABEL_CLASS}>
+                              When are you available?
+                            </legend>
+                            <div className="flex flex-wrap gap-2">
+                              {REMOTE_AVAIL_CHOICES.map((opt) => {
+                                const selected = remoteAvailChoice === opt.value;
+                                return (
+                                  <button
+                                    key={opt.value}
+                                    type="button"
+                                    onClick={() =>
+                                      setRemoteAvailChoice(opt.value)
+                                    }
+                                    aria-pressed={selected}
+                                    className={
+                                      selected
+                                        ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                                        : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    }
+                                  >
+                                    {opt.label}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {remoteAvailChoice === "future" && (
+                              <label className="mt-2 flex max-w-xs flex-col gap-1">
+                                <span className={LABEL_CLASS}>
+                                  Available from
+                                </span>
+                                <input
+                                  type="date"
+                                  value={remoteAvailFromDate}
+                                  min={(() => {
+                                    const t = new Date();
+                                    t.setDate(t.getDate() + 1);
+                                    return t.toISOString().slice(0, 10);
+                                  })()}
+                                  onChange={(e) =>
+                                    setRemoteAvailFromDate(e.target.value)
+                                  }
+                                  aria-invalid={Boolean(
+                                    remoteAvailErrors.availableFromDate,
+                                  )}
+                                  className={INPUT_CLASS}
+                                />
+                                {remoteAvailErrors.availableFromDate && (
+                                  <span className="text-xs text-red-600">
+                                    {remoteAvailErrors.availableFromDate}
+                                  </span>
+                                )}
+                              </label>
+                            )}
+                          </fieldset>
+
+                          <fieldset className="flex flex-col gap-2">
+                            <legend className={LABEL_CLASS}>Work type</legend>
+                            <div className="flex flex-wrap gap-2">
+                              {REMOTE_WORK_TYPE_OPTIONS.map((opt) => {
+                                const selected = remoteWorkType === opt;
+                                return (
+                                  <button
+                                    key={opt}
+                                    type="button"
+                                    onClick={() => setRemoteWorkType(opt)}
+                                    aria-pressed={selected}
+                                    className={
+                                      selected
+                                        ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                                        : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                                    }
+                                  >
+                                    {opt}
+                                  </button>
+                                );
+                              })}
+                            </div>
+                            {remoteAvailErrors.workType && (
+                              <span className="text-xs text-red-600">
+                                {remoteAvailErrors.workType}
+                              </span>
+                            )}
+                          </fieldset>
+                        </div>
+
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRemoteAvailCancel}
+                            disabled={remoteAvailSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoteAvailSave}
+                            disabled={remoteAvailSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {remoteAvailSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
                     )}
 
                   {section.key === "availability" &&
@@ -1991,7 +2847,74 @@ export function EditClient({
 
                   {section.key === "skills" &&
                     activeProfile.sourceTable === "hire_remote_profiles" && (
-                      <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                      <div>
+                        <div className="mb-6">
+                          <p className={`${LABEL_CLASS} mb-2 block`}>Skills</p>
+                          <div className="flex flex-wrap items-center gap-1.5 rounded-xl border border-gray-200 bg-white p-2">
+                            {remoteSkillsList.map((s, i) => (
+                              <span
+                                key={`${s}-${i}`}
+                                className="inline-flex items-center gap-1 rounded-full bg-remotiv-purple/10 px-2.5 py-1 text-xs font-semibold text-remotiv-purple"
+                              >
+                                {s}
+                                <button
+                                  type="button"
+                                  onClick={() => removeRemoteSkillAt(i)}
+                                  aria-label={`Remove ${s}`}
+                                  className="ml-0.5 text-remotiv-purple hover:opacity-70"
+                                >
+                                  ×
+                                </button>
+                              </span>
+                            ))}
+                            <input
+                              type="text"
+                              value={remoteSkillInput}
+                              onChange={(e) =>
+                                setRemoteSkillInput(e.target.value)
+                              }
+                              onKeyDown={handleRemoteSkillKeyDown}
+                              onBlur={commitRemoteSkillInput}
+                              placeholder={
+                                remoteSkillsList.length === 0
+                                  ? "Type a skill and press Enter"
+                                  : ""
+                              }
+                              maxLength={SKILL_CHAR_MAX}
+                              className="min-w-[120px] flex-1 border-0 bg-transparent text-sm outline-none"
+                            />
+                          </div>
+                          <p className="mt-1 text-[11px] text-gray-400">
+                            {remoteSkillsList.length} / {SKILLS_MAX} · press
+                            Enter or comma to add
+                          </p>
+                        </div>
+
+                        {remoteSkillsErrors.general && (
+                          <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                            {remoteSkillsErrors.general}
+                          </p>
+                        )}
+
+                        <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                          <button
+                            type="button"
+                            onClick={handleRemoteSkillsCancel}
+                            disabled={remoteSkillsSaving}
+                            className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                          >
+                            Cancel
+                          </button>
+                          <button
+                            type="button"
+                            onClick={handleRemoteSkillsSave}
+                            disabled={remoteSkillsSaving}
+                            className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                          >
+                            {remoteSkillsSaving ? "Saving…" : "Save changes"}
+                          </button>
+                        </div>
+                      </div>
                     )}
 
                   {section.key === "skills" &&
@@ -2245,7 +3168,102 @@ export function EditClient({
                   )}
 
                   {section.key === "education" && (
-                    <p className="text-sm text-gray-500">Coming in 4.2E.</p>
+                    <div>
+                      <div className="grid grid-cols-1 gap-4 md:grid-cols-2">
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Institution</span>
+                          <input
+                            type="text"
+                            value={remoteEduInstitution}
+                            onChange={(e) =>
+                              setRemoteEduInstitution(e.target.value)
+                            }
+                            maxLength={EDU_FIELD_MAX}
+                            aria-invalid={Boolean(remoteEduErrors.institution)}
+                            className={INPUT_CLASS}
+                          />
+                          {remoteEduErrors.institution && (
+                            <span className="text-xs text-red-600">
+                              {remoteEduErrors.institution}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Degree</span>
+                          <input
+                            type="text"
+                            value={remoteEduDegree}
+                            onChange={(e) =>
+                              setRemoteEduDegree(e.target.value)
+                            }
+                            maxLength={EDU_FIELD_MAX}
+                            aria-invalid={Boolean(remoteEduErrors.degree)}
+                            className={INPUT_CLASS}
+                          />
+                          {remoteEduErrors.degree && (
+                            <span className="text-xs text-red-600">
+                              {remoteEduErrors.degree}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>Start</span>
+                          <input
+                            type="text"
+                            value={remoteEduStart}
+                            onChange={(e) => setRemoteEduStart(e.target.value)}
+                            maxLength={EDU_FIELD_MAX}
+                            placeholder="2018-09"
+                            aria-invalid={Boolean(remoteEduErrors.start)}
+                            className={INPUT_CLASS}
+                          />
+                          {remoteEduErrors.start && (
+                            <span className="text-xs text-red-600">
+                              {remoteEduErrors.start}
+                            </span>
+                          )}
+                        </label>
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>End</span>
+                          <input
+                            type="text"
+                            value={remoteEduEnd}
+                            onChange={(e) => setRemoteEduEnd(e.target.value)}
+                            maxLength={EDU_FIELD_MAX}
+                            placeholder="2022-06"
+                            aria-invalid={Boolean(remoteEduErrors.end)}
+                            className={INPUT_CLASS}
+                          />
+                          {remoteEduErrors.end && (
+                            <span className="text-xs text-red-600">
+                              {remoteEduErrors.end}
+                            </span>
+                          )}
+                        </label>
+                      </div>
+                      <p className="mt-3 text-[11px] text-gray-400">
+                        We'll combine your dates as "YYYY-MM–YYYY-MM" on your
+                        profile.
+                      </p>
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleRemoteEduCancel}
+                          disabled={remoteEduSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleRemoteEduSave}
+                          disabled={remoteEduSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {remoteEduSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "languages" && (
