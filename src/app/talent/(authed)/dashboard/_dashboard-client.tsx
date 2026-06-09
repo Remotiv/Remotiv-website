@@ -171,6 +171,12 @@ export function DashboardClient({
                 3
               </span>
             </button>
+            <Link
+              href="/talent/dashboard/edit"
+              className="inline-flex items-center gap-1 rounded-full bg-remotiv-purple px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
+            >
+              Edit profile
+            </Link>
             {/* PLACEHOLDER URL — no /talent/{id} public route yet, sending to browse-talent */}
             <Link
               href="/browse-talent"
