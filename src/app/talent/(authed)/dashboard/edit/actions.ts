@@ -47,6 +47,27 @@ const BIO_MAX = 2000;
 const HOURLY_RATE_MIN = 10;
 const HOURLY_RATE_MAX = 999;
 const EDU_FIELD_MAX = 200;
+const EMPLOYMENT_MAX = 30;
+const EMPLOYMENT_FIELD_MAX = 200;
+const EMPLOYMENT_DESCRIPTION_MAX = 1000;
+const LANGUAGES_MAX = 20;
+const LANGUAGE_NAME_MAX = 80;
+const PORTFOLIO_MAX = 30;
+const PORTFOLIO_FIELD_MAX = 200;
+const PORTFOLIO_DESCRIPTION_MAX = 1000;
+const PORTFOLIO_URL_MAX = 500;
+
+// Verbatim from intake: src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
+const REMOTE_LANGUAGE_LEVELS = [
+  "Native",
+  "Fluent",
+  "Professional",
+  "Basic",
+] as const;
+
+// Verbatim from intake: src/app/remote-ready/page.tsx:299 portfolio URL test
+// `/^https?:\/\//i` — must start with http:// or https://.
+const PORTFOLIO_URL_REGEX = /^https?:\/\//i;
 
 // Verbatim regex from src/app/remote-ready/page.tsx:274 — intake form
 // requires a `linkedin.com/in/...` profile URL. Server and intake must
@@ -1339,4 +1360,303 @@ export async function updateRemoteEducation(
     success: true,
     data: { institution, degree, start, end, dates: datesOut },
   };
+}
+
+type EmploymentRowInput = {
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  description: string;
+};
+
+type EmploymentRowStored = {
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  description: string;
+  dates: string;
+};
+
+type UpdateRemoteEmploymentInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  employment: EmploymentRowInput[];
+};
+
+type RemoteEmploymentData = { employment: EmploymentRowStored[] };
+
+export async function updateRemoteEmployment(
+  input: UpdateRemoteEmploymentInput,
+): Promise<MutationResult<RemoteEmploymentData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!Array.isArray(input.employment)) {
+    return { success: false, error: "Employment must be a list." };
+  }
+
+  const stored: EmploymentRowStored[] = [];
+  for (const entry of input.employment) {
+    if (!entry || typeof entry !== "object") continue;
+    const title = (entry.title ?? "").trim();
+    const company = (entry.company ?? "").trim();
+    const start = (entry.start ?? "").trim();
+    const end = (entry.end ?? "").trim();
+    const description = (entry.description ?? "").trim();
+    if (!title && !company) continue;
+    if (title.length > EMPLOYMENT_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Job title must be ${EMPLOYMENT_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (company.length > EMPLOYMENT_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Company must be ${EMPLOYMENT_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (start.length > EMPLOYMENT_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Start must be ${EMPLOYMENT_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (end.length > EMPLOYMENT_FIELD_MAX) {
+      return {
+        success: false,
+        error: `End must be ${EMPLOYMENT_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (description.length > EMPLOYMENT_DESCRIPTION_MAX) {
+      return {
+        success: false,
+        error: `Description must be ${EMPLOYMENT_DESCRIPTION_MAX} characters or fewer.`,
+      };
+    }
+    // Verbatim intake separator: src/app/remote-ready/page.tsx:549
+    // [e.start, e.end].filter(Boolean).join(" — ")  ← em-dash U+2014 with spaces.
+    const dates = [start, end].filter(Boolean).join(" — ");
+    stored.push({ title, company, start, end, description, dates });
+  }
+  if (stored.length > EMPLOYMENT_MAX) {
+    return {
+      success: false,
+      error: `You can list up to ${EMPLOYMENT_MAX} employment entries.`,
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({ employment_history: stored.length === 0 ? null : stored })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteEmployment] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { employment: stored } };
+}
+
+type LanguageRowInput = { name: string; level: string };
+type UpdateRemoteLanguagesInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  languages: LanguageRowInput[];
+};
+type RemoteLanguagesData = { languages: LanguageRowInput[] };
+
+export async function updateRemoteLanguages(
+  input: UpdateRemoteLanguagesInput,
+): Promise<MutationResult<RemoteLanguagesData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!Array.isArray(input.languages)) {
+    return { success: false, error: "Languages must be a list." };
+  }
+
+  const stored: LanguageRowInput[] = [];
+  const seen = new Set<string>();
+  for (const entry of input.languages) {
+    if (!entry || typeof entry !== "object") continue;
+    const name = (entry.name ?? "").trim();
+    const level = (entry.level ?? "").trim();
+    if (!name) continue;
+    if (name.length > LANGUAGE_NAME_MAX) {
+      return {
+        success: false,
+        error: `Language name must be ${LANGUAGE_NAME_MAX} characters or fewer.`,
+      };
+    }
+    if (
+      !level ||
+      !(REMOTE_LANGUAGE_LEVELS as readonly string[]).includes(level)
+    ) {
+      return {
+        success: false,
+        error: "Pick a language level from the list.",
+      };
+    }
+    const lower = name.toLowerCase();
+    if (seen.has(lower)) continue;
+    seen.add(lower);
+    stored.push({ name, level });
+  }
+  if (stored.length > LANGUAGES_MAX) {
+    return {
+      success: false,
+      error: `You can list up to ${LANGUAGES_MAX} languages.`,
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({ languages: stored.length === 0 ? null : stored })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemoteLanguages] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { languages: stored } };
+}
+
+type PortfolioRowInput = {
+  projectTitle: string;
+  role: string;
+  url: string;
+  description: string;
+};
+
+type PortfolioRowStored = {
+  title: string;
+  role: string;
+  url: string;
+  description: string;
+};
+
+type UpdateRemotePortfolioInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+  portfolio: PortfolioRowInput[];
+};
+
+type RemotePortfolioData = { portfolio: PortfolioRowStored[] };
+
+export async function updateRemotePortfolio(
+  input: UpdateRemotePortfolioInput,
+): Promise<MutationResult<RemotePortfolioData>> {
+  const { profileId, sourceTable } = input;
+  if (sourceTable !== "hire_remote_profiles") {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!Array.isArray(input.portfolio)) {
+    return { success: false, error: "Portfolio must be a list." };
+  }
+
+  const stored: PortfolioRowStored[] = [];
+  for (const entry of input.portfolio) {
+    if (!entry || typeof entry !== "object") continue;
+    const projectTitle = (entry.projectTitle ?? "").trim();
+    const role = (entry.role ?? "").trim();
+    const url = (entry.url ?? "").trim();
+    const description = (entry.description ?? "").trim();
+    // Match intake server: keep if title || role || url
+    // (src/app/api/hire-remote-profiles/route.ts:144).
+    if (!projectTitle && !role && !url) continue;
+    if (projectTitle.length > PORTFOLIO_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Project title must be ${PORTFOLIO_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (role.length > PORTFOLIO_FIELD_MAX) {
+      return {
+        success: false,
+        error: `Role must be ${PORTFOLIO_FIELD_MAX} characters or fewer.`,
+      };
+    }
+    if (url.length > PORTFOLIO_URL_MAX) {
+      return { success: false, error: "Project URL is too long." };
+    }
+    if (url && !PORTFOLIO_URL_REGEX.test(url)) {
+      return {
+        success: false,
+        error: "Project URL must start with https://",
+      };
+    }
+    if (description.length > PORTFOLIO_DESCRIPTION_MAX) {
+      return {
+        success: false,
+        error: `Description must be ${PORTFOLIO_DESCRIPTION_MAX} characters or fewer.`,
+      };
+    }
+    stored.push({
+      title: projectTitle,
+      role,
+      url,
+      description,
+    });
+  }
+  if (stored.length > PORTFOLIO_MAX) {
+    return {
+      success: false,
+      error: `You can list up to ${PORTFOLIO_MAX} portfolio entries.`,
+    };
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { error } = await service
+    .from("hire_remote_profiles")
+    .update({ portfolio: stored.length === 0 ? null : stored })
+    .eq("id", profileId);
+  if (error) {
+    console.error("[updateRemotePortfolio] update failed:", error);
+    return { success: false, error: "Could not save changes." };
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { portfolio: stored } };
 }

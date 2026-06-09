@@ -8,7 +8,10 @@ import {
   updateRemoteAvailabilityWorkType,
   updateRemoteBasicInfo,
   updateRemoteEducation,
+  updateRemoteEmployment,
+  updateRemoteLanguages,
   updateRemoteLocation,
+  updateRemotePortfolio,
   updateRemoteProfessional,
   updateRemoteSkills,
   updateTalentAvailabilitySalary,
@@ -133,8 +136,133 @@ const JOB_TITLES_MAX = 200;
 const HOURLY_RATE_MIN = 10;
 const HOURLY_RATE_MAX = 999;
 const EDU_FIELD_MAX = 200;
+const EMPLOYMENT_MAX = 30;
+const EMPLOYMENT_FIELD_MAX = 200;
+const EMPLOYMENT_DESCRIPTION_MAX = 1000;
+const LANGUAGES_MAX = 20;
+const LANGUAGE_NAME_MAX = 80;
+const PORTFOLIO_MAX = 30;
+const PORTFOLIO_FIELD_MAX = 200;
+const PORTFOLIO_DESCRIPTION_MAX = 1000;
+const PORTFOLIO_URL_MAX = 500;
+
+// Verbatim from intake src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
+const REMOTE_LANGUAGE_LEVELS = [
+  "Native",
+  "Fluent",
+  "Professional",
+  "Basic",
+] as const;
+
+// Verbatim from intake src/app/remote-ready/page.tsx:299 — must start with
+// http:// or https://. Same regex used server-side in actions.ts.
+const PORTFOLIO_URL_REGEX = /^https?:\/\//i;
 
 type RemoteAvailChoice = "" | "now" | "twoWeeks" | "future";
+
+type EmploymentRowState = {
+  uiId: string;
+  title: string;
+  company: string;
+  start: string;
+  end: string;
+  description: string;
+};
+
+function makeEmptyEmploymentRow(): EmploymentRowState {
+  return {
+    uiId: `emp-${Math.random().toString(36).slice(2)}`,
+    title: "",
+    company: "",
+    start: "",
+    end: "",
+    description: "",
+  };
+}
+
+function parseEmploymentRowsFromRaw(raw: unknown): EmploymentRowState[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, i) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    return {
+      uiId: `emp-${i}-${Math.random().toString(36).slice(2)}`,
+      title: typeof o.title === "string" ? o.title : "",
+      company: typeof o.company === "string" ? o.company : "",
+      start: typeof o.start === "string" ? o.start : "",
+      end: typeof o.end === "string" ? o.end : "",
+      description: typeof o.description === "string" ? o.description : "",
+    };
+  });
+}
+
+type LanguageRowState = {
+  uiId: string;
+  name: string;
+  level: string;
+};
+
+function makeEmptyLanguageRow(): LanguageRowState {
+  return {
+    uiId: `lng-${Math.random().toString(36).slice(2)}`,
+    name: "",
+    level: "Fluent",
+  };
+}
+
+function parseLanguagesFromRaw(raw: unknown): LanguageRowState[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, i) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const level =
+      typeof o.level === "string" &&
+      (REMOTE_LANGUAGE_LEVELS as readonly string[]).includes(o.level)
+        ? o.level
+        : "Fluent";
+    return {
+      uiId: `lng-${i}-${Math.random().toString(36).slice(2)}`,
+      name: typeof o.name === "string" ? o.name : "",
+      level,
+    };
+  });
+}
+
+type PortfolioRowState = {
+  uiId: string;
+  projectTitle: string;
+  role: string;
+  url: string;
+  description: string;
+};
+
+function makeEmptyPortfolioRow(): PortfolioRowState {
+  return {
+    uiId: `prt-${Math.random().toString(36).slice(2)}`,
+    projectTitle: "",
+    role: "",
+    url: "",
+    description: "",
+  };
+}
+
+function parsePortfolioFromRaw(raw: unknown): PortfolioRowState[] {
+  if (!Array.isArray(raw)) return [];
+  return raw.map((item, i) => {
+    const o = (item ?? {}) as Record<string, unknown>;
+    const projectTitle =
+      typeof o.projectTitle === "string"
+        ? o.projectTitle
+        : typeof o.title === "string"
+          ? o.title
+          : "";
+    return {
+      uiId: `prt-${i}-${Math.random().toString(36).slice(2)}`,
+      projectTitle,
+      role: typeof o.role === "string" ? o.role : "",
+      url: typeof o.url === "string" ? o.url : "",
+      description: typeof o.description === "string" ? o.description : "",
+    };
+  });
+}
 
 // Verbatim from intake form: src/app/remote-ready/page.tsx:274.
 const REMOTE_LINKEDIN_REGEX =
@@ -297,6 +425,23 @@ function remoteSkillsFilledCount(p: EditableProfile): number {
   return s.length > 0 ? 1 : 0;
 }
 
+function remoteEmploymentFilledCount(p: EditableProfile): number {
+  const arr = Array.isArray(p.raw.employment_history)
+    ? p.raw.employment_history
+    : [];
+  return arr.length > 0 ? 1 : 0;
+}
+
+function remoteLanguagesFilledCount(p: EditableProfile): number {
+  const arr = Array.isArray(p.raw.languages) ? p.raw.languages : [];
+  return arr.length > 0 ? 1 : 0;
+}
+
+function remotePortfolioFilledCount(p: EditableProfile): number {
+  const arr = Array.isArray(p.raw.portfolio) ? p.raw.portfolio : [];
+  return arr.length > 0 ? 1 : 0;
+}
+
 function remoteEducationFilledCount(p: EditableProfile): number {
   const eduRaw =
     (p.raw.education ?? null) as Record<string, unknown> | null;
@@ -418,6 +563,9 @@ function getSectionsForPool(
     remoteAvail: number;
     remoteSkills: number;
     remoteEdu: number;
+    remoteEmployment: number;
+    remoteLanguages: number;
+    remotePortfolio: number;
   },
 ): SectionDef[] {
   if (sourceTable === "talent_profiles") {
@@ -503,7 +651,14 @@ function getSectionsForPool(
           ? { className: "bg-green-100 text-green-700", label: "Complete" }
           : { className: "bg-red-100 text-red-700", label: "Empty" },
     },
-    { key: "employment", title: "Employment history", badge: COMING_SOON_BADGE },
+    {
+      key: "employment",
+      title: "Employment history",
+      badge:
+        counts.remoteEmployment === 1
+          ? { className: "bg-green-100 text-green-700", label: "Complete" }
+          : { className: "bg-red-100 text-red-700", label: "Empty" },
+    },
     {
       key: "education",
       title: "Education",
@@ -512,8 +667,22 @@ function getSectionsForPool(
         label: ofNBadgeLabel(counts.remoteEdu, 4),
       },
     },
-    { key: "languages", title: "Languages", badge: COMING_SOON_BADGE },
-    { key: "portfolio", title: "Portfolio", badge: COMING_SOON_BADGE },
+    {
+      key: "languages",
+      title: "Languages",
+      badge:
+        counts.remoteLanguages === 1
+          ? { className: "bg-green-100 text-green-700", label: "Complete" }
+          : { className: "bg-red-100 text-red-700", label: "Empty" },
+    },
+    {
+      key: "portfolio",
+      title: "Portfolio",
+      badge:
+        counts.remotePortfolio === 1
+          ? { className: "bg-green-100 text-green-700", label: "Complete" }
+          : { className: "bg-red-100 text-red-700", label: "Empty" },
+    },
     { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
   ];
 }
@@ -694,6 +863,55 @@ export function EditClient({
     end: string;
   } | null>(null);
 
+  const [employmentRows, setEmploymentRows] = useState<EmploymentRowState[]>(
+    [],
+  );
+  const [employmentErrors, setEmploymentErrors] = useState<{
+    general?: string;
+    rows?: Record<
+      string,
+      {
+        title?: string;
+        company?: string;
+        start?: string;
+        end?: string;
+        description?: string;
+      }
+    >;
+  }>({});
+  const [employmentSaving, setEmploymentSaving] = useState(false);
+  const [employmentSnapshot, setEmploymentSnapshot] = useState<
+    EmploymentRowState[] | null
+  >(null);
+
+  const [languageRows, setLanguageRows] = useState<LanguageRowState[]>([]);
+  const [languagesErrors, setLanguagesErrors] = useState<{
+    general?: string;
+    rows?: Record<string, { name?: string; level?: string }>;
+  }>({});
+  const [languagesSaving, setLanguagesSaving] = useState(false);
+  const [languagesSnapshot, setLanguagesSnapshot] = useState<
+    LanguageRowState[] | null
+  >(null);
+
+  const [portfolioRows, setPortfolioRows] = useState<PortfolioRowState[]>([]);
+  const [portfolioErrors, setPortfolioErrors] = useState<{
+    general?: string;
+    rows?: Record<
+      string,
+      {
+        projectTitle?: string;
+        role?: string;
+        url?: string;
+        description?: string;
+      }
+    >;
+  }>({});
+  const [portfolioSaving, setPortfolioSaving] = useState(false);
+  const [portfolioSnapshot, setPortfolioSnapshot] = useState<
+    PortfolioRowState[] | null
+  >(null);
+
   useEffect(() => {
     if (!activeProfile) {
       setBasicFirstName("");
@@ -737,6 +955,15 @@ export function EditClient({
       setRemoteEduStart("");
       setRemoteEduEnd("");
       setRemoteEduSnapshot(null);
+      setEmploymentRows([]);
+      setEmploymentSnapshot(null);
+      setEmploymentErrors({});
+      setLanguageRows([]);
+      setLanguagesSnapshot(null);
+      setLanguagesErrors({});
+      setPortfolioRows([]);
+      setPortfolioSnapshot(null);
+      setPortfolioErrors({});
       return;
     }
     const next = {
@@ -917,6 +1144,21 @@ export function EditClient({
       setRemoteEduEnd(edu.end);
       setRemoteEduSnapshot(edu);
       setRemoteEduErrors({});
+
+      const employmentSeed = parseEmploymentRowsFromRaw(r.employment_history);
+      setEmploymentRows(employmentSeed);
+      setEmploymentSnapshot(employmentSeed);
+      setEmploymentErrors({});
+
+      const languagesSeed = parseLanguagesFromRaw(r.languages);
+      setLanguageRows(languagesSeed);
+      setLanguagesSnapshot(languagesSeed);
+      setLanguagesErrors({});
+
+      const portfolioSeed = parsePortfolioFromRaw(r.portfolio);
+      setPortfolioRows(portfolioSeed);
+      setPortfolioSnapshot(portfolioSeed);
+      setPortfolioErrors({});
     }
   }, [activeProfile]);
 
@@ -1741,6 +1983,265 @@ export function EditClient({
     }
   }
 
+  function addEmploymentRow() {
+    if (employmentRows.length >= EMPLOYMENT_MAX) {
+      setEmploymentErrors((prev) => ({
+        ...prev,
+        general: `Up to ${EMPLOYMENT_MAX} entries.`,
+      }));
+      return;
+    }
+    setEmploymentRows((prev) => [...prev, makeEmptyEmploymentRow()]);
+  }
+  function removeEmploymentRow(uiId: string) {
+    setEmploymentRows((prev) => prev.filter((r) => r.uiId !== uiId));
+  }
+  function updateEmploymentRow(
+    uiId: string,
+    patch: Partial<EmploymentRowState>,
+  ) {
+    setEmploymentRows((prev) =>
+      prev.map((r) => (r.uiId === uiId ? { ...r, ...patch } : r)),
+    );
+  }
+  function handleEmploymentCancel() {
+    if (!employmentSnapshot) return;
+    setEmploymentRows(employmentSnapshot);
+    setEmploymentErrors({});
+  }
+  async function handleEmploymentSave() {
+    if (!activeProfile) return;
+    const rowErrors: NonNullable<typeof employmentErrors.rows> = {};
+    for (const row of employmentRows) {
+      const e: { title?: string; company?: string; start?: string; end?: string; description?: string } = {};
+      if (row.title.length > EMPLOYMENT_FIELD_MAX)
+        e.title = `≤${EMPLOYMENT_FIELD_MAX} chars.`;
+      if (row.company.length > EMPLOYMENT_FIELD_MAX)
+        e.company = `≤${EMPLOYMENT_FIELD_MAX} chars.`;
+      if (row.start.length > EMPLOYMENT_FIELD_MAX)
+        e.start = `≤${EMPLOYMENT_FIELD_MAX} chars.`;
+      if (row.end.length > EMPLOYMENT_FIELD_MAX)
+        e.end = `≤${EMPLOYMENT_FIELD_MAX} chars.`;
+      if (row.description.length > EMPLOYMENT_DESCRIPTION_MAX)
+        e.description = `≤${EMPLOYMENT_DESCRIPTION_MAX} chars.`;
+      if (Object.keys(e).length > 0) rowErrors[row.uiId] = e;
+    }
+    if (Object.keys(rowErrors).length > 0) {
+      setEmploymentErrors({ rows: rowErrors });
+      return;
+    }
+    setEmploymentErrors({});
+    setEmploymentSaving(true);
+    try {
+      const payload = employmentRows.map((r) => ({
+        title: r.title.trim(),
+        company: r.company.trim(),
+        start: r.start.trim(),
+        end: r.end.trim(),
+        description: r.description.trim(),
+      }));
+      const result = await updateRemoteEmployment({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        employment: payload,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const savedRows: EmploymentRowState[] = result.data.employment.map(
+        (e, i) => ({
+          uiId: `emp-${i}-${Math.random().toString(36).slice(2)}`,
+          title: e.title,
+          company: e.company,
+          start: e.start,
+          end: e.end,
+          description: e.description,
+        }),
+      );
+      setEmploymentRows(savedRows);
+      setEmploymentSnapshot(savedRows);
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote employment save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setEmploymentSaving(false);
+    }
+  }
+
+  function addLanguageRow() {
+    if (languageRows.length >= LANGUAGES_MAX) {
+      setLanguagesErrors((prev) => ({
+        ...prev,
+        general: `Up to ${LANGUAGES_MAX} languages.`,
+      }));
+      return;
+    }
+    setLanguageRows((prev) => [...prev, makeEmptyLanguageRow()]);
+  }
+  function removeLanguageRow(uiId: string) {
+    setLanguageRows((prev) => prev.filter((r) => r.uiId !== uiId));
+  }
+  function updateLanguageRow(uiId: string, patch: Partial<LanguageRowState>) {
+    setLanguageRows((prev) =>
+      prev.map((r) => (r.uiId === uiId ? { ...r, ...patch } : r)),
+    );
+  }
+  function handleLanguagesCancel() {
+    if (!languagesSnapshot) return;
+    setLanguageRows(languagesSnapshot);
+    setLanguagesErrors({});
+  }
+  async function handleLanguagesSave() {
+    if (!activeProfile) return;
+    const rowErrors: NonNullable<typeof languagesErrors.rows> = {};
+    for (const row of languageRows) {
+      const e: { name?: string; level?: string } = {};
+      if (row.name.trim().length > LANGUAGE_NAME_MAX)
+        e.name = `≤${LANGUAGE_NAME_MAX} chars.`;
+      if (
+        row.name.trim() &&
+        !(REMOTE_LANGUAGE_LEVELS as readonly string[]).includes(row.level)
+      ) {
+        e.level = "Pick a level.";
+      }
+      if (Object.keys(e).length > 0) rowErrors[row.uiId] = e;
+    }
+    if (Object.keys(rowErrors).length > 0) {
+      setLanguagesErrors({ rows: rowErrors });
+      return;
+    }
+    setLanguagesErrors({});
+    setLanguagesSaving(true);
+    try {
+      const payload = languageRows.map((r) => ({
+        name: r.name.trim(),
+        level: r.level,
+      }));
+      const result = await updateRemoteLanguages({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        languages: payload,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      const savedRows: LanguageRowState[] = result.data.languages.map(
+        (l, i) => ({
+          uiId: `lng-${i}-${Math.random().toString(36).slice(2)}`,
+          name: l.name,
+          level: l.level,
+        }),
+      );
+      setLanguageRows(savedRows);
+      setLanguagesSnapshot(savedRows);
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote languages save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setLanguagesSaving(false);
+    }
+  }
+
+  function addPortfolioRow() {
+    if (portfolioRows.length >= PORTFOLIO_MAX) {
+      setPortfolioErrors((prev) => ({
+        ...prev,
+        general: `Up to ${PORTFOLIO_MAX} entries.`,
+      }));
+      return;
+    }
+    setPortfolioRows((prev) => [...prev, makeEmptyPortfolioRow()]);
+  }
+  function removePortfolioRow(uiId: string) {
+    setPortfolioRows((prev) => prev.filter((r) => r.uiId !== uiId));
+  }
+  function updatePortfolioRow(
+    uiId: string,
+    patch: Partial<PortfolioRowState>,
+  ) {
+    setPortfolioRows((prev) =>
+      prev.map((r) => (r.uiId === uiId ? { ...r, ...patch } : r)),
+    );
+  }
+  function handlePortfolioCancel() {
+    if (!portfolioSnapshot) return;
+    setPortfolioRows(portfolioSnapshot);
+    setPortfolioErrors({});
+  }
+  async function handlePortfolioSave() {
+    if (!activeProfile) return;
+    const rowErrors: NonNullable<typeof portfolioErrors.rows> = {};
+    for (const row of portfolioRows) {
+      const e: {
+        projectTitle?: string;
+        role?: string;
+        url?: string;
+        description?: string;
+      } = {};
+      if (row.projectTitle.length > PORTFOLIO_FIELD_MAX)
+        e.projectTitle = `≤${PORTFOLIO_FIELD_MAX} chars.`;
+      if (row.role.length > PORTFOLIO_FIELD_MAX)
+        e.role = `≤${PORTFOLIO_FIELD_MAX} chars.`;
+      const urlTrim = row.url.trim();
+      if (urlTrim.length > PORTFOLIO_URL_MAX) {
+        e.url = "URL is too long.";
+      } else if (urlTrim && !PORTFOLIO_URL_REGEX.test(urlTrim)) {
+        e.url = "Must start with https://";
+      }
+      if (row.description.length > PORTFOLIO_DESCRIPTION_MAX)
+        e.description = `≤${PORTFOLIO_DESCRIPTION_MAX} chars.`;
+      if (Object.keys(e).length > 0) rowErrors[row.uiId] = e;
+    }
+    if (Object.keys(rowErrors).length > 0) {
+      setPortfolioErrors({ rows: rowErrors });
+      return;
+    }
+    setPortfolioErrors({});
+    setPortfolioSaving(true);
+    try {
+      const payload = portfolioRows.map((r) => ({
+        projectTitle: r.projectTitle.trim(),
+        role: r.role.trim(),
+        url: r.url.trim(),
+        description: r.description.trim(),
+      }));
+      const result = await updateRemotePortfolio({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+        portfolio: payload,
+      });
+      if (!result.success) {
+        setToast(result.error || "Couldn't save — try again.");
+        return;
+      }
+      // Server returns `title`; map back to `projectTitle` for UI state.
+      const savedRows: PortfolioRowState[] = result.data.portfolio.map(
+        (p, i) => ({
+          uiId: `prt-${i}-${Math.random().toString(36).slice(2)}`,
+          projectTitle: p.title,
+          role: p.role,
+          url: p.url,
+          description: p.description,
+        }),
+      );
+      setPortfolioRows(savedRows);
+      setPortfolioSnapshot(savedRows);
+      setToast("Saved");
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] remote portfolio save threw:", err);
+      setToast("Couldn't save — try again.");
+    } finally {
+      setPortfolioSaving(false);
+    }
+  }
+
   async function handleBasicSave() {
     if (!activeProfile) return;
     const errors: typeof basicErrors = {};
@@ -1875,6 +2376,9 @@ export function EditClient({
   const remoteAvailCount = remoteAvailWorkTypeFilledCount(activeProfile);
   const remoteSkillsCount = remoteSkillsFilledCount(activeProfile);
   const remoteEduCount = remoteEducationFilledCount(activeProfile);
+  const remoteEmploymentCount = remoteEmploymentFilledCount(activeProfile);
+  const remoteLanguagesCount = remoteLanguagesFilledCount(activeProfile);
+  const remotePortfolioCount = remotePortfolioFilledCount(activeProfile);
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
@@ -1906,6 +2410,9 @@ export function EditClient({
     remoteAvail: remoteAvailCount,
     remoteSkills: remoteSkillsCount,
     remoteEdu: remoteEduCount,
+    remoteEmployment: remoteEmploymentCount,
+    remoteLanguages: remoteLanguagesCount,
+    remotePortfolio: remotePortfolioCount,
   });
 
   return (
@@ -3164,7 +3671,175 @@ export function EditClient({
                   )}
 
                   {section.key === "employment" && (
-                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
+                    <div>
+                      {employmentRows.length === 0 && (
+                        <p className="mb-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                          No employment yet. Add your first below.
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-3">
+                        {employmentRows.map((row) => {
+                          const rowErr = employmentErrors.rows?.[row.uiId] ?? {};
+                          return (
+                            <div
+                              key={row.uiId}
+                              className="rounded-xl border border-gray-200 bg-white p-4"
+                            >
+                              <div className="mb-3 flex items-center justify-between">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                                  Role
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeEmploymentRow(row.uiId)}
+                                  aria-label="Remove this entry"
+                                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-red-50 hover:text-red-700"
+                                >
+                                  <TrashIcon /> Remove
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>Job title</span>
+                                  <input
+                                    type="text"
+                                    value={row.title}
+                                    onChange={(e) =>
+                                      updateEmploymentRow(row.uiId, {
+                                        title: e.target.value,
+                                      })
+                                    }
+                                    maxLength={EMPLOYMENT_FIELD_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.title && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.title}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>Company</span>
+                                  <input
+                                    type="text"
+                                    value={row.company}
+                                    onChange={(e) =>
+                                      updateEmploymentRow(row.uiId, {
+                                        company: e.target.value,
+                                      })
+                                    }
+                                    maxLength={EMPLOYMENT_FIELD_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.company && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.company}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>Start</span>
+                                  <input
+                                    type="text"
+                                    value={row.start}
+                                    onChange={(e) =>
+                                      updateEmploymentRow(row.uiId, {
+                                        start: e.target.value,
+                                      })
+                                    }
+                                    maxLength={EMPLOYMENT_FIELD_MAX}
+                                    placeholder="2020-03"
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.start && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.start}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>End</span>
+                                  <input
+                                    type="text"
+                                    value={row.end}
+                                    onChange={(e) =>
+                                      updateEmploymentRow(row.uiId, {
+                                        end: e.target.value,
+                                      })
+                                    }
+                                    maxLength={EMPLOYMENT_FIELD_MAX}
+                                    placeholder="2022-12"
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.end && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.end}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1 md:col-span-2">
+                                  <span className={LABEL_CLASS}>
+                                    Description
+                                  </span>
+                                  <textarea
+                                    rows={4}
+                                    value={row.description}
+                                    onChange={(e) =>
+                                      updateEmploymentRow(row.uiId, {
+                                        description: e.target.value,
+                                      })
+                                    }
+                                    maxLength={EMPLOYMENT_DESCRIPTION_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  <span className="text-[11px] text-gray-400">
+                                    {row.description.length} /{" "}
+                                    {EMPLOYMENT_DESCRIPTION_MAX}
+                                  </span>
+                                  {rowErr.description && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.description}
+                                    </span>
+                                  )}
+                                </label>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {employmentRows.length < EMPLOYMENT_MAX && (
+                        <button
+                          type="button"
+                          onClick={addEmploymentRow}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-gray-300 bg-white py-3 text-xs font-semibold text-gray-600 hover:border-remotiv-purple hover:text-remotiv-purple"
+                        >
+                          + Add another employment
+                        </button>
+                      )}
+                      {employmentErrors.general && (
+                        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          {employmentErrors.general}
+                        </p>
+                      )}
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleEmploymentCancel}
+                          disabled={employmentSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleEmploymentSave}
+                          disabled={employmentSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {employmentSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "education" && (
@@ -3267,11 +3942,278 @@ export function EditClient({
                   )}
 
                   {section.key === "languages" && (
-                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
+                    <div>
+                      {languageRows.length === 0 && (
+                        <p className="mb-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                          No languages yet. Add your first below.
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-3">
+                        {languageRows.map((row) => {
+                          const rowErr = languagesErrors.rows?.[row.uiId] ?? {};
+                          return (
+                            <div
+                              key={row.uiId}
+                              className="rounded-xl border border-gray-200 bg-white p-4"
+                            >
+                              <div className="mb-3 flex items-center justify-between">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                                  Language
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removeLanguageRow(row.uiId)}
+                                  aria-label="Remove this language"
+                                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-red-50 hover:text-red-700"
+                                >
+                                  <TrashIcon /> Remove
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>Name</span>
+                                  <input
+                                    type="text"
+                                    value={row.name}
+                                    onChange={(e) =>
+                                      updateLanguageRow(row.uiId, {
+                                        name: e.target.value,
+                                      })
+                                    }
+                                    maxLength={LANGUAGE_NAME_MAX}
+                                    placeholder="English"
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.name && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.name}
+                                    </span>
+                                  )}
+                                </label>
+                                <fieldset className="flex flex-col gap-1">
+                                  <legend className={LABEL_CLASS}>Level</legend>
+                                  <div className="flex flex-wrap gap-1.5">
+                                    {REMOTE_LANGUAGE_LEVELS.map((lvl) => {
+                                      const selected = row.level === lvl;
+                                      return (
+                                        <button
+                                          key={lvl}
+                                          type="button"
+                                          onClick={() =>
+                                            updateLanguageRow(row.uiId, {
+                                              level: lvl,
+                                            })
+                                          }
+                                          aria-pressed={selected}
+                                          className={
+                                            selected
+                                              ? "rounded-full bg-remotiv-purple px-3 py-1 text-[11px] font-semibold text-white"
+                                              : "rounded-full border border-gray-200 bg-white px-3 py-1 text-[11px] font-semibold text-gray-700 hover:bg-gray-50"
+                                          }
+                                        >
+                                          {lvl}
+                                        </button>
+                                      );
+                                    })}
+                                  </div>
+                                  {rowErr.level && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.level}
+                                    </span>
+                                  )}
+                                </fieldset>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {languageRows.length < LANGUAGES_MAX && (
+                        <button
+                          type="button"
+                          onClick={addLanguageRow}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-gray-300 bg-white py-3 text-xs font-semibold text-gray-600 hover:border-remotiv-purple hover:text-remotiv-purple"
+                        >
+                          + Add another language
+                        </button>
+                      )}
+                      {languagesErrors.general && (
+                        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          {languagesErrors.general}
+                        </p>
+                      )}
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handleLanguagesCancel}
+                          disabled={languagesSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handleLanguagesSave}
+                          disabled={languagesSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {languagesSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "portfolio" && (
-                    <p className="text-sm text-gray-500">Coming in 4.2F.</p>
+                    <div>
+                      {portfolioRows.length === 0 && (
+                        <p className="mb-3 rounded-xl border border-dashed border-gray-200 bg-gray-50 px-4 py-6 text-center text-sm text-gray-500">
+                          No portfolio entries yet. Add your first below.
+                        </p>
+                      )}
+                      <div className="flex flex-col gap-3">
+                        {portfolioRows.map((row) => {
+                          const rowErr = portfolioErrors.rows?.[row.uiId] ?? {};
+                          return (
+                            <div
+                              key={row.uiId}
+                              className="rounded-xl border border-gray-200 bg-white p-4"
+                            >
+                              <div className="mb-3 flex items-center justify-between">
+                                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                                  Project
+                                </span>
+                                <button
+                                  type="button"
+                                  onClick={() => removePortfolioRow(row.uiId)}
+                                  aria-label="Remove this project"
+                                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-2.5 py-1 text-[11px] font-semibold text-gray-600 hover:bg-red-50 hover:text-red-700"
+                                >
+                                  <TrashIcon /> Remove
+                                </button>
+                              </div>
+                              <div className="grid grid-cols-1 gap-3 md:grid-cols-2">
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>
+                                    Project title
+                                  </span>
+                                  <input
+                                    type="text"
+                                    value={row.projectTitle}
+                                    onChange={(e) =>
+                                      updatePortfolioRow(row.uiId, {
+                                        projectTitle: e.target.value,
+                                      })
+                                    }
+                                    maxLength={PORTFOLIO_FIELD_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.projectTitle && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.projectTitle}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1">
+                                  <span className={LABEL_CLASS}>Role</span>
+                                  <input
+                                    type="text"
+                                    value={row.role}
+                                    onChange={(e) =>
+                                      updatePortfolioRow(row.uiId, {
+                                        role: e.target.value,
+                                      })
+                                    }
+                                    maxLength={PORTFOLIO_FIELD_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.role && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.role}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1 md:col-span-2">
+                                  <span className={LABEL_CLASS}>URL</span>
+                                  <input
+                                    type="url"
+                                    value={row.url}
+                                    onChange={(e) =>
+                                      updatePortfolioRow(row.uiId, {
+                                        url: e.target.value,
+                                      })
+                                    }
+                                    maxLength={PORTFOLIO_URL_MAX}
+                                    placeholder="https://example.com/project"
+                                    className={INPUT_CLASS}
+                                  />
+                                  {rowErr.url && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.url}
+                                    </span>
+                                  )}
+                                </label>
+                                <label className="flex flex-col gap-1 md:col-span-2">
+                                  <span className={LABEL_CLASS}>
+                                    Description
+                                  </span>
+                                  <textarea
+                                    rows={3}
+                                    value={row.description}
+                                    onChange={(e) =>
+                                      updatePortfolioRow(row.uiId, {
+                                        description: e.target.value,
+                                      })
+                                    }
+                                    maxLength={PORTFOLIO_DESCRIPTION_MAX}
+                                    className={INPUT_CLASS}
+                                  />
+                                  <span className="text-[11px] text-gray-400">
+                                    {row.description.length} /{" "}
+                                    {PORTFOLIO_DESCRIPTION_MAX}
+                                  </span>
+                                  {rowErr.description && (
+                                    <span className="text-xs text-red-600">
+                                      {rowErr.description}
+                                    </span>
+                                  )}
+                                </label>
+                              </div>
+                            </div>
+                          );
+                        })}
+                      </div>
+                      {portfolioRows.length < PORTFOLIO_MAX && (
+                        <button
+                          type="button"
+                          onClick={addPortfolioRow}
+                          className="mt-3 inline-flex w-full items-center justify-center gap-1 rounded-xl border border-dashed border-gray-300 bg-white py-3 text-xs font-semibold text-gray-600 hover:border-remotiv-purple hover:text-remotiv-purple"
+                        >
+                          + Add another project
+                        </button>
+                      )}
+                      {portfolioErrors.general && (
+                        <p className="mt-4 rounded-xl border border-red-200 bg-red-50 px-3 py-2 text-xs text-red-700">
+                          {portfolioErrors.general}
+                        </p>
+                      )}
+                      <div className="mt-5 flex flex-wrap items-center justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={handlePortfolioCancel}
+                          disabled={portfolioSaving}
+                          className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50 disabled:opacity-50"
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          onClick={handlePortfolioSave}
+                          disabled={portfolioSaving}
+                          className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                        >
+                          {portfolioSaving ? "Saving…" : "Save changes"}
+                        </button>
+                      </div>
+                    </div>
                   )}
 
                   {section.key === "cv" && (
