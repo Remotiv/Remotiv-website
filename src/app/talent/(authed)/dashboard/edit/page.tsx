@@ -6,10 +6,10 @@ import { EditClient, type EditableProfile } from "./_edit-client";
 export const dynamic = "force-dynamic";
 
 const TALENT_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, city, country, job_title, role_category, years_experience, industry, summary, availability, work_type, salary_min, salary_max, skills, experience, user_id, status, claimed_at, approved_at";
+  "id, first_name, last_name, email, phone, linkedin_url, city, country, job_title, role_category, years_experience, industry, summary, availability, work_type, salary_min, salary_max, cv_path, cv_url, skills, experience, user_id, status, claimed_at, approved_at";
 
 const REMOTE_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, photo_path, cv_path, skills, employment_history, education, languages, portfolio, user_id, status, claimed_at, approved_at, email_verified";
+  "id, first_name, last_name, email, phone, linkedin_url, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, photo_path, cv_path, cv_url, skills, employment_history, education, languages, portfolio, user_id, status, claimed_at, approved_at, email_verified";
 
 export default async function TalentDashboardEditPage() {
   const supabase = await createClient();

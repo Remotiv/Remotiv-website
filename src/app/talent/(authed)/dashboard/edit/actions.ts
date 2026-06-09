@@ -57,6 +57,20 @@ const PORTFOLIO_FIELD_MAX = 200;
 const PORTFOLIO_DESCRIPTION_MAX = 1000;
 const PORTFOLIO_URL_MAX = 500;
 
+const CV_BUCKET = "cvs";
+// Pakistan intake uses 5 MB client cap (10 MB server). Mirror the client
+// cap to keep edit-page uploads acceptable to intake as well.
+const PAKISTAN_CV_MAX_BYTES = 5 * 1024 * 1024;
+const PAKISTAN_CV_STORAGE_PREFIX = "talent/cvs/";
+const REMOTE_CV_MAX_BYTES = 5 * 1024 * 1024;
+const REMOTE_CV_STORAGE_PREFIX = "hire-remote/cvs/";
+const REMOTE_CV_ALLOWED_TYPES = [
+  "application/pdf",
+  "application/msword",
+  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
+] as const;
+const CV_SIGNED_URL_TTL_SECONDS = 60 * 60;
+
 // Verbatim from intake: src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
   "Native",
@@ -1659,4 +1673,321 @@ export async function updateRemotePortfolio(
   revalidatePath("/talent/dashboard/edit");
 
   return { success: true, data: { portfolio: stored } };
+}
+
+function deriveExistingCvPath(
+  cvPath: string | null,
+  cvUrl: string | null,
+): string | null {
+  if (cvPath && cvPath.trim()) return cvPath.trim();
+  if (!cvUrl) return null;
+  // Verbatim regex from src/app/browse-talent/actions.ts deriveCvPathFromUrl.
+  const m = String(cvUrl).match(
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+  );
+  return m ? m[1] : null;
+}
+
+function isPdfMagicBytes(bytes: Uint8Array): boolean {
+  // "%PDF" — same check used in intake routes.
+  return (
+    bytes.length >= 4 &&
+    bytes[0] === 0x25 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x44 &&
+    bytes[3] === 0x46
+  );
+}
+
+async function signOwnCvUrl(params: {
+  userId: string;
+  profileId: string;
+  sourceTable: SourceTable;
+  cvPath: string;
+}): Promise<string | null> {
+  const service = createServiceClient();
+  const { data: signed, error } = await service.storage
+    .from(CV_BUCKET)
+    .createSignedUrl(params.cvPath, CV_SIGNED_URL_TTL_SECONDS);
+  if (error || !signed?.signedUrl) {
+    console.error("[signOwnCvUrl] sign failed:", error);
+    return null;
+  }
+  // Mirror browse-talent/actions.ts: fire-and-forget audit log.
+  service
+    .from("signed_url_logs")
+    .insert({
+      user_id: params.userId,
+      candidate_id: params.profileId,
+      source_table: params.sourceTable,
+      was_admin: false,
+    })
+    .then(({ error: e }) => {
+      if (e) console.error("[signed_url_logs insert]", e);
+    });
+  return signed.signedUrl;
+}
+
+type GetOwnCvUrlInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+};
+type GetOwnCvUrlResult =
+  | { success: true; data: { url: string } }
+  | { success: false; error: string };
+
+export async function getOwnCvSignedUrl(
+  input: GetOwnCvUrlInput,
+): Promise<GetOwnCvUrlResult> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  let owner: { userId: string; email: string };
+  try {
+    owner = await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't read this CV." };
+  }
+
+  const service = createServiceClient();
+  const { data: row, error } = await service
+    .from(sourceTable)
+    .select("cv_path, cv_url")
+    .eq("id", profileId)
+    .maybeSingle();
+  if (error || !row) {
+    return { success: false, error: "Profile not found." };
+  }
+  const path = deriveExistingCvPath(
+    (row as { cv_path: string | null }).cv_path,
+    (row as { cv_url: string | null }).cv_url,
+  );
+  if (!path) {
+    return { success: false, error: "No CV on file." };
+  }
+  const signed = await signOwnCvUrl({
+    userId: owner.userId,
+    profileId,
+    sourceTable,
+    cvPath: path,
+  });
+  if (!signed) {
+    return { success: false, error: "Could not sign CV URL." };
+  }
+  return { success: true, data: { url: signed } };
+}
+
+type UploadCvResult =
+  | { success: true; data: { cvPath: string; cvUrl: string } }
+  | { success: false; error: string };
+
+export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
+  const profileId = String(formData.get("profileId") ?? "");
+  const sourceTable = String(formData.get("sourceTable") ?? "") as SourceTable;
+  const file = formData.get("cv");
+
+  if (!profileId) {
+    return { success: false, error: "Missing profile id." };
+  }
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!(file instanceof File)) {
+    return { success: false, error: "Please select a file." };
+  }
+
+  const isPakistan = sourceTable === "talent_profiles";
+  const maxBytes = isPakistan ? PAKISTAN_CV_MAX_BYTES : REMOTE_CV_MAX_BYTES;
+
+  if (file.size === 0) {
+    return { success: false, error: "Empty file." };
+  }
+  if (file.size > maxBytes) {
+    const mb = Math.floor(maxBytes / (1024 * 1024));
+    return { success: false, error: `CV must be ${mb} MB or smaller.` };
+  }
+
+  const buffer = new Uint8Array(await file.arrayBuffer());
+
+  let contentType: string;
+  let storagePath: string;
+
+  if (isPakistan) {
+    if (!isPdfMagicBytes(buffer)) {
+      return { success: false, error: "CV must be a PDF file." };
+    }
+    contentType = "application/pdf";
+    storagePath = `${PAKISTAN_CV_STORAGE_PREFIX}${crypto.randomUUID()}.pdf`;
+  } else {
+    const mime = file.type;
+    if (!(REMOTE_CV_ALLOWED_TYPES as readonly string[]).includes(mime)) {
+      return {
+        success: false,
+        error: "CV must be a PDF, DOC, or DOCX file.",
+      };
+    }
+    if (mime === "application/pdf" && !isPdfMagicBytes(buffer)) {
+      return { success: false, error: "CV must be a real PDF file." };
+    }
+    const lastDot = file.name.lastIndexOf(".");
+    const rawExt =
+      lastDot >= 0 ? file.name.slice(lastDot + 1).toLowerCase() : "";
+    const safeExt =
+      rawExt === "pdf" || rawExt === "doc" || rawExt === "docx"
+        ? rawExt
+        : mime === "application/pdf"
+          ? "pdf"
+          : mime === "application/msword"
+            ? "doc"
+            : "docx";
+    contentType = mime;
+    storagePath = `${REMOTE_CV_STORAGE_PREFIX}${crypto.randomUUID()}.${safeExt}`;
+  }
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+
+  const { data: existing } = await service
+    .from(sourceTable)
+    .select("cv_path, cv_url")
+    .eq("id", profileId)
+    .maybeSingle();
+  const oldPath = deriveExistingCvPath(
+    (existing as { cv_path: string | null } | null)?.cv_path ?? null,
+    (existing as { cv_url: string | null } | null)?.cv_url ?? null,
+  );
+
+  const { error: upErr } = await service.storage
+    .from(CV_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    });
+  if (upErr) {
+    console.error("[uploadCv] storage upload failed:", upErr);
+    return { success: false, error: "Could not upload CV." };
+  }
+
+  const { data: pub } = service.storage
+    .from(CV_BUCKET)
+    .getPublicUrl(storagePath);
+  const cvUrl = pub?.publicUrl ?? "";
+
+  const { error: dbErr } = await service
+    .from(sourceTable)
+    .update({ cv_path: storagePath, cv_url: cvUrl })
+    .eq("id", profileId);
+  if (dbErr) {
+    console.error("[uploadCv] DB update failed:", dbErr);
+    // Rollback orphaned upload.
+    try {
+      await service.storage.from(CV_BUCKET).remove([storagePath]);
+    } catch (cleanupErr) {
+      console.error(
+        "[uploadCv] rollback delete failed (orphaned at",
+        storagePath,
+        "):",
+        cleanupErr,
+      );
+    }
+    return { success: false, error: "Could not save CV." };
+  }
+
+  if (oldPath && oldPath !== storagePath) {
+    service.storage
+      .from(CV_BUCKET)
+      .remove([oldPath])
+      .then(({ error: e }) => {
+        if (e) {
+          console.error(
+            "[uploadCv] old CV delete failed (orphaned at",
+            oldPath,
+            "):",
+            e,
+          );
+        }
+      });
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { cvPath: storagePath, cvUrl } };
+}
+
+type RemoveCvResult =
+  | { success: true; data: { cleared: true } }
+  | { success: false; error: string };
+
+export async function removeCv(input: {
+  profileId: string;
+  sourceTable: SourceTable;
+}): Promise<RemoveCvResult> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const { data: existing } = await service
+    .from(sourceTable)
+    .select("cv_path, cv_url")
+    .eq("id", profileId)
+    .maybeSingle();
+  const oldPath = deriveExistingCvPath(
+    (existing as { cv_path: string | null } | null)?.cv_path ?? null,
+    (existing as { cv_url: string | null } | null)?.cv_url ?? null,
+  );
+
+  const { error: dbErr } = await service
+    .from(sourceTable)
+    .update({ cv_path: null, cv_url: null })
+    .eq("id", profileId);
+  if (dbErr) {
+    console.error("[removeCv] DB update failed:", dbErr);
+    return { success: false, error: "Could not remove CV." };
+  }
+
+  if (oldPath) {
+    service.storage
+      .from(CV_BUCKET)
+      .remove([oldPath])
+      .then(({ error: e }) => {
+        if (e) console.error("[removeCv] storage delete failed:", e);
+      });
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+  return { success: true, data: { cleared: true } };
 }

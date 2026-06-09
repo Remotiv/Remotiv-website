@@ -5,6 +5,8 @@ import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import {
+  getOwnCvSignedUrl,
+  removeCv,
   updateRemoteAvailabilityWorkType,
   updateRemoteBasicInfo,
   updateRemoteEducation,
@@ -19,6 +21,7 @@ import {
   updateTalentLocation,
   updateTalentProfessional,
   updateTalentSkillsExperience,
+  uploadCv,
 } from "./actions";
 
 export type EditableProfile = {
@@ -145,6 +148,12 @@ const PORTFOLIO_MAX = 30;
 const PORTFOLIO_FIELD_MAX = 200;
 const PORTFOLIO_DESCRIPTION_MAX = 1000;
 const PORTFOLIO_URL_MAX = 500;
+
+const PAKISTAN_CV_MAX_BYTES = 5 * 1024 * 1024;
+const REMOTE_CV_MAX_BYTES = 5 * 1024 * 1024;
+const PAKISTAN_CV_ACCEPT = ".pdf,application/pdf";
+const REMOTE_CV_ACCEPT =
+  ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
 
 // Verbatim from intake src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
@@ -425,6 +434,12 @@ function remoteSkillsFilledCount(p: EditableProfile): number {
   return s.length > 0 ? 1 : 0;
 }
 
+function cvFilledCount(p: EditableProfile): number {
+  const cvPath = (p.raw.cv_path as string | null)?.trim();
+  const cvUrl = (p.raw.cv_url as string | null)?.trim();
+  return cvPath || cvUrl ? 1 : 0;
+}
+
 function remoteEmploymentFilledCount(p: EditableProfile): number {
   const arr = Array.isArray(p.raw.employment_history)
     ? p.raw.employment_history
@@ -566,8 +581,13 @@ function getSectionsForPool(
     remoteEmployment: number;
     remoteLanguages: number;
     remotePortfolio: number;
+    cv: number;
   },
 ): SectionDef[] {
+  const cvBadge =
+    counts.cv === 1
+      ? { className: "bg-green-100 text-green-700", label: "CV uploaded" }
+      : { className: "bg-red-100 text-red-700", label: "No CV" };
   if (sourceTable === "talent_profiles") {
     return [
       {
@@ -607,7 +627,7 @@ function getSectionsForPool(
           label: ofNBadgeLabel(counts.skills, 2),
         },
       },
-      { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
+      { key: "cv", title: "CV & photo", badge: cvBadge },
     ];
   }
   return [
@@ -683,7 +703,7 @@ function getSectionsForPool(
           ? { className: "bg-green-100 text-green-700", label: "Complete" }
           : { className: "bg-red-100 text-red-700", label: "Empty" },
     },
-    { key: "cv", title: "CV & photo", badge: LOCKED_BADGE },
+    { key: "cv", title: "CV & photo", badge: cvBadge },
   ];
 }
 
@@ -911,6 +931,13 @@ export function EditClient({
   const [portfolioSnapshot, setPortfolioSnapshot] = useState<
     PortfolioRowState[] | null
   >(null);
+
+  const [cvSaving, setCvSaving] = useState(false);
+  const [cvRemoving, setCvRemoving] = useState(false);
+  const [cvError, setCvError] = useState<string | null>(null);
+  // Bump this to force-reset the file input after a successful save.
+  // (Controlled file inputs are awkward; this is the standard trick.)
+  const [cvFileInputKey, setCvFileInputKey] = useState(0);
 
   useEffect(() => {
     if (!activeProfile) {
@@ -2242,6 +2269,87 @@ export function EditClient({
     }
   }
 
+  async function handleCvDownload() {
+    if (!activeProfile) return;
+    const result = await getOwnCvSignedUrl({
+      profileId: activeProfile.id,
+      sourceTable: activeProfile.sourceTable,
+    });
+    if (!result.success) {
+      setToast(result.error || "Could not load CV.");
+      return;
+    }
+    window.open(result.data.url, "_blank", "noopener,noreferrer");
+  }
+
+  async function handleCvUpload(file: File) {
+    if (!activeProfile) return;
+    const isPakistan = activeProfile.sourceTable === "talent_profiles";
+    const maxBytes = isPakistan ? PAKISTAN_CV_MAX_BYTES : REMOTE_CV_MAX_BYTES;
+    if (file.size === 0) {
+      setCvError("Empty file.");
+      return;
+    }
+    if (file.size > maxBytes) {
+      setCvError(
+        `CV must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`,
+      );
+      return;
+    }
+    setCvError(null);
+    setCvSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("profileId", activeProfile.id);
+      fd.append("sourceTable", activeProfile.sourceTable);
+      fd.append("cv", file);
+      const result = await uploadCv(fd);
+      if (!result.success) {
+        setCvError(result.error || "Could not upload CV.");
+        setToast(result.error || "Could not upload CV.");
+        return;
+      }
+      setToast("CV uploaded");
+      setCvFileInputKey((k) => k + 1);
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] cv upload threw:", err);
+      setCvError("Could not upload CV.");
+      setToast("Could not upload CV.");
+    } finally {
+      setCvSaving(false);
+    }
+  }
+
+  async function handleCvRemove() {
+    if (!activeProfile) return;
+    if (
+      !window.confirm("Remove your CV? You can upload a new one anytime.")
+    ) {
+      return;
+    }
+    setCvRemoving(true);
+    try {
+      const result = await removeCv({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+      });
+      if (!result.success) {
+        setToast(result.error || "Could not remove CV.");
+        return;
+      }
+      setToast("CV removed");
+      setCvError(null);
+      setCvFileInputKey((k) => k + 1);
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] cv remove threw:", err);
+      setToast("Could not remove CV.");
+    } finally {
+      setCvRemoving(false);
+    }
+  }
+
   async function handleBasicSave() {
     if (!activeProfile) return;
     const errors: typeof basicErrors = {};
@@ -2379,6 +2487,8 @@ export function EditClient({
   const remoteEmploymentCount = remoteEmploymentFilledCount(activeProfile);
   const remoteLanguagesCount = remoteLanguagesFilledCount(activeProfile);
   const remotePortfolioCount = remotePortfolioFilledCount(activeProfile);
+  const cvCount = cvFilledCount(activeProfile);
+  const hasCv = cvCount === 1;
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
@@ -2413,6 +2523,7 @@ export function EditClient({
     remoteEmployment: remoteEmploymentCount,
     remoteLanguages: remoteLanguagesCount,
     remotePortfolio: remotePortfolioCount,
+    cv: cvCount,
   });
 
   return (
@@ -4217,14 +4328,94 @@ export function EditClient({
                   )}
 
                   {section.key === "cv" && (
-                    <div className="flex items-center justify-between">
-                      <p className="text-sm text-gray-500">
-                        File uploads come in Phase 4.3.
-                      </p>
-                      <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-xs font-semibold text-gray-600">
-                        <LockIcon />
-                        Locked
-                      </span>
+                    <div className="flex flex-col gap-4">
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-heading text-sm font-semibold text-gray-900">
+                            Resume / CV
+                          </span>
+                          <span
+                            className={
+                              hasCv
+                                ? "inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-[11px] font-semibold text-green-700"
+                                : "inline-flex items-center gap-1 rounded-full bg-red-100 px-3 py-1 text-[11px] font-semibold text-red-700"
+                            }
+                          >
+                            {hasCv ? "On file" : "Not uploaded"}
+                          </span>
+                        </div>
+
+                        {hasCv && (
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handleCvDownload}
+                              className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white hover:opacity-90"
+                            >
+                              Download current CV
+                            </button>
+                            <button
+                              type="button"
+                              onClick={handleCvRemove}
+                              disabled={cvRemoving}
+                              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                            >
+                              {cvRemoving ? "Removing…" : "Remove CV"}
+                            </button>
+                          </div>
+                        )}
+
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>
+                            {hasCv ? "Replace CV" : "Upload CV"}
+                          </span>
+                          <input
+                            key={cvFileInputKey}
+                            type="file"
+                            accept={
+                              activeProfile.sourceTable === "talent_profiles"
+                                ? PAKISTAN_CV_ACCEPT
+                                : REMOTE_CV_ACCEPT
+                            }
+                            disabled={cvSaving}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) {
+                                handleCvUpload(f);
+                              }
+                            }}
+                            className="block w-full text-xs text-gray-700 file:mr-3 file:rounded-full file:border-0 file:bg-remotiv-purple file:px-4 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:opacity-90 disabled:opacity-50"
+                          />
+                          <p className="text-[11px] text-gray-500">
+                            {activeProfile.sourceTable === "talent_profiles"
+                              ? "PDF only, up to 5 MB."
+                              : "PDF, DOC, or DOCX, up to 5 MB."}
+                          </p>
+                          {cvSaving && (
+                            <p className="text-[11px] text-gray-500">
+                              Uploading…
+                            </p>
+                          )}
+                          {cvError && (
+                            <p className="text-xs text-red-600">{cvError}</p>
+                          )}
+                        </label>
+                      </div>
+
+                      <div className="rounded-xl border border-gray-200 bg-white p-4">
+                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                          <span className="font-heading text-sm font-semibold text-gray-900">
+                            Profile photo
+                          </span>
+                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-600">
+                            <LockIcon />
+                            Locked
+                          </span>
+                        </div>
+                        <p className="text-sm text-gray-500">
+                          Coming in 4.3B.
+                        </p>
+                      </div>
                     </div>
                   )}
                 </div>
