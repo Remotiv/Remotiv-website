@@ -4,9 +4,12 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
+import { getAvatarUrl } from "@/lib/avatars";
 import {
   getOwnCvSignedUrl,
+  getOwnPhotoSignedUrl,
   removeCv,
+  removePhoto,
   updateRemoteAvailabilityWorkType,
   updateRemoteBasicInfo,
   updateRemoteEducation,
@@ -22,6 +25,7 @@ import {
   updateTalentProfessional,
   updateTalentSkillsExperience,
   uploadCv,
+  uploadPhoto,
 } from "./actions";
 
 export type EditableProfile = {
@@ -154,6 +158,11 @@ const REMOTE_CV_MAX_BYTES = 5 * 1024 * 1024;
 const PAKISTAN_CV_ACCEPT = ".pdf,application/pdf";
 const REMOTE_CV_ACCEPT =
   ".pdf,.doc,.docx,application/pdf,application/msword,application/vnd.openxmlformats-officedocument.wordprocessingml.document";
+
+const PAKISTAN_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const REMOTE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PHOTO_ACCEPT =
+  ".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif";
 
 // Verbatim from intake src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
@@ -440,6 +449,15 @@ function cvFilledCount(p: EditableProfile): number {
   return cvPath || cvUrl ? 1 : 0;
 }
 
+function photoFilledCount(p: EditableProfile): number {
+  const photoPath = (p.raw.photo_path as string | null)?.trim();
+  const avatarUrl =
+    p.sourceTable === "talent_profiles"
+      ? (p.raw.avatar_url as string | null)?.trim()
+      : null;
+  return photoPath || avatarUrl ? 1 : 0;
+}
+
 function remoteEmploymentFilledCount(p: EditableProfile): number {
   const arr = Array.isArray(p.raw.employment_history)
     ? p.raw.employment_history
@@ -582,12 +600,16 @@ function getSectionsForPool(
     remoteLanguages: number;
     remotePortfolio: number;
     cv: number;
+    photo: number;
   },
 ): SectionDef[] {
+  const filesTotal = counts.cv + counts.photo;
   const cvBadge =
-    counts.cv === 1
-      ? { className: "bg-green-100 text-green-700", label: "CV uploaded" }
-      : { className: "bg-red-100 text-red-700", label: "No CV" };
+    filesTotal === 2
+      ? { className: "bg-green-100 text-green-700", label: "Complete" }
+      : filesTotal === 1
+        ? { className: "bg-amber-100 text-amber-700", label: "1 of 2 filled" }
+        : { className: "bg-red-100 text-red-700", label: "Empty" };
   if (sourceTable === "talent_profiles") {
     return [
       {
@@ -939,6 +961,13 @@ export function EditClient({
   // (Controlled file inputs are awkward; this is the standard trick.)
   const [cvFileInputKey, setCvFileInputKey] = useState(0);
 
+  const [photoSaving, setPhotoSaving] = useState(false);
+  const [photoRemoving, setPhotoRemoving] = useState(false);
+  const [photoError, setPhotoError] = useState<string | null>(null);
+  const [photoFileInputKey, setPhotoFileInputKey] = useState(0);
+  const [photoSignedUrl, setPhotoSignedUrl] = useState<string | null>(null);
+  const [photoLoading, setPhotoLoading] = useState(false);
+
   useEffect(() => {
     if (!activeProfile) {
       setBasicFirstName("");
@@ -1194,6 +1223,32 @@ export function EditClient({
     const t = setTimeout(() => setToast(null), 2500);
     return () => clearTimeout(t);
   }, [toast]);
+
+  useEffect(() => {
+    if (!activeProfile) {
+      setPhotoSignedUrl(null);
+      return;
+    }
+    let cancelled = false;
+    setPhotoLoading(true);
+    setPhotoSignedUrl(null);
+    (async () => {
+      const result = await getOwnPhotoSignedUrl({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+      });
+      if (cancelled) return;
+      if (result.success) {
+        setPhotoSignedUrl(result.data.url);
+      } else {
+        setPhotoSignedUrl(null);
+      }
+      setPhotoLoading(false);
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [activeProfile]);
 
   function toggleSection(key: SectionKey) {
     setOpenSections((prev) => {
@@ -2350,6 +2405,77 @@ export function EditClient({
     }
   }
 
+  async function handlePhotoUpload(file: File) {
+    if (!activeProfile) return;
+    const isPakistan = activeProfile.sourceTable === "talent_profiles";
+    const maxBytes = isPakistan
+      ? PAKISTAN_PHOTO_MAX_BYTES
+      : REMOTE_PHOTO_MAX_BYTES;
+    if (file.size === 0) {
+      setPhotoError("Empty file.");
+      return;
+    }
+    if (file.size > maxBytes) {
+      setPhotoError(
+        `Photo must be ${Math.floor(maxBytes / (1024 * 1024))} MB or smaller.`,
+      );
+      return;
+    }
+    setPhotoError(null);
+    setPhotoSaving(true);
+    try {
+      const fd = new FormData();
+      fd.append("profileId", activeProfile.id);
+      fd.append("sourceTable", activeProfile.sourceTable);
+      fd.append("photo", file);
+      const result = await uploadPhoto(fd);
+      if (!result.success) {
+        setPhotoError(result.error || "Could not upload photo.");
+        setToast(result.error || "Could not upload photo.");
+        return;
+      }
+      setToast("Photo uploaded");
+      setPhotoFileInputKey((k) => k + 1);
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] photo upload threw:", err);
+      setPhotoError("Could not upload photo.");
+      setToast("Could not upload photo.");
+    } finally {
+      setPhotoSaving(false);
+    }
+  }
+
+  async function handlePhotoRemove() {
+    if (!activeProfile) return;
+    if (
+      !window.confirm("Remove your photo? You can upload a new one anytime.")
+    ) {
+      return;
+    }
+    setPhotoRemoving(true);
+    try {
+      const result = await removePhoto({
+        profileId: activeProfile.id,
+        sourceTable: activeProfile.sourceTable,
+      });
+      if (!result.success) {
+        setToast(result.error || "Could not remove photo.");
+        return;
+      }
+      setPhotoSignedUrl(null);
+      setToast("Photo removed");
+      setPhotoError(null);
+      setPhotoFileInputKey((k) => k + 1);
+      router.refresh();
+    } catch (err) {
+      console.error("[edit] photo remove threw:", err);
+      setToast("Could not remove photo.");
+    } finally {
+      setPhotoRemoving(false);
+    }
+  }
+
   async function handleBasicSave() {
     if (!activeProfile) return;
     const errors: typeof basicErrors = {};
@@ -2489,6 +2615,13 @@ export function EditClient({
   const remotePortfolioCount = remotePortfolioFilledCount(activeProfile);
   const cvCount = cvFilledCount(activeProfile);
   const hasCv = cvCount === 1;
+  const photoCount = photoFilledCount(activeProfile);
+  const fallbackAvatar = getAvatarUrl(
+    activeProfile.firstName,
+    activeProfile.lastName,
+  );
+  const displayPhotoSrc = photoSignedUrl ?? fallbackAvatar;
+  const hasRealPhoto = Boolean(photoSignedUrl);
   const rawSummary = (activeProfile.raw.summary as string | null) ?? null;
   const rawRoleCategory =
     (activeProfile.raw.role_category as string | null) ?? null;
@@ -2524,6 +2657,7 @@ export function EditClient({
     remoteLanguages: remoteLanguagesCount,
     remotePortfolio: remotePortfolioCount,
     cv: cvCount,
+    photo: photoCount,
   });
 
   return (
@@ -4403,18 +4537,90 @@ export function EditClient({
                       </div>
 
                       <div className="rounded-xl border border-gray-200 bg-white p-4">
-                        <div className="mb-2 flex flex-wrap items-center justify-between gap-2">
+                        <div className="mb-3 flex flex-wrap items-center justify-between gap-2">
                           <span className="font-heading text-sm font-semibold text-gray-900">
                             Profile photo
                           </span>
-                          <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-600">
-                            <LockIcon />
-                            Locked
+                          <span
+                            className={
+                              hasRealPhoto
+                                ? "inline-flex items-center gap-1 rounded-full bg-green-100 px-3 py-1 text-[11px] font-semibold text-green-700"
+                                : "inline-flex items-center gap-1 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-600"
+                            }
+                          >
+                            {hasRealPhoto ? "On file" : "Using default avatar"}
                           </span>
                         </div>
-                        <p className="text-sm text-gray-500">
-                          Coming in 4.3B.
-                        </p>
+
+                        <div className="mb-4 flex items-center gap-4">
+                          {/* biome-ignore lint/performance/noImgElement: Mix of internal /avatars/* paths and external signed URLs makes next/image awkward here. */}
+                          {/* biome-ignore lint/nursery/useImageSize: profile-photo size is fixed via classes. */}
+                          <img
+                            src={photoLoading ? fallbackAvatar : displayPhotoSrc}
+                            alt="Profile photo"
+                            width={96}
+                            height={96}
+                            className="h-24 w-24 rounded-full border border-gray-200 object-cover"
+                          />
+                          <div className="flex flex-col gap-1">
+                            <p className="text-[11px] uppercase tracking-widest text-gray-400">
+                              {hasRealPhoto
+                                ? "Current photo"
+                                : "Default avatar"}
+                            </p>
+                            <p className="text-xs text-gray-600">
+                              {hasRealPhoto
+                                ? "This is what companies will see on your profile."
+                                : "Upload a real photo to replace the default avatar."}
+                            </p>
+                          </div>
+                        </div>
+
+                        {hasRealPhoto && (
+                          <div className="mb-3 flex flex-wrap items-center gap-2">
+                            <button
+                              type="button"
+                              onClick={handlePhotoRemove}
+                              disabled={photoRemoving}
+                              className="rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-red-50 hover:text-red-700 disabled:opacity-50"
+                            >
+                              {photoRemoving ? "Removing…" : "Remove photo"}
+                            </button>
+                          </div>
+                        )}
+
+                        <label className="flex flex-col gap-1.5">
+                          <span className={LABEL_CLASS}>
+                            {hasRealPhoto ? "Replace photo" : "Upload photo"}
+                          </span>
+                          <input
+                            key={photoFileInputKey}
+                            type="file"
+                            accept={PHOTO_ACCEPT}
+                            disabled={photoSaving}
+                            onChange={(e) => {
+                              const f = e.target.files?.[0];
+                              if (f) {
+                                handlePhotoUpload(f);
+                              }
+                            }}
+                            className="block w-full text-xs text-gray-700 file:mr-3 file:rounded-full file:border-0 file:bg-remotiv-purple file:px-4 file:py-1.5 file:text-xs file:font-bold file:text-white hover:file:opacity-90 disabled:opacity-50"
+                          />
+                          <p className="text-[11px] text-gray-500">
+                            JPG, PNG, WebP, or GIF.{" "}
+                            {activeProfile.sourceTable === "talent_profiles"
+                              ? "Up to 2 MB."
+                              : "Up to 5 MB."}
+                          </p>
+                          {photoSaving && (
+                            <p className="text-[11px] text-gray-500">
+                              Uploading…
+                            </p>
+                          )}
+                          {photoError && (
+                            <p className="text-xs text-red-600">{photoError}</p>
+                          )}
+                        </label>
                       </div>
                     </div>
                   )}

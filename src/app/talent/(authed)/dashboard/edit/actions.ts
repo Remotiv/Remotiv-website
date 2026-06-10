@@ -71,6 +71,23 @@ const REMOTE_CV_ALLOWED_TYPES = [
 ] as const;
 const CV_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
+const PAKISTAN_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
+const REMOTE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
+const PAKISTAN_PHOTO_STORAGE_PREFIX = "talent/photos/";
+const REMOTE_PHOTO_STORAGE_PREFIX = "hire-remote/photos/";
+const PHOTO_SIGNED_URL_TTL_SECONDS = 60 * 60;
+
+// Verbatim from intake routes: src/app/api/talent/route.ts and
+// src/app/api/hire-remote-profiles/route.ts. Both routes use the same
+// whitelist.
+const ALLOWED_PHOTO_TYPES = [
+  "image/jpeg",
+  "image/jpg",
+  "image/png",
+  "image/webp",
+  "image/gif",
+] as const;
+
 // Verbatim from intake: src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
   "Native",
@@ -1984,6 +2001,404 @@ export async function removeCv(input: {
       .remove([oldPath])
       .then(({ error: e }) => {
         if (e) console.error("[removeCv] storage delete failed:", e);
+      });
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+  return { success: true, data: { cleared: true } };
+}
+
+// Magic-byte checks copied VERBATIM from intake routes
+// (src/app/api/talent/route.ts:405-415). Intake's checks are looser
+// than a full RFC-compliant signature scan:
+//   JPG: FF D8 FF (3 bytes)
+//   PNG: 89 50 4E 47 (4 bytes — first half of the 8-byte signature)
+//   WebP: 52 49 46 46 (RIFF only — does NOT verify the WEBP at offset 8-11)
+//   GIF: 47 49 46 (3 bytes — "GIF" only; does NOT check "GIF8")
+// We use intake's verbatim sequences so files accepted by the public
+// intake form are also accepted by the edit page (and vice versa).
+function detectImageFormat(
+  bytes: Uint8Array,
+): "jpeg" | "png" | "webp" | "gif" | null {
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0xff &&
+    bytes[1] === 0xd8 &&
+    bytes[2] === 0xff
+  ) {
+    return "jpeg";
+  }
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x89 &&
+    bytes[1] === 0x50 &&
+    bytes[2] === 0x4e &&
+    bytes[3] === 0x47
+  ) {
+    return "png";
+  }
+  if (
+    bytes.length >= 4 &&
+    bytes[0] === 0x52 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46 &&
+    bytes[3] === 0x46
+  ) {
+    return "webp";
+  }
+  if (
+    bytes.length >= 3 &&
+    bytes[0] === 0x47 &&
+    bytes[1] === 0x49 &&
+    bytes[2] === 0x46
+  ) {
+    return "gif";
+  }
+  return null;
+}
+
+function deriveExistingPhotoPath(
+  photoPath: string | null,
+  fallbackUrl: string | null,
+): string | null {
+  if (photoPath && photoPath.trim()) return photoPath.trim();
+  if (!fallbackUrl) return null;
+  // Legacy Pakistan fallback: intake stored a public URL into
+  // avatar_url before photo_path existed. Parse it back to a
+  // bucket-relative path. Remote has never used this pattern —
+  // photo_path has been the only source of truth for hire_remote
+  // since intake migration 011.
+  const m = String(fallbackUrl).match(
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+  );
+  return m ? m[1] : null;
+}
+
+async function signOwnPhotoUrl(params: {
+  userId: string;
+  profileId: string;
+  sourceTable: SourceTable;
+  photoPath: string;
+}): Promise<string | null> {
+  const service = createServiceClient();
+  const { data: signed, error } = await service.storage
+    .from(CV_BUCKET)
+    .createSignedUrl(params.photoPath, PHOTO_SIGNED_URL_TTL_SECONDS);
+  if (error || !signed?.signedUrl) {
+    console.error("[signOwnPhotoUrl] sign failed:", error);
+    return null;
+  }
+  service
+    .from("signed_url_logs")
+    .insert({
+      user_id: params.userId,
+      candidate_id: params.profileId,
+      source_table: params.sourceTable,
+      was_admin: false,
+    })
+    .then(({ error: e }) => {
+      if (e) console.error("[signed_url_logs insert]", e);
+    });
+  return signed.signedUrl;
+}
+
+type GetOwnPhotoUrlInput = {
+  profileId: string;
+  sourceTable: SourceTable;
+};
+type GetOwnPhotoUrlResult =
+  | { success: true; data: { url: string | null } }
+  | { success: false; error: string };
+
+export async function getOwnPhotoSignedUrl(
+  input: GetOwnPhotoUrlInput,
+): Promise<GetOwnPhotoUrlResult> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+
+  let owner: { userId: string; email: string };
+  try {
+    owner = await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't read this photo." };
+  }
+
+  const service = createServiceClient();
+  const isPakistan = sourceTable === "talent_profiles";
+  const selectCols = isPakistan
+    ? "photo_path, avatar_url"
+    : "photo_path, photo_url";
+  const { data: row, error } = await service
+    .from(sourceTable)
+    .select(selectCols)
+    .eq("id", profileId)
+    .maybeSingle();
+  if (error || !row) {
+    return { success: false, error: "Profile not found." };
+  }
+  const r = row as {
+    photo_path: string | null;
+    avatar_url?: string | null;
+    photo_url?: string | null;
+  };
+  const fallbackUrl = isPakistan ? (r.avatar_url ?? null) : (r.photo_url ?? null);
+  const path = deriveExistingPhotoPath(r.photo_path ?? null, fallbackUrl);
+  if (!path) {
+    // Not an error — user simply hasn't uploaded a real photo yet.
+    return { success: true, data: { url: null } };
+  }
+  const signed = await signOwnPhotoUrl({
+    userId: owner.userId,
+    profileId,
+    sourceTable,
+    photoPath: path,
+  });
+  if (!signed) {
+    return { success: false, error: "Could not sign photo URL." };
+  }
+  return { success: true, data: { url: signed } };
+}
+
+type UploadPhotoResult =
+  | { success: true; data: { photoPath: string; avatarUrl: string } }
+  | { success: false; error: string };
+
+export async function uploadPhoto(
+  formData: FormData,
+): Promise<UploadPhotoResult> {
+  const profileId = String(formData.get("profileId") ?? "");
+  const sourceTable = String(formData.get("sourceTable") ?? "") as SourceTable;
+  const file = formData.get("photo");
+
+  if (!profileId) {
+    return { success: false, error: "Missing profile id." };
+  }
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+  if (!(file instanceof File)) {
+    return { success: false, error: "Please select a file." };
+  }
+
+  const isPakistan = sourceTable === "talent_profiles";
+  const maxBytes = isPakistan
+    ? PAKISTAN_PHOTO_MAX_BYTES
+    : REMOTE_PHOTO_MAX_BYTES;
+
+  if (file.size === 0) {
+    return { success: false, error: "Empty file." };
+  }
+  if (file.size > maxBytes) {
+    const mb = Math.floor(maxBytes / (1024 * 1024));
+    return { success: false, error: `Photo must be ${mb} MB or smaller.` };
+  }
+
+  // Validate MIME whitelist (mirrors intake's pre-check). Empty mime
+  // is allowed-through to the magic-byte check (some browsers omit it).
+  if (file.type && !(ALLOWED_PHOTO_TYPES as readonly string[]).includes(file.type)) {
+    return {
+      success: false,
+      error: "Photo must be JPG, PNG, WebP, or GIF.",
+    };
+  }
+
+  const buffer = new Uint8Array(await file.arrayBuffer());
+  const format = detectImageFormat(buffer);
+  if (!format) {
+    return {
+      success: false,
+      error: "Photo must be JPG, PNG, WebP, or GIF.",
+    };
+  }
+
+  // Pakistan intake convention: jpeg → "jpg" extension (NOT "jpeg").
+  const ext = format === "jpeg" ? "jpg" : format;
+  const contentType =
+    format === "jpeg"
+      ? "image/jpeg"
+      : format === "png"
+        ? "image/png"
+        : format === "webp"
+          ? "image/webp"
+          : "image/gif";
+
+  const prefix = isPakistan
+    ? PAKISTAN_PHOTO_STORAGE_PREFIX
+    : REMOTE_PHOTO_STORAGE_PREFIX;
+  const storagePath = `${prefix}${crypto.randomUUID()}.${ext}`;
+
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+
+  const selectColsExisting = isPakistan
+    ? "photo_path, avatar_url"
+    : "photo_path, photo_url";
+  const { data: existing } = await service
+    .from(sourceTable)
+    .select(selectColsExisting)
+    .eq("id", profileId)
+    .maybeSingle();
+  const existingRow = existing as {
+    photo_path: string | null;
+    avatar_url?: string | null;
+    photo_url?: string | null;
+  } | null;
+  const fallbackOldUrl = isPakistan
+    ? (existingRow?.avatar_url ?? null)
+    : (existingRow?.photo_url ?? null);
+  const oldPath = deriveExistingPhotoPath(
+    existingRow?.photo_path ?? null,
+    fallbackOldUrl,
+  );
+
+  const { error: upErr } = await service.storage
+    .from(CV_BUCKET)
+    .upload(storagePath, buffer, {
+      contentType,
+      upsert: false,
+    });
+  if (upErr) {
+    console.error("[uploadPhoto] storage upload failed:", upErr);
+    return { success: false, error: "Could not upload photo." };
+  }
+
+  // Public URL is non-functional (bucket is private) but Pakistan intake
+  // stores it on avatar_url, so we preserve shape compatibility.
+  const { data: pub } = service.storage
+    .from(CV_BUCKET)
+    .getPublicUrl(storagePath);
+  const avatarUrl = pub?.publicUrl ?? "";
+
+  const updatePayload = isPakistan
+    ? { avatar_url: avatarUrl, photo_path: storagePath }
+    : { photo_path: storagePath };
+
+  const { error: dbErr } = await service
+    .from(sourceTable)
+    .update(updatePayload)
+    .eq("id", profileId);
+  if (dbErr) {
+    console.error("[uploadPhoto] DB update failed:", dbErr);
+    try {
+      await service.storage.from(CV_BUCKET).remove([storagePath]);
+    } catch (cleanupErr) {
+      console.error(
+        "[uploadPhoto] rollback delete failed (orphaned at",
+        storagePath,
+        "):",
+        cleanupErr,
+      );
+    }
+    return { success: false, error: "Could not save photo." };
+  }
+
+  if (oldPath && oldPath !== storagePath) {
+    service.storage
+      .from(CV_BUCKET)
+      .remove([oldPath])
+      .then(({ error: e }) => {
+        if (e) {
+          console.error(
+            "[uploadPhoto] old photo delete failed (orphaned at",
+            oldPath,
+            "):",
+            e,
+          );
+        }
+      });
+  }
+
+  revalidatePath("/talent/dashboard");
+  revalidatePath("/talent/dashboard/edit");
+
+  return { success: true, data: { photoPath: storagePath, avatarUrl } };
+}
+
+type RemovePhotoResult =
+  | { success: true; data: { cleared: true } }
+  | { success: false; error: string };
+
+export async function removePhoto(input: {
+  profileId: string;
+  sourceTable: SourceTable;
+}): Promise<RemovePhotoResult> {
+  const { profileId, sourceTable } = input;
+  if (
+    sourceTable !== "talent_profiles" &&
+    sourceTable !== "hire_remote_profiles"
+  ) {
+    return { success: false, error: "Invalid profile." };
+  }
+  try {
+    await requireProfileOwner(profileId, sourceTable);
+  } catch (e) {
+    if (e instanceof Error && e.message === "not_authenticated") {
+      return { success: false, error: "Please sign in again." };
+    }
+    return { success: false, error: "You can't edit this profile." };
+  }
+
+  const service = createServiceClient();
+  const isPakistan = sourceTable === "talent_profiles";
+  const selectColsExisting = isPakistan
+    ? "photo_path, avatar_url"
+    : "photo_path, photo_url";
+  const { data: existing } = await service
+    .from(sourceTable)
+    .select(selectColsExisting)
+    .eq("id", profileId)
+    .maybeSingle();
+  const existingRow = existing as {
+    photo_path: string | null;
+    avatar_url?: string | null;
+    photo_url?: string | null;
+  } | null;
+  const fallbackOldUrl = isPakistan
+    ? (existingRow?.avatar_url ?? null)
+    : (existingRow?.photo_url ?? null);
+  const oldPath = deriveExistingPhotoPath(
+    existingRow?.photo_path ?? null,
+    fallbackOldUrl,
+  );
+
+  const updatePayload = isPakistan
+    ? { avatar_url: null, photo_path: null }
+    : { photo_path: null };
+  const { error: dbErr } = await service
+    .from(sourceTable)
+    .update(updatePayload)
+    .eq("id", profileId);
+  if (dbErr) {
+    console.error("[removePhoto] DB update failed:", dbErr);
+    return { success: false, error: "Could not remove photo." };
+  }
+
+  if (oldPath) {
+    service.storage
+      .from(CV_BUCKET)
+      .remove([oldPath])
+      .then(({ error: e }) => {
+        if (e) console.error("[removePhoto] storage delete failed:", e);
       });
   }
 
