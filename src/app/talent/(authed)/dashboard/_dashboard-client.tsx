@@ -74,14 +74,29 @@ function buildMissingNudge(missing: string[]): string {
   return `Add ${list} → 80%`;
 }
 
+export type DashboardRecentApplication = {
+  id: string;
+  jobId: string;
+  jobTitle: string;
+  company: string | null;
+  status: string;
+  createdAt: string;
+};
+
 export function DashboardClient({
   email,
   profiles,
   jobs,
+  unreadCount = 0,
+  shortlistedCount = 0,
+  recentApplications = [],
 }: {
   email: string;
   profiles: DashboardProfile[];
   jobs: Job[];
+  unreadCount?: number;
+  shortlistedCount?: number;
+  recentApplications?: DashboardRecentApplication[];
 }) {
   const router = useRouter();
   const [activePool, setActivePool] = useState<
@@ -145,6 +160,11 @@ export function DashboardClient({
   const greetingName = activeProfile.firstName || "there";
   const salaryRange = formatSalaryRange(activeProfile);
   const isHourly = activeProfile.sourceTable === "hire_remote_profiles";
+  const memberSinceLabel = (() => {
+    const ts = activeProfile.claimedAt ?? activeProfile.approvedAt;
+    if (!ts) return "Recently";
+    return formatRelativeDate(ts);
+  })();
 
   return (
     <main className="min-h-screen bg-remotiv-bg p-4 font-sans md:p-8">
@@ -154,22 +174,30 @@ export function DashboardClient({
             <h1 className="font-heading text-2xl font-bold text-gray-900">
               Hey {greetingName} 👋
             </h1>
-            {/* PLACEHOLDER — Phase 4.5: real "new since last visit" count */}
-            <p className="text-sm text-gray-500">
-              3 new things since you last checked
-            </p>
+            {unreadCount > 0 && (
+              <p className="text-sm text-gray-500">
+                {unreadCount} new update{unreadCount === 1 ? "" : "s"} since you
+                last checked
+              </p>
+            )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* PLACEHOLDER — Phase 4.5: notifications bell + real badge count */}
+            {/* Notification bell — 4.5B will wire the dropdown click handler. */}
             <button
               type="button"
-              aria-label="Notifications (3 new)"
+              aria-label={
+                unreadCount > 0
+                  ? `Notifications (${unreadCount} new)`
+                  : "Notifications"
+              }
               className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
             >
               <span aria-hidden="true">🔔</span>
-              <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-remotiv-purple px-1 text-[10px] font-bold text-white">
-                3
-              </span>
+              {unreadCount > 0 && (
+                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-remotiv-purple px-1 text-[10px] font-bold text-white">
+                  {unreadCount}
+                </span>
+              )}
             </button>
             <Link
               href="/talent/dashboard/edit"
@@ -216,6 +244,35 @@ export function DashboardClient({
             })}
           </div>
         )}
+
+        {profiles.length === 1 &&
+          (() => {
+            const missing =
+              profiles[0].sourceTable === "talent_profiles"
+                ? { label: "Hire Remote", path: "/remote-ready" }
+                : { label: "Pakistan Talent", path: "/become-a-talent" };
+            return (
+              <section className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-heading text-sm font-bold text-gray-900">
+                      Add your {missing.label} profile
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      One account, two pools. Add your other profile to reach
+                      more clients.
+                    </p>
+                  </div>
+                  <Link
+                    href={missing.path}
+                    className="shrink-0 rounded-full bg-remotiv-purple px-4 py-2 text-xs font-bold text-white hover:opacity-90"
+                  >
+                    Add profile →
+                  </Link>
+                </div>
+              </section>
+            );
+          })()}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-3">
           {/* TILE 1 — LATEST JOBS ON REMOTIV (REAL DATA) */}
@@ -295,24 +352,34 @@ export function DashboardClient({
             )}
           </section>
 
-          {/* TILE 2 — PROFILE VIEWS (PLACEHOLDER) */}
+          {/* TILE 2 — MEMBER SINCE (REAL DATA: claimed_at) */}
           <section className="rounded-2xl bg-remotiv-lime p-4">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-700">
-              Profile views
+              Member since
             </p>
             <p className="mt-2 font-heading text-3xl font-bold text-gray-900">
-              47
+              {memberSinceLabel}
             </p>
-            <p className="mt-1 text-xs text-gray-700">↑ 12 this week</p>
+            <p className="mt-1 text-xs text-gray-700">
+              You've been on Remotiv for a while
+            </p>
           </section>
 
-          {/* TILE 3 — SHORTLISTED (PLACEHOLDER) */}
+          {/* TILE 3 — SHORTLISTED (REAL: client_batch_candidates count) */}
           <section className="rounded-2xl bg-remotiv-green p-4 text-white">
             <p className="text-[10px] font-semibold uppercase tracking-widest text-white/80">
               Shortlisted
             </p>
-            <p className="mt-2 font-heading text-3xl font-bold">3</p>
-            <p className="mt-1 text-xs text-white/85">companies</p>
+            <p className="mt-2 font-heading text-3xl font-bold">
+              {shortlistedCount}
+            </p>
+            <p className="mt-1 text-xs text-white/85">
+              {shortlistedCount === 0
+                ? "Be the next to be shortlisted"
+                : shortlistedCount === 1
+                  ? "company has you in mind"
+                  : "companies have you in mind"}
+            </p>
           </section>
 
           {/* TILE 4 — PROFILE STRENGTH (REAL DATA) */}
@@ -339,50 +406,44 @@ export function DashboardClient({
             <p className="mt-3 text-xs text-gray-500">{missingNudge}</p>
           </section>
 
-          {/* TILE 5 — RECENT ACTIVITY (PLACEHOLDER) */}
-          <section className="rounded-2xl border border-black/[0.06] bg-white p-5 md:col-span-3">
-            <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
-              Activity
-            </p>
-            <ul className="mt-3 flex flex-col gap-3">
-              <li className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-2 w-2 shrink-0 rounded-full bg-remotiv-purple"
-                  />
-                  <span className="text-sm text-gray-700">
-                    TechCo viewed your profile
-                  </span>
-                </span>
-                <span className="text-xs text-gray-400">2h ago</span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-2 w-2 shrink-0 rounded-full bg-remotiv-lime"
-                  />
-                  <span className="text-sm text-gray-700">
-                    FinStart shortlisted you
-                  </span>
-                </span>
-                <span className="text-xs text-gray-400">1d ago</span>
-              </li>
-              <li className="flex items-center justify-between gap-3">
-                <span className="flex items-center gap-3">
-                  <span
-                    aria-hidden="true"
-                    className="inline-block h-2 w-2 shrink-0 rounded-full bg-remotiv-green"
-                  />
-                  <span className="text-sm text-gray-700">
-                    5 companies searched for React + Node
-                  </span>
-                </span>
-                <span className="text-xs text-gray-400">3d ago</span>
-              </li>
-            </ul>
-          </section>
+          {/* TILE 5 — RECENT APPLICATIONS (REAL DATA, Pakistan via email) */}
+          {recentApplications.length > 0 && (
+            <section className="rounded-2xl border border-black/[0.06] bg-white p-5 md:col-span-3">
+              <div className="flex items-center justify-between">
+                <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
+                  Recent applications
+                </p>
+                <Link
+                  href="/jobs"
+                  className="text-xs font-semibold text-remotiv-purple hover:underline"
+                >
+                  Browse jobs →
+                </Link>
+              </div>
+              <ul className="mt-3 space-y-2">
+                {recentApplications.map((app) => (
+                  <li
+                    key={app.id}
+                    className="flex items-center justify-between gap-3"
+                  >
+                    <div className="min-w-0 flex-1">
+                      <p className="truncate text-sm font-semibold text-gray-900">
+                        {app.jobTitle}
+                      </p>
+                      {app.company && (
+                        <p className="truncate text-xs text-gray-500">
+                          {app.company}
+                        </p>
+                      )}
+                    </div>
+                    <span className="shrink-0 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold uppercase tracking-wider text-gray-600">
+                      {app.status}
+                    </span>
+                  </li>
+                ))}
+              </ul>
+            </section>
+          )}
 
           {/* TILE 6 — SALARY INSIGHTS (PLACEHOLDER median, REAL current range) */}
           <section className="rounded-2xl border border-black/[0.06] bg-white p-5 md:col-span-3">

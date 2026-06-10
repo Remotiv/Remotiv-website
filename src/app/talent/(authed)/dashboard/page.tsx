@@ -89,7 +89,65 @@ export default async function TalentDashboardPage() {
     });
   }
 
+  // Collect profile IDs for the shortlisted-count query.
+  // client_batch_candidates uses (source_type, source_id); UUIDs are unique
+  // across pools so .in("source_id", profileIds) is functionally safe.
+  const profileIds = profiles.map((p) => p.id).filter(Boolean);
+
+  const [notificationsRes, shortlistedRes, applicationsRes] = await Promise.all(
+    [
+      service
+        .from("notifications")
+        .select("id", { count: "exact", head: true })
+        .eq("recipient_user_id", user.id)
+        .is("read_at", null),
+      profileIds.length > 0
+        ? service
+            .from("client_batch_candidates")
+            .select("id", { count: "exact", head: true })
+            .in("source_id", profileIds)
+        : Promise.resolve({ count: 0, error: null }),
+      service
+        .from("job_applications")
+        .select("id, job_id, status, created_at, jobs(title, company)")
+        .eq("email", normalisedEmail)
+        .order("created_at", { ascending: false })
+        .limit(3),
+    ],
+  );
+
+  const unreadCount = notificationsRes.error
+    ? 0
+    : (notificationsRes.count ?? 0);
+  const shortlistedCount = shortlistedRes.error
+    ? 0
+    : (shortlistedRes.count ?? 0);
+  const rawApplications = applicationsRes.error
+    ? []
+    : (applicationsRes.data ?? []);
+
+  const recentApplications = (
+    rawApplications as Array<Record<string, unknown>>
+  ).map((a) => {
+    const job = a.jobs as { title?: string; company?: string } | null;
+    return {
+      id: String(a.id ?? ""),
+      jobId: (a.job_id as string | null) ?? "",
+      jobTitle: job?.title ?? "(Untitled job)",
+      company: job?.company ?? null,
+      status: (a.status as string | null) ?? "submitted",
+      createdAt: (a.created_at as string | null) ?? "",
+    };
+  });
+
   return (
-    <DashboardClient email={user.email} profiles={profiles} jobs={jobs} />
+    <DashboardClient
+      email={user.email}
+      profiles={profiles}
+      jobs={jobs}
+      unreadCount={unreadCount}
+      shortlistedCount={shortlistedCount}
+      recentApplications={recentApplications}
+    />
   );
 }
