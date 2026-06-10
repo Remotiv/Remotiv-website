@@ -143,6 +143,38 @@ export async function updateRemoteTalentStatus(
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
+
+  // Candidate-targeted notification on approved/archived transitions.
+  // Same shape as the Pakistan talent flow (admin/talent/actions.ts).
+  if (status === "approved" || status === "archived") {
+    const { data: row } = await supabase
+      .from("hire_remote_profiles")
+      .select("user_id")
+      .eq("id", id)
+      .maybeSingle();
+    const ownerId = (row as { user_id: string | null } | null)?.user_id;
+    if (ownerId) {
+      const isApproved = status === "approved";
+      const { error: notifErr } = await supabase
+        .from("notifications")
+        .insert({
+          recipient_user_id: ownerId,
+          event_type: isApproved ? "profile_approved" : "profile_rejected",
+          title: isApproved
+            ? "Your profile is now live on Remotiv"
+            : "Your profile needs some updates",
+          message: isApproved
+            ? "Clients can now discover you on the marketplace. Make sure your profile is complete to stand out."
+            : "An admin reviewed your profile and asked for changes. Open your edit page to update it.",
+          link: "/talent/dashboard/edit",
+          metadata: { source_table: "hire_remote_profiles", profile_id: id },
+        });
+      if (notifErr) {
+        console.error("[updateRemoteTalentStatus notification]", notifErr);
+      }
+    }
+  }
+
   revalidatePath("/admin/remote-talent");
   revalidatePath("/hire-remote");
   return { success: true, data: undefined };

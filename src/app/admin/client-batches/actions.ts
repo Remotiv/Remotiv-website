@@ -505,6 +505,42 @@ export async function addCandidateToBatch(
     console.error("[addBatchCandidate] notifyAllAdmins failed:", err);
   });
 
+  // Candidate-targeted notification — only for source_type === "talent"
+  // (talent_profiles rows). "application" source rows come from
+  // job_applications, which is keyed by email and has no user_id; we
+  // can't reliably target a candidate there.
+  if (candidate.source_type === "talent" && candidate.source_id) {
+    const { data: candidateRow } = await supabase
+      .from("talent_profiles")
+      .select("user_id")
+      .eq("id", candidate.source_id)
+      .maybeSingle();
+    const ownerId = (candidateRow as { user_id: string | null } | null)
+      ?.user_id;
+    if (ownerId) {
+      const { error: candNotifErr } = await supabase
+        .from("notifications")
+        .insert({
+          recipient_user_id: ownerId,
+          event_type: "candidate_added",
+          title: "You've been shortlisted by a client",
+          message:
+            "A company is reviewing your profile. We'll notify you when they respond.",
+          link: "/talent/dashboard",
+          metadata: {
+            batch_id: batchId,
+            source_type: "talent_profiles",
+          },
+        });
+      if (candNotifErr) {
+        console.error(
+          "[addCandidateToBatch candidate notification]",
+          candNotifErr,
+        );
+      }
+    }
+  }
+
   revalidatePath(`/admin/client-batches/${batchId}`);
   revalidatePath("/admin/client-batches");
   return { success: true, data: { id: (data as { id: string }).id } };

@@ -136,6 +136,41 @@ export async function updateTalentStatus(
     .eq("id", id);
 
   if (error) return { success: false, error: error.message };
+
+  // Candidate-targeted notification on approved/archived transitions.
+  // TalentStatus enum has no "rejected" — "archived" is the practical
+  // rejection state (review-failed profiles get archived). Skipped when
+  // user_id is null (profile not yet claimed → no auth account to notify).
+  if (status === "approved" || status === "archived") {
+    const { data: row } = await supabase
+      .from("talent_profiles")
+      .select("user_id")
+      .eq("id", id)
+      .maybeSingle();
+    const ownerId = (row as { user_id: string | null } | null)?.user_id;
+    if (ownerId) {
+      const isApproved = status === "approved";
+      const { error: notifErr } = await supabase
+        .from("notifications")
+        .insert({
+          recipient_user_id: ownerId,
+          event_type: isApproved ? "profile_approved" : "profile_rejected",
+          title: isApproved
+            ? "Your profile is now live on Remotiv"
+            : "Your profile needs some updates",
+          message: isApproved
+            ? "Clients can now discover you on the marketplace. Make sure your profile is complete to stand out."
+            : "An admin reviewed your profile and asked for changes. Open your edit page to update it.",
+          link: "/talent/dashboard/edit",
+          metadata: { source_table: "talent_profiles", profile_id: id },
+        });
+      if (notifErr) {
+        // Best-effort — don't fail the status update on notification error.
+        console.error("[updateTalentStatus notification]", notifErr);
+      }
+    }
+  }
+
   revalidatePath("/admin/talent");
   revalidatePath("/browse-talent");
   return { success: true, data: undefined };

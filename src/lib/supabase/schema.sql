@@ -141,7 +141,11 @@ create table if not exists notifications (
     'client_decision',
     'client_note',
     'stage_change',
-    'candidate_added'
+    'candidate_added',
+    'new_inquiry',
+    'profile_claimed',
+    'profile_approved',
+    'profile_rejected'
   )),
   title             text not null,
   message           text not null,

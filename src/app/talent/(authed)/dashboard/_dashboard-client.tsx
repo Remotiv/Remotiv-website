@@ -2,9 +2,11 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useState } from "react";
+import { useMemo, useState, useTransition } from "react";
 import type { Job } from "@/lib/jobs";
 import { createClient } from "@/lib/supabase/client";
+import { claimProfile } from "@/app/talent/actions";
+import { TalentNotificationsBell } from "./_notifications-bell";
 
 // PLACEHOLDER DATA — Phase 4.5 will wire these to real sources:
 //   profileViews: query profile_views table (not yet created)
@@ -74,6 +76,17 @@ function buildMissingNudge(missing: string[]): string {
   return `Add ${list} → 80%`;
 }
 
+type ClaimState =
+  | { kind: "claimed" }
+  | { kind: "claimable" }
+  | { kind: "pending"; status: string };
+
+function classifyClaimState(profile: DashboardProfile): ClaimState {
+  if (profile.claimedAt) return { kind: "claimed" };
+  if (profile.status === "approved") return { kind: "claimable" };
+  return { kind: "pending", status: profile.status };
+}
+
 export type DashboardRecentApplication = {
   id: string;
   jobId: string;
@@ -99,10 +112,27 @@ export function DashboardClient({
   recentApplications?: DashboardRecentApplication[];
 }) {
   const router = useRouter();
+  // Prefer a CLAIMED profile as the initial active pool. If the user has
+  // both a claimed and an unclaimed profile (the cross-pool case 4.5C
+  // surfaces), bento tiles should default to the one they actually own.
   const [activePool, setActivePool] = useState<
     DashboardProfile["sourceTable"] | null
-  >(profiles[0]?.sourceTable ?? null);
+  >(() => {
+    const claimed = profiles.find((p) => p.claimedAt);
+    return (claimed ?? profiles[0])?.sourceTable ?? null;
+  });
   const [signingOut, setSigningOut] = useState(false);
+  const [claimingId, setClaimingId] = useState<string | null>(null);
+  const [claimError, setClaimError] = useState<string | null>(null);
+  const [, startTransition] = useTransition();
+
+  const claimStates = useMemo(
+    () =>
+      new Map<string, ClaimState>(
+        profiles.map((p) => [p.id, classifyClaimState(p)]),
+      ),
+    [profiles],
+  );
 
   async function handleSignOut() {
     setSigningOut(true);
@@ -114,6 +144,27 @@ export function DashboardClient({
     }
     router.push("/talent/login");
     router.refresh();
+  }
+
+  async function handleClaim(profile: DashboardProfile) {
+    if (claimingId) return;
+    setClaimingId(profile.id);
+    setClaimError(null);
+    try {
+      const result = await claimProfile(profile.id, profile.sourceTable);
+      if (!result.success) {
+        setClaimError(result.error || "Could not claim profile.");
+        return;
+      }
+      startTransition(() => {
+        router.refresh();
+      });
+    } catch (err) {
+      console.error("[dashboard] claim threw:", err);
+      setClaimError("Could not claim profile. Please try again.");
+    } finally {
+      setClaimingId(null);
+    }
   }
 
   if (profiles.length === 0) {
@@ -182,23 +233,7 @@ export function DashboardClient({
             )}
           </div>
           <div className="flex flex-wrap items-center gap-2">
-            {/* Notification bell — 4.5B will wire the dropdown click handler. */}
-            <button
-              type="button"
-              aria-label={
-                unreadCount > 0
-                  ? `Notifications (${unreadCount} new)`
-                  : "Notifications"
-              }
-              className="relative inline-flex h-9 w-9 items-center justify-center rounded-full border border-gray-200 bg-white text-gray-600 hover:bg-gray-50"
-            >
-              <span aria-hidden="true">🔔</span>
-              {unreadCount > 0 && (
-                <span className="absolute -top-1 -right-1 inline-flex h-4 min-w-4 items-center justify-center rounded-full bg-remotiv-purple px-1 text-[10px] font-bold text-white">
-                  {unreadCount}
-                </span>
-              )}
-            </button>
+            <TalentNotificationsBell />
             <Link
               href="/talent/dashboard/edit"
               className="inline-flex items-center gap-1 rounded-full bg-remotiv-purple px-3 py-1.5 text-xs font-bold text-white hover:opacity-90"
@@ -223,56 +258,161 @@ export function DashboardClient({
           </div>
         </header>
 
-        {profiles.length > 1 && (
+        {profiles.length > 0 && (
           <div className="mb-4 flex flex-wrap gap-2">
             {profiles.map((p) => {
               const active = p.sourceTable === activeProfile.sourceTable;
+              const state = claimStates.get(p.id);
+              const isClaimable = state?.kind === "claimable";
+              const isPending = state?.kind === "pending";
               return (
-                <button
+                <div
                   key={p.sourceTable}
-                  type="button"
-                  onClick={() => setActivePool(p.sourceTable)}
-                  className={
-                    active
-                      ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
-                      : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-                  }
+                  className="flex items-center gap-2"
                 >
-                  {p.poolLabel}
-                </button>
+                  <button
+                    type="button"
+                    onClick={() => setActivePool(p.sourceTable)}
+                    className={
+                      active
+                        ? "rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-semibold text-white"
+                        : "rounded-full border border-gray-200 bg-white px-4 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                    }
+                  >
+                    {p.poolLabel}
+                  </button>
+                  {isClaimable && (
+                    <button
+                      type="button"
+                      onClick={() => handleClaim(p)}
+                      disabled={claimingId === p.id}
+                      className="rounded-full bg-remotiv-purple px-3 py-1.5 text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50"
+                    >
+                      {claimingId === p.id ? "Claiming…" : "Claim →"}
+                    </button>
+                  )}
+                  {isPending && (
+                    <span className="rounded-full bg-gray-100 px-3 py-1.5 text-[11px] font-semibold text-gray-600">
+                      Awaiting approval
+                    </span>
+                  )}
+                </div>
               );
             })}
           </div>
         )}
 
-        {profiles.length === 1 &&
-          (() => {
-            const missing =
-              profiles[0].sourceTable === "talent_profiles"
-                ? { label: "Hire Remote", path: "/remote-ready" }
-                : { label: "Pakistan Talent", path: "/become-a-talent" };
+        {(() => {
+          const claimedProfiles = profiles.filter((p) => p.claimedAt);
+          const unclaimedProfiles = profiles.filter((p) => !p.claimedAt);
+          const hasClaimedTalent = claimedProfiles.some(
+            (p) => p.sourceTable === "talent_profiles",
+          );
+          const hasClaimedRemote = claimedProfiles.some(
+            (p) => p.sourceTable === "hire_remote_profiles",
+          );
+          const showUpsell = !(hasClaimedTalent && hasClaimedRemote);
+          if (!showUpsell) return null;
+
+          // Pick the "missing" pool. When the user has nothing claimed yet,
+          // default to nudging Pakistan Talent first (matches existing 4.5A
+          // copy ordering).
+          const missingPool: DashboardProfile["sourceTable"] = hasClaimedTalent
+            ? "hire_remote_profiles"
+            : hasClaimedRemote
+              ? "talent_profiles"
+              : profiles[0]?.sourceTable === "talent_profiles"
+                ? "hire_remote_profiles"
+                : "talent_profiles";
+          const unclaimedInMissing =
+            unclaimedProfiles.find((p) => p.sourceTable === missingPool) ??
+            null;
+          const label =
+            missingPool === "talent_profiles"
+              ? "Pakistan Talent"
+              : "Hire Remote";
+          const intakePath =
+            missingPool === "talent_profiles"
+              ? "/become-a-talent"
+              : "/remote-ready";
+
+          if (unclaimedInMissing && unclaimedInMissing.status === "approved") {
             return (
               <section className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4">
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-heading text-sm font-bold text-gray-900">
-                      Add your {missing.label} profile
+                      Claim your {label} profile
                     </p>
                     <p className="mt-1 text-xs text-gray-500">
-                      One account, two pools. Add your other profile to reach
-                      more clients.
+                      You have a {label} profile waiting. Claim it to see it
+                      on your dashboard.
                     </p>
                   </div>
-                  <Link
-                    href={missing.path}
-                    className="shrink-0 rounded-full bg-remotiv-purple px-4 py-2 text-xs font-bold text-white hover:opacity-90"
+                  <button
+                    type="button"
+                    onClick={() => handleClaim(unclaimedInMissing)}
+                    disabled={claimingId === unclaimedInMissing.id}
+                    className="shrink-0 rounded-full bg-remotiv-purple px-4 py-2 text-xs font-bold text-white hover:opacity-90 disabled:opacity-50"
                   >
-                    Add profile →
-                  </Link>
+                    {claimingId === unclaimedInMissing.id
+                      ? "Claiming…"
+                      : "Claim profile →"}
+                  </button>
                 </div>
               </section>
             );
-          })()}
+          }
+
+          if (unclaimedInMissing) {
+            return (
+              <section className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+                <div className="flex items-center justify-between gap-4">
+                  <div className="min-w-0">
+                    <p className="font-heading text-sm font-bold text-gray-900">
+                      Your {label} profile is under review
+                    </p>
+                    <p className="mt-1 text-xs text-gray-500">
+                      An admin will review it shortly. We'll notify you when
+                      it's live.
+                    </p>
+                  </div>
+                  <span className="shrink-0 rounded-full bg-gray-200 px-3 py-1 text-[11px] font-semibold text-gray-700">
+                    Awaiting approval
+                  </span>
+                </div>
+              </section>
+            );
+          }
+
+          return (
+            <section className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4">
+              <div className="flex items-center justify-between gap-4">
+                <div className="min-w-0">
+                  <p className="font-heading text-sm font-bold text-gray-900">
+                    Add your {label} profile
+                  </p>
+                  <p className="mt-1 text-xs text-gray-500">
+                    One account, two pools. Add your other profile to reach
+                    more clients.
+                  </p>
+                </div>
+                <Link
+                  href={intakePath}
+                  className="shrink-0 rounded-full bg-remotiv-purple px-4 py-2 text-xs font-bold text-white hover:opacity-90"
+                >
+                  Add profile →
+                </Link>
+              </div>
+            </section>
+          );
+        })()}
+
+        {claimError && (
+          <div className="mb-4 rounded-xl border border-red-200 bg-red-50 p-3 text-xs text-red-700">
+            {claimError}
+          </div>
+        )}
 
         <div className="grid grid-cols-1 gap-3 md:grid-cols-3 md:gap-3">
           {/* TILE 1 — LATEST JOBS ON REMOTIV (REAL DATA) */}
@@ -384,12 +524,18 @@ export function DashboardClient({
 
           {/* TILE 4 — PROFILE STRENGTH (REAL DATA) */}
           <section className="relative rounded-2xl border border-black/[0.06] bg-white p-5 md:col-span-3">
-            <Link
-              href="/talent/dashboard/edit"
-              className="absolute top-4 right-4 rounded-full bg-remotiv-purple px-3 py-1 text-xs font-bold text-white hover:opacity-90"
-            >
-              Edit profile
-            </Link>
+            {activeProfile.claimedAt ? (
+              <Link
+                href="/talent/dashboard/edit"
+                className="absolute top-4 right-4 rounded-full bg-remotiv-purple px-3 py-1 text-xs font-bold text-white hover:opacity-90"
+              >
+                Edit profile
+              </Link>
+            ) : (
+              <span className="absolute top-4 right-4 rounded-full bg-gray-100 px-3 py-1 text-[11px] font-semibold text-gray-500">
+                Claim to edit
+              </span>
+            )}
             <p className="text-[10px] font-semibold uppercase tracking-widest text-gray-500">
               Profile strength
             </p>
