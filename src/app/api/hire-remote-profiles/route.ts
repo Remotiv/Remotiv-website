@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
           ? photoFile.type
           : "image/jpeg";
       const { error: photoErr } = await supabase.storage
-        .from("cvs")
+        .from("talent_photos")
         .upload(path, buf, { contentType, upsert: false });
       if (photoErr) {
         return NextResponse.json({ error: photoErr.message }, { status: 500 });

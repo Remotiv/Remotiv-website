@@ -470,7 +470,7 @@ export async function POST(request: NextRequest) {
     const [photoUploadResult, cvUploadResult] = await Promise.all([
       photoUploadArgs
         ? supabase.storage
-            .from("cvs")
+            .from("talent_photos")
             .upload(photoUploadArgs.path, photoUploadArgs.buffer, {
               contentType: photoUploadArgs.contentType,
               upsert: false,
@@ -508,7 +508,7 @@ export async function POST(request: NextRequest) {
     // -------- Capture public URLs (getPublicUrl is sync — no parallel needed) --------
     let avatarUrl: string;
     if (photoUploadArgs) {
-      const { data: pUrl } = supabase.storage.from("cvs").getPublicUrl(photoUploadArgs.path);
+      const { data: pUrl } = supabase.storage.from("talent_photos").getPublicUrl(photoUploadArgs.path);
       avatarUrl = pUrl.publicUrl;
     } else {
       // Deterministic gender-aware fallback. Same name → same avatar.

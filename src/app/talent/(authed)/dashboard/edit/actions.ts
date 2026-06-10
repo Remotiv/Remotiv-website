@@ -58,6 +58,7 @@ const PORTFOLIO_DESCRIPTION_MAX = 1000;
 const PORTFOLIO_URL_MAX = 500;
 
 const CV_BUCKET = "cvs";
+const PHOTOS_BUCKET = "talent_photos";
 // Pakistan intake uses 5 MB client cap (10 MB server). Mirror the client
 // cap to keep edit-page uploads acceptable to intake as well.
 const PAKISTAN_CV_MAX_BYTES = 5 * 1024 * 1024;
@@ -75,7 +76,6 @@ const PAKISTAN_PHOTO_MAX_BYTES = 2 * 1024 * 1024;
 const REMOTE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const PAKISTAN_PHOTO_STORAGE_PREFIX = "talent/photos/";
 const REMOTE_PHOTO_STORAGE_PREFIX = "hire-remote/photos/";
-const PHOTO_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
 // Verbatim from intake routes: src/app/api/talent/route.ts and
 // src/app/api/hire-remote-profiles/route.ts. Both routes use the same
@@ -2064,43 +2064,27 @@ function deriveExistingPhotoPath(
 ): string | null {
   if (photoPath && photoPath.trim()) return photoPath.trim();
   if (!fallbackUrl) return null;
-  // Legacy Pakistan fallback: intake stored a public URL into
-  // avatar_url before photo_path existed. Parse it back to a
-  // bucket-relative path. Remote has never used this pattern —
-  // photo_path has been the only source of truth for hire_remote
-  // since intake migration 011.
+  // Parse a public URL back into a bucket-relative path. Matches both
+  // the new talent_photos bucket AND the legacy cvs bucket (for any
+  // straggler rows from before the migration — should be zero after
+  // the SQL cleanup, but kept defensively).
   const m = String(fallbackUrl).match(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
+    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/(?:talent_photos|cvs)\/(.+)$/,
   );
   return m ? m[1] : null;
 }
 
-async function signOwnPhotoUrl(params: {
-  userId: string;
-  profileId: string;
-  sourceTable: SourceTable;
-  photoPath: string;
-}): Promise<string | null> {
+// Photos live in the PUBLIC talent_photos bucket — no signing required.
+// This helper exists so callers don't need to know which bucket photos
+// live in. Audit-log writes are also dropped here: photos are
+// non-sensitive (LinkedIn-style profile photos) and were never legally
+// required to be tracked. CV signs are still logged via signOwnCvUrl.
+function buildPhotoPublicUrl(photoPath: string): string {
   const service = createServiceClient();
-  const { data: signed, error } = await service.storage
-    .from(CV_BUCKET)
-    .createSignedUrl(params.photoPath, PHOTO_SIGNED_URL_TTL_SECONDS);
-  if (error || !signed?.signedUrl) {
-    console.error("[signOwnPhotoUrl] sign failed:", error);
-    return null;
-  }
-  service
-    .from("signed_url_logs")
-    .insert({
-      user_id: params.userId,
-      candidate_id: params.profileId,
-      source_table: params.sourceTable,
-      was_admin: false,
-    })
-    .then(({ error: e }) => {
-      if (e) console.error("[signed_url_logs insert]", e);
-    });
-  return signed.signedUrl;
+  const { data } = service.storage
+    .from(PHOTOS_BUCKET)
+    .getPublicUrl(photoPath);
+  return data?.publicUrl ?? "";
 }
 
 type GetOwnPhotoUrlInput = {
@@ -2122,9 +2106,8 @@ export async function getOwnPhotoSignedUrl(
     return { success: false, error: "Invalid profile." };
   }
 
-  let owner: { userId: string; email: string };
   try {
-    owner = await requireProfileOwner(profileId, sourceTable);
+    await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
     if (e instanceof Error && e.message === "not_authenticated") {
       return { success: false, error: "Please sign in again." };
@@ -2156,16 +2139,11 @@ export async function getOwnPhotoSignedUrl(
     // Not an error — user simply hasn't uploaded a real photo yet.
     return { success: true, data: { url: null } };
   }
-  const signed = await signOwnPhotoUrl({
-    userId: owner.userId,
-    profileId,
-    sourceTable,
-    photoPath: path,
-  });
-  if (!signed) {
-    return { success: false, error: "Could not sign photo URL." };
+  const url = buildPhotoPublicUrl(path);
+  if (!url) {
+    return { success: false, error: "Could not build photo URL." };
   }
-  return { success: true, data: { url: signed } };
+  return { success: true, data: { url } };
 }
 
 type UploadPhotoResult =
@@ -2272,7 +2250,7 @@ export async function uploadPhoto(
   );
 
   const { error: upErr } = await service.storage
-    .from(CV_BUCKET)
+    .from(PHOTOS_BUCKET)
     .upload(storagePath, buffer, {
       contentType,
       upsert: false,
@@ -2282,10 +2260,11 @@ export async function uploadPhoto(
     return { success: false, error: "Could not upload photo." };
   }
 
-  // Public URL is non-functional (bucket is private) but Pakistan intake
-  // stores it on avatar_url, so we preserve shape compatibility.
+  // Public URL — talent_photos bucket is public so this URL resolves
+  // directly. Pakistan stores it on avatar_url for legacy shape
+  // compatibility; Remote ignores it and reads via photo_path.
   const { data: pub } = service.storage
-    .from(CV_BUCKET)
+    .from(PHOTOS_BUCKET)
     .getPublicUrl(storagePath);
   const avatarUrl = pub?.publicUrl ?? "";
 
@@ -2300,7 +2279,7 @@ export async function uploadPhoto(
   if (dbErr) {
     console.error("[uploadPhoto] DB update failed:", dbErr);
     try {
-      await service.storage.from(CV_BUCKET).remove([storagePath]);
+      await service.storage.from(PHOTOS_BUCKET).remove([storagePath]);
     } catch (cleanupErr) {
       console.error(
         "[uploadPhoto] rollback delete failed (orphaned at",
@@ -2314,7 +2293,7 @@ export async function uploadPhoto(
 
   if (oldPath && oldPath !== storagePath) {
     service.storage
-      .from(CV_BUCKET)
+      .from(PHOTOS_BUCKET)
       .remove([oldPath])
       .then(({ error: e }) => {
         if (e) {
@@ -2395,7 +2374,7 @@ export async function removePhoto(input: {
 
   if (oldPath) {
     service.storage
-      .from(CV_BUCKET)
+      .from(PHOTOS_BUCKET)
       .remove([oldPath])
       .then(({ error: e }) => {
         if (e) console.error("[removePhoto] storage delete failed:", e);
