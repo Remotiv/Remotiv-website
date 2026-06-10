@@ -1,10 +1,12 @@
 "use client";
 
-// AVATARS: We always recompute avatar URL via getAvatarUrl(first, last) at
-// render time instead of trusting profile.avatar_url, because legacy DB
-// rows may contain broken URL formats from older insert paths
-// (e.g. "/avatars/male 1.png" with spaces — those files don't exist on
-// disk; only the dash + zero-padded format does). Reader is self-healing.
+// AVATARS: We render `profile.avatar_url`, which is built server-side in
+// fetchTalentProfiles. When the talent has uploaded a real photo
+// (photo_path is non-null), avatar_url is the public URL in the
+// talent_photos bucket. Otherwise it falls back to a deterministic
+// getAvatarUrl(first, last) static cartoon. We no longer derive the
+// avatar URL locally — the source of truth is the server. The <Image>
+// onError handler still falls back to initials if the URL is broken.
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
@@ -187,11 +189,14 @@ function Avatar({
   profile: TalentProfile;
   size: number;
 }) {
-  // Self-healing: we always recompute via getAvatarUrl rather than trust the
-  // stored avatar_url. See file header comment.
+  // profile.avatar_url is populated by fetchTalentProfiles — see file
+  // header comment. Defensive fallback to getAvatarUrl handles edge
+  // cases where avatar_url is null (e.g. direct queries bypassing the
+  // helper). onError below handles a broken URL.
   const fullName = `${profile.first_name} ${profile.last_name ?? ""}`.trim();
   const [errored, setErrored] = useState(false);
-  const url = getAvatarUrl(profile.first_name, profile.last_name);
+  const url =
+    profile.avatar_url ?? getAvatarUrl(profile.first_name, profile.last_name);
 
   if (errored) {
     return (

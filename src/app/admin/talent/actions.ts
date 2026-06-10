@@ -6,6 +6,27 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimToNull } from "@/app/admin/lib/validators";
 import type { InviteStatus } from "@/lib/claim-status";
+import { getAvatarUrl } from "@/lib/avatars";
+
+// Build the displayed avatar URL for an admin row. When the talent has
+// uploaded a real photo (photo_path is non-null), point at the public
+// talent_photos bucket; otherwise fall back to the deterministic
+// getAvatarUrl(first, last) static cartoon. We inline the URL instead
+// of calling .getPublicUrl() because it's just a string concatenation
+// and avoids allocating a service client per row.
+function buildAdminTalentPhotoUrl(
+  photoPath: string | null,
+  firstName: string | null,
+  lastName: string | null,
+): string {
+  if (photoPath && photoPath.trim()) {
+    const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+    if (base) {
+      return `${base}/storage/v1/object/public/talent_photos/${photoPath.trim()}`;
+    }
+  }
+  return getAvatarUrl(firstName, lastName);
+}
 
 export type TalentStatus =
   | "pending"
@@ -73,7 +94,17 @@ export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
     return [];
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
+  return ((data ?? []) as Array<Record<string, unknown>>).map((raw) => {
+    const profile = normaliseRow(raw);
+    return {
+      ...profile,
+      avatar_url: buildAdminTalentPhotoUrl(
+        (raw.photo_path as string | null) ?? null,
+        profile.first_name,
+        profile.last_name,
+      ),
+    };
+  });
 }
 
 export async function updateTalentStatus(

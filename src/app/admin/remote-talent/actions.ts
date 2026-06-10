@@ -83,8 +83,6 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-const PHOTO_SIGNED_URL_TTL_SECONDS = 3600;
-
 export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]> {
   await requireAdmin();
   const supabase = createServiceClient();
@@ -100,26 +98,20 @@ export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]
 
   const rows = ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
 
-  // Pre-sign photo URLs for rows that have a photo_path. The cvs bucket is
-  // private; the stored photo_url (legacy getPublicUrl result) is non-functional.
-  // We replace photo_url in-place with a fresh 1-hour signed URL so the admin
-  // dashboard component renders without any change. Old rows without photo_path
-  // fall through with their (broken) photo_url unchanged — the dashboard's
-  // <Image> error path / initials fallback already handles that case.
-  const signed = await Promise.all(
-    rows.map(async (row) => {
-      if (!row.photo_path) return row;
-      const { data: signedData, error: signErr } = await supabase.storage
-        .from("cvs")
-        .createSignedUrl(row.photo_path, PHOTO_SIGNED_URL_TTL_SECONDS);
-      if (signErr || !signedData?.signedUrl) {
-        return { ...row, photo_url: null };
-      }
-      return { ...row, photo_url: signedData.signedUrl };
-    }),
-  );
-
-  return signed;
+  // Photos live in the PUBLIC talent_photos bucket (post Phase 4.3C.0).
+  // Build the public URL inline — no signing roundtrip per row, no async
+  // map. Rows without photo_path keep photo_url=null; the dashboard's
+  // Avatar component falls back to initials in that case.
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+  return rows.map((row) => {
+    if (!row.photo_path || !base) {
+      return { ...row, photo_url: null };
+    }
+    return {
+      ...row,
+      photo_url: `${base}/storage/v1/object/public/talent_photos/${row.photo_path}`,
+    };
+  });
 }
 
 export async function updateRemoteTalentStatus(
