@@ -65,6 +65,7 @@ export type TalentRow = {
   salary_min: number | null;
   salary_max: number | null;
   avatar_url: string | null;
+  photo_path: string | null;
   linkedin_url: string | null;
   github_url: string | null;
   approved_at: string | null;
@@ -116,6 +117,7 @@ export type Card = {
   email?: string | null;          // admin preview only
   phone?: string | null;          // admin preview only
   cvUrl?: string | null;          // admin preview only
+  photoUrl?: string | null;       // public talent_photos URL; absent on static blurred-preview cards
 };
 
 // ── BT_ROLE_CFG (verbatim from HTML) ─────────────────────────
@@ -260,6 +262,14 @@ function rowToCard(r: TalentRow): Card {
     email: r.email,
     phone: r.phone,
     cvUrl: r.cv_url,
+    photoUrl: (() => {
+      const path = (r.photo_path ?? "").trim();
+      if (!path) return null;
+      const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+      return base
+        ? `${base}/storage/v1/object/public/talent_photos/${path}`
+        : null;
+    })(),
   };
 }
 

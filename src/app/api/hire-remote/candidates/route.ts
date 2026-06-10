@@ -27,10 +27,10 @@ const EXP_BUCKETS: Record<string, [number, number | null]> = {
 };
 
 // Allow-list mirrors src/app/hire-remote/page.tsx — never add email, phone,
-// linkedin_url, cv_*, photo_*, or any admin/internal field. These ship to the
-// browser as candidate rows.
+// linkedin_url, or cv_*. photo_path is OK to ship (post 4.3C.0: photos live
+// in the public talent_photos bucket; the URL is safe to expose).
 const SELECT_COLUMNS =
-  "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, languages, email_verified, id_verified, phone_verified, skills, employment_history, education, portfolio";
+  "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, available_from_date, photo_path, languages, email_verified, id_verified, phone_verified, skills, employment_history, education, portfolio";
 
 const MAX_PARAM_LEN = 200;
 

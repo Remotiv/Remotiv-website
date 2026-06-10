@@ -12,6 +12,7 @@ import {
   Search,
 } from "lucide-react";
 import HireRequestWizard from "./_hire-request-wizard";
+import { LazyPhoto } from "@/components/lazy-photo";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -51,6 +52,7 @@ type Candidate = {
   employmentHistory: Job[];
   education: Education;
   portfolio: Project[];
+  photoUrl: string | null;
 };
 
 // ── Real-profile row shape (from hire_remote_profiles) ───────
@@ -73,6 +75,7 @@ export type RemoteProfileRow = {
   email_verified: boolean | null;
   id_verified: boolean | null;
   phone_verified: boolean | null;
+  photo_path: string | null;
   skills: unknown;
   employment_history: unknown;
   education: unknown;
@@ -185,6 +188,14 @@ function rowToCandidate(row: RemoteProfileRow): Candidate {
     employmentHistory,
     education,
     portfolio,
+    photoUrl: (() => {
+      const path = ((row as { photo_path?: string | null }).photo_path ?? "").trim();
+      if (!path) return null;
+      const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
+      return base
+        ? `${base}/storage/v1/object/public/talent_photos/${path}`
+        : null;
+    })(),
   };
 }
 
@@ -248,7 +259,22 @@ function isAvailable(c: Candidate): boolean {
 // ── Avatar ───────────────────────────────────────────────────
 
 function Avatar({ candidate, size }: { candidate: Candidate; size: number }) {
+  const [errored, setErrored] = useState(false);
   const c = avatarColors(candidate.id);
+  const showPhoto = Boolean(candidate.photoUrl) && !errored;
+
+  if (showPhoto && candidate.photoUrl) {
+    return (
+      <LazyPhoto
+        src={candidate.photoUrl}
+        alt={candidate.maskedName || candidate.initials}
+        size={size}
+        rounded="full"
+        onError={() => setErrored(true)}
+      />
+    );
+  }
+
   return (
     <span
       className="inline-flex shrink-0 items-center justify-center rounded-full font-heading font-bold"
@@ -376,6 +402,9 @@ function ProfileDrawer({
 }) {
   const c = avatarColors(candidate.id);
   const available = isAvailable(candidate);
+  const [drawerPhotoErrored, setDrawerPhotoErrored] = useState(false);
+  const showDrawerPhoto =
+    Boolean(candidate.photoUrl) && !drawerPhotoErrored;
   return (
     <div className="flex flex-col gap-5 rounded-2xl lg:border lg:border-black/[0.06] lg:bg-white lg:p-6 lg:shadow-[0_4px_16px_rgba(0,0,0,0.05)] max-lg:p-0 max-lg:bg-transparent">
       <div className="flex items-center justify-between">
@@ -398,16 +427,26 @@ function ProfileDrawer({
       </div>
 
       <div className="flex items-start gap-4">
-        <span
-          className="flex size-14 shrink-0 items-center justify-center rounded-2xl font-heading text-lg font-bold"
-          style={{
-            background: `linear-gradient(135deg, ${c.bg} 0%, #fff 120%)`,
-            color: c.text,
-            border: `1px solid ${c.bg}`,
-          }}
-        >
-          {candidate.initials}
-        </span>
+        {showDrawerPhoto && candidate.photoUrl ? (
+          <LazyPhoto
+            src={candidate.photoUrl}
+            alt={candidate.maskedName || candidate.initials}
+            size={56}
+            rounded="2xl"
+            onError={() => setDrawerPhotoErrored(true)}
+          />
+        ) : (
+          <span
+            className="flex size-14 shrink-0 items-center justify-center rounded-2xl font-heading text-lg font-bold"
+            style={{
+              background: `linear-gradient(135deg, ${c.bg} 0%, #fff 120%)`,
+              color: c.text,
+              border: `1px solid ${c.bg}`,
+            }}
+          >
+            {candidate.initials}
+          </span>
+        )}
         <div className="min-w-0 flex-1">
           <p className="font-heading text-lg font-bold text-remotiv-text-dark">{candidate.maskedName}</p>
           {available && (

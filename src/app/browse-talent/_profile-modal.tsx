@@ -5,9 +5,10 @@
 // opens a candidate card. Behaviour is identical to the previous inline
 // component — same focus trap, same hooks, same JSX, same handler contract.
 
-import { useEffect } from "react";
+import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
+import { LazyPhoto } from "@/components/lazy-photo";
 import {
   BtMatchBadge,
   ROLE_CFG,
@@ -85,6 +86,8 @@ export default function ProfileModal({
   isLoadingDetail = false,
 }: ProfileModalProps) {
   const cfg = ROLE_CFG[c.type];
+  const [photoErrored, setPhotoErrored] = useState(false);
+  const showPhoto = Boolean(c.photoUrl) && !photoErrored;
 
   // Phase 4 Lean Projection: degree, institution, experience now live on
   // `detail` (loaded lazily from fetchProfileDetail). `c.education` is the
@@ -188,12 +191,23 @@ export default function ProfileModal({
             explicitly as a prop. */}
         <div className="bt-modal-header">
           <div>
-            <div
-              className="bt-modal-avatar"
-              style={{ background: cfg.bg, borderColor: cfg.b, color: cfg.c }}
-            >
-              {c.initials}
-            </div>
+            {showPhoto && c.photoUrl ? (
+              <LazyPhoto
+                src={c.photoUrl}
+                alt={c.name}
+                size={52}
+                rounded="2xl"
+                className="bt-modal-avatar-photo"
+                onError={() => setPhotoErrored(true)}
+              />
+            ) : (
+              <div
+                className="bt-modal-avatar"
+                style={{ background: cfg.bg, borderColor: cfg.b, color: cfg.c }}
+              >
+                {c.initials}
+              </div>
+            )}
           </div>
           <div className="bt-modal-meta">
             <div style={{ display: "flex", alignItems: "center", gap: 10, marginBottom: 4 }}>
