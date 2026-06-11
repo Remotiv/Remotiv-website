@@ -116,6 +116,14 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
 
+    // Honeypot — hidden field; real users never fill this. Bots that stuff
+    // every input trip it; silently fake success so the bot doesn't learn
+    // its submission was rejected. Mirrors hire-remote-profiles' check.
+    const honeypot = form.get("website_url");
+    if (typeof honeypot === "string" && honeypot.trim().length > 0) {
+      return NextResponse.json({ success: true });
+    }
+
     // Phase 2 H1 + A-caps: every text field is clamped at parse time so a
     // single submission can't bloat the DB row with a multi-megabyte value.
     const firstName       = cap(nullable(form.get("first_name")), FIELD_MAX.name);

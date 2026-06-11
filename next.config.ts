@@ -11,8 +11,7 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
-    // Single source of truth for CSP directives. Used as report-only initially.
-    // Phase 2 will promote this to "Content-Security-Policy" (enforced) after monitoring.
+    // Single source of truth for CSP directives.
     const cspDirectives = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://assets.calendly.com",
@@ -53,10 +52,9 @@ const nextConfig: NextConfig = {
             key: "Permissions-Policy",
             value: "camera=(), microphone=(), geolocation=(), interest-cohort=()",
           },
-          // MEDIUM RISK — report-only mode for 1-2 weeks before enforcement
-          // To enforce: change "Content-Security-Policy-Report-Only" to "Content-Security-Policy"
+          // Enforced (was report-only until pre-launch audit)
           {
-            key: "Content-Security-Policy-Report-Only",
+            key: "Content-Security-Policy",
             value: cspDirectives,
           },
         ],
