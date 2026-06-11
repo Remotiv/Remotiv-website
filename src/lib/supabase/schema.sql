@@ -172,7 +172,13 @@ create index if not exists idx_notifications_recipient
 create index if not exists idx_notifications_unread
   on notifications(recipient_user_id, read_at) where read_at is null;
 
--- Migration: extend notifications.event_type to allow 'new_inquiry'
+-- ── Migration: extend notifications.event_type — add profile_* events ─
+-- Adds the 3 profile_* events introduced in 4.5B (profile_approved,
+-- profile_rejected) and 4.5C/5B.2 (profile_claimed). The CREATE TABLE
+-- block above already lists all 8; this trailing ALTER exists so the
+-- constraint history is documented AND so re-applying this file to a
+-- fresh DB ends with the correct 8-value constraint rather than the
+-- 5-value one that previously closed the file.
 alter table notifications drop constraint if exists notifications_event_type_check;
 alter table notifications add constraint notifications_event_type_check
   check (event_type in (
@@ -180,7 +186,10 @@ alter table notifications add constraint notifications_event_type_check
     'client_note',
     'stage_change',
     'candidate_added',
-    'new_inquiry'
+    'new_inquiry',
+    'profile_claimed',
+    'profile_approved',
+    'profile_rejected'
   ));
 
 -- Migration: contact_submissions / bookings — admin_notes + unified status
@@ -209,3 +218,36 @@ alter table contact_submissions add constraint contact_submissions_status_check
 alter table bookings drop constraint if exists bookings_status_check;
 alter table bookings add constraint bookings_status_check
   check (status in ('new', 'in_progress', 'closed', 'archived'));
+
+-- ── Migration: talent_claim_tokens (Phase 2 — admin invite flow) ─
+-- IMPORTANT: This table was originally created via the Supabase SQL Editor
+-- during Phase 2 and lived out-of-band until this back-port. Production
+-- schema is the source of truth; this block exists so a fresh apply of
+-- schema.sql to a clean project recreates it identically.
+--
+-- Polymorphic FK: candidate_id references either talent_profiles(id)
+-- OR hire_remote_profiles(id), discriminated by source_table. Postgres
+-- doesn't support multi-target REFERENCES, so the parent FK is enforced
+-- in application code (api/admin/send-invite + api/claim/verify +
+-- talent/actions.ts always set source_table alongside candidate_id).
+create table if not exists talent_claim_tokens (
+  id            uuid primary key default gen_random_uuid(),
+  token_hash    text not null unique,
+  candidate_id  uuid not null,
+  source_table  text not null
+                  check (source_table in ('talent_profiles', 'hire_remote_profiles')),
+  status        text not null default 'pending'
+                  check (status in ('pending', 'opened', 'claimed', 'expired')),
+  expires_at    timestamptz not null,
+  opened_at     timestamptz,
+  claimed_at    timestamptz,
+  created_at    timestamptz not null default now()
+);
+
+alter table talent_claim_tokens enable row level security;
+-- service_role bypasses RLS; admin reads + token CRUD all go via service client.
+
+create index if not exists idx_talent_claim_tokens_lookup
+  on talent_claim_tokens(candidate_id, source_table, status);
+create index if not exists idx_talent_claim_tokens_token_hash
+  on talent_claim_tokens(token_hash);

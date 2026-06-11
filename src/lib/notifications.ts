@@ -7,7 +7,9 @@ export type NotificationEvent =
   | "stage_change"
   | "candidate_added"
   | "new_inquiry"
-  | "profile_claimed";
+  | "profile_claimed"
+  | "profile_approved"
+  | "profile_rejected";
 
 export type NotificationInput = {
   event_type: NotificationEvent;
