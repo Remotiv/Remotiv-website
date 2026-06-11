@@ -1,9 +1,55 @@
 import type { MetadataRoute } from "next";
+import { createServiceClient } from "@/lib/supabase/server";
 
 const BASE_URL = "https://remotiv.work";
 
-export default function sitemap(): MetadataRoute.Sitemap {
+// Re-generate the sitemap at most once per hour. The DB call below makes
+// the function dynamic; this revalidate caps how often Google can re-trigger
+// that work. Newly-approved profiles appear in the sitemap within an hour —
+// plenty fresh for Google's crawl cadence.
+export const revalidate = 3600;
+
+export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
+
+  const supabase = createServiceClient();
+  let talentEntries: MetadataRoute.Sitemap = [];
+
+  try {
+    const [pakResult, remoteResult] = await Promise.all([
+      supabase
+        .from("talent_profiles")
+        .select("id, claimed_at, approved_at")
+        .not("approved_at", "is", null),
+      supabase
+        .from("hire_remote_profiles")
+        .select("id, claimed_at, approved_at")
+        .not("approved_at", "is", null),
+    ]);
+
+    const pakRows = (pakResult.data ?? []) as Array<{
+      id: string;
+      claimed_at: string | null;
+      approved_at: string;
+    }>;
+    const remoteRows = (remoteResult.data ?? []) as Array<{
+      id: string;
+      claimed_at: string | null;
+      approved_at: string;
+    }>;
+
+    talentEntries = [...pakRows, ...remoteRows].map((r) => ({
+      url: `${BASE_URL}/talent/${r.id}`,
+      lastModified: new Date(r.claimed_at ?? r.approved_at),
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
+    }));
+  } catch (err) {
+    // Graceful degradation: a transient Supabase outage must not 500 the
+    // entire sitemap. Log and proceed with static-only entries — Google
+    // still gets a valid sitemap covering the marketing pages.
+    console.error("[sitemap] failed to fetch talent entries:", err);
+  }
 
   return [
     {
@@ -96,5 +142,6 @@ export default function sitemap(): MetadataRoute.Sitemap {
       changeFrequency: "monthly",
       priority: 0.8,
     },
+    ...talentEntries,
   ];
 }
