@@ -25,9 +25,13 @@ type Step =
 export function TalentLoginClient({
   token,
   reason,
+  profileId = null,
+  sourceTable = null,
 }: {
   token: string | null;
   reason: string | null;
+  profileId?: string | null;
+  sourceTable?: "talent_profiles" | "hire_remote_profiles" | null;
 }) {
   const router = useRouter();
   const [step, setStep] = useState<Step>({ kind: "email" });
@@ -156,7 +160,11 @@ export function TalentLoginClient({
       }
       // Session is set. Forward to dashboard; router.refresh ensures
       // the server layout re-reads the new auth cookie.
-      router.replace("/talent/dashboard");
+      const dashboardUrl =
+        profileId && sourceTable
+          ? `/talent/dashboard?profile_id=${profileId}&source_table=${sourceTable}`
+          : "/talent/dashboard";
+      router.replace(dashboardUrl);
       router.refresh();
     } catch (err) {
       console.error("[talent-login] verifyOtp threw:", err);

@@ -2,7 +2,7 @@
 
 import Link from "next/link";
 import { useRouter } from "next/navigation";
-import { useMemo, useState, useTransition } from "react";
+import { useEffect, useMemo, useState, useTransition } from "react";
 import type { Job } from "@/lib/jobs";
 import { createClient } from "@/lib/supabase/client";
 import { claimProfile } from "@/app/talent/actions";
@@ -103,6 +103,8 @@ export function DashboardClient({
   unreadCount = 0,
   shortlistedCount = 0,
   recentApplications = [],
+  autoClaimProfileId = null,
+  autoClaimSourceTable = null,
 }: {
   email: string;
   profiles: DashboardProfile[];
@@ -110,6 +112,8 @@ export function DashboardClient({
   unreadCount?: number;
   shortlistedCount?: number;
   recentApplications?: DashboardRecentApplication[];
+  autoClaimProfileId?: string | null;
+  autoClaimSourceTable?: "talent_profiles" | "hire_remote_profiles" | null;
 }) {
   const router = useRouter();
   // Prefer a CLAIMED profile as the initial active pool. If the user has
@@ -166,6 +170,26 @@ export function DashboardClient({
       setClaimingId(null);
     }
   }
+
+  // 5B.2 claim-after-login: when the user arrived from /talent/[id] via the
+  // OTP flow, the URL carries the profile they wanted to claim. Scroll the
+  // matching upsell card into view and flash a purple ring so the existing
+  // "Claim →" button is the obvious next action. Silent no-op if the card
+  // isn't rendered (e.g. that pool was already claimed before this session).
+  // biome-ignore lint/correctness/useExhaustiveDependencies: mount-only — URL params are stable for the page lifetime
+  useEffect(() => {
+    if (!autoClaimProfileId || !autoClaimSourceTable) return;
+    const el = document.querySelector(
+      `[data-upsell-pool="${autoClaimSourceTable}"]`,
+    );
+    if (!el) return;
+    el.scrollIntoView({ behavior: "smooth", block: "center" });
+    el.classList.add("ring-2", "ring-remotiv-purple");
+    const t = setTimeout(() => {
+      el.classList.remove("ring-2", "ring-remotiv-purple");
+    }, 2500);
+    return () => clearTimeout(t);
+  }, []);
 
   if (profiles.length === 0) {
     return (
@@ -338,7 +362,10 @@ export function DashboardClient({
 
           if (unclaimedInMissing && unclaimedInMissing.status === "approved") {
             return (
-              <section className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4">
+              <section
+                data-upsell-pool={missingPool}
+                className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4"
+              >
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-heading text-sm font-bold text-gray-900">
@@ -366,7 +393,10 @@ export function DashboardClient({
 
           if (unclaimedInMissing) {
             return (
-              <section className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-4">
+              <section
+                data-upsell-pool={missingPool}
+                className="mb-6 rounded-2xl border border-gray-200 bg-gray-50 p-4"
+              >
                 <div className="flex items-center justify-between gap-4">
                   <div className="min-w-0">
                     <p className="font-heading text-sm font-bold text-gray-900">
@@ -386,7 +416,10 @@ export function DashboardClient({
           }
 
           return (
-            <section className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4">
+            <section
+              data-upsell-pool={missingPool}
+              className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-4"
+            >
               <div className="flex items-center justify-between gap-4">
                 <div className="min-w-0">
                   <p className="font-heading text-sm font-bold text-gray-900">

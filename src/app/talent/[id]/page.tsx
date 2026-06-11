@@ -394,7 +394,7 @@ export default async function TalentProfilePage({ params }: PageProps) {
                   </div>
                 </div>
                 <Link
-                  href="/talent/login"
+                  href={`/talent/login?profile_id=${profile.id}&source_table=${profile.sourceTable}`}
                   className="shrink-0 rounded-full bg-amber-900 px-4 py-2 text-center text-xs font-bold text-amber-50 hover:bg-amber-950 md:text-sm"
                 >
                   Claim profile →

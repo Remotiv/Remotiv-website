@@ -15,7 +15,37 @@ const TALENT_COLUMNS =
 const REMOTE_COLUMNS =
   "id, first_name, last_name, email, phone, city, country, time_zone, linkedin_url, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, cv_path, skills, employment_history, education, languages, portfolio, status, claimed_at, approved_at, email_verified";
 
-export default async function TalentDashboardPage() {
+export default async function TalentDashboardPage({
+  searchParams,
+}: {
+  searchParams: Promise<{
+    profile_id?: string;
+    source_table?: string;
+  }>;
+}) {
+  const sp = await searchParams;
+  // Defense in depth: re-validate the params even though /talent/login
+  // already filtered them. A user typing the URL by hand still has to clear
+  // the same checks.
+  const validAutoClaimProfileId =
+    typeof sp.profile_id === "string" &&
+    /^[0-9a-fA-F-]{36}$/.test(sp.profile_id)
+      ? sp.profile_id
+      : null;
+  const validAutoClaimSourceTable =
+    sp.source_table === "talent_profiles" ||
+    sp.source_table === "hire_remote_profiles"
+      ? sp.source_table
+      : null;
+  const autoClaimProfileId =
+    validAutoClaimProfileId && validAutoClaimSourceTable
+      ? validAutoClaimProfileId
+      : null;
+  const autoClaimSourceTable =
+    validAutoClaimProfileId && validAutoClaimSourceTable
+      ? validAutoClaimSourceTable
+      : null;
+
   const supabase = await createClient();
   const {
     data: { user },
@@ -148,6 +178,8 @@ export default async function TalentDashboardPage() {
       unreadCount={unreadCount}
       shortlistedCount={shortlistedCount}
       recentApplications={recentApplications}
+      autoClaimProfileId={autoClaimProfileId}
+      autoClaimSourceTable={autoClaimSourceTable}
     />
   );
 }
