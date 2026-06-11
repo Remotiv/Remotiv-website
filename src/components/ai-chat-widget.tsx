@@ -1,6 +1,7 @@
 "use client";
 
 import { Bot } from "lucide-react";
+import { usePathname } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { cn } from "@/lib/utils";
 
@@ -12,17 +13,42 @@ interface Message {
 }
 
 const MAX_CHARS = 500;
+// Last N turns sent to /api/chat so the model has conversation context
+// without unbounded token growth.
+const HISTORY_LIMIT = 10;
+
+// Public marketing pages only — the widget must not render on admin, auth,
+// client-portal, or talent-portal routes.
+const ALLOWED_ROUTES = [
+  "/",
+  "/about",
+  "/ai-matching",
+  "/ai-results",
+  "/become-a-talent",
+  "/book-a-meeting",
+  "/browse-talent",
+  "/contact",
+  "/hire-remote",
+  "/jobs",
+  "/pricing",
+  "/remote-ready",
+  "/services/dedicated-team",
+  "/services/payroll",
+  "/services/recruitment",
+  "/services/staff-augmentation",
+];
 
 const INITIAL_MESSAGES: Message[] = [
   {
     id: "1",
     type: "ai",
-    text: "Hi! I'm Remotiv AI. Tell me what role you're hiring for and I'll find pre-vetted candidates within 24 hours.",
+    text: "Hi! I'm Remotiv's AI assistant. I can help you learn about our services, find the right talent, or point you in the right direction. What are you looking for?",
     timestamp: new Date(),
   },
 ];
 
 export function AIChatWidget() {
+  const pathname = usePathname();
   const [isOpen, setIsOpen] = useState(false);
   const [messages, setMessages] = useState<Message[]>(INITIAL_MESSAGES);
   const [inputText, setInputText] = useState("");
@@ -56,8 +82,8 @@ export function AIChatWidget() {
     }
   }, [isOpen]);
 
-  const handleSend = useCallback(() => {
-    if (!inputText.trim() || inputText.length > MAX_CHARS) return;
+  const handleSend = useCallback(async () => {
+    if (!inputText.trim() || inputText.length > MAX_CHARS || isTyping) return;
 
     const userMessage: Message = {
       id: Date.now().toString(),
@@ -66,22 +92,41 @@ export function AIChatWidget() {
       timestamp: new Date(),
     };
 
+    // Last HISTORY_LIMIT turns, mapped to the API's {role, content} shape.
+    // The server drops the leading assistant greeting itself.
+    const history = [...messages, userMessage].slice(-HISTORY_LIMIT).map((m) => ({
+      role: m.type === "user" ? ("user" as const) : ("assistant" as const),
+      content: m.text,
+    }));
+
     setMessages((prev) => [...prev, userMessage]);
     setInputText("");
     setIsTyping(true);
 
-    // Simulate AI response
-    setTimeout(() => {
-      setIsTyping(false);
-      const aiMessage: Message = {
-        id: (Date.now() + 1).toString(),
-        type: "ai",
-        text: "Thanks! I'm scanning our talent pool of 1M+ pre-vetted engineers. You'll receive a curated shortlist within 24 hours. Is there anything specific about the role I should know?",
-        timestamp: new Date(),
-      };
-      setMessages((prev) => [...prev, aiMessage]);
-    }, 2000);
-  }, [inputText]);
+    let replyText = "Sorry, I couldn't process that. Please try again.";
+    try {
+      const res = await fetch("/api/chat", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ messages: history }),
+      });
+      const data = (await res.json()) as { reply?: string };
+      if (res.ok && typeof data.reply === "string" && data.reply.trim()) {
+        replyText = data.reply;
+      }
+    } catch {
+      // network failure — fall through to the generic error reply
+    }
+
+    setIsTyping(false);
+    const aiMessage: Message = {
+      id: (Date.now() + 1).toString(),
+      type: "ai",
+      text: replyText,
+      timestamp: new Date(),
+    };
+    setMessages((prev) => [...prev, aiMessage]);
+  }, [inputText, isTyping, messages]);
 
   const handleKeyDown = (e: React.KeyboardEvent) => {
     if (e.key === "Enter" && !e.shiftKey) {
@@ -91,6 +136,9 @@ export function AIChatWidget() {
   };
 
   const isOverLimit = inputText.length > MAX_CHARS;
+
+  // After all hooks: skip rendering entirely outside the public marketing pages.
+  if (!pathname || !ALLOWED_ROUTES.includes(pathname)) return null;
 
   return (
     <div className="fixed bottom-6 right-6 z-[9999] font-[var(--font-sans)]">
@@ -108,12 +156,9 @@ export function AIChatWidget() {
               {isOpen && (
                 <div className="size-2 animate-[pulse_2s_ease-in-out_infinite] rounded-full bg-[#49D7A7]" />
               )}
-              <span className="text-xs font-medium text-zinc-400">Remotiv AI Online</span>
+              <span className="text-xs font-medium text-zinc-400">Remotiv AI</span>
             </div>
             <div className="flex items-center gap-2">
-              <span className="rounded-full bg-zinc-700/70 px-2.5 py-1 text-[11px] font-semibold text-zinc-300">
-                GPT-4
-              </span>
               <span className="rounded-full border border-[#49D7A7]/30 bg-[#49D7A7]/10 px-2.5 py-1 text-[11px] font-semibold text-[#49D7A7]">
                 AGENT
               </span>
@@ -203,7 +248,7 @@ export function AIChatWidget() {
               <button
                 type="button"
                 onClick={handleSend}
-                disabled={!inputText.trim() || isOverLimit}
+                disabled={!inputText.trim() || isOverLimit || isTyping}
                 className="group relative flex size-11 items-center justify-center rounded-xl bg-gradient-to-br from-[#49D7A7] to-[#3bc495] text-white shadow-[0_6px_20px_rgba(73,215,167,0.35)] transition-all hover:scale-110 hover:rotate-[-2deg] hover:shadow-[0_10px_28px_rgba(73,215,167,0.55)] active:scale-95 disabled:opacity-50 disabled:cursor-not-allowed"
                 aria-label="Send message"
               >
