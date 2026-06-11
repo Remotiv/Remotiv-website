@@ -44,6 +44,8 @@ type UnifiedProfile = {
     company: string;
     duration: string;
   }>;
+  claimedAt: string | null;
+  userId: string | null;
 };
 
 // Light contact-info redactor. Strips email/phone-shaped patterns that
@@ -129,6 +131,8 @@ function normalisePakistan(row: Record<string, unknown>): UnifiedProfile {
     languages: [],
     portfolio: [],
     employmentHistory,
+    claimedAt: (row.claimed_at as string | null) ?? null,
+    userId: (row.user_id as string | null) ?? null,
   };
 }
 
@@ -223,6 +227,8 @@ function normaliseRemote(row: Record<string, unknown>): UnifiedProfile {
     languages,
     portfolio,
     employmentHistory,
+    claimedAt: (row.claimed_at as string | null) ?? null,
+    userId: (row.user_id as string | null) ?? null,
   };
 }
 
@@ -234,7 +240,7 @@ async function fetchProfile(id: string): Promise<UnifiedProfile | null> {
   const { data: pakRow } = await supabase
     .from("talent_profiles")
     .select(
-      "id, first_name, last_name, city, country, job_title, role_category, years_experience, summary, skills, availability, work_type, work_location, salary_min, salary_max, photo_path, avatar_url, linkedin_url, github_url, approved_at, experience",
+      "id, first_name, last_name, city, country, job_title, role_category, years_experience, summary, skills, availability, work_type, work_location, salary_min, salary_max, photo_path, avatar_url, linkedin_url, github_url, user_id, claimed_at, approved_at, experience",
     )
     .eq("id", id)
     .not("approved_at", "is", null)
@@ -247,7 +253,7 @@ async function fetchProfile(id: string): Promise<UnifiedProfile | null> {
   const { data: remoteRow } = await supabase
     .from("hire_remote_profiles")
     .select(
-      "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, linkedin_url, skills, employment_history, education, languages, portfolio, approved_at",
+      "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, linkedin_url, skills, employment_history, education, languages, portfolio, user_id, claimed_at, approved_at",
     )
     .eq("id", id)
     .not("approved_at", "is", null)
@@ -358,6 +364,44 @@ export default async function TalentProfilePage({ params }: PageProps) {
       <Navbar />
       <main className="min-h-screen bg-remotiv-bg font-sans">
         <article className="mx-auto max-w-4xl px-4 py-12 md:px-6 md:py-16">
+          {!profile.claimedAt && !profile.userId && (
+            <aside className="mb-8 rounded-2xl bg-amber-50 p-4 ring-1 ring-amber-200 md:p-5">
+              <div className="flex flex-col gap-3 md:flex-row md:items-center md:justify-between">
+                <div className="flex items-start gap-3">
+                  <div className="flex h-9 w-9 shrink-0 items-center justify-center rounded-full bg-amber-100">
+                    <svg
+                      viewBox="0 0 24 24"
+                      fill="none"
+                      stroke="currentColor"
+                      strokeWidth="2"
+                      strokeLinecap="round"
+                      strokeLinejoin="round"
+                      className="h-4 w-4 text-amber-700"
+                      aria-hidden="true"
+                    >
+                      <circle cx="12" cy="12" r="10" />
+                      <path d="M9.09 9a3 3 0 0 1 5.83 1c0 2-3 3-3 3" />
+                      <line x1="12" y1="17" x2="12.01" y2="17" />
+                    </svg>
+                  </div>
+                  <div className="min-w-0">
+                    <p className="font-heading text-sm font-bold text-amber-900">
+                      Is this your profile?
+                    </p>
+                    <p className="mt-0.5 text-xs text-amber-800 md:text-sm">
+                      Claim it to control what&apos;s visible and edit your details.
+                    </p>
+                  </div>
+                </div>
+                <Link
+                  href="/talent/login"
+                  className="shrink-0 rounded-full bg-amber-900 px-4 py-2 text-center text-xs font-bold text-amber-50 hover:bg-amber-950 md:text-sm"
+                >
+                  Claim profile →
+                </Link>
+              </div>
+            </aside>
+          )}
           <header className="flex flex-col items-start gap-6 md:flex-row md:items-center">
             <div className="shrink-0">
               {profile.photoUrl ? (

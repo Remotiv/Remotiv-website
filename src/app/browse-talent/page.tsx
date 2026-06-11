@@ -74,6 +74,7 @@ export default async function BrowseTalentPage({
     // The candidate is fetched separately and passed as deepLinkedCard so it
     // does NOT widen the visible grid past the free-tier 15-row cap.
     id?: string;
+    claimed?: string;
   }>;
 }) {
   const params = await searchParams;
@@ -87,6 +88,7 @@ export default async function BrowseTalentPage({
     : "All";
   const q = (params.q ?? "").trim().slice(0, 100);
   const sort: "match" | "name" = params.sort === "name" ? "name" : "match";
+  const claimedOnly = params.claimed === "true";
   const pageRaw = Number(params.page ?? 1);
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
   const isSavedView = params.view === "saved";
@@ -159,7 +161,7 @@ export default async function BrowseTalentPage({
     let talentQuery = supabase
       .from("talent_profiles")
       .select(
-        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, approved_at, created_at",
+        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
       )
       .not("approved_at", "is", null);
 
@@ -167,6 +169,11 @@ export default async function BrowseTalentPage({
       .from("talent_profiles")
       .select("id", { count: "exact", head: true })
       .not("approved_at", "is", null);
+
+    if (claimedOnly) {
+      talentQuery = talentQuery.not("user_id", "is", null);
+      countQuery = countQuery.not("user_id", "is", null);
+    }
 
     if (isSavedView) {
       // Free tier: cap saved view to 15 IDs server-side (defense in depth)
@@ -220,7 +227,7 @@ export default async function BrowseTalentPage({
     const { data } = await supabase
       .from("talent_profiles")
       .select(
-        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, approved_at, created_at",
+        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
       )
       .eq("id", deepLinkId)
       .not("approved_at", "is", null)
@@ -337,6 +344,7 @@ export default async function BrowseTalentPage({
         activeRole={role}
         activeQuery={q}
         activeSort={sort}
+        claimedOnly={claimedOnly}
         unlockedIds={Array.from(unlockedIds)}
         creditsRemaining={creditsRemaining}
         isSavedView={isSavedView}

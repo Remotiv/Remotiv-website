@@ -68,6 +68,7 @@ export type TalentRow = {
   photo_path: string | null;
   linkedin_url: string | null;
   github_url: string | null;
+  user_id: string | null;
   approved_at: string | null;
   created_at: string | null;
 };
@@ -101,6 +102,7 @@ export type Card = {
   exp: string;                    // "7 years" or "—"
   yearsExperience?: number | null; // numeric form for "X years experience in …"
   available: boolean;
+  claimed?: boolean;             // true if the row's user_id is set; absent on static blurred-preview cards
   score: number;
   highlights: string[];
   bio: string;
@@ -245,6 +247,7 @@ function rowToCard(r: TalentRow): Card {
     exp: derivedYears != null ? `${derivedYears} years` : "—",
     yearsExperience: derivedYears,
     available,
+    claimed: Boolean(r.user_id),
     score,
     highlights,
     bio: r.summary ?? "",
@@ -388,6 +391,23 @@ const CardItem = memo(function CardItem({
           <span className={c.available ? "bt-avail-yes" : "bt-avail-no"}>
             {c.available ? "● Available" : "○ Unavailable"}
           </span>
+          {c.claimed && (
+            <span className="inline-flex items-center gap-1 rounded-full bg-remotiv-green/15 px-2.5 py-0.5 text-[11px] font-semibold text-remotiv-green">
+              <svg
+                viewBox="0 0 20 20"
+                fill="currentColor"
+                className="h-3 w-3"
+                aria-hidden="true"
+              >
+                <path
+                  fillRule="evenodd"
+                  d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+                  clipRule="evenodd"
+                />
+              </svg>
+              Claimed by talent
+            </span>
+          )}
           <span style={{ marginLeft: "auto", fontSize: "0.7rem", color: "#888", fontFamily: "'DM Sans',sans-serif" }}>
             {c.lastActive}
           </span>
@@ -661,6 +681,7 @@ export function BrowseClient({
   activeRole,
   activeQuery,
   activeSort,
+  claimedOnly = false,
   unlockedIds,
   creditsRemaining,
   isSavedView,
@@ -677,6 +698,7 @@ export function BrowseClient({
   activeRole: "All" | "Engineer" | "SDR" | "CS" | "Design" | "Data" | "DevOps" | "QA" | "Marketing" | "Ops" | "Finance";
   activeQuery: string;
   activeSort: "match" | "name";
+  claimedOnly?: boolean;
   unlockedIds: string[];
   creditsRemaining: number;
   isSavedView: boolean;
@@ -1208,6 +1230,38 @@ export function BrowseClient({
             <span className="bt-rc-count">{r.count}</span>
           </button>
         ))}
+      </div>
+
+      <div className="bt-sbox">
+        <div className="bt-sbox-title">Profile Status</div>
+        <button
+          type="button"
+          onClick={() => {
+            updateUrl({ claimed: claimedOnly ? null : "true" });
+            onSelect?.();
+          }}
+          aria-pressed={claimedOnly}
+          className={cn(
+            "inline-flex items-center gap-1.5 rounded-full px-3 py-1.5 text-xs font-semibold transition",
+            claimedOnly
+              ? "bg-remotiv-green/15 text-remotiv-green ring-1 ring-remotiv-green/40"
+              : "bg-white text-gray-700 ring-1 ring-gray-200 hover:ring-gray-300",
+          )}
+        >
+          <svg
+            viewBox="0 0 20 20"
+            fill="currentColor"
+            className="h-3.5 w-3.5"
+            aria-hidden="true"
+          >
+            <path
+              fillRule="evenodd"
+              d="M10 18a8 8 0 100-16 8 8 0 000 16zm3.707-9.293a1 1 0 00-1.414-1.414L9 10.586 7.707 9.293a1 1 0 00-1.414 1.414l2 2a1 1 0 001.414 0l4-4z"
+              clipRule="evenodd"
+            />
+          </svg>
+          Claimed only
+        </button>
       </div>
     </>
   );
