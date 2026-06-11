@@ -1,6 +1,6 @@
 import type { MetadataRoute } from "next";
 
-const BASE_URL = "https://remotiv-website-m3jo.vercel.app";
+const BASE_URL = "https://remotiv.work";
 
 export default function robots(): MetadataRoute.Robots {
   return {

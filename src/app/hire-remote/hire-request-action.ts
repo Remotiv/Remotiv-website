@@ -168,7 +168,7 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
   }
 
   const teamEmail = process.env.RESEND_TEAM_EMAIL ?? "talent@remotiv.work";
-  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv-website-m3jo.vercel.app";
+  const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv.work";
   const adminUrl = `${siteUrl}/admin/hire-requests`;
 
   sendEmail({

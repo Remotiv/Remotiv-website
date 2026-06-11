@@ -19,7 +19,7 @@ const dmSans = DM_Sans({
 });
 
 export const metadata: Metadata = {
-  metadataBase: new URL("https://remotiv-website-m3jo.vercel.app"),
+  metadataBase: new URL("https://remotiv.work"),
   title: "Remotiv — Hire Top 1% Senior Engineering Talent",
   description:
     "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
@@ -39,7 +39,7 @@ export const metadata: Metadata = {
     title: "Remotiv — Hire Top 1% Senior Engineering Talent",
     description:
       "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
-    url: "https://remotiv-website-m3jo.vercel.app",
+    url: "https://remotiv.work",
     siteName: "Remotiv",
     locale: "en_US",
     type: "website",
@@ -97,8 +97,8 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
-              logo: "https://remotiv-website-m3jo.vercel.app/opengraph-image",
+              url: "https://remotiv.work",
+              logo: "https://remotiv.work/opengraph-image",
               description:
                 "Hire pre-vetted senior engineering talent. Top 1% engineers, ready in 24 hours.",
               sameAs: [
@@ -108,7 +108,7 @@ export default function RootLayout({
               contactPoint: {
                 "@type": "ContactPoint",
                 contactType: "Sales",
-                url: "https://remotiv-website-m3jo.vercel.app/contact",
+                url: "https://remotiv.work/contact",
               },
             }),
           }}
@@ -121,7 +121,7 @@ export default function RootLayout({
               "@context": "https://schema.org",
               "@type": "WebSite",
               name: "Remotiv",
-              url: "https://remotiv-website-m3jo.vercel.app",
+              url: "https://remotiv.work",
               description:
                 "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
             }),

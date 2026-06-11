@@ -1,10 +1,9 @@
 // Shared canonical host for SEO metadata + JSON-LD.
-// Sourced to match `metadataBase` in src/app/layout.tsx (the Vercel preview
-// URL today; swap to the production custom domain in ONE place when it goes
-// live). Keeping this centralised means JSON-LD `item` URLs, BreadcrumbList
-// entries, and any future schema can't drift apart from the canonical that
-// Next.js renders in <link rel="canonical">.
-export const CANONICAL_HOST = "https://remotiv-website-m3jo.vercel.app";
+// Sourced to match `metadataBase` in src/app/layout.tsx. Keeping this
+// centralised means JSON-LD `item` URLs, BreadcrumbList entries, and any
+// future schema can't drift apart from the canonical that Next.js renders
+// in <link rel="canonical">.
+export const CANONICAL_HOST = "https://remotiv.work";
 
 /**
  * Builds an absolute URL from a path. Tolerates "/foo", "foo", and even
