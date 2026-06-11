@@ -11,6 +11,14 @@ const nextConfig: NextConfig = {
     ],
   },
   async headers() {
+    // Dev gate: HSTS pins for 2 years with preload — once a browser sees it
+    // on localhost (via tunnel, prod-pointing config, etc.) Safari will
+    // force-upgrade http://localhost to https forever. Similarly,
+    // upgrade-insecure-requests rewrites every http:// to https:// before
+    // sending, which breaks plain-HTTP localhost dev. Both ship only in
+    // production builds where they belong.
+    const isProduction = process.env.NODE_ENV === "production";
+
     // Single source of truth for CSP directives.
     const cspDirectives = [
       "default-src 'self'",
@@ -24,7 +32,7 @@ const nextConfig: NextConfig = {
       "form-action 'self'",
       "base-uri 'self'",
       "object-src 'none'",
-      "upgrade-insecure-requests",
+      ...(isProduction ? ["upgrade-insecure-requests"] : []),
     ].join("; ");
 
     return [
@@ -32,10 +40,14 @@ const nextConfig: NextConfig = {
         source: "/(.*)",
         headers: [
           // LOW RISK — enforced immediately
-          {
-            key: "Strict-Transport-Security",
-            value: "max-age=63072000; includeSubDomains; preload",
-          },
+          ...(isProduction
+            ? [
+                {
+                  key: "Strict-Transport-Security",
+                  value: "max-age=63072000; includeSubDomains; preload",
+                },
+              ]
+            : []),
           {
             key: "X-Frame-Options",
             value: "DENY",
