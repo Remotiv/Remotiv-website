@@ -235,7 +235,7 @@ create table if not exists talent_claim_tokens (
   token_hash    text not null unique,
   candidate_id  uuid not null,
   source_table  text not null
-                  check (source_table in ('talent_profiles', 'hire_remote_profiles')),
+                  check (source_table in ('talent_profiles', 'hire_remote_profiles', 'job_applications')),
   status        text not null default 'pending'
                   check (status in ('pending', 'opened', 'claimed', 'expired')),
   expires_at    timestamptz not null,
@@ -251,3 +251,15 @@ create index if not exists idx_talent_claim_tokens_lookup
   on talent_claim_tokens(candidate_id, source_table, status);
 create index if not exists idx_talent_claim_tokens_token_hash
   on talent_claim_tokens(token_hash);
+
+-- ── Migration: widen talent_claim_tokens.source_table for bridge flow ─
+-- The bridge from /jobs/[id] apply → /become-a-talent re-uses the
+-- talent_claim_tokens infrastructure with source_table='job_applications'.
+-- The CREATE TABLE block above already lists all 3 values; this trailing
+-- ALTER exists so fresh applies of schema.sql end with the correct
+-- 3-value constraint and so the constraint history is documented.
+alter table talent_claim_tokens
+  drop constraint if exists talent_claim_tokens_source_table_check;
+alter table talent_claim_tokens
+  add constraint talent_claim_tokens_source_table_check
+  check (source_table in ('talent_profiles', 'hire_remote_profiles', 'job_applications'));

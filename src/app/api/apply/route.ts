@@ -156,46 +156,66 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
-    // 0. Hard duplicate check — only for public job applications. The admin
+    // 0. Same-job duplicate check — only for public job applications. The admin
     //    "Manual Upload" flow already shows a soft warning panel and lets the
     //    admin opt in, so we don't want to block submissions there.
-    if (source !== "manual_upload") {
+    //
+    //    Bridge-flow change: dedup is now scoped to (email|phone, job_id).
+    //    A candidate applying to the same job twice with the same email or
+    //    phone is blocked; applying to a DIFFERENT job with the same details
+    //    is allowed. This is required for the apply → become-a-talent bridge
+    //    (we want repeat applicants across jobs to keep getting the bridge
+    //    CTA on each application). Skip the check entirely when there's no
+    //    job_id (manual-title submissions with placeholder job).
+    if (source !== "manual_upload" && jobId !== null) {
       const normalizedPhone = normalizePhone(phone ?? "");
 
-      // Email match — direct equality on a (presumably) unique column
-      let emailMatch: { id: string } | null = null;
+      // Email match — case-insensitive lookup scoped to this job.
+      let emailMatch: { id: string; created_at: string | null } | null = null;
       if (email) {
         const { data } = await supabase
           .from(APPLICATIONS_TABLE)
-          .select("id")
-          .eq("email", email)
+          .select("id, created_at")
+          .ilike("email", email.trim())
+          .eq("job_id", jobId)
           .maybeSingle();
-        emailMatch = (data as { id: string } | null) ?? null;
+        emailMatch =
+          (data as { id: string; created_at: string | null } | null) ?? null;
       }
 
-      // Phone match — fetch a slice of recent rows and normalise in JS,
-      // since we can't apply normalizePhone in SQL without a generated column.
-      let phoneMatch: { id: string } | null = null;
+      // Phone match — fetch a slice of recent rows for this job and
+      // normalise in JS, since we can't apply normalizePhone in SQL without
+      // a generated column.
+      let phoneMatch: { id: string; created_at: string | null } | null = null;
       if (normalizedPhone.length >= 7) {
         const { data: phoneRecords } = await supabase
           .from(APPLICATIONS_TABLE)
-          .select("id, phone")
+          .select("id, phone, created_at")
+          .eq("job_id", jobId)
           .not("phone", "is", null)
           .order("created_at", { ascending: false })
           .limit(100);
 
-        const records = (phoneRecords ?? []) as Array<{ id: string; phone: string | null }>;
+        const records = (phoneRecords ?? []) as Array<{
+          id: string;
+          phone: string | null;
+          created_at: string | null;
+        }>;
         const found = records.find(
           (r) => normalizePhone(r.phone ?? "") === normalizedPhone,
         );
-        phoneMatch = found ? { id: found.id } : null;
+        phoneMatch = found
+          ? { id: found.id, created_at: found.created_at }
+          : null;
       }
 
-      if (emailMatch || phoneMatch) {
+      const dupMatch = emailMatch ?? phoneMatch;
+      if (dupMatch) {
         return NextResponse.json(
           {
-            error: "duplicate",
-            message: "Your profile and CV already exist in our system. We will be in touch soon!",
+            error: "duplicate_application",
+            message: "You have already applied to this job.",
+            appliedAt: dupMatch.created_at,
           },
           { status: 409 },
         );
@@ -243,23 +263,29 @@ export async function POST(request: NextRequest) {
       resolvedJobId = (jobRow as { id?: string } | null)?.id ?? null;
     }
 
-    // 4. Insert application (service role bypasses RLS)
-    const { error: insertError } = await supabase.from(APPLICATIONS_TABLE).insert({
-      job_id: resolvedJobId,
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      phone,
-      linkedin_url: linkedin,
-      cv_url: null,
-      cv_path: path,
-      cv_text: boundedCvText,
-      status: "new",
-      source,
-      notes,
-    });
+    // 4. Insert application (service role bypasses RLS). We capture the
+    //    inserted row id so the bridge-token issuance below can reference it
+    //    via talent_claim_tokens.candidate_id.
+    const { data: insertedRow, error: insertError } = await supabase
+      .from(APPLICATIONS_TABLE)
+      .insert({
+        job_id: resolvedJobId,
+        first_name: firstName,
+        last_name: lastName,
+        email,
+        phone,
+        linkedin_url: linkedin,
+        cv_url: null,
+        cv_path: path,
+        cv_text: boundedCvText,
+        status: "new",
+        source,
+        notes,
+      })
+      .select("id")
+      .single();
 
-    if (insertError) {
+    if (insertError || !insertedRow) {
       console.error("[/api/apply] DB insert failed:", insertError);
       // Rollback: the CV is already in storage but its DB row never landed.
       // Delete the orphaned object so storage doesn't accumulate junk PDFs.
@@ -280,7 +306,54 @@ export async function POST(request: NextRequest) {
       );
     }
 
-    return NextResponse.json({ success: true });
+    const applicationId = (insertedRow as { id: string }).id;
+
+    // 5. Issue a bridge token so the success modal can offer
+    //    "Complete your profile" → /become-a-talent?token=… . Reuses the
+    //    talent_claim_tokens infrastructure with source_table='job_applications'
+    //    (the source_table CHECK was widened to accept this value — see
+    //    src/lib/supabase/schema.sql talent_claim_tokens migration).
+    //
+    //    Failure here MUST NOT fail the application. The candidate already
+    //    successfully applied; we just can't offer the bridge. We log and
+    //    fall through with bridgeToken=null. The success modal degrades
+    //    gracefully to the original 3-second auto-close.
+    let bridgeToken: string | null = null;
+    try {
+      const token =
+        (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+      const expiresAt = new Date(
+        Date.now() + 7 * 24 * 60 * 60 * 1000,
+      ).toISOString();
+      const { error: tokenErr } = await supabase
+        .from("talent_claim_tokens")
+        .insert({
+          token_hash: token,
+          candidate_id: applicationId,
+          source_table: "job_applications",
+          status: "pending",
+          expires_at: expiresAt,
+        });
+      if (tokenErr) {
+        console.error(
+          "[/api/apply] bridge token insert failed (non-fatal):",
+          tokenErr,
+        );
+      } else {
+        bridgeToken = token;
+      }
+    } catch (tokenThrow) {
+      console.error(
+        "[/api/apply] bridge token threw (non-fatal):",
+        tokenThrow,
+      );
+    }
+
+    return NextResponse.json({
+      success: true,
+      applicationId,
+      bridgeToken,
+    });
   } catch (err) {
     console.error("[/api/apply] unexpected error:", err);
     return NextResponse.json(

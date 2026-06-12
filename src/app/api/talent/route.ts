@@ -246,6 +246,15 @@ export async function POST(request: NextRequest) {
     const cvFile    = form.get("cv")    as File | null;
     const photoFile = form.get("photo") as File | null;
 
+    // Bridge from /jobs/[id] apply → /become-a-talent. Presence of a valid
+    // 64-char hex token signals "this submission inherits its CV from the
+    // source job_application; skip the upload + reuse cv_path/cv_text".
+    const bridgeTokenRaw = form.get("bridgeToken");
+    const bridgeToken =
+      typeof bridgeTokenRaw === "string" && /^[0-9a-f]{64}$/i.test(bridgeTokenRaw)
+        ? bridgeTokenRaw
+        : null;
+
     if (!firstName || !email) {
       return NextResponse.json(
         { error: "First name and email are required." },
@@ -313,6 +322,77 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
+    // Bridge: resolve the token to its source application + status BEFORE
+    // any other DB work. Invalid token → 400 hard fail. We don't silently
+    // degrade to the normal flow because the form should only send a token
+    // it successfully verified via /api/claim/pre-fill — an invalid token
+    // here means tampering, replay after claim, or post-expiry submit.
+    let bridgeContext:
+      | {
+          tokenRowId: string;
+          applicationId: string;
+          cvPath: string | null;
+          cvText: string | null;
+        }
+      | null = null;
+    if (bridgeToken) {
+      const { data: tokenRow } = await supabase
+        .from("talent_claim_tokens")
+        .select("id, candidate_id, source_table, status, expires_at")
+        .eq("token_hash", bridgeToken)
+        .eq("source_table", "job_applications")
+        .maybeSingle();
+
+      const tRow = tokenRow as
+        | {
+            id: string;
+            candidate_id: string;
+            source_table: string;
+            status: string;
+            expires_at: string;
+          }
+        | null;
+
+      if (!tRow) {
+        return NextResponse.json(
+          { error: "invalid_bridge_token" },
+          { status: 400 },
+        );
+      }
+      if (
+        new Date(tRow.expires_at) < new Date() ||
+        tRow.status === "claimed" ||
+        tRow.status === "expired"
+      ) {
+        return NextResponse.json(
+          { error: "invalid_bridge_token" },
+          { status: 400 },
+        );
+      }
+
+      const { data: sourceApp } = await supabase
+        .from("job_applications")
+        .select("cv_path, cv_text")
+        .eq("id", tRow.candidate_id)
+        .maybeSingle();
+      const sApp = sourceApp as
+        | { cv_path: string | null; cv_text: string | null }
+        | null;
+      if (!sApp) {
+        return NextResponse.json(
+          { error: "invalid_bridge_token" },
+          { status: 400 },
+        );
+      }
+
+      bridgeContext = {
+        tokenRowId: tRow.id,
+        applicationId: tRow.candidate_id,
+        cvPath: sApp.cv_path,
+        cvText: sApp.cv_text,
+      };
+    }
+
     // 1+2. Phase 4 J3: duplicate-by-email + duplicate-by-phone in parallel.
     // Both queries are independent (the 409 decision below combines them).
     // Sequential = sum of latencies; parallel = max. Saves 50-150 ms.
@@ -353,6 +433,22 @@ export async function POST(request: NextRequest) {
     }
 
     if (emailMatch || phoneMatch) {
+      // Bridge soft-fail: the candidate arrived from a job application but
+      // already has a talent_profile (from a prior bridge or direct
+      // signup). Don't 409 — instead send them to the claim-after-login
+      // flow so they can sign into their existing profile rather than
+      // see a generic "duplicate" error. The client interprets
+      // redirect: true via router.push.
+      if (bridgeContext) {
+        const existingId = (emailMatch ?? phoneMatch)?.id;
+        if (existingId) {
+          return NextResponse.json({
+            success: false,
+            redirect: true,
+            redirectUrl: `/talent/login?profile_id=${existingId}&source_table=talent_profiles`,
+          });
+        }
+      }
       return NextResponse.json(
         {
           error: "duplicate",
@@ -445,10 +541,15 @@ export async function POST(request: NextRequest) {
     // -------- CV: validate + prepare upload args --------
     //    Magic-byte gate: PDFs start with "%PDF" (0x25 0x50 0x44 0x46). The
     //    front-end accepts only PDF; this enforces the same on the server.
+    //
+    //    Bridge path: when a valid bridgeContext is present, we inherit the
+    //    CV from the source job_application. No upload runs; the existing
+    //    cv_path/cv_text on that application row are reused verbatim. The
+    //    `if (cvFile && …)` block is skipped via the !bridgeContext gate.
     let cvUploadArgs:
       | { path: string; buffer: Buffer }
       | null = null;
-    if (cvFile && cvFile.size > 0) {
+    if (!bridgeContext && cvFile && cvFile.size > 0) {
       if (cvFile.size > MAX_CV_FILE_BYTES) {
         return NextResponse.json(
           { error: "CV file is too large (max 10 MB)." },
@@ -529,9 +630,25 @@ export async function POST(request: NextRequest) {
       const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(cvUploadArgs.path);
       cvUrl = cUrl.publicUrl;
       cvPath = cvUploadArgs.path;
+    } else if (bridgeContext?.cvPath) {
+      // Bridge: inherit the source job_application's CV. Same "cvs" bucket;
+      // we just reference the existing object rather than uploading again.
+      const { data: cUrl } = supabase.storage
+        .from("cvs")
+        .getPublicUrl(bridgeContext.cvPath);
+      cvUrl = cUrl.publicUrl;
+      cvPath = bridgeContext.cvPath;
     }
 
-    // 4. Insert
+    // 4. Insert. Bridge override: in bridge mode we trust the cv_text
+    //    we copied server-side from the source job_application over any
+    //    client-supplied text (cvText comes from FormData "cv_text" which
+    //    the bridge UX never populates anyway).
+    const effectiveCvText = bridgeContext
+      ? bridgeContext.cvText
+      : cvText && cvText.length > MAX_CV_TEXT_LENGTH
+        ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
+        : cvText;
     const { error: insertError } = await supabase.from("talent_profiles").insert({
       first_name: firstName,
       last_name: lastName,
@@ -559,10 +676,7 @@ export async function POST(request: NextRequest) {
       avatar_url: avatarUrl,
       cv_url: cvUrl,
       cv_path: cvPath,
-      cv_text:
-        cvText && cvText.length > MAX_CV_TEXT_LENGTH
-          ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
-          : cvText,
+      cv_text: effectiveCvText,
       status: "pending",
     });
 
@@ -575,6 +689,27 @@ export async function POST(request: NextRequest) {
         { error: "Could not save your profile. Please try again." },
         { status: 500 },
       );
+    }
+
+    // Bridge: mark the token as claimed so it can't be replayed. Fire-and-
+    // -forget — if this fails the candidate is already in talent_profiles
+    // and a stale token is harmless (it will be rejected next time anyway
+    // since the email now has a row → 409/redirect path triggers).
+    if (bridgeContext) {
+      try {
+        await supabase
+          .from("talent_claim_tokens")
+          .update({
+            status: "claimed",
+            claimed_at: new Date().toISOString(),
+          })
+          .eq("id", bridgeContext.tokenRowId);
+      } catch (markErr) {
+        console.error(
+          "[talent] bridge token claim mark failed (non-fatal):",
+          markErr,
+        );
+      }
     }
 
     return NextResponse.json({ success: true });

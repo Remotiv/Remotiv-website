@@ -1897,12 +1897,20 @@ export default function BecomeATalentPage() {
                             ✓ Your CV from your job application will be used. No re-upload needed.
                           </div>
                         )}
-                        <h3 className="bta-sec-title">
-                          Upload your CV {!isBridgeSubmission && <span className="bta-req" aria-hidden="true">*</span>}
-                        </h3>
-                        {/** biome-ignore lint/a11y/noStaticElementInteractions: drag handlers on drop zone */}
-                        <div
-                          className={`bta-upload-zone ${cvDragOver ? "drag-over" : ""}`}
+                        {/* Bridge mode skips the entire CV upload UI: the CV
+                            from the source job_application is inherited
+                            server-side (api/talent/route.ts uses
+                            bridgeContext.cvPath when bridgeContext is set).
+                            Replacing the inherited CV would require editing
+                            the original job application — out of scope here. */}
+                        {!isBridgeSubmission && (
+                          <>
+                            <h3 className="bta-sec-title">
+                              Upload your CV <span className="bta-req" aria-hidden="true">*</span>
+                            </h3>
+                            {/** biome-ignore lint/a11y/noStaticElementInteractions: drag handlers on drop zone */}
+                            <div
+                              className={`bta-upload-zone ${cvDragOver ? "drag-over" : ""}`}
                           onDragOver={(e) => {
                             e.preventDefault();
                             setCvDragOver(true);
@@ -2010,6 +2018,8 @@ export default function BecomeATalentPage() {
                               Remove
                             </button>
                           </div>
+                        )}
+                          </>
                         )}
 
                         <div className="bta-spacer" />

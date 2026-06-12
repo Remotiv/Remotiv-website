@@ -1,17 +1,11 @@
 "use client";
 
 import { CheckCircle, Upload, X } from "lucide-react";
+import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
-
-// Constants previously colocated in _jobs-client.tsx but only ever used by
-// this modal — moved here so the parent doesn't pull them (and the strings)
-// into its bundle.
-
-const CONTACT_EMAIL = "talent@remotiv.work";
-const LINKEDIN_URL = "https://www.linkedin.com/company/remotiv-inc/";
 
 // Server cap is 5 MB; align the client so the UX rejects what the API would
 // reject anyway. See MAX_CV_FILE_BYTES in src/app/api/apply/route.ts.
@@ -71,7 +65,17 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
-  const [duplicateMsg, setDuplicateMsg] = useState(false);
+  // Bridge token returned by /api/apply on successful submission. Drives
+  // (1) the "Complete your profile" CTA in the success modal and (2) the
+  // auto-close skip — we don't want the modal to vanish before the
+  // candidate can click the CTA.
+  const [bridgeToken, setBridgeToken] = useState<string | null>(null);
+  // Same-job duplicate now returns { error: "duplicate_application", appliedAt }.
+  // Storing the timestamp lets the friendly screen tell the candidate when
+  // their existing application landed.
+  const [duplicateMsg, setDuplicateMsg] = useState<{
+    appliedAt: string | null;
+  } | null>(null);
   const fileRef = useRef<HTMLInputElement>(null);
   // Focus trap + focus-restore. The hook (src/hooks/use-focus-trap.ts) moves
   // initial focus into the modal on mount, cycles Tab/Shift+Tab within it,
@@ -82,12 +86,15 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
 
-  // Auto-close after success
+  // Auto-close after success — but only when we have nothing more to offer.
+  // When a bridge token is present, the success modal renders the
+  // "Complete your profile" CTA; killing the modal after 3s would yank it
+  // out from under the user mid-click.
   useEffect(() => {
-    if (!success) return;
+    if (!success || bridgeToken) return;
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
-  }, [success, onClose]);
+  }, [success, bridgeToken, onClose]);
 
   // Close on Escape
   useEffect(() => {
@@ -149,13 +156,29 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       const res = await fetch("/api/apply", { method: "POST", body: fd });
 
       if (res.status === 409) {
-        setDuplicateMsg(true);
+        // The server now distinguishes same-job duplicates with a
+        // structured shape. Older "duplicate" responses (no appliedAt)
+        // still flow through the same friendly screen — appliedAt is
+        // optional in the display.
+        const dupJson = (await res.json().catch(() => ({}))) as {
+          error?: string;
+          appliedAt?: string | null;
+        };
+        setDuplicateMsg({ appliedAt: dupJson.appliedAt ?? null });
         return;
       }
 
-      const json = await res.json() as { success?: boolean; error?: string };
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        applicationId?: string;
+        bridgeToken?: string | null;
+      };
       if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
 
+      if (typeof json.bridgeToken === "string" && json.bridgeToken.length === 64) {
+        setBridgeToken(json.bridgeToken);
+      }
       setSuccess(true);
     } catch (err) {
       setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
@@ -206,42 +229,42 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
 
               <div>
                 <h3 className="font-heading text-xl font-bold text-remotiv-text-dark">
-                  You&apos;re already in our talent pool! 🎉
+                  You&apos;ve already applied to this job
                 </h3>
                 <p className="mt-3 text-[0.9rem] leading-relaxed text-[#666]">
-                  It looks like your profile and CV are already with us. Our team
-                  reviews every application carefully and will reach out when the
-                  right opportunity comes along.
+                  {duplicateMsg.appliedAt ? (
+                    <>
+                      We received your application on{" "}
+                      <strong>
+                        {new Date(duplicateMsg.appliedAt).toLocaleDateString(
+                          undefined,
+                          { year: "numeric", month: "long", day: "numeric" },
+                        )}
+                      </strong>
+                      . We&apos;re reviewing it and will be in touch soon.
+                    </>
+                  ) : (
+                    <>We&apos;re reviewing your application and will be in touch soon.</>
+                  )}
                 </p>
               </div>
 
-              <div className="w-full rounded-2xl bg-remotiv-bg px-6 py-5 text-left">
-                <p className="mb-3 text-[0.8rem] font-semibold uppercase tracking-widest text-[#6b6b6b]">
-                  Want to apply for a specific role or update your details?
-                </p>
-                <a
-                  href={`mailto:${CONTACT_EMAIL}`}
-                  className="flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
+              <div className="flex w-full flex-col gap-3">
+                <Link
+                  href="/jobs"
+                  className="inline-flex w-full items-center justify-center rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition hover:opacity-90"
+                  onClick={onClose}
                 >
-                  📧 {CONTACT_EMAIL}
-                </a>
-                <a
-                  href={LINKEDIN_URL}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="mt-2 flex items-center gap-2 text-[0.9rem] font-medium text-remotiv-purple hover:underline"
+                  Browse other jobs →
+                </Link>
+                <button
+                  type="button"
+                  onClick={onClose}
+                  className="text-sm text-gray-600 hover:text-gray-900"
                 >
-                  🔗 linkedin.com/company/remotiv-inc
-                </a>
+                  Close
+                </button>
               </div>
-
-              <button
-                type="button"
-                onClick={onClose}
-                className="w-full min-h-11 rounded-xl bg-[#111] py-3.5 text-sm font-semibold text-white transition-colors hover:bg-[#333]"
-              >
-                Got it
-              </button>
             </div>
           ) : success ? (
             <div role="status" className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
@@ -249,9 +272,33 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                 <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
               </div>
               <h3 className="font-heading text-lg font-bold text-remotiv-text-dark">Application Submitted!</h3>
-              <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
-                We&apos;ll be in touch soon. This window will close automatically.
-              </p>
+              {bridgeToken ? (
+                <>
+                  <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
+                    Take 2 minutes to complete your talent profile and be visible
+                    to every Remotiv employer.
+                  </p>
+                  <div className="mt-2 flex w-full flex-col gap-3 px-2">
+                    <Link
+                      href={`/become-a-talent?token=${bridgeToken}`}
+                      className="inline-flex items-center justify-center rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition hover:opacity-90"
+                    >
+                      Complete your profile for more opportunities →
+                    </Link>
+                    <button
+                      type="button"
+                      onClick={onClose}
+                      className="text-sm text-gray-600 hover:text-gray-900"
+                    >
+                      Close
+                    </button>
+                  </div>
+                </>
+              ) : (
+                <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
+                  We&apos;ll be in touch soon. This window will close automatically.
+                </p>
+              )}
             </div>
           ) : (
             <form onSubmit={handleSubmit} className="px-5 py-5 sm:px-7 sm:py-6">
