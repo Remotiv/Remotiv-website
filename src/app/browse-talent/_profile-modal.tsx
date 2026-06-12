@@ -221,14 +221,21 @@ export default function ProfileModal({
             <div className="bt-profile-links">
               {c.github && (
                 isUnlocked ? (
-                  <a
-                    className="bt-plink"
-                    href={ensureHttpUrl(effectiveContact.github ?? c.github) ?? "#"}
-                    target="_blank"
-                    rel="noopener noreferrer"
-                  >
-                    GitHub
-                  </a>
+                  (() => {
+                    const url = ensureHttpUrl(effectiveContact.github ?? c.github);
+                    return url ? (
+                      <a
+                        className="bt-plink"
+                        href={url}
+                        target="_blank"
+                        rel="noopener noreferrer"
+                      >
+                        GitHub
+                      </a>
+                    ) : (
+                      <span className="bt-plink text-gray-400">GitHub unavailable</span>
+                    );
+                  })()
                 ) : canUnlock ? (
                   <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
                     GitHub · 1 credit
@@ -238,14 +245,21 @@ export default function ProfileModal({
                 )
               )}
               {isUnlocked && effectiveContact.linkedin ? (
-                <a
-                  className="bt-plink"
-                  href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                >
-                  LinkedIn
-                </a>
+                (() => {
+                  const url = ensureHttpUrl(effectiveContact.linkedin);
+                  return url ? (
+                    <a
+                      className="bt-plink"
+                      href={url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                    >
+                      LinkedIn
+                    </a>
+                  ) : (
+                    <span className="bt-plink text-gray-400">LinkedIn unavailable</span>
+                  );
+                })()
               ) : canUnlock ? (
                 <button type="button" className="bt-plink" onClick={onUnlock} title="Use 1 credit to unlock all contact details">
                   LinkedIn · 1 credit
@@ -428,14 +442,21 @@ export default function ProfileModal({
                 {effectiveContact.linkedin && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">LinkedIn</span>
-                    <a
-                      href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="bt-unlocked-link"
-                    >
-                      {effectiveContact.linkedin}
-                    </a>
+                    {(() => {
+                      const url = ensureHttpUrl(effectiveContact.linkedin);
+                      return url ? (
+                        <a
+                          href={url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="bt-unlocked-link"
+                        >
+                          {effectiveContact.linkedin}
+                        </a>
+                      ) : (
+                        <span className="bt-unlocked-link text-gray-400">LinkedIn unavailable</span>
+                      );
+                    })()}
                   </div>
                 )}
                 {effectiveContact.cvUrl && (

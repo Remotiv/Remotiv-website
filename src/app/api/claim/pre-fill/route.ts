@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // Bridge endpoint for the apply → become-a-talent flow. Verifies a
@@ -9,10 +10,26 @@ import { createServiceClient } from "@/lib/supabase/server";
 // same token (defense in depth — a tampered client can't lie about CV
 // provenance).
 
-export async function POST(req: Request) {
+export async function POST(request: Request) {
+  // Parity with /api/claim/initiate (5/min) and /api/claim/verify (10/min).
+  // 10/min matches verify since pre-fill runs once per form mount alongside
+  // verify in normal flows; a higher cap would let a tampered client probe
+  // tokens at scale.
+  const rl = rateLimit(request, {
+    bucketKey: "claim-prefill",
+    max: 10,
+    windowMs: 60_000,
+  });
+  if (!rl.ok) {
+    return NextResponse.json(
+      { error: "Too many requests" },
+      { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
+    );
+  }
+
   let token: string | undefined;
   try {
-    const body = (await req.json()) as { token?: unknown };
+    const body = (await request.json()) as { token?: unknown };
     if (typeof body?.token === "string") token = body.token;
   } catch {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });

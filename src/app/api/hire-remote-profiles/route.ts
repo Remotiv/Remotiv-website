@@ -14,11 +14,10 @@ const ALLOWED_IMAGE_TYPES = [
   "image/gif",
 ];
 
-const ALLOWED_CV_TYPES = [
-  "application/pdf",
-  "application/msword",
-  "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-];
+// M10: PDF only. DOC/DOCX were previously accepted on MIME-type alone with
+// no magic-byte verification, letting a renamed .exe / .html slip through
+// with a forged content type. Matches /become-a-talent's intake stance.
+const ALLOWED_CV_TYPES = ["application/pdf"];
 
 const MAX_CV_BYTES = 5 * 1024 * 1024;
 const MAX_PHOTO_BYTES = 5 * 1024 * 1024;
@@ -291,10 +290,11 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const filenameSlug = slug(normalisedEmail);
 
-    // 2. Upload CV (optional). For PDFs we cross-check magic bytes (%PDF) so a
-     //    renamed .html / .exe can't slip through with a forged content type.
-     //    DOC / DOCX rely on the MIME-type whitelist above — covering them
-     //    properly would mean adding OLE compound + ZIP-container checks.
+    // 2. Upload CV (optional). PDF only — we cross-check magic bytes (%PDF)
+    //    so a renamed .html / .exe can't slip through with a forged content
+    //    type. M10 removed DOC/DOCX from the allowlist; the magic-byte gate
+    //    is the only signature defense and OLE/ZIP container checks weren't
+    //    in place for those formats.
     let cvUrl: string | null = null;
     let cvPath: string | null = null;
     if (cvFile && cvFile.size > 0) {
@@ -306,7 +306,7 @@ export async function POST(request: NextRequest) {
       }
       if (cvFile.type && !ALLOWED_CV_TYPES.includes(cvFile.type)) {
         return NextResponse.json(
-          { error: `Unsupported CV type: ${cvFile.type}. Use PDF, DOC, or DOCX.` },
+          { error: `Unsupported CV type: ${cvFile.type}. Use PDF only.` },
           { status: 400 },
         );
       }

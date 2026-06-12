@@ -3,6 +3,7 @@
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { submitHireRequest } from "./hire-request-action";
 
 type EngagementType = "per_hour" | "per_month" | "full_time";
@@ -71,6 +72,11 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
   // M6: focus the success heading when step 4 mounts so keyboard + SR users
   // land on the new content instead of losing focus to <body>.
   const successHeadingRef = useRef<HTMLDivElement>(null);
+  // H7: focus trap. Mirrors the apply-modal + pricing-modal pattern. The
+  // hook only traps focus when `active` is true; gating on `open` means the
+  // trap auto-clears whenever the wizard is closed via Esc or backdrop click.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(dialogRef, open);
   useEffect(() => {
     if (step !== 4) return;
     const t = setTimeout(() => successHeadingRef.current?.focus(), 50);
@@ -181,6 +187,7 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
 
   return (
     <div
+      ref={dialogRef}
       role="dialog"
       aria-modal="true"
       aria-labelledby="hire-wizard-title"

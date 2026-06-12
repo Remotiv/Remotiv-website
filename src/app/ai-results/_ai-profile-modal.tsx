@@ -441,20 +441,36 @@ export default function AIProfileModal({
                 {unlockNote && (
                   <span className="text-[0.7rem] text-[#1d8c6b]">{unlockNote}</span>
                 )}
-                {effectiveContact.github && (
-                  <UnlockedContactLink
-                    href={ensureHttpUrl(effectiveContact.github) ?? "#"}
-                    label="GitHub"
-                    icon={<GithubIcon />}
-                  />
-                )}
-                {effectiveContact.linkedin && (
-                  <UnlockedContactLink
-                    href={ensureHttpUrl(effectiveContact.linkedin) ?? "#"}
-                    label="LinkedIn"
-                    icon={<LinkedinIcon />}
-                  />
-                )}
+                {effectiveContact.github &&
+                  (() => {
+                    const url = ensureHttpUrl(effectiveContact.github);
+                    return url ? (
+                      <UnlockedContactLink
+                        href={url}
+                        label="GitHub"
+                        icon={<GithubIcon />}
+                      />
+                    ) : (
+                      <span className="text-[0.8rem] text-gray-400">
+                        GitHub unavailable
+                      </span>
+                    );
+                  })()}
+                {effectiveContact.linkedin &&
+                  (() => {
+                    const url = ensureHttpUrl(effectiveContact.linkedin);
+                    return url ? (
+                      <UnlockedContactLink
+                        href={url}
+                        label="LinkedIn"
+                        icon={<LinkedinIcon />}
+                      />
+                    ) : (
+                      <span className="text-[0.8rem] text-gray-400">
+                        LinkedIn unavailable
+                      </span>
+                    );
+                  })()}
                 {effectiveContact.cvUrl && (
                   <button
                     type="button"

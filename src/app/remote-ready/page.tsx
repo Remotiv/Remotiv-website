@@ -488,13 +488,9 @@ export default function RemoteReadyPage() {
 
   function handleCv(file: File | undefined) {
     if (!file) return;
-    const allowed = [
-      "application/pdf",
-      "application/msword",
-      "application/vnd.openxmlformats-officedocument.wordprocessingml.document",
-    ];
+    const allowed = ["application/pdf"];
     if (!allowed.includes(file.type)) {
-      setStep4Error("CV must be a PDF, DOC, or DOCX file.");
+      setStep4Error("CV must be a PDF file.");
       return;
     }
     if (file.size > MAX_CV_SIZE_BYTES) {
@@ -1471,7 +1467,7 @@ function Step4(props: {
           <input
             ref={props.cvInputRef}
             type="file"
-            accept=".pdf,.doc,.docx"
+            accept=".pdf"
             onChange={(e) => props.handleCv(e.target.files?.[0])}
           />
           <div className="bta-upload-ico">📄</div>
@@ -1493,7 +1489,7 @@ function Step4(props: {
               </>
             )}
           </div>
-          <div className="bta-upload-fmt">PDF, DOC, or DOCX (max 5 MB)</div>
+          <div className="bta-upload-fmt">PDF only (max 5 MB)</div>
         </div>
 
         <div className="bta-spacer" />
