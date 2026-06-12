@@ -13,10 +13,22 @@ import "./jobs.css";
 // Re-export Job for any local consumers — type-only, no runtime cost.
 export type { Job };
 
-// ApplyModal is dynamically imported so its ~300 LOC + PDF.js boilerplate
-// (~600 KB on first parse) doesn't ship in the initial /jobs bundle for
-// users who never click "Apply now".
-const ApplyModal = dynamic(() => import("./_apply-modal"));
+// ApplyModal is dynamically imported so it doesn't ship in the initial /jobs
+// bundle for users who never click "Apply now". The loading shell mirrors the
+// real modal's backdrop + panel chrome so the first-open chunk fetch gives
+// instant feedback with no layout jump on swap.
+const ApplyModal = dynamic(() => import("./_apply-modal"), {
+  loading: () => (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading application form"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
+    >
+      <div className="relative mx-auto mb-6 mt-20 min-h-[420px] w-full max-w-lg rounded-[20px] bg-white shadow-2xl sm:my-16" />
+    </div>
+  ),
+});
 
 type ExperienceLevel = "Entry" | "Intermediate" | "Expert";
 type ContractType = "Full time" | "Part time" | "Contract";
@@ -88,8 +100,33 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
+// Active grid-column count, matched to the Tailwind breakpoints used on the
+// card grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` at line ~642). The
+// row-chunk size below pairs with this so the inline JobDetail panel always
+// lands after the row containing the clicked card — on mobile that means
+// directly below it instead of two cards away.
+//
+// Hydration-safe: initial render uses the desktop default (3), then the
+// effect corrects to the real viewport on mount. On wide-viewport SSR this
+// matches; on mobile, the brief mismatch is fine because no panel can be
+// open until the user clicks a card.
+function useColumnCount() {
+  const [cols, setCols] = useState(3);
+  useEffect(() => {
+    function update() {
+      const w = window.innerWidth;
+      setCols(w < 640 ? 1 : w < 1024 ? 2 : 3);
+    }
+    update();
+    window.addEventListener("resize", update);
+    return () => window.removeEventListener("resize", update);
+  }, []);
+  return cols;
+}
+
 export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const cols = useColumnCount();
   // Jobs are already populated from the server prop on mount, so we start in
   // the non-loading state. The refetch useEffect below skips its first run
   // (see isFirstRender ref) to avoid an immediate redundant client fetch.
@@ -358,7 +395,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     return result;
   }, [jobs, searchQuery, locationFilter, workMode, showFavorites, favorites]);
 
-  const rows = useMemo(() => chunk(filteredJobs, 3), [filteredJobs]);
+  const rows = useMemo(() => chunk(filteredJobs, cols), [filteredJobs, cols]);
 
   // Used by the empty-state branch to distinguish "filtered to nothing" from
   // "fetch failed and we have nothing to show". Only server-filters count —
