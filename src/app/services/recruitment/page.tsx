@@ -20,12 +20,13 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { cn } from "@/lib/utils";
 
 const STATS = [
   { number: "1 Day", label: "Shortlist in your inbox" },
   { number: "2 Weeks", label: "Average full placement" },
-  { number: "1M+", label: "Profiles in our database" },
+  { number: MARKETING_STATS.talentPool, label: "Profiles in our database" },
   { number: "90-Day", label: "Free replacement guarantee" },
 ] as const;
 
@@ -55,7 +56,7 @@ const WHY_ROWS = [
   {
     heading: "AI Precision + Human Judgment",
     body: "Our matching engine scans 1M+ profiles in seconds and scores candidates on technical fit, cultural alignment, timezone overlap, and communication quality. Then our recruiters call every shortlisted candidate personally. You get algorithmic speed with human context — not a raw database dump.",
-    stat: "1M+",
+    stat: MARKETING_STATS.talentPool,
     statLabel: "Profiles in our database",
     flip: true,
   },
@@ -172,7 +173,7 @@ const ADVANTAGE_ROWS = [
     label: "Your Budget Goes Further",
     color: "#7E47FF",
     cols: [
-      { title: "60–80% Cost Savings", body: "Pakistan's talent market delivers senior-caliber professionals at a fraction of US or UK rates." },
+      { title: `${MARKETING_STATS.savings} Cost Savings`, body: "Pakistan's talent market delivers senior-caliber professionals at a fraction of US or UK rates." },
       { title: "Double Your Team", body: "Hire two senior engineers for the price of one US equivalent — same quality, same timezone overlap." },
       { title: "Extend Your Runway", body: "The savings compound annually. Every hire through Remotiv stretches your budget by quarters, not weeks." },
     ],
@@ -444,7 +445,7 @@ export default function RecruitmentPage() {
                 one of the world&apos;s fastest-growing talent markets. Our AI scans 1M+ profiles
                 instantly, and our recruiters personally screen every match before they reach
                 you. You receive 3–5 interview-ready candidates within 1 business day, full
-                placement in 2 weeks, at 60–80% less than Western rates — backed by a 90-day
+                placement in 2 weeks, at {MARKETING_STATS.savings} less than Western rates — backed by a 90-day
                 replacement guarantee.
               </p>
             </div>

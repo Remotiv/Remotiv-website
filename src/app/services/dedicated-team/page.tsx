@@ -6,12 +6,29 @@ import { Fragment, useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
+
+// Split helpers — the StatCircle num/em pair takes a leading number ("60–")
+// and a styled trailing emphasis ("80%"). Sourcing from MARKETING_STATS so a
+// constant edit propagates here.
+const SAVINGS_SPLIT = (() => {
+  const m = MARKETING_STATS.savings.match(/^(\d+[-–])(.+)$/);
+  return m ? { num: m[1], em: m[2] } : { num: MARKETING_STATS.savings, em: "" };
+})();
+const PLACEMENT_TIME_SPLIT = (() => {
+  const parts = MARKETING_STATS.placementTime.split(" ");
+  return { num: `${parts[0]} `, em: parts.slice(1).join(" ") };
+})();
+const POOL_SPLIT = {
+  num: MARKETING_STATS.talentPool.replace(/\+$/, ""),
+  em: "+",
+};
 
 const HERO_STATS: readonly { num: string; em: string; label: string }[] = [
-  { num: "2 ", em: "weeks", label: "Team Ready to Start" },
-  { num: "60–", em: "80%", label: "Cost Savings vs US Hiring" },
+  { num: PLACEMENT_TIME_SPLIT.num, em: PLACEMENT_TIME_SPLIT.em, label: "Team Ready to Start" },
+  { num: SAVINGS_SPLIT.num, em: SAVINGS_SPLIT.em, label: "Cost Savings vs US Hiring" },
   { num: "$", em: "271K", label: "Avg. Annual Savings (5-person team)" },
-  { num: "1M", em: "+", label: "Active Candidates" },
+  { num: POOL_SPLIT.num, em: POOL_SPLIT.em, label: "Active Candidates" },
 ];
 
 const HOW_IT_WORKS: readonly { em: string; body: string }[] = [
@@ -37,7 +54,7 @@ const WHY_REMOTIV_TOP: readonly { badge: string; heading: string; body: string }
   },
   {
     badge: "Cost",
-    heading: "60–80% Less Than Hiring in the US",
+    heading: `${MARKETING_STATS.savings} Less Than Hiring in the US`,
     body: "Pakistan produces 500,000+ STEM graduates annually and is home to engineers who've shipped products at multiple companies and US-based startups. Remotiv gives you this talent at a fraction of Western rates — a 5-person team that costs $460K in the US costs approximately $189K through Remotiv.",
   },
 ];
@@ -221,7 +238,7 @@ const DIY_ROWS: readonly { label: string; remotiv: string; diy: string; both?: b
   { label: "Contracts & compliance", remotiv: "Included", diy: "Your legal team figures it out" },
   { label: "Monthly payroll", remotiv: "Processed for you", diy: "You manage local payroll rules" },
   { label: "HR & performance", remotiv: "Handled", diy: "You build from scratch" },
-  { label: "Cost vs US market", remotiv: "60–80% lower", diy: "Lower but setup costs are high" },
+  { label: "Cost vs US market", remotiv: `${MARKETING_STATS.savings} lower`, diy: "Lower but setup costs are high" },
   { label: "Scalability", remotiv: "Add / remove anytime", diy: "Slow and legally complex" },
   { label: "Replacement guarantee", remotiv: "Free, no paperwork", diy: "None — restart from zero" },
   { label: "IP ownership", remotiv: "100% yours", diy: "100% yours", both: true },

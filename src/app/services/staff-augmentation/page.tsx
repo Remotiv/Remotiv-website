@@ -5,13 +5,14 @@ import Link from "next/link";
 import { useRef, useState } from "react";
 import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { CalendarIcon, CheckBadge, ShieldIcon, TeamIcon } from "./_icons";
 
 const STATS: readonly { value: string; label: string }[] = [
   { value: "24 hrs", label: "First screened candidate in your inbox" },
-  { value: "60–80%", label: "Less than equivalent US hires" },
+  { value: MARKETING_STATS.savings, label: "Less than equivalent US hires" },
   { value: "Free", label: "Replacement guarantee" },
-  { value: "1M+", label: "Profiles in our database" },
+  { value: MARKETING_STATS.talentPool, label: "Profiles in our database" },
 ];
 
 const TI_POINTS: readonly {
@@ -77,7 +78,7 @@ const REASONS: readonly {
   {
     badge: { label: "AI + Human", tone: "dark" },
     title: "AI Finds Them. Recruiters Validate Them",
-    body: "Our matching engine scans 1M+ profiles in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally — verifying skills, communication, and availability — before you see a single profile. No raw database dumps. No unvetted resumes.",
+    body: `Our matching engine scans ${MARKETING_STATS.talentPool} profiles in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally — verifying skills, communication, and availability — before you see a single profile. No raw database dumps. No unvetted resumes.`,
   },
 ];
 
@@ -88,7 +89,7 @@ const STEPS: readonly { label: string; body: string }[] = [
   },
   {
     label: "We Match & Vet — 24–48 Hours",
-    body: "Our AI scans 1M+ profiles and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3–5 validated candidates.",
+    body: `Our AI scans ${MARKETING_STATS.talentPool} profiles and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3–5 validated candidates.`,
   },
   {
     label: "You Interview & Choose",
@@ -104,7 +105,7 @@ const STEP_METRICS: readonly { value: string; label: string }[] = [
   { value: "24 hrs", label: "First shortlist delivered" },
   { value: "Day 7", label: "Specialist starts work" },
   { value: "Free", label: "Replacement guarantee" },
-  { value: "1M+", label: "Vetted profiles" },
+  { value: MARKETING_STATS.talentPool, label: "Vetted profiles" },
 ];
 
 const STEP_BARS: readonly { fill: string; width: string; day: string }[] = [
@@ -331,7 +332,7 @@ const ADVANTAGES: readonly { label: string; color: AdvColor; cols: AdvCol[] }[] 
     color: "green",
     cols: [
       {
-        heading: "1M+ Profile Database",
+        heading: `${MARKETING_STATS.talentPool} Profile Database`,
         body: "Our database surfaces niche specialists that local hiring simply cannot produce on a 3-week timeline.",
         icon: (
           <svg viewBox="0 0 36 36" fill="none" aria-hidden="true" className="size-[22px]">
@@ -735,7 +736,7 @@ function FiveReasons() {
             <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2">
               <div className="flex flex-col rounded-2xl border border-black/[0.08] bg-white p-5 sm:p-6">
                 <h3 className="mb-2.5 font-heading text-[0.93rem] font-bold leading-[1.3] text-remotiv-text-dark">
-                  World-Class Output at 60–80% Less
+                  World-Class Output at {MARKETING_STATS.savings} Less
                 </h3>
                 <p className="text-[0.82rem] leading-[1.68] text-[#555]">
                   Pakistan produces 25,000+ STEM graduates annually. Remotiv gives you access to

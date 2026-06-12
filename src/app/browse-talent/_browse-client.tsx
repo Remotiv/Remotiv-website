@@ -7,6 +7,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { cn } from "@/lib/utils";
 import Tooltip from "@/components/tooltip";
 // Phase 5 C1: ModalShell is imported statically (~1KB, ships in main chunk)
@@ -145,7 +146,7 @@ export const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; labe
 // (18.4K → 18K, 9.8K → 9K, etc). Inflated claims invite trust issues; rounding
 // down keeps marketing-side numbers consistent with the actual talent pool.
 const ROLE_FILTERS: Array<{ key: "All" | RoleType; label: string; count: string; dot: string }> = [
-  { key: "All",       label: "All Talent",            count: "50K+", dot: "#49D7A7" },
+  { key: "All",       label: "All Talent",            count: MARKETING_STATS.talentPool, dot: "#49D7A7" },
   { key: "Engineer",  label: "Software Engineers",    count: "18K",  dot: "#60a5fa" },
   { key: "SDR",       label: "SDR / Sales",           count: "12K",  dot: "#a78bfa" },
   { key: "CS",        label: "Customer Success",      count: "9K",   dot: "#34d399" },
@@ -1189,7 +1190,7 @@ export function BrowseClient({
             previous 31,200+ to 31K+. */}
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Total Candidates</span>
-          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>50K+</span>
+          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>{MARKETING_STATS.talentPool}</span>
         </div>
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Engineers</span>

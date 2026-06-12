@@ -1,9 +1,10 @@
 import { Clock, Star, Users } from "lucide-react";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 
 const STATS = [
-  { icon: Clock, stat: "24 hrs", description: "From brief to shortlist delivered" },
+  { icon: Clock, stat: `${MARKETING_STATS.shortlistTime.split(" ")[0]} hrs`, description: "From brief to shortlist delivered" },
   { icon: Star, stat: "Top 1%", description: "Only engineers who pass our vetting" },
-  { icon: Users, stat: "85%", description: "Client retention rate after first hire" },
+  { icon: Users, stat: MARKETING_STATS.clientRetention, description: "Client retention rate after first hire" },
 ] as const;
 
 export function StatsCards() {

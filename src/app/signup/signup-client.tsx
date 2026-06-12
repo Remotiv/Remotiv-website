@@ -5,6 +5,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { createClient } from "@/lib/supabase/client";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 
 const PURPLE = "#7E47FF";
 const BG = "#f8f4f1";
@@ -104,7 +105,7 @@ export default function SignupClient({
           <div style={{ background: LIME, color: "#1a3a1a", fontSize: 11, padding: "5px 12px", borderRadius: 999, display: "inline-block", fontWeight: 500, marginBottom: 14 }}>
             Free to join
           </div>
-          <p style={{ fontSize: 14, color: "#666", margin: 0 }}>Start browsing 1M+ Talent</p>
+          <p style={{ fontSize: 14, color: "#666", margin: 0 }}>Start browsing {MARKETING_STATS.talentPool} Talent</p>
         </div>
 
         {error && (

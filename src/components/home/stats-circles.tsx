@@ -1,6 +1,14 @@
 "use client";
 
 import { useEffect, useRef, useState } from "react";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
+
+// Split helpers so the visual StatCircle (leading + suffix split for animation)
+// stays sourced from MARKETING_STATS — touching the constant propagates here.
+const POOL_LEADING = MARKETING_STATS.talentPool.replace(/\+$/, "");
+const RETENTION_LEADING = MARKETING_STATS.clientRetention.replace(/%$/, "");
+const SHORTLIST_LEADING = MARKETING_STATS.shortlistTime.split(" ")[0];
+const PLACEMENTS_TARGET = Number.parseInt(MARKETING_STATS.placements, 10);
 
 function useInView(threshold = 0.3) {
   const ref = useRef<HTMLDivElement>(null);
@@ -248,7 +256,7 @@ function Row1() {
         <StatCircle
           color="purple"
           spec={{
-            leading: "1M",
+            leading: POOL_LEADING,
             suffix: "+",
             numberSize: "2.8rem",
             numberColor: "#fff",
@@ -289,7 +297,7 @@ function Row2() {
             </>
           }
           labelColor="#555"
-          animate={{ target: 200 }}
+          animate={{ target: PLACEMENTS_TARGET }}
           visible={visible}
         />
       </div>
@@ -308,7 +316,7 @@ function Row2() {
         <StatCircle
           color="beige"
           spec={{
-            leading: "85",
+            leading: RETENTION_LEADING,
             suffix: "%",
             numberSize: "2.8rem",
             numberColor: "#111",
@@ -338,7 +346,7 @@ function Row3() {
         <StatCircle
           color="green"
           spec={{
-            leading: "24",
+            leading: SHORTLIST_LEADING,
             suffix: "hrs",
             numberSize: "2.3rem",
             numberColor: "#0A3D2A",

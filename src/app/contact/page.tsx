@@ -6,6 +6,7 @@ import { type FormEvent, useEffect, useRef, useState } from "react";
 import { submitContact } from "./actions";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 
 const INQUIRY_CARDS = [
   {
@@ -382,7 +383,7 @@ export default function ContactPage() {
                   </div>
                 ))}
               </div>
-              <span className="ml-3 text-xs text-[#111]/65">Trusted by 100+ companies worldwide</span>
+              <span className="ml-3 text-xs text-[#111]/65">Trusted by {MARKETING_STATS.companies} companies worldwide</span>
             </div>
 
             <div className="rounded-2xl bg-white px-6 py-7">

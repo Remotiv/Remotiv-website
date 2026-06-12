@@ -1,4 +1,5 @@
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 import BookingForm from "./_booking-form";
 import CalendlyEmbed from "./_calendly-embed";
 import DynamicCalendar from "./_dynamic-calendar";
@@ -212,7 +213,7 @@ export default function BookAMeetingPage() {
                 </div>
                 <div className="rounded-2xl border border-gray-100 bg-white p-4">
                   <p className="font-heading text-2xl font-bold text-remotiv-green">
-                    100+
+                    {MARKETING_STATS.companies}
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
                     Active Clients
@@ -220,7 +221,7 @@ export default function BookAMeetingPage() {
                 </div>
                 <div className="rounded-2xl border border-gray-100 bg-white p-4">
                   <p className="font-heading text-2xl font-bold text-remotiv-text-dark">
-                    60%
+                    {MARKETING_STATS.savings}
                   </p>
                   <p className="mt-1 text-[10px] uppercase tracking-wider text-gray-500">
                     Cost Savings

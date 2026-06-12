@@ -1,15 +1,16 @@
 import { headers } from "next/headers";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
+import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { HireMarketplace, type RemoteProfileRow } from "./_marketplace";
 
 export const dynamic = "force-dynamic";
 
 const HERO_STATS = [
-  "10K+ Experts",
+  `${MARKETING_STATS.talentPool} Talent Pool`,
   "$25–50/hr",
-  "2 weeks avg time to hire",
-  "98% client satisfaction",
+  `${MARKETING_STATS.placementTime} avg time to hire`,
+  `${MARKETING_STATS.clientRetention} Client Retention`,
 ] as const;
 
 // SSR page-1 fetch against our own API. Uses the request host so dev / preview
