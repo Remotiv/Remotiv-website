@@ -334,24 +334,28 @@ export default async function BrowseTalentPage({
           }),
         }}
       />
-      <BrowseClient
-        realProfiles={realProfiles}
-        tier={tier}
-        currentPage={Math.min(page, totalPages)}
-        totalPages={totalPages}
-        totalCount={totalCount}
-        pageSize={PAGE_SIZE}
-        activeRole={role}
-        activeQuery={q}
-        activeSort={sort}
-        claimedOnly={claimedOnly}
-        unlockedIds={Array.from(unlockedIds)}
-        creditsRemaining={creditsRemaining}
-        isSavedView={isSavedView}
-        savedIds={savedIdsArr}
-        initialOpenId={deepLinkId}
-        deepLinkedCard={deepLinkedCard}
-      />
+      {/* div, not <main> — BrowseClient renders its own <main> internally;
+          this only provides the skip-link target. */}
+      <div id="main">
+        <BrowseClient
+          realProfiles={realProfiles}
+          tier={tier}
+          currentPage={Math.min(page, totalPages)}
+          totalPages={totalPages}
+          totalCount={totalCount}
+          pageSize={PAGE_SIZE}
+          activeRole={role}
+          activeQuery={q}
+          activeSort={sort}
+          claimedOnly={claimedOnly}
+          unlockedIds={Array.from(unlockedIds)}
+          creditsRemaining={creditsRemaining}
+          isSavedView={isSavedView}
+          savedIds={savedIdsArr}
+          initialOpenId={deepLinkId}
+          deepLinkedCard={deepLinkedCard}
+        />
+      </div>
     </>
   );
 }

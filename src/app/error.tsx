@@ -25,10 +25,10 @@ export default function Error({
       <p className="font-sans text-base text-[#666] mb-8 max-w-md">
         Try again, or email us at{" "}
         <a
-          href="mailto:hello@remotiv.com"
+          href="mailto:talent@remotiv.work"
           className="text-remotiv-purple underline-offset-4 hover:underline"
         >
-          hello@remotiv.com
+          talent@remotiv.work
         </a>{" "}
         if the problem continues.
       </p>

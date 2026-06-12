@@ -8,7 +8,7 @@ export default function BookAMeetingPage() {
     <div className="min-h-screen bg-remotiv-bg font-sans">
       <Navbar />
 
-      <section className="px-6 pt-10 pb-4 md:px-10">
+      <section id="main" className="px-6 pt-10 pb-4 md:px-10">
         <div className="mx-auto max-w-[1100px]">
           <div className="relative flex flex-col items-stretch gap-12 overflow-hidden rounded-3xl bg-remotiv-lime-card p-6 sm:p-8 md:p-14 lg:min-h-[440px] lg:flex-row lg:items-center">
             <div className="flex flex-col gap-5 lg:w-[340px] lg:shrink-0">

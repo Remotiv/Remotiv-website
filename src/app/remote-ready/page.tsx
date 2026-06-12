@@ -666,7 +666,7 @@ export default function RemoteReadyPage() {
   return (
     <>
       <Navbar />
-      <div className="bta-root">
+      <div id="main" className="bta-root">
         <div className="bat-outer">
           <GridBackground>
             <div className="bat-pill">

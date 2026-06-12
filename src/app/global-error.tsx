@@ -56,10 +56,10 @@ export default function GlobalError({
         >
           Please refresh the page. If the problem persists, email us at{" "}
           <a
-            href="mailto:hello@remotiv.com"
+            href="mailto:talent@remotiv.work"
             style={{ color: "#7E47FF", textDecoration: "underline" }}
           >
-            hello@remotiv.com
+            talent@remotiv.work
           </a>
           .
         </p>

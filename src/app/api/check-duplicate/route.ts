@@ -72,7 +72,11 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("[check-duplicate]", error);
+        return NextResponse.json(
+          { error: "Couldn't check for duplicates. Please try again." },
+          { status: 500 },
+        );
       }
       if (data) {
         return NextResponse.json({
@@ -93,7 +97,11 @@ export async function POST(request: NextRequest) {
         .limit(100);
 
       if (error) {
-        return NextResponse.json({ error: error.message }, { status: 500 });
+        console.error("[check-duplicate]", error);
+        return NextResponse.json(
+          { error: "Couldn't check for duplicates. Please try again." },
+          { status: 500 },
+        );
       }
 
       const candidates = (rows ?? []) as unknown as ApplicantRow[];
@@ -107,7 +115,10 @@ export async function POST(request: NextRequest) {
 
     return NextResponse.json({ exists: false, applicant: null });
   } catch (err) {
-    const message = err instanceof Error ? err.message : "Unexpected error.";
-    return NextResponse.json({ error: message }, { status: 500 });
+    console.error("[check-duplicate]", err);
+    return NextResponse.json(
+      { error: "Couldn't check for duplicates. Please try again." },
+      { status: 500 },
+    );
   }
 }

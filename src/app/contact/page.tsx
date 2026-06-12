@@ -278,7 +278,7 @@ export default function ContactPage() {
   return (
     <>
       <Navbar />
-      <main className="bg-remotiv-bg font-sans">
+      <main id="main" className="bg-remotiv-bg font-sans">
         <section className="px-5 pb-14 pt-[72px] text-center sm:px-6">
           <div className="mb-7 inline-flex items-center gap-2 rounded-full border border-remotiv-purple/20 bg-remotiv-purple/10 px-5 py-[7px] text-xs font-semibold uppercase tracking-[0.06em] text-remotiv-purple">
             <span className="size-1.5 rounded-full bg-remotiv-purple" />

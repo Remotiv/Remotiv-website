@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import "./become-a-talent.css";
@@ -372,11 +373,77 @@ export default function BecomeATalentPage() {
   const [institution, setInstitution] = useState("");
   const [summary, setSummary] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
+  // Honeypot — bots fill this hidden input; humans leave it blank. Mirrors
+  // remote-ready's pattern. /api/talent checks the same field name
+  // (website_url) and silently fake-succeeds when it's non-empty.
+  const [websiteUrl, setWebsiteUrl] = useState("");
 
   const [submitState, setSubmitState] = useState<"form" | "success" | "duplicate">("form");
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [step1Error, setStep1Error] = useState<string | null>(null);
   const [step2Error, setStep2Error] = useState<string | null>(null);
+
+  // Bridge from /jobs/[id] apply → here. When a ?token=… arrives, we POST
+  // /api/claim/pre-fill, populate basic-info fields, set isBridgeSubmission,
+  // and (on submit) include the token so /api/talent inherits the CV
+  // server-side instead of requiring a re-upload. On any pre-fill error
+  // (404 / 410 / network) we surface a soft warning and let the candidate
+  // fill the form from scratch — never block.
+  const router = useRouter();
+  const searchParams = useSearchParams();
+  const [bridgeToken, setBridgeToken] = useState<string | null>(null);
+  const [isBridgeSubmission, setIsBridgeSubmission] = useState(false);
+  const [bridgeWarning, setBridgeWarning] = useState<string | null>(null);
+
+  useEffect(() => {
+    const tok = searchParams?.get("token") ?? null;
+    if (!tok || tok.length !== 64) return;
+    let cancelled = false;
+    (async () => {
+      try {
+        const res = await fetch("/api/claim/pre-fill", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ token: tok }),
+        });
+        const json = (await res.json().catch(() => ({}))) as {
+          success?: boolean;
+          prefill?: {
+            firstName?: string;
+            lastName?: string;
+            email?: string;
+            phone?: string;
+            linkedinUrl?: string;
+            hasCv?: boolean;
+          };
+        };
+        if (cancelled) return;
+        if (!res.ok || !json.success || !json.prefill) {
+          setBridgeWarning(
+            "Your invite link couldn't be loaded. Continue filling the form from scratch.",
+          );
+          return;
+        }
+        const p = json.prefill;
+        setFirstName(p.firstName ?? "");
+        setLastName(p.lastName ?? "");
+        setEmail(p.email ?? "");
+        setPhone(p.phone ?? "");
+        setLinkedinUrl(p.linkedinUrl ?? "");
+        setBridgeToken(tok);
+        setIsBridgeSubmission(true);
+      } catch {
+        if (!cancelled) {
+          setBridgeWarning(
+            "Your invite link couldn't be loaded. Continue filling the form from scratch.",
+          );
+        }
+      }
+    })();
+    return () => {
+      cancelled = true;
+    };
+  }, [searchParams]);
 
   // Phase 1 R2 H1: pure validators — return the error string (or null when
   // valid). Single source of truth for what counts as a valid step, used by
@@ -650,7 +717,9 @@ export default function BecomeATalentPage() {
       return;
     }
 
-    if (!cvFile) {
+    // Bridge inherits CV from the source job_application server-side, so
+    // the client-side CV requirement is waived in that path.
+    if (!cvFile && !isBridgeSubmission) {
       setSubmitError("Please upload your CV to continue");
       return;
     }
@@ -710,6 +779,7 @@ export default function BecomeATalentPage() {
       fd.append("country",        country);
       fd.append("linkedin_url",   linkedinUrl);
       fd.append("github_url",     githubUrl);
+      fd.append("website_url",    websiteUrl);
       // Phase 3 H2: send derived job_title + years_experience to populate the
       // API columns that were previously stored as null. role_category and
       // industry remain unsent (null stays — out of scope this round).
@@ -746,6 +816,7 @@ export default function BecomeATalentPage() {
       if (cvText.trim()) fd.append("cv_text", cvText);
       if (cvFile)        fd.append("cv",      cvFile);
       if (photoFile)     fd.append("photo",   photoFile);
+      if (bridgeToken)   fd.append("bridgeToken", bridgeToken);
 
       // Phase 4 G3: flip to "Uploading…" so the user sees the phase change
       // (PDF extraction → network upload). For non-PDF paths this is the
@@ -774,7 +845,19 @@ export default function BecomeATalentPage() {
         return;
       }
 
-      const json = await res.json() as { success?: boolean; error?: string };
+      const json = (await res.json()) as {
+        success?: boolean;
+        error?: string;
+        redirect?: boolean;
+        redirectUrl?: string;
+      };
+      // Bridge soft-fail: email already has a talent_profile → server
+      // sends 200 with redirect:true so we forward to claim-after-login
+      // rather than show a "duplicate" error.
+      if (json.redirect && typeof json.redirectUrl === "string") {
+        router.push(json.redirectUrl);
+        return;
+      }
       if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
 
       setSubmitState("success");
@@ -854,7 +937,7 @@ export default function BecomeATalentPage() {
   return (
     <>
       <Navbar />
-      <div className="bta-root">
+      <div id="main" className="bta-root">
         <div className="bat-outer">
           <GridBackground />
         </div>
@@ -887,6 +970,24 @@ export default function BecomeATalentPage() {
         <div className="bta-layout">
           <div>
             <div className="bta-form-card">
+              {/* Honeypot — hidden from humans, filled by bots */}
+              <input
+                type="text"
+                name="website_url"
+                tabIndex={-1}
+                autoComplete="off"
+                aria-hidden="true"
+                style={{
+                  position: "absolute",
+                  left: -9999,
+                  width: 0,
+                  height: 0,
+                  opacity: 0,
+                  pointerEvents: "none",
+                }}
+                value={websiteUrl}
+                onChange={(e) => setWebsiteUrl(e.target.value)}
+              />
               {submitted ? (
                 submitState === "duplicate" ? (
                   <div className="bta-success" style={{ display: "block" }}>
@@ -953,6 +1054,37 @@ export default function BecomeATalentPage() {
                 <>
                   {step === 1 && (
                     <div className="bta-form-step active">
+                      {isBridgeSubmission && (
+                        <div
+                          style={{
+                            marginBottom: 16,
+                            padding: "12px 16px",
+                            borderRadius: 12,
+                            background: "rgba(126, 71, 255, 0.08)",
+                            border: "1px solid rgba(126, 71, 255, 0.25)",
+                            color: "#5a2fcf",
+                            fontSize: ".88rem",
+                            fontWeight: 600,
+                          }}
+                        >
+                          ✓ Pre-filled from your job application — edit if needed.
+                        </div>
+                      )}
+                      {bridgeWarning && (
+                        <div
+                          style={{
+                            marginBottom: 16,
+                            padding: "12px 16px",
+                            borderRadius: 12,
+                            background: "#fff7ed",
+                            border: "1px solid #fed7aa",
+                            color: "#9a3412",
+                            fontSize: ".88rem",
+                          }}
+                        >
+                          {bridgeWarning}
+                        </div>
+                      )}
                       <div className="bta-form-header">
                         <div className="bta-fh-icon" aria-hidden="true">👤</div>
                         <div>
@@ -1749,8 +1881,24 @@ export default function BecomeATalentPage() {
                         </div>
                       </div>
                       <div className="bta-form-body">
+                        {isBridgeSubmission && (
+                          <div
+                            style={{
+                              marginBottom: 16,
+                              padding: "14px 18px",
+                              borderRadius: 12,
+                              background: "rgba(73, 215, 167, 0.10)",
+                              border: "1px solid rgba(73, 215, 167, 0.35)",
+                              color: "#0f6b4a",
+                              fontSize: ".9rem",
+                              fontWeight: 600,
+                            }}
+                          >
+                            ✓ Your CV from your job application will be used. No re-upload needed.
+                          </div>
+                        )}
                         <h3 className="bta-sec-title">
-                          Upload your CV <span className="bta-req" aria-hidden="true">*</span>
+                          Upload your CV {!isBridgeSubmission && <span className="bta-req" aria-hidden="true">*</span>}
                         </h3>
                         {/** biome-ignore lint/a11y/noStaticElementInteractions: drag handlers on drop zone */}
                         <div

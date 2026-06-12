@@ -69,7 +69,7 @@ export default function AIMatchingPage() {
     <div className="min-h-screen bg-remotiv-bg">
       <Navbar />
 
-      <section className="relative px-6 pb-10 pt-[72px] text-center">
+      <section id="main" className="relative px-6 pb-10 pt-[72px] text-center">
         <div className="mb-6 inline-flex items-center gap-1.5 rounded-full border border-remotiv-purple/[0.18] bg-remotiv-purple/[0.08] px-4 py-1.5 font-sans text-[0.8rem] font-medium text-remotiv-purple">
           <span className="size-1.5 motion-safe:animate-[aimPulse_2s_ease-in-out_infinite] rounded-full bg-remotiv-purple" />
           AI Matching

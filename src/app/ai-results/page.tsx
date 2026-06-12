@@ -1050,13 +1050,15 @@ export default function AIResultsPage() {
   return (
     <div className="min-h-screen bg-remotiv-bg">
       <Navbar />
-      <Suspense
-        fallback={
-          <div className="px-14 py-12 text-center font-sans text-[#777]">Loading results…</div>
-        }
-      >
-        <ResultsContent />
-      </Suspense>
+      <main id="main">
+        <Suspense
+          fallback={
+            <div className="px-14 py-12 text-center font-sans text-[#777]">Loading results…</div>
+          }
+        >
+          <ResultsContent />
+        </Suspense>
+      </main>
     </div>
   );
 }

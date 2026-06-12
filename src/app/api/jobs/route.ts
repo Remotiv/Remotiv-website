@@ -69,7 +69,13 @@ export async function GET(request: NextRequest) {
   const { data, error } = await query;
 
   if (error) {
-    return NextResponse.json({ error: error.message }, { status: 500 });
+    // Log the real Supabase error server-side; return a generic message so
+    // schema/constraint details aren't reconnaissance-leaked over the public API.
+    console.error("[jobs]", error);
+    return NextResponse.json(
+      { error: "Couldn't load jobs. Please try again." },
+      { status: 500 },
+    );
   }
 
   return NextResponse.json(data ?? []);
