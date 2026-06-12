@@ -18,6 +18,7 @@ export type Job = {
   category: "Engineering" | "Design" | "Sales" | "Marketing" | "Data" | "Support";
   experience_level: "Entry" | "Intermediate" | "Expert";
   language: string;
+  positions: number;
   description: string | null;
   status: "open" | "on_hold" | "closed";
   created_at: string;
@@ -35,6 +36,7 @@ export type JobInput = {
   category: string;
   experience_level: string;
   language: string;
+  positions: string;
   description: string;
   status: string;
 };
@@ -67,6 +69,7 @@ function buildPatch(input: JobInput):
       category: input.category,
       experience_level: input.experience_level,
       language: trimToNull(input.language) ?? "English",
+      positions: Math.max(1, Number.parseInt(input.positions, 10) || 1),
       description: trimToNull(input.description),
       status: input.status,
     },

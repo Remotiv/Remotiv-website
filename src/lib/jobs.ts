@@ -19,7 +19,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,status,created_at";
+  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,positions,status,created_at";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -36,6 +36,7 @@ export interface Job {
   category: string;
   experience_level: string;
   language: string;
+  positions: number;
   /** Optional because list-view queries omit it for payload size. The detail
    *  panel populates it via getJobById(). */
   description?: string | null;

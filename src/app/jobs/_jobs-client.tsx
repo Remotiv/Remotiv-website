@@ -1011,6 +1011,11 @@ const JobCard = memo(function JobCard({
           <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
             {job.work_type}
           </span>
+          {job.positions > 1 && (
+            <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">
+              {job.positions} Positions
+            </span>
+          )}
         </div>
       </div>
     </article>
@@ -1104,6 +1109,11 @@ function JobDetail({
               {tag}
             </span>
           ))}
+          {job.positions > 1 && (
+            <span className="rounded-full border-[1.5px] border-white/30 px-4 py-1.5 text-[0.75rem] font-semibold text-white">
+              {job.positions} Openings
+            </span>
+          )}
         </div>
         <div className="flex items-center gap-2.5">
           <button

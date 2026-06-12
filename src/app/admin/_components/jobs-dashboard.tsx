@@ -68,6 +68,7 @@ const EMPTY_FORM: JobInput = {
   category: "Engineering",
   experience_level: "Intermediate",
   language: "English",
+  positions: "1",
   description: "",
   status: "open",
 };
@@ -301,6 +302,7 @@ export function JobsDashboard({
       category: job.category,
       experience_level: job.experience_level,
       language: job.language,
+      positions: String(job.positions ?? 1),
       description: job.description ?? "",
       status: job.status,
     });
@@ -665,8 +667,8 @@ export function JobsDashboard({
                     <input id="jb-title" type="text" required placeholder="e.g. Senior React Developer" className={INPUT_CLS} value={form.title} onChange={(e) => set("title", e.target.value)} />
                   </div>
 
-                  {/* Company + Rating */}
-                  <div className="grid grid-cols-3 gap-3">
+                  {/* Company + Rating + Positions */}
+                  <div className="grid grid-cols-4 gap-3">
                     <div className="col-span-2">
                       <label className={LABEL_CLS} htmlFor="jb-company">Company</label>
                       <input id="jb-company" type="text" required placeholder="e.g. Cogent Labs" className={INPUT_CLS} value={form.company} onChange={(e) => set("company", e.target.value)} />
@@ -674,6 +676,10 @@ export function JobsDashboard({
                     <div>
                       <label className={LABEL_CLS} htmlFor="jb-rating">Rating</label>
                       <input id="jb-rating" type="number" min="0" max="5" step="0.1" placeholder="4.5" className={INPUT_CLS} value={form.company_rating} onChange={(e) => set("company_rating", e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={LABEL_CLS} htmlFor="jb-positions">No. of Positions</label>
+                      <input id="jb-positions" type="number" min="1" step="1" placeholder="1" className={INPUT_CLS} value={form.positions} onChange={(e) => set("positions", e.target.value)} />
                     </div>
                   </div>
 
