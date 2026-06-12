@@ -52,11 +52,11 @@ function fmtSalary(min: number | null, max: number | null): string {
   if (!min && !max) return "Salary not disclosed";
   const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
   if (min && max) {
-    if (min === max) return `${fmt(min)}/yr`;
-    return `${fmt(min)} – ${fmt(max)}/yr`;
+    if (min === max) return `${fmt(min)}/mo`;
+    return `${fmt(min)} – ${fmt(max)}/mo`;
   }
-  if (min) return `From ${fmt(min)}/yr`;
-  return `Up to ${fmt(max!)}/yr`;
+  if (min) return `From ${fmt(min)}/mo`;
+  return `Up to ${fmt(max!)}/mo`;
 }
 
 /**
