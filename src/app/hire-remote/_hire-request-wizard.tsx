@@ -59,6 +59,19 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
 
   const [emailTouched, setEmailTouched] = useState<boolean>(false);
 
+  // Entry fade — keyed on `open` (NOT a mount-once effect) because this
+  // component stays mounted and renders null when closed, so the fade must
+  // re-arm on every open.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    if (!open) {
+      setMounted(false);
+      return;
+    }
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, [open]);
+
   // OS-level reduced-motion preference. Evaluated once at mount — fine for
   // a modal that doesn't persist across sessions. Used to disable the option-
   // button + send-button inline transitions for users who opted out.
@@ -200,6 +213,8 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
         alignItems: "center",
         justifyContent: "center",
         padding: 16,
+        opacity: mounted ? 1 : 0,
+        transition: prefersReducedMotion ? undefined : "opacity 150ms ease-out",
       }}
       onClick={(e) => {
         if (e.target === e.currentTarget && !submitting) onClose();
@@ -219,6 +234,11 @@ export default function HireRequestWizard({ open, onClose, candidate }: HireRequ
           boxShadow: "0 12px 40px rgba(0,0,0,0.15)",
           fontFamily: "'DM Sans', system-ui, sans-serif",
           position: "relative",
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? "scale(1)" : "scale(0.97)",
+          transition: prefersReducedMotion
+            ? undefined
+            : "opacity 150ms ease-out, transform 150ms ease-out",
         }}
       >
         {/* honeypot */}

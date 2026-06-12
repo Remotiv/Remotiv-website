@@ -76,6 +76,12 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const [duplicateMsg, setDuplicateMsg] = useState<{
     appliedAt: string | null;
   } | null>(null);
+  // Entry fade — backdrop + panel transition in over 150ms after first paint.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
   const fileRef = useRef<HTMLInputElement>(null);
   // Focus trap + focus-restore. The hook (src/hooks/use-focus-trap.ts) moves
   // initial focus into the modal on mount, cycles Tab/Shift+Tab within it,
@@ -194,7 +200,8 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/50 p-4 backdrop-blur-sm"
+      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
+      style={{ opacity: mounted ? 1 : 0, transition: "opacity 150ms ease-out" }}
       role="dialog"
       aria-modal="true"
       aria-labelledby="apply-modal-title"
@@ -202,6 +209,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       <div
         ref={modalRef}
         className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? "scale(1)" : "scale(0.97)",
+          transition: "opacity 150ms ease-out, transform 150ms ease-out",
+        }}
       >
         {/* Header — sticky, never scrolls away */}
         <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">

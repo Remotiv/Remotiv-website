@@ -32,6 +32,18 @@ const PricingModal = dynamic(() => import("@/components/pricing-modal"), {
 // on return, costing a Claude call + a daily quota slot).
 const AIProfileModal = dynamic(() => import("./_ai-profile-modal"), {
   ssr: false,
+  // Loading shell — same backdrop + panel chrome as the real modal so the
+  // first-open chunk fetch gives instant feedback with no layout jump.
+  loading: () => (
+    <div
+      role="status"
+      aria-busy="true"
+      aria-label="Loading profile"
+      className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4"
+    >
+      <div className="min-h-[420px] w-full max-w-[720px] rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.2)] sm:rounded-[24px]" />
+    </div>
+  ),
 });
 
 // ── API contract ─────────────────────────────────────────────

@@ -128,6 +128,13 @@ export default function AIProfileModal({
   const [detail, setDetail] = useState<ProfileDetail | null>(null);
   const [isLoadingDetail, setIsLoadingDetail] = useState(true);
 
+  // Entry fade — backdrop + panel transition in over 150ms after first paint.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   useEffect(() => {
     let cancelled = false;
     setIsLoadingDetail(true);
@@ -222,12 +229,18 @@ export default function AIProfileModal({
       aria-modal="true"
       aria-labelledby="ai-profile-modal-title"
       className="fixed inset-0 z-[500] flex items-center justify-center bg-black/50 p-4"
+      style={{ opacity: mounted ? 1 : 0, transition: "opacity 150ms ease-out" }}
       onClick={(e) => {
         if (e.target === e.currentTarget) onClose();
       }}
     >
       <div
         className="relative flex max-h-[92dvh] w-full max-w-[720px] flex-col overflow-hidden rounded-[20px] bg-white shadow-[0_20px_60px_rgba(0,0,0,0.2)] sm:max-h-[90vh] sm:rounded-[24px]"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? "scale(1)" : "scale(0.97)",
+          transition: "opacity 150ms ease-out, transform 150ms ease-out",
+        }}
         onClick={(e) => e.stopPropagation()}
       >
         {/* Floating close button — always visible regardless of scroll */}

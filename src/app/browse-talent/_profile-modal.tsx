@@ -89,6 +89,13 @@ export default function ProfileModal({
   const [photoErrored, setPhotoErrored] = useState(false);
   const showPhoto = Boolean(c.photoUrl) && !photoErrored;
 
+  // Entry fade — backdrop + panel transition in over 150ms after first paint.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    const id = requestAnimationFrame(() => setMounted(true));
+    return () => cancelAnimationFrame(id);
+  }, []);
+
   // Phase 4 Lean Projection: degree, institution, experience now live on
   // `detail` (loaded lazily from fetchProfileDetail). `c.education` is the
   // legacy demo-data composite string ("Degree — Institution") — still
@@ -165,11 +172,17 @@ export default function ProfileModal({
   return (
     <div
       className="bt-modal-overlay"
+      style={{ opacity: mounted ? 1 : 0, transition: "opacity 150ms ease-out" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       role="presentation"
     >
       <div
         className="bt-modal-panel"
+        style={{
+          opacity: mounted ? 1 : 0,
+          transform: mounted ? "scale(1)" : "scale(0.97)",
+          transition: "opacity 150ms ease-out, transform 150ms ease-out",
+        }}
         onClick={(e) => e.stopPropagation()}
         role="dialog"
         aria-modal="true"
