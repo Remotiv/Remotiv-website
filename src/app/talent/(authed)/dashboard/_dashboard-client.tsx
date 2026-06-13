@@ -230,6 +230,10 @@ export function DashboardClient({
 
   const activeProfile =
     profiles.find((p) => p.sourceTable === activePool) ?? profiles[0];
+  // Approved profiles drive the "View public profile" buttons in the
+  // header. 0 → nothing rendered, 1 → generic single button, 2 → one
+  // pool-labelled button per profile. /talent/[id] handles both pools.
+  const approvedProfiles = profiles.filter((p) => p.approvedAt);
   const { pct } = activeProfile.matchScore;
   const missingNudge = buildMissingNudge(activeProfile.missingHighValueFields);
   const greetingName = activeProfile.firstName || "there";
@@ -264,13 +268,30 @@ export function DashboardClient({
             >
               Edit profile
             </Link>
-            {/* PLACEHOLDER URL — no /talent/{id} public route yet, sending to browse-talent */}
-            <Link
-              href="/browse-talent"
-              className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
-            >
-              View public profile ↗
-            </Link>
+            {approvedProfiles.length === 1 && (
+              <Link
+                href={`/talent/${approvedProfiles[0].id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+              >
+                View public profile ↗
+              </Link>
+            )}
+            {approvedProfiles.length >= 2 &&
+              approvedProfiles.map((p) => (
+                <Link
+                  key={p.id}
+                  href={`/talent/${p.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="inline-flex items-center gap-1 rounded-full border border-gray-200 bg-white px-3 py-1.5 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+                >
+                  {p.sourceTable === "talent_profiles"
+                    ? "View Pakistan profile ↗"
+                    : "View Remote profile ↗"}
+                </Link>
+              ))}
             <button
               type="button"
               onClick={handleSignOut}

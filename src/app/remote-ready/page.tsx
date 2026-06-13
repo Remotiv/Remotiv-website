@@ -203,6 +203,11 @@ function FooterNote() {
 export default function RemoteReadyPage() {
   const [step, setStep] = useState(1);
   const [submitted, setSubmitted] = useState(false);
+  // Mirrors /become-a-talent's pattern — discriminated union lets the
+  // submitted view branch into "Already in our network" vs. the normal
+  // success card. `submitted` stays as the outer toggle for back-compat.
+  type SubmitState = "form" | "success" | "duplicate";
+  const [submitState, setSubmitState] = useState<SubmitState>("form");
   const [submitting, setSubmitting] = useState(false);
 
   const [firstName, setFirstName]   = useState("");
@@ -612,14 +617,13 @@ export default function RemoteReadyPage() {
       });
 
       if (res.status === 409) {
-        const body = (await res.json().catch(() => ({}))) as { error?: string };
-        if (body.error === "duplicate_email") {
-          setStep4Error("You've already applied with this email address.");
-        } else if (body.error === "duplicate_phone") {
-          setStep4Error("You've already applied with this phone number.");
-        } else {
-          setStep4Error("You've already applied. We'll be in touch soon.");
-        }
+        // Unified duplicate handling — render the friendly "Already in
+        // our network" success card instead of an inline red error. The
+        // email-vs-phone-vs-generic distinction wasn't actionable for the
+        // user (both branches mean "use your existing account"). Mirrors
+        // /become-a-talent's duplicate-state pattern.
+        setSubmitState("duplicate");
+        setSubmitted(true);
         setSubmitting(false);
         return;
       }
@@ -751,6 +755,39 @@ export default function RemoteReadyPage() {
                 onChange={(e) => setWebsiteUrl(e.target.value)}
               />
               {submitted ? (
+                submitState === "duplicate" ? (
+                  <div className="bta-success" style={{ display: "block" }}>
+                    <div className="bta-success-ico">👋</div>
+                    <h2 className="bta-success-title">
+                      Already in our network
+                    </h2>
+                    <p className="bta-success-sub">
+                      You&apos;re already in our talent network! We&apos;ll reach out when the right
+                      opportunity comes along.
+                    </p>
+                    <a
+                      href="https://www.linkedin.com/company/remotiv-inc/"
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="bta-success-btn"
+                      style={{ background: "#7E47FF", color: "#fff" }}
+                      aria-label="Follow us on LinkedIn (opens in new tab)"
+                    >
+                      Follow us on LinkedIn →
+                    </a>
+                    <Link
+                      href="/talent/login"
+                      className="bta-success-btn"
+                      style={{
+                        background: "#fff",
+                        color: "#7E47FF",
+                        border: "1.5px solid #7E47FF",
+                      }}
+                    >
+                      Edit or manage your profile →
+                    </Link>
+                  </div>
+                ) : (
                 <div className="bta-success" style={{ display: "block" }}>
                   <div className="bta-success-ico">🎉</div>
                   <h2 className="bta-success-title">You&apos;re In!</h2>
@@ -782,6 +819,7 @@ export default function RemoteReadyPage() {
                     View Hire Remote →
                   </Link>
                 </div>
+                )
               ) : (
                 <>
                   {step === 1 && (
