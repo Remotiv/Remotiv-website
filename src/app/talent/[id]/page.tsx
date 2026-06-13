@@ -244,6 +244,7 @@ async function fetchProfile(id: string): Promise<UnifiedProfile | null> {
     )
     .eq("id", id)
     .not("approved_at", "is", null)
+    .not("status", "in", "(paused,archived)")
     .maybeSingle();
 
   if (pakRow) {
@@ -257,6 +258,7 @@ async function fetchProfile(id: string): Promise<UnifiedProfile | null> {
     )
     .eq("id", id)
     .not("approved_at", "is", null)
+    .not("status", "in", "(paused,archived)")
     .maybeSingle();
 
   if (remoteRow) {
