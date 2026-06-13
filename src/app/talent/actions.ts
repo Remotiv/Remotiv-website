@@ -125,16 +125,29 @@ export async function claimProfile(
 
   // Idempotent guard: only stamp if still unclaimed. If a parallel claim won
   // the race, the .is("claimed_at", null) predicate filters us out and the
-  // count returned is 0 — we treat that as "already claimed" without erroring.
-  const { error: updateErr } = await service
+  // returned array is empty — we short-circuit before firing notifications,
+  // email, or marking a token, all of which belong to the winner.
+  const { data: updatedRows, error: updateErr } = await service
     .from(sourceTable)
     .update(patch)
     .eq("id", profileId)
-    .is("claimed_at", null);
+    .is("claimed_at", null)
+    .select("id");
 
   if (updateErr) {
     console.error("[claimProfile] update failed:", updateErr);
     return { success: false, error: "Failed to claim profile" };
+  }
+
+  if (!updatedRows || updatedRows.length === 0) {
+    // Race loser: another session already claimed this profile between our
+    // claimed_at-null read above and the UPDATE here. Do NOT mark a token,
+    // fire admin notification, or send a success email — those side effects
+    // belong to the winner.
+    return {
+      success: false,
+      error: "This profile has already been claimed by another account.",
+    };
   }
 
   // Mark any open token as claimed. Idempotent — if nothing's open, no-op.

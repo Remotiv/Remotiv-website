@@ -697,16 +697,35 @@ export async function POST(request: NextRequest) {
     // since the email now has a row → 409/redirect path triggers).
     if (bridgeContext) {
       try {
-        await supabase
+        // .eq("status", "opened") guards against concurrent submits from a
+        // second tab also racing to mark this token claimed. .select("id")
+        // lets us detect the 0-row case (another session won the race).
+        // The profile insert above already succeeded — we can't roll it
+        // back here, so on either error path we log and proceed; nightly
+        // token cleanup will sweep any orphaned "opened" rows.
+        const { data: claimedRows, error: claimErr } = await supabase
           .from("talent_claim_tokens")
           .update({
             status: "claimed",
             claimed_at: new Date().toISOString(),
           })
-          .eq("id", bridgeContext.tokenRowId);
+          .eq("id", bridgeContext.tokenRowId)
+          .eq("status", "opened")
+          .select("id");
+
+        if (claimErr) {
+          console.error(
+            "[talent] bridge token claim mark failed (non-fatal):",
+            claimErr,
+          );
+        } else if (!claimedRows || claimedRows.length === 0) {
+          console.warn(
+            "[talent] bridge token already claimed by another session (non-fatal)",
+          );
+        }
       } catch (markErr) {
         console.error(
-          "[talent] bridge token claim mark failed (non-fatal):",
+          "[talent] bridge token claim mark threw (non-fatal):",
           markErr,
         );
       }

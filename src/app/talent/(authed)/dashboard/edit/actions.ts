@@ -192,10 +192,7 @@ export async function updateTalentBasicInfo(
   input: UpdateBasicInfoInput,
 ): Promise<MutationResult<BasicInfoData>> {
   const { profileId, sourceTable } = input;
-  if (
-    sourceTable !== "talent_profiles" &&
-    sourceTable !== "hire_remote_profiles"
-  ) {
+  if (sourceTable !== "talent_profiles") {
     return { success: false, error: "Invalid profile." };
   }
 
@@ -299,10 +296,7 @@ export async function updateTalentLocation(
   input: UpdateLocationInput,
 ): Promise<MutationResult<LocationData>> {
   const { profileId, sourceTable } = input;
-  if (
-    sourceTable !== "talent_profiles" &&
-    sourceTable !== "hire_remote_profiles"
-  ) {
+  if (sourceTable !== "talent_profiles") {
     return { success: false, error: "Invalid profile." };
   }
 
@@ -374,10 +368,7 @@ export async function updateTalentProfessional(
   input: UpdateProfessionalInput,
 ): Promise<MutationResult<ProfessionalData>> {
   const { profileId, sourceTable } = input;
-  if (
-    sourceTable !== "talent_profiles" &&
-    sourceTable !== "hire_remote_profiles"
-  ) {
+  if (sourceTable !== "talent_profiles") {
     return { success: false, error: "Invalid profile." };
   }
 
@@ -503,10 +494,7 @@ export async function updateTalentAvailabilitySalary(
   input: UpdateAvailabilitySalaryInput,
 ): Promise<MutationResult<AvailabilitySalaryData>> {
   const { profileId, sourceTable } = input;
-  if (
-    sourceTable !== "talent_profiles" &&
-    sourceTable !== "hire_remote_profiles"
-  ) {
+  if (sourceTable !== "talent_profiles") {
     return { success: false, error: "Invalid profile." };
   }
 
@@ -664,10 +652,7 @@ export async function updateTalentSkillsExperience(
   input: UpdateSkillsExperienceInput,
 ): Promise<MutationResult<SkillsExperienceData>> {
   const { profileId, sourceTable } = input;
-  if (
-    sourceTable !== "talent_profiles" &&
-    sourceTable !== "hire_remote_profiles"
-  ) {
+  if (sourceTable !== "talent_profiles") {
     return { success: false, error: "Invalid profile." };
   }
 

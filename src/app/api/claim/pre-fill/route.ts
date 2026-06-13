@@ -83,15 +83,26 @@ export async function POST(request: Request) {
 
   // Idempotently mark as opened (first-time only). Subsequent pre-fill
   // hits on an already-opened token still succeed — the candidate may
-  // refresh the form mid-fill.
+  // refresh the form mid-fill. The .eq("status", "pending") guard makes
+  // the UPDATE concurrency-safe: two tabs racing the open both pass the
+  // status === "pending" client-side check but only one succeeds at the
+  // DB level; the loser's UPDATE is filtered out. The pre-fill response
+  // body is read-only data, so a no-op UPDATE is harmless.
   if (row.status === "pending") {
-    await service
+    const { error: openErr } = await service
       .from("talent_claim_tokens")
       .update({
         status: "opened",
         opened_at: new Date().toISOString(),
       })
-      .eq("id", row.id);
+      .eq("id", row.id)
+      .eq("status", "pending");
+    if (openErr) {
+      console.error(
+        "[api/claim/pre-fill] Failed to mark token opened (non-fatal):",
+        openErr,
+      );
+    }
   }
 
   const application = app as {
