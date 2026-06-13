@@ -282,13 +282,39 @@ export function DashboardClient({
           </div>
         </header>
 
+        {activeProfile && claimStates.get(activeProfile.id)?.kind === "claimable" && (
+          <section
+            data-upsell-pool={activeProfile.sourceTable}
+            className="mb-6 rounded-2xl border border-remotiv-purple/20 bg-remotiv-purple/5 p-5 md:p-6"
+          >
+            <div className="flex flex-col gap-4 md:flex-row md:items-center md:justify-between">
+              <div className="min-w-0 flex-1">
+                <h2 className="font-heading text-lg font-bold text-gray-900 md:text-xl">
+                  Claim your profile to get noticed by more companies
+                </h2>
+                <p className="mt-2 text-sm leading-relaxed text-gray-600 md:text-[15px]">
+                  Companies prefer verified profiles. Claim yours to edit your info, get shortlist notifications, and stand out.
+                </p>
+              </div>
+              <button
+                type="button"
+                onClick={() => handleClaim(activeProfile)}
+                disabled={claimingId === activeProfile.id}
+                className="shrink-0 rounded-full bg-remotiv-purple px-6 py-3 text-sm font-bold text-white hover:opacity-90 disabled:opacity-50"
+              >
+                {claimingId === activeProfile.id ? "Claiming…" : "Claim now →"}
+              </button>
+            </div>
+          </section>
+        )}
+
         {profiles.length > 0 && (
           <div className="mb-4 flex flex-wrap gap-2">
             {profiles.map((p) => {
               const active = p.sourceTable === activeProfile.sourceTable;
               const state = claimStates.get(p.id);
-              const isClaimable = state?.kind === "claimable";
               const isPending = state?.kind === "pending";
+              const isClaimed = state?.kind === "claimed";
               return (
                 <div
                   key={p.sourceTable}
@@ -305,19 +331,14 @@ export function DashboardClient({
                   >
                     {p.poolLabel}
                   </button>
-                  {isClaimable && (
-                    <button
-                      type="button"
-                      onClick={() => handleClaim(p)}
-                      disabled={claimingId === p.id}
-                      className="rounded-full bg-remotiv-purple px-3 py-1.5 text-[11px] font-bold text-white hover:opacity-90 disabled:opacity-50"
-                    >
-                      {claimingId === p.id ? "Claiming…" : "Claim →"}
-                    </button>
-                  )}
                   {isPending && (
                     <span className="rounded-full bg-gray-100 px-3 py-1.5 text-[11px] font-semibold text-gray-600">
                       Awaiting approval
+                    </span>
+                  )}
+                  {isClaimed && (
+                    <span className="rounded-full bg-remotiv-green/15 px-3 py-1.5 text-[11px] font-semibold text-remotiv-green">
+                      ✓ Claimed
                     </span>
                   )}
                 </div>

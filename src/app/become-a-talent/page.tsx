@@ -1009,6 +1009,17 @@ export default function BecomeATalentPage() {
                     >
                       Follow us on LinkedIn →
                     </a>
+                    <Link
+                      href="/talent/login"
+                      className="bta-success-btn"
+                      style={{
+                        background: "#fff",
+                        color: "#7E47FF",
+                        border: "1.5px solid #7E47FF",
+                      }}
+                    >
+                      Edit or manage your profile →
+                    </Link>
                   </div>
                 ) : (
                   <div className="bta-success" style={{ display: "block" }}>
