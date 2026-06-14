@@ -293,11 +293,11 @@ export async function POST(request: NextRequest) {
       try {
         await supabase.storage.from(CV_BUCKET).remove([path]);
       } catch (cleanupErr) {
+        // [CV_ORPHAN] is the production grep tag — search logs for this
+        // marker to surface every storage object whose rollback failed.
         console.error(
-          "[/api/apply] rollback delete failed (CV orphaned at",
-          path,
-          "):",
-          cleanupErr,
+          "[CV_ORPHAN][/api/apply] rollback delete failed",
+          { path, bucket: CV_BUCKET, error: cleanupErr },
         );
       }
       return NextResponse.json(

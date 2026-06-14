@@ -104,6 +104,35 @@ function validUrl(raw: string | null, allowedHosts: string[]): string | null {
   }
 }
 
+// H4: storage rollback helper. When a multi-step request uploads files and
+// then fails (either upload error after a sibling already succeeded, or a
+// DB insert failure once both files are in storage), we delete every
+// successfully-uploaded object so production storage doesn't accumulate
+// orphans. Logs [CV_ORPHAN] on cleanup failure so production grep surfaces
+// the leak. Inlined here (NOT a shared lib) per the H4 commit policy.
+async function rollbackUploadedFiles(
+  supabase: ReturnType<typeof createServiceClient>,
+  paths: { bucket: string; path: string }[],
+  routeTag: string,
+): Promise<void> {
+  for (const { bucket, path } of paths) {
+    try {
+      const { error } = await supabase.storage.from(bucket).remove([path]);
+      if (error) {
+        console.error(
+          `[CV_ORPHAN]${routeTag} rollback delete returned error`,
+          { path, bucket, error },
+        );
+      }
+    } catch (cleanupErr) {
+      console.error(
+        `[CV_ORPHAN]${routeTag} rollback delete threw`,
+        { path, bucket, error: cleanupErr },
+      );
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rl = rateLimit(request, { bucketKey: "talent" });
   if (!rl.ok) {
@@ -595,11 +624,24 @@ export async function POST(request: NextRequest) {
         : Promise.resolve(null),
     ]);
 
+    // H4: track every successfully-uploaded object so failures after this
+    // point can roll them back. Photo + CV upload in parallel, so a sibling
+    // can succeed even when the partner fails — push BEFORE the error
+    // checks so the error branch can roll back the partner.
+    const uploadedPaths: { bucket: string; path: string }[] = [];
+    if (photoUploadArgs && !photoUploadResult?.error) {
+      uploadedPaths.push({ bucket: "talent_photos", path: photoUploadArgs.path });
+    }
+    if (cvUploadArgs && !cvUploadResult?.error) {
+      uploadedPaths.push({ bucket: "cvs", path: cvUploadArgs.path });
+    }
+
     // -------- Per-file error handling (Phase 2 E1 generic messages preserved) --------
     if (photoUploadResult?.error) {
       // Phase 2 E1: log the real Supabase error server-side; return a
       // generic message to the client so DB / storage internals don't leak.
       console.error("[talent] photo upload failed:", photoUploadResult.error);
+      await rollbackUploadedFiles(supabase, uploadedPaths, "/api/talent");
       return NextResponse.json(
         { error: "Could not upload photo. Please try again." },
         { status: 500 },
@@ -608,6 +650,7 @@ export async function POST(request: NextRequest) {
     if (cvUploadResult?.error) {
       // Phase 2 E1: log full Supabase error server-side, return generic.
       console.error("[talent] cv upload failed:", cvUploadResult.error);
+      await rollbackUploadedFiles(supabase, uploadedPaths, "/api/talent");
       return NextResponse.json(
         { error: "Could not upload CV. Please try again." },
         { status: 500 },
@@ -685,6 +728,10 @@ export async function POST(request: NextRequest) {
       // column, code) server-side; return a generic client message so DB
       // schema details aren't reconnaissance-leaked over the public API.
       console.error("[talent] insert failed:", insertError);
+      // H4: both files (if any) are in storage but no DB row landed —
+      // rollback so storage doesn't keep them. Bridge mode skips CV upload
+      // so uploadedPaths may contain only the photo, or be empty.
+      await rollbackUploadedFiles(supabase, uploadedPaths, "/api/talent");
       return NextResponse.json(
         { error: "Could not save your profile. Please try again." },
         { status: 500 },

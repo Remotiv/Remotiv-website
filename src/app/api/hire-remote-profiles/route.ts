@@ -61,6 +61,35 @@ function fileExt(name: string, fallback = "bin"): string {
   return m ? m[1] : fallback;
 }
 
+// H4: storage rollback helper. When a multi-step request uploads files and
+// then fails (either upload error after a sibling already succeeded, or a
+// DB insert failure once both files are in storage), we delete every
+// successfully-uploaded object so production storage doesn't accumulate
+// orphans. Logs [CV_ORPHAN] on cleanup failure so production grep surfaces
+// the leak. Inlined here (NOT a shared lib) per the H4 commit policy.
+async function rollbackUploadedFiles(
+  supabase: ReturnType<typeof createServiceClient>,
+  paths: { bucket: string; path: string }[],
+  routeTag: string,
+): Promise<void> {
+  for (const { bucket, path } of paths) {
+    try {
+      const { error } = await supabase.storage.from(bucket).remove([path]);
+      if (error) {
+        console.error(
+          `[CV_ORPHAN]${routeTag} rollback delete returned error`,
+          { path, bucket, error },
+        );
+      }
+    } catch (cleanupErr) {
+      console.error(
+        `[CV_ORPHAN]${routeTag} rollback delete threw`,
+        { path, bucket, error: cleanupErr },
+      );
+    }
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rl = rateLimit(request, { bucketKey: "hire-remote" });
   if (!rl.ok) {
@@ -290,6 +319,13 @@ export async function POST(request: NextRequest) {
     const timestamp = Date.now();
     const filenameSlug = slug(normalisedEmail);
 
+    // H4: every successfully-uploaded storage object goes here so any later
+    // failure (sibling upload error, DB insert error) can roll them back.
+    // Uploads are sequential (CV first, then photo, then DB insert) — push
+    // immediately after each successful upload so the next failure point
+    // can clean up everything that landed before it.
+    const uploadedPaths: { bucket: string; path: string }[] = [];
+
     // 2. Upload CV (optional). PDF only — we cross-check magic bytes (%PDF)
     //    so a renamed .html / .exe can't slip through with a forged content
     //    type. M10 removed DOC/DOCX from the allowlist; the magic-byte gate
@@ -334,8 +370,12 @@ export async function POST(request: NextRequest) {
           upsert: false,
         });
       if (cvErr) {
+        // H4: CV upload failed BEFORE anything else uploaded — nothing to
+        // roll back, just return. (Photo upload happens after this block.)
         return NextResponse.json({ error: cvErr.message }, { status: 500 });
       }
+      // H4: CV uploaded successfully — track so a later failure can clean it up.
+      uploadedPaths.push({ bucket: "cvs", path });
       const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
       cvUrl = cUrl.publicUrl;
       cvPath = path;
@@ -370,8 +410,17 @@ export async function POST(request: NextRequest) {
         .from("talent_photos")
         .upload(path, buf, { contentType, upsert: false });
       if (photoErr) {
+        // H4: photo upload failed AFTER CV (if any) succeeded — roll back
+        // the CV so the partial submission doesn't leak storage.
+        await rollbackUploadedFiles(
+          supabase,
+          uploadedPaths,
+          "/api/hire-remote-profiles",
+        );
         return NextResponse.json({ error: photoErr.message }, { status: 500 });
       }
+      // H4: photo uploaded successfully — track for potential later rollback.
+      uploadedPaths.push({ bucket: "talent_photos", path });
       photoPath = path;
     }
 
@@ -415,6 +464,14 @@ export async function POST(request: NextRequest) {
       });
 
     if (insertError) {
+      // H4: DB insert failed but uploaded files (if any) are already in
+      // storage — roll them back so no orphan accumulates without a
+      // matching DB row.
+      await rollbackUploadedFiles(
+        supabase,
+        uploadedPaths,
+        "/api/hire-remote-profiles",
+      );
       return NextResponse.json({ error: insertError.message }, { status: 500 });
     }
 
