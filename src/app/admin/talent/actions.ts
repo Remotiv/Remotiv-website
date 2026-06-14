@@ -71,6 +71,10 @@ export type TalentProfile = {
   avatar_url: string | null;
   cv_url: string | null;
   status: TalentStatus;
+  is_shortlisted: boolean;
+  is_placed: boolean;
+  is_paused: boolean;
+  is_archived: boolean;
   approved_at: string | null;
   claimed_at: string | null;
   notes: string | null;
@@ -170,6 +174,51 @@ export async function updateTalentStatus(
       }
     }
   }
+
+  revalidatePath("/admin/talent");
+  revalidatePath("/browse-talent");
+  return { success: true, data: undefined };
+}
+
+// Migration 014: replaces the single-status admin actions with orthogonal
+// boolean flags. The Approve action (which stamps approved_at) lives in
+// updateTalentStatus above and is unchanged — setTalentFlag covers the
+// shortlisted / placed / paused / archived axes only.
+//
+// Mutual exclusion: shortlisted and placed are conceptually exclusive (a
+// candidate is either in-flight with a client or has accepted an offer,
+// never both). Setting either to true clears the other at the DB level.
+// Paused and archived are independent — they can be set in any combo with
+// the shortlisted/placed pair.
+export type TalentFlag = "shortlisted" | "placed" | "paused" | "archived";
+
+export async function setTalentFlag(
+  id: string,
+  flag: TalentFlag,
+  value: boolean,
+): Promise<MutationResult<undefined>> {
+  await requireAdmin();
+  const supabase = createServiceClient();
+
+  const patch: Record<string, boolean> = {};
+  if (flag === "placed") {
+    patch.is_placed = value;
+    if (value) patch.is_shortlisted = false;
+  } else if (flag === "shortlisted") {
+    patch.is_shortlisted = value;
+    if (value) patch.is_placed = false;
+  } else if (flag === "paused") {
+    patch.is_paused = value;
+  } else {
+    patch.is_archived = value;
+  }
+
+  const { error } = await supabase
+    .from("talent_profiles")
+    .update(patch)
+    .eq("id", id);
+
+  if (error) return { success: false, error: error.message };
 
   revalidatePath("/admin/talent");
   revalidatePath("/browse-talent");
@@ -340,6 +389,10 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
     avatar_url: (r.avatar_url as string | null) ?? null,
     cv_url: (r.cv_url as string | null) ?? null,
     status: ((r.status as TalentStatus) ?? "pending"),
+    is_shortlisted: Boolean(r.is_shortlisted),
+    is_placed: Boolean(r.is_placed),
+    is_paused: Boolean(r.is_paused),
+    is_archived: Boolean(r.is_archived),
     approved_at: (r.approved_at as string | null) ?? null,
     claimed_at: (r.claimed_at as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,

@@ -50,6 +50,8 @@ const AddToBatchModal = dynamic(
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   updateTalentStatus,
+  setTalentFlag,
+  type TalentFlag,
   saveTalentNote,
   deleteTalentProfile,
   fetchTalentInviteStatuses,
@@ -88,9 +90,26 @@ const CATEGORY_LABELS: Record<string, string> = {
   Other: "Other",
 };
 
-const STATUS_FILTERS: Array<"All" | TalentStatus> = [
+// Migration 014: filter values map onto boolean predicates (see
+// matchesFilterValue below). Pending/Approved gate on approved_at; the
+// remaining four gate on their boolean flag. STATUS_LABELS lookup still
+// works because the strings are identical to the old TalentStatus enum.
+type FilterValue = "All" | "pending" | "approved" | TalentFlag;
+const STATUS_FILTERS: FilterValue[] = [
   "All", "pending", "approved", "shortlisted", "placed", "paused", "archived",
 ];
+
+function matchesFilterValue(p: TalentProfile, v: FilterValue): boolean {
+  switch (v) {
+    case "All":         return true;
+    case "pending":     return !p.approved_at;
+    case "approved":    return Boolean(p.approved_at);
+    case "shortlisted": return p.is_shortlisted;
+    case "placed":      return p.is_placed;
+    case "paused":      return p.is_paused;
+    case "archived":    return p.is_archived;
+  }
+}
 
 const STATUS_LABELS: Record<string, string> = {
   All: "All",
@@ -113,6 +132,31 @@ const STATUS_BADGE: Record<TalentStatus, string> = {
 
 const AVAILABILITY_FILTERS = ["All", "Available Now", "Not Available"] as const;
 const WORK_TYPE_FILTERS    = ["All", "Full-time", "Part-time", "Contract"] as const;
+
+// Migration 014: map TalentFlag → the corresponding boolean column. Lets
+// handleSetFlag's optimistic patch index into the profile by the flag name.
+const FLAG_TO_FIELD: Record<TalentFlag, "is_shortlisted" | "is_placed" | "is_paused" | "is_archived"> = {
+  shortlisted: "is_shortlisted",
+  placed: "is_placed",
+  paused: "is_paused",
+  archived: "is_archived",
+};
+
+// Migration 014: collect the active boolean flags into a list of labelled
+// chips so the row / drawer / grid can render every active state instead of
+// the legacy single status badge. Order is intentional: claim state
+// (handled by caller as a separate icon), then the four flags in the same
+// order they appear in the Stage actions table.
+function activeStageBadges(
+  p: TalentProfile,
+): Array<{ key: TalentStatus; label: string; className: string }> {
+  const out: Array<{ key: TalentStatus; label: string; className: string }> = [];
+  if (p.is_shortlisted) out.push({ key: "shortlisted", label: STATUS_LABELS.shortlisted, className: STATUS_BADGE.shortlisted });
+  if (p.is_placed)      out.push({ key: "placed",      label: STATUS_LABELS.placed,      className: STATUS_BADGE.placed });
+  if (p.is_paused)      out.push({ key: "paused",      label: STATUS_LABELS.paused,      className: STATUS_BADGE.paused });
+  if (p.is_archived)    out.push({ key: "archived",    label: STATUS_LABELS.archived,    className: STATUS_BADGE.archived });
+  return out;
+}
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -286,16 +330,21 @@ function ProfileCard({
           )}
         </div>
         <div className="flex flex-col items-end gap-1">
-          <div className="flex items-center gap-1">
-            {profile.approved_at && (
-              <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2 py-0.5 text-[10px] font-semibold text-green-700">
-                <CheckCircle className="size-2.5" strokeWidth={2.5} />
-                Approved
+          <div className="flex flex-wrap items-center justify-end gap-1">
+            {profile.approved_at ? (
+              <span title="Approved" aria-label="Approved" className="inline-flex">
+                <CheckCircle className="size-3.5 text-green-600" strokeWidth={2.5} aria-hidden="true" />
+              </span>
+            ) : (
+              <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE.pending}`}>
+                {STATUS_LABELS.pending}
               </span>
             )}
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}>
-              {STATUS_LABELS[profile.status] ?? profile.status}
-            </span>
+            {activeStageBadges(profile).map((b) => (
+              <span key={b.key} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${b.className}`}>
+                {b.label}
+              </span>
+            ))}
           </div>
           <span className="text-[10px] text-gray-300">{fmtDaysAgo(profile.created_at)}</span>
         </div>
@@ -412,17 +461,22 @@ function ProfileCard({
 // ── Drawer ───────────────────────────────────────────────────
 
 type StageAction = {
-  status: TalentStatus;
+  flag: TalentFlag;
+  // Migration 014: each action toggles ONE boolean flag. `label` sets it
+  // (active=true); `activeLabel` clears it. Mutual exclusion between
+  // shortlisted/placed is enforced server-side in setTalentFlag.
+  field: "is_shortlisted" | "is_placed" | "is_paused" | "is_archived";
   label: string;
+  activeLabel: string;
   icon: LucideIcon;
   className: string;
 };
 
 const STAGE_ACTIONS: StageAction[] = [
-  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20" },
-  { status: "placed",      label: "Mark as Placed", icon: Trophy,      className: "bg-blue-50 text-blue-600 hover:bg-blue-100" },
-  { status: "paused",      label: "Pause",          icon: PauseCircle, className: "bg-orange-50 text-orange-700 hover:bg-orange-100" },
-  { status: "archived",    label: "Archive",        icon: Archive,     className: "bg-gray-100 text-gray-600 hover:bg-gray-200" },
+  { flag: "shortlisted", field: "is_shortlisted", label: "Shortlist",      activeLabel: "Remove from Shortlist", icon: Star,        className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20" },
+  { flag: "placed",      field: "is_placed",      label: "Mark as Placed", activeLabel: "Unplace",               icon: Trophy,      className: "bg-blue-50 text-blue-600 hover:bg-blue-100" },
+  { flag: "paused",      field: "is_paused",      label: "Pause",          activeLabel: "Unpause",               icon: PauseCircle, className: "bg-orange-50 text-orange-700 hover:bg-orange-100" },
+  { flag: "archived",    field: "is_archived",    label: "Archive",        activeLabel: "Unarchive",             icon: Archive,     className: "bg-gray-100 text-gray-600 hover:bg-gray-200" },
 ];
 
 function ProfileDrawer({
@@ -432,7 +486,7 @@ function ProfileDrawer({
   onSendInvite,
   onClose,
   onSetStatus,
-  onReset,
+  onSetFlag,
   onAddToBatch,
   onDelete,
   onToast,
@@ -442,8 +496,10 @@ function ProfileDrawer({
   inviteStatus: InviteStatus;
   onSendInvite: (id: string) => void;
   onClose: () => void;
+  // onSetStatus handles the Approve flow ONLY (stamps approved_at). Stage
+  // toggles go through onSetFlag, which writes to the boolean columns.
   onSetStatus: (status: TalentStatus) => Promise<void>;
-  onReset: () => Promise<void>;
+  onSetFlag: (flag: TalentFlag, value: boolean) => Promise<void>;
   onAddToBatch: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
@@ -454,6 +510,9 @@ function ProfileDrawer({
   const [note, setNote] = useState(profile.notes ?? "");
   const [savingNote, setSavingNote] = useState(false);
   const [busyStatus, setBusyStatus] = useState<TalentStatus | null>(null);
+  // busyFlag tracks in-flight setTalentFlag calls so the per-stage button
+  // can show "…" while waiting and disable double-clicks.
+  const [busyFlag, setBusyFlag] = useState<TalentFlag | null>(null);
   // Two-stage confirm for the destructive Archive action: first click arms,
   // second click commits. Auto-resets after 4s so the armed state can't
   // linger if the admin walks away.
@@ -471,21 +530,25 @@ function ProfileDrawer({
     return () => clearTimeout(t);
   }, [archiveArmed]);
 
-  async function handleStatus(s: TalentStatus) {
-    if (s === "archived" && !archiveArmed) {
+  async function handleApprove() {
+    setBusyStatus("approved");
+    await onSetStatus("approved");
+    setBusyStatus(null);
+  }
+
+  // Flag toggle. Two-click confirm applies to ARCHIVE SET ONLY — unarchive
+  // (value=false) and all other flags commit on the first click. Mutual
+  // exclusion between shortlisted/placed is enforced server-side; the
+  // optimistic patch in handleSetFlag mirrors that.
+  async function handleFlag(flag: TalentFlag, value: boolean) {
+    if (flag === "archived" && value === true && !archiveArmed) {
       setArchiveArmed(true);
       return;
     }
     setArchiveArmed(false);
-    setBusyStatus(s);
-    await onSetStatus(s);
-    setBusyStatus(null);
-  }
-
-  async function handleReset() {
-    setBusyStatus("approved");
-    await onReset();
-    setBusyStatus(null);
+    setBusyFlag(flag);
+    await onSetFlag(flag, value);
+    setBusyFlag(null);
   }
 
   // K1 Phase 2b: open the candidate's CV via a fresh signed URL. The
@@ -512,12 +575,6 @@ function ProfileDrawer({
     },
     [onToast],
   );
-
-  const canReset =
-    profile.status === "paused" ||
-    profile.status === "archived" ||
-    profile.status === "shortlisted" ||
-    profile.status === "placed";
 
   async function handleSaveNote() {
     setSavingNote(true);
@@ -573,15 +630,20 @@ function ProfileDrawer({
                   <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
                   {available ? "Available" : "Not Available"}
                 </span>
-                {profile.approved_at && (
-                  <span className="inline-flex items-center gap-1 rounded-full bg-green-100 px-2.5 py-1 text-[10px] font-semibold text-green-700">
-                    <CheckCircle className="size-3" strokeWidth={2.5} />
-                    Approved
+                {profile.approved_at ? (
+                  <span title="Approved" aria-label="Approved" className="inline-flex items-center">
+                    <CheckCircle className="size-4 text-green-600" strokeWidth={2.5} aria-hidden="true" />
+                  </span>
+                ) : (
+                  <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${STATUS_BADGE.pending}`}>
+                    {STATUS_LABELS.pending}
                   </span>
                 )}
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}>
-                  {STATUS_LABELS[profile.status] ?? profile.status}
-                </span>
+                {activeStageBadges(profile).map((b) => (
+                  <span key={b.key} className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${b.className}`}>
+                    {b.label}
+                  </span>
+                ))}
               </div>
             </div>
           </div>
@@ -766,7 +828,7 @@ function ProfileDrawer({
               <button
                 type="button"
                 disabled={busyStatus !== null}
-                onClick={() => handleStatus("approved")}
+                onClick={handleApprove}
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
               >
                 <CheckCircle className="size-3.5" strokeWidth={2} />
@@ -823,46 +885,44 @@ function ProfileDrawer({
             </button>
           </DrawerSection>
 
-          {/* Stage — available to all admins viewing this drawer */}
-          <DrawerSection title="Stage">
-            {canReset && (
-              <button
-                type="button"
-                disabled={busyStatus !== null}
-                onClick={handleReset}
-                className="mb-2 flex w-full items-center justify-center gap-1.5 rounded-xl border border-remotiv-green/30 bg-remotiv-green/10 px-3 py-2.5 text-xs font-semibold text-[#1a9e73] transition-colors hover:bg-remotiv-green/20 disabled:opacity-50"
-              >
-                <RotateCcw className="size-3.5" strokeWidth={2} />
-                {busyStatus === "approved" ? "Resetting…" : "Reset to Approved"}
-              </button>
-            )}
-            <div className="grid grid-cols-2 gap-2">
-              {STAGE_ACTIONS.map((a) => {
-                const Icon = a.icon;
-                const isArchive = a.status === "archived";
-                const armed = isArchive && archiveArmed;
-                const cls = armed
-                  ? "bg-red-100 text-red-700 hover:bg-red-200"
-                  : a.className;
-                return (
-                  <button
-                    key={a.status}
-                    type="button"
-                    disabled={busyStatus !== null || profile.status === a.status}
-                    onClick={() => handleStatus(a.status)}
-                    className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50 ${cls}`}
-                  >
-                    <Icon className="size-3.5" strokeWidth={2} />
-                    {busyStatus === a.status
-                      ? "…"
-                      : armed
-                        ? "Click again to confirm"
-                        : a.label}
-                  </button>
-                );
-              })}
-            </div>
-          </DrawerSection>
+          {/* Stage — locked until the profile is approved (approved_at set).
+              Migration 014: each button toggles ONE boolean flag. Multiple
+              stages can be active simultaneously (e.g. Shortlisted + Paused).
+              Mutual exclusion between Shortlisted ↔ Placed is enforced
+              server-side in setTalentFlag. */}
+          {profile.approved_at && (
+            <DrawerSection title="Stage">
+              <div className="grid grid-cols-2 gap-2">
+                {STAGE_ACTIONS.map((a) => {
+                  const isActive = Boolean(profile[a.field]);
+                  // Two-click confirm applies to the SET-archive direction only;
+                  // Unarchive (isActive=true → value=false) is single-click.
+                  const armed = a.flag === "archived" && archiveArmed && !isActive;
+                  const cls = armed
+                    ? "bg-red-100 text-red-700 hover:bg-red-200"
+                    : a.className;
+                  return (
+                    <button
+                      key={a.flag}
+                      type="button"
+                      disabled={busyFlag !== null}
+                      onClick={() => handleFlag(a.flag, !isActive)}
+                      className={`flex items-center justify-center gap-1.5 rounded-xl px-3 py-2.5 text-xs font-semibold transition-colors disabled:opacity-50 ${cls}`}
+                    >
+                      <a.icon className="size-3.5" strokeWidth={2} />
+                      {busyFlag === a.flag
+                        ? "…"
+                        : armed
+                          ? "Click again to confirm"
+                          : isActive
+                            ? a.activeLabel
+                            : a.label}
+                    </button>
+                  );
+                })}
+              </div>
+            </DrawerSection>
+          )}
 
           {/* Danger — super_admin only */}
           {isSuperAdmin && (
@@ -984,11 +1044,22 @@ function TalentCardMobile({
             <p className="truncate font-heading text-base font-bold text-gray-900">
               {fullName}
             </p>
-            <span
-              className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}
-            >
-              {STATUS_LABELS[profile.status] ?? profile.status}
-            </span>
+            <div className="flex shrink-0 flex-wrap items-center justify-end gap-1">
+              {profile.approved_at ? (
+                <span title="Approved" aria-label="Approved" className="inline-flex">
+                  <CheckCircle className="size-3.5 text-green-600" strokeWidth={2.5} aria-hidden="true" />
+                </span>
+              ) : (
+                <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE.pending}`}>
+                  {STATUS_LABELS.pending}
+                </span>
+              )}
+              {activeStageBadges(profile).map((b) => (
+                <span key={b.key} className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${b.className}`}>
+                  {b.label}
+                </span>
+              ))}
+            </div>
           </div>
           {title && (
             <p className="mt-0.5 truncate text-xs text-gray-500">{title}</p>
@@ -1180,7 +1251,7 @@ export function TalentDashboard({
     const q = search.trim().toLowerCase();
     return profiles.filter((p) => {
       if (filterCategory !== "All" && p.role_category !== filterCategory) return false;
-      if (filterStatus   !== "All" && p.status !== filterStatus)           return false;
+      if (!matchesFilterValue(p, filterStatus as FilterValue))             return false;
       if (filterAvailability === "Available Now"  && !isAvailable(p))      return false;
       if (filterAvailability === "Not Available"  && isAvailable(p))       return false;
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
@@ -1202,7 +1273,7 @@ export function TalentDashboard({
 
   const totalCount     = profiles.length;
   const availableCount = profiles.filter(isAvailable).length;
-  const pendingCount   = profiles.filter((p) => p.status === "pending").length;
+  const pendingCount   = profiles.filter((p) => !p.approved_at).length;
 
   // ── Pagination (client-side, against the filtered set) ────
   const [page, setPage] = useState(1);
@@ -1218,8 +1289,9 @@ export function TalentDashboard({
   const [deleting, setDeleting] = useState(false);
 
   async function handleSetStatus(profile: TalentProfile, status: TalentStatus) {
-    // Optimistic — stamp approved_at locally too so the green badge appears
-    // immediately on approval.
+    // Migration 014: this handler is now used ONLY for the Approve flow
+    // (stamps approved_at via the legacy updateTalentStatus action). Stage
+    // toggles flow through handleSetFlag below.
     const optimisticPatch: Partial<TalentProfile> = { status };
     if (status === "approved" && !profile.approved_at) {
       optimisticPatch.approved_at = new Date().toISOString();
@@ -1238,18 +1310,31 @@ export function TalentDashboard({
     }
   }
 
-  async function handleResetToApproved(profile: TalentProfile) {
+  // Migration 014: stage flag toggle. Mirrors the server's mutual-exclusion
+  // rule (placed/shortlisted clear each other) in the optimistic patch so
+  // the UI updates the moment the click lands, without waiting for the
+  // round-trip.
+  async function handleSetFlag(
+    profile: TalentProfile,
+    flag: TalentFlag,
+    value: boolean,
+  ) {
+    const field = FLAG_TO_FIELD[flag];
+    const optimistic: Partial<TalentProfile> = { [field]: value };
+    if (flag === "placed" && value === true) optimistic.is_shortlisted = false;
+    if (flag === "shortlisted" && value === true) optimistic.is_placed = false;
     setProfiles((prev) =>
-      prev.map((p) => (p.id === profile.id ? { ...p, status: "approved" } : p)),
+      prev.map((p) => (p.id === profile.id ? { ...p, ...optimistic } : p)),
     );
 
-    const result = await updateTalentStatus(profile.id, "approved");
+    const result = await setTalentFlag(profile.id, flag, value);
     if (result.success) {
-      setToast("Profile reactivated as Approved");
+      const label = STATUS_LABELS[flag];
+      setToast(value ? `Marked as ${label}` : `Cleared ${label}`);
       router.refresh();
     } else {
       setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
-      setToast(`Reset failed: ${friendlyError(result.error)}`);
+      setToast(`Update failed: ${friendlyError(result.error)}`);
     }
   }
 
@@ -1655,7 +1740,7 @@ export function TalentDashboard({
           onSendInvite={handleSendInvite}
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}
-          onReset={() => handleResetToApproved(openProfile)}
+          onSetFlag={(flag, value) => handleSetFlag(openProfile, flag, value)}
           onAddToBatch={() => setAddToBatchTarget(openProfile)}
           onDelete={() => setDeleteTarget(openProfile)}
           onToast={setToast}

@@ -164,13 +164,15 @@ export default async function BrowseTalentPage({
         "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
       )
       .not("approved_at", "is", null)
-      .not("status", "in", "(paused,archived)");
+      .eq("is_paused", false)
+      .eq("is_archived", false);
 
     let countQuery = supabase
       .from("talent_profiles")
       .select("id", { count: "exact", head: true })
       .not("approved_at", "is", null)
-      .not("status", "in", "(paused,archived)");
+      .eq("is_paused", false)
+      .eq("is_archived", false);
 
     if (claimedOnly) {
       talentQuery = talentQuery.not("user_id", "is", null);
@@ -233,7 +235,8 @@ export default async function BrowseTalentPage({
       )
       .eq("id", deepLinkId)
       .not("approved_at", "is", null)
-      .not("status", "in", "(paused,archived)")
+      .eq("is_paused", false)
+      .eq("is_archived", false)
       .maybeSingle();
     deepLinkedRow = (data ?? null) as TalentRow | null;
   }

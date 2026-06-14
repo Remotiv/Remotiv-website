@@ -217,7 +217,8 @@ export async function prefilterCandidates(
       .from("talent_profiles")
       .select(CANDIDATE_COLUMNS)
       .not("approved_at", "is", null)
-      .not("status", "in", "(paused,archived)")
+      .eq("is_paused", false)
+      .eq("is_archived", false)
       .textSearch("search_vector", orQuery, { type: "plain", config: "english" })
       .limit(limit);
 
@@ -236,7 +237,8 @@ export async function prefilterCandidates(
       .from("talent_profiles")
       .select(CANDIDATE_COLUMNS)
       .not("approved_at", "is", null)
-      .not("status", "in", "(paused,archived)")
+      .eq("is_paused", false)
+      .eq("is_archived", false)
       .order("approved_at", { ascending: false })
       .limit(limit);
     return (data ?? []) as CandidateRow[];
@@ -249,7 +251,8 @@ export async function prefilterCandidates(
     .from("talent_profiles")
     .select(CANDIDATE_COLUMNS)
     .not("approved_at", "is", null)
-    .not("status", "in", "(paused,archived)")
+    .eq("is_paused", false)
+    .eq("is_archived", false)
     .or(orFilter)
     .limit(limit);
 
