@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail } from "@/app/admin/lib/validators";
 
 // 200-char ceiling on each input keeps payload-padding abuse in check.
@@ -44,6 +45,12 @@ export async function POST(request: NextRequest) {
       { error: "Too many requests. Please slow down and try again." },
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
     );
+  }
+
+  try {
+    await requireAdmin();
+  } catch {
+    return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
 
   try {
