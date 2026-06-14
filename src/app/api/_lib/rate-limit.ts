@@ -94,16 +94,41 @@ function check(key: string, max: number, windowMs: number): RateLimitResult {
   return { ok: true };
 }
 
+/**
+ * Derive the client IP using Vercel-trusted headers only.
+ *
+ * Why not x-forwarded-for in production: clients can prepend arbitrary values
+ * to XFF, so the leftmost token is attacker-controlled. Rotating XFF would
+ * give a fresh rate-limit bucket per request, nullifying the limiter.
+ *
+ * Vercel sets x-vercel-forwarded-for and x-real-ip at the edge after stripping
+ * any client-supplied versions, so those are trustworthy.
+ *
+ * In local dev (NODE_ENV !== "production") the Vercel headers aren't set; fall
+ * back to x-forwarded-for so the limiter still works during development.
+ */
+function getClientIp(request: Request): string {
+  const vercelFwd = request.headers.get("x-vercel-forwarded-for");
+  if (vercelFwd) return vercelFwd.split(",")[0].trim();
+
+  const realIp = request.headers.get("x-real-ip");
+  if (realIp) return realIp;
+
+  if (process.env.NODE_ENV !== "production") {
+    const xff = request.headers.get("x-forwarded-for");
+    if (xff) return xff.split(",")[0].trim();
+  }
+
+  return "unknown";
+}
+
 export function rateLimit(
   request: Request,
   opts?: { max?: number; windowMs?: number; bucketKey?: string },
 ): RateLimitResult {
   const max = opts?.max ?? DEFAULT_MAX;
   const windowMs = opts?.windowMs ?? DEFAULT_WINDOW_MS;
-  const ip =
-    request.headers.get("x-forwarded-for")?.split(",")[0].trim() ||
-    request.headers.get("x-real-ip") ||
-    "unknown";
+  const ip = getClientIp(request);
 
   // Distinct bucket per (route, ip) pair so the per-route override doesn't
   // share state with another route's stricter limit.
