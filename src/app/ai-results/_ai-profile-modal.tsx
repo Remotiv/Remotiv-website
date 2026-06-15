@@ -12,7 +12,8 @@
 
 import { Bookmark, Loader2, MapPin, X } from "lucide-react";
 import { useEffect, useRef, useState } from "react";
-import { fetchProfileDetail } from "@/app/browse-talent/actions";
+import { fetchProfileDetail, type ProfileDetail } from "@/app/browse-talent/actions";
+import { TruncatedDescription } from "@/components/truncated-description";
 import {
   type EnrichedMatch,
   GithubIcon,
@@ -26,18 +27,6 @@ import {
   initialsOf,
   isAvailableNow,
 } from "./_shared";
-
-type ProfileDetail = {
-  summary: string | null;
-  experience: Array<{
-    title: string | null;
-    company: string | null;
-    dates: string | null;
-    skills: string[];
-  }>;
-  degree: string | null;
-  institution: string | null;
-};
 
 type Props = {
   match: EnrichedMatch;
@@ -375,9 +364,10 @@ export default function AIProfileModal({
           {summary && (
             <div className="mb-5">
               <SectionLabel>About</SectionLabel>
-              <p className="whitespace-pre-wrap font-sans text-[0.88rem] leading-[1.65] text-[#555]">
-                {summary}
-              </p>
+              <TruncatedDescription
+                text={summary}
+                className="whitespace-pre-wrap font-sans text-[0.88rem] leading-[1.65] text-[#555]"
+              />
             </div>
           )}
 
@@ -419,6 +409,10 @@ export default function AIProfileModal({
                           ))}
                         </div>
                       )}
+                      <TruncatedDescription
+                        text={exp.description}
+                        className="mt-2 whitespace-pre-line font-sans text-[0.8rem] leading-[1.65] text-[#555]"
+                      />
                     </div>
                   ))}
                 </div>

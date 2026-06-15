@@ -298,7 +298,7 @@ function TalentCard({
         )}
 
         {bio && (
-          <p className="mb-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">{bio}</p>
+          <p className="mb-3 line-clamp-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">{bio}</p>
         )}
 
         {p.skills && p.skills.length > 0 && (
