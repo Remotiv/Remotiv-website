@@ -38,7 +38,7 @@ const FIELD_MAX = {
   jobTitle: 200,
   industry: 100,
   roleCategory: 60,
-  summary: 5000,
+  summary: 2000,
   skill: 50,
   expField: 200,
 };

@@ -405,6 +405,15 @@ function ProfileDrawer({
   const [drawerPhotoErrored, setDrawerPhotoErrored] = useState(false);
   const showDrawerPhoto =
     Boolean(candidate.photoUrl) && !drawerPhotoErrored;
+
+  const BIO_PREVIEW_CHARS = 250;
+  const [bioExpanded, setBioExpanded] = useState(false);
+  const candidateBio = candidate.bio ?? "";
+  const isBioTruncatable = candidateBio.length > BIO_PREVIEW_CHARS;
+  const bioPreview = isBioTruncatable
+    ? `${candidateBio.slice(0, BIO_PREVIEW_CHARS).replace(/\s+\S*$/, "")}…`
+    : candidateBio;
+  const bioDisplay = bioExpanded ? candidateBio : bioPreview;
   return (
     <div className="flex flex-col gap-5 rounded-2xl lg:border lg:border-black/[0.06] lg:bg-white lg:p-6 lg:shadow-[0_4px_16px_rgba(0,0,0,0.05)] max-lg:p-0 max-lg:bg-transparent">
       <div className="flex items-center justify-between">
@@ -470,7 +479,17 @@ function ProfileDrawer({
         <p className="font-heading text-2xl font-extrabold text-[#1a9e73]">${candidate.hourlyRate}/hr</p>
       </div>
 
-      <p className="text-[13px] leading-[1.7] text-[#555]">{candidate.bio}</p>
+      <p className="text-[13px] leading-[1.7] text-[#555]">{bioDisplay}</p>
+      {isBioTruncatable && (
+        <button
+          type="button"
+          onClick={() => setBioExpanded((v) => !v)}
+          className="mt-1 cursor-pointer border-0 bg-transparent p-0 text-[12px] font-semibold text-remotiv-purple underline"
+          aria-expanded={bioExpanded}
+        >
+          {bioExpanded ? "Show less" : "Read more"}
+        </button>
+      )}
 
       <div className="grid grid-cols-1 gap-3 sm:grid-cols-2">
         <div className="rounded-xl border border-black/[0.06] bg-[#f8f8f8] px-4 py-3">

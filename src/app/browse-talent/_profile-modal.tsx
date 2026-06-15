@@ -122,6 +122,14 @@ export default function ProfileModal({
   const summaryText = detail?.summary ?? c.bio ?? "";
   const hasSummary = !!summaryText;
 
+  const BIO_PREVIEW_CHARS = 250;
+  const [bioExpanded, setBioExpanded] = useState(false);
+  const isBioTruncatable = summaryText.length > BIO_PREVIEW_CHARS;
+  const bioPreview = isBioTruncatable
+    ? `${summaryText.slice(0, BIO_PREVIEW_CHARS).replace(/\s+\S*$/, "")}…`
+    : summaryText;
+  const bioDisplay = bioExpanded ? summaryText : bioPreview;
+
   // Focus trap — keep Tab focus within the modal panel
   useEffect(() => {
     const modalEl = document.querySelector(
@@ -319,7 +327,7 @@ export default function ProfileModal({
               <h3 className="bt-modal-sec-title">Summary</h3>
               <p
                 style={{
-                  margin: "0 0 20px",
+                  margin: "0 0 8px",
                   fontFamily: "'DM Sans',sans-serif",
                   fontSize: "0.85rem",
                   color: "#555",
@@ -327,8 +335,29 @@ export default function ProfileModal({
                   whiteSpace: "pre-line",
                 }}
               >
-                {summaryText}
+                {bioDisplay}
               </p>
+              {isBioTruncatable && (
+                <button
+                  type="button"
+                  onClick={() => setBioExpanded((v) => !v)}
+                  style={{
+                    margin: "0 0 20px",
+                    background: "transparent",
+                    border: "none",
+                    padding: 0,
+                    cursor: "pointer",
+                    fontFamily: "'DM Sans',sans-serif",
+                    fontSize: "0.8rem",
+                    fontWeight: 600,
+                    color: "#7E47FF",
+                    textDecoration: "underline",
+                  }}
+                  aria-expanded={bioExpanded}
+                >
+                  {bioExpanded ? "Show less" : "Read more"}
+                </button>
+              )}
             </>
           ) : isLoadingDetail ? (
             <>

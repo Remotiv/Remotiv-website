@@ -1656,7 +1656,7 @@ export default function BecomeATalentPage() {
                             placeholder="Write a short bio — your experience, what you specialize in, and what opportunities you're looking for."
                             value={summary}
                             onChange={(e) => setSummary(e.target.value)}
-                            maxLength={5000}
+                            maxLength={2000}
                           />
                           {/* Phase 3 L-summary-max: visible char counter
                               mirrors the maxLength + the Phase 2 server cap.
@@ -1667,12 +1667,12 @@ export default function BecomeATalentPage() {
                               style={{
                                 marginTop: 4,
                                 fontSize: ".7rem",
-                                color: summary.length >= 5000 ? "#dc2626" : "#888",
+                                color: summary.length >= 2000 ? "#dc2626" : "#888",
                                 textAlign: "right",
                               }}
                               aria-live="polite"
                             >
-                              {summary.length} / 5000
+                              {summary.length} / 2000
                             </div>
                           )}
                         </div>

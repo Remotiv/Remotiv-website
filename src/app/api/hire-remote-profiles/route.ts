@@ -124,7 +124,8 @@ export async function POST(request: NextRequest) {
 
     // Professional
     const jobTitles = nullable(form.get("job_titles"));
-    const bio       = nullable(form.get("bio"));
+    const bioRaw    = nullable(form.get("bio"));
+    const bio       = bioRaw === null ? null : bioRaw.slice(0, 2000);
     const cvText    = nullable(form.get("cv_text"));
 
     const skills = (() => {

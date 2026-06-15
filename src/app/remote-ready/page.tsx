@@ -293,6 +293,7 @@ export default function RemoteReadyPage() {
   function validateStep2(): string | null {
     if (!jobTitles.trim()) return "Job titles are required";
     if (bio.trim().length < BIO_MIN_CHARS) return `Bio must be at least ${BIO_MIN_CHARS} characters`;
+    if (bio.trim().length > 2000) return "Bio must be 2000 characters or fewer.";
     if (skills.length < SKILLS_MIN) return `Add at least ${SKILLS_MIN} skill tags`;
     const validEmployment = employment.filter((e) => e.title.trim() || e.company.trim());
     if (validEmployment.length === 0) return "Add at least 1 employment entry";
@@ -1130,8 +1131,9 @@ function Step2(props: {
             placeholder="Write a short bio — your experience, what you specialise in, and what opportunities you're looking for. (min 50 characters)"
             value={props.bio}
             onChange={(e) => props.setBio(e.target.value)}
+            maxLength={2000}
           />
-          <p className="bta-skill-hint">{props.bio.trim().length}/{BIO_MIN_CHARS} characters minimum</p>
+          <p className="bta-skill-hint">{props.bio.trim().length}/2000 characters (min {BIO_MIN_CHARS})</p>
         </Field>
 
         <div className="bta-spacer" />
