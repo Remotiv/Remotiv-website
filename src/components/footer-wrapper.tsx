@@ -6,6 +6,7 @@ import { Footer } from "./footer";
 const HIDDEN_PREFIXES = [
   "/admin",
   "/login",
+  "/client", // hides footer on all /client/* pages
   "/client/login",
   "/signin",
   "/signup",
