@@ -1,34 +1,17 @@
 "use client";
 
 import { Bookmark, Briefcase, Globe, MapPin, Search, Star, X } from "lucide-react";
-import dynamic from "next/dynamic";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
+import ApplyModal from "./_apply-modal";
 import "./jobs.css";
 
 // Re-export Job for any local consumers — type-only, no runtime cost.
 export type { Job };
-
-// ApplyModal is dynamically imported so it doesn't ship in the initial /jobs
-// bundle for users who never click "Apply now". The loading shell mirrors the
-// real modal's backdrop + panel chrome so the first-open chunk fetch gives
-// instant feedback with no layout jump on swap.
-const ApplyModal = dynamic(() => import("./_apply-modal"), {
-  loading: () => (
-    <div
-      role="status"
-      aria-busy="true"
-      aria-label="Loading application form"
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
-    >
-      <div className="relative mx-auto mb-6 mt-20 min-h-[420px] w-full max-w-lg rounded-[20px] bg-white shadow-2xl sm:my-16" />
-    </div>
-  ),
-});
 
 type ExperienceLevel = "Entry" | "Intermediate" | "Expert";
 type ContractType = "Full time" | "Part time" | "Contract";
