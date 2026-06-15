@@ -246,10 +246,18 @@ export async function updateTalentBasicInfo(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -324,10 +332,18 @@ export async function updateTalentLocation(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -443,10 +459,18 @@ export async function updateTalentProfessional(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -559,10 +583,18 @@ export async function updateTalentAvailabilitySalary(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -745,10 +777,18 @@ export async function updateTalentSkillsExperience(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -849,10 +889,18 @@ export async function updateRemoteBasicInfo(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -952,10 +1000,18 @@ export async function updateRemoteLocation(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1073,10 +1129,18 @@ export async function updateRemoteProfessional(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1189,10 +1253,18 @@ export async function updateRemoteAvailabilityWorkType(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1259,10 +1331,18 @@ export async function updateRemoteSkills(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1328,10 +1408,18 @@ export async function updateRemoteEducation(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const allEmpty =
@@ -1468,10 +1556,18 @@ export async function updateRemoteEmployment(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1546,10 +1642,18 @@ export async function updateRemoteLanguages(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1655,10 +1759,18 @@ export async function updateRemotePortfolio(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1753,8 +1865,16 @@ export async function getOwnCvSignedUrl(
   try {
     owner = await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
     return { success: false, error: "You can't read this CV." };
   }
@@ -1860,10 +1980,18 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -1954,10 +2082,18 @@ export async function removeCv(input: {
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -2094,8 +2230,16 @@ export async function getOwnPhotoSignedUrl(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
     return { success: false, error: "You can't read this photo." };
   }
@@ -2205,10 +2349,18 @@ export async function uploadPhoto(
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
@@ -2316,10 +2468,18 @@ export async function removePhoto(input: {
   try {
     await requireProfileOwner(profileId, sourceTable);
   } catch (e) {
-    if (e instanceof Error && e.message === "not_authenticated") {
-      return { success: false, error: "Please sign in again." };
+    if (e instanceof Error) {
+      if (e.message === "not_authenticated") {
+        return { success: false, error: "Please sign in again." };
+      }
+      if (e.message === "not_approved") {
+        return { success: false, error: "Your profile is under review. You'll be able to edit it once approved." };
+      }
+      if (e.message === "not_claimed") {
+        return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
+      }
     }
-    return { success: false, error: "You can't edit this profile." };
+    return { success: false, error: "Claim your profile to unlock editing — tap 'Claim now' on your dashboard." };
   }
 
   const service = createServiceClient();
