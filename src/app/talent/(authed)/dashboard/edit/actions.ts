@@ -39,6 +39,7 @@ const SKILLS_MAX = 30;
 const SKILL_CHAR_MAX = 50;
 const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
+const EXPERIENCE_DESCRIPTION_MAX = 1000;
 const EXPERIENCE_SKILLS_MAX = 30;
 const REMOTE_URL_MAX = 500;
 const JOB_TITLES_MAX = 200;
@@ -628,6 +629,7 @@ type ExperienceEntryInput = {
   end: string;
   currentlyWorking: boolean;
   skills: string[];
+  description: string;
 };
 
 type ExperienceEntryStored = {
@@ -637,6 +639,7 @@ type ExperienceEntryStored = {
   end: string;
   dates: string;
   skills: string[];
+  description: string;
 };
 
 type UpdateSkillsExperienceInput = {
@@ -757,6 +760,13 @@ export async function updateTalentSkillsExperience(
         error: `Each role can list up to ${EXPERIENCE_SKILLS_MAX} skills.`,
       };
     }
+    const description = (entry.description ?? "").trim();
+    if (description.length > EXPERIENCE_DESCRIPTION_MAX) {
+      return {
+        success: false,
+        error: `Description must be ${EXPERIENCE_DESCRIPTION_MAX} characters or fewer.`,
+      };
+    }
     const end = currentlyWorking ? "Present" : endRaw;
     storedExperience.push({
       title,
@@ -765,6 +775,7 @@ export async function updateTalentSkillsExperience(
       end,
       dates: buildDatesString(start, endRaw, currentlyWorking),
       skills: rowSkills,
+      description,
     });
   }
   if (storedExperience.length > EXPERIENCE_MAX) {

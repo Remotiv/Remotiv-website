@@ -143,7 +143,7 @@ export async function POST(request: NextRequest) {
           title:       typeof e.title       === "string" ? e.title       : "",
           company:     typeof e.company     === "string" ? e.company     : "",
           dates:       typeof e.dates       === "string" ? e.dates       : "",
-          description: typeof e.description === "string" ? e.description : "",
+          description: typeof e.description === "string" ? e.description.slice(0, 1000) : "",
         }))
         .filter((e) => e.title || e.company);
     })();

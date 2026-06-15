@@ -456,6 +456,7 @@ export type ProfileExperienceItem = {
   company: string | null;
   dates: string | null;
   skills: string[];
+  description: string | null;
 };
 
 export type ProfileDetail = {
@@ -545,6 +546,7 @@ export async function fetchProfileDetail(
     start?: string;
     end?: string;
     skills?: string[];
+    description?: string;
   };
   const rawExperience: RawExp[] = Array.isArray(candidate.experience)
     ? (candidate.experience as RawExp[])
@@ -560,6 +562,7 @@ export async function fetchProfileDetail(
           ? exp.dates
           : [exp.start, exp.end].filter(Boolean).join(" – ") || null,
       skills: Array.isArray(exp.skills) ? exp.skills : [],
+      description: redact(typeof exp.description === "string" ? exp.description : null),
     })),
     degree: redact(candidate.degree as string | null),
     institution: redact(candidate.institution as string | null),

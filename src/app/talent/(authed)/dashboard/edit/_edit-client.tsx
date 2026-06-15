@@ -114,6 +114,7 @@ const SKILLS_MAX = 30;
 const SKILL_CHAR_MAX = 50;
 const EXPERIENCE_MAX = 30;
 const EXPERIENCE_FIELD_MAX = 200;
+const EXPERIENCE_DESCRIPTION_MAX = 1000;
 const EXPERIENCE_SKILLS_MAX = 30;
 
 // Verbatim from src/app/remote-ready/page.tsx (HOURS_LABEL line 118-122,
@@ -368,6 +369,7 @@ type ExperienceRowState = {
   end: string;
   currentlyWorking: boolean;
   skillsStr: string;
+  description: string;
 };
 
 function makeEmptyExperienceRow(): ExperienceRowState {
@@ -379,6 +381,7 @@ function makeEmptyExperienceRow(): ExperienceRowState {
     end: "",
     currentlyWorking: false,
     skillsStr: "",
+    description: "",
   };
 }
 
@@ -409,6 +412,7 @@ function parseExperienceRowsFromRaw(raw: unknown): ExperienceRowState[] {
       end: currentlyWorking ? "" : end,
       currentlyWorking,
       skillsStr: skillsArr.join(", "),
+      description: typeof o.description === "string" ? o.description : "",
     };
   });
 }
@@ -834,6 +838,7 @@ export function EditClient({
         start?: string;
         end?: string;
         skillsStr?: string;
+        description?: string;
       }
     >;
   }>({});
@@ -1655,6 +1660,7 @@ export function EditClient({
         start?: string;
         end?: string;
         skillsStr?: string;
+        description?: string;
       }
     > = {};
     for (const row of expRows) {
@@ -1664,6 +1670,7 @@ export function EditClient({
         start?: string;
         end?: string;
         skillsStr?: string;
+        description?: string;
       } = {};
       if (row.title.length > EXPERIENCE_FIELD_MAX)
         rowErr.title = `≤${EXPERIENCE_FIELD_MAX} chars.`;
@@ -1684,6 +1691,8 @@ export function EditClient({
         rowErr.skillsStr = `Each skill ≤${SKILL_CHAR_MAX} chars.`;
       if (rowSkills.length > EXPERIENCE_SKILLS_MAX)
         rowErr.skillsStr = `Up to ${EXPERIENCE_SKILLS_MAX} skills per row.`;
+      if (row.description.length > EXPERIENCE_DESCRIPTION_MAX)
+        rowErr.description = `≤${EXPERIENCE_DESCRIPTION_MAX} chars.`;
       if (Object.keys(rowErr).length > 0) rowErrors[row.uiId] = rowErr;
     }
     if (Object.keys(rowErrors).length > 0) {
@@ -1704,6 +1713,7 @@ export function EditClient({
           .split(",")
           .map((s) => s.trim())
           .filter(Boolean),
+        description: r.description,
       }));
 
       const result = await updateTalentSkillsExperience({
@@ -1726,6 +1736,7 @@ export function EditClient({
         end: entry.end === "Present" ? "" : entry.end,
         currentlyWorking: entry.end === "Present",
         skillsStr: entry.skills.join(", "),
+        description: entry.description,
       }));
       setSkillsList(savedSkills);
       setSkillInput("");
@@ -3869,6 +3880,31 @@ export function EditClient({
                                     {rowErr.skillsStr && (
                                       <span className="text-xs text-red-600">
                                         {rowErr.skillsStr}
+                                      </span>
+                                    )}
+                                  </label>
+                                  <label className="flex flex-col gap-1 md:col-span-2">
+                                    <span className={LABEL_CLASS}>
+                                      Description
+                                    </span>
+                                    <textarea
+                                      rows={4}
+                                      value={row.description}
+                                      onChange={(e) =>
+                                        updateExperienceRow(row.uiId, {
+                                          description: e.target.value,
+                                        })
+                                      }
+                                      maxLength={EXPERIENCE_DESCRIPTION_MAX}
+                                      className={INPUT_CLASS}
+                                    />
+                                    <span className="text-[11px] text-gray-400">
+                                      {row.description.length} /{" "}
+                                      {EXPERIENCE_DESCRIPTION_MAX}
+                                    </span>
+                                    {rowErr.description && (
+                                      <span className="text-xs text-red-600">
+                                        {rowErr.description}
                                       </span>
                                     )}
                                   </label>

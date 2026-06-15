@@ -60,6 +60,7 @@ export type TalentProfile = {
     end?: string;
     dates?: string;
     skills?: string[];
+    description?: string;
   }>;
   summary: string | null;
   availability: string | null;
@@ -377,6 +378,7 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
           end?: string;
           dates?: string;
           skills?: string[];
+          description?: string;
         }>)
       : [],
     summary: (r.summary as string | null) ?? null,

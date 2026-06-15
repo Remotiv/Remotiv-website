@@ -41,6 +41,7 @@ const FIELD_MAX = {
   summary: 2000,
   skill: 50,
   expField: 200,
+  experienceDescription: 1000,
 };
 const MAX_SKILLS = 30;
 const MAX_EXPERIENCES = 30;
@@ -235,6 +236,7 @@ export async function POST(request: NextRequest) {
       end: string;
       dates: string;
       skills: string[];
+      description: string;
     };
     const experienceRaw = form.get("experience");
     let experience: ExperienceItem[] = [];
@@ -253,6 +255,7 @@ export async function POST(request: NextRequest) {
               skills:  Array.isArray(e.skills)
                 ? (e.skills as unknown[]).filter((s): s is string => typeof s === "string")
                 : [],
+              description: typeof e.description === "string" ? e.description : "",
             }))
             .filter((e) => e.title || e.company);
         }
@@ -270,6 +273,7 @@ export async function POST(request: NextRequest) {
       end:     e.end.slice(0,     FIELD_MAX.expField),
       dates:   e.dates.slice(0,   FIELD_MAX.expField),
       skills:  e.skills.slice(0, MAX_SKILLS).map((s) => s.slice(0, FIELD_MAX.skill)),
+      description: e.description.slice(0, FIELD_MAX.experienceDescription),
     }));
 
     const cvFile    = form.get("cv")    as File | null;

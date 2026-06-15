@@ -9,6 +9,7 @@ import { useEffect, useState } from "react";
 import { Loader2, X } from "lucide-react";
 import { cn } from "@/lib/utils";
 import { LazyPhoto } from "@/components/lazy-photo";
+import { TruncatedDescription } from "@/components/truncated-description";
 import {
   BtMatchBadge,
   ROLE_CFG,
@@ -385,6 +386,17 @@ export default function ProfileModal({
                         <span key={`${s}-${j}`} className="bt-exp-skill">{s}</span>
                       ))}
                     </div>
+                    <TruncatedDescription
+                      text={exp.description}
+                      style={{
+                        margin: "8px 0 0",
+                        fontFamily: "'DM Sans',sans-serif",
+                        fontSize: "0.8rem",
+                        color: "#666",
+                        lineHeight: 1.6,
+                        whiteSpace: "pre-line",
+                      }}
+                    />
                   </div>
                 </div>
               ))

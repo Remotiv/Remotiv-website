@@ -125,6 +125,7 @@ type WorkExperience = {
   start: string;
   end: string;
   skills: string;
+  description: string;
   currentlyWorking: boolean;
 };
 
@@ -135,6 +136,7 @@ const makeEmptyExperience = (): WorkExperience => ({
   start: "",
   end: "",
   skills: "",
+  description: "",
   currentlyWorking: false,
 });
 
@@ -806,6 +808,7 @@ export default function BecomeATalentPage() {
               .split(",")
               .map((s: string) => s.trim())
               .filter(Boolean),
+            description: (e.description ?? "").trim(),
           };
         });
       fd.append("experience", JSON.stringify(expPayload));
@@ -1595,6 +1598,32 @@ export default function BecomeATalentPage() {
                                   }
                                   aria-label={`Experience ${idx + 1} skills used`}
                                 />
+                              </div>
+                              <div className="bta-form-group">
+                                <label className="bta-label" htmlFor={`exp-${exp.id}-description`}>
+                                  Description <span className="bta-opt">optional</span>
+                                </label>
+                                <textarea
+                                  id={`exp-${exp.id}-description`}
+                                  className="bta-textarea"
+                                  placeholder="What you owned, shipped, and the impact (metrics, scale, results)…"
+                                  value={exp.description}
+                                  onChange={(e) =>
+                                    updateExperience(exp.id, { description: e.target.value })
+                                  }
+                                  maxLength={1000}
+                                  aria-label={`Experience ${idx + 1} description`}
+                                />
+                                <p
+                                  className="bta-skill-hint"
+                                  aria-live="polite"
+                                  style={{
+                                    color: exp.description.length >= 1000 ? "#dc2626" : "#888",
+                                    textAlign: "right",
+                                  }}
+                                >
+                                  {exp.description.length} / 1000
+                                </p>
                               </div>
                             </div>
                           ))}

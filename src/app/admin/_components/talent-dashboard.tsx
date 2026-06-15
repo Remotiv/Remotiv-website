@@ -62,6 +62,7 @@ import {
 import { type UserRole } from "@/app/admin/lib/roles";
 import { friendlyError } from "@/app/admin/lib/errors";
 import { getAvatarUrl } from "@/lib/avatars";
+import { TruncatedDescription } from "@/components/truncated-description";
 import {
   INVITE_STATUS_COLOR,
   INVITE_STATUS_LABEL,
@@ -744,6 +745,10 @@ function ProfileDrawer({
                           ))}
                         </div>
                       )}
+                      <TruncatedDescription
+                        text={exp.description}
+                        className="mt-2 text-xs leading-relaxed text-gray-600"
+                      />
                     </div>
                   </div>
                 ))}

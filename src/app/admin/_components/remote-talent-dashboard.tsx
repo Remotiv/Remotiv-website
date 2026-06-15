@@ -48,6 +48,7 @@ import {
   INVITE_STATUS_LABEL,
   type InviteStatus,
 } from "@/lib/claim-status";
+import { TruncatedDescription } from "@/components/truncated-description";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -645,9 +646,10 @@ function ProfileDrawer({
                       </div>
                       {e.dates && <p className="shrink-0 text-[10px] text-gray-400">{e.dates}</p>}
                     </div>
-                    {e.description && (
-                      <p className="mt-2 text-xs leading-relaxed text-gray-600">{e.description}</p>
-                    )}
+                    <TruncatedDescription
+                      text={e.description}
+                      className="mt-2 text-xs leading-relaxed text-gray-600"
+                    />
                   </div>
                 ))}
               </div>

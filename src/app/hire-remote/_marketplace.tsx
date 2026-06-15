@@ -13,6 +13,7 @@ import {
 } from "lucide-react";
 import HireRequestWizard from "./_hire-request-wizard";
 import { LazyPhoto } from "@/components/lazy-photo";
+import { TruncatedDescription } from "@/components/truncated-description";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -564,9 +565,10 @@ function ProfileDrawer({
                   </div>
                   <p className="shrink-0 text-right text-[10px] text-[#aaa]">{j.dates}</p>
                 </div>
-                {j.description && (
-                  <p className="mt-2 text-[12px] leading-[1.65] text-[#555]">{j.description}</p>
-                )}
+                <TruncatedDescription
+                  text={j.description}
+                  className="mt-2 text-[12px] leading-[1.65] text-[#555]"
+                />
               </div>
             ))}
           </div>
