@@ -76,12 +76,10 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   const [duplicateMsg, setDuplicateMsg] = useState<{
     appliedAt: string | null;
   } | null>(null);
-  // Entry fade — backdrop + panel transition in over 150ms after first paint.
-  const [mounted, setMounted] = useState(false);
-  useEffect(() => {
-    const id = requestAnimationFrame(() => setMounted(true));
-    return () => cancelAnimationFrame(id);
-  }, []);
+  // Entry fade is done via CSS keyframes (see globals.css) rather than a
+  // state-driven inline transition — a state + rAF flip leaves the modal
+  // fully transparent for its first painted frame, which was visible as a
+  // blink when the dynamic-import loading fallback handed off to it.
   const fileRef = useRef<HTMLInputElement>(null);
   // Focus trap + focus-restore. The hook (src/hooks/use-focus-trap.ts) moves
   // initial focus into the modal on mount, cycles Tab/Shift+Tab within it,
@@ -200,20 +198,14 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
 
   return (
     <div
-      className="fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
-      style={{ opacity: mounted ? 1 : 0, transition: "opacity 150ms ease-out" }}
+      className="apply-modal-backdrop-anim fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
       role="dialog"
       aria-modal="true"
       aria-labelledby="apply-modal-title"
     >
       <div
         ref={modalRef}
-        className="relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16"
-        style={{
-          opacity: mounted ? 1 : 0,
-          transform: mounted ? "scale(1)" : "scale(0.97)",
-          transition: "opacity 150ms ease-out, transform 150ms ease-out",
-        }}
+        className="apply-modal-panel-anim relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16"
       >
         {/* Header — sticky, never scrolls away */}
         <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
