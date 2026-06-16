@@ -79,6 +79,22 @@ const EVENT_ICON: Record<
     color: "text-amber-600",
     bg: "bg-amber-50",
   },
+  // Talent shortlisted by an admin — reuses the same celebratory styling
+  // as candidate_added (the existing batch-side shortlist event) so both
+  // surfaces look consistent in the bell.
+  shortlisted: {
+    Icon: Sparkles,
+    color: "text-emerald-600",
+    bg: "bg-emerald-50",
+  },
+  // Admin paused the profile — temporary, recoverable state. Reuses the
+  // amber warning style from profile_rejected since both convey "your
+  // profile is currently not surfaced to clients".
+  profile_paused: {
+    Icon: AlertCircle,
+    color: "text-amber-600",
+    bg: "bg-amber-50",
+  },
 };
 const EVENT_ICON_DEFAULT = {
   Icon: Bell,

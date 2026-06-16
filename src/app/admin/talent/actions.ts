@@ -221,6 +221,39 @@ export async function setTalentFlag(
 
   if (error) return { success: false, error: error.message };
 
+  // Talent-facing notification — fires only when turning shortlisted/paused
+  // ON. Mirrors the recipient_user_id + best-effort log shape from
+  // updateTalentStatus above. ownerId being null silently skips, same as the
+  // approve/reject path: an unclaimed profile has no auth user to notify.
+  if (value === true && (flag === "shortlisted" || flag === "paused")) {
+    const { data: row } = await supabase
+      .from("talent_profiles")
+      .select("user_id")
+      .eq("id", id)
+      .maybeSingle();
+    const ownerId = (row as { user_id: string | null } | null)?.user_id;
+    if (ownerId) {
+      const isShortlisted = flag === "shortlisted";
+      const { error: notifErr } = await supabase
+        .from("notifications")
+        .insert({
+          recipient_user_id: ownerId,
+          event_type: isShortlisted ? "shortlisted" : "profile_paused",
+          title: isShortlisted
+            ? "You've been shortlisted"
+            : "Your profile is paused",
+          message: isShortlisted
+            ? "An admin shortlisted your profile — you're being considered for opportunities."
+            : "Your profile is temporarily hidden from the marketplace. An admin will restore it soon.",
+          link: "/talent/dashboard/edit",
+          metadata: { source_table: "talent_profiles", profile_id: id },
+        });
+      if (notifErr) {
+        console.error("[setTalentFlag notification]", notifErr);
+      }
+    }
+  }
+
   revalidatePath("/admin/talent");
   revalidatePath("/browse-talent");
   return { success: true, data: undefined };
