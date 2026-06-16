@@ -3,7 +3,7 @@ import type { Metadata } from "next";
 const TITLE = "Hire Remote Talent | Remotiv";
 const DESCRIPTION =
   "Browse and hire Pakistan's top 1% vetted remote talent. Filter by role, skills, rate, and availability. Submit a hire request in minutes.";
-const URL = "https://www.remotiv.work/hire-remote";
+const URL = "https://remotiv.work/hire-remote";
 
 export const metadata: Metadata = {
   title: TITLE,

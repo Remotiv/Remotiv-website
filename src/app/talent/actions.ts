@@ -13,7 +13,7 @@ type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
 const BASE_URL =
   process.env.NEXT_PUBLIC_SITE_URL ??
-  "https://remotiv-website-m3jo.vercel.app";
+  "https://remotiv.work";
 
 // Email collision: this email must not already belong to an admin or client
 // in auth.users. Mirrors the inline check in /api/claim/{verify,initiate}.

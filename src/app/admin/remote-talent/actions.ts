@@ -412,7 +412,7 @@ export async function sendRemoteClaimInvites(
 
   const baseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
-    "https://remotiv-website-m3jo.vercel.app";
+    "https://remotiv.work";
 
   const cookieStore = await cookies();
   const cookieHeader = cookieStore

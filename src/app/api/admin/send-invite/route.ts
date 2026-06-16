@@ -71,7 +71,7 @@ export async function POST(request: Request) {
 
   const baseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
-    "https://remotiv-website-m3jo.vercel.app";
+    "https://remotiv.work";
 
   const sent: string[] = [];
   const skipped: Array<{ profileId: string; reason: SkippedReason }> = [];

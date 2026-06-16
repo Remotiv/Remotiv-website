@@ -304,7 +304,7 @@ export async function sendClaimInvites(
 
   const baseUrl =
     process.env.NEXT_PUBLIC_SITE_URL ??
-    "https://remotiv-website-m3jo.vercel.app";
+    "https://remotiv.work";
 
   // Forward the caller's session cookies so the API route's requireAdmin()
   // gate sees the same user. Without this, the server-to-self fetch arrives
