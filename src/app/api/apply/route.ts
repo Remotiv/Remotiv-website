@@ -25,6 +25,38 @@ const MAX_JOB_TITLE_LENGTH = 200;
 const MAX_PHONE_LENGTH = 50;
 const MAX_NOTES_LENGTH = 2000;
 
+// Phase 2b — wizard fields. Caps mirror /api/talent/route.ts FIELD_MAX (29-46)
+// so an applicant's payload is interchangeable with a /become-a-talent submit.
+// Named APPLY_FIELD_MAX to avoid confusion with the existing MAX_* set above.
+const APPLY_FIELD_MAX = {
+  jobTitle: 200,
+  roleCategory: 60,
+  degree: 200,
+  institution: 200,
+  city: 100,
+  country: 100,
+  summary: 2000,
+  skill: 50,
+  expField: 200,
+  experienceDescription: 1000,
+};
+const MAX_SKILLS = 30;
+const MAX_EXPERIENCES = 30;
+
+// Enum coercion sets — values match /api/talent/route.ts:55-62 verbatim so
+// the same wizard pill choice validates the same way on both routes. Strategy
+// (Option 2 from the audit): empty stays NULL; an unrecognised NON-empty value
+// snaps to the default. The wizard's pills prevent invalid non-empty values in
+// the happy path; this guards stale-cached clients + direct API calls.
+const VALID_AVAILABILITY = ["Available Now", "Not Available"];
+const DEFAULT_AVAILABILITY = "Available Now";
+const VALID_WORK_TYPE = ["Full-time", "Part-time", "Contract", "Any"];
+const DEFAULT_WORK_TYPE = "Full-time";
+const VALID_NOTICE_PERIOD = ["Immediate", "2 Weeks", "1 Month", "Negotiable"];
+const DEFAULT_NOTICE_PERIOD = "Immediate";
+const VALID_WORK_LOCATION = ["Remote", "Hybrid", "Onsite"];
+const DEFAULT_WORK_LOCATION = "Remote";
+
 // Shared error message — never leaks Supabase/Postgres details to the client.
 // Real failures are logged server-side via console.error.
 const GENERIC_ERROR_MESSAGE = "Submission failed. Please try again.";
@@ -38,6 +70,27 @@ function nullable(value: FormDataEntryValue | null): string | null {
   if (typeof value !== "string") return null;
   const trimmed = value.trim();
   return trimmed.length > 0 ? trimmed : null;
+}
+
+// Mirror of /api/talent/route.ts:70-74. Returns null on missing, non-string,
+// or non-numeric input — so callers can clamp/null in one shape.
+function intOrNull(v: FormDataEntryValue | null): number | null {
+  if (typeof v !== "string") return null;
+  const n = Number.parseInt(v, 10);
+  return Number.isFinite(n) ? n : null;
+}
+
+// Mirror of /api/hire-remote-profiles/route.ts:40-49. Generic JSON parse with
+// silent fallback — used for skills + employment_history. Garbage in / parse
+// failure → fallback, never throws.
+function safeJson<T>(raw: FormDataEntryValue | null, fallback: T): T {
+  if (typeof raw !== "string" || !raw.trim()) return fallback;
+  try {
+    const parsed = JSON.parse(raw);
+    return parsed as T;
+  } catch {
+    return fallback;
+  }
 }
 
 function slug(value: string): string {
@@ -263,6 +316,85 @@ export async function POST(request: NextRequest) {
       resolvedJobId = (jobRow as { id?: string } | null)?.id ?? null;
     }
 
+    // Phase 2b — parse the wizard's new fields just before the INSERT. Placed
+    // AFTER the dedup + CV upload + placeholder-job blocks so a malformed
+    // payload on these new fields can't waste a storage upload or trip the
+    // dedup-by-email gate. None of these branches reject: empties stay NULL,
+    // garbage enum values coerce to the safe default, JSON parse failures
+    // fall back to []. This is intentional — the wizard's UI is the gate.
+    const cap = (s: string | null, n: number): string | null =>
+      s === null ? null : s.slice(0, n);
+
+    const applicantJobTitle = cap(nullable(form.get("applicant_job_title")), APPLY_FIELD_MAX.jobTitle);
+    const roleCategory      = cap(nullable(form.get("role_category")),       APPLY_FIELD_MAX.roleCategory);
+    const degree            = cap(nullable(form.get("degree")),              APPLY_FIELD_MAX.degree);
+    const institution       = cap(nullable(form.get("institution")),         APPLY_FIELD_MAX.institution);
+    const city              = cap(nullable(form.get("city")),                APPLY_FIELD_MAX.city);
+    const country           = cap(nullable(form.get("country")),             APPLY_FIELD_MAX.country);
+    const summary           = cap(nullable(form.get("summary")),             APPLY_FIELD_MAX.summary);
+
+    const yearsParsed = intOrNull(form.get("years_experience"));
+    const yearsExperience = yearsParsed == null
+      ? null
+      : Math.max(0, Math.min(70, yearsParsed));
+
+    const rawAvailability = nullable(form.get("availability"));
+    const availability = rawAvailability
+      ? (VALID_AVAILABILITY.includes(rawAvailability) ? rawAvailability : DEFAULT_AVAILABILITY)
+      : null;
+
+    const rawWorkType = nullable(form.get("work_type"));
+    const workType = rawWorkType
+      ? (VALID_WORK_TYPE.includes(rawWorkType) ? rawWorkType : DEFAULT_WORK_TYPE)
+      : null;
+
+    const rawNoticePeriod = nullable(form.get("notice_period"));
+    const noticePeriod = rawNoticePeriod
+      ? (VALID_NOTICE_PERIOD.includes(rawNoticePeriod) ? rawNoticePeriod : DEFAULT_NOTICE_PERIOD)
+      : null;
+
+    const rawWorkLocation = nullable(form.get("work_location"));
+    const workLocation = rawWorkLocation
+      ? (VALID_WORK_LOCATION.includes(rawWorkLocation) ? rawWorkLocation : DEFAULT_WORK_LOCATION)
+      : null;
+
+    const skillsRaw = safeJson<unknown>(form.get("skills"), []);
+    const skills: string[] = Array.isArray(skillsRaw)
+      ? (skillsRaw as unknown[])
+          .filter((s): s is string => typeof s === "string")
+          .slice(0, MAX_SKILLS)
+          .map((s) => s.slice(0, APPLY_FIELD_MAX.skill))
+      : [];
+
+    type EmploymentEntry = {
+      title: string;
+      company: string;
+      start: string;
+      end: string;
+      description: string;
+      skills: string[];
+    };
+    const empRaw = safeJson<unknown>(form.get("employment_history"), []);
+    const employmentHistory: EmploymentEntry[] = Array.isArray(empRaw)
+      ? (empRaw as unknown[])
+          .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
+          .map((e) => ({
+            title:       typeof e.title       === "string" ? (e.title as string).slice(0,       APPLY_FIELD_MAX.expField)              : "",
+            company:     typeof e.company     === "string" ? (e.company as string).slice(0,     APPLY_FIELD_MAX.expField)              : "",
+            start:       typeof e.start       === "string" ? (e.start as string).slice(0,       APPLY_FIELD_MAX.expField)              : "",
+            end:         typeof e.end         === "string" ? (e.end as string).slice(0,         APPLY_FIELD_MAX.expField)              : "",
+            description: typeof e.description === "string" ? (e.description as string).slice(0, APPLY_FIELD_MAX.experienceDescription) : "",
+            skills: Array.isArray(e.skills)
+              ? (e.skills as unknown[])
+                  .filter((s): s is string => typeof s === "string")
+                  .slice(0, MAX_SKILLS)
+                  .map((s) => (s as string).slice(0, APPLY_FIELD_MAX.skill))
+              : [],
+          }))
+          .filter((row) => row.title || row.company)
+          .slice(0, MAX_EXPERIENCES)
+      : [];
+
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it
     //    via talent_claim_tokens.candidate_id.
@@ -281,6 +413,20 @@ export async function POST(request: NextRequest) {
         status: "new",
         source,
         notes,
+        applicant_job_title: applicantJobTitle,
+        role_category:       roleCategory,
+        years_experience:    yearsExperience,
+        degree,
+        institution,
+        city,
+        country,
+        availability,
+        work_type:           workType,
+        notice_period:       noticePeriod,
+        work_location:       workLocation,
+        summary,
+        skills,
+        employment_history:  employmentHistory,
       })
       .select("id")
       .single();
