@@ -195,6 +195,7 @@ export async function moveApplicationToTalent(
       linkedin_url: typeof row.linkedin_url === "string" ? row.linkedin_url : null,
       github_url:   typeof row.github_url   === "string" ? row.github_url   : null,
       cv_url:       typeof row.cv_url       === "string" ? row.cv_url       : null,
+      cv_path:      typeof row.cv_path      === "string" ? row.cv_path      : null,
       cv_text:      typeof row.cv_text      === "string" ? row.cv_text      : null,
 
       job_title:        additionalData.job_title,
