@@ -43,6 +43,7 @@ const AddToBatchModal = dynamic(
 );
 import { PaginationControls, paginate } from "./pagination-controls";
 import { StatusBadge } from "./_shared/status-badge";
+import type { ExtractedTalentFields } from "@/lib/cv-extract";
 import {
   updateApplicationStatus,
   addComment,
@@ -142,16 +143,25 @@ function AppPanel({
   onAddToBatch,
   onDelete,
   onToast,
+  extractingId,
 }: {
   app: JobApplication;
   authorName: string;
   canDel: boolean;
   onClose: () => void;
   onSetStatus: (status: ApplicationStatus) => void;
-  onMoveToTalent: () => void;
+  // Phase B: onMoveToTalent is now async — the parent runs the CV extraction
+  // fetch + state mgmt before the modal opens. The drawer awaits it so the
+  // animated close fires only AFTER the spinner cleared, keeping the timing
+  // consistent with the visible UX.
+  onMoveToTalent: () => void | Promise<void>;
   onAddToBatch: () => void;
   onDelete: () => void;
   onToast: (msg: string) => void;
+  // Phase B: parent state, used so the button can show "✨ Analysing CV…"
+  // and self-debounce. Compares to `app.id` because there's at most one
+  // panel open at a time.
+  extractingId: string | null;
 }) {
   const [comments, setComments] = useState<ApplicationComment[]>([]);
   const [loadingComments, setLoadingComments] = useState(true);
@@ -306,13 +316,33 @@ function AppPanel({
             ) : (
               <button
                 type="button"
-                onClick={() => { onMoveToTalent(); handleClose(); }}
-                className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5`}
+                onClick={async () => {
+                  if (extractingId === app.id) return;  // debounce
+                  await onMoveToTalent();
+                  handleClose();
+                }}
+                disabled={extractingId === app.id}
+                aria-busy={extractingId === app.id}
+                className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5 disabled:cursor-wait disabled:hover:bg-transparent`}
               >
-                <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
-                  <UserCheck className="size-3.5 text-remotiv-purple" strokeWidth={2} />
-                </span>
-                Move to Talent
+                {extractingId === app.id ? (
+                  <>
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
+                      <Loader2
+                        className="size-3.5 animate-spin text-remotiv-purple"
+                        strokeWidth={2}
+                      />
+                    </span>
+                    ✨ Analysing CV…
+                  </>
+                ) : (
+                  <>
+                    <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
+                      <UserCheck className="size-3.5 text-remotiv-purple" strokeWidth={2} />
+                    </span>
+                    Move to Talent
+                  </>
+                )}
               </button>
             )}
 
@@ -612,6 +642,46 @@ export function ApplicationsDashboard({
 
   // ── Move-to-Talent modal ──────────────────────────────────
   const [moveTarget, setMoveTarget] = useState<JobApplication | null>(null);
+  // Phase B: AI CV extraction state. `extractingId` is the application id
+  // currently being analysed (or null); `prefillData` is the most recent
+  // result piped into MoveToTalentModal as a `prefill` prop. Both clear on
+  // modal close/success.
+  const [extractingId, setExtractingId] = useState<string | null>(null);
+  const [prefillData, setPrefillData] = useState<ExtractedTalentFields | null>(null);
+
+  // Phase B: orchestrate the click → fetch → setMoveTarget sequence so the
+  // AppPanel button can `await onMoveToTalent()` and then close its animated
+  // slide-out. Every failure mode (network, timeout, !ok, missing JSON) maps
+  // to a null prefill → the modal opens blank. Never throws.
+  async function handleMoveToTalentClick(app: JobApplication): Promise<void> {
+    if (extractingId) return;  // debounce
+    setExtractingId(app.id);
+    let prefill: ExtractedTalentFields | null = null;
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    try {
+      const res = await fetch("/api/admin/extract-cv", {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+        body: JSON.stringify({ applicationId: app.id }),
+        signal: controller.signal,
+      });
+      const json = (await res.json().catch(() => null)) as
+        | { ok: true; prefill: ExtractedTalentFields | null }
+        | { ok: false }
+        | null;
+      if (json && json.ok) {
+        prefill = json.prefill ?? null;
+      }
+    } catch {
+      prefill = null;
+    } finally {
+      clearTimeout(timeoutId);
+      setExtractingId(null);
+      setPrefillData(prefill);
+      setMoveTarget(app);
+    }
+  }
 
   // ── Add-to-Batch modal ────────────────────────────────────
   const [addToBatchTarget, setAddToBatchTarget] = useState<JobApplication | null>(null);
@@ -1157,10 +1227,11 @@ export function ApplicationsDashboard({
           canDel={canDel}
           onClose={() => setPanelApp(null)}
           onSetStatus={(status) => handleSetStatus(panelApp, status)}
-          onMoveToTalent={() => setMoveTarget(panelApp)}
+          onMoveToTalent={() => handleMoveToTalentClick(panelApp)}
           onAddToBatch={() => setAddToBatchTarget(panelApp)}
           onDelete={() => setDeleteTarget(panelApp)}
           onToast={setToast}
+          extractingId={extractingId}
         />
       )}
 
@@ -1168,9 +1239,14 @@ export function ApplicationsDashboard({
       {moveTarget && (
         <MoveToTalentModal
           app={moveTarget}
-          onClose={() => setMoveTarget(null)}
+          prefill={prefillData}
+          onClose={() => {
+            setMoveTarget(null);
+            setPrefillData(null);
+          }}
           onSuccess={(msg) => {
             setMoveTarget(null);
+            setPrefillData(null);
             setPanelApp(null);
             setToast(msg);
             router.refresh();

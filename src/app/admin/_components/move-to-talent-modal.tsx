@@ -7,6 +7,7 @@ import {
   moveApplicationToTalent,
   type JobApplication,
 } from "@/app/admin/applications/actions";
+import type { ExtractedTalentFields } from "@/lib/cv-extract";
 
 // ── Option sets ───────────────────────────────────────────────
 // Values mirror the strings written by /become-a-talent so the resulting
@@ -276,35 +277,62 @@ function ApplicantCard({ app, onViewCv }: { app: JobApplication; onViewCv: () =>
 
 export function MoveToTalentModal({
   app,
+  prefill,
   onClose,
   onSuccess,
 }: {
   app: JobApplication;
+  // Phase B: AI-extracted CV fields piped in by ApplicationsDashboard. Each
+  // useState slot below reads from this once at mount via a lazy initialiser;
+  // subsequent renders don't re-read it (so a parent re-render won't clobber
+  // admin edits).
+  prefill?: ExtractedTalentFields | null;
   onClose: () => void;
   onSuccess: (msg: string) => void;
 }) {
-  // Profile fields
-  const [jobTitle, setJobTitle]               = useState("");
-  const [roleCategory, setRoleCategory]       = useState("");
-  const [yearsExp, setYearsExp]               = useState<string>("");
-  const [industry, setIndustry]               = useState("");
-  const [degree, setDegree]                   = useState("");
-  const [institution, setInstitution]         = useState("");
-  const [skills, setSkills]                   = useState<string[]>([]);
-  const [summary, setSummary]                 = useState("");
+  // Profile fields — seeded from prefill on first mount. Lazy initialisers
+  // mean the seed runs ONCE (no useEffect-triggered overwrites later).
+  // Name bridge: prefill.applicant_job_title → jobTitle (modal field name
+  // doesn't carry the "applicant_" prefix; the existing additionalData
+  // contract submits this as `job_title`).
+  const [jobTitle, setJobTitle]               = useState(() => prefill?.applicant_job_title ?? "");
+  const [roleCategory, setRoleCategory]       = useState(() => prefill?.role_category ?? "");
+  const [yearsExp, setYearsExp]               = useState<string>(() =>
+    prefill?.years_experience != null ? String(prefill.years_experience) : "",
+  );
+  const [industry, setIndustry]               = useState("");  // AI does NOT extract industry; admin types if they want.
+  const [degree, setDegree]                   = useState(() => prefill?.degree ?? "");
+  const [institution, setInstitution]         = useState(() => prefill?.institution ?? "");
+  const [skills, setSkills]                   = useState<string[]>(() =>
+    Array.isArray(prefill?.skills) ? prefill.skills : [],
+  );
+  const [summary, setSummary]                 = useState(() => prefill?.summary ?? "");
 
-  // Work prefs
-  const [availability, setAvailability]   = useState<string>("");
-  const [workType, setWorkType]           = useState<string>("");
-  const [noticePeriod, setNoticePeriod]   = useState<string>("");
-  const [workLocation, setWorkLocation]   = useState<string>("");
+  // Work prefs — AI picks one of the canonical strings or null; coerced
+  // upstream so any non-canonical value would already be null here.
+  const [availability, setAvailability]   = useState<string>(() => prefill?.availability ?? "");
+  const [workType, setWorkType]           = useState<string>(() => prefill?.work_type ?? "");
+  const [noticePeriod, setNoticePeriod]   = useState<string>(() => prefill?.notice_period ?? "");
+  const [workLocation, setWorkLocation]   = useState<string>(() => prefill?.work_location ?? "");
 
-  // Compensation
+  // Compensation — not extracted by AI.
   const [salaryMin, setSalaryMin] = useState<string>("");
   const [salaryMax, setSalaryMax] = useState<string>("");
 
-  // Employment history
-  const [employment, setEmployment] = useState<EmploymentDraft[]>([]);
+  // Employment history — shape bridge:
+  //   AI emits { title, company, start, end, description, skills[] }
+  //   Modal needs { id, title, company, dates: string, description } (no per-row skills field)
+  // Per-row skills are dropped (modal has no UI for them; existing
+  // additionalData.employment_history shape is identical to today).
+  const [employment, setEmployment] = useState<EmploymentDraft[]>(() =>
+    (prefill?.employment_history ?? []).map((e, i) => ({
+      id: Date.now() + i,
+      title: e.title,
+      company: e.company,
+      dates: [e.start, e.end].filter(Boolean).join(" — "),
+      description: e.description,
+    })),
+  );
 
   // Submission state
   const [error, setError]         = useState<string | null>(null);
@@ -352,6 +380,14 @@ export function MoveToTalentModal({
   // flips the ref once any of them change. This lets us pass raw `setX` setters
   // straight to children — no per-render closure rebuilds, no markDirty calls
   // on the click hot path.
+  //
+  // Phase B: the firstRunRef guard ALSO covers the prefill-seeded initial
+  // state because each useState above uses a lazy initialiser that commits
+  // the seed BEFORE this effect's first run. So on mount with prefill, the
+  // effect's first invocation sees firstRunRef.current = true → flips to
+  // false → returns without marking dirty. Subsequent admin edits trigger
+  // the dirty mark normally. No "Discard changes?" prompt on a fresh
+  // prefilled modal that the admin closes without editing.
   const firstRunRef = useRef(true);
   useEffect(() => {
     if (firstRunRef.current) {
@@ -401,7 +437,10 @@ export function MoveToTalentModal({
     if (!Number.isFinite(parsed.years_experience) || parsed.years_experience < 0) {
       return "Years of Experience must be 0 or greater.";
     }
-    if (!industry.trim())     return "Industry is required.";
+    // Phase B: industry dropped from required. AI doesn't extract industry,
+    // and the talent_profiles column is nullable. Admin can still type it
+    // before submit if desired; the additionalData.industry key still flows
+    // through (just defaulting to empty when omitted).
     if (!degree.trim())       return "Degree is required.";
     if (!institution.trim())  return "Institution is required.";
     if (!availability)        return "Availability is required.";
