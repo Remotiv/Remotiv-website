@@ -42,6 +42,7 @@ const AddToBatchModal = dynamic(
   { ssr: false },
 );
 import { PaginationControls, paginate } from "./pagination-controls";
+import { StatusBadge } from "./_shared/status-badge";
 import {
   updateApplicationStatus,
   addComment,
@@ -221,6 +222,11 @@ function AppPanel({
             <p className="mt-0.5 truncate text-xs text-gray-400">
               {app.job_title ?? "No job linked"}
             </p>
+            {app.alreadyMoved && (
+              <StatusBadge variant="success" className="mt-1.5">
+                ✓ Already in Talent
+              </StatusBadge>
+            )}
           </div>
           <button
             type="button"
@@ -286,16 +292,29 @@ function AppPanel({
               Add to Client Batch
             </button>
 
-            <button
-              type="button"
-              onClick={() => { onMoveToTalent(); handleClose(); }}
-              className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5`}
-            >
-              <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
-                <UserCheck className="size-3.5 text-remotiv-purple" strokeWidth={2} />
-              </span>
-              Move to Talent
-            </button>
+            {app.alreadyMoved ? (
+              <button
+                type="button"
+                disabled
+                className={`${actionBtn} cursor-not-allowed text-gray-300`}
+              >
+                <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
+                  <UserCheck className="size-3.5 text-gray-300" strokeWidth={2} />
+                </span>
+                Move to Talent
+              </button>
+            ) : (
+              <button
+                type="button"
+                onClick={() => { onMoveToTalent(); handleClose(); }}
+                className={`${actionBtn} text-remotiv-purple hover:bg-remotiv-purple/5`}
+              >
+                <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-purple/10">
+                  <UserCheck className="size-3.5 text-remotiv-purple" strokeWidth={2} />
+                </span>
+                Move to Talent
+              </button>
+            )}
 
             <button
               type="button"
@@ -475,6 +494,11 @@ function ApplicationCardMobile({
               {app.job_title || "No job linked"}
             </p>
             <p className="mt-0.5 truncate text-xs text-gray-400">{app.email}</p>
+            {app.alreadyMoved && (
+              <StatusBadge variant="success" className="mt-1.5">
+                ✓ Already in Talent
+              </StatusBadge>
+            )}
           </div>
         </div>
 
@@ -997,10 +1021,17 @@ export function ApplicationsDashboard({
                           )}
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${meta.badge}`}>
-                            <span className={`size-1.5 rounded-full ${meta.dot}`} />
-                            {meta.label}
-                          </span>
+                          <div className="inline-flex flex-wrap items-center gap-2">
+                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${meta.badge}`}>
+                              <span className={`size-1.5 rounded-full ${meta.dot}`} />
+                              {meta.label}
+                            </span>
+                            {app.alreadyMoved && (
+                              <StatusBadge variant="success">
+                                ✓ Already in Talent
+                              </StatusBadge>
+                            )}
+                          </div>
                         </td>
                         <td className="px-6 py-4 text-gray-400">{fmtDate(app.created_at)}</td>
                         <td className="px-6 py-4">

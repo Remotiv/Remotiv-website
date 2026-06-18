@@ -39,6 +39,35 @@ export default async function ApplicationsPage({
     userRole = roleRow.role as UserRole;
   }
 
+  // Phase 3: "already moved" detection. Normalise each application's email
+  // (lowercase + trim, matching moveApplicationToTalent's L160 + the
+  // normalizeEmail helper in src/lib/normalize.ts:13). One IN query collects
+  // every talent_profiles row whose email is in the page's set, and we build
+  // a lookup set the mapper uses to set `alreadyMoved` per row.
+  const normaliseEmail = (raw: unknown): string =>
+    typeof raw === "string" ? raw.toLowerCase().trim() : "";
+
+  const normalisedEmails = Array.from(
+    new Set(
+      (apps ?? [])
+        .map((a) => normaliseEmail((a as Record<string, unknown>).email))
+        .filter((e) => e.length > 0),
+    ),
+  );
+
+  let movedEmails = new Set<string>();
+  if (normalisedEmails.length > 0) {
+    const { data: movedRows } = await service
+      .from("talent_profiles")
+      .select("email")
+      .in("email", normalisedEmails);
+    movedEmails = new Set(
+      ((movedRows ?? []) as Array<{ email: string | null }>)
+        .map((r) => normaliseEmail(r.email))
+        .filter((e) => e.length > 0),
+    );
+  }
+
   const applications: JobApplication[] = (apps ?? []).map((a: Record<string, unknown>) => ({
     id: a.id as string,
     job_id: a.job_id as string | null,
@@ -53,6 +82,7 @@ export default async function ApplicationsPage({
     notes: (a.notes as string | null) ?? null,
     created_at: a.created_at as string,
     job_title: (a.jobs as { title?: string } | null)?.title ?? null,
+    alreadyMoved: movedEmails.has(normaliseEmail(a.email)),
   }));
 
   const openJobs: OpenJob[] = (jobs ?? []) as OpenJob[];

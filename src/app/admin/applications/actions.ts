@@ -23,6 +23,12 @@ export type JobApplication = {
   notes: string | null;
   created_at: string;
   job_title?: string | null;
+  // Phase 3: read-only UI hint set by /admin/applications/page.tsx after a
+  // batched lookup against talent_profiles.email. true when a talent_profiles
+  // row already exists for this application's normalised email, so the
+  // dashboard can disable "Move to Talent" + show an "Already in Talent" badge.
+  // Derived, never persisted.
+  alreadyMoved: boolean;
 };
 
 export type OpenJob = { id: string; title: string };
