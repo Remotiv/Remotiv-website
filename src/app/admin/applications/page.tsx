@@ -60,7 +60,11 @@ export default async function ApplicationsPage({
     const { data: movedRows } = await service
       .from("talent_profiles")
       .select("email")
-      .in("email", normalisedEmails);
+      .in("email", normalisedEmails)
+      // Archived profiles are tombstones — they no longer count as "in Talent"
+      // for the move-button gate. Re-moving the same applicant restores the
+      // archived row server-side; see moveApplicationToTalent's archived branch.
+      .eq("is_archived", false);
     movedEmails = new Set(
       ((movedRows ?? []) as Array<{ email: string | null }>)
         .map((r) => normaliseEmail(r.email))

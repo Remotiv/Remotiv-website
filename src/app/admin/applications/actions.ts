@@ -168,59 +168,93 @@ export async function moveApplicationToTalent(
     return { success: false, error: "Application has no valid email." };
   }
 
-  // 2. Duplicate-by-email guard against talent_profiles.
-  const { data: existingTalent } = await supabase
+  // 2. Duplicate-by-email guard against talent_profiles, with archived-aware
+  // branching. An ACTIVE row (is_archived = false) blocks the move outright.
+  // An ARCHIVED row (is_archived = true) is treated as a tombstone: re-moving
+  // the same applicant restores the row in place (refreshing all profile
+  // columns + flipping is_archived back to false) rather than inserting a
+  // duplicate. Active is checked first so an active row always wins if both
+  // somehow co-exist.
+  const { data: activeExisting } = await supabase
     .from("talent_profiles")
     .select("id")
     .eq("email", email)
+    .eq("is_archived", false)
     .maybeSingle();
 
-  if (existingTalent) {
+  if (activeExisting) {
     return {
       success: false,
       error: "This applicant is already in the Talent network",
     };
   }
 
-  // 3. Insert the new talent profile.
+  const { data: archivedExisting } = await supabase
+    .from("talent_profiles")
+    .select("id")
+    .eq("email", email)
+    .eq("is_archived", true)
+    .maybeSingle();
+
+  // 3. Shared profile values — used by BOTH the INSERT (new row) and the
+  // restore-UPDATE (archived row) paths so the two stay in lockstep.
+  const profilePatch = {
+    first_name:   typeof row.first_name   === "string" ? row.first_name   : "",
+    last_name:    typeof row.last_name    === "string" ? row.last_name    : null,
+    phone:        typeof row.phone        === "string" ? row.phone        : null,
+    city:         typeof row.city         === "string" ? row.city         : null,
+    country:      typeof row.country      === "string" ? row.country      : null,
+    linkedin_url: typeof row.linkedin_url === "string" ? row.linkedin_url : null,
+    github_url:   typeof row.github_url   === "string" ? row.github_url   : null,
+    cv_url:       typeof row.cv_url       === "string" ? row.cv_url       : null,
+    cv_path:      typeof row.cv_path      === "string" ? row.cv_path      : null,
+    cv_text:      typeof row.cv_text      === "string" ? row.cv_text      : null,
+
+    job_title:        additionalData.job_title,
+    role_category:    additionalData.role_category,
+    years_experience: additionalData.years_experience,
+    industry:         additionalData.industry,
+    degree:           additionalData.degree,
+    institution:      additionalData.institution,
+    skills:           additionalData.skills,
+    experience:       additionalData.employment_history,
+    summary:          additionalData.summary,
+    availability:     additionalData.availability,
+    work_type:        additionalData.work_type,
+    notice_period:    additionalData.notice_period,
+    work_location:    additionalData.work_location,
+    salary_min:       additionalData.salary_min,
+    salary_max:       additionalData.salary_max,
+
+    avatar_url: getAvatarUrl(
+      typeof row.first_name === "string" ? row.first_name : null,
+      typeof row.last_name === "string" ? row.last_name : null,
+    ),
+    status: "pending",
+    approved_at: null,
+  };
+
+  if (archivedExisting) {
+    // 3a. RESTORE branch — UPDATE the archived row in place, refresh all
+    // profile columns, and flip is_archived back to false. Same revalidates as
+    // the INSERT branch so /admin/applications and /admin/talent both reflect.
+    const archivedId = (archivedExisting as { id: string }).id;
+    const { error: updateErr } = await supabase
+      .from("talent_profiles")
+      .update({ ...profilePatch, is_archived: false })
+      .eq("id", archivedId);
+
+    if (updateErr) return { success: false, error: updateErr.message };
+
+    revalidatePath("/admin/applications");
+    revalidatePath("/admin/talent");
+    return { success: true, data: { talent_id: archivedId } };
+  }
+
+  // 3b. INSERT branch — no existing row for this email, create a new one.
   const { data: inserted, error: insertErr } = await supabase
     .from("talent_profiles")
-    .insert({
-      first_name:   typeof row.first_name   === "string" ? row.first_name   : "",
-      last_name:    typeof row.last_name    === "string" ? row.last_name    : null,
-      email,
-      phone:        typeof row.phone        === "string" ? row.phone        : null,
-      city:         typeof row.city         === "string" ? row.city         : null,
-      country:      typeof row.country      === "string" ? row.country      : null,
-      linkedin_url: typeof row.linkedin_url === "string" ? row.linkedin_url : null,
-      github_url:   typeof row.github_url   === "string" ? row.github_url   : null,
-      cv_url:       typeof row.cv_url       === "string" ? row.cv_url       : null,
-      cv_path:      typeof row.cv_path      === "string" ? row.cv_path      : null,
-      cv_text:      typeof row.cv_text      === "string" ? row.cv_text      : null,
-
-      job_title:        additionalData.job_title,
-      role_category:    additionalData.role_category,
-      years_experience: additionalData.years_experience,
-      industry:         additionalData.industry,
-      degree:           additionalData.degree,
-      institution:      additionalData.institution,
-      skills:           additionalData.skills,
-      experience:       additionalData.employment_history,
-      summary:          additionalData.summary,
-      availability:     additionalData.availability,
-      work_type:        additionalData.work_type,
-      notice_period:    additionalData.notice_period,
-      work_location:    additionalData.work_location,
-      salary_min:       additionalData.salary_min,
-      salary_max:       additionalData.salary_max,
-
-      avatar_url: getAvatarUrl(
-        typeof row.first_name === "string" ? row.first_name : null,
-        typeof row.last_name === "string" ? row.last_name : null,
-      ),
-      status: "pending",
-      approved_at: null,
-    })
+    .insert({ ...profilePatch, email })
     .select("id")
     .single();
 

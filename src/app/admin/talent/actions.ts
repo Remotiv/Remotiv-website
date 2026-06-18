@@ -257,6 +257,13 @@ export async function setTalentFlag(
 
   revalidatePath("/admin/talent");
   revalidatePath("/browse-talent");
+  // Toggling the archived flag affects the move-button gate on
+  // /admin/applications (archived rows no longer count as "in Talent"), so
+  // revalidate that surface too — but only for archive toggles, since the
+  // other flags don't change that page.
+  if (flag === "archived") {
+    revalidatePath("/admin/applications");
+  }
   return { success: true, data: undefined };
 }
 
@@ -272,6 +279,10 @@ export async function deleteTalentProfile(
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/talent");
+  // Hard-deleting a talent row also frees the underlying applicant's email to
+  // be moved again — refresh /admin/applications so the move-button gate
+  // updates without a manual reload.
+  revalidatePath("/admin/applications");
   return { success: true, data: undefined };
 }
 
