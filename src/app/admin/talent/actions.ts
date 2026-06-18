@@ -71,6 +71,7 @@ export type TalentProfile = {
   salary_max: number | null;
   avatar_url: string | null;
   cv_url: string | null;
+  cv_path: string | null;
   status: TalentStatus;
   is_shortlisted: boolean;
   is_placed: boolean;
@@ -423,6 +424,7 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
     salary_max: (r.salary_max as number | null) ?? null,
     avatar_url: (r.avatar_url as string | null) ?? null,
     cv_url: (r.cv_url as string | null) ?? null,
+    cv_path: (r.cv_path as string | null) ?? null,
     status: ((r.status as TalentStatus) ?? "pending"),
     is_shortlisted: Boolean(r.is_shortlisted),
     is_placed: Boolean(r.is_placed),

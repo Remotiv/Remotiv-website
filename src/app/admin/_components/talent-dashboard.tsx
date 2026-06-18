@@ -799,8 +799,11 @@ function ProfileDrawer({
             </div>
           </DrawerSection>
 
-          {/* CV */}
-          {profile.cv_url && (
+          {/* CV — gate widened to cv_url || cv_path: apply-routed moved profiles
+              persist cv_path only (cv_url is null because the cvs bucket is
+              private; no public URL is stored). The handler below already
+              prefers cv_path via getCvSignedUrl. */}
+          {(profile.cv_url || profile.cv_path) && (
             <DrawerSection title="CV">
               <div className="flex gap-2">
                 <button
