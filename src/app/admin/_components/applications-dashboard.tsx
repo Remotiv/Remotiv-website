@@ -77,20 +77,8 @@ type StatCardDef = {
   icon: LucideIcon;
 };
 
-const STATUS_META: Record<
-  ApplicationStatus,
-  { label: string; badge: string; dot: string }
-> = {
-  new:         { label: "New",            badge: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
-  shortlisted: { label: "Shortlisted",    badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green"  },
-  not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",          dot: "bg-red-400"    },
-  maybe:       { label: "Maybe",          badge: "bg-amber-50 text-amber-600",      dot: "bg-amber-400"  },
-};
-
-// Per-admin private tag pills (Phase 2 read-only). Parallel to STATUS_META —
-// kept separate so the legacy single-status badge keeps its existing classes
-// while the new per-admin pills get a slightly smaller treatment that signals
-// they're a different concept.
+// Per-admin private tag pills. Each application row + drawer + mobile card
+// renders 0–3 of these to show the CURRENT admin's tags for that app.
 const TAG_META: Record<
   ApplicationTag,
   { label: string; badge: string; dot: string }
@@ -292,6 +280,19 @@ function AppPanel({
             <p className="mt-0.5 truncate text-xs text-gray-400">
               {app.job_title ?? "No job linked"}
             </p>
+            {app.myTags.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {app.myTags.map((t) => (
+                  <span
+                    key={t}
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TAG_META[t].badge}`}
+                  >
+                    <span className={`size-1.5 rounded-full ${TAG_META[t].dot}`} />
+                    {TAG_META[t].label}
+                  </span>
+                ))}
+              </div>
+            )}
             {app.alreadyMoved && (
               <StatusBadge variant="success" className="mt-1.5">
                 ✓ Already in Talent
@@ -519,13 +520,6 @@ function AppPanel({
 
 // ── Mobile card (replaces the desktop table on <lg) ──────────
 
-const STATUS_DOT: Record<ApplicationStatus, string> = {
-  new:         "bg-gray-100 text-gray-500",
-  shortlisted: "bg-remotiv-green/10 text-[#1a9e73]",
-  not_a_fit:   "bg-red-50 text-red-500",
-  maybe:       "bg-amber-50 text-amber-600",
-};
-
 function relativeTime(iso: string): string {
   const diffMs = Date.now() - new Date(iso).getTime();
   const min = Math.max(0, Math.floor(diffMs / 60_000));
@@ -560,7 +554,6 @@ function ApplicationCardMobile({
   app: JobApplication;
   onView: () => void;
 }) {
-  const meta = STATUS_META[app.status];
   return (
     <button
       type="button"
@@ -573,20 +566,26 @@ function ApplicationCardMobile({
             {appInitials(app.first_name, app.last_name)}
           </span>
           <div className="min-w-0 flex-1">
-            <div className="flex items-center justify-between gap-2">
-              <p className="truncate font-heading text-base font-bold text-gray-900">
-                {app.first_name} {app.last_name}
-              </p>
-              <span
-                className={`shrink-0 rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_DOT[app.status]}`}
-              >
-                {meta.label}
-              </span>
-            </div>
+            <p className="truncate font-heading text-base font-bold text-gray-900">
+              {app.first_name} {app.last_name}
+            </p>
             <p className="mt-0.5 truncate text-sm font-semibold text-remotiv-purple">
               {app.job_title || "No job linked"}
             </p>
             <p className="mt-0.5 truncate text-xs text-gray-400">{app.email}</p>
+            {app.myTags.length > 0 && (
+              <div className="mt-1.5 flex flex-wrap items-center gap-1.5">
+                {app.myTags.map((t) => (
+                  <span
+                    key={t}
+                    className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TAG_META[t].badge}`}
+                  >
+                    <span className={`size-1.5 rounded-full ${TAG_META[t].dot}`} />
+                    {TAG_META[t].label}
+                  </span>
+                ))}
+              </div>
+            )}
             {app.alreadyMoved && (
               <StatusBadge variant="success" className="mt-1.5">
                 ✓ Already in Talent
@@ -1144,7 +1143,6 @@ export function ApplicationsDashboard({
                   </tr>
                 ) : (
                   pageItems.map((app) => {
-                    const meta = STATUS_META[app.status];
                     const isHighlighted =
                       searchLower.length > 0 &&
                       (
@@ -1227,10 +1225,6 @@ export function ApplicationsDashboard({
                         </td>
                         <td className="px-6 py-4">
                           <div className="inline-flex flex-wrap items-center gap-2">
-                            <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-xs font-semibold ${meta.badge}`}>
-                              <span className={`size-1.5 rounded-full ${meta.dot}`} />
-                              {meta.label}
-                            </span>
                             {app.myTags.map((t) => (
                               <span
                                 key={t}
