@@ -294,3 +294,125 @@ export async function extractTalentFieldsFromCv(
     return null;
   }
 }
+
+// ============================================================================
+// Basic-fields extraction — focused 5-field variant for bulk CV upload
+// ----------------------------------------------------------------------------
+// Wired into /api/admin/extract-cv-basic. Returns ONLY the five contact-detail
+// fields the bulk-upload review grid edits (first_name, last_name, email,
+// phone, linkedin_url). Smaller prompt + smaller output budget than the rich
+// extractor above — ~10× cheaper per call, which matters when a 50-CV batch
+// fires the endpoint 50 times. The contract mirrors the rich function: never
+// throws, returns null on any failure, output is always sanitised + capped.
+//
+// Validation deliberately stays minimal (trim + length cap only). The client
+// loop will fall back to the existing regex parser per-field for any value
+// this returns as null, and /api/apply re-validates email + LinkedIn at
+// submit time. No email-regex or linkedin-pattern check here.
+// ============================================================================
+
+const BASIC_FIELDS_MAX_TOKENS = 300;
+
+const BASIC_CAP = {
+  name:     100,
+  email:    200,
+  phone:    50,
+  linkedin: 300,
+};
+
+export type ExtractedBasicFields = {
+  first_name:   string | null;
+  last_name:    string | null;
+  email:        string | null;
+  phone:        string | null;
+  linkedin_url: string | null;
+};
+
+function sanitiseBasic(parsed: unknown): ExtractedBasicFields {
+  const p = (parsed && typeof parsed === "object"
+    ? parsed
+    : {}) as Record<string, unknown>;
+
+  return {
+    first_name:   capStr(p.first_name,   BASIC_CAP.name),
+    last_name:    capStr(p.last_name,    BASIC_CAP.name),
+    email:        capStr(p.email,        BASIC_CAP.email),
+    phone:        capStr(p.phone,        BASIC_CAP.phone),
+    linkedin_url: capStr(p.linkedin_url, BASIC_CAP.linkedin),
+  };
+}
+
+const BASIC_SYSTEM_PROMPT = `You are a CV parser. Read the CV text and extract the candidate's basic contact details.
+
+Return ONLY a valid JSON object — no prose, no markdown, no code fences.
+
+Schema:
+{
+  "first_name": string | null,
+  "last_name": string | null,
+  "email": string | null,
+  "phone": string | null,
+  "linkedin_url": string | null
+}
+
+Rules:
+- first_name is the candidate's given name. last_name is the family name (may be multiple words like "van der Berg" or "Smith Jones").
+- email must be a real email address found in the CV, or null. Do not invent one.
+- phone may be in any international format (e.g. "+44 7700 900000", "03xx-xxxxxxx", "+1 (415) 555-0100"); preserve the original formatting.
+- linkedin_url should contain "linkedin.com" — prefer the full https URL if present, otherwise return the bare "linkedin.com/in/..." path. null if not present.
+- For any field the CV does not reveal, return null. Do not invent data.
+- Return ONLY the JSON object. No text outside it.`;
+
+/**
+ * Extract the 5 basic contact fields from CV plain text. Returns a fully
+ * sanitised object or `null` on ANY failure (empty/missing input, missing
+ * API key, network throw, malformed JSON, bad shape). Never throws.
+ *
+ * The shape mirrors what the bulk-upload review grid stores per row, so the
+ * client can merge per-field with the existing regex parser's output:
+ * `ai?.first_name ?? regex.firstName`, etc.
+ */
+export async function extractBasicFieldsFromCv(
+  cvText: string,
+): Promise<ExtractedBasicFields | null> {
+  if (typeof cvText !== "string" || cvText.trim().length === 0) {
+    return null;
+  }
+  const input = cvText.slice(0, CV_TEXT_INPUT_CAP);
+
+  try {
+    const anthropic = getAnthropic();
+    const response = await anthropic.messages.create({
+      model: AI_MATCHING_MODEL,
+      max_tokens: BASIC_FIELDS_MAX_TOKENS,
+      system: BASIC_SYSTEM_PROMPT,
+      messages: [{ role: "user", content: `CV TEXT:\n${input}` }],
+    });
+
+    const block = response.content[0];
+    const raw = block && block.type === "text" ? block.text : "";
+    if (!raw) {
+      console.error("[cv-extract:basic] empty response from Claude");
+      return null;
+    }
+
+    const stripped = stripCodeFences(raw);
+    let parsed: unknown;
+    try {
+      parsed = JSON.parse(stripped);
+    } catch {
+      console.error(
+        "[cv-extract:basic] non-JSON response from Claude:",
+        stripped.slice(0, 200),
+      );
+      return null;
+    }
+    return sanitiseBasic(parsed);
+  } catch (err) {
+    console.error(
+      "[cv-extract:basic] extraction failed:",
+      err instanceof Error ? err.message : err,
+    );
+    return null;
+  }
+}
