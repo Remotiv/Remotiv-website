@@ -100,6 +100,28 @@ const TAG_META: Record<
   not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",             dot: "bg-red-500"       },
 };
 
+// Phase 4: filter-chip vocabulary. "untagged" is the sentinel for rows where
+// the current admin has zero tags — separate from the three real tag values
+// so the chip-render and filter predicate can branch on it explicitly.
+type TagFilter = ApplicationTag | "untagged";
+
+const TAG_FILTER_OPTIONS: ReadonlyArray<{ value: TagFilter; label: string }> = [
+  { value: "shortlist", label: "Shortlist" },
+  { value: "maybe", label: "Maybe" },
+  { value: "not_a_fit", label: "Not a Good Fit" },
+  { value: "untagged", label: "Untagged" },
+];
+
+// Active-chip palette — the 3 tag chips borrow TAG_META colors (consistent
+// with the toggle buttons and row pills) and "untagged" uses neutral gray.
+// Inactive chips share a single outline style applied inline at render.
+const CHIP_ACTIVE_CLASS: Record<TagFilter, string> = {
+  shortlist:  "bg-remotiv-green/10 text-[#1a9e73] ring-1 ring-inset ring-remotiv-green/40",
+  maybe:      "bg-amber-50 text-amber-700 ring-1 ring-inset ring-amber-300",
+  not_a_fit:  "bg-red-50 text-red-600 ring-1 ring-inset ring-red-300",
+  untagged:   "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-300",
+};
+
 // Phase 3: drawer-button variant classes per tag. Off = the original resting
 // style (matches pre-Phase-3 colors). On = a filled bg + an inset ring so
 // admins can see at a glance which tags are active without losing the
@@ -613,6 +635,41 @@ function ApplicationCardMobile({
 
 // ── Mobile filter bottom-sheet group ─────────────────────────
 
+// Phase 4: chip row used in both the desktop filter bar and the mobile
+// bottom sheet. Each chip is a toggle (OR multi-select) — clicking adds or
+// removes the tag from the selected set. Active chips use the tag's color
+// palette so it reads as the same concept as the toggle buttons + row pills.
+function TagFilterChips({
+  selected,
+  onToggle,
+}: {
+  selected: Set<TagFilter>;
+  onToggle: (tag: TagFilter) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {TAG_FILTER_OPTIONS.map((opt) => {
+        const active = selected.has(opt.value);
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onToggle(opt.value)}
+            className={
+              active
+                ? `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${CHIP_ACTIVE_CLASS[opt.value]}`
+                : "inline-flex h-8 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            }
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function FilterSheetGroup({
   label,
   options,
@@ -814,7 +871,21 @@ export function ApplicationsDashboard({
   // Pre-populate from `?search=` URL param when navigated from the Smart Search page.
   const [search, setSearch] = useState(initialSearch);
   const [filterJob, setFilterJob] = useState("all");
-  const [filterStatus, setFilterStatus] = useState("all");
+  // Phase 4: the shared legacy `status` single-select is replaced with a
+  // per-admin tag chip multi-select (OR semantics). Empty set = no chip
+  // active = show all. The Set lives in state directly so size/has lookups
+  // stay O(1); the toggle helper below clones into a new Set each time so
+  // React's referential check picks it up.
+  const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
+
+  function toggleTagFilter(tag: TagFilter) {
+    setTagFilters((prev) => {
+      const next = new Set(prev);
+      if (next.has(tag)) next.delete(tag);
+      else next.add(tag);
+      return next;
+    });
+  }
 
   // Mobile-only UI state. Detail panel responsiveness is handled with
   // Tailwind `lg:` classes inside AppPanel — no JS branch needed.
@@ -836,11 +907,13 @@ export function ApplicationsDashboard({
 
   function clearAllFilters() {
     setFilterJob("all");
-    setFilterStatus("all");
+    setTagFilters(new Set());
   }
 
+  // Treat the whole tag-chip group as one filter category — matches how
+  // filterJob counts as 1 regardless of which role is chosen.
   const activeFilterCount =
-    (filterJob !== "all" ? 1 : 0) + (filterStatus !== "all" ? 1 : 0);
+    (filterJob !== "all" ? 1 : 0) + (tagFilters.size > 0 ? 1 : 0);
 
   // Lower-cased query the row highlight uses to flag matching rows.
   const searchLower = search.trim().toLowerCase();
@@ -852,29 +925,39 @@ export function ApplicationsDashboard({
 
   const filtered = useMemo(() => {
     const q = search.toLowerCase();
+    const tags = Array.from(tagFilters);
     return apps.filter((a) => {
       if (q) {
         const name = `${a.first_name} ${a.last_name}`.toLowerCase();
         if (!name.includes(q) && !a.email.toLowerCase().includes(q)) return false;
       }
       if (filterJob !== "all" && a.job_title !== filterJob) return false;
-      if (filterStatus !== "all" && a.status !== filterStatus) return false;
+      const matchesTags =
+        tags.length === 0 ||
+        tags.some((t) =>
+          t === "untagged" ? a.myTags.length === 0 : a.myTags.includes(t),
+        );
+      if (!matchesTags) return false;
       return true;
     });
-  }, [apps, search, filterJob, filterStatus]);
+  }, [apps, search, filterJob, tagFilters]);
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [search, filterJob, filterStatus]);
+  }, [search, filterJob, tagFilters]);
   const pageItems = paginate(filtered, page);
 
   // ── Stats ─────────────────────────────────────────────────
-  const totalApps   = apps.length;
-  const shortlisted = apps.filter((a) => a.status === "shortlisted").length;
-  const notAFit     = apps.filter((a) => a.status === "not_a_fit").length;
-  const maybe       = apps.filter((a) => a.status === "maybe").length;
+  // Phase 4: tile counts now come from the current admin's own tag rows,
+  // not the shared legacy `status`. A row with two of this admin's tags is
+  // counted in both tiles (intentional — overlap is meaningful here).
+  // Total Applications stays on apps.length and is admin-agnostic.
+  const totalApps      = apps.length;
+  const shortlistCount = apps.filter((a) => a.myTags.includes("shortlist")).length;
+  const maybeCount     = apps.filter((a) => a.myTags.includes("maybe")).length;
+  const notAFitCount   = apps.filter((a) => a.myTags.includes("not_a_fit")).length;
 
   const statCards: StatCardDef[] = [
     {
@@ -885,22 +968,22 @@ export function ApplicationsDashboard({
       icon: FileText,
     },
     {
-      label: "Shortlisted",
-      value: shortlisted,
+      label: "Shortlist",
+      value: shortlistCount,
       from: "from-remotiv-green",
       to: "to-remotiv-green-light",
       icon: Star,
     },
     {
       label: "Not a Good Fit",
-      value: notAFit,
+      value: notAFitCount,
       from: "from-[#F97316]",
       to: "to-[#FB923C]",
       icon: XCircle,
     },
     {
       label: "Maybe",
-      value: maybe,
+      value: maybeCount,
       from: "from-[#3B82F6]",
       to: "to-[#60A5FA]",
       icon: HelpCircle,
@@ -1019,17 +1102,7 @@ export function ApplicationsDashboard({
                 <option key={r} value={r}>{r}</option>
               ))}
             </select>
-            <select
-              value={filterStatus}
-              onChange={(e) => setFilterStatus(e.target.value)}
-              className="h-9 rounded-lg border border-gray-200 px-3 text-sm text-gray-700 outline-none focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20"
-            >
-              <option value="all">All Statuses</option>
-              <option value="new">New</option>
-              <option value="shortlisted">Shortlisted</option>
-              <option value="not_a_fit">Not a Good Fit</option>
-              <option value="maybe">Maybe</option>
-            </select>
+            <TagFilterChips selected={tagFilters} onToggle={toggleTagFilter} />
             <span className="ml-auto text-xs text-gray-400">
               {filtered.length} of {apps.length} applications
             </span>
@@ -1235,18 +1308,10 @@ export function ApplicationsDashboard({
         </div>
 
         <div className="flex flex-col gap-5">
-          <FilterSheetGroup
-            label="Status"
-            value={filterStatus}
-            onChange={setFilterStatus}
-            options={[
-              { value: "all",         label: "All" },
-              { value: "new",         label: "New" },
-              { value: "shortlisted", label: "Shortlisted" },
-              { value: "maybe",       label: "Maybe" },
-              { value: "not_a_fit",   label: "Not a Good Fit" },
-            ]}
-          />
+          <div>
+            <p className="mb-2 text-sm font-bold text-[#111]">Status</p>
+            <TagFilterChips selected={tagFilters} onToggle={toggleTagFilter} />
+          </div>
           <FilterSheetGroup
             label="Job Role"
             value={filterJob}
