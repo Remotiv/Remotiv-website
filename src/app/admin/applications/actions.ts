@@ -9,6 +9,12 @@ import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validato
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
 
+// Per-admin private tag values. Backed by application_admin_tags (migration
+// 015); each admin's tags are isolated server-side via the admin_user_id
+// filter on the page-load query. Distinct from the shared `status` enum,
+// which is still in use for the legacy single-status badge.
+export type ApplicationTag = "shortlist" | "maybe" | "not_a_fit";
+
 export type JobApplication = {
   id: string;
   job_id: string | null;
@@ -29,6 +35,12 @@ export type JobApplication = {
   // dashboard can disable "Move to Talent" + show an "Already in Talent" badge.
   // Derived, never persisted.
   alreadyMoved: boolean;
+  // The CURRENT admin's private tags for this application — never another
+  // admin's. Populated by page.tsx from a single batched query against
+  // application_admin_tags filtered by admin_user_id = current user. Always
+  // an array (possibly empty). Derived, never persisted on JobApplication
+  // itself.
+  myTags: ApplicationTag[];
 };
 
 export type OpenJob = { id: string; title: string };

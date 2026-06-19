@@ -50,6 +50,7 @@ import {
   deleteApplication,
   fetchComments,
   getApplicationCvSignedUrl,
+  type ApplicationTag,
   type JobApplication,
   type ApplicationStatus,
   type ApplicationComment,
@@ -83,6 +84,19 @@ const STATUS_META: Record<
   shortlisted: { label: "Shortlisted",    badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green"  },
   not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",          dot: "bg-red-400"    },
   maybe:       { label: "Maybe",          badge: "bg-amber-50 text-amber-600",      dot: "bg-amber-400"  },
+};
+
+// Per-admin private tag pills (Phase 2 read-only). Parallel to STATUS_META —
+// kept separate so the legacy single-status badge keeps its existing classes
+// while the new per-admin pills get a slightly smaller treatment that signals
+// they're a different concept.
+const TAG_META: Record<
+  ApplicationTag,
+  { label: string; badge: string; dot: string }
+> = {
+  shortlist:   { label: "Shortlist",      badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green" },
+  maybe:       { label: "Maybe",          badge: "bg-amber-50 text-amber-600",         dot: "bg-amber-500"     },
+  not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",             dot: "bg-red-500"       },
 };
 
 const INPUT_CLS =
@@ -1096,6 +1110,15 @@ export function ApplicationsDashboard({
                               <span className={`size-1.5 rounded-full ${meta.dot}`} />
                               {meta.label}
                             </span>
+                            {app.myTags.map((t) => (
+                              <span
+                                key={t}
+                                className={`inline-flex items-center gap-1 rounded-full px-2 py-0.5 text-[10px] font-semibold ${TAG_META[t].badge}`}
+                              >
+                                <span className={`size-1.5 rounded-full ${TAG_META[t].dot}`} />
+                                {TAG_META[t].label}
+                              </span>
+                            ))}
                             {app.alreadyMoved && (
                               <StatusBadge variant="success">
                                 ✓ Already in Talent

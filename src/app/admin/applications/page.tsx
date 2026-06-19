@@ -1,7 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ApplicationsDashboard } from "@/app/admin/_components/applications-dashboard";
 import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
-import type { JobApplication, OpenJob } from "./actions";
+import type { ApplicationTag, JobApplication, OpenJob } from "./actions";
 
 export const dynamic = "force-dynamic";
 
@@ -19,7 +19,11 @@ export default async function ApplicationsPage({
   const userId = user?.id ?? "";
   const userEmail = user?.email ?? "";
 
-  const [{ data: apps }, { data: jobs }, { data: roleRow }] = await Promise.all([
+  // Phase 2: per-admin private tags. One batched query against
+  // application_admin_tags filtered by the current admin's auth user id —
+  // returns ONLY this admin's rows, never another admin's. Runs in parallel
+  // with the apps/jobs/role queries via Promise.all.
+  const [{ data: apps }, { data: jobs }, { data: roleRow }, { data: tagRows }] = await Promise.all([
     service
       .from("job_applications")
       .select("*, jobs(title)")
@@ -30,7 +34,21 @@ export default async function ApplicationsPage({
       .eq("status", "open")
       .order("title", { ascending: true }),
     service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
+    service
+      .from("application_admin_tags")
+      .select("application_id, tag")
+      .eq("admin_user_id", userId),
   ]);
+
+  const tagMap = new Map<string, ApplicationTag[]>();
+  for (const r of (tagRows ?? []) as Array<{ application_id: string; tag: string }>) {
+    const existing = tagMap.get(r.application_id);
+    if (existing) {
+      existing.push(r.tag as ApplicationTag);
+    } else {
+      tagMap.set(r.application_id, [r.tag as ApplicationTag]);
+    }
+  }
 
   let userRole: UserRole = "viewer";
   if (userEmail === SUPER_ADMIN_EMAIL) {
@@ -87,6 +105,7 @@ export default async function ApplicationsPage({
     created_at: a.created_at as string,
     job_title: (a.jobs as { title?: string } | null)?.title ?? null,
     alreadyMoved: movedEmails.has(normaliseEmail(a.email)),
+    myTags: tagMap.get(a.id as string) ?? [],
   }));
 
   const openJobs: OpenJob[] = (jobs ?? []) as OpenJob[];
