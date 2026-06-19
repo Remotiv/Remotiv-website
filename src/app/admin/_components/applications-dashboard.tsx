@@ -46,6 +46,7 @@ import { StatusBadge } from "./_shared/status-badge";
 import type { ExtractedTalentFields } from "@/lib/cv-extract";
 import {
   updateApplicationStatus,
+  toggleApplicationTag,
   addComment,
   deleteApplication,
   fetchComments,
@@ -98,6 +99,27 @@ const TAG_META: Record<
   maybe:       { label: "Maybe",          badge: "bg-amber-50 text-amber-600",         dot: "bg-amber-500"     },
   not_a_fit:   { label: "Not a Good Fit", badge: "bg-red-50 text-red-500",             dot: "bg-red-500"       },
 };
+
+// Phase 3: drawer-button variant classes per tag. Off = the original resting
+// style (matches pre-Phase-3 colors). On = a filled bg + an inset ring so
+// admins can see at a glance which tags are active without losing the
+// resting palette. Factored out to avoid nested ternaries inline on each
+// button's className.
+function tagButtonVariant(tag: ApplicationTag, active: boolean): string {
+  if (tag === "shortlist") {
+    return active
+      ? "bg-green-50 text-green-700 ring-2 ring-inset ring-green-300"
+      : "text-green-700 hover:bg-green-50";
+  }
+  if (tag === "not_a_fit") {
+    return active
+      ? "bg-red-50 text-red-600 ring-2 ring-inset ring-red-300"
+      : "text-red-600 hover:bg-red-50";
+  }
+  return active
+    ? "bg-amber-50 text-amber-700 ring-2 ring-inset ring-amber-300"
+    : "text-amber-600 hover:bg-amber-50";
+}
 
 const INPUT_CLS =
   "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
@@ -153,6 +175,7 @@ function AppPanel({
   canDel,
   onClose,
   onSetStatus,
+  onToggleTag,
   onMoveToTalent,
   onAddToBatch,
   onDelete,
@@ -164,6 +187,7 @@ function AppPanel({
   canDel: boolean;
   onClose: () => void;
   onSetStatus: (status: ApplicationStatus) => void;
+  onToggleTag: (tag: ApplicationTag) => void;
   // Phase B: onMoveToTalent is now async — the parent runs the CV extraction
   // fetch + state mgmt before the modal opens. The drawer awaits it so the
   // animated close fires only AFTER the spinner cleared, keeping the timing
@@ -272,8 +296,9 @@ function AppPanel({
 
             <button
               type="button"
-              onClick={() => { onSetStatus("shortlisted"); handleClose(); }}
-              className={`${actionBtn} text-green-700 hover:bg-green-50`}
+              onClick={() => onToggleTag("shortlist")}
+              aria-pressed={app.myTags.includes("shortlist")}
+              className={`${actionBtn} ${tagButtonVariant("shortlist", app.myTags.includes("shortlist"))}`}
             >
               <span className="flex size-7 items-center justify-center rounded-lg bg-green-100">
                 <Star className="size-3.5 text-green-600" strokeWidth={2} />
@@ -283,8 +308,9 @@ function AppPanel({
 
             <button
               type="button"
-              onClick={() => { onSetStatus("not_a_fit"); handleClose(); }}
-              className={`${actionBtn} text-red-600 hover:bg-red-50`}
+              onClick={() => onToggleTag("not_a_fit")}
+              aria-pressed={app.myTags.includes("not_a_fit")}
+              className={`${actionBtn} ${tagButtonVariant("not_a_fit", app.myTags.includes("not_a_fit"))}`}
             >
               <span className="flex size-7 items-center justify-center rounded-lg bg-red-100">
                 <XCircle className="size-3.5 text-red-500" strokeWidth={2} />
@@ -294,8 +320,9 @@ function AppPanel({
 
             <button
               type="button"
-              onClick={() => { onSetStatus("maybe"); handleClose(); }}
-              className={`${actionBtn} text-amber-600 hover:bg-amber-50`}
+              onClick={() => onToggleTag("maybe")}
+              aria-pressed={app.myTags.includes("maybe")}
+              className={`${actionBtn} ${tagButtonVariant("maybe", app.myTags.includes("maybe"))}`}
             >
               <span className="flex size-7 items-center justify-center rounded-lg bg-amber-100">
                 <HelpCircle className="size-3.5 text-amber-500" strokeWidth={2} />
@@ -760,6 +787,27 @@ export function ApplicationsDashboard({
   async function handleSetStatus(app: JobApplication, status: ApplicationStatus) {
     setApps((prev) => prev.map((a) => (a.id === app.id ? { ...a, status } : a)));
     await updateApplicationStatus(app.id, status);
+  }
+
+  // Phase 3: per-admin tag toggle with optimistic UI. The same toggle is
+  // applied twice on failure (once optimistically, once to revert) — a
+  // single XOR-style flip in both directions, so the local state ends up
+  // back where it started.
+  function flipTag(app: JobApplication, tag: ApplicationTag): JobApplication {
+    return {
+      ...app,
+      myTags: app.myTags.includes(tag)
+        ? app.myTags.filter((t) => t !== tag)
+        : [...app.myTags, tag],
+    };
+  }
+
+  async function handleToggleTag(app: JobApplication, tag: ApplicationTag) {
+    setApps((prev) => prev.map((a) => (a.id === app.id ? flipTag(a, tag) : a)));
+    const res = await toggleApplicationTag(app.id, tag);
+    if (!res.success) {
+      setApps((prev) => prev.map((a) => (a.id === app.id ? flipTag(a, tag) : a)));
+    }
   }
 
   // ── Filters ───────────────────────────────────────────────
@@ -1242,21 +1290,28 @@ export function ApplicationsDashboard({
         />
       )}
 
-      {/* Slide-in Panel */}
-      {panelApp && (
-        <AppPanel
-          app={panelApp}
-          authorName={email.split("@")[0] ?? "Admin"}
-          canDel={canDel}
-          onClose={() => setPanelApp(null)}
-          onSetStatus={(status) => handleSetStatus(panelApp, status)}
-          onMoveToTalent={() => handleMoveToTalentClick(panelApp)}
-          onAddToBatch={() => setAddToBatchTarget(panelApp)}
-          onDelete={() => setDeleteTarget(panelApp)}
-          onToast={setToast}
-          extractingId={extractingId}
-        />
-      )}
+      {/* Slide-in Panel. panelApp is the snapshot captured when the row was
+          clicked; livePanelApp re-derives from the apps array so the drawer
+          stays in sync with optimistic state changes (toggle buttons need
+          the latest myTags to flip their aria-pressed / active style). */}
+      {panelApp && (() => {
+        const livePanelApp = apps.find((a) => a.id === panelApp.id) ?? panelApp;
+        return (
+          <AppPanel
+            app={livePanelApp}
+            authorName={email.split("@")[0] ?? "Admin"}
+            canDel={canDel}
+            onClose={() => setPanelApp(null)}
+            onSetStatus={(status) => handleSetStatus(livePanelApp, status)}
+            onToggleTag={(tag) => handleToggleTag(livePanelApp, tag)}
+            onMoveToTalent={() => handleMoveToTalentClick(livePanelApp)}
+            onAddToBatch={() => setAddToBatchTarget(livePanelApp)}
+            onDelete={() => setDeleteTarget(livePanelApp)}
+            onToast={setToast}
+            extractingId={extractingId}
+          />
+        );
+      })()}
 
       {/* Move-to-Talent Modal */}
       {moveTarget && (

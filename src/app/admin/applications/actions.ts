@@ -73,6 +73,61 @@ export async function updateApplicationStatus(
   return { success: true, data: undefined };
 }
 
+// Phase 3: per-admin private tag toggle. Off → insert (data.tagged = true);
+// on → delete (data.tagged = false). The admin id is read from the auth
+// session via requireAdmin() — callers cannot spoof another admin's id.
+// Mirrors setTalentFlag's structure (role guard → service client →
+// inspect-then-mutate → revalidate).
+export async function toggleApplicationTag(
+  applicationId: string,
+  tag: ApplicationTag,
+): Promise<MutationResult<{ tagged: boolean }>> {
+  const ctx = await requireAdmin();
+  const adminUserId = ctx.user.id;
+  const supabase = createServiceClient();
+
+  const { data: existing } = await supabase
+    .from("application_admin_tags")
+    .select("id")
+    .eq("application_id", applicationId)
+    .eq("admin_user_id", adminUserId)
+    .eq("tag", tag)
+    .maybeSingle();
+
+  if (existing) {
+    const { error } = await supabase
+      .from("application_admin_tags")
+      .delete()
+      .eq("id", (existing as { id: string }).id);
+    if (error) return { success: false, error: error.message };
+    revalidatePath("/admin/applications");
+    return { success: true, data: { tagged: false } };
+  }
+
+  const { error } = await supabase
+    .from("application_admin_tags")
+    .insert({
+      application_id: applicationId,
+      admin_user_id: adminUserId,
+      tag,
+    });
+
+  if (error) {
+    // 23505 = unique_violation. Two rapid clicks can race past the
+    // maybeSingle() check; the unique (application_id, admin_user_id, tag)
+    // constraint on the join table catches it. Surface that as "already
+    // tagged" rather than a user-facing error.
+    if ((error as { code?: string }).code === "23505") {
+      revalidatePath("/admin/applications");
+      return { success: true, data: { tagged: true } };
+    }
+    return { success: false, error: error.message };
+  }
+
+  revalidatePath("/admin/applications");
+  return { success: true, data: { tagged: true } };
+}
+
 export async function addComment(
   applicationId: string,
   comment: string,
