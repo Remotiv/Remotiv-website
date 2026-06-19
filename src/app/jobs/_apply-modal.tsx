@@ -19,44 +19,9 @@ const EMPTY_APPLY = {
   linkedin: "",
 };
 
-/**
- * Extract plain text from a PDF in the browser via PDF.js. Mirrors the helper
- * used by the admin bulk-upload modal. Worker is bundled from node_modules so
- * we avoid CDN fetches at runtime.
- *
- * PDF.js is a heavy dependency (~600 KB); colocated here so it only loads
- * when this modal does (dynamic-imported by the jobs client island).
- */
-async function extractPdfText(file: File): Promise<string> {
-  const pdfjs = await import("pdfjs-dist");
-  pdfjs.GlobalWorkerOptions.workerSrc = new URL(
-    "pdfjs-dist/build/pdf.worker.min.mjs",
-    import.meta.url,
-  ).toString();
-
-  const buffer = await file.arrayBuffer();
-  const doc = await pdfjs.getDocument({ data: buffer }).promise;
-
-  const lines: string[] = [];
-  for (let i = 1; i <= doc.numPages; i++) {
-    const page = await doc.getPage(i);
-    const content = await page.getTextContent();
-    let lastY: number | null = null;
-    let line = "";
-    for (const item of content.items as Array<{ str: string; transform: number[] }>) {
-      const y = item.transform[5];
-      if (lastY !== null && Math.abs(y - lastY) > 2) {
-        if (line.trim()) lines.push(line.trim());
-        line = item.str;
-      } else {
-        line += (line ? " " : "") + item.str;
-      }
-      lastY = y;
-    }
-    if (line.trim()) lines.push(line.trim());
-  }
-  return lines.join("\n");
-}
+// Abort the submit fetch if the network stalls for this long. Keeps the
+// "Submitting…" button from sticking forever on flaky mobile connections.
+const SUBMIT_TIMEOUT_MS = 30_000;
 
 export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   const [form, setForm] = useState(EMPTY_APPLY);
@@ -137,16 +102,10 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
     setSubmitting(true);
     setSubmitError(null);
 
-    try {
-      // Extract CV text in the browser — PDF.js works flawlessly here, so the
-      // server doesn't need to parse PDFs at all.
-      let cvText = "";
-      try {
-        cvText = await extractPdfText(cvFile);
-      } catch {
-        // silent — the application still submits without searchable text
-      }
+    const controller = new AbortController();
+    const timeoutId = setTimeout(() => controller.abort(), SUBMIT_TIMEOUT_MS);
 
+    try {
       const fd = new FormData();
       fd.append("job_id",       job.id);
       fd.append("first_name",   form.firstName);
@@ -155,9 +114,17 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       fd.append("phone",        form.phone);
       fd.append("linkedin_url", form.linkedin);
       fd.append("cv",           cvFile);
-      if (cvText.trim()) fd.append("cv_text", cvText);
 
-      const res = await fetch("/api/apply", { method: "POST", body: fd });
+      let res: Response;
+      try {
+        res = await fetch("/api/apply", {
+          method: "POST",
+          body: fd,
+          signal: controller.signal,
+        });
+      } finally {
+        clearTimeout(timeoutId);
+      }
 
       if (res.status === 409) {
         // The server now distinguishes same-job duplicates with a
@@ -185,8 +152,15 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       }
       setSuccess(true);
     } catch (err) {
-      setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+      if (err instanceof Error && err.name === "AbortError") {
+        setSubmitError(
+          "Submission timed out. Please check your connection and try again.",
+        );
+      } else {
+        setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
+      }
     } finally {
+      clearTimeout(timeoutId);
       setSubmitting(false);
     }
   }
