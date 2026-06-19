@@ -443,9 +443,9 @@ export function MoveToTalentModal({
     // through (just defaulting to empty when omitted).
     if (!degree.trim())       return "Degree is required.";
     if (!institution.trim())  return "Institution is required.";
-    if (!availability)        return "Availability is required.";
-    if (!workType)            return "Work Type is required.";
-    if (!noticePeriod)        return "Notice Period is required.";
+    // availability / work_type / notice_period are optional — the AI usually
+    // can't extract them from a CV; admin may still set them. Columns are
+    // nullable, so an empty submit inserts cleanly.
     if (
       parsed.salary_min !== null &&
       parsed.salary_max !== null &&
