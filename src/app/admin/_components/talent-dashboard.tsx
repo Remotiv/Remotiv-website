@@ -222,7 +222,11 @@ function getInitials(name: string): string {
 }
 
 function isAvailable(profile: TalentProfile): boolean {
-  return (profile.availability ?? "").toLowerCase().includes("available");
+  // Exact match — substring `.includes("available")` previously matched both
+  // "Available Now" AND "Not Available" (since the latter contains the word
+  // "available"). The pill render sites also gate on profile.availability
+  // being truthy before invoking this helper, so blank/null produces no pill.
+  return profile.availability === "Available Now";
 }
 
 // ── Avatar component ─────────────────────────────────────────
@@ -316,14 +320,16 @@ function ProfileCard({
             aria-label={`Select ${profile.first_name} ${profile.last_name ?? ""}`.trim()}
             className="size-4 cursor-pointer accent-remotiv-purple"
           />
-          <span
-            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-              available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
-            }`}
-          >
-            <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
-            {available ? "Available" : "Not Available"}
-          </span>
+          {profile.availability && (
+            <span
+              className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+              }`}
+            >
+              <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+              {available ? "Available" : "Not Available"}
+            </span>
+          )}
           {profile.role_category && (
             <span className="rounded-full bg-gray-100 px-2.5 py-1 text-[10px] font-medium text-gray-500">
               {CATEGORY_LABELS[profile.role_category] ?? profile.role_category}
@@ -623,14 +629,16 @@ function ProfileDrawer({
                 return t ? <p className="truncate text-sm text-gray-500">{t}</p> : null;
               })()}
               <div className="mt-2 flex flex-wrap gap-1.5">
-                <span
-                  className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
-                    available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
-                  }`}
-                >
-                  <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
-                  {available ? "Available" : "Not Available"}
-                </span>
+                {profile.availability && (
+                  <span
+                    className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold ${
+                      available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+                    }`}
+                  >
+                    <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+                    {available ? "Available" : "Not Available"}
+                  </span>
+                )}
                 {profile.approved_at ? (
                   <span title="Approved" aria-label="Approved" className="inline-flex items-center">
                     <CheckCircle className="size-4 text-green-600" strokeWidth={2.5} aria-hidden="true" />
@@ -1089,14 +1097,16 @@ function TalentCardMobile({
 
       {/* Tag row */}
       <div className="flex flex-wrap items-center gap-1.5">
-        <span
-          className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
-            available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
-          }`}
-        >
-          <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
-          {available ? "Available" : "Not Available"}
-        </span>
+        {profile.availability && (
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2 py-0.5 text-[10px] font-semibold ${
+              available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
+            }`}
+          >
+            <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+            {available ? "Available" : "Not Available"}
+          </span>
+        )}
         {profile.role_category && (
           <span className="rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-medium text-gray-500">
             {CATEGORY_LABELS[profile.role_category] ?? profile.role_category}

@@ -103,6 +103,12 @@ export type Card = {
   exp: string;                    // "7 years" or "—"
   yearsExperience?: number | null; // numeric form for "X years experience in …"
   available: boolean;
+  // Raw availability string from the row — null/empty when unknown, undefined
+  // on static blurred-preview cards. Used as the chip's truthy gate at the
+  // render site so blank profiles render NO availability chip (rather than
+  // misleading "○ Unavailable"). The boolean `available` above drives the
+  // chip's label/style INSIDE that gate.
+  availability?: string | null;
   claimed?: boolean;             // true if the row's user_id is set; absent on static blurred-preview cards
   score: number;
   highlights: string[];
@@ -231,7 +237,8 @@ function rowToCard(r: TalentRow): Card {
   const derivedYears = r.years_experience ?? null;
 
   const score = Math.min(99, 70 + (derivedYears ?? 0) * 2 + skills.length);
-  const available = (r.availability ?? "").toLowerCase().includes("available");
+  // Exact match — substring `.includes("available")` also matched "Not Available".
+  const available = r.availability === "Available Now";
   const highlights = [
     r.work_type && r.work_type !== "Any" ? r.work_type : null,
     r.notice_period,
@@ -248,6 +255,7 @@ function rowToCard(r: TalentRow): Card {
     exp: derivedYears != null ? `${derivedYears} years` : "—",
     yearsExperience: derivedYears,
     available,
+    availability: r.availability ?? null,
     claimed: Boolean(r.user_id),
     score,
     highlights,
@@ -389,9 +397,11 @@ const CardItem = memo(function CardItem({
           >
             {cfg.label}
           </span>
-          <span className={c.available ? "bt-avail-yes" : "bt-avail-no"}>
-            {c.available ? "● Available" : "○ Unavailable"}
-          </span>
+          {c.availability && (
+            <span className={c.available ? "bt-avail-yes" : "bt-avail-no"}>
+              {c.available ? "● Available" : "○ Unavailable"}
+            </span>
+          )}
           {c.claimed && (
             <span className="inline-flex items-center gap-1 rounded-full bg-remotiv-green/15 px-2.5 py-0.5 text-[11px] font-semibold text-remotiv-green">
               <svg
