@@ -1528,6 +1528,62 @@ function uid(): string {
   return Math.random().toString(36).slice(2, 11);
 }
 
+// Phase B: AI-first extraction of the 5 basic CV fields. Calls
+// /api/admin/extract-cv-basic and maps the snake_case endpoint shape
+// (first_name / linkedin_url) onto the camelCase ParsedCv shape
+// (firstName / linkedin) that the rest of the bulk loop already consumes.
+// Returns null on ANY failure path — auth, rate-limit (429), soft 200 with
+// prefill=null, malformed JSON, network throw. The caller falls back to
+// parseCvText's regex result whenever this returns null.
+type AiBasicResult = Partial<{
+  firstName: string;
+  lastName: string;
+  email: string;
+  phone: string;
+  linkedin: string;
+}>;
+
+async function aiExtractBasic(cvText: string): Promise<AiBasicResult | null> {
+  try {
+    const res = await fetch("/api/admin/extract-cv-basic", {
+      method: "POST",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ cvText }),
+    });
+    if (!res.ok) return null;
+    const json = (await res.json()) as {
+      ok?: boolean;
+      prefill?: {
+        first_name?: unknown;
+        last_name?: unknown;
+        email?: unknown;
+        phone?: unknown;
+        linkedin_url?: unknown;
+      } | null;
+    };
+    if (!json?.ok || !json.prefill) return null;
+    const p = json.prefill;
+    return {
+      firstName: typeof p.first_name   === "string" ? p.first_name   : undefined,
+      lastName:  typeof p.last_name    === "string" ? p.last_name    : undefined,
+      email:     typeof p.email        === "string" ? p.email        : undefined,
+      phone:     typeof p.phone        === "string" ? p.phone        : undefined,
+      linkedin:  typeof p.linkedin_url === "string" ? p.linkedin_url : undefined,
+    };
+  } catch {
+    return null;
+  }
+}
+
+// Per-field merge: prefer the AI value when it's a non-empty trimmed string,
+// otherwise keep the regex value. An AI null/undefined OR empty string falls
+// through, so the regex result wins for that single field — partial AI hits
+// still improve on regex without obliterating its better fallbacks.
+function pickAi(aiVal: string | undefined, regexVal: string): string {
+  if (typeof aiVal === "string" && aiVal.trim().length > 0) return aiVal;
+  return regexVal;
+}
+
 // EditableCell → bulk-upload-shared.tsx (imported above)
 
 function BulkUploadCVModal({
@@ -1611,7 +1667,19 @@ function BulkUploadCVModal({
       const file = files[i];
       try {
         const text = await extractPdfText(file);
-        const parsed = parseCvText(text);
+        // Phase B: AI-first / regex-fallback. extractPdfText throwing skips
+        // both the AI call AND the regex parse below — the catch branch
+        // pushes a status="error" row with the same message as before.
+        const regexParsed = parseCvText(text);
+        const ai = await aiExtractBasic(text);
+        const parsed = {
+          ...regexParsed,
+          firstName: pickAi(ai?.firstName, regexParsed.firstName),
+          lastName:  pickAi(ai?.lastName,  regexParsed.lastName),
+          email:     pickAi(ai?.email,     regexParsed.email),
+          phone:     pickAi(ai?.phone,     regexParsed.phone),
+          linkedin:  pickAi(ai?.linkedin,  regexParsed.linkedin),
+        };
 
         // Duplicate check
         let duplicate: DuplicateApplicant | null = null;
