@@ -1210,6 +1210,10 @@ export function TalentDashboard({
   const [filterStatus, setFilterStatus] = useState<string>("All");
   const [filterAvailability, setFilterAvailability] = useState<string>("All");
   const [filterWorkType, setFilterWorkType] = useState<string>("All");
+  // Independent claim-state axis — combines with the other filters. Uses the
+  // already-loaded claimed_at column (fetchTalentProfiles select("*") includes
+  // it), so no new server fetch is needed.
+  const [filterClaim, setFilterClaim] = useState<"All" | "claimed" | "unclaimed">("All");
 
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [toast, setToast] = useState<string | null>(null);
@@ -1245,13 +1249,15 @@ export function TalentDashboard({
     setFilterStatus("All");
     setFilterAvailability("All");
     setFilterWorkType("All");
+    setFilterClaim("All");
   }
 
   const activeFilterCount =
     (filterCategory !== "All" ? 1 : 0) +
     (filterStatus !== "All" ? 1 : 0) +
     (filterAvailability !== "All" ? 1 : 0) +
-    (filterWorkType !== "All" ? 1 : 0);
+    (filterWorkType !== "All" ? 1 : 0) +
+    (filterClaim !== "All" ? 1 : 0);
 
   // Keep state in sync with refreshed server data
   useEffect(() => {
@@ -1273,6 +1279,8 @@ export function TalentDashboard({
       if (filterAvailability === "Available Now"  && !isAvailable(p))      return false;
       if (filterAvailability === "Not Available"  && isAvailable(p))       return false;
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
+      if (filterClaim === "claimed"   && p.claimed_at == null) return false;
+      if (filterClaim === "unclaimed" && p.claimed_at != null) return false;
       if (q) {
         const blob = [
           p.first_name,
@@ -1287,7 +1295,7 @@ export function TalentDashboard({
       }
       return true;
     });
-  }, [profiles, search, filterCategory, filterStatus, filterAvailability, filterWorkType]);
+  }, [profiles, search, filterCategory, filterStatus, filterAvailability, filterWorkType, filterClaim]);
 
   const totalCount     = profiles.length;
   const availableCount = profiles.filter(isAvailable).length;
@@ -1297,7 +1305,7 @@ export function TalentDashboard({
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [search, filterCategory, filterStatus, filterAvailability, filterWorkType]);
+  }, [search, filterCategory, filterStatus, filterAvailability, filterWorkType, filterClaim]);
   const pageItems = paginate(filtered, page);
 
   const openProfile = openId ? profiles.find((p) => p.id === openId) ?? null : null;
@@ -1553,6 +1561,17 @@ export function TalentDashboard({
                 ))}
               </FilterGroup>
 
+              <FilterGroup title="Claim">
+                {(["All", "claimed", "unclaimed"] as const).map((c) => (
+                  <FilterPill
+                    key={c}
+                    label={c === "All" ? "All" : c === "claimed" ? "Claimed" : "Unclaimed"}
+                    active={filterClaim === c}
+                    onClick={() => setFilterClaim(c)}
+                  />
+                ))}
+              </FilterGroup>
+
               <FilterGroup title="Availability">
                 {AVAILABILITY_FILTERS.map((a) => (
                   <FilterPill
@@ -1715,6 +1734,16 @@ export function TalentDashboard({
               value: s,
               label: STATUS_LABELS[s] ?? s,
             }))}
+          />
+          <FilterSheetGroup
+            label="Claim"
+            value={filterClaim}
+            onChange={(v) => setFilterClaim(v as "All" | "claimed" | "unclaimed")}
+            options={[
+              { value: "All", label: "All" },
+              { value: "claimed", label: "Claimed" },
+              { value: "unclaimed", label: "Unclaimed" },
+            ]}
           />
           <FilterSheetGroup
             label="Availability"
