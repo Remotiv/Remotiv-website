@@ -3,6 +3,11 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { extractPdfTextServer } from "@/lib/pdf-text";
+
+// pdf-parse needs Node, not Edge. Default is nodejs already; declared
+// explicitly so a future framework default flip can't silently break apply.
+export const runtime = "nodejs";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -194,11 +199,22 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Server-side CV text extraction. Public apply no longer sends cv_text
+    // (the client pdfjs path was removed for the mobile hang). If the request
+    // already carries cv_text (admin bulk upload still does), keep it as-is;
+    // otherwise extract from the PDF bytes we already have in cvBuffer.
+    // Soft-fail: any failure leaves resolvedCvText null and the application
+    // still inserts exactly as before.
+    let resolvedCvText = cvText;
+    if (!resolvedCvText || !resolvedCvText.trim()) {
+      resolvedCvText = await extractPdfTextServer(cvBuffer);
+    }
+
     // Truncate parsed CV text before it ends up in Postgres / search blobs.
     const boundedCvText =
-      cvText && cvText.length > MAX_CV_TEXT_LENGTH
-        ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
-        : cvText;
+      resolvedCvText && resolvedCvText.length > MAX_CV_TEXT_LENGTH
+        ? resolvedCvText.slice(0, MAX_CV_TEXT_LENGTH)
+        : resolvedCvText;
 
     if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
       return NextResponse.json(
