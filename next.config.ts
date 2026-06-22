@@ -1,14 +1,6 @@
 import type { NextConfig } from "next";
 
 const nextConfig: NextConfig = {
-  // pdf-parse v2 dynamically resolves its bundled pdfjs worker at runtime
-  // (node_modules/pdf-parse/dist/worker/pdf.worker.mjs); letting Next/Turbopack
-  // bundle it breaks that resolution and getText() silently rejects inside the
-  // route. Marking it server-external leaves it as a runtime require so it
-  // walks node_modules the same way plain Node does. pdfjs-dist is
-  // intentionally NOT listed here — admin bulk upload + /become-a-talent
-  // import it client-side and need it bundled for the browser.
-  serverExternalPackages: ["pdf-parse"],
   images: {
     remotePatterns: [
       {
