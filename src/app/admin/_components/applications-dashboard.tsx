@@ -754,6 +754,10 @@ export function ApplicationsDashboard({
     if (extractingId) return;  // debounce
     setExtractingId(app.id);
     let prefill: ExtractedTalentFields | null = null;
+    // Server returned 200 ok=true but with no prefill payload (no_cv or
+    // extraction_failed). Distinguished from a network/parse failure so the
+    // admin sees a useful "AI couldn't pre-fill" toast rather than nothing.
+    let serverReturnedEmpty = false;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
@@ -769,6 +773,9 @@ export function ApplicationsDashboard({
         | null;
       if (json && json.ok) {
         prefill = json.prefill ?? null;
+        if (prefill === null) {
+          serverReturnedEmpty = true;
+        }
       }
     } catch {
       prefill = null;
@@ -777,6 +784,11 @@ export function ApplicationsDashboard({
       setExtractingId(null);
       setPrefillData(prefill);
       setMoveTarget(app);
+      if (serverReturnedEmpty) {
+        setToast(
+          "AI couldn't pre-fill from this CV — please fill the form manually.",
+        );
+      }
     }
   }
 
@@ -1375,6 +1387,7 @@ export function ApplicationsDashboard({
       {/* Move-to-Talent Modal */}
       {moveTarget && (
         <MoveToTalentModal
+          key={moveTarget.id}
           app={moveTarget}
           prefill={prefillData}
           onClose={() => {

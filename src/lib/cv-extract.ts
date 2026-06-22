@@ -17,7 +17,13 @@ import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
 
 // ── Module-level constants ──────────────────────────────────
 
-const CV_EXTRACT_MAX_TOKENS = 1800;
+// Anthropic bills only on generated tokens, so a higher cap costs nothing for
+// short responses; it just prevents truncation on full CVs (5-6 employment
+// entries with descriptions + a 2000-char summary can use ~2200-2500 output
+// tokens). Earlier values (2000 / 1800) sat right on the truncation edge and
+// produced silent-blank modals when JSON.parse failed mid-object. Latency is
+// no longer a concern — 60s on both client abort and server maxDuration.
+const CV_EXTRACT_MAX_TOKENS = 3000;
 // Cost guard — cap the CV text before sending. The DB column already caps at
 // MAX_CV_TEXT_LENGTH (100_000) at /api/apply time; this further cap is just
 // for Anthropic token budget. ~30 KB ≈ 8k input tokens, well below limits.
