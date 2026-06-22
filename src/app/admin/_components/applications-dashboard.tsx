@@ -755,7 +755,7 @@ export function ApplicationsDashboard({
     setExtractingId(app.id);
     let prefill: ExtractedTalentFields | null = null;
     const controller = new AbortController();
-    const timeoutId = setTimeout(() => controller.abort(), 15_000);
+    const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
       const res = await fetch("/api/admin/extract-cv", {
         method: "POST",
