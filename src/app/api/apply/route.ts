@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { extractPdfTextServer } from "@/lib/pdf-text";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -194,11 +195,41 @@ export async function POST(request: NextRequest) {
       );
     }
 
+    // Server-side CV text extraction (unpdf). Prefer client-sent cv_text
+    // (admin bulk upload still extracts in the browser); otherwise extract
+    // from the PDF bytes we already have in cvBuffer. Double-wrapped so a
+    // failure — including an unexpected module-load/runtime error — can
+    // NEVER 500 or block the application. On any failure the row still
+    // inserts with cv_text=null and a cv_text_status of 'failed'/'skipped'.
+    let resolvedCvText: string | null = cvText;
+    let cvTextStatus: "pending" | "completed" | "failed" | "skipped" = "pending";
+    let cvTextError: string | null = null;
+
+    if (resolvedCvText && resolvedCvText.trim()) {
+      // Client (admin bulk) already supplied text — trust it, skip server extraction.
+      cvTextStatus = "completed";
+    } else {
+      try {
+        const result = await extractPdfTextServer(cvBuffer);
+        resolvedCvText = result.text;
+        cvTextStatus = result.status;
+        cvTextError = result.error;
+      } catch (err) {
+        // Belt-and-braces: the helper is never-throws, but if the module
+        // itself fails to load at runtime (the pdf-parse failure mode),
+        // degrade gracefully here.
+        console.error("[apply] cv extraction call failed:", err);
+        resolvedCvText = null;
+        cvTextStatus = "failed";
+        cvTextError = "extract_call_failed";
+      }
+    }
+
     // Truncate parsed CV text before it ends up in Postgres / search blobs.
     const boundedCvText =
-      cvText && cvText.length > MAX_CV_TEXT_LENGTH
-        ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
-        : cvText;
+      resolvedCvText && resolvedCvText.length > MAX_CV_TEXT_LENGTH
+        ? resolvedCvText.slice(0, MAX_CV_TEXT_LENGTH)
+        : resolvedCvText;
 
     if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
       return NextResponse.json(
@@ -410,6 +441,8 @@ export async function POST(request: NextRequest) {
         cv_url: null,
         cv_path: path,
         cv_text: boundedCvText,
+        cv_text_status: cvTextStatus,
+        cv_text_error: cvTextError,
         status: "new",
         source,
         notes,
