@@ -1212,8 +1212,11 @@ export function TalentDashboard({
   const [filterWorkType, setFilterWorkType] = useState<string>("All");
   // Independent claim-state axis — combines with the other filters. Uses the
   // already-loaded claimed_at column (fetchTalentProfiles select("*") includes
-  // it), so no new server fetch is needed.
-  const [filterClaim, setFilterClaim] = useState<"All" | "claimed" | "unclaimed">("All");
+  // it) + the inviteStatuses map (populated below for ALL profile ids), so no
+  // new server fetch is needed.
+  const [filterClaim, setFilterClaim] = useState<
+    "All" | "claimed" | "unclaimed" | "invited_not_accepted" | "never_invited"
+  >("All");
 
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
   const [toast, setToast] = useState<string | null>(null);
@@ -1279,8 +1282,24 @@ export function TalentDashboard({
       if (filterAvailability === "Available Now"  && !isAvailable(p))      return false;
       if (filterAvailability === "Not Available"  && isAvailable(p))       return false;
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
-      if (filterClaim === "claimed"   && p.claimed_at == null) return false;
-      if (filterClaim === "unclaimed" && p.claimed_at != null) return false;
+      if (filterClaim !== "All") {
+        const inv = inviteStatusFor(p);
+        if (filterClaim === "claimed"   && p.claimed_at == null) return false;
+        if (filterClaim === "unclaimed" && p.claimed_at != null) return false;
+        if (
+          filterClaim === "invited_not_accepted" &&
+          !(
+            p.claimed_at == null &&
+            (inv === "pending" || inv === "opened" || inv === "expired")
+          )
+        )
+          return false;
+        if (
+          filterClaim === "never_invited" &&
+          !(p.claimed_at == null && inv === "not_invited")
+        )
+          return false;
+      }
       if (q) {
         const blob = [
           p.first_name,
@@ -1295,7 +1314,7 @@ export function TalentDashboard({
       }
       return true;
     });
-  }, [profiles, search, filterCategory, filterStatus, filterAvailability, filterWorkType, filterClaim]);
+  }, [profiles, search, filterCategory, filterStatus, filterAvailability, filterWorkType, filterClaim, inviteStatuses]);
 
   const totalCount     = profiles.length;
   const availableCount = profiles.filter(isAvailable).length;
@@ -1562,12 +1581,20 @@ export function TalentDashboard({
               </FilterGroup>
 
               <FilterGroup title="Claim">
-                {(["All", "claimed", "unclaimed"] as const).map((c) => (
+                {(
+                  [
+                    { value: "All", label: "All" },
+                    { value: "claimed", label: "Claimed" },
+                    { value: "unclaimed", label: "Unclaimed" },
+                    { value: "invited_not_accepted", label: "Invited – not accepted" },
+                    { value: "never_invited", label: "Never invited" },
+                  ] as const
+                ).map((opt) => (
                   <FilterPill
-                    key={c}
-                    label={c === "All" ? "All" : c === "claimed" ? "Claimed" : "Unclaimed"}
-                    active={filterClaim === c}
-                    onClick={() => setFilterClaim(c)}
+                    key={opt.value}
+                    label={opt.label}
+                    active={filterClaim === opt.value}
+                    onClick={() => setFilterClaim(opt.value)}
                   />
                 ))}
               </FilterGroup>
@@ -1738,11 +1765,22 @@ export function TalentDashboard({
           <FilterSheetGroup
             label="Claim"
             value={filterClaim}
-            onChange={(v) => setFilterClaim(v as "All" | "claimed" | "unclaimed")}
+            onChange={(v) =>
+              setFilterClaim(
+                v as
+                  | "All"
+                  | "claimed"
+                  | "unclaimed"
+                  | "invited_not_accepted"
+                  | "never_invited",
+              )
+            }
             options={[
               { value: "All", label: "All" },
               { value: "claimed", label: "Claimed" },
               { value: "unclaimed", label: "Unclaimed" },
+              { value: "invited_not_accepted", label: "Invited – not accepted" },
+              { value: "never_invited", label: "Never invited" },
             ]}
           />
           <FilterSheetGroup
