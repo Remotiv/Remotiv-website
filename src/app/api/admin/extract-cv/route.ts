@@ -9,6 +9,11 @@ import {
 
 export const runtime = "nodejs";
 
+// Vercel: allow up to 60s for the Haiku CV extraction (default Hobby limit
+// ~10s kills the ~15s call). Admin-only action; a longer ceiling is
+// acceptable here.
+export const maxDuration = 60;
+
 const UUID_REGEX = /^[0-9a-fA-F-]{36}$/;
 
 // Discriminated-union response. Phase B client code reads `ok` to decide
