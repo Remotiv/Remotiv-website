@@ -181,24 +181,14 @@ export async function POST(request: Request) {
 
     const r = row as Record<string, unknown>;
 
-    // 5. Cache check — if any of the 14 columns is already populated, the
-    //    extraction was already done (or the wizard wrote them at apply
-    //    time). Skip the AI call and return the row as the prefill.
+    // 5. Cache check — a row is "already extracted" only when the AI-derived
+    //    fields are present. We key on summary + skills because the AI always
+    //    writes both on success. This prevents a half-filled row (e.g. a bulk
+    //    import that set only applicant_job_title) from being mistaken for a
+    //    completed extraction — such rows must fall through to the AI so
+    //    every field gets populated.
     const cached =
-      isPopulatedString(r.applicant_job_title) ||
-      isPopulatedString(r.role_category) ||
-      typeof r.years_experience === "number" ||
-      isPopulatedString(r.degree) ||
-      isPopulatedString(r.institution) ||
-      isPopulatedString(r.city) ||
-      isPopulatedString(r.country) ||
-      isPopulatedString(r.summary) ||
-      isPopulatedString(r.availability) ||
-      isPopulatedString(r.work_type) ||
-      isPopulatedString(r.notice_period) ||
-      isPopulatedString(r.work_location) ||
-      isPopulatedArray(r.skills) ||
-      isPopulatedArray(r.employment_history);
+      isPopulatedString(r.summary) && isPopulatedArray(r.skills);
 
     if (cached) {
       return NextResponse.json({
