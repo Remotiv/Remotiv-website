@@ -85,35 +85,37 @@ export default async function ApplicationsPage({
 
   // Phase 3: "already moved" detection. Normalise each application's email
   // (lowercase + trim, matching moveApplicationToTalent's L160 + the
-  // normalizeEmail helper in src/lib/normalize.ts:13). One IN query collects
-  // every talent_profiles row whose email is in the page's set, and we build
-  // a lookup set the mapper uses to set `alreadyMoved` per row.
+  // normalizeEmail helper in src/lib/normalize.ts:13) and check it against the
+  // set of emails already in the Pakistan talent pool.
   const normaliseEmail = (raw: unknown): string =>
     typeof raw === "string" ? raw.toLowerCase().trim() : "";
 
-  const normalisedEmails = Array.from(
-    new Set(
-      (apps ?? [])
-        .map((a) => normaliseEmail((a as Record<string, unknown>).email))
-        .filter((e) => e.length > 0),
-    ),
-  );
-
-  let movedEmails = new Set<string>();
-  if (normalisedEmails.length > 0) {
-    const { data: movedRows } = await service
-      .from("talent_profiles")
-      .select("email")
-      .in("email", normalisedEmails)
-      // Archived profiles are tombstones — they no longer count as "in Talent"
-      // for the move-button gate. Re-moving the same applicant restores the
-      // archived row server-side; see moveApplicationToTalent's archived branch.
-      .eq("is_archived", false);
-    movedEmails = new Set(
-      ((movedRows ?? []) as Array<{ email: string | null }>)
-        .map((r) => normaliseEmail(r.email))
-        .filter((e) => e.length > 0),
-    );
+  // Build the set of emails already in the Pakistan talent pool (non-archived).
+  // Range-page through ALL talent emails instead of a giant .in() on the
+  // applications list — a ~1400-item .in() overflows the request URL and
+  // silently fails, which previously blanked every "Already in Talent" badge.
+  // Archived profiles are tombstones — they no longer count as "in Talent"
+  // for the move-button gate; re-moving restores them server-side (see
+  // moveApplicationToTalent's archived branch).
+  const movedEmails = new Set<string>();
+  {
+    const PAGE = 1000;
+    let from = 0;
+    for (;;) {
+      const { data: movedRows, error: movedErr } = await service
+        .from("talent_profiles")
+        .select("email")
+        .eq("is_archived", false)
+        .range(from, from + PAGE - 1);
+      if (movedErr) throw movedErr;
+      const batch = movedRows ?? [];
+      for (const r of batch) {
+        const e = normaliseEmail((r as { email: string | null }).email);
+        if (e.length > 0) movedEmails.add(e);
+      }
+      if (batch.length < PAGE) break;
+      from += PAGE;
+    }
   }
 
   const applications: JobApplication[] = (apps ?? []).map((a: Record<string, unknown>) => ({
