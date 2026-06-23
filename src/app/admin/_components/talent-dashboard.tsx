@@ -66,6 +66,7 @@ import { TruncatedDescription } from "@/components/truncated-description";
 import {
   INVITE_STATUS_COLOR,
   INVITE_STATUS_LABEL,
+  type InviteMetrics,
   type InviteStatus,
 } from "@/lib/claim-status";
 
@@ -204,6 +205,16 @@ function fmtDaysAgo(iso: string): string {
   return `${months} months ago`;
 }
 
+// Date format used for the "Sent N× · last <date>" indicator. Matches the
+// inline pattern used for claimed_at in the drawer (toLocaleDateString) so
+// dates in the Claim Invite section render consistently.
+function formatSentDate(iso: string | null): string {
+  if (!iso) return "";
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return "";
+  return d.toLocaleDateString();
+}
+
 function fmtSalary(min: number | null, max: number | null): string | null {
   if (!min && !max) return null;
   const n = (v: number) => v >= 1000 ? `$${(v / 1000).toFixed(v % 1000 === 0 ? 0 : 1)}k` : `$${v}`;
@@ -283,6 +294,8 @@ function ProfileCard({
   isSelected,
   onToggleSelect,
   inviteStatus,
+  sentCount,
+  lastSentAt,
   onSendInvite,
   onView,
   onApprove,
@@ -292,6 +305,8 @@ function ProfileCard({
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
   inviteStatus: InviteStatus;
+  sentCount: number;
+  lastSentAt: string | null;
   onSendInvite: (id: string) => void;
   onView: () => void;
   onApprove: () => void;
@@ -461,6 +476,11 @@ function ProfileCard({
           </button>
         )}
       </div>
+      {sentCount > 0 && (
+        <span className="text-[10px] text-gray-400">
+          Sent {sentCount}× · last {formatSentDate(lastSentAt)}
+        </span>
+      )}
     </div>
   );
 }
@@ -490,6 +510,8 @@ function ProfileDrawer({
   profile,
   isSuperAdmin,
   inviteStatus,
+  sentCount,
+  lastSentAt,
   onSendInvite,
   onClose,
   onSetStatus,
@@ -501,6 +523,8 @@ function ProfileDrawer({
   profile: TalentProfile;
   isSuperAdmin: boolean;
   inviteStatus: InviteStatus;
+  sentCount: number;
+  lastSentAt: string | null;
   onSendInvite: (id: string) => void;
   onClose: () => void;
   // onSetStatus handles the Approve flow ONLY (stamps approved_at). Stage
@@ -875,6 +899,11 @@ function ProfileDrawer({
                 </span>
               )}
             </div>
+            {sentCount > 0 && (
+              <div className="mt-1 text-[11px] text-gray-500">
+                Sent {sentCount}× · last {formatSentDate(lastSentAt)}
+              </div>
+            )}
             {inviteStatus !== "claimed" && (
               <button
                 type="button"
@@ -1223,7 +1252,11 @@ export function TalentDashboard({
 
   // Phase 2: claim invites — invite status map (profile.id → InviteStatus),
   // bulk-select set, and an in-flight flag for the bulk send.
-  const [inviteStatuses, setInviteStatuses] = useState<Record<string, InviteStatus>>({});
+  // Per-candidate invite metrics from fetchTalentInviteStatuses — { status,
+  // sentCount, lastSentAt }. Existing badge + filter logic reads only .status
+  // via inviteStatusFor; sentCount + lastSentAt are plumbed here for Phase 2
+  // (rendering "Sent N× · last <date>") and don't yet have a consumer.
+  const [inviteStatuses, setInviteStatuses] = useState<Record<string, InviteMetrics>>({});
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
 
@@ -1490,7 +1523,17 @@ export function TalentDashboard({
 
   function inviteStatusFor(profile: TalentProfile): InviteStatus {
     if (profile.claimed_at) return "claimed";
-    return inviteStatuses[profile.id] ?? "not_invited";
+    return inviteStatuses[profile.id]?.status ?? "not_invited";
+  }
+
+  // Read sentCount + lastSentAt from the metrics map for a given profile.
+  // Returns zeros when no token has ever been sent so callers can branch on
+  // sentCount > 0 to decide whether to render the indicator.
+  function inviteMetricsFor(
+    profile: TalentProfile,
+  ): { sentCount: number; lastSentAt: string | null } {
+    const m = inviteStatuses[profile.id];
+    return { sentCount: m?.sentCount ?? 0, lastSentAt: m?.lastSentAt ?? null };
   }
 
   return (
@@ -1673,19 +1716,24 @@ export function TalentDashboard({
               <>
                 {/* Desktop card grid — unchanged */}
                 <div className="hidden gap-4 lg:grid lg:grid-cols-1 xl:grid-cols-2">
-                  {pageItems.map((p) => (
-                    <ProfileCard
-                      key={p.id}
-                      profile={p}
-                      canApprove={isSuperAdmin}
-                      isSelected={selectedIds.has(p.id)}
-                      onToggleSelect={toggleSelect}
-                      inviteStatus={inviteStatusFor(p)}
-                      onSendInvite={handleSendInvite}
-                      onView={() => setOpenId(p.id)}
-                      onApprove={() => handleSetStatus(p, "approved")}
-                    />
-                  ))}
+                  {pageItems.map((p) => {
+                    const m = inviteMetricsFor(p);
+                    return (
+                      <ProfileCard
+                        key={p.id}
+                        profile={p}
+                        canApprove={isSuperAdmin}
+                        isSelected={selectedIds.has(p.id)}
+                        onToggleSelect={toggleSelect}
+                        inviteStatus={inviteStatusFor(p)}
+                        sentCount={m.sentCount}
+                        lastSentAt={m.lastSentAt}
+                        onSendInvite={handleSendInvite}
+                        onView={() => setOpenId(p.id)}
+                        onApprove={() => handleSetStatus(p, "approved")}
+                      />
+                    );
+                  })}
                 </div>
 
                 {/* Mobile card list */}
@@ -1822,6 +1870,8 @@ export function TalentDashboard({
           profile={openProfile}
           isSuperAdmin={isSuperAdmin}
           inviteStatus={inviteStatusFor(openProfile)}
+          sentCount={inviteMetricsFor(openProfile).sentCount}
+          lastSentAt={inviteMetricsFor(openProfile).lastSentAt}
           onSendInvite={handleSendInvite}
           onClose={() => setOpenId(null)}
           onSetStatus={(status) => handleSetStatus(openProfile, status)}

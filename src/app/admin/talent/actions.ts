@@ -5,7 +5,7 @@ import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimToNull } from "@/app/admin/lib/validators";
-import type { InviteStatus } from "@/lib/claim-status";
+import type { InviteMetrics, InviteStatus } from "@/lib/claim-status";
 import { getAvatarUrl } from "@/lib/avatars";
 
 // Build the displayed avatar URL for an admin row. When the talent has
@@ -306,13 +306,19 @@ export async function saveTalentNote(
 // Phase 2: Talent claim — invite-status fetch + send-invite call
 // ----------------------------------------------------------------------------
 // Reads from talent_claim_tokens (created in a separate migration). Returns
-// the most-recent token status per profile id. Profiles with no token row
-// are absent from the map; the UI maps "absent" → "not_invited".
+// per-candidate invite metrics — the most-recent token status, total times
+// invited, and last-sent timestamp. Profiles with no token row are absent
+// from the map; the UI maps "absent" → { status:"not_invited", count:0 }.
+//
+// Resend behavior in /api/admin/send-invite expires old rows and inserts a
+// new one (no deletes), so each row in this table = one send event. Walking
+// every row of the same single query gives us count + max(created_at)
+// without a second round trip.
 // ============================================================================
 
 export async function fetchTalentInviteStatuses(
   profileIds: string[],
-): Promise<Record<string, InviteStatus>> {
+): Promise<Record<string, InviteMetrics>> {
   await requireAdmin();
   if (profileIds.length === 0) return {};
 
@@ -329,14 +335,24 @@ export async function fetchTalentInviteStatuses(
     return {};
   }
 
-  const result: Record<string, InviteStatus> = {};
+  const result: Record<string, InviteMetrics> = {};
   for (const row of (data ?? []) as Array<{
     candidate_id: string;
     status: string;
+    created_at: string | null;
   }>) {
-    // First row per candidate wins because the query is ordered desc.
-    if (result[row.candidate_id]) continue;
-    result[row.candidate_id] = row.status as InviteStatus;
+    const existing = result[row.candidate_id];
+    if (!existing) {
+      // First row per candidate wins for status + lastSentAt because the
+      // query is ordered created_at desc.
+      result[row.candidate_id] = {
+        status: row.status as InviteStatus,
+        sentCount: 1,
+        lastSentAt: row.created_at,
+      };
+    } else {
+      existing.sentCount += 1;
+    }
   }
   return result;
 }

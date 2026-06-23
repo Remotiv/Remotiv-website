@@ -5,6 +5,17 @@ export type InviteStatus =
   | "claimed"
   | "expired";
 
+// Per-candidate invite history snapshot derived from talent_claim_tokens.
+// `status` is the latest token's status; `sentCount` counts every retained
+// row (resend = expire-old + insert-new; nothing is deleted, so the row
+// count is a faithful send count); `lastSentAt` is the most recent
+// created_at, ISO timestamp string.
+export type InviteMetrics = {
+  status: InviteStatus;
+  sentCount: number;
+  lastSentAt: string | null;
+};
+
 export function getInviteStatus(profile: {
   claimed_at: string | null;
   inviteStatus?: string | null;
