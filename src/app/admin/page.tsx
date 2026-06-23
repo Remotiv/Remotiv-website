@@ -195,8 +195,22 @@ async function fetchSubmissionsByDay(
 async function fetchApplicationsByStatus(
   supabase: SupabaseClient,
 ): Promise<StatusSlice[]> {
-  const { data } = await supabase.from("job_applications").select("status");
-  const rows = (data ?? []) as Array<{ status: string | null }>;
+  // Range-paged so the breakdown covers ALL rows, not just the first 1000
+  // (PostgREST's default cap on an unbounded select). The headline count in
+  // calculateMetric uses count:"exact", head:true and is unaffected.
+  const PAGE = 1000;
+  let from = 0;
+  const rows: Array<{ status: string | null }> = [];
+  for (;;) {
+    const { data } = await supabase
+      .from("job_applications")
+      .select("status")
+      .range(from, from + PAGE - 1);
+    const batch = (data ?? []) as Array<{ status: string | null }>;
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    from += PAGE;
+  }
   const counts: Record<string, number> = {};
   for (const r of rows) {
     const s = r.status || "pending";

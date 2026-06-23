@@ -5,6 +5,35 @@ import type { ApplicationTag, JobApplication, OpenJob } from "./actions";
 
 export const dynamic = "force-dynamic";
 
+// Range-paged fetch of every job_application. Supabase/PostgREST caps any
+// unbounded select at 1000 rows, so we page through in 1000-row batches and
+// concat until a short page signals the end. Light column list only — the
+// heavy extracted-resume text column (unused by the list mapper, potentially
+// KB-sized per row) is intentionally excluded. Mirrors the original query's
+// ordering; the original list query had no row filters.
+async function fetchAllApplications(
+  service: ReturnType<typeof createServiceClient>,
+): Promise<Record<string, unknown>[]> {
+  const PAGE = 1000;
+  const cols =
+    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, jobs(title)";
+  let from = 0;
+  const all: Record<string, unknown>[] = [];
+  for (;;) {
+    const { data, error } = await service
+      .from("job_applications")
+      .select(cols)
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) throw error;
+    const batch = (data ?? []) as unknown as Record<string, unknown>[];
+    all.push(...batch);
+    if (batch.length < PAGE) break;
+    from += PAGE;
+  }
+  return all;
+}
+
 export default async function ApplicationsPage({
   searchParams,
 }: {
@@ -23,11 +52,8 @@ export default async function ApplicationsPage({
   // application_admin_tags filtered by the current admin's auth user id —
   // returns ONLY this admin's rows, never another admin's. Runs in parallel
   // with the apps/jobs/role queries via Promise.all.
-  const [{ data: apps }, { data: jobs }, { data: roleRow }, { data: tagRows }] = await Promise.all([
-    service
-      .from("job_applications")
-      .select("*, jobs(title)")
-      .order("created_at", { ascending: false }),
+  const [apps, { data: jobs }, { data: roleRow }, { data: tagRows }] = await Promise.all([
+    fetchAllApplications(service),
     service
       .from("jobs")
       .select("id, title")
