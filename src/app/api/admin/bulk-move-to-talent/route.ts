@@ -14,16 +14,15 @@ import { createServiceClient } from "@/lib/supabase/server";
 //                                   until an admin approves; this route never
 //                                   touches the approval timestamp itself.
 // Pinned to nodejs (the AI SDK + the service client both need Node) with the
-// 60s ceiling. Each call does at most `limit` sequential Haiku extractions
-// (~3-5s each), so the default stays small enough to finish inside 60s; the
-// client auto-loops by advancing `offset` until hasMore is false.
+// 60s ceiling. The route moves exactly the application ids it's handed (≤15);
+// each runs one sequential Haiku extraction (~3-5s), so a full call finishes
+// inside 60s. The client passes one page's eligible ids, chunked to ≤12.
 export const runtime = "nodejs";
 export const maxDuration = 60;
 
-// Sequential AI calls dominate the budget: 10 × ~5s worst case ≈ 50s, leaving
-// headroom for the two email range-pages + inserts. Capped at 15.
-const DEFAULT_LIMIT = 10;
-const MAX_LIMIT = 15;
+// Sequential AI calls dominate the budget: ~12 × ~5s worst case ≈ 60s. The
+// client chunks a page's ids to ≤12 per call; this hard cap defends the limit.
+const MAX_IDS = 6;
 const PAGE = 1000;
 
 // Sentinel returned by moveApplicationToTalent when an ACTIVE talent row with
@@ -44,19 +43,6 @@ type RowResult = {
 const normaliseEmail = (raw: unknown): string =>
   typeof raw === "string" ? raw.toLowerCase().trim() : "";
 
-function parseLimit(v: unknown): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return DEFAULT_LIMIT;
-  const n = Math.floor(v);
-  if (n <= 0) return DEFAULT_LIMIT;
-  return Math.min(MAX_LIMIT, n);
-}
-
-function parseOffset(v: unknown): number {
-  if (typeof v !== "number" || !Number.isFinite(v)) return 0;
-  const n = Math.floor(v);
-  return n > 0 ? n : 0;
-}
-
 export async function POST(request: Request) {
   try {
     await requireSuperAdmin();
@@ -70,8 +56,21 @@ export async function POST(request: Request) {
   } catch {
     body = {};
   }
-  const limit = parseLimit((body as { limit?: unknown })?.limit);
-  const offset = parseOffset((body as { offset?: unknown })?.offset);
+  const rawIds = (body as { ids?: unknown })?.ids;
+  if (
+    !Array.isArray(rawIds) ||
+    rawIds.length === 0 ||
+    !rawIds.every((x) => typeof x === "string")
+  ) {
+    return NextResponse.json({ ok: false, error: "ids required" }, { status: 400 });
+  }
+  const ids = rawIds as string[];
+  if (ids.length > MAX_IDS) {
+    return NextResponse.json(
+      { ok: false, error: `too many ids (max ${MAX_IDS} per call)` },
+      { status: 400 },
+    );
+  }
 
   const service = createServiceClient();
 
@@ -100,16 +99,15 @@ export async function POST(request: Request) {
     }
   }
 
-  // 2. Fetch this call's window of completed-CV applications by stable offset.
-  //    Offset paging (not "filter the moved ones out of a fixed top-N") so the
-  //    window ALWAYS advances — applications are never mutated, so a top-N
-  //    ordering would keep returning the same already-moved rows forever.
+  // 2. Fetch exactly the requested applications, gated to completed-CV rows.
+  //    The .in("id", ids) list is small (≤15 short UUIDs), so it's URL-safe.
+  //    Filtering on cv_text_status here enforces the completed gate server-side:
+  //    a non-completed id simply isn't returned (neither moved nor counted).
   const { data: rows, error: fetchErr } = await service
     .from("job_applications")
     .select("id, email, cv_text")
     .eq("cv_text_status", "completed")
-    .order("created_at", { ascending: true })
-    .range(offset, offset + limit - 1);
+    .in("id", ids);
   if (fetchErr) {
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });
   }
@@ -204,21 +202,15 @@ export async function POST(request: Request) {
     }
   }
 
-  // hasMore drives the client loop: a full window means more rows likely remain
-  // at the next offset. nextOffset always advances past this window.
-  const hasMore = window.length === limit;
-  const nextOffset = offset + window.length;
-
   return NextResponse.json({
     ok: true,
-    processed: window.length,
+    requested: ids.length,
+    eligibleCompleted: window.length,
     moved,
     skipped_already: skippedAlready,
     skipped_no_ai: skippedNoAi,
     skipped_no_email: skippedNoEmail,
     failed,
-    hasMore,
-    nextOffset,
     results,
   });
 }

@@ -739,62 +739,62 @@ export function ApplicationsDashboard({
 
   async function handleBulkMove() {
     if (isBulkMoving) return;
+    // Current page's eligible rows: not already in Talent. (The server still
+    // enforces the completed-CV gate — the client doesn't load cv_text_status.)
+    const ids = pageItems.filter((a) => !a.alreadyMoved).map((a) => a.id);
+    if (ids.length === 0) {
+      setToast("No eligible candidates on this page to move.");
+      return;
+    }
     const ok = window.confirm(
-      "Move all eligible candidates to Talent? Profiles will be created hidden (pending approval). This processes completed-CV applications not already in Talent.",
+      `Move ${ids.length} candidate(s) on this page to Talent? Profiles are created hidden (pending approval). Already-moved and image-only CVs are skipped automatically.`,
     );
     if (!ok) return;
 
     setIsBulkMoving(true);
     setBulkProgress("Starting…");
     const totals = { moved: 0, skipped: 0, failed: 0 };
-    let offset = 0;
     try {
-      for (;;) {
+      // Chunk into <=12 per request to stay under the 60s function limit.
+      const CHUNK = 5;
+      for (let i = 0; i < ids.length; i += CHUNK) {
+        const chunk = ids.slice(i, i + CHUNK);
         const res = await fetch("/api/admin/bulk-move-to-talent", {
           method: "POST",
           headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ limit: 10, offset }),
+          body: JSON.stringify({ ids: chunk }),
         });
         if (!res.ok) {
           setToast(
             res.status === 403
-              ? "Bulk move stopped: not authorized (super-admin only)."
-              : `Bulk move stopped: request failed (${res.status}).`,
+              ? "Bulk move is super-admin only."
+              : `Bulk move failed (${res.status}).`,
           );
           break;
         }
         const data = (await res.json()) as {
-          moved: number;
-          skipped_already: number;
-          skipped_no_ai: number;
-          skipped_no_email: number;
-          failed: number;
-          hasMore: boolean;
-          nextOffset: number;
+          moved?: number;
+          skipped_already?: number;
+          skipped_no_ai?: number;
+          skipped_no_email?: number;
+          failed?: number;
         };
-        totals.moved += data.moved;
+        totals.moved += data.moved ?? 0;
         totals.skipped +=
-          data.skipped_already + data.skipped_no_ai + data.skipped_no_email;
-        totals.failed += data.failed;
-        offset = data.nextOffset;
+          (data.skipped_already ?? 0) +
+          (data.skipped_no_ai ?? 0) +
+          (data.skipped_no_email ?? 0);
+        totals.failed += data.failed ?? 0;
         setBulkProgress(
           `moved ${totals.moved} · skipped ${totals.skipped} · failed ${totals.failed}`,
         );
-        // Safety brake: something is systematically wrong — stop the loop.
-        if (totals.failed > 50) {
-          setToast(
-            `Bulk move stopped — too many failures (${totals.failed}). Check server logs.`,
-          );
-          break;
+        if (i + CHUNK < ids.length) {
+          await new Promise((resolve) => setTimeout(resolve, 300));
         }
-        if (!data.hasMore) {
-          setToast(
-            `Done: moved ${totals.moved}, skipped ${totals.skipped}, failed ${totals.failed}. Review the pending queue in Talent to approve.`,
-          );
-          break;
-        }
-        await new Promise((resolve) => setTimeout(resolve, 300));
       }
+      setToast(
+        `Done: moved ${totals.moved}, skipped ${totals.skipped}, failed ${totals.failed}. Review the pending queue in Talent to approve.`,
+      );
       router.refresh();
     } catch {
       setToast("Bulk move failed. Please try again.");
