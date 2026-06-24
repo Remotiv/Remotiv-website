@@ -93,10 +93,43 @@ export default async function BrowseTalentPage({
   const page = Number.isFinite(pageRaw) && pageRaw >= 1 ? Math.floor(pageRaw) : 1;
   const isSavedView = params.view === "saved";
 
-  // Auth-aware client (reads cookies) for user + subscription lookup; service
-  // client bypasses RLS for the public talent fetch.
-  const auth = await createClient();
+  // Service client is sync (no I/O), so we instantiate it first and build the
+  // URL-derived count query upfront. That query then fires in parallel with
+  // the auth-aware client init + getUser + sub/saved — saves one round-trip
+  // on the critical path for non-saved view.
   const supabase = createServiceClient();
+
+  // Phase 7 perf: count's filters depend only on URL params (claimedOnly,
+  // role, q) for non-saved view — no need to wait on auth/sub/saved before
+  // firing it. Saved view's count needs .in("id", inList) from savedIdsSet
+  // and is mutated + fired below once the saved query resolves.
+  let countQuery = supabase
+    .from("talent_profiles")
+    .select("id", { count: "exact", head: true })
+    .not("approved_at", "is", null)
+    .eq("is_paused", false)
+    .eq("is_archived", false);
+  if (claimedOnly) {
+    countQuery = countQuery.not("user_id", "is", null);
+  }
+  if (role !== "All") {
+    countQuery = countQuery.eq("role_category", role);
+  }
+  if (q !== "") {
+    const safeQ = escapeIlike(q);
+    const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
+    countQuery = countQuery.or(orFilter);
+  }
+  // Promise.resolve on a Supabase thenable invokes its .then() under the
+  // hood, which kicks off the HTTP request immediately. The returned promise
+  // resolves to the same {data, error, count} shape an inline await would
+  // produce — we keep it for the Promise.all below where the talent list is
+  // awaited.
+  const earlyCountPromise = !isSavedView ? Promise.resolve(countQuery) : null;
+
+  // Auth-aware client (reads cookies) for user + subscription lookup. While
+  // we await it, earlyCountPromise is already in flight against PostgREST.
+  const auth = await createClient();
 
   const { data: { user } } = await auth.auth.getUser();
   const userId = user?.id ?? "";
@@ -167,16 +200,8 @@ export default async function BrowseTalentPage({
       .eq("is_paused", false)
       .eq("is_archived", false);
 
-    let countQuery = supabase
-      .from("talent_profiles")
-      .select("id", { count: "exact", head: true })
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false);
-
     if (claimedOnly) {
       talentQuery = talentQuery.not("user_id", "is", null);
-      countQuery = countQuery.not("user_id", "is", null);
     }
 
     if (isSavedView) {
@@ -189,14 +214,12 @@ export default async function BrowseTalentPage({
 
     if (role !== "All") {
       talentQuery = talentQuery.eq("role_category", role);
-      countQuery = countQuery.eq("role_category", role);
     }
 
     if (q !== "") {
       const safeQ = escapeIlike(q);
       const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
       talentQuery = talentQuery.or(orFilter);
-      countQuery = countQuery.or(orFilter);
     }
 
     if (sort === "name") {
@@ -208,7 +231,13 @@ export default async function BrowseTalentPage({
     talentQuery = talentQuery.range(from, to);
 
     try {
-      const [talentResult, countResult] = await Promise.all([talentQuery, countQuery]);
+      const [talentResult, countResult] = await Promise.all([
+        talentQuery,
+        // Non-saved view: count is already in flight via earlyCountPromise
+        // upstream — we just await its result here. Saved view: countQuery
+        // has had .in("id", inList) attached above and fires when awaited.
+        earlyCountPromise ?? countQuery,
+      ]);
       if (talentResult.error) throw talentResult.error;
       if (countResult.error) throw countResult.error;
       rows = (talentResult.data ?? []) as TalentRow[];
