@@ -728,11 +728,81 @@ export function ApplicationsDashboard({
   const [apps, setApps] = useState<JobApplication[]>(initialApplications);
   const [toast, setToast] = useState<string | null>(null);
   const [showUpload, setShowUpload] = useState(false);
+  // Bulk Move to Talent — client-driven auto-loop over the batched API route.
+  const [isBulkMoving, setIsBulkMoving] = useState(false);
+  const [bulkProgress, setBulkProgress] = useState<string | null>(null);
 
   // keep state in sync with server-refreshed props
   useEffect(() => {
     setApps(initialApplications);
   }, [initialApplications]);
+
+  async function handleBulkMove() {
+    if (isBulkMoving) return;
+    const ok = window.confirm(
+      "Move all eligible candidates to Talent? Profiles will be created hidden (pending approval). This processes completed-CV applications not already in Talent.",
+    );
+    if (!ok) return;
+
+    setIsBulkMoving(true);
+    setBulkProgress("Starting…");
+    const totals = { moved: 0, skipped: 0, failed: 0 };
+    let offset = 0;
+    try {
+      for (;;) {
+        const res = await fetch("/api/admin/bulk-move-to-talent", {
+          method: "POST",
+          headers: { "Content-Type": "application/json" },
+          body: JSON.stringify({ limit: 10, offset }),
+        });
+        if (!res.ok) {
+          setToast(
+            res.status === 403
+              ? "Bulk move stopped: not authorized (super-admin only)."
+              : `Bulk move stopped: request failed (${res.status}).`,
+          );
+          break;
+        }
+        const data = (await res.json()) as {
+          moved: number;
+          skipped_already: number;
+          skipped_no_ai: number;
+          skipped_no_email: number;
+          failed: number;
+          hasMore: boolean;
+          nextOffset: number;
+        };
+        totals.moved += data.moved;
+        totals.skipped +=
+          data.skipped_already + data.skipped_no_ai + data.skipped_no_email;
+        totals.failed += data.failed;
+        offset = data.nextOffset;
+        setBulkProgress(
+          `moved ${totals.moved} · skipped ${totals.skipped} · failed ${totals.failed}`,
+        );
+        // Safety brake: something is systematically wrong — stop the loop.
+        if (totals.failed > 50) {
+          setToast(
+            `Bulk move stopped — too many failures (${totals.failed}). Check server logs.`,
+          );
+          break;
+        }
+        if (!data.hasMore) {
+          setToast(
+            `Done: moved ${totals.moved}, skipped ${totals.skipped}, failed ${totals.failed}. Review the pending queue in Talent to approve.`,
+          );
+          break;
+        }
+        await new Promise((resolve) => setTimeout(resolve, 300));
+      }
+      router.refresh();
+    } catch {
+      setToast("Bulk move failed. Please try again.");
+    } finally {
+      setIsBulkMoving(false);
+      setBulkProgress(null);
+    }
+  }
 
   // ── Slide-in panel ────────────────────────────────────────
   const [panelApp, setPanelApp] = useState<JobApplication | null>(null);
@@ -1125,6 +1195,26 @@ export function ApplicationsDashboard({
               >
                 <Upload className="size-4" strokeWidth={2} />
                 Upload CV
+              </button>
+            )}
+            {userRole === "super_admin" && (
+              <button
+                type="button"
+                onClick={handleBulkMove}
+                disabled={isBulkMoving}
+                className="flex items-center gap-2 rounded-xl border border-remotiv-purple/30 bg-remotiv-purple/10 px-4 py-2 text-sm font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20 disabled:opacity-50"
+              >
+                {isBulkMoving ? (
+                  <>
+                    <Loader2 className="size-4 animate-spin" strokeWidth={2} />
+                    {bulkProgress ? `Moving… ${bulkProgress}` : "Moving…"}
+                  </>
+                ) : (
+                  <>
+                    <UserCheck className="size-4" strokeWidth={2} />
+                    Bulk Move to Talent
+                  </>
+                )}
               </button>
             )}
           </div>
