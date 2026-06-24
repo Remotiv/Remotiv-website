@@ -57,6 +57,7 @@ export type TalentRow = {
   email: string | null;
   phone: string | null;
   cv_url: string | null;
+  cv_path: string | null;
   skills: string[] | null;
   summary: string | null;
   availability: string | null;
@@ -273,7 +274,7 @@ function rowToCard(r: TalentRow): Card {
     linkedin: r.linkedin_url,
     email: r.email,
     phone: r.phone,
-    cvUrl: r.cv_url,
+    cvUrl: r.cv_url ?? r.cv_path ?? null,
     photoUrl: (() => {
       const path = (r.photo_path ?? "").trim();
       if (!path) return null;

@@ -194,7 +194,7 @@ export default async function BrowseTalentPage({
     let talentQuery = supabase
       .from("talent_profiles")
       .select(
-        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
+        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
       )
       .not("approved_at", "is", null)
       .eq("is_paused", false)
@@ -260,7 +260,7 @@ export default async function BrowseTalentPage({
     const { data } = await supabase
       .from("talent_profiles")
       .select(
-        "id, first_name, last_name, email, phone, cv_url, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
+        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
       )
       .eq("id", deepLinkId)
       .not("approved_at", "is", null)
@@ -327,6 +327,7 @@ export default async function BrowseTalentPage({
       email: null,
       phone: null,
       cv_url: null,
+      cv_path: null,
       linkedin_url: null,
       summary: redactContactInfo(row.summary),
     };
