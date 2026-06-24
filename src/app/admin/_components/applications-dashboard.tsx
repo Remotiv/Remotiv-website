@@ -755,36 +755,69 @@ export function ApplicationsDashboard({
     setBulkProgress("Starting…");
     const totals = { moved: 0, skipped: 0, failed: 0 };
     try {
-      // Chunk into <=12 per request to stay under the 60s function limit.
+      // Chunk into <=5 per request to stay under the 60s function limit.
       const CHUNK = 5;
+      let hadAuthError = false;
       for (let i = 0; i < ids.length; i += CHUNK) {
         const chunk = ids.slice(i, i + CHUNK);
-        const res = await fetch("/api/admin/bulk-move-to-talent", {
-          method: "POST",
-          headers: { "Content-Type": "application/json" },
-          body: JSON.stringify({ ids: chunk }),
-        });
-        if (!res.ok) {
-          setToast(
-            res.status === 403
-              ? "Bulk move is super-admin only."
-              : `Bulk move failed (${res.status}).`,
-          );
-          break;
-        }
-        const data = (await res.json()) as {
+
+        // Try a chunk up to 2 times (1 retry) before giving up on just this
+        // chunk. A transient hiccup on one chunk must not abandon the rest.
+        let chunkData: {
           moved?: number;
           skipped_already?: number;
           skipped_no_ai?: number;
           skipped_no_email?: number;
           failed?: number;
-        };
-        totals.moved += data.moved ?? 0;
-        totals.skipped +=
-          (data.skipped_already ?? 0) +
-          (data.skipped_no_ai ?? 0) +
-          (data.skipped_no_email ?? 0);
-        totals.failed += data.failed ?? 0;
+        } | null = null;
+        for (let attempt = 0; attempt < 2; attempt++) {
+          try {
+            const res = await fetch("/api/admin/bulk-move-to-talent", {
+              method: "POST",
+              headers: { "Content-Type": "application/json" },
+              body: JSON.stringify({ ids: chunk }),
+            });
+            if (res.status === 403) {
+              // auth won't fix on retry — stop the whole run
+              hadAuthError = true;
+              break;
+            }
+            if (!res.ok) {
+              // transient (e.g. 504/5xx) — wait briefly then retry once
+              if (attempt === 0) {
+                await new Promise((resolve) => setTimeout(resolve, 1000));
+                continue;
+              }
+              // second failure: count this chunk as failed, move on
+              totals.failed += chunk.length;
+              break;
+            }
+            chunkData = await res.json();
+            break; // success
+          } catch {
+            if (attempt === 0) {
+              await new Promise((resolve) => setTimeout(resolve, 1000));
+              continue;
+            }
+            totals.failed += chunk.length;
+            break;
+          }
+        }
+
+        if (hadAuthError) {
+          setToast("Bulk move is super-admin only.");
+          break; // only an auth error stops the whole run
+        }
+
+        if (chunkData) {
+          totals.moved += chunkData.moved ?? 0;
+          totals.skipped +=
+            (chunkData.skipped_already ?? 0) +
+            (chunkData.skipped_no_ai ?? 0) +
+            (chunkData.skipped_no_email ?? 0);
+          totals.failed += chunkData.failed ?? 0;
+        }
+
         setBulkProgress(
           `moved ${totals.moved} · skipped ${totals.skipped} · failed ${totals.failed}`,
         );
