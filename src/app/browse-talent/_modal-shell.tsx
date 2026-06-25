@@ -24,7 +24,7 @@ export default function ModalShell(): React.ReactElement {
         display: "flex",
         alignItems: "center",
         justifyContent: "center",
-        background: "rgba(0,0,0,0.4)",
+        background: "rgba(0,0,0,0.6)",
         pointerEvents: "none",
       }}
     >

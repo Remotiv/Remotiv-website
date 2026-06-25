@@ -181,7 +181,6 @@ export default function ProfileModal({
   return (
     <div
       className="bt-modal-overlay"
-      style={{ opacity: mounted ? 1 : 0, transition: "opacity 150ms ease-out" }}
       onClick={(e) => { if (e.target === e.currentTarget) onClose(); }}
       role="presentation"
     >

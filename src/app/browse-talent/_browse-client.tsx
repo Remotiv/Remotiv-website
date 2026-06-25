@@ -28,6 +28,17 @@ const ProfileModal = dynamic(() => import("./_profile-modal"), {
   ssr: false,
   loading: () => <ModalShell />,
 });
+
+// Phase 9 perf: preload the ProfileModal chunk on first card hover/focus so
+// the click-open doesn't wait for the network round-trip. Module-level guard
+// — runs the import at most once per page session. Fire-and-forget: never
+// blocks or changes click behavior.
+let modalPreloaded = false;
+function preloadProfileModal(): void {
+  if (modalPreloaded) return;
+  modalPreloaded = true;
+  void import("./_profile-modal");
+}
 import {
   fetchProfileDetail,
   getCvSignedUrl,
@@ -384,6 +395,8 @@ const CardItem = memo(function CardItem({
           onView();
         }
       }}
+      onMouseEnter={preloadProfileModal}
+      onFocus={preloadProfileModal}
       role="button"
       tabIndex={0}
       aria-label={`Open profile for ${c.name || "candidate"}`}
