@@ -81,6 +81,12 @@ export default function RootLayout({
             __html: `html,body{background:#f8f4f1!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}`,
           }}
         />
+        <script
+          // biome-ignore lint/security/noDangerouslySetInnerHtml: tiny inline bootstrap — disables browser scroll restoration to avoid the loading.tsx → SSR height swap producing a "jump to footer then top" flash on slow-SSR routes (e.g. /browse-talent). Next.js App Router handles scroll-to-top on internal navigation itself.
+          dangerouslySetInnerHTML={{
+            __html: `if("scrollRestoration" in history){history.scrollRestoration="manual";}`,
+          }}
+        />
       </head>
       <body className="min-h-full flex flex-col overflow-x-hidden">
         <a href="#main" className="skip-link">
