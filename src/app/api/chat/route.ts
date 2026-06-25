@@ -17,7 +17,7 @@ About Remotiv:
 - Remotiv connects global companies with Pakistan's top vetted remote talent
 - Services: Recruitment, Staff Augmentation, Dedicated Teams, Payroll Services
 - Talent covers: Software Engineers, Designers, Growth Marketers, Customer Support, Data Analysts, and more
-- Hiring process: Companies browse talent → submit a hire request → Remotiv matches and vets → intro call within 24-48 hours
+- Hiring process: Companies find talent → submit a hire request → Remotiv matches and vets → intro call within 24-48 hours
 - Pricing: Competitive rates ($25-50/hr avg for senior talent)
 - All talent is pre-vetted and English-proficient
 

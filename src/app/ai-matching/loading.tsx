@@ -7,7 +7,7 @@ export default function AiMatchingLoading() {
   return (
     <div
       aria-busy="true"
-      aria-label="Loading AI Matching"
+      aria-label="Loading AI Talent Match"
       className="min-h-screen bg-remotiv-bg motion-safe:animate-pulse"
     >
       {/* Hero */}

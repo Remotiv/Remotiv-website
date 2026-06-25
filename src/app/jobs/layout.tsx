@@ -64,7 +64,7 @@ export default function JobsLayout({
               {
                 "@type": "ListItem",
                 position: 2,
-                name: "Jobs",
+                name: "Browse Jobs",
                 item: canonicalUrl("/jobs"),
               },
             ],

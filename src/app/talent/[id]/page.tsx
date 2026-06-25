@@ -350,7 +350,7 @@ export default async function TalentProfilePage({ params }: PageProps) {
       {
         "@type": "ListItem",
         position: 2,
-        name: "Browse Talent",
+        name: "Find Talent",
         item: canonicalUrl("/browse-talent"),
       },
       {

@@ -33,7 +33,7 @@ const footerLinks: ReadonlyArray<{
     title: "For Companies",
     links: [
       { label: "Find Talent", href: "/browse-talent" },
-      { label: "Hire Freelancers", href: "/hire-remote" },
+      { label: "Find Freelancers", href: "/hire-remote" },
       { label: "AI Talent Match", href: "/ai-matching" },
       { label: "AI Video Interviews", soon: true },
       { label: "Pricing", href: "/pricing" },

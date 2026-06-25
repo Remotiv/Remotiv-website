@@ -140,7 +140,7 @@ const NAV_ITEMS: readonly NavItem[] = [
       },
       {
         icon: Globe,
-        title: "Hire Freelancers",
+        title: "Find Freelancers",
         description: "Hire remote, pay by the hour",
         href: "/hire-remote",
       },

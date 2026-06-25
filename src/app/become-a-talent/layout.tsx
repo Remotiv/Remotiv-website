@@ -65,7 +65,7 @@ export default function BecomeATalentLayout({
               {
                 "@type": "ListItem",
                 position: 2,
-                name: "Become a Talent",
+                name: "Join as Talent",
                 item: canonicalUrl("/become-a-talent"),
               },
             ],

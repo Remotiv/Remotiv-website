@@ -75,7 +75,7 @@ function HeroSection() {
       />
       <div className="relative mx-auto max-w-[820px]">
         <span className="mb-5 inline-block rounded-full bg-remotiv-green/10 px-4 py-1.5 font-heading text-[0.72rem] font-bold uppercase tracking-[0.16em] text-remotiv-green">
-          Hire Remote
+          Find Freelancers
         </span>
         <h1 className="mb-3 font-heading text-[clamp(2.2rem,4.2vw,3.5rem)] font-extrabold leading-[1.09] tracking-[-0.032em] text-remotiv-text-dark">
           Hire Pakistan&apos;s top 1% talent.

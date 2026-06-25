@@ -289,7 +289,7 @@ export default function ContactPage() {
             We&apos;d Love to Hear From You
           </h1>
           <p className="mx-auto max-w-[520px] text-[1.05rem] leading-[1.65] text-remotiv-text-light">
-            Whether you&apos;re looking to hire remote talent or join our network — our team is here to help.
+            Whether you&apos;re looking to find freelancers or join our network — our team is here to help.
           </p>
         </section>
 

@@ -613,7 +613,7 @@ function Hero() {
               href="/ai-matching"
               className="w-full sm:w-auto text-center rounded-full border-[1.5px] border-[#111] px-8 py-[11px] sm:py-3.5 text-base font-semibold text-remotiv-text-dark transition-colors hover:bg-[#111] hover:text-white"
             >
-              Try AI Matching
+              Try AI Talent Match
             </Link>
           </div>
         </div>

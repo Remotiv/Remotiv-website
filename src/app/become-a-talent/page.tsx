@@ -1426,7 +1426,7 @@ export default function BecomeATalentPage() {
                             Professional Information
                           </h2>
                           <div className="bta-fh-sub">
-                            Your role, experience and skills — this powers your AI matching
+                            Your role, experience and skills — this powers AI Talent Match
                           </div>
                         </div>
                       </div>

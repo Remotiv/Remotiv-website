@@ -672,7 +672,7 @@ export default function RemoteReadyPage() {
           <GridBackground>
             <div className="bat-pill">
               <span className="bat-pill-now">Now</span>
-              <span className="bat-pill-text">Become Remote-Ready</span>
+              <span className="bat-pill-text">Join as Freelancer</span>
             </div>
             <h1 className="bat-h1">Get hired by global companies,</h1>
             <div className="bat-h2">on your terms.</div>
@@ -817,7 +817,7 @@ export default function RemoteReadyPage() {
                     Edit or manage your profile →
                   </Link>
                   <Link href="/hire-remote" className="bta-success-btn">
-                    View Hire Remote →
+                    View Find Freelancers →
                   </Link>
                 </div>
                 )
@@ -1111,7 +1111,7 @@ function Step2(props: {
 }) {
   return (
     <div className="bta-form-step active">
-      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this powers your AI matching" />
+      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this powers AI Talent Match" />
 
       <div className="bta-form-body">
         <h3 className="bta-sec-title">Headline</h3>

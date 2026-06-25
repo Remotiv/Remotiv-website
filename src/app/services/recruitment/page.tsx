@@ -129,7 +129,7 @@ const WHO_WE_WORK_WITH = [
   },
   {
     title: "SaaS & Tech Companies",
-    desc: "Product teams that need specialized technical talent — React engineers, ML specialists, DevOps leads, data engineers. Our AI matching is built for technical roles where precision matters more than volume.",
+    desc: "Product teams that need specialized technical talent — React engineers, ML specialists, DevOps leads, data engineers. Our AI Talent Match is built for technical roles where precision matters more than volume.",
   },
   {
     title: "Non-Profits & NGOs",

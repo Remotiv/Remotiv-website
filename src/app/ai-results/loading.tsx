@@ -11,7 +11,7 @@ export default function AIResultsLoading() {
   return (
     <div
       aria-busy="true"
-      aria-label="Loading AI matching results"
+      aria-label="Loading AI Talent Match results"
       className="min-h-screen bg-remotiv-bg motion-safe:animate-pulse"
     >
       {/* Hero — mirrors LoadingPanel's top section */}

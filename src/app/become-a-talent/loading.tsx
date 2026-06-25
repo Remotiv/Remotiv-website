@@ -9,7 +9,7 @@ export default function BecomeATalentLoading() {
   return (
     <div
       aria-busy="true"
-      aria-label="Loading become a talent"
+      aria-label="Loading Join as Talent"
       className="min-h-screen bg-white motion-safe:animate-pulse"
     >
       {/* Hero outer wrapper — bat-outer (bg-white, p-6) wrapping bat-wrap (#F5F1EC, rounded) */}
