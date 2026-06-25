@@ -61,6 +61,17 @@ function escapeIlike(s: string): string {
   return cleaned.replace(/\\/g, "\\\\").replace(/%/g, "\\%").replace(/_/g, "\\_");
 }
 
+// Phase 8 perf: bios in the list payload are CSS-clamped to 3 lines on the
+// card and refetched in full via fetchProfileDetail when the modal opens
+// (_profile-modal.tsx → `detail?.summary ?? c.bio`). Anything past ~300 chars
+// is dead weight in the inline RSC payload, so trim here. Modal full text is
+// unaffected.
+function trimSummary(s: string | null): string | null {
+  if (!s) return s;
+  if (s.length <= 300) return s;
+  return `${s.slice(0, 300).replace(/\s+\S*$/, "")}…`;
+}
+
 export default async function BrowseTalentPage({
   searchParams,
 }: {
@@ -321,7 +332,7 @@ export default async function BrowseTalentPage({
   //   github_url is never stripped (Q11: public/social signal).
   const stripIfLocked = (row: TalentRow): TalentRow => {
     const isUnlocked = tier === "subscriber" && unlockedIds.has(row.id);
-    if (isUnlocked) return row;
+    if (isUnlocked) return { ...row, summary: trimSummary(row.summary) };
     return {
       ...row,
       email: null,
@@ -329,7 +340,9 @@ export default async function BrowseTalentPage({
       cv_url: null,
       cv_path: null,
       linkedin_url: null,
-      summary: redactContactInfo(row.summary),
+      // Redact first (strip emails/phones from freeform text), then trim — the
+      // reverse order risks cutting a regex match mid-string and leaking PII.
+      summary: trimSummary(redactContactInfo(row.summary)),
     };
   };
   const realProfiles: TalentRow[] = rows.map(stripIfLocked);

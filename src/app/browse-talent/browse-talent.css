@@ -13,6 +13,18 @@
           position: absolute;
           inset: 0;
           z-index: 0;
+          /* Phase 8 perf: replaces the previous React-rendered grid of ~120–210
+             absolutely-positioned tile <div>s + resize listener. Two
+             perpendicular repeating linear-gradients, each cream stripe 80px
+             + white gap 6px (= 86px tile pitch). `background-blend-mode:
+             lighten` returns the lighter channel per pixel, so the result is
+             cream 80×80 squares (where BOTH gradients are cream) with white
+             gaps (where EITHER gradient is in its 6px white slice). */
+          background-color: #FFFFFF;
+          background-image:
+            repeating-linear-gradient(0deg, #F8F4F1 0 80px, #FFFFFF 80px 86px),
+            repeating-linear-gradient(90deg, #F8F4F1 0 80px, #FFFFFF 80px 86px);
+          background-blend-mode: lighten;
         }
         .bth-center {
           position: absolute;

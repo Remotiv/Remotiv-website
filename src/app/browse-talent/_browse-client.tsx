@@ -387,7 +387,7 @@ const CardItem = memo(function CardItem({
       role="button"
       tabIndex={0}
       aria-label={`Open profile for ${c.name || "candidate"}`}
-      style={{ animation: `btFadeIn .35s ease ${index * 0.04}s both` }}
+      style={{ animation: `btFadeIn .35s ease ${Math.min(index, 6) * 0.04}s both` }}
     >
       <div className="bt-card-left">
         <div className="bt-cand-row1">
@@ -591,48 +591,15 @@ const HERO_CARDS: HeroCard[] = [
   { initials: "SR", name: "Sara Raza",   role: "Data Analyst · 3 yrs",       skills: ["Python", "SQL", "Tableau"], avatarBg: "#EDFFD3", avatarText: "#4A7A10" },
 ];
 
-// Mosaic constants — match the HTML's IIFE (size 80, gap 6, 7 rows).
-const MOSAIC_TILE = 80;
-const MOSAIC_GAP = 6;
-const MOSAIC_ROWS = 7;
-
 function Hero() {
-  // Compute the number of mosaic columns based on the rendered width so the
-  // pattern stretches edge-to-edge regardless of viewport. Mirrors the HTML
-  // <script> at line 4129 — runs once on mount + on resize.
-  const [cols, setCols] = useState(24); // SSR-safe default; recalculated on mount
-
-  useEffect(() => {
-    function recompute() {
-      const w = window.innerWidth || 1440;
-      setCols(Math.ceil((w + MOSAIC_GAP) / (MOSAIC_TILE + MOSAIC_GAP)));
-    }
-    recompute();
-    window.addEventListener("resize", recompute);
-    return () => window.removeEventListener("resize", recompute);
-  }, []);
-
+  // Phase 8 perf: the mosaic background was previously ~120–210 absolutely-
+  // positioned React divs re-rendered on every window resize. Replaced by a
+  // pure-CSS repeating-linear-gradient on #bth-mosaic (see browse-talent.css)
+  // — same visual, no React state, no resize listener, zero per-tile DOM
+  // nodes. The empty <div> here is just the paint surface for the CSS bg.
   return (
     <section id="bth-wrap">
-      <div id="bth-mosaic" aria-hidden>
-        {Array.from({ length: MOSAIC_ROWS }).flatMap((_, r) =>
-          Array.from({ length: cols }).map((_unused, c) => (
-            <div
-              key={`tile-${r}-${c}`}
-              style={{
-                position: "absolute",
-                width: MOSAIC_TILE,
-                height: MOSAIC_TILE,
-                borderRadius: 10,
-                background: "#F8F4F1",
-                left: c * (MOSAIC_TILE + MOSAIC_GAP),
-                top: r * (MOSAIC_TILE + MOSAIC_GAP),
-                zIndex: 0,
-              }}
-            />
-          )),
-        )}
-      </div>
+      <div id="bth-mosaic" aria-hidden />
 
       <div className="bth-center">
         <h1 className="bth-heading">
