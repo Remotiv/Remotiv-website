@@ -1,15 +1,19 @@
 "use client";
 
 import {
+  Bookmark,
   Briefcase,
   Building2,
   ChevronDown,
   CirclePlus,
   Globe,
+  LayoutDashboard,
+  LogOut,
   type LucideIcon,
   Menu,
   Search,
   Sparkles,
+  SquarePen,
   TrendingUp,
   User,
   UserCheck,
@@ -20,10 +24,47 @@ import {
   X,
 } from "lucide-react";
 import Link from "next/link";
-import { usePathname } from "next/navigation";
+import { usePathname, useRouter } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
+import { createClient as createBrowserClient } from "@/lib/supabase/client";
 import { cn } from "@/lib/utils";
 import styles from "./navbar.module.css";
+
+// Logged-in account menu data. Two role variants; both end with a Sign out
+// action rendered as a button (handled in <AccountMenu />, not in this array).
+const EMPLOYER_MENU: NavChild[] = [
+  {
+    icon: User,
+    title: "My Account",
+    description: "Subscription & credits",
+    href: "/account",
+  },
+  {
+    icon: Bookmark,
+    title: "Saved Profiles",
+    description: "Your shortlist",
+    href: "/browse-talent?view=saved",
+  },
+];
+
+const TALENT_MENU: NavChild[] = [
+  {
+    icon: LayoutDashboard,
+    title: "Talent Dashboard",
+    description: "View your profile",
+    href: "/talent/dashboard",
+  },
+  {
+    icon: SquarePen,
+    title: "Edit Profile",
+    description: "Update your details",
+    href: "/talent/dashboard/edit",
+  },
+];
+
+// sessionStorage cache key — keyed by user id so a sign-in / sign-out swap
+// invalidates correctly. Cleared on SIGNED_OUT and inside handleSignOut.
+const NAV_ROLE_CACHE_KEY = "remotiv_nav_role";
 
 // Data shapes for the data-driven mega-menu. `children` presence → dropdown;
 // `soon: true` (or missing href) → renders a non-clickable row with a badge.
@@ -266,6 +307,184 @@ function DropdownMenu({ item }: { item: NavItem }) {
   );
 }
 
+// Live account menu — shown in place of the LOGIN dropdown when authUser is set.
+// Reuses the DropdownMenu hover/focus + 150ms close timing and panel styling.
+function AccountMenu({
+  authUser,
+  role,
+  onSignOut,
+}: {
+  authUser: { email: string | null; fullName: string | null };
+  role: "talent" | "employer" | null;
+  onSignOut: () => void;
+}) {
+  const [open, setOpen] = useState(false);
+  const timeoutRef = useRef<ReturnType<typeof setTimeout>>(null);
+  const pathname = usePathname();
+
+  function show() {
+    if (timeoutRef.current) clearTimeout(timeoutRef.current);
+    setOpen(true);
+  }
+  function hide() {
+    timeoutRef.current = setTimeout(() => setOpen(false), 150);
+  }
+
+  const initial = (
+    authUser.fullName?.charAt(0) ||
+    authUser.email?.charAt(0) ||
+    "?"
+  ).toUpperCase();
+  // Default to EMPLOYER_MENU while role is still resolving — /account works
+  // for any logged-in user, so the brief default is harmless.
+  const accountLinks = role === "talent" ? TALENT_MENU : EMPLOYER_MENU;
+  const roleLabel = role === "talent" ? "Talent" : "Employer";
+
+  return (
+    // biome-ignore lint/a11y/noStaticElementInteractions: hover wrapper for dropdown
+    <span
+      className="relative inline-flex animate-in fade-in duration-200"
+      onMouseEnter={show}
+      onMouseLeave={hide}
+      onFocus={show}
+      onBlur={hide}
+    >
+      <button
+        type="button"
+        aria-expanded={open}
+        aria-label="Account menu"
+        className="flex items-center gap-1.5 rounded-full px-1 py-0.5 transition-colors hover:bg-black/[0.04]"
+      >
+        <span className="flex size-[26px] items-center justify-center rounded-full bg-remotiv-purple text-[0.72rem] font-semibold text-white">
+          {initial}
+        </span>
+        <ChevronSvg open={open} />
+      </button>
+      <div
+        className={cn(
+          "pointer-events-none absolute right-0 top-[calc(100%+14px)] z-[200] w-[280px] -translate-y-1 opacity-0 transition-all duration-200",
+          open && "pointer-events-auto translate-y-0 opacity-100",
+        )}
+      >
+        <div className="relative rounded-[18px] border border-black/[0.08] bg-white/[0.98] p-2 shadow-[0_16px_48px_rgba(0,0,0,0.12)] backdrop-blur-[20px]">
+          <div className="absolute -top-[5px] right-3 size-2.5 rotate-45 border-l border-t border-black/[0.08] bg-white" />
+          <div className="px-3 pt-2 pb-2">
+            <div className="truncate text-[0.78rem] font-semibold text-[#111]">
+              {authUser.email ?? "Signed in"}
+            </div>
+            <div className="text-[0.7rem] font-normal text-[#aaa]">{roleLabel}</div>
+          </div>
+          <div className="my-1 border-t border-black/[0.06]" />
+          <div className="grid grid-cols-1 gap-1">
+            {accountLinks.map((child) => (
+              <DesktopRow key={child.title} child={child} pathname={pathname} />
+            ))}
+          </div>
+          <div className="my-1 border-t border-black/[0.06]" />
+          <button
+            type="button"
+            onClick={onSignOut}
+            className="flex w-full items-start gap-3 rounded-xl px-3 py-[10px] text-left transition-colors hover:bg-red-50"
+          >
+            <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-black/[0.08] bg-white text-red-600">
+              <LogOut className="size-4" aria-hidden="true" />
+            </span>
+            <span className="min-w-0 flex-1">
+              <span className="block text-[0.82rem] font-bold text-red-600 leading-[1.3]">
+                Sign out
+              </span>
+              <span className="mt-0.5 block text-[0.73rem] font-normal text-[#aaa]">
+                End your session
+              </span>
+            </span>
+          </button>
+        </div>
+      </div>
+    </span>
+  );
+}
+
+// Mobile equivalent of <AccountMenu> — flat list (no accordion) so the user
+// sees their identity + the role-appropriate links + Sign out at a glance.
+function MobileAccountBlock({
+  authUser,
+  role,
+  pathname,
+  onLink,
+  onSignOut,
+}: {
+  authUser: { email: string | null; fullName: string | null };
+  role: "talent" | "employer" | null;
+  pathname: string | null;
+  onLink: () => void;
+  onSignOut: () => void;
+}) {
+  const initial = (
+    authUser.fullName?.charAt(0) ||
+    authUser.email?.charAt(0) ||
+    "?"
+  ).toUpperCase();
+  const accountLinks = role === "talent" ? TALENT_MENU : EMPLOYER_MENU;
+  const roleLabel = role === "talent" ? "Talent" : "Employer";
+  const rowClass =
+    "flex items-start gap-3 rounded-xl px-3 py-3 transition-colors hover:bg-black/[0.04]";
+
+  return (
+    <div className="flex flex-col">
+      <div className="flex items-center gap-3 px-3 py-3">
+        <span className="flex size-10 items-center justify-center rounded-full bg-remotiv-purple text-[1rem] font-semibold text-white">
+          {initial}
+        </span>
+        <div className="min-w-0 flex-1">
+          <div className="truncate text-[0.95rem] font-semibold text-[#111]">
+            {authUser.email ?? "Signed in"}
+          </div>
+          <div className="text-[0.78rem] font-normal text-[#888]">{roleLabel}</div>
+        </div>
+      </div>
+      <div className="flex flex-col gap-1 pt-1">
+        {accountLinks.map((child) => {
+          const Icon = child.icon;
+          return (
+            <Link
+              key={child.title}
+              href={child.href ?? "#"}
+              onClick={onLink}
+              aria-current={pathname === child.href ? "page" : undefined}
+              className={rowClass}
+            >
+              <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-black/[0.08] bg-white text-[#111]">
+                <Icon className="size-4" aria-hidden="true" />
+              </span>
+              <span className="min-w-0 flex-1">
+                <span className="block text-[0.95rem] font-semibold text-[#111] leading-[1.3]">
+                  {child.title}
+                </span>
+                <span className="mt-0.5 block text-[0.78rem] font-normal text-[#888]">
+                  {child.description}
+                </span>
+              </span>
+            </Link>
+          );
+        })}
+        <button type="button" onClick={onSignOut} className={cn(rowClass, "text-left")}>
+          <span className="flex size-[38px] shrink-0 items-center justify-center rounded-[10px] border border-black/[0.08] bg-white text-red-600">
+            <LogOut className="size-4" aria-hidden="true" />
+          </span>
+          <span className="min-w-0 flex-1">
+            <span className="block text-[0.95rem] font-semibold text-red-600 leading-[1.3]">
+              Sign out
+            </span>
+            <span className="mt-0.5 block text-[0.78rem] font-normal text-[#888]">
+              End your session
+            </span>
+          </span>
+        </button>
+      </div>
+    </div>
+  );
+}
+
 interface NavbarProps {
   variant?: "home" | "default";
 }
@@ -273,11 +492,127 @@ interface NavbarProps {
 export function Navbar({ variant = "default" }: NavbarProps) {
   const isHome = variant === "home";
   const pathname = usePathname();
+  const router = useRouter();
   const [isMenuOpen, setIsMenuOpen] = useState(false);
   // Generic accordion state — replaces the old isServicesExpanded boolean.
   // null when no section is expanded; otherwise holds the expanded item's label.
   const [expandedLabel, setExpandedLabel] = useState<string | null>(null);
+  // Live auth state — null while unresolved AND while signed-out. The avatar
+  // menu only renders when authUser is truthy, so the SSR-rendered logged-out
+  // tree (Login dropdown) is what hydrates first → no hydration mismatch.
+  const [authUser, setAuthUser] = useState<
+    { id: string; email: string | null; fullName: string | null } | null
+  >(null);
+  const [role, setRole] = useState<"talent" | "employer" | null>(null);
   const overlayRef = useRef<HTMLDivElement | null>(null);
+
+  // Subscribe to the browser Supabase session — mirrors footer-account-column.
+  // SIGNED_IN populates authUser; SIGNED_OUT clears authUser + role + the
+  // sessionStorage cache key so the next sign-in re-fetches role.
+  useEffect(() => {
+    const supabase = createBrowserClient();
+    let cancelled = false;
+
+    supabase.auth.getUser().then(({ data: { user } }) => {
+      if (cancelled || !user) return;
+      setAuthUser({
+        id: user.id,
+        email: user.email ?? null,
+        fullName: (user.user_metadata?.full_name as string | undefined) ?? null,
+      });
+    });
+
+    const {
+      data: { subscription },
+    } = supabase.auth.onAuthStateChange((_event, session) => {
+      if (session?.user) {
+        setAuthUser({
+          id: session.user.id,
+          email: session.user.email ?? null,
+          fullName:
+            (session.user.user_metadata?.full_name as string | undefined) ?? null,
+        });
+      } else {
+        setAuthUser(null);
+        setRole(null);
+        try {
+          sessionStorage.removeItem(NAV_ROLE_CACHE_KEY);
+        } catch {
+          // sessionStorage can throw in privacy modes / SSR — swallow.
+        }
+      }
+    });
+
+    return () => {
+      cancelled = true;
+      subscription.unsubscribe();
+    };
+  }, []);
+
+  // Resolve role for the current authUser. Cached per user-id in sessionStorage
+  // so we don't refetch on every navbar mount across pages. On error, default
+  // to "employer" — /account works for any logged-in user, so this is safe.
+  useEffect(() => {
+    if (!authUser) return;
+    let cancelled = false;
+
+    try {
+      const raw = sessionStorage.getItem(NAV_ROLE_CACHE_KEY);
+      if (raw) {
+        const parsed = JSON.parse(raw) as { id?: string; role?: string };
+        if (
+          parsed.id === authUser.id &&
+          (parsed.role === "talent" || parsed.role === "employer")
+        ) {
+          setRole(parsed.role);
+          return () => {
+            cancelled = true;
+          };
+        }
+      }
+    } catch {
+      // ignore cache read errors and fall through to the network fetch
+    }
+
+    fetch("/api/me", { credentials: "include" })
+      .then((r) => r.json())
+      .then((j: { loggedIn?: boolean; role?: "talent" | "employer" }) => {
+        if (cancelled) return;
+        const resolved: "talent" | "employer" =
+          j.loggedIn && (j.role === "talent" || j.role === "employer")
+            ? j.role
+            : "employer";
+        setRole(resolved);
+        try {
+          sessionStorage.setItem(
+            NAV_ROLE_CACHE_KEY,
+            JSON.stringify({ id: authUser.id, role: resolved }),
+          );
+        } catch {
+          // ignore cache write errors
+        }
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setRole("employer");
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [authUser]);
+
+  async function handleSignOut() {
+    const supabase = createBrowserClient();
+    await supabase.auth.signOut();
+    try {
+      sessionStorage.removeItem(NAV_ROLE_CACHE_KEY);
+    } catch {
+      // ignore
+    }
+    router.push("/");
+    router.refresh();
+  }
 
   // Lock body scroll when overlay is open
   useEffect(() => {
@@ -487,7 +822,15 @@ export function Navbar({ variant = "default" }: NavbarProps) {
             <span className="mx-1 inline-block h-4 w-px bg-black/[0.1]" />
           </li>
           <li className="list-none">
-            <DropdownMenu item={LOGIN_ITEM} />
+            {authUser ? (
+              <AccountMenu
+                authUser={authUser}
+                role={role}
+                onSignOut={handleSignOut}
+              />
+            ) : (
+              <DropdownMenu item={LOGIN_ITEM} />
+            )}
           </li>
         </ul>
 
@@ -532,7 +875,20 @@ export function Navbar({ variant = "default" }: NavbarProps) {
           <div className="flex flex-1 flex-col gap-2 overflow-y-auto px-6 py-8">
             {NAV_ITEMS.map(renderMobileItem)}
             <div className="mt-2 border-t border-black/[0.08] pt-2">
-              {renderMobileItem(LOGIN_ITEM)}
+              {authUser ? (
+                <MobileAccountBlock
+                  authUser={authUser}
+                  role={role}
+                  pathname={pathname}
+                  onLink={closeMenu}
+                  onSignOut={() => {
+                    closeMenu();
+                    void handleSignOut();
+                  }}
+                />
+              ) : (
+                renderMobileItem(LOGIN_ITEM)
+              )}
             </div>
           </div>
         </div>
