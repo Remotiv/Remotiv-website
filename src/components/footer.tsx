@@ -2,7 +2,24 @@ import Link from "next/link";
 import { FooterAccountColumn } from "./footer-account-column";
 import { FooterCanvas } from "./footer-canvas";
 
-const footerLinks = [
+// Footer row: either a navigation link (label + href) OR a non-clickable
+// "Soon" row (label + soon: true, rendered with a badge instead of a Link).
+type FooterRow =
+  | { label: string; href: string }
+  | { label: string; soon: true };
+
+const footerLinks: ReadonlyArray<{
+  title: string;
+  links: ReadonlyArray<FooterRow>;
+}> = [
+  {
+    title: "For Talent",
+    links: [
+      { label: "Join as Talent", href: "/become-a-talent" },
+      { label: "Join as Freelancer", href: "/remote-ready" },
+      { label: "Browse Jobs", href: "/jobs" },
+    ],
+  },
   {
     title: "Services",
     links: [
@@ -15,18 +32,11 @@ const footerLinks = [
   {
     title: "For Companies",
     links: [
-      { label: "Browse Talent", href: "/browse-talent" },
-      { label: "Hire Remote", href: "/hire-remote" },
-      { label: "AI Matching", href: "/ai-matching" },
+      { label: "Find Talent", href: "/browse-talent" },
+      { label: "Hire Freelancers", href: "/hire-remote" },
+      { label: "AI Talent Match", href: "/ai-matching" },
+      { label: "AI Video Interviews", soon: true },
       { label: "Pricing", href: "/pricing" },
-    ],
-  },
-  {
-    title: "For Talent",
-    links: [
-      { label: "Become a Talent", href: "/become-a-talent" },
-      { label: "Become Remote-Ready", href: "/remote-ready" },
-      { label: "Jobs", href: "/jobs" },
     ],
   },
   {
@@ -36,7 +46,7 @@ const footerLinks = [
       { label: "Contact", href: "/contact" },
     ],
   },
-] as const;
+];
 
 const socialLinks = [
   { label: "IG", href: "https://www.instagram.com/remotiv.inc/", ariaLabel: "Follow Remotiv on Instagram" },
@@ -79,12 +89,21 @@ export function Footer() {
               <ul className="mt-4 space-y-2.5">
                 {group.links.map((link) => (
                   <li key={link.label}>
-                    <Link
-                      href={link.href}
-                      className="text-sm text-[#555] transition-colors hover:text-remotiv-green"
-                    >
-                      {link.label}
-                    </Link>
+                    {"href" in link ? (
+                      <Link
+                        href={link.href}
+                        className="text-sm text-[#555] transition-colors hover:text-remotiv-green"
+                      >
+                        {link.label}
+                      </Link>
+                    ) : (
+                      <span className="flex items-center gap-2 text-sm text-[#555]">
+                        {link.label}
+                        <span className="inline-flex items-center rounded-full bg-remotiv-purple/15 px-2 py-[1px] text-[0.6rem] font-semibold text-remotiv-purple">
+                          Soon
+                        </span>
+                      </span>
+                    )}
                   </li>
                 ))}
               </ul>
