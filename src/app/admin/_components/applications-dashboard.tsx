@@ -753,7 +753,13 @@ export function ApplicationsDashboard({
 
     setIsBulkMoving(true);
     setBulkProgress("Starting…");
-    const totals = { moved: 0, skipped: 0, failed: 0 };
+    const totals = {
+      moved: 0,
+      alreadyInTalent: 0,
+      noCv: 0,
+      noEmail: 0,
+      failed: 0,
+    };
     try {
       // Chunk into <=5 per request to stay under the 60s function limit.
       const CHUNK = 5;
@@ -811,23 +817,24 @@ export function ApplicationsDashboard({
 
         if (chunkData) {
           totals.moved += chunkData.moved ?? 0;
-          totals.skipped +=
-            (chunkData.skipped_already ?? 0) +
-            (chunkData.skipped_no_ai ?? 0) +
-            (chunkData.skipped_no_email ?? 0);
+          totals.alreadyInTalent += chunkData.skipped_already ?? 0;
+          totals.noCv += chunkData.skipped_no_ai ?? 0;
+          totals.noEmail += chunkData.skipped_no_email ?? 0;
           totals.failed += chunkData.failed ?? 0;
         }
 
         setBulkProgress(
-          `moved ${totals.moved} · skipped ${totals.skipped} · failed ${totals.failed}`,
+          `moved ${totals.moved} · already in talent ${totals.alreadyInTalent} · failed ${totals.failed}`,
         );
         if (i + CHUNK < ids.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
       }
-      setToast(
-        `Done: moved ${totals.moved}, skipped ${totals.skipped}, failed ${totals.failed}. Review the pending queue in Talent to approve.`,
-      );
+      let summary = `Done: moved ${totals.moved} · already in talent ${totals.alreadyInTalent} · failed ${totals.failed}`;
+      if (totals.noCv > 0) summary += ` · couldn't read CV ${totals.noCv}`;
+      if (totals.noEmail > 0) summary += ` · no email ${totals.noEmail}`;
+      summary += ". Review the pending queue in Talent to approve.";
+      setToast(summary);
       router.refresh();
     } catch {
       setToast("Bulk move failed. Please try again.");
@@ -901,7 +908,8 @@ export function ApplicationsDashboard({
   // ── Toast ─────────────────────────────────────────────────
   useEffect(() => {
     if (!toast) return;
-    const t = setTimeout(() => setToast(null), 3000);
+    const durationMs = Math.min(10000, Math.max(3000, toast.length * 80));
+    const t = setTimeout(() => setToast(null), durationMs);
     return () => clearTimeout(t);
   }, [toast]);
 
