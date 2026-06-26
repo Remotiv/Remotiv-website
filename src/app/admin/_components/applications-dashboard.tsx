@@ -110,6 +110,22 @@ const CHIP_ACTIVE_CLASS: Record<TagFilter, string> = {
   untagged:   "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-300",
 };
 
+// Talent-move filter (independent of the per-admin tag filters). Single-select:
+// "in_talent" = rows already in the Pakistan talent pool (alreadyMoved), and
+// "not_moved" = its complement. Reuses the per-row `alreadyMoved` boolean — no
+// new query.
+type TalentFilter = "all" | "in_talent" | "not_moved";
+
+const TALENT_FILTER_OPTIONS = [
+  { value: "in_talent", label: "Already in Talent" },
+  { value: "not_moved", label: "Not Moved to Talent" },
+] as const;
+
+const TALENT_CHIP_ACTIVE_CLASS: Record<"in_talent" | "not_moved", string> = {
+  in_talent: "bg-remotiv-green/10 text-[#1a9e73] ring-1 ring-inset ring-remotiv-green/40",
+  not_moved: "bg-gray-100 text-gray-700 ring-1 ring-inset ring-gray-300",
+};
+
 // Phase 3: drawer-button variant classes per tag. Off = the original resting
 // style (matches pre-Phase-3 colors). On = a filled bg + an inset ring so
 // admins can see at a glance which tags are active without losing the
@@ -669,6 +685,37 @@ function TagFilterChips({
   );
 }
 
+function TalentFilterChips({
+  selected,
+  onToggle,
+}: {
+  selected: TalentFilter;
+  onToggle: (value: "in_talent" | "not_moved") => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center gap-2">
+      {TALENT_FILTER_OPTIONS.map((opt) => {
+        const active = selected === opt.value;
+        return (
+          <button
+            key={opt.value}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onToggle(opt.value)}
+            className={
+              active
+                ? `inline-flex h-8 items-center gap-1.5 rounded-full px-3 text-xs font-semibold transition-colors ${TALENT_CHIP_ACTIVE_CLASS[opt.value]}`
+                : "inline-flex h-8 items-center gap-1.5 rounded-full border border-gray-200 bg-white px-3 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-50"
+            }
+          >
+            {opt.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
 function FilterSheetGroup({
   label,
   options,
@@ -1000,6 +1047,14 @@ export function ApplicationsDashboard({
   // React's referential check picks it up.
   const [tagFilters, setTagFilters] = useState<Set<TagFilter>>(new Set());
 
+  // Independent single-select talent-move filter (combines AND with the tag
+  // filters + search + job). Reuses each row's `alreadyMoved` boolean.
+  const [talentFilter, setTalentFilter] = useState<TalentFilter>("all");
+
+  function toggleTalentFilter(value: "in_talent" | "not_moved") {
+    setTalentFilter((prev) => (prev === value ? "all" : value));
+  }
+
   function toggleTagFilter(tag: TagFilter) {
     setTagFilters((prev) => {
       const next = new Set(prev);
@@ -1030,12 +1085,15 @@ export function ApplicationsDashboard({
   function clearAllFilters() {
     setFilterJob("all");
     setTagFilters(new Set());
+    setTalentFilter("all");
   }
 
   // Treat the whole tag-chip group as one filter category — matches how
   // filterJob counts as 1 regardless of which role is chosen.
   const activeFilterCount =
-    (filterJob !== "all" ? 1 : 0) + (tagFilters.size > 0 ? 1 : 0);
+    (filterJob !== "all" ? 1 : 0) +
+    (tagFilters.size > 0 ? 1 : 0) +
+    (talentFilter !== "all" ? 1 : 0);
 
   // Lower-cased query the row highlight uses to flag matching rows.
   const searchLower = search.trim().toLowerCase();
@@ -1060,15 +1118,17 @@ export function ApplicationsDashboard({
           t === "untagged" ? a.myTags.length === 0 : a.myTags.includes(t),
         );
       if (!matchesTags) return false;
+      if (talentFilter === "in_talent" && !a.alreadyMoved) return false;
+      if (talentFilter === "not_moved" && a.alreadyMoved) return false;
       return true;
     });
-  }, [apps, search, filterJob, tagFilters]);
+  }, [apps, search, filterJob, tagFilters, talentFilter]);
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
   useEffect(() => {
     setPage(1);
-  }, [search, filterJob, tagFilters]);
+  }, [search, filterJob, tagFilters, talentFilter]);
   const pageItems = paginate(filtered, page);
 
   // ── Stats ─────────────────────────────────────────────────
@@ -1225,6 +1285,7 @@ export function ApplicationsDashboard({
               ))}
             </select>
             <TagFilterChips selected={tagFilters} onToggle={toggleTagFilter} />
+            <TalentFilterChips selected={talentFilter} onToggle={toggleTalentFilter} />
             <span className="ml-auto text-xs text-gray-400">
               {filtered.length} of {apps.length} applications
             </span>
@@ -1448,6 +1509,10 @@ export function ApplicationsDashboard({
           <div>
             <p className="mb-2 text-sm font-bold text-[#111]">Status</p>
             <TagFilterChips selected={tagFilters} onToggle={toggleTagFilter} />
+          </div>
+          <div>
+            <p className="mb-2 text-sm font-bold text-[#111]">Talent</p>
+            <TalentFilterChips selected={talentFilter} onToggle={toggleTalentFilter} />
           </div>
           <FilterSheetGroup
             label="Job Role"
