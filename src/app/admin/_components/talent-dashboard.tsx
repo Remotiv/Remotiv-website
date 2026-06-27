@@ -1244,7 +1244,7 @@ export function TalentDashboard({
   // it) + the inviteStatuses map (populated below for ALL profile ids), so no
   // new server fetch is needed.
   const [filterClaim, setFilterClaim] = useState<
-    "All" | "claimed" | "unclaimed" | "invited_not_accepted" | "never_invited"
+    "All" | "claimed" | "unclaimed" | "invited_not_accepted"
   >("All");
 
   const [openId, setOpenId] = useState<string | null>(initialOpenId);
@@ -1318,18 +1318,17 @@ export function TalentDashboard({
       if (filterClaim !== "All") {
         const inv = inviteStatusFor(p);
         if (filterClaim === "claimed"   && p.claimed_at == null) return false;
-        if (filterClaim === "unclaimed" && p.claimed_at != null) return false;
+        if (
+          filterClaim === "unclaimed" &&
+          !(p.claimed_at == null && inv === "not_invited")
+        )
+          return false;
         if (
           filterClaim === "invited_not_accepted" &&
           !(
             p.claimed_at == null &&
             (inv === "pending" || inv === "opened" || inv === "expired")
           )
-        )
-          return false;
-        if (
-          filterClaim === "never_invited" &&
-          !(p.claimed_at == null && inv === "not_invited")
         )
           return false;
       }
@@ -1442,10 +1441,6 @@ export function TalentDashboard({
       });
   }, [profiles]);
 
-  const allIds = profiles.map((p) => p.id);
-  const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-  const toggleSelectAll = () =>
-    setSelectedIds(allSelected ? new Set() : new Set(allIds));
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -1491,31 +1486,46 @@ export function TalentDashboard({
     [profiles],
   );
 
-  async function handleBulkSendInvite() {
-    if (selectedIds.size === 0) return;
+  // Page-wise bulk invite: sends claim invites to the not-yet-claimed
+  // candidates visible on the current page, chunked at 5 and resilient (one
+  // failed chunk doesn't abort the rest). Independent of the per-card
+  // selection state (selectedIds).
+  async function handleSendPageInvites() {
+    const pageInviteIds = pageItems.filter((p) => !p.claimed_at).map((p) => p.id);
+    if (pageInviteIds.length === 0) return;
+    const ok = window.confirm(
+      `Send claim invites to ${pageInviteIds.length} candidate(s) on this page?`,
+    );
+    if (!ok) return;
+
     setBulkSending(true);
     try {
-      const result = await sendClaimInvites(
-        Array.from(selectedIds),
-        "talent_profiles",
-      );
-      if (result.success) {
-        setToast(`Invites sent to ${result.sent} candidate(s)`);
-        setSelectedIds(new Set());
+      const CHUNK = 5;
+      let sent = 0;
+      let failedChunks = 0;
+      for (let i = 0; i < pageInviteIds.length; i += CHUNK) {
+        const chunk = pageInviteIds.slice(i, i + CHUNK);
         try {
-          const updated = await fetchTalentInviteStatuses(
-            profiles.map((p) => p.id),
-          );
-          setInviteStatuses(updated);
-        } catch (refreshErr) {
-          console.error("[handleBulkSendInvite] refresh failed:", refreshErr);
+          const result = await sendClaimInvites(chunk, "talent_profiles");
+          if (result.success) sent += result.sent ?? 0;
+          else failedChunks++;
+        } catch {
+          failedChunks++;
         }
-      } else {
-        setToast(result.error ?? "Failed to send invites");
       }
-    } catch (err) {
-      console.error("[handleBulkSendInvite] threw:", err);
-      setToast("Failed to send invites");
+      setToast(
+        failedChunks > 0
+          ? `Sent invites to ${sent} candidate(s). ${failedChunks} batch(es) failed — try again.`
+          : `Sent invites to ${sent} candidate(s) on this page.`,
+      );
+      try {
+        const updated = await fetchTalentInviteStatuses(
+          profiles.map((p) => p.id),
+        );
+        setInviteStatuses(updated);
+      } catch (refreshErr) {
+        console.error("[handleSendPageInvites] refresh failed:", refreshErr);
+      }
     } finally {
       setBulkSending(false);
     }
@@ -1630,7 +1640,6 @@ export function TalentDashboard({
                     { value: "claimed", label: "Claimed" },
                     { value: "unclaimed", label: "Unclaimed" },
                     { value: "invited_not_accepted", label: "Invited – not accepted" },
-                    { value: "never_invited", label: "Never invited" },
                   ] as const
                 ).map((opt) => (
                   <FilterPill
@@ -1670,40 +1679,19 @@ export function TalentDashboard({
           <div>
             {/* Select-all + bulk toolbar */}
             <div className="mb-3 flex flex-wrap items-center gap-3 rounded-xl border border-black/[0.05] bg-white px-4 py-3">
-              <label className="flex cursor-pointer items-center gap-2 text-xs font-semibold text-gray-700">
-                <input
-                  type="checkbox"
-                  checked={allSelected}
-                  onChange={toggleSelectAll}
-                  aria-label="Select all profiles"
-                  className="size-4 cursor-pointer accent-remotiv-purple"
-                />
-                Select all
-              </label>
-              {selectedIds.size > 0 && (
-                <>
-                  <span className="text-xs text-gray-500">
-                    {selectedIds.size} selected
-                  </span>
-                  <button
-                    type="button"
-                    onClick={handleBulkSendInvite}
-                    disabled={bulkSending}
-                    className="rounded-lg bg-[#7E47FF] px-3 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
-                  >
-                    {bulkSending
-                      ? "Sending..."
-                      : `Send Claim Email (${selectedIds.size})`}
-                  </button>
-                  <button
-                    type="button"
-                    onClick={() => setSelectedIds(new Set())}
-                    className="text-xs text-gray-400 transition-colors hover:text-gray-600"
-                  >
-                    Clear
-                  </button>
-                </>
-              )}
+              <button
+                type="button"
+                onClick={handleSendPageInvites}
+                disabled={
+                  bulkSending ||
+                  pageItems.filter((p) => !p.claimed_at).length === 0
+                }
+                className="rounded-lg bg-[#7E47FF] px-3 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {bulkSending
+                  ? "Sending…"
+                  : `Send invites to this page (${pageItems.filter((p) => !p.claimed_at).length})`}
+              </button>
             </div>
 
             {filtered.length === 0 ? (
@@ -1819,8 +1807,7 @@ export function TalentDashboard({
                   | "All"
                   | "claimed"
                   | "unclaimed"
-                  | "invited_not_accepted"
-                  | "never_invited",
+                  | "invited_not_accepted",
               )
             }
             options={[
@@ -1828,7 +1815,6 @@ export function TalentDashboard({
               { value: "claimed", label: "Claimed" },
               { value: "unclaimed", label: "Unclaimed" },
               { value: "invited_not_accepted", label: "Invited – not accepted" },
-              { value: "never_invited", label: "Never invited" },
             ]}
           />
           <FilterSheetGroup
