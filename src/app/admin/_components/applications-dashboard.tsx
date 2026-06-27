@@ -26,6 +26,7 @@ import {
   Loader2,
   type LucideIcon,
 } from "lucide-react";
+import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { TopNav } from "./top-nav";
 import dynamic from "next/dynamic";
 import type { AddToBatchSnapshot } from "./add-to-batch-modal";
@@ -716,6 +717,143 @@ function TalentFilterChips({
   );
 }
 
+type BulkMoveTotals = {
+  moved: number;
+  alreadyInTalent: number;
+  noCv: number;
+  noEmail: number;
+  failed: number;
+  requested: number;
+  eligibleCompleted: number;
+};
+
+// Centered results dialog shown after a Bulk Move to Talent run completes.
+// Mirrors the project's centered-modal chrome (pricing-modal / apply-modal):
+// overlay + rounded card + top-right close, role=dialog, ESC + overlay-click
+// close, and the shared focus trap.
+function BulkResultModal({
+  totals,
+  onClose,
+}: {
+  totals: BulkMoveTotals;
+  onClose: () => void;
+}) {
+  const cardRef = useRef<HTMLDivElement>(null);
+  useFocusTrap(cardRef, true);
+
+  useEffect(() => {
+    function onKey(e: KeyboardEvent) {
+      if (e.key === "Escape") onClose();
+    }
+    document.addEventListener("keydown", onKey);
+    return () => document.removeEventListener("keydown", onKey);
+  }, [onClose]);
+
+  // Rows excluded by the server's completed-CV gate (cv_text_status !==
+  // "completed") never enter a result bucket — derive them from the counts the
+  // route reports so the six buckets add up to the attempted total.
+  const notEligible = Math.max(0, totals.requested - totals.eligibleCompleted);
+
+  const rows: { label: string; value: number; tone: "good" | "muted" | "bad" }[] = [
+    { label: "Moved to Talent", value: totals.moved, tone: "good" },
+    { label: "Already in Talent", value: totals.alreadyInTalent, tone: "muted" },
+    { label: "Couldn't read CV", value: totals.noCv, tone: "muted" },
+    { label: "No email on file", value: totals.noEmail, tone: "muted" },
+    { label: "Not eligible — no CV text yet", value: notEligible, tone: "muted" },
+    { label: "Failed", value: totals.failed, tone: "bad" },
+  ];
+
+  return (
+    <div
+      className="fixed inset-0 z-[60] flex items-center justify-center bg-black/60 p-4"
+      onClick={(e) => {
+        if (e.target === e.currentTarget) onClose();
+      }}
+      role="presentation"
+    >
+      <div
+        ref={cardRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="bulk-result-title"
+        className="relative w-full max-w-[480px] rounded-[20px] bg-white p-6 shadow-2xl"
+        onClick={(e) => e.stopPropagation()}
+      >
+        <button
+          type="button"
+          onClick={onClose}
+          aria-label="Close"
+          className="absolute right-4 top-4 flex size-9 items-center justify-center rounded-full text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-700"
+        >
+          <X className="size-5" strokeWidth={2} />
+        </button>
+
+        <h2
+          id="bulk-result-title"
+          className="mb-1 font-heading text-lg font-bold text-gray-900"
+        >
+          Move to Talent — Results
+        </h2>
+        <p className="mb-1 text-xs font-semibold text-gray-700">
+          Attempted: {totals.requested}
+        </p>
+        <p className="mb-4 text-xs text-gray-500">
+          New profiles are created hidden — review the pending queue in Talent to
+          approve.
+        </p>
+
+        <ul className="flex flex-col gap-1.5">
+          {rows.map((r) => (
+            <li
+              key={r.label}
+              className="flex items-center justify-between rounded-lg bg-gray-50 px-3 py-2 text-sm"
+            >
+              <span className="flex items-center gap-2 text-gray-700">
+                {r.tone === "good" ? (
+                  <CheckCircle className="size-4 text-[#1a9e73]" strokeWidth={2.5} />
+                ) : r.tone === "bad" ? (
+                  <XCircle
+                    className={`size-4 ${r.value > 0 ? "text-red-500" : "text-gray-300"}`}
+                    strokeWidth={2.5}
+                  />
+                ) : (
+                  <span className="inline-block size-1.5 rounded-full bg-gray-300" />
+                )}
+                {r.label}
+              </span>
+              <span
+                className={`font-heading text-sm font-bold ${
+                  r.tone === "good"
+                    ? "text-[#1a9e73]"
+                    : r.tone === "bad" && r.value > 0
+                      ? "text-red-600"
+                      : "text-gray-700"
+                }`}
+              >
+                {r.value}
+              </span>
+            </li>
+          ))}
+        </ul>
+
+        {totals.moved > 0 && (
+          <p className="mt-3 text-xs text-gray-500">
+            Moved candidates now show "✓ Already in Talent" in the list.
+          </p>
+        )}
+
+        <button
+          type="button"
+          onClick={onClose}
+          className="mt-5 w-full rounded-xl bg-[#7E47FF] px-4 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90"
+        >
+          Done
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FilterSheetGroup({
   label,
   options,
@@ -778,6 +916,18 @@ export function ApplicationsDashboard({
   // Bulk Move to Talent — client-driven auto-loop over the batched API route.
   const [isBulkMoving, setIsBulkMoving] = useState(false);
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
+  // Completion results modal (opened after a run finishes; null = closed).
+  const [bulkResult, setBulkResult] = useState<{
+    totals: {
+      moved: number;
+      alreadyInTalent: number;
+      noCv: number;
+      noEmail: number;
+      failed: number;
+      requested: number;
+      eligibleCompleted: number;
+    };
+  } | null>(null);
 
   // keep state in sync with server-refreshed props
   useEffect(() => {
@@ -806,7 +956,12 @@ export function ApplicationsDashboard({
       noCv: 0,
       noEmail: 0,
       failed: 0,
+      requested: 0,
+      eligibleCompleted: 0,
     };
+    // Ids that landed in talent this run — used to flip alreadyMoved in-place
+    // (instant badge/filter/count update without waiting on the server reload).
+    const movedIds: string[] = [];
     try {
       // Chunk into <=5 per request to stay under the 60s function limit.
       const CHUNK = 5;
@@ -822,6 +977,9 @@ export function ApplicationsDashboard({
           skipped_no_ai?: number;
           skipped_no_email?: number;
           failed?: number;
+          requested?: number;
+          eligibleCompleted?: number;
+          results?: { id: string; result: string; error?: string }[];
         } | null = null;
         for (let attempt = 0; attempt < 2; attempt++) {
           try {
@@ -868,6 +1026,16 @@ export function ApplicationsDashboard({
           totals.noCv += chunkData.skipped_no_ai ?? 0;
           totals.noEmail += chunkData.skipped_no_email ?? 0;
           totals.failed += chunkData.failed ?? 0;
+          totals.requested += chunkData.requested ?? 0;
+          totals.eligibleCompleted += chunkData.eligibleCompleted ?? 0;
+          // Per-id results → flip rows that are now in talent. Include
+          // "skipped_already" so a row already in talent but missing the badge
+          // also flips (harmless + correct).
+          for (const r of chunkData.results ?? []) {
+            if (r.result === "moved" || r.result === "skipped_already") {
+              movedIds.push(r.id);
+            }
+          }
         }
 
         setBulkProgress(
@@ -877,12 +1045,26 @@ export function ApplicationsDashboard({
           await new Promise((resolve) => setTimeout(resolve, 300));
         }
       }
-      let summary = `Done: moved ${totals.moved} · already in talent ${totals.alreadyInTalent} · failed ${totals.failed}`;
-      if (totals.noCv > 0) summary += ` · couldn't read CV ${totals.noCv}`;
-      if (totals.noEmail > 0) summary += ` · no email ${totals.noEmail}`;
-      summary += ". Review the pending queue in Talent to approve.";
-      setToast(summary);
-      router.refresh();
+      // Instant in-place flip: mark every now-in-talent row alreadyMoved so the
+      // badge, the Already-in-Talent / Not-Moved filters, and the summary counts
+      // all update immediately (they read from `apps`). We intentionally do NOT
+      // router.refresh() here — the move is already committed server-side, and a
+      // refresh would re-supply not-yet-propagated server data that the
+      // prop-sync effect would use to overwrite this optimistic flip.
+      if (movedIds.length > 0) {
+        const movedSet = new Set(movedIds);
+        setApps((prev) =>
+          prev.map((a) =>
+            movedSet.has(a.id) ? { ...a, alreadyMoved: true } : a,
+          ),
+        );
+      }
+      // Reset the talent pill to "all" so the just-moved rows stay visible on
+      // the page with their "✓ Already in Talent" badge instead of vanishing
+      // under the "Not Moved" filter.
+      setTalentFilter("all");
+      // Completion now opens a results modal instead of a toast.
+      setBulkResult({ totals: { ...totals } });
     } catch {
       setToast("Bulk move failed. Please try again.");
     } finally {
@@ -1680,6 +1862,13 @@ export function ApplicationsDashboard({
         <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
           {toast}
         </div>
+      )}
+
+      {bulkResult && (
+        <BulkResultModal
+          totals={bulkResult.totals}
+          onClose={() => setBulkResult(null)}
+        />
       )}
     </div>
   );
