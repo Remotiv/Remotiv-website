@@ -1,13 +1,12 @@
 "use client";
 
-import { Bookmark, Briefcase, Globe, MapPin, Search, Star, X } from "lucide-react";
+import { Bookmark, Briefcase, Globe, MapPin, Search, Star } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
-import ApplyModal from "./_apply-modal";
 import "./jobs.css";
 
 // Re-export Job for any local consumers — type-only, no runtime cost.
@@ -54,25 +53,6 @@ function fmtSalary(min: number | null, max: number | null): string {
   return `Up to ${fmt(max!)}/mo`;
 }
 
-/**
- * Client-side wrapper for the on-demand detail fetch. Delegates to the
- * /api/jobs?id=<uuid> branch, which calls back into lib/jobs.getJobById on
- * the server. We can't import getJobById directly here because lib/jobs.ts
- * transitively imports next/headers (server-only) — Turbopack errors at
- * build time on that boundary cross. Returns null on 404 / network error so
- * the caller's "no longer available" branch fires cleanly.
- */
-async function getJobById(id: string): Promise<Job | null> {
-  if (!id) return null;
-  try {
-    const res = await fetch(`/api/jobs?id=${encodeURIComponent(id)}`);
-    if (!res.ok) return null;
-    return (await res.json()) as Job;
-  } catch {
-    return null;
-  }
-}
-
 function timeAgo(iso: string): string {
   const diff = Date.now() - new Date(iso).getTime();
   const mins = Math.floor(diff / 60000);
@@ -83,44 +63,12 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-// Active grid-column count, matched to the Tailwind breakpoints used on the
-// card grid (`grid-cols-1 sm:grid-cols-2 lg:grid-cols-3` at line ~642). The
-// row-chunk size below pairs with this so the inline JobDetail panel always
-// lands after the row containing the clicked card — on mobile that means
-// directly below it instead of two cards away.
-//
-// Hydration-safe: initial render uses the desktop default (3), then the
-// effect corrects to the real viewport on mount. On wide-viewport SSR this
-// matches; on mobile, the brief mismatch is fine because no panel can be
-// open until the user clicks a card.
-function useColumnCount() {
-  const [cols, setCols] = useState(3);
-  useEffect(() => {
-    function update() {
-      const w = window.innerWidth;
-      setCols(w < 640 ? 1 : w < 1024 ? 2 : 3);
-    }
-    update();
-    window.addEventListener("resize", update);
-    return () => window.removeEventListener("resize", update);
-  }, []);
-  return cols;
-}
-
 export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
-  const cols = useColumnCount();
   // Jobs are already populated from the server prop on mount, so we start in
   // the non-loading state. The refetch useEffect below skips its first run
   // (see isFirstRender ref) to avoid an immediate redundant client fetch.
   const [loading, setLoading] = useState(false);
-  const [activeId, setActiveId] = useState<string | null>(null);
-  // Full job (with description) for the open detail panel. The list query
-  // omits description for payload size, so when activeId is set we lazily
-  // fetch the full row via getJobById. detailLoading shows a skeleton in
-  // the JobDetail panel during the fetch.
-  const [activeJob, setActiveJob] = useState<Job | null>(null);
-  const [detailLoading, setDetailLoading] = useState(false);
 
   // Skip-first-refetch guard: the refetch effect fires once on mount because
   // useEffect always runs after the initial render. Without this guard it
@@ -146,7 +94,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   const [favorites, setFavorites] = useState<Set<string>>(new Set());
   const [showFavorites, setShowFavorites] = useState(false);
   const [saveToast, setSaveToast] = useState(false);
-  const [applyJob, setApplyJob] = useState<Job | null>(null);
 
   const [filtersDrawerOpen, setFiltersDrawerOpen] = useState(false);
   const drawerCloseBtnRef = useRef<HTMLButtonElement>(null);
@@ -209,13 +156,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     const t = setTimeout(() => setSaveToast(false), 2500);
     return () => clearTimeout(t);
   }, [saveToast]);
-
-  // Stable handler passed to every memoized JobCard. Without useCallback the
-  // ref changes per parent render → memo comparison fails → all cards re-render
-  // on every keystroke in the search box.
-  const handleCardSelect = useCallback((id: string) => {
-    setActiveId((prev) => (prev === id ? null : id));
-  }, []);
 
   const toggleFavorite = useCallback((id: string) => {
     setFavorites((prev) => {
@@ -288,43 +228,11 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     fetchJobs(selectedCategory, experience, contract, selectedLanguage);
   }, [fetchJobs, selectedCategory, experience, contract, selectedLanguage]);
 
-  // Lazy-fetch the full job (with description) when a detail panel opens.
-  // Closing the panel (activeId → null) clears activeJob immediately so the
-  // next open shows a loading state instead of stale data.
-  useEffect(() => {
-    if (!activeId) {
-      setActiveJob(null);
-      setDetailLoading(false);
-      return;
-    }
-    let cancelled = false;
-    setActiveJob(null);
-    setDetailLoading(true);
-    getJobById(activeId).then((job) => {
-      if (cancelled) return;
-      setDetailLoading(false);
-      if (!job) {
-        // Job closed or removed between list-load and detail-open. Surface
-        // a brief "no longer available" state by keeping activeJob null
-        // (JobDetail handles the null+!loading case below) — don't slam
-        // activeId to null because that would close the panel before the
-        // user sees the message.
-        setActiveJob(null);
-        return;
-      }
-      setActiveJob(job);
-    });
-    return () => {
-      cancelled = true;
-    };
-  }, [activeId]);
-
   const applyFilters = () => {
     setSelectedCategory(pendingCategory);
     setExperience(pendingExperience);
     setContract(pendingContract);
     setSelectedLanguage(pendingLanguage);
-    setActiveId(null);
   };
 
   const resetFilters = () => {
@@ -336,7 +244,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     setExperience(new Set());
     setContract(new Set());
     setSelectedLanguage("");
-    setActiveId(null);
   };
 
   const toggleExperience = (val: ExperienceLevel) => {
@@ -377,8 +284,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
     }
     return result;
   }, [jobs, searchQuery, locationFilter, workMode, showFavorites, favorites]);
-
-  const rows = useMemo(() => chunk(filteredJobs, cols), [filteredJobs, cols]);
 
   // Used by the empty-state branch to distinguish "filtered to nothing" from
   // "fetch failed and we have nothing to show". Only server-filters count —
@@ -660,43 +565,14 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
               )
             ) : (
               <div className="grid grid-cols-1 gap-3.5 sm:grid-cols-2 lg:grid-cols-3">
-                {rows.map((row) => {
-                  // The panel slot belongs to whichever row contains the
-                  // active card. Full job content (incl. description) comes
-                  // from activeJob state, populated lazily by getJobById.
-                  const hasActivePanel =
-                    activeId !== null && row.some((j) => j.id === activeId);
-                  return (
-                    <div
-                      key={row.map((j) => j.id).join("-")}
-                      className="contents"
-                    >
-                      {row.map((job) => (
-                        <JobCard
-                          key={job.id}
-                          job={job}
-                          isActive={job.id === activeId}
-                          isFavorited={favorites.has(job.id)}
-                          onSelect={handleCardSelect}
-                          onToggleFavorite={toggleFavorite}
-                        />
-                      ))}
-                      {hasActivePanel && activeId ? (
-                        <JobDetail
-                          key={`detail-${activeId}`}
-                          job={activeJob}
-                          loading={detailLoading}
-                          isFavorited={favorites.has(activeId)}
-                          onToggleFavorite={() => toggleFavorite(activeId)}
-                          onClose={() => setActiveId(null)}
-                          onApply={() => {
-                            if (activeJob) setApplyJob(activeJob);
-                          }}
-                        />
-                      ) : null}
-                    </div>
-                  );
-                })}
+                {filteredJobs.map((job) => (
+                  <JobCard
+                    key={job.id}
+                    job={job}
+                    isFavorited={favorites.has(job.id)}
+                    onToggleFavorite={toggleFavorite}
+                  />
+                ))}
               </div>
             )}
           </div>
@@ -811,10 +687,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
         </>
       )}
 
-      {applyJob && (
-        <ApplyModal job={applyJob} onClose={() => setApplyJob(null)} />
-      )}
-
       {saveToast && (
         <div
           role="status"
@@ -833,14 +705,6 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
   );
 }
 
-
-function chunk<T>(arr: T[], size: number): T[][] {
-  const out: T[][] = [];
-  for (let i = 0; i < arr.length; i += size) {
-    out.push(arr.slice(i, i + size));
-  }
-  return out;
-}
 
 function FilterGroup({
   label,
@@ -962,51 +826,42 @@ function SearchField({
 // box re-rendered all ~100 cards per keystroke.
 const JobCard = memo(function JobCard({
   job,
-  isActive,
   isFavorited,
-  onSelect,
   onToggleFavorite,
 }: {
   job: Job;
-  isActive: boolean;
   isFavorited: boolean;
-  onSelect: (id: string) => void;
   onToggleFavorite: (id: string) => void;
 }) {
   return (
-    <article
-      className={cn(
-        "group relative flex flex-col rounded-[20px] border border-black/[0.08] bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-remotiv-green/40 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] sm:p-7",
-        isActive && "border-remotiv-green/40 shadow-[0_4px_20px_rgba(0,0,0,0.08)]",
-      )}
-    >
-      <button
-        type="button"
-        onClick={() => onSelect(job.id)}
-        aria-label={`View ${job.title} job details`}
-        className="absolute inset-0 z-0 rounded-[20px]"
-      />
-
-      {!isActive ? (
-        <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 sm:right-5 sm:top-5">
-          <button
-            type="button"
-            onClick={(e) => {
-              e.stopPropagation();
-              onToggleFavorite(job.id);
-            }}
-            aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
-            aria-pressed={isFavorited}
-            className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-remotiv-text-dark"
-          >
-            <Bookmark
-              className="size-4"
-              strokeWidth={2}
-              fill={isFavorited ? "currentColor" : "none"}
-            />
-          </button>
-        </div>
+    <article className="group relative flex flex-col rounded-[20px] border border-black/[0.08] bg-white p-5 transition-all hover:-translate-y-0.5 hover:border-remotiv-green/40 hover:shadow-[0_4px_20px_rgba(0,0,0,0.08)] sm:p-7">
+      {job.slug ? (
+        <Link
+          href={`/jobs/${job.slug}`}
+          aria-label={`View ${job.title} job details`}
+          className="absolute inset-0 z-0 rounded-[20px]"
+        />
       ) : null}
+
+      <div className="absolute right-4 top-4 z-10 flex items-center gap-1.5 sm:right-5 sm:top-5">
+        <button
+          type="button"
+          onClick={(e) => {
+            e.stopPropagation();
+            e.preventDefault();
+            onToggleFavorite(job.id);
+          }}
+          aria-label={isFavorited ? "Remove from favorites" : "Add to favorites"}
+          aria-pressed={isFavorited}
+          className="flex size-11 items-center justify-center rounded-full text-[#666] transition-colors hover:bg-black/5 hover:text-remotiv-text-dark"
+        >
+          <Bookmark
+            className="size-4"
+            strokeWidth={2}
+            fill={isFavorited ? "currentColor" : "none"}
+          />
+        </button>
+      </div>
 
       <div className="pointer-events-none relative z-0">
         <div className="mb-3 text-[0.78rem] text-[#666]">
@@ -1041,149 +896,3 @@ const JobCard = memo(function JobCard({
     </article>
   );
 });
-
-function JobDetail({
-  job,
-  loading,
-  isFavorited,
-  onToggleFavorite,
-  onClose,
-  onApply,
-}: {
-  job: Job | null;
-  loading: boolean;
-  isFavorited: boolean;
-  onToggleFavorite: () => void;
-  onClose: () => void;
-  onApply: () => void;
-}) {
-  // Loading: full detail (with description) is being fetched via getJobById.
-  if (loading) {
-    return (
-      <div className="relative col-span-full flex min-h-[200px] items-center justify-center rounded-[20px] bg-remotiv-purple p-6 md:p-10">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
-        >
-          <X className="size-4 text-white" strokeWidth={2.5} />
-        </button>
-        <p className="text-[0.85rem] text-white/65">Loading job details…</p>
-      </div>
-    );
-  }
-
-  // Loaded but null = job was closed/removed between list-load and detail-open.
-  if (!job) {
-    return (
-      <div className="relative col-span-full flex min-h-[200px] items-center justify-center rounded-[20px] bg-remotiv-purple p-6 md:p-10">
-        <button
-          type="button"
-          onClick={onClose}
-          aria-label="Close"
-          className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
-        >
-          <X className="size-4 text-white" strokeWidth={2.5} />
-        </button>
-        <p className="text-[0.9rem] text-white/75">
-          This position is no longer available.
-        </p>
-      </div>
-    );
-  }
-
-  return (
-    <div className="relative col-span-full grid grid-cols-1 gap-6 rounded-[20px] bg-remotiv-purple p-6 md:grid-cols-2 md:gap-10 md:p-10">
-      <button
-        type="button"
-        onClick={onClose}
-        aria-label="Close"
-        className="absolute right-4 top-4 flex size-11 items-center justify-center rounded-full border-0 bg-white/15"
-      >
-        <X className="size-4 text-white" strokeWidth={2.5} />
-      </button>
-
-      <div>
-        <div className="mb-2.5 text-[0.72rem] text-white/55">
-          Posted {timeAgo(job.created_at)}
-        </div>
-        <h2 className="mb-1.5 font-heading text-[1.6rem] font-bold text-white">
-          {job.title}
-        </h2>
-        <div className="mb-1 flex items-center gap-1 text-[0.85rem] text-white/65">
-          <span>{job.company}</span>
-          <Star className="size-3.5 fill-remotiv-green text-remotiv-green" />
-          <span>{job.company_rating.toFixed(1)}</span>
-        </div>
-        <div className="mb-2 text-[0.85rem] text-white/55">{job.location}</div>
-        <div className="mb-5 text-[0.85rem] font-semibold text-white/70">
-          {fmtSalary(job.salary_min, job.salary_max)}
-        </div>
-        <div className="mb-6 flex flex-wrap gap-2">
-          {[job.contract_type, job.work_type, job.experience_level].map((tag) => (
-            <span
-              key={tag}
-              className="rounded-full border-[1.5px] border-white/30 px-4 py-1.5 text-[0.75rem] font-semibold text-white"
-            >
-              {tag}
-            </span>
-          ))}
-          {job.positions > 1 && (
-            <span className="rounded-full border-[1.5px] border-white/30 px-4 py-1.5 text-[0.75rem] font-semibold text-white">
-              {job.positions} Openings
-            </span>
-          )}
-        </div>
-        <div className="flex items-center gap-2.5">
-          <button
-            type="button"
-            onClick={onApply}
-            className="rounded-xl bg-[#111] px-8 py-3.5 font-heading text-[0.78rem] font-bold text-white"
-          >
-            Apply now
-          </button>
-          <button
-            type="button"
-            onClick={onToggleFavorite}
-            aria-label={isFavorited ? "Remove from favorites" : "Save job"}
-            aria-pressed={isFavorited}
-            className={cn(
-              "flex size-11 items-center justify-center rounded-full transition-colors",
-              isFavorited ? "bg-remotiv-green/20" : "bg-white/15 hover:bg-white/25",
-            )}
-          >
-            <Bookmark
-              className={cn("size-[18px]", isFavorited ? "text-remotiv-green" : "text-white")}
-              strokeWidth={2}
-              fill={isFavorited ? "currentColor" : "none"}
-            />
-          </button>
-        </div>
-      </div>
-
-      <div>
-        <div className="mb-4 font-heading text-base font-bold text-white">
-          Position description
-        </div>
-        {job.description ? (
-          <p className="whitespace-pre-line text-[0.85rem] leading-[1.75] text-white/75">
-            {job.description}
-          </p>
-        ) : (
-          <p className="text-[0.85rem] text-white/45">
-            No description provided.
-          </p>
-        )}
-        <div className="mt-6 flex flex-wrap gap-2">
-          <span className="rounded-full bg-white/10 px-3 py-1 text-[0.72rem] text-white/60">
-            {job.category}
-          </span>
-          <span className="rounded-full bg-white/10 px-3 py-1 text-[0.72rem] text-white/60">
-            {job.language}
-          </span>
-        </div>
-      </div>
-    </div>
-  );
-}
