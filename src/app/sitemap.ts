@@ -51,6 +51,28 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     console.error("[sitemap] failed to fetch talent entries:", err);
   }
 
+  let jobEntries: MetadataRoute.Sitemap = [];
+  try {
+    const { data } = await supabase
+      .from("jobs")
+      .select("id, slug, created_at")
+      .eq("status", "open");
+    const rows = (data ?? []) as Array<{
+      id: string;
+      slug: string | null;
+      created_at: string;
+    }>;
+    jobEntries = rows.map((r) => ({
+      url: `${BASE_URL}/jobs/${r.slug ?? r.id}`,
+      lastModified: new Date(r.created_at),
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
+    }));
+  } catch (err) {
+    // Same graceful degradation as the talent block.
+    console.error("[sitemap] failed to fetch job entries:", err);
+  }
+
   return [
     {
       url: `${BASE_URL}/`,
@@ -143,5 +165,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     ...talentEntries,
+    ...jobEntries,
   ];
 }

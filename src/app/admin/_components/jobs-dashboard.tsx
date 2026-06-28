@@ -63,6 +63,7 @@ const EMPTY_FORM: JobInput = {
   location: "",
   salary_min: "",
   salary_max: "",
+  salary_currency: "",
   contract_type: "Full time",
   work_type: "Remote",
   category: "Engineering",
@@ -70,6 +71,8 @@ const EMPTY_FORM: JobInput = {
   language: "English",
   positions: "1",
   description: "",
+  responsibilities: "",
+  requirements: "",
   status: "open",
 };
 
@@ -297,6 +300,7 @@ export function JobsDashboard({
       location: job.location,
       salary_min: job.salary_min != null ? String(job.salary_min) : "",
       salary_max: job.salary_max != null ? String(job.salary_max) : "",
+      salary_currency: job.salary_currency ?? "",
       contract_type: job.contract_type,
       work_type: job.work_type,
       category: job.category,
@@ -304,6 +308,8 @@ export function JobsDashboard({
       language: job.language,
       positions: String(job.positions ?? 1),
       description: job.description ?? "",
+      responsibilities: job.responsibilities ?? "",
+      requirements: job.requirements ?? "",
       status: job.status,
     });
     setMutError(null);
@@ -724,12 +730,20 @@ export function JobsDashboard({
                   {/* Salary */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smin">Salary Min (USD)</label>
+                      <label className={LABEL_CLS} htmlFor="jb-smin">{`Salary Min${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
                       <input id="jb-smin" type="number" min="0" placeholder="e.g. 50000" className={INPUT_CLS} value={form.salary_min} onChange={(e) => set("salary_min", e.target.value)} />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smax">Salary Max (USD)</label>
+                      <label className={LABEL_CLS} htmlFor="jb-smax">{`Salary Max${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
                       <input id="jb-smax" type="number" min="0" placeholder="e.g. 80000" className={INPUT_CLS} value={form.salary_max} onChange={(e) => set("salary_max", e.target.value)} />
+                    </div>
+                    <div>
+                      <label className={LABEL_CLS} htmlFor="jb-salary-currency">Currency *</label>
+                      <select id="jb-salary-currency" required className={INPUT_CLS} value={form.salary_currency} onChange={(e) => set("salary_currency", e.target.value)}>
+                        <option value="">Select currency</option>
+                        <option value="USD">USD</option>
+                        <option value="PKR">PKR</option>
+                      </select>
                     </div>
                   </div>
 
@@ -753,6 +767,18 @@ export function JobsDashboard({
                   <div>
                     <label className={LABEL_CLS} htmlFor="jb-desc">Description</label>
                     <textarea id="jb-desc" rows={4} placeholder="Describe the role, responsibilities, and requirements..." className={`${INPUT_CLS} resize-none`} value={form.description} onChange={(e) => set("description", e.target.value)} />
+                  </div>
+
+                  {/* What you'll do */}
+                  <div>
+                    <label className={LABEL_CLS} htmlFor="jb-responsibilities">What you'll do</label>
+                    <textarea id="jb-responsibilities" rows={4} placeholder="One point per line — press Enter between points" className={`${INPUT_CLS} resize-none`} value={form.responsibilities} onChange={(e) => set("responsibilities", e.target.value)} />
+                  </div>
+
+                  {/* What we're looking for */}
+                  <div>
+                    <label className={LABEL_CLS} htmlFor="jb-requirements">What we're looking for</label>
+                    <textarea id="jb-requirements" rows={4} placeholder="One point per line — press Enter between points" className={`${INPUT_CLS} resize-none`} value={form.requirements} onChange={(e) => set("requirements", e.target.value)} />
                   </div>
 
                   {mutError && (

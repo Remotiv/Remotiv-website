@@ -31,15 +31,20 @@ export interface Job {
   location: string;
   salary_min: number | null;
   salary_max: number | null;
+  salary_currency: string | null;
   contract_type: string;
   work_type: string;
   category: string;
   experience_level: string;
   language: string;
   positions: number;
-  /** Optional because list-view queries omit it for payload size. The detail
-   *  panel populates it via getJobById(). */
+  slug: string | null;
+  /** Optional because list-view queries omit them for payload size. The detail
+   *  panel (getJobById / getJobBySlug) populates description + the two bullet
+   *  lists. */
   description?: string | null;
+  responsibilities: string | null;
+  requirements: string | null;
   status: string;
   created_at: string;
 }
@@ -73,6 +78,24 @@ export async function getJobById(id: string): Promise<Job | null> {
     .from("jobs")
     .select("*")
     .eq("id", id)
+    .eq("status", "open")
+    .maybeSingle();
+
+  if (error) return null;
+  return (data as Job | null) ?? null;
+}
+
+export async function getJobBySlug(slug: string): Promise<Job | null> {
+  // Mirror of getJobById, matching on the human-readable slug instead of the
+  // UUID. Same status gate + null-on-miss behaviour.
+  if (!slug || slug.trim().length === 0) return null;
+
+  const supabase = createServiceClient();
+
+  const { data, error } = await supabase
+    .from("jobs")
+    .select("*")
+    .eq("slug", slug)
     .eq("status", "open")
     .maybeSingle();
 
