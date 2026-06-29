@@ -42,6 +42,7 @@ export type BatchCandidate = {
   phone: string | null;
   linkedin_url: string | null;
   cv_url: string | null;
+  cv_path: string | null;
   location: string | null;
   university: string | null;
   position_applied: string | null;
@@ -81,6 +82,7 @@ export type BatchCandidateInput = {
   phone?: string | null;
   linkedin_url?: string | null;
   cv_url?: string | null;
+  cv_path?: string | null;
   location?: string | null;
   university?: string | null;
   position_applied?: string | null;
@@ -121,7 +123,7 @@ type MutationResult<T = undefined> =
 // column name candidate_current_role → current_role so JS code stays clean.
 const CANDIDATE_COLUMNS = `
   id, batch_id, source_type, source_id,
-  first_name, last_name, email, phone, linkedin_url, cv_url,
+  first_name, last_name, email, phone, linkedin_url, cv_url, cv_path,
   location, university, position_applied, total_experience,
   current_role:candidate_current_role,
   current_company, current_salary, salary_expectations, notice_period,
@@ -441,6 +443,29 @@ export async function addCandidateToBatch(
 
   const supabase = createServiceClient();
 
+  // Resolve the real CV path server-side. Applications/talent store their CV in
+  // `cv_path` (the private `cvs` bucket); `cv_url` is null for real submissions,
+  // so copying only cv_url loses the CV. Look it up from the source row by
+  // source_id so the batch row carries cv_path for getClientCvSignedUrl.
+  let cvPath: string | null = trimToNull(candidate.cv_path ?? null);
+  if (!cvPath && candidate.source_id) {
+    if (candidate.source_type === "application") {
+      const { data: appRow } = await supabase
+        .from("job_applications")
+        .select("cv_path")
+        .eq("id", candidate.source_id)
+        .maybeSingle();
+      cvPath = (appRow?.cv_path as string | null) ?? null;
+    } else if (candidate.source_type === "talent") {
+      const { data: talentRow } = await supabase
+        .from("talent_profiles")
+        .select("cv_path")
+        .eq("id", candidate.source_id)
+        .maybeSingle();
+      cvPath = (talentRow?.cv_path as string | null) ?? null;
+    }
+  }
+
   // Duplicate-prevention removed per spec — same candidate may now appear in
   // multiple batches AND multiple times within the same batch.
   const { data, error } = await supabase
@@ -455,6 +480,7 @@ export async function addCandidateToBatch(
       phone: trimToNull(candidate.phone),
       linkedin_url: trimToNull(candidate.linkedin_url),
       cv_url: trimToNull(candidate.cv_url),
+      cv_path: cvPath,
       location: trimToNull(candidate.location),
       university: trimToNull(candidate.university),
       position_applied: trimToNull(candidate.position_applied),

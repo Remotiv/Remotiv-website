@@ -494,7 +494,7 @@ function CandidateCard({
               LinkedIn
             </a>
           )}
-          {candidate.cv_url && (
+          {(candidate.cv_path || candidate.cv_url) && (
             <button
               type="button"
               onClick={() => { void viewClientCv(candidate.id); }}

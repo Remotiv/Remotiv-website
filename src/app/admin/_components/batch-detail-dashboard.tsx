@@ -1304,7 +1304,7 @@ export function BatchDetailDashboard({
                       )}
                     </td>
                     <td className="px-3 py-2">
-                      {c.cv_url ? (
+                      {c.cv_path || c.cv_url ? (
                         <button
                           type="button"
                           onClick={(e) => { e.stopPropagation(); handleBatchCandidateCv(c.id); }}

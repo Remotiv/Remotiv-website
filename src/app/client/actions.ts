@@ -41,6 +41,7 @@ export type ClientCandidate = {
   phone: string | null;
   linkedin_url: string | null;
   cv_url: string | null;
+  cv_path: string | null;
   location: string | null;
   university: string | null;
   position_applied: string | null;
@@ -69,7 +70,7 @@ type MutationResult<T = undefined> =
 // Same SELECT alias used by /admin actions — keeps the reserved-word workaround
 // for candidate_current_role transparent on the client side.
 const CLIENT_CANDIDATE_COLUMNS = `
-  id, first_name, last_name, email, phone, linkedin_url, cv_url,
+  id, first_name, last_name, email, phone, linkedin_url, cv_url, cv_path,
   location, university, position_applied, total_experience,
   current_role:candidate_current_role,
   current_company, current_salary, salary_expectations, notice_period,
