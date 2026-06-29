@@ -462,6 +462,9 @@ function CandidateCard({
           <FactBlock label="Current Salary" value={candidate.current_salary || "—"} />
           <FactBlock label="Expected Salary" value={candidate.salary_expectations || "—"} />
           <FactBlock label="Notice Period" value={candidate.notice_period || "—"} />
+          {candidate.interview_datetime && (
+            <FactBlock label="Interview Date & Time" value={candidate.interview_datetime} />
+          )}
         </div>
 
         <div className="mt-5 flex flex-wrap gap-3 border-t border-gray-100 pt-4 text-xs">

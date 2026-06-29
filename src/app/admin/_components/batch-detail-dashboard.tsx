@@ -586,6 +586,7 @@ function CandidateDrawer({
       first_interview_url: form.first_interview_url ?? "",
       second_interview_url: form.second_interview_url ?? "",
       note_by_remotiv: form.note_by_remotiv ?? "",
+      interview_datetime: form.interview_datetime ?? "",
       stage: form.stage,
     });
     setSaving(false);
@@ -668,6 +669,7 @@ function CandidateDrawer({
                 </select>
               </Field>
               <Field label="Notice Period"><input value={form.notice_period ?? ""} onChange={(e) => setField("notice_period", e.target.value)} className={INPUT_CLS} /></Field>
+              <Field label="Interview Date & Time" full><input value={form.interview_datetime ?? ""} onChange={(e) => setField("interview_datetime", e.target.value)} placeholder="e.g. June 29th / 7:30PM" className={INPUT_CLS} /></Field>
               <Field label="Current Role" full><input value={form.current_role ?? ""} onChange={(e) => setField("current_role", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="Current Company" full><input value={form.current_company ?? ""} onChange={(e) => setField("current_company", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="Current Salary"><input value={form.current_salary ?? ""} onChange={(e) => setField("current_salary", e.target.value)} className={INPUT_CLS} /></Field>

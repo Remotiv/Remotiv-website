@@ -60,6 +60,7 @@ export type BatchCandidate = {
   first_interview_url: string | null;
   second_interview_url: string | null;
   note_by_remotiv: string | null;
+  interview_datetime: string | null;
 
   // Stage
   stage: string;
@@ -128,7 +129,7 @@ const CANDIDATE_COLUMNS = `
   current_role:candidate_current_role,
   current_company, current_salary, salary_expectations, notice_period,
   interviewer_name, initial_interview_url, loom_video_url,
-  first_interview_url, second_interview_url, note_by_remotiv,
+  first_interview_url, second_interview_url, note_by_remotiv, interview_datetime,
   stage, client_decision, client_comments, client_decision_at,
   added_at, added_by
 `.replace(/\s+/g, " ").trim();
@@ -596,6 +597,7 @@ export async function updateBatchCandidate(
     first_interview_url: string;
     second_interview_url: string;
     note_by_remotiv: string;
+    interview_datetime: string;
     stage: string;
   }>,
 ): Promise<MutationResult<undefined>> {

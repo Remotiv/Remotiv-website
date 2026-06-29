@@ -51,6 +51,7 @@ export type ClientCandidate = {
   current_salary: string | null;
   salary_expectations: string | null;
   notice_period: string | null;
+  interview_datetime: string | null;
   initial_interview_url: string | null;
   loom_video_url: string | null;
   first_interview_url: string | null;
@@ -74,6 +75,7 @@ const CLIENT_CANDIDATE_COLUMNS = `
   location, university, position_applied, total_experience,
   current_role:candidate_current_role,
   current_company, current_salary, salary_expectations, notice_period,
+  interview_datetime,
   initial_interview_url, loom_video_url,
   first_interview_url, second_interview_url, note_by_remotiv,
   stage, client_decision, client_comments, client_decision_at,
