@@ -10,6 +10,7 @@ import {
   MoreHorizontal,
   Download,
   ExternalLink,
+  MessageCircle,
   MessageSquare,
   Trash2,
   AlertTriangle,
@@ -61,6 +62,7 @@ import {
 } from "@/app/admin/applications/actions";
 import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
 import { isValidEmail } from "@/app/admin/lib/validators";
+import { toWhatsAppDigits } from "@/lib/normalize";
 import {
   EditableCell,
   extractPdfText,
@@ -334,6 +336,41 @@ function AppPanel({
             <p className="mb-2 px-1 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
               Actions
             </p>
+
+            {(() => {
+              const waDigits = toWhatsAppDigits(app.phone);
+              const candidateName =
+                [app.first_name, app.last_name].filter(Boolean).join(" ").trim() || "there";
+              const roleText = app.job_title?.trim() || "the role";
+              const waMessage = `Hi ${candidateName}, this is Remotiv. Congratulations — you've been shortlisted for the ${roleText} position. We'd love to discuss the next steps with you. When would be a good time for a quick call?`;
+              const waHref = waDigits
+                ? `https://wa.me/${waDigits}?text=${encodeURIComponent(waMessage)}`
+                : null;
+              return waHref ? (
+                <button
+                  type="button"
+                  onClick={() => window.open(waHref, "_blank", "noopener,noreferrer")}
+                  className={`${actionBtn} text-remotiv-green hover:bg-remotiv-green/5`}
+                >
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-remotiv-green/10">
+                    <MessageCircle className="size-3.5 text-remotiv-green" strokeWidth={2} />
+                  </span>
+                  Message on WhatsApp
+                </button>
+              ) : (
+                <button
+                  type="button"
+                  disabled
+                  title="Phone number format unclear — message this candidate manually."
+                  className={`${actionBtn} cursor-not-allowed text-gray-300`}
+                >
+                  <span className="flex size-7 items-center justify-center rounded-lg bg-gray-100">
+                    <MessageCircle className="size-3.5 text-gray-300" strokeWidth={2} />
+                  </span>
+                  Message on WhatsApp
+                </button>
+              );
+            })()}
 
             <button
               type="button"

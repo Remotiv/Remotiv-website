@@ -28,3 +28,31 @@ export function normalizePhone(phone: string): string {
   if (digits.startsWith("0")) return digits.slice(1);
   return digits;
 }
+
+/**
+ * Produce wa.me-ready digits for a Pakistani phone number: full international
+ * form, NO leading "+", spaces, or dashes (e.g. "923306472177"). Returns null
+ * when the input is missing or its country can't be determined safely — the
+ * caller is expected to disable the WhatsApp action in that case.
+ *
+ * This is the OPPOSITE of normalizePhone above (which strips the country code
+ * to a 10-digit local key for duplicate detection). Don't confuse the two:
+ * wa.me needs the country code present, dedupe needs it absent.
+ *
+ * Pakistan-only acceptance — anything that doesn't match a known PK shape
+ * (intl 0092…, intl 92…, or local 0…) returns null rather than guessing.
+ */
+export function toWhatsAppDigits(phone: string | null | undefined): string | null {
+  if (!phone || !phone.trim()) return null;
+  const d = phone.replace(/\D/g, "");
+  let intl: string | null = null;
+  if (d.startsWith("0092") && d.length === 14) {
+    intl = `92${d.slice(4)}`;
+  } else if (d.startsWith("92") && d.length === 12) {
+    intl = d;
+  } else if (d.startsWith("0") && d.length === 11) {
+    intl = `92${d.slice(1)}`;
+  }
+  if (intl === null || intl.length !== 12) return null;
+  return intl;
+}
