@@ -1,11 +1,20 @@
 "use client";
 
-import { CheckCircle, Upload, X } from "lucide-react";
+import {
+  IconAlertTriangle,
+  IconCheck,
+  IconFileText,
+  IconSend,
+  IconUpload,
+  IconWorld,
+  IconX,
+} from "@tabler/icons-react";
 import Link from "next/link";
-import { useEffect, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { createPortal } from "react-dom";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
-import type { Job } from "@/lib/jobs";
-import { cn } from "@/lib/utils";
+import type { Job, ScreeningQuestion } from "@/lib/jobs";
+import "./apply-modal.css";
 
 // Server cap is 5 MB; align the client so the UX rejects what the API would
 // reject anyway. See MAX_CV_FILE_BYTES in src/app/api/apply/route.ts.
@@ -19,14 +28,36 @@ const EMPTY_APPLY = {
   linkedin: "",
 };
 
+const BASIC_KEYS = ["firstName", "lastName", "email", "phone", "linkedin"] as const;
+
 // Abort the submit fetch if the network stalls for this long. Keeps the
 // "Submitting…" button from sticking forever on flaky mobile connections.
 const SUBMIT_TIMEOUT_MS = 30_000;
 
+// Matching rules — string-consistent with our stored ScreeningQuestion.ideal
+// (yesno "Yes"/"No"; numeric "3"; multiple = option index as a string "2").
+function isAnswered(q: ScreeningQuestion, ans: string | undefined): boolean {
+  if (ans === undefined || ans === null) return false;
+  if (q.type === "numeric") return String(ans).trim() !== "";
+  return ans !== "";
+}
+function isMatch(q: ScreeningQuestion, ans: string | undefined): boolean {
+  if (!isAnswered(q, ans)) return false;
+  if (q.type === "yesno") return ans === q.ideal;
+  if (q.type === "numeric") return Number(ans) >= Number(q.ideal);
+  return String(ans) === String(q.ideal); // multiple — index vs index
+}
+
 export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
+  const questions = job.screening_questions ?? [];
+
   const [form, setForm] = useState(EMPTY_APPLY);
   const [cvFile, setCvFile] = useState<File | null>(null);
   const [cvError, setCvError] = useState<string | null>(null);
+  const [answers, setAnswers] = useState<Record<string, string>>({});
+  // Reveals inline required-field errors after a submit attempt — never
+  // permanently disables the button (soft-gate, matching the design).
+  const [tried, setTried] = useState(false);
   const [submitting, setSubmitting] = useState(false);
   const [submitError, setSubmitError] = useState<string | null>(null);
   const [success, setSuccess] = useState(false);
@@ -35,30 +66,43 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   // auto-close skip — we don't want the modal to vanish before the
   // candidate can click the CTA.
   const [bridgeToken, setBridgeToken] = useState<string | null>(null);
-  // Same-job duplicate now returns { error: "duplicate_application", appliedAt }.
-  // Storing the timestamp lets the friendly screen tell the candidate when
-  // their existing application landed.
-  const [duplicateMsg, setDuplicateMsg] = useState<{
-    appliedAt: string | null;
-  } | null>(null);
-  // Entry fade is done via CSS keyframes (see globals.css) rather than a
-  // state-driven inline transition — a state + rAF flip leaves the modal
-  // fully transparent for its first painted frame, which was visible as a
-  // blink when the dynamic-import loading fallback handed off to it.
+  // Same-job duplicate returns { error: "duplicate_application", appliedAt }.
+  const [duplicateMsg, setDuplicateMsg] = useState<{ appliedAt: string | null } | null>(null);
+
   const fileRef = useRef<HTMLInputElement>(null);
-  // Focus trap + focus-restore. The hook (src/hooks/use-focus-trap.ts) moves
-  // initial focus into the modal on mount, cycles Tab/Shift+Tab within it,
-  // and restores focus to the previously-focused element (the "Apply now"
-  // button in JobDetail) on unmount. Mirrors PricingModal's wiring exactly.
-  // Modal mounts only when the parent passes a non-null job, so `active` is
-  // simply true while the component lives.
+  // Focus trap + focus-restore. The hook moves initial focus into the modal,
+  // cycles Tab/Shift+Tab within it, and restores focus on unmount.
   const modalRef = useRef<HTMLDivElement>(null);
   useFocusTrap(modalRef, true);
 
+  // SSR-safe mount guard — document.body isn't defined on the server, so the
+  // portal target only exists after mount. Mirrors pricing/_tier-cta.tsx.
+  const [mounted, setMounted] = useState(false);
+  useEffect(() => {
+    setMounted(true);
+  }, []);
+
+  // Lock background scroll while the modal is open. The modal only mounts when
+  // open, so mount/unmount is the correct lock/unlock boundary. Restore the
+  // previous value rather than hardcoding so we don't clobber another lock.
+  useEffect(() => {
+    const prev = document.body.style.overflow;
+    document.body.style.overflow = "hidden";
+    return () => {
+      document.body.style.overflow = prev;
+    };
+  }, []);
+
+  // Live soft warning — any ESSENTIAL question that is answered but fails its
+  // ideal. Soft only: it never blocks submit.
+  const failedEssentials = useMemo(
+    () => questions.filter((q) => q.essential && isAnswered(q, answers[q.id]) && !isMatch(q, answers[q.id])),
+    [questions, answers],
+  );
+
   // Auto-close after success — but only when we have nothing more to offer.
   // When a bridge token is present, the success modal renders the
-  // "Complete your profile" CTA; killing the modal after 3s would yank it
-  // out from under the user mid-click.
+  // "Complete your profile" CTA; killing the modal would yank it mid-click.
   useEffect(() => {
     if (!success || bridgeToken) return;
     const t = setTimeout(onClose, 3000);
@@ -77,11 +121,17 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
   function setField(key: keyof typeof EMPTY_APPLY, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));
   }
+  function setAnswer(id: string, value: string) {
+    setAnswers((prev) => ({ ...prev, [id]: value }));
+  }
 
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setCvError(null);
-    if (!file) { setCvFile(null); return; }
+    if (!file) {
+      setCvFile(null);
+      return;
+    }
     if (file.type !== "application/pdf") {
       setCvError("Only PDF files are accepted.");
       setCvFile(null);
@@ -95,9 +145,17 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
     setCvFile(file);
   }
 
+  const missingBasics = BASIC_KEYS.filter((k) => !form[k].trim());
+  const unanswered = questions.filter((q) => !isAnswered(q, answers[q.id]));
+  const complete = missingBasics.length === 0 && !!cvFile && unanswered.length === 0;
+
   async function handleSubmit(e: React.FormEvent) {
     e.preventDefault();
-    if (!cvFile) { setCvError("Please upload your CV (PDF)."); return; }
+    if (!complete) {
+      setTried(true);
+      if (!cvFile) setCvError("Please upload your CV (PDF).");
+      return;
+    }
 
     setSubmitting(true);
     setSubmitError(null);
@@ -113,7 +171,14 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       fd.append("email",        form.email);
       fd.append("phone",        form.phone);
       fd.append("linkedin_url", form.linkedin);
-      fd.append("cv",           cvFile);
+      fd.append("cv",           cvFile as File);
+      // New: screening answers, normalized to strings and keyed by question id.
+      // Ignored by /api/apply until its own step reads this key.
+      const screeningAnswers = questions.map((q) => ({
+        id: q.id,
+        answer: String(answers[q.id] ?? ""),
+      }));
+      fd.append("screening_answers", JSON.stringify(screeningAnswers));
 
       let res: Response;
       try {
@@ -127,10 +192,6 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       }
 
       if (res.status === 409) {
-        // The server now distinguishes same-job duplicates with a
-        // structured shape. Older "duplicate" responses (no appliedAt)
-        // still flow through the same friendly screen — appliedAt is
-        // optional in the display.
         const dupJson = (await res.json().catch(() => ({}))) as {
           error?: string;
           appliedAt?: string | null;
@@ -165,259 +226,346 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
     }
   }
 
-  const INPUT_CLS =
-    "w-full rounded-xl border border-black/10 bg-[#FAFAFA] px-4 py-3.5 text-base sm:text-[0.88rem] text-remotiv-text-dark outline-none transition-all placeholder:text-[#bbb] focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/15";
-  const LABEL_CLS =
-    "mb-1.5 block text-[0.72rem] font-semibold uppercase tracking-widest text-[#6b6b6b]";
+  const companyInitial = (job.company || "?").charAt(0).toUpperCase();
 
-  return (
-    <div
-      className="apply-modal-backdrop-anim fixed inset-0 z-50 overflow-y-auto bg-black/60 p-4"
-      role="dialog"
-      aria-modal="true"
-      aria-labelledby="apply-modal-title"
-    >
+  if (!mounted) return null;
+
+  return createPortal(
+    <div className="applymodal">
       <div
         ref={modalRef}
-        className="apply-modal-panel-anim relative mx-auto mb-6 mt-20 flex w-full max-w-lg flex-col rounded-[20px] bg-white shadow-2xl sm:my-16"
+        className="ap-modal"
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby="apply-modal-title"
       >
-        {/* Header — sticky, never scrolls away */}
-        <div className="relative shrink-0 rounded-t-[20px] bg-remotiv-purple px-5 py-6 pr-14 sm:px-7 sm:py-8 sm:pr-16">
-          <button
-            type="button"
-            onClick={onClose}
-            aria-label="Close"
-            className="absolute right-4 top-6 flex size-11 items-center justify-center rounded-full bg-white/20 text-white transition-colors hover:bg-white/35"
-          >
-            <X className="size-4" strokeWidth={2.5} />
-          </button>
-          <h2 id="apply-modal-title" className="mb-1 font-heading text-xl font-bold leading-tight text-white">
-            {job.title}
-          </h2>
-          <p className="text-sm text-white/65">{job.company}</p>
-        </div>
-
-        {/* Body — scrollable */}
-        <div className="flex-1 overflow-y-auto rounded-b-[20px]">
-          {duplicateMsg ? (
-            <div className="flex flex-col items-center gap-6 px-6 py-8 text-center sm:px-8 sm:py-10">
-              <div className="flex size-20 items-center justify-center rounded-full bg-remotiv-purple/10">
-                <CheckCircle className="size-10 text-remotiv-purple" strokeWidth={1.5} />
-              </div>
-
-              <div>
-                <h3 className="font-heading text-xl font-bold text-remotiv-text-dark">
-                  You&apos;ve already applied to this job
-                </h3>
-                <p className="mt-3 text-[0.9rem] leading-relaxed text-[#666]">
-                  {duplicateMsg.appliedAt ? (
-                    <>
-                      We received your application on{" "}
-                      <strong>
-                        {new Date(duplicateMsg.appliedAt).toLocaleDateString(
-                          undefined,
-                          { year: "numeric", month: "long", day: "numeric" },
-                        )}
-                      </strong>
-                      . We&apos;re reviewing it and will be in touch soon.
-                    </>
-                  ) : (
-                    <>We&apos;re reviewing your application and will be in touch soon.</>
-                  )}
-                </p>
-              </div>
-
-              <div className="flex w-full flex-col gap-3">
-                <Link
-                  href="/jobs"
-                  className="inline-flex w-full items-center justify-center rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition hover:opacity-90"
-                  onClick={onClose}
-                >
-                  Browse other jobs →
-                </Link>
-                <button
-                  type="button"
-                  onClick={onClose}
-                  className="text-sm text-gray-600 hover:text-gray-900"
-                >
-                  Close
-                </button>
-              </div>
+        {duplicateMsg ? (
+          <div className="ap-success">
+            <div className="ap-success-ic purple">
+              <IconCheck size={32} stroke={2} />
             </div>
-          ) : success ? (
-            <div role="status" className="flex flex-col items-center justify-center gap-4 px-7 py-16 text-center">
-              <div className="flex size-16 items-center justify-center rounded-full bg-remotiv-green/15">
-                <CheckCircle className="size-8 text-remotiv-green" strokeWidth={2} />
-              </div>
-              <h3 className="font-heading text-lg font-bold text-remotiv-text-dark">Application Submitted!</h3>
-              {bridgeToken ? (
+            <h2 id="apply-modal-title" className="ap-success-title font-heading">
+              You&apos;ve already applied to this job
+            </h2>
+            <p className="ap-success-sub">
+              {duplicateMsg.appliedAt ? (
                 <>
-                  <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
-                    Take 2 minutes to complete your talent profile and be visible
-                    to every Remotiv employer.
-                  </p>
-                  <div className="mt-2 flex w-full flex-col gap-3 px-2">
-                    <Link
-                      href={`/become-a-talent?token=${bridgeToken}`}
-                      className="inline-flex items-center justify-center rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition hover:opacity-90"
-                    >
-                      Complete your profile for more opportunities →
-                    </Link>
-                    <button
-                      type="button"
-                      onClick={onClose}
-                      className="text-sm text-gray-600 hover:text-gray-900"
-                    >
-                      Close
-                    </button>
-                  </div>
+                  We received your application on{" "}
+                  <strong>
+                    {new Date(duplicateMsg.appliedAt).toLocaleDateString(undefined, {
+                      year: "numeric",
+                      month: "long",
+                      day: "numeric",
+                    })}
+                  </strong>
+                  . We&apos;re reviewing it and will be in touch soon.
                 </>
               ) : (
-                <p className="text-[0.88rem] leading-relaxed text-remotiv-text-light">
-                  We&apos;ll be in touch soon. This window will close automatically.
-                </p>
+                <>We&apos;re reviewing your application and will be in touch soon.</>
               )}
+            </p>
+            <Link href="/jobs" onClick={onClose} className="ap-cta font-heading">
+              Browse other jobs →
+            </Link>
+            <button type="button" onClick={onClose} className="ap-ghostbtn">
+              Close
+            </button>
+          </div>
+        ) : success ? (
+          <div role="status" className="ap-success">
+            <div className="ap-success-ic">
+              <IconCheck size={32} stroke={2} />
             </div>
-          ) : (
-            <form onSubmit={handleSubmit} className="px-5 py-5 sm:px-7 sm:py-6">
-              <div className="grid grid-cols-1 gap-4 sm:grid-cols-2">
+            <h2 id="apply-modal-title" className="ap-success-title font-heading">
+              Application submitted
+            </h2>
+            {bridgeToken ? (
+              <>
+                <p className="ap-success-sub">
+                  Take 2 minutes to complete your talent profile and be visible to
+                  every Remotiv employer.
+                </p>
+                <Link
+                  href={`/become-a-talent?token=${bridgeToken}`}
+                  className="ap-cta font-heading"
+                >
+                  Complete your profile for more opportunities →
+                </Link>
+                <button type="button" onClick={onClose} className="ap-ghostbtn">
+                  Close
+                </button>
+              </>
+            ) : (
+              <p className="ap-success-sub">
+                Thanks, {form.firstName || "there"}! The {job.company} team will
+                review your application. Average response time is 24 hours.
+              </p>
+            )}
+          </div>
+        ) : (
+          <>
+            <div className="ap-head">
+              <div className="ap-head-tex" />
+              <button type="button" onClick={onClose} aria-label="Close" className="ap-close">
+                <IconX size={18} stroke={2.5} />
+              </button>
+              <div className="ap-head-inner">
+                <div className="ap-eyebrow font-heading">Apply now</div>
+                <div className="ap-head-row">
+                  <span className="ap-avatar font-heading">{companyInitial}</span>
+                  <div>
+                    <h2 id="apply-modal-title" className="ap-jobtitle font-heading">
+                      {job.title}
+                    </h2>
+                    <div className="ap-jobmeta">
+                      <span>{job.company}</span>
+                      <span aria-hidden="true">·</span>
+                      <span className="ap-mode">
+                        <IconWorld size={14} /> {job.work_type}
+                      </span>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+
+            <div className="ap-perf">
+              <span className="l" />
+              <span className="r" />
+            </div>
+
+            <form onSubmit={handleSubmit} className="ap-body">
+              <div className="ap-rowpair">
                 <div>
-                  <label htmlFor="apply-firstName" className={LABEL_CLS}>
-                    First Name<span aria-hidden="true"> *</span>
+                  <label htmlFor="apply-firstName" className="ap-label">
+                    First name<span className="ap-req"> *</span>
                   </label>
                   <input
                     id="apply-firstName"
-                    required
                     type="text"
-                    placeholder="Jane"
+                    placeholder="Ayesha"
                     value={form.firstName}
                     onChange={(e) => setField("firstName", e.target.value)}
-                    className={INPUT_CLS}
+                    className="ap-input"
                   />
+                  {tried && !form.firstName.trim() && <div className="ap-fielderr">Required</div>}
                 </div>
                 <div>
-                  <label htmlFor="apply-lastName" className={LABEL_CLS}>
-                    Last Name<span aria-hidden="true"> *</span>
+                  <label htmlFor="apply-lastName" className="ap-label">
+                    Last name<span className="ap-req"> *</span>
                   </label>
                   <input
                     id="apply-lastName"
-                    required
                     type="text"
-                    placeholder="Smith"
+                    placeholder="Khan"
                     value={form.lastName}
                     onChange={(e) => setField("lastName", e.target.value)}
-                    className={INPUT_CLS}
+                    className="ap-input"
                   />
+                  {tried && !form.lastName.trim() && <div className="ap-fielderr">Required</div>}
                 </div>
               </div>
 
-              <div className="mt-4">
-                <label htmlFor="apply-email" className={LABEL_CLS}>
-                  Email<span aria-hidden="true"> *</span>
+              <div>
+                <label htmlFor="apply-email" className="ap-label">
+                  Email<span className="ap-req"> *</span>
                 </label>
                 <input
                   id="apply-email"
-                  required
                   type="email"
-                  placeholder="jane@example.com"
+                  placeholder="you@email.com"
                   value={form.email}
                   onChange={(e) => setField("email", e.target.value)}
-                  className={INPUT_CLS}
+                  className="ap-input"
                 />
+                {tried && !form.email.trim() && <div className="ap-fielderr">Required</div>}
               </div>
 
-              <div className="mt-4">
-                <label htmlFor="apply-phone" className={LABEL_CLS}>
-                  Phone Number<span aria-hidden="true"> *</span>
-                </label>
-                <input
-                  id="apply-phone"
-                  required
-                  type="tel"
-                  placeholder="+1 555 000 0000"
-                  value={form.phone}
-                  onChange={(e) => setField("phone", e.target.value)}
-                  className={INPUT_CLS}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label htmlFor="apply-linkedin" className={LABEL_CLS}>
-                  LinkedIn URL<span aria-hidden="true"> *</span>
-                </label>
-                <input
-                  id="apply-linkedin"
-                  required
-                  type="url"
-                  placeholder="https://linkedin.com/in/yourname"
-                  value={form.linkedin}
-                  onChange={(e) => setField("linkedin", e.target.value)}
-                  className={INPUT_CLS}
-                />
-              </div>
-
-              <div className="mt-4">
-                <label
-                  htmlFor="apply-cv"
-                  id="apply-cv-label"
-                  className={LABEL_CLS}
-                >
-                  CV / Resume (PDF, max 5 MB)<span aria-hidden="true"> *</span>
-                </label>
-                <button
-                  type="button"
-                  aria-labelledby="apply-cv-label"
-                  onClick={() => fileRef.current?.click()}
-                  className={cn(
-                    "flex w-full items-center gap-3 rounded-xl border-2 border-dashed px-4 py-3.5 text-left transition-colors",
-                    cvFile
-                      ? "border-remotiv-green/40 bg-remotiv-green/5"
-                      : "border-black/10 bg-[#FAFAFA] hover:border-remotiv-purple/30",
-                  )}
-                >
-                  <Upload
-                    className={cn("size-4 shrink-0", cvFile ? "text-remotiv-green" : "text-[#aaa]")}
-                    strokeWidth={2}
+              <div className="ap-rowpair">
+                <div>
+                  <label htmlFor="apply-phone" className="ap-label">
+                    Phone<span className="ap-req"> *</span>
+                  </label>
+                  <input
+                    id="apply-phone"
+                    type="tel"
+                    placeholder="+92 300 1234567"
+                    value={form.phone}
+                    onChange={(e) => setField("phone", e.target.value)}
+                    className="ap-input"
                   />
-                  <span
-                    className={cn(
-                      "truncate text-[0.85rem]",
-                      cvFile ? "font-medium text-remotiv-text-dark" : "text-[#bbb]",
-                    )}
+                  {tried && !form.phone.trim() && <div className="ap-fielderr">Required</div>}
+                </div>
+                <div>
+                  <label htmlFor="apply-linkedin" className="ap-label">
+                    LinkedIn<span className="ap-req"> *</span>
+                  </label>
+                  <input
+                    id="apply-linkedin"
+                    type="url"
+                    placeholder="linkedin.com/in/…"
+                    value={form.linkedin}
+                    onChange={(e) => setField("linkedin", e.target.value)}
+                    className="ap-input"
+                  />
+                  {tried && !form.linkedin.trim() && <div className="ap-fielderr">Required</div>}
+                </div>
+              </div>
+
+              <div>
+                <label htmlFor="apply-cv" id="apply-cv-label" className="ap-label">
+                  CV / Resume<span className="ap-req"> *</span>
+                </label>
+                {cvFile ? (
+                  <div className="ap-cv on">
+                    <IconFileText size={18} className="ap-cv-ic" />
+                    <span className="ap-cv-name">{cvFile.name}</span>
+                    <button
+                      type="button"
+                      className="ap-cv-change"
+                      onClick={() => fileRef.current?.click()}
+                    >
+                      Change
+                    </button>
+                    <IconCheck size={16} className="ap-cv-check" />
+                  </div>
+                ) : (
+                  <button
+                    type="button"
+                    aria-labelledby="apply-cv-label"
+                    onClick={() => fileRef.current?.click()}
+                    className={`ap-cv ap-cv-empty${tried && !cvFile ? " err" : ""}`}
                   >
-                    {cvFile ? cvFile.name : "Click to upload your CV…"}
-                  </span>
-                </button>
+                    <IconUpload size={18} className="ap-cv-ic" />
+                    <span className="ap-cv-name">
+                      Upload your CV <span className="ap-cv-hint">PDF, up to 5 MB</span>
+                    </span>
+                  </button>
+                )}
                 <input
                   id="apply-cv"
                   ref={fileRef}
                   type="file"
-                  accept="application/pdf"
+                  accept=".pdf"
                   onChange={handleFileChange}
                   className="hidden"
                 />
                 {cvError && (
-                  <p role="alert" className="mt-1.5 text-[0.78rem] text-red-500">{cvError}</p>
+                  <p role="alert" className="ap-fielderr">
+                    {cvError}
+                  </p>
                 )}
               </div>
 
+              {questions.length > 0 && (
+                <>
+                  <div className="ap-divider">
+                    <span className="ap-divline" />
+                    <span className="ap-divtext font-heading">A few quick questions</span>
+                    <span className="ap-divline" />
+                  </div>
+
+                  {questions.map((q, i) => {
+                    const ans = answers[q.id];
+                    const showErr = tried && !isAnswered(q, ans);
+                    return (
+                      <div key={q.id} className="ap-q">
+                        <span className="ap-qnum font-heading">{i + 1}</span>
+                        <div className="ap-qbody">
+                          <div className="ap-qhead">
+                            <span className="ap-qtext">
+                              {q.question} <span className="ap-req">*</span>
+                            </span>
+                            {q.essential && <span className="ap-ess">Essential</span>}
+                          </div>
+
+                          {q.type === "yesno" && (
+                            <div className="ap-yn">
+                              {["Yes", "No"].map((v) => (
+                                <button
+                                  key={v}
+                                  type="button"
+                                  className={`ap-ynbtn${ans === v ? " on" : ""}`}
+                                  onClick={() => setAnswer(q.id, v)}
+                                >
+                                  {v}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {q.type === "numeric" && (
+                            <input
+                              className="ap-input ap-num"
+                              type="number"
+                              min="0"
+                              placeholder="0"
+                              value={ans ?? ""}
+                              onChange={(e) => setAnswer(q.id, e.target.value)}
+                            />
+                          )}
+
+                          {q.type === "multiple" && (
+                            <div>
+                              {q.options.map((opt, oi) => (
+                                <button
+                                  // biome-ignore lint/suspicious/noArrayIndexKey: options are positional; index is the stored answer value
+                                  key={oi}
+                                  type="button"
+                                  className={`ap-opt${String(ans) === String(oi) ? " on" : ""}`}
+                                  onClick={() => setAnswer(q.id, String(oi))}
+                                >
+                                  <span className="ap-radio" /> {opt}
+                                </button>
+                              ))}
+                            </div>
+                          )}
+
+                          {showErr && <div className="ap-fielderr">Please answer this question.</div>}
+                        </div>
+                      </div>
+                    );
+                  })}
+                </>
+              )}
+
+              {failedEssentials.length > 0 && (
+                <div className="ap-warn">
+                  <IconAlertTriangle size={20} className="ap-warn-ic" />
+                  <div>
+                    <div className="ap-warn-title font-heading">
+                      You don&apos;t meet all the preferred qualifications for this role
+                    </div>
+                    <div className="ap-warn-sub">
+                      You can still submit your application — the team will review it.
+                    </div>
+                  </div>
+                </div>
+              )}
+
               {submitError && (
-                <p role="alert" className="mt-4 rounded-xl bg-red-50 px-4 py-3 text-[0.82rem] text-red-600">
+                <p role="alert" className="ap-errbanner">
                   {submitError}
                 </p>
               )}
 
-              <button
-                type="submit"
-                disabled={submitting}
-                className="mt-6 w-full rounded-xl bg-[#111] py-4 font-heading text-[0.82rem] font-bold text-white transition-opacity hover:opacity-80 disabled:opacity-50"
-              >
-                {submitting ? "Submitting…" : "Submit Application"}
-              </button>
+              <div className="ap-foot" style={{ borderTop: "none", padding: 0, marginTop: 4 }}>
+                <button type="submit" disabled={submitting} className="ap-submit font-heading">
+                  <IconSend size={16} stroke={2} />
+                  &nbsp;{submitting ? "Submitting…" : "Submit application"}
+                </button>
+                {tried && !complete && (
+                  <div className="ap-foot-err">Please complete all required fields above.</div>
+                )}
+                <div className="ap-foot-note">
+                  By applying you agree to Remotiv&apos;s terms · Avg. response in 24 hours
+                </div>
+              </div>
             </form>
-          )}
-        </div>
+          </>
+        )}
       </div>
-    </div>
+    </div>,
+    document.body,
   );
 }

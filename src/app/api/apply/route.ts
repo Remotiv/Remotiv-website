@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
@@ -96,6 +97,63 @@ function safeJson<T>(raw: FormDataEntryValue | null, fallback: T): T {
 
 function slug(value: string): string {
   return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
+}
+
+// Rich, frozen-at-apply-time snapshot of the candidate's screening answers.
+// Scored entirely against the SERVER's questions (source of truth) — only the
+// answer string comes from the client. Pure + never-throws: bad/missing input
+// yields answer:"" / matched:false. Mirrors the modal's matching exactly
+// (yesno equal · numeric >= · multiple index-equal).
+type ScreeningAnswerSnapshot = {
+  question_id: string;
+  question: string;
+  type: "yesno" | "numeric" | "multiple";
+  essential: boolean;
+  ideal: string;
+  answer: string;
+  answer_label?: string;
+  ideal_label?: string;
+  matched: boolean;
+};
+
+function buildScreeningSnapshot(
+  questions: ScreeningQuestion[],
+  answerMap: Map<string, string>,
+): ScreeningAnswerSnapshot[] {
+  if (!Array.isArray(questions) || questions.length === 0) return [];
+  return questions.slice(0, 10).map((q) => {
+    const answer = (answerMap.get(q.id) ?? "").trim();
+    let matched = false;
+    let answer_label: string | undefined;
+    let ideal_label: string | undefined;
+
+    if (q.type === "yesno") {
+      matched = answer !== "" && answer === q.ideal;
+    } else if (q.type === "numeric") {
+      const a = Number(answer);
+      const ideal = Number(q.ideal);
+      matched = answer !== "" && Number.isFinite(a) && Number.isFinite(ideal) && a >= ideal;
+    } else if (q.type === "multiple") {
+      matched = answer !== "" && String(answer) === String(q.ideal);
+      const ai = Number(answer);
+      const ii = Number(q.ideal);
+      const opts = Array.isArray(q.options) ? q.options : [];
+      if (Number.isInteger(ai) && ai >= 0 && ai < opts.length) answer_label = opts[ai];
+      if (Number.isInteger(ii) && ii >= 0 && ii < opts.length) ideal_label = opts[ii];
+    }
+
+    return {
+      question_id: String(q.id),
+      question: String(q.question ?? ""),
+      type: q.type,
+      essential: Boolean(q.essential),
+      ideal: String(q.ideal ?? ""),
+      answer,
+      ...(answer_label !== undefined ? { answer_label } : {}),
+      ...(ideal_label !== undefined ? { ideal_label } : {}),
+      matched,
+    };
+  });
 }
 
 export async function POST(request: NextRequest) {
@@ -347,6 +405,20 @@ export async function POST(request: NextRequest) {
       resolvedJobId = (jobRow as { id?: string } | null)?.id ?? null;
     }
 
+    // Screening questions — fetched from the SERVER job row (source of truth)
+    // so scoring can't be spoofed by the client. job missing / no questions →
+    // [] → snapshot []. Never throws.
+    let serverScreeningQuestions: ScreeningQuestion[] = [];
+    if (resolvedJobId) {
+      const { data: jobQ } = await supabase
+        .from("jobs")
+        .select("screening_questions")
+        .eq("id", resolvedJobId)
+        .maybeSingle();
+      const raw = (jobQ as { screening_questions?: unknown } | null)?.screening_questions;
+      serverScreeningQuestions = Array.isArray(raw) ? (raw as ScreeningQuestion[]) : [];
+    }
+
     // Phase 2b — parse the wizard's new fields just before the INSERT. Placed
     // AFTER the dedup + CV upload + placeholder-job blocks so a malformed
     // payload on these new fields can't waste a storage upload or trip the
@@ -426,6 +498,27 @@ export async function POST(request: NextRequest) {
           .slice(0, MAX_EXPERIENCES)
       : [];
 
+    // Screening answers — read the client's submitted answers (answer strings
+    // only), key them by question id, then score against the server questions.
+    // safeJson never throws; non-string ids/answers are coerced or skipped.
+    const rawScreeningAnswers = safeJson<unknown>(form.get("screening_answers"), []);
+    const screeningAnswerMap = new Map<string, string>();
+    if (Array.isArray(rawScreeningAnswers)) {
+      for (const item of rawScreeningAnswers) {
+        if (item && typeof item === "object") {
+          const id = (item as { id?: unknown }).id;
+          const ans = (item as { answer?: unknown }).answer;
+          if (typeof id === "string") {
+            screeningAnswerMap.set(id, typeof ans === "string" ? ans : String(ans ?? ""));
+          }
+        }
+      }
+    }
+    const screeningSnapshot = buildScreeningSnapshot(
+      serverScreeningQuestions,
+      screeningAnswerMap,
+    );
+
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it
     //    via talent_claim_tokens.candidate_id.
@@ -460,6 +553,7 @@ export async function POST(request: NextRequest) {
         summary,
         skills,
         employment_history:  employmentHistory,
+        screening_answers:   screeningSnapshot,
       })
       .select("id")
       .single();

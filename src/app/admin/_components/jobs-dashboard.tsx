@@ -31,6 +31,8 @@ import {
   canEdit,
   canDelete,
 } from "@/app/admin/lib/roles";
+import type { ScreeningQuestion } from "@/lib/jobs";
+import { ScreeningQuestionBuilder } from "./screening-question-builder";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -73,6 +75,7 @@ const EMPTY_FORM: JobInput = {
   description: "",
   responsibilities: "",
   requirements: "",
+  screening_questions: [] as ScreeningQuestion[],
   status: "open",
 };
 
@@ -310,6 +313,7 @@ export function JobsDashboard({
       description: job.description ?? "",
       responsibilities: job.responsibilities ?? "",
       requirements: job.requirements ?? "",
+      screening_questions: job.screening_questions ?? [],
       status: job.status,
     });
     setMutError(null);
@@ -780,6 +784,11 @@ export function JobsDashboard({
                     <label className={LABEL_CLS} htmlFor="jb-requirements">What we're looking for</label>
                     <textarea id="jb-requirements" rows={4} placeholder="One point per line — press Enter between points" className={`${INPUT_CLS} resize-none`} value={form.requirements} onChange={(e) => set("requirements", e.target.value)} />
                   </div>
+
+                  <ScreeningQuestionBuilder
+                    value={form.screening_questions}
+                    onChange={(qs) => set("screening_questions", qs)}
+                  />
 
                   {mutError && (
                     <p className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-500">{mutError}</p>

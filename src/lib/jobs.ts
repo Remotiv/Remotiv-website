@@ -23,6 +23,33 @@ export const LIST_SELECT =
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+export type ScreeningQuestion = {
+  id: string;
+  question: string; // <= 200 chars
+  type: "yesno" | "numeric" | "multiple";
+  // "Yes"/"No" for yesno · numeric-as-string for numeric · the ideal option
+  // INDEX as a string ("0","1",…) for multiple. One consistent string type that
+  // round-trips through the jsonb column unchanged.
+  ideal: string;
+  options: string[]; // [] unless type === "multiple"
+  essential: boolean;
+};
+
+// Frozen-at-apply-time snapshot of one screening answer, scored server-side in
+// /api/apply and stored in job_applications.screening_answers (jsonb). The
+// admin applications view reads this for display (no re-scoring).
+export type ScreeningAnswerSnapshot = {
+  question_id: string;
+  question: string;
+  type: "yesno" | "numeric" | "multiple";
+  essential: boolean;
+  ideal: string;
+  answer: string;
+  answer_label?: string;
+  ideal_label?: string;
+  matched: boolean;
+};
+
 export interface Job {
   id: string;
   title: string;
@@ -45,6 +72,7 @@ export interface Job {
   description?: string | null;
   responsibilities: string | null;
   requirements: string | null;
+  screening_questions: ScreeningQuestion[];
   status: string;
   created_at: string;
 }

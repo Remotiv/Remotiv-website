@@ -1,3 +1,4 @@
+import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ApplicationsDashboard } from "@/app/admin/_components/applications-dashboard";
 import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
@@ -16,7 +17,7 @@ async function fetchAllApplications(
 ): Promise<Record<string, unknown>[]> {
   const PAGE = 1000;
   const cols =
-    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, jobs(title)";
+    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, screening_answers, jobs(title)";
   let from = 0;
   const all: Record<string, unknown>[] = [];
   for (;;) {
@@ -134,6 +135,7 @@ export default async function ApplicationsPage({
     job_title: (a.jobs as { title?: string } | null)?.title ?? null,
     alreadyMoved: movedEmails.has(normaliseEmail(a.email)),
     myTags: tagMap.get(a.id as string) ?? [],
+    screening_answers: (a.screening_answers as ScreeningAnswerSnapshot[]) ?? [],
   }));
 
   const openJobs: OpenJob[] = (jobs ?? []) as OpenJob[];

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
@@ -41,6 +42,10 @@ export type JobApplication = {
   // an array (possibly empty). Derived, never persisted on JobApplication
   // itself.
   myTags: ApplicationTag[];
+  // Frozen screening-answer snapshot from job_applications.screening_answers
+  // (jsonb). Always an array (DB default '[]'); empty when the job had no
+  // screening questions. Display-only — already scored at apply time.
+  screening_answers: ScreeningAnswerSnapshot[];
 };
 
 export type OpenJob = { id: string; title: string };

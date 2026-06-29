@@ -43,6 +43,7 @@ const AddToBatchModal = dynamic(
   { ssr: false },
 );
 import { PaginationControls, paginate } from "./pagination-controls";
+import { ScreeningAnswersView, ScreeningBadge } from "./screening-answers-view";
 import { StatusBadge } from "./_shared/status-badge";
 import type { ExtractedTalentFields } from "@/lib/cv-extract";
 import {
@@ -479,6 +480,8 @@ function AppPanel({
             )}
           </div>
 
+          <ScreeningAnswersView answers={app.screening_answers} />
+
           <div className="mx-4 h-px bg-gray-100" />
 
           {/* Comments */}
@@ -634,6 +637,7 @@ function ApplicationCardMobile({
               CV
             </span>
           )}
+          <ScreeningBadge answers={app.screening_answers} />
         </div>
 
         <p className="mt-3 text-[11px] text-gray-400">
@@ -1516,6 +1520,7 @@ export function ApplicationsDashboard({
                   <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">CV</th>
                   <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Source</th>
                   <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Status</th>
+                  <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Screening</th>
                   <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Applied</th>
                   <th className="px-6 py-3 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">Actions</th>
                 </tr>
@@ -1523,7 +1528,7 @@ export function ApplicationsDashboard({
               <tbody>
                 {filtered.length === 0 ? (
                   <tr>
-                    <td colSpan={10} className="px-6 py-16 text-center text-sm text-gray-400">
+                    <td colSpan={11} className="px-6 py-16 text-center text-sm text-gray-400">
                       No applications found
                     </td>
                   </tr>
@@ -1538,7 +1543,17 @@ export function ApplicationsDashboard({
                     return (
                       <tr
                         key={app.id}
-                        className={`border-b border-gray-50 transition-colors hover:bg-gray-50/50 ${
+                        onClick={() => setPanelApp(app)}
+                        role="button"
+                        tabIndex={0}
+                        onKeyDown={(e) => {
+                          if (e.key === "Enter" || e.key === " ") {
+                            e.preventDefault();
+                            setPanelApp(app);
+                          }
+                        }}
+                        aria-label={`Open application from ${app.first_name ?? "candidate"}`}
+                        className={`cursor-pointer border-b border-gray-50 transition-colors hover:bg-gray-50/50 ${
                           isHighlighted
                             ? "bg-remotiv-purple/5 outline outline-2 -outline-offset-2 outline-remotiv-purple/40"
                             : ""
@@ -1557,6 +1572,7 @@ export function ApplicationsDashboard({
                               href={app.linkedin_url}
                               target="_blank"
                               rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 rounded-lg bg-[#0A66C2]/10 px-2.5 py-1 text-xs font-medium text-[#0A66C2] transition-colors hover:bg-[#0A66C2]/20"
                             >
                               <svg className="size-3.5" viewBox="0 0 24 24" fill="currentColor">
@@ -1576,7 +1592,8 @@ export function ApplicationsDashboard({
                           <div className="flex items-center gap-2">
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 void handleCv(app.id, "view");
                               }}
                               className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
@@ -1586,7 +1603,8 @@ export function ApplicationsDashboard({
                             </button>
                             <button
                               type="button"
-                              onClick={() => {
+                              onClick={(e) => {
+                                e.stopPropagation();
                                 void handleCv(app.id, "download");
                               }}
                               className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200"
@@ -1627,11 +1645,17 @@ export function ApplicationsDashboard({
                             )}
                           </div>
                         </td>
+                        <td className="px-6 py-4">
+                          <ScreeningBadge answers={app.screening_answers} />
+                        </td>
                         <td className="px-6 py-4 text-gray-400">{fmtDate(app.created_at)}</td>
                         <td className="px-6 py-4">
                           <button
                             type="button"
-                            onClick={() => setPanelApp(app)}
+                            onClick={(e) => {
+                              e.stopPropagation();
+                              setPanelApp(app);
+                            }}
                             className="rounded-lg p-1.5 text-gray-400 transition-colors hover:bg-gray-100 hover:text-gray-600"
                           >
                             <MoreHorizontal className="size-4" strokeWidth={2} />

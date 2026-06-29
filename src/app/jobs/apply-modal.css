@@ -1,0 +1,559 @@
+/* Candidate apply modal — ported from the approved ApplyForm design.
+ * Everything is scoped under `.applymodal` (the backdrop) so none of these
+ * styles leak into other routes, mirroring job-detail.css's `.jobpage` pattern.
+ * Brand: purple #7E47FF, lime #D9F972, mint #49D7A7 / deep #1D9E75,
+ * ink #241F38, amber #FBF0D9/#92660A, canvas #f8f4f1.
+ */
+
+.applymodal {
+  position: fixed;
+  inset: 0;
+  z-index: 1000;
+  display: flex;
+  align-items: flex-start;
+  justify-content: center;
+  overflow-y: auto;
+  background: rgba(0, 0, 0, 0.6);
+  padding: 16px;
+}
+
+.applymodal .ap-modal {
+  position: relative;
+  margin: 48px auto;
+  display: flex;
+  width: 100%;
+  max-width: 480px;
+  max-height: 92vh;
+  flex-direction: column;
+  overflow: hidden;
+  border-radius: 18px;
+  background: #fff;
+  box-shadow: 0 24px 70px rgba(0, 0, 0, 0.35);
+  animation: ap-in 0.3s ease;
+}
+@keyframes ap-in {
+  from {
+    transform: translateY(16px) scale(0.98);
+  }
+  to {
+    transform: none;
+  }
+}
+
+/* ── Branded header ─────────────────────────────────────────── */
+.applymodal .ap-head {
+  position: relative;
+  flex-shrink: 0;
+  background: #7e47ff;
+  padding: 22px 22px 20px;
+  color: #fff;
+}
+.applymodal .ap-head-tex {
+  position: absolute;
+  inset: 0;
+  pointer-events: none;
+  background-image:
+    linear-gradient(rgba(255, 255, 255, 0.07) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(255, 255, 255, 0.07) 1px, transparent 1px);
+  background-size: 38px 38px;
+}
+.applymodal .ap-head-inner {
+  position: relative;
+  padding-right: 40px;
+}
+.applymodal .ap-close {
+  position: absolute;
+  right: 16px;
+  top: 16px;
+  z-index: 2;
+  display: flex;
+  height: 36px;
+  width: 36px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9px;
+  background: rgba(255, 255, 255, 0.2);
+  color: #fff;
+  transition: background 0.15s;
+}
+.applymodal .ap-close:hover {
+  background: rgba(255, 255, 255, 0.35);
+}
+.applymodal .ap-eyebrow {
+  font-size: 11px;
+  font-weight: 700;
+  letter-spacing: 1.5px;
+  text-transform: uppercase;
+  color: #d9f972;
+  margin-bottom: 12px;
+}
+.applymodal .ap-head-row {
+  display: flex;
+  align-items: flex-start;
+  gap: 13px;
+}
+/* Title column must be able to shrink so the title wraps instead of overflowing. */
+.applymodal .ap-head-row > div {
+  min-width: 0;
+}
+.applymodal .ap-avatar {
+  display: flex;
+  height: 44px;
+  width: 44px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 11px;
+  background: #fff;
+  font-size: 20px;
+  font-weight: 800;
+  color: #7e47ff;
+}
+.applymodal .ap-jobtitle {
+  font-size: 19px;
+  font-weight: 800;
+  line-height: 1.2;
+  letter-spacing: -0.4px;
+  color: #fff;
+  overflow-wrap: anywhere;
+}
+.applymodal .ap-jobmeta {
+  margin-top: 3px;
+  display: flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.75);
+}
+.applymodal .ap-mode {
+  display: inline-flex;
+  align-items: center;
+  gap: 4px;
+}
+
+/* ── Boarding-pass tear line ────────────────────────────────── */
+.applymodal .ap-perf {
+  position: relative;
+  height: 0;
+  flex-shrink: 0;
+  border-top: 2px dashed rgba(255, 255, 255, 0.45);
+  background: #7e47ff;
+}
+.applymodal .ap-perf span {
+  position: absolute;
+  top: -9px;
+  height: 18px;
+  width: 18px;
+  border-radius: 9999px;
+  background: #fff;
+}
+.applymodal .ap-perf .l {
+  left: -9px;
+}
+.applymodal .ap-perf .r {
+  right: -9px;
+}
+
+/* ── Scroll body ────────────────────────────────────────────── */
+.applymodal .ap-body {
+  flex: 1;
+  overflow-y: auto;
+  padding: 20px 22px;
+  display: flex;
+  flex-direction: column;
+  gap: 14px;
+}
+.applymodal .ap-rowpair {
+  display: flex;
+  gap: 14px;
+}
+.applymodal .ap-rowpair > * {
+  flex: 1;
+}
+
+/* ── Fields ─────────────────────────────────────────────────── */
+.applymodal .ap-label {
+  display: block;
+  margin-bottom: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: #3a3550;
+}
+.applymodal .ap-req {
+  color: #dc2626;
+}
+.applymodal .ap-input {
+  width: 100%;
+  border: 1.5px solid #e3ddd5;
+  border-radius: 10px;
+  padding: 11px 13px;
+  font-size: 13.5px;
+  color: #241f38;
+  background: #fff;
+  outline: none;
+  transition: border-color 0.15s, box-shadow 0.15s;
+}
+.applymodal .ap-input::placeholder {
+  color: #b3ad9f;
+}
+.applymodal .ap-input:focus {
+  border-color: #7e47ff;
+  box-shadow: 0 0 0 3px rgba(126, 71, 255, 0.12);
+}
+.applymodal .ap-num {
+  max-width: 140px;
+}
+.applymodal .ap-fielderr {
+  margin-top: 5px;
+  font-size: 11.5px;
+  color: #dc2626;
+}
+
+/* ── CV chip ────────────────────────────────────────────────── */
+.applymodal .ap-cv {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  gap: 10px;
+  border-radius: 10px;
+  padding: 12px 14px;
+  text-align: left;
+  font-size: 13px;
+  transition: border-color 0.15s, background 0.15s;
+}
+.applymodal .ap-cv-empty {
+  border: 1.5px dashed #cfc9bf;
+  background: #faf8f5;
+  color: #9a9488;
+  cursor: pointer;
+}
+.applymodal .ap-cv-empty:hover {
+  border-color: #7e47ff;
+  background: #faf8ff;
+}
+.applymodal .ap-cv-empty.err {
+  border-color: #dc2626;
+}
+.applymodal .ap-cv.on {
+  border: 1.5px solid #bfe9d8;
+  background: #f1fbf7;
+  color: #0a4a3a;
+}
+.applymodal .ap-cv-ic {
+  flex-shrink: 0;
+}
+.applymodal .ap-cv.on .ap-cv-ic {
+  color: #1d9e75;
+}
+.applymodal .ap-cv-name {
+  flex: 1;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+  font-weight: 600;
+}
+.applymodal .ap-cv-empty .ap-cv-name {
+  font-weight: 500;
+}
+.applymodal .ap-cv-hint {
+  font-weight: 400;
+  color: #b3ad9f;
+}
+.applymodal .ap-cv-change {
+  flex-shrink: 0;
+  font-size: 12px;
+  font-weight: 600;
+  color: #7e47ff;
+  text-decoration: underline;
+}
+.applymodal .ap-cv-check {
+  flex-shrink: 0;
+  color: #1d9e75;
+}
+
+/* ── Divider ────────────────────────────────────────────────── */
+.applymodal .ap-divider {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin: 4px 0;
+}
+.applymodal .ap-divline {
+  flex: 1;
+  height: 1px;
+  background: #ece6df;
+}
+.applymodal .ap-divtext {
+  font-size: 13px;
+  font-weight: 700;
+  color: #241f38;
+}
+
+/* ── Screening question ─────────────────────────────────────── */
+.applymodal .ap-q {
+  display: flex;
+  gap: 12px;
+}
+.applymodal .ap-qnum {
+  display: flex;
+  height: 26px;
+  width: 26px;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  border-radius: 7px;
+  background: #eeedfe;
+  font-size: 13px;
+  font-weight: 700;
+  color: #7e47ff;
+}
+.applymodal .ap-qbody {
+  flex: 1;
+}
+.applymodal .ap-qhead {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 8px;
+  margin-bottom: 9px;
+}
+.applymodal .ap-qtext {
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #3a3550;
+  line-height: 1.4;
+}
+.applymodal .ap-ess {
+  flex-shrink: 0;
+  border-radius: 999px;
+  background: #fbf0d9;
+  border: 1px solid #f0d9a8;
+  padding: 2px 9px;
+  font-size: 10.5px;
+  font-weight: 700;
+  text-transform: uppercase;
+  letter-spacing: 0.5px;
+  color: #92660a;
+}
+
+/* yes/no pills */
+.applymodal .ap-yn {
+  display: flex;
+  gap: 10px;
+}
+.applymodal .ap-ynbtn {
+  flex: 1;
+  border: 1.5px solid #e3ddd5;
+  border-radius: 10px;
+  padding: 10px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: #3a3550;
+  background: #fff;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.applymodal .ap-ynbtn:hover {
+  border-color: #c9bffb;
+}
+.applymodal .ap-ynbtn.on {
+  border-color: #7e47ff;
+  background: #f3efff;
+  color: #7e47ff;
+}
+
+/* multiple-choice options */
+.applymodal .ap-opt {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  border: 1.5px solid #e3ddd5;
+  border-radius: 10px;
+  padding: 10px 12px;
+  margin-top: 8px;
+  font-size: 13px;
+  color: #3a3550;
+  cursor: pointer;
+  transition: all 0.15s;
+}
+.applymodal .ap-opt:hover {
+  border-color: #c9bffb;
+}
+.applymodal .ap-opt.on {
+  border-color: #7e47ff;
+  background: #f3efff;
+  font-weight: 600;
+  color: #241f38;
+}
+.applymodal .ap-radio {
+  display: inline-block;
+  height: 16px;
+  width: 16px;
+  flex-shrink: 0;
+  border-radius: 50%;
+  border: 2px solid #cfc9bf;
+  transition: all 0.15s;
+}
+.applymodal .ap-opt.on .ap-radio {
+  border-color: #7e47ff;
+  background: #7e47ff;
+  box-shadow: inset 0 0 0 3px #fff;
+}
+
+/* ── Soft Essential warning ─────────────────────────────────── */
+.applymodal .ap-warn {
+  display: flex;
+  gap: 11px;
+  border-radius: 12px;
+  background: #fbf0d9;
+  border: 1px solid #f0d9a8;
+  padding: 12px 14px;
+}
+.applymodal .ap-warn-ic {
+  flex-shrink: 0;
+  color: #b06a00;
+}
+.applymodal .ap-warn-title {
+  font-size: 13px;
+  font-weight: 700;
+  color: #92660a;
+}
+.applymodal .ap-warn-sub {
+  margin-top: 2px;
+  font-size: 12px;
+  color: #92660a;
+  opacity: 0.85;
+}
+
+/* ── Error banner ───────────────────────────────────────────── */
+.applymodal .ap-errbanner {
+  border-radius: 10px;
+  background: #fef2f2;
+  padding: 11px 14px;
+  font-size: 12.5px;
+  color: #dc2626;
+}
+
+/* ── Footer ─────────────────────────────────────────────────── */
+.applymodal .ap-foot {
+  border-top: 1px solid #f0ebe4;
+  padding: 16px 22px 18px;
+}
+.applymodal .ap-submit {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 13px;
+  background: #7e47ff;
+  padding: 13px;
+  font-size: 14px;
+  font-weight: 700;
+  color: #fff;
+  cursor: pointer;
+  transition: background 0.18s, opacity 0.18s;
+}
+.applymodal .ap-submit:hover:not(:disabled) {
+  background: #6a37ec;
+}
+.applymodal .ap-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+}
+.applymodal .ap-foot-err {
+  margin-top: 8px;
+  text-align: center;
+  font-size: 12px;
+  color: #dc2626;
+}
+.applymodal .ap-foot-note {
+  margin-top: 10px;
+  text-align: center;
+  font-size: 11.5px;
+  color: #b3ad9f;
+}
+
+/* ── Success / duplicate screen ─────────────────────────────── */
+.applymodal .ap-success {
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  gap: 14px;
+  padding: 40px 28px;
+  text-align: center;
+}
+.applymodal .ap-success-ic {
+  display: flex;
+  height: 64px;
+  width: 64px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 9999px;
+  background: rgba(73, 215, 167, 0.15);
+  color: #49d7a7;
+}
+.applymodal .ap-success-ic.purple {
+  background: rgba(126, 71, 255, 0.1);
+  color: #7e47ff;
+}
+.applymodal .ap-success-title {
+  font-size: 19px;
+  font-weight: 800;
+  color: #241f38;
+}
+.applymodal .ap-success-sub {
+  font-size: 13.5px;
+  line-height: 1.6;
+  color: #6a6478;
+  max-width: 340px;
+}
+.applymodal .ap-cta {
+  display: inline-flex;
+  width: 100%;
+  align-items: center;
+  justify-content: center;
+  border-radius: 12px;
+  background: #7e47ff;
+  padding: 12px 16px;
+  font-size: 13.5px;
+  font-weight: 700;
+  color: #fff;
+  transition: opacity 0.15s;
+}
+.applymodal .ap-cta:hover {
+  opacity: 0.9;
+}
+.applymodal .ap-ghostbtn {
+  font-size: 13px;
+  color: #6a6478;
+  cursor: pointer;
+}
+.applymodal .ap-ghostbtn:hover {
+  color: #241f38;
+}
+
+@media (max-width: 560px) {
+  .applymodal {
+    padding: 0;
+  }
+  .applymodal .ap-modal {
+    margin: 0;
+    max-width: 100%;
+    min-height: 100%;
+    max-height: 100%;
+    border-radius: 0;
+  }
+  .applymodal .ap-rowpair {
+    flex-direction: column;
+  }
+  .applymodal .ap-num {
+    max-width: 100%;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .applymodal .ap-modal {
+    animation: none;
+  }
+}

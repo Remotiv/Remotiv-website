@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimRequired, trimToNull } from "@/app/admin/lib/validators";
@@ -24,6 +25,7 @@ export type Job = {
   description: string | null;
   responsibilities: string | null;
   requirements: string | null;
+  screening_questions: ScreeningQuestion[];
   status: "open" | "on_hold" | "closed";
   created_at: string;
 };
@@ -45,12 +47,57 @@ export type JobInput = {
   description: string;
   responsibilities: string;
   requirements: string;
+  screening_questions: ScreeningQuestion[];
   status: string;
 };
 
 type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
+
+// Server-side cleanup of the screening-questions array — the single source of
+// truth before persistence. Drops invalid/empty questions, caps at 10, and
+// normalizes each question's ideal/options per type. Empty result ([]) is valid.
+function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
+  if (!Array.isArray(input)) return [];
+
+  const cleaned: ScreeningQuestion[] = [];
+  for (const raw of input.slice(0, 10)) {
+    if (!raw || typeof raw !== "object") continue;
+    const q = raw as Partial<ScreeningQuestion>;
+
+    const question = (typeof q.question === "string" ? q.question : "")
+      .trim()
+      .slice(0, 200);
+    if (!question) continue; // drop empty-text questions
+
+    const type = q.type;
+    if (type !== "yesno" && type !== "numeric" && type !== "multiple") continue;
+
+    const id = typeof q.id === "string" && q.id ? q.id : crypto.randomUUID();
+    const essential = q.essential === true;
+
+    if (type === "yesno") {
+      const ideal = q.ideal === "No" ? "No" : "Yes";
+      cleaned.push({ id, question, type, ideal, options: [], essential });
+    } else if (type === "numeric") {
+      const n = Number.parseFloat(String(q.ideal ?? ""));
+      const ideal = Number.isFinite(n) && n >= 0 ? String(n) : "0";
+      cleaned.push({ id, question, type, ideal, options: [], essential });
+    } else {
+      const options = (Array.isArray(q.options) ? q.options : [])
+        .map((o) => (typeof o === "string" ? o.trim() : ""))
+        .filter((o) => o.length > 0);
+      if (options.length < 2) continue; // multiple requires >= 2 options
+      const idx = Number.parseInt(String(q.ideal ?? "0"), 10);
+      const ideal = String(
+        Number.isInteger(idx) && idx >= 0 && idx < options.length ? idx : 0,
+      );
+      cleaned.push({ id, question, type, ideal, options, essential });
+    }
+  }
+  return cleaned;
+}
 
 function buildPatch(input: JobInput):
   | { ok: true; patch: Record<string, unknown> }
@@ -86,6 +133,7 @@ function buildPatch(input: JobInput):
       description: trimToNull(input.description),
       responsibilities: trimToNull(input.responsibilities),
       requirements: trimToNull(input.requirements),
+      screening_questions: sanitizeQuestions(input.screening_questions),
       status: input.status,
     },
   };
