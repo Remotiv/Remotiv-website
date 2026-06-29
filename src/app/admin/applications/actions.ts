@@ -53,6 +53,7 @@ export type OpenJob = { id: string; title: string };
 export type ApplicationComment = {
   id: string;
   application_id: string;
+  admin_id?: string | null;
   comment: string;
   author_name: string;
   created_at: string;
@@ -136,22 +137,40 @@ export async function toggleApplicationTag(
 export async function addComment(
   applicationId: string,
   comment: string,
-  authorName: string,
+  // Per-admin scoping: client-supplied authorName is intentionally ignored —
+  // both admin_id and the stored author_name are derived from the session so
+  // they can't be spoofed. The parameter is preserved so the dashboard call
+  // site (applications-dashboard.tsx:1775) still type-checks.
+  _authorName: string,
 ): Promise<MutationResult<ApplicationComment>> {
-  await requireAdmin();
+  const ctx = await requireAdmin();
+  const adminUserId = ctx.user.id;
   const trimmedComment = trimRequired(comment);
   if (!trimmedComment) {
     return { success: false, error: "Comment cannot be empty." };
   }
-  const trimmedAuthor = trimToNull(authorName) ?? "Anonymous";
 
   const supabase = createServiceClient();
+
+  // Server-derived display name. Prefer admin_users.full_name; fall back to
+  // the email local-part (the super-admin shortcut in getAdminContext skips
+  // the admin_users lookup, so a row may not exist); final fallback "Admin".
+  const { data: adminRow } = await supabase
+    .from("admin_users")
+    .select("full_name")
+    .eq("user_id", adminUserId)
+    .maybeSingle();
+  const fullName = (adminRow as { full_name: string | null } | null)?.full_name ?? null;
+  const emailLocal = ctx.user.email?.split("@")[0] ?? null;
+  const authorDisplay = trimToNull(fullName) ?? trimToNull(emailLocal) ?? "Admin";
+
   const { data, error } = await supabase
     .from("application_comments")
     .insert({
       application_id: applicationId,
+      admin_id: adminUserId,
       comment: trimmedComment,
-      author_name: trimmedAuthor,
+      author_name: authorDisplay,
     })
     .select()
     .single();
@@ -179,12 +198,13 @@ export async function deleteApplication(
 export async function fetchComments(
   applicationId: string,
 ): Promise<ApplicationComment[]> {
-  await requireAdmin();
+  const { user } = await requireAdmin();
   const supabase = createServiceClient();
   const { data } = await supabase
     .from("application_comments")
     .select("*")
     .eq("application_id", applicationId)
+    .eq("admin_id", user.id)
     .order("created_at", { ascending: true });
 
   return (data ?? []) as ApplicationComment[];
