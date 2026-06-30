@@ -16,6 +16,7 @@ export default async function AdminJobsPage() {
     service
       .from("jobs")
       .select("*")
+      .order("display_order", { ascending: true, nullsFirst: false })
       .order("created_at", { ascending: false }),
     service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
   ]);

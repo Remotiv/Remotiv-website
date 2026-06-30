@@ -19,7 +19,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug";
+  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -73,6 +73,7 @@ export interface Job {
   responsibilities: string | null;
   requirements: string | null;
   screening_questions: ScreeningQuestion[];
+  display_order: number | null;
   status: string;
   created_at: string;
 }
@@ -84,6 +85,7 @@ export async function getInitialJobs(): Promise<Job[]> {
     .from("jobs")
     .select(LIST_SELECT)
     .eq("status", "open")
+    .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
 

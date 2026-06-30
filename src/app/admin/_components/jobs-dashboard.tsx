@@ -17,6 +17,7 @@ import {
   type LucideIcon,
 } from "lucide-react";
 import { TopNav } from "./top-nav";
+import { JobOrderCell } from "./job-order-cell";
 import { PaginationControls, paginate } from "./pagination-controls";
 import {
   createJob,
@@ -76,6 +77,7 @@ const EMPTY_FORM: JobInput = {
   responsibilities: "",
   requirements: "",
   screening_questions: [] as ScreeningQuestion[],
+  display_order: "",
   status: "open",
 };
 
@@ -314,6 +316,7 @@ export function JobsDashboard({
       responsibilities: job.responsibilities ?? "",
       requirements: job.requirements ?? "",
       screening_questions: job.screening_questions ?? [],
+      display_order: job.display_order != null ? String(job.display_order) : "",
       status: job.status,
     });
     setMutError(null);
@@ -502,6 +505,9 @@ export function JobsDashboard({
             <table className="w-full text-sm">
               <thead>
                 <tr className="border-b border-gray-100">
+                  <th className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                    Order
+                  </th>
                   {["Title", "Company", "Category", "Location", "Salary", "Type", "Status", "Posted"].map((h) => (
                     <th
                       key={h}
@@ -516,7 +522,7 @@ export function JobsDashboard({
               <tbody>
                 {filteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditJobs || canDeleteJobs ? 9 : 8} className="px-6 py-12 text-center text-sm text-gray-400">
+                    <td colSpan={canEditJobs || canDeleteJobs ? 10 : 9} className="px-6 py-12 text-center text-sm text-gray-400">
                       {jobs.length === 0
                         ? `No jobs posted yet.${canEditJobs ? " Click \"New Job\" to get started." : ""}`
                         : "No jobs match the current filters."}
@@ -527,6 +533,9 @@ export function JobsDashboard({
                     const meta = STATUS_META[job.status];
                     return (
                       <tr key={job.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                        <td className="px-6 py-4">
+                          <JobOrderCell jobId={job.id} initial={job.display_order} />
+                        </td>
                         <td className="px-6 py-4">
                           <p className="font-semibold text-[#111]">{job.title}</p>
                           <p className="text-xs text-gray-400">{job.experience_level}</p>
@@ -691,6 +700,12 @@ export function JobsDashboard({
                       <label className={LABEL_CLS} htmlFor="jb-positions">No. of Positions</label>
                       <input id="jb-positions" type="number" min="1" step="1" placeholder="1" className={INPUT_CLS} value={form.positions} onChange={(e) => set("positions", e.target.value)} />
                     </div>
+                  </div>
+
+                  {/* Display order */}
+                  <div>
+                    <label className={LABEL_CLS} htmlFor="jb-display-order">Display order (1 = first, blank = newest)</label>
+                    <input id="jb-display-order" type="number" min="1" step="1" placeholder="Blank = newest" className={INPUT_CLS} value={form.display_order} onChange={(e) => set("display_order", e.target.value)} />
                   </div>
 
                   {/* Category + Experience */}

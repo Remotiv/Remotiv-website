@@ -26,6 +26,7 @@ export type Job = {
   responsibilities: string | null;
   requirements: string | null;
   screening_questions: ScreeningQuestion[];
+  display_order: number | null;
   status: "open" | "on_hold" | "closed";
   created_at: string;
 };
@@ -48,6 +49,7 @@ export type JobInput = {
   responsibilities: string;
   requirements: string;
   screening_questions: ScreeningQuestion[];
+  display_order: string;
   status: string;
 };
 
@@ -114,6 +116,11 @@ function buildPatch(input: JobInput):
     return { ok: false, error: "Currency is required (USD or PKR)." };
   }
 
+  // Custom display order — blank/invalid → null (sorts after numbered jobs).
+  const orderRaw = input.display_order?.trim();
+  const orderNum = orderRaw ? Number.parseInt(orderRaw, 10) : Number.NaN;
+  const displayOrder = orderRaw && Number.isFinite(orderNum) ? orderNum : null;
+
   return {
     ok: true,
     patch: {
@@ -134,6 +141,7 @@ function buildPatch(input: JobInput):
       responsibilities: trimToNull(input.responsibilities),
       requirements: trimToNull(input.requirements),
       screening_questions: sanitizeQuestions(input.screening_questions),
+      display_order: displayOrder,
       status: input.status,
     },
   };
@@ -221,6 +229,24 @@ export async function updateJobStatus(
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/jobs");
+  return { success: true, data: undefined };
+}
+
+export async function updateJobDisplayOrder(
+  id: string,
+  value: number | null,
+): Promise<MutationResult<undefined>> {
+  await requireAdmin();
+  const supabase = createServiceClient();
+  const clean = value === null || !Number.isFinite(value) ? null : Math.trunc(value);
+  const { error } = await supabase
+    .from("jobs")
+    .update({ display_order: clean })
+    .eq("id", id);
+
+  if (error) return { success: false, error: error.message };
+  revalidatePath("/admin/jobs");
+  revalidatePath("/jobs");
   return { success: true, data: undefined };
 }
 

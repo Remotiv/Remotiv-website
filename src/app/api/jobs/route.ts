@@ -45,6 +45,7 @@ export async function GET(request: NextRequest) {
     .from("jobs")
     .select(LIST_SELECT)
     .eq("status", "open")
+    .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
 
