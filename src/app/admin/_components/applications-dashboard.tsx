@@ -53,7 +53,6 @@ import {
   addComment,
   deleteApplication,
   fetchComments,
-  getApplicationCvSignedUrl,
   type ApplicationTag,
   type JobApplication,
   type ApplicationStatus,
@@ -1183,40 +1182,6 @@ export function ApplicationsDashboard({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // ── CV signed-URL handlers ────────────────────────────────
-  // The `cvs` bucket is private (K1 Phase 1) — admins must open CVs via a
-  // short-lived signed URL issued by the server action. Mirrors the working
-  // pattern in talent-dashboard.tsx's handleAdminViewCv. `mode` controls
-  // whether the browser previews the PDF (new tab) or initiates a download.
-  async function handleCv(applicationId: string, mode: "view" | "download") {
-    const result = await getApplicationCvSignedUrl(applicationId);
-    if (!result.ok) {
-      const messages: Record<typeof result.error, string> = {
-        not_authenticated: "Your session has expired. Please log in again.",
-        cv_missing: "CV file unavailable — please contact support.",
-        internal_error: "Could not load CV. Please try again.",
-      };
-      setToast(messages[result.error] ?? "Could not load CV. Please try again.");
-      return;
-    }
-    if (mode === "view") {
-      const win = window.open(result.url, "_blank", "noopener,noreferrer");
-      if (!win) {
-        setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
-      }
-      return;
-    }
-    // Download: synthesize a temporary <a download> click since signed URLs
-    // can't carry the `download` attribute directly via window.open.
-    const a = document.createElement("a");
-    a.href = result.url;
-    a.download = "";
-    a.rel = "noopener noreferrer";
-    document.body.appendChild(a);
-    a.click();
-    a.remove();
-  }
-
   // ── Delete confirm ────────────────────────────────────────
   const [deleteTarget, setDeleteTarget] = useState<JobApplication | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1627,28 +1592,26 @@ export function ApplicationsDashboard({
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleCv(app.id, "view");
-                              }}
+                            <a
+                              href={`/api/cv/admin-application/${app.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 rounded-lg bg-remotiv-purple/10 px-2.5 py-1 text-xs font-medium text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                             >
                               <ExternalLink className="size-3" strokeWidth={2} />
                               View
-                            </button>
-                            <button
-                              type="button"
-                              onClick={(e) => {
-                                e.stopPropagation();
-                                void handleCv(app.id, "download");
-                              }}
+                            </a>
+                            <a
+                              href={`/api/cv/admin-application/${app.id}?download=1`}
+                              target="_blank"
+                              rel="noopener noreferrer"
+                              onClick={(e) => e.stopPropagation()}
                               className="inline-flex items-center gap-1 rounded-lg bg-gray-100 px-2.5 py-1 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-200"
                             >
                               <Download className="size-3" strokeWidth={2} />
                               Download
-                            </button>
+                            </a>
                           </div>
                         </td>
                         <td className="px-6 py-4">
