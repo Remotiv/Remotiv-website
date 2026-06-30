@@ -1317,16 +1317,19 @@ export function TalentDashboard({
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
       if (filterClaim !== "All") {
         const inv = inviteStatusFor(p);
-        if (filterClaim === "claimed"   && p.claimed_at == null) return false;
+        // Claimed signal mirrors the public /browse-talent page (user_id), with
+        // claimed_at OR'd in for robustness against legacy/either-field rows.
+        const isClaimed = p.user_id != null || p.claimed_at != null;
+        if (filterClaim === "claimed" && !isClaimed) return false;
         if (
           filterClaim === "unclaimed" &&
-          !(p.claimed_at == null && inv === "not_invited")
+          !(!isClaimed && inv === "not_invited")
         )
           return false;
         if (
           filterClaim === "invited_not_accepted" &&
           !(
-            p.claimed_at == null &&
+            !isClaimed &&
             (inv === "pending" || inv === "opened" || inv === "expired")
           )
         )
@@ -1532,7 +1535,7 @@ export function TalentDashboard({
   }
 
   function inviteStatusFor(profile: TalentProfile): InviteStatus {
-    if (profile.claimed_at) return "claimed";
+    if (profile.user_id != null || profile.claimed_at != null) return "claimed";
     return inviteStatuses[profile.id]?.status ?? "not_invited";
   }
 

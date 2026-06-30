@@ -79,6 +79,7 @@ export type TalentProfile = {
   is_archived: boolean;
   approved_at: string | null;
   claimed_at: string | null;
+  user_id: string | null;
   notes: string | null;
   created_at: string;
 };
@@ -90,17 +91,32 @@ type MutationResult<T = undefined> =
 export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
   await requireAdmin();
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("talent_profiles")
-    .select("*")
-    .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("[talent_profiles] read failed:", error);
-    return [];
+  // PostgREST caps any unbounded select at 1000 rows, so a single select("*")
+  // silently returns only the newest 1000 — older claimed/invited profiles
+  // fall outside the window and never reach the client filters. Page through
+  // in 1000-row batches until a short page signals the end. Mirrors
+  // fetchAllApplications in src/app/admin/applications/page.tsx.
+  const PAGE = 1000;
+  let from = 0;
+  const rows: Array<Record<string, unknown>> = [];
+  for (;;) {
+    const { data, error } = await supabase
+      .from("talent_profiles")
+      .select("*")
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+    if (error) {
+      console.error("[talent_profiles] read failed:", error);
+      return [];
+    }
+    const batch = (data ?? []) as Array<Record<string, unknown>>;
+    rows.push(...batch);
+    if (batch.length < PAGE) break;
+    from += PAGE;
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((raw) => {
+  return rows.map((raw) => {
     const profile = normaliseRow(raw);
     return {
       ...profile,
@@ -323,36 +339,49 @@ export async function fetchTalentInviteStatuses(
   if (profileIds.length === 0) return {};
 
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("talent_claim_tokens")
-    .select("candidate_id, status, created_at")
-    .in("candidate_id", profileIds)
-    .eq("source_table", "talent_profiles")
-    .order("created_at", { ascending: false });
 
-  if (error) {
-    console.error("[talent_claim_tokens] read failed:", error);
-    return {};
-  }
-
+  // Fetch ALL talent_profiles invite tokens and build the map in memory rather
+  // than passing the (up to ~1000-id) profile list to a single .in() — a large
+  // .in() overflows the request URL and silently fails, blanking every invite
+  // status. Range-page in 1000-row batches (PostgREST caps unbounded selects
+  // at 1000), ordered created_at desc so the first row per candidate is latest.
+  const PAGE = 1000;
+  let from = 0;
   const result: Record<string, InviteMetrics> = {};
-  for (const row of (data ?? []) as Array<{
-    candidate_id: string;
-    status: string;
-    created_at: string | null;
-  }>) {
-    const existing = result[row.candidate_id];
-    if (!existing) {
-      // First row per candidate wins for status + lastSentAt because the
-      // query is ordered created_at desc.
-      result[row.candidate_id] = {
-        status: row.status as InviteStatus,
-        sentCount: 1,
-        lastSentAt: row.created_at,
-      };
-    } else {
-      existing.sentCount += 1;
+  for (;;) {
+    const { data, error } = await supabase
+      .from("talent_claim_tokens")
+      .select("candidate_id, status, created_at")
+      .eq("source_table", "talent_profiles")
+      .order("created_at", { ascending: false })
+      .range(from, from + PAGE - 1);
+
+    if (error) {
+      console.error("[talent_claim_tokens] read failed:", error);
+      return result;
     }
+
+    const batch = (data ?? []) as Array<{
+      candidate_id: string;
+      status: string;
+      created_at: string | null;
+    }>;
+    for (const row of batch) {
+      const existing = result[row.candidate_id];
+      if (!existing) {
+        // First row per candidate wins for status + lastSentAt because the
+        // query is ordered created_at desc (and pages walk newest-first).
+        result[row.candidate_id] = {
+          status: row.status as InviteStatus,
+          sentCount: 1,
+          lastSentAt: row.created_at,
+        };
+      } else {
+        existing.sentCount += 1;
+      }
+    }
+    if (batch.length < PAGE) break;
+    from += PAGE;
   }
   return result;
 }
@@ -459,6 +488,7 @@ function normaliseRow(r: Record<string, unknown>): TalentProfile {
     is_archived: Boolean(r.is_archived),
     approved_at: (r.approved_at as string | null) ?? null,
     claimed_at: (r.claimed_at as string | null) ?? null,
+    user_id: (r.user_id as string | null) ?? null,
     notes: (r.notes as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
   };
