@@ -151,6 +151,7 @@ export async function POST(request: Request) {
           loginUrl,
           adminName: adminCtx.user.email,
         }),
+        replyTo: "talent@remotiv.work",
       }).catch((err) => {
         console.error("[send-invite] email error", err);
       });
