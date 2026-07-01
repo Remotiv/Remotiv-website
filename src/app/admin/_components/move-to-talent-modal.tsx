@@ -3,7 +3,6 @@
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { ExternalLink, Plus, UserCheck, X } from "lucide-react";
 import {
-  getApplicationCvSignedUrl,
   moveApplicationToTalent,
   type JobApplication,
 } from "@/app/admin/applications/actions";
@@ -222,7 +221,7 @@ function SkillsInput({
   );
 }
 
-function ApplicantCard({ app, onViewCv }: { app: JobApplication; onViewCv: () => void }) {
+function ApplicantCard({ app }: { app: JobApplication }) {
   return (
     <div className="rounded-2xl border border-remotiv-purple/15 bg-remotiv-purple/5 px-5 py-4">
       <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-remotiv-purple">
@@ -258,14 +257,15 @@ function ApplicantCard({ app, onViewCv }: { app: JobApplication; onViewCv: () =>
         {app.cv_url && (
           <p className="flex items-center gap-1.5">
             <span className="text-gray-400">CV:</span>
-            <button
-              type="button"
-              onClick={() => onViewCv()}
+            <a
+              href={`/api/cv/admin-application/${app.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
               className="inline-flex items-center gap-1 font-medium text-remotiv-purple hover:underline"
             >
               <ExternalLink className="size-3" strokeWidth={2} />
               View CV
-            </button>
+            </a>
           </p>
         )}
       </div>
@@ -456,21 +456,6 @@ export function MoveToTalentModal({
     return null;
   }
 
-  async function handleViewCv(applicationId: string) {
-    const result = await getApplicationCvSignedUrl(applicationId);
-    if (!result.ok) {
-      const msgs: Record<string, string> = {
-        not_authenticated: "Your session has expired. Please log in again.",
-        cv_missing: "CV file unavailable — please contact support.",
-        internal_error: "Could not load CV. Please try again.",
-      };
-      setError(msgs[result.error] ?? "Could not load CV. Please try again.");
-      return;
-    }
-    const win = window.open(result.url, "_blank", "noopener,noreferrer");
-    if (!win) setError("Pop-up blocked. Allow pop-ups for this site to view CVs.");
-  }
-
   async function handleSubmit() {
     setError(null);
     const err = validate();
@@ -556,7 +541,7 @@ export function MoveToTalentModal({
 
         {/* Body */}
         <div className="flex-1 overflow-y-auto px-6 py-5">
-          <ApplicantCard app={app} onViewCv={() => handleViewCv(app.id)} />
+          <ApplicantCard app={app} />
 
           {error && (
             <div className="mt-4 rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">

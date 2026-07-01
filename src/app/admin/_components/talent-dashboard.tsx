@@ -10,7 +10,6 @@
 
 import { useState, useEffect, useMemo, useCallback } from "react";
 import Image from "next/image";
-import { getCvSignedUrl } from "@/app/browse-talent/actions";
 import { useRouter } from "next/navigation";
 import {
   Search as SearchIcon,
@@ -582,31 +581,6 @@ function ProfileDrawer({
     setBusyFlag(null);
   }
 
-  // K1 Phase 2b: open the candidate's CV via a fresh signed URL. The
-  // getCvSignedUrl action recognises admin context (super-admin email or
-  // admin_users.role) and bypasses the unlock_events check, so admins don't
-  // need an unlock to view CVs.
-  const handleAdminViewCv = useCallback(
-    async (candidateId: string): Promise<void> => {
-      const result = await getCvSignedUrl(candidateId);
-      if (result.ok) {
-        const win = window.open(result.url, "_blank", "noopener,noreferrer");
-        if (!win) {
-          onToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
-        }
-        return;
-      }
-      const messages: Record<string, string> = {
-        not_authenticated: "Your session has expired. Please log in again.",
-        not_unlocked: "Unable to access this CV (admin permission issue).",
-        cv_missing: "CV file unavailable — please contact support.",
-        internal_error: "Could not load CV. Please try again.",
-      };
-      onToast(messages[result.error] ?? "Could not load CV. Please try again.");
-    },
-    [onToast],
-  );
-
   async function handleSaveNote() {
     setSavingNote(true);
     const result = await saveTalentNote(profile.id, note);
@@ -833,31 +807,29 @@ function ProfileDrawer({
 
           {/* CV — gate widened to cv_url || cv_path: apply-routed moved profiles
               persist cv_path only (cv_url is null because the cvs bucket is
-              private; no public URL is stored). The handler below already
-              prefers cv_path via getCvSignedUrl. */}
+              private; no public URL is stored). The /api/cv/admin-talent route
+              prefers cv_path with a legacy cv_url fallback. */}
           {(profile.cv_url || profile.cv_path) && (
             <DrawerSection title="CV">
               <div className="flex gap-2">
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleAdminViewCv(profile.id);
-                  }}
+                <a
+                  href={`/api/cv/admin-talent/${profile.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-remotiv-purple/10 px-3 py-2 text-xs font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/20"
                 >
                   <Eye className="size-3.5" strokeWidth={2} />
                   View CV
-                </button>
-                <button
-                  type="button"
-                  onClick={() => {
-                    void handleAdminViewCv(profile.id);
-                  }}
+                </a>
+                <a
+                  href={`/api/cv/admin-talent/${profile.id}?download=1`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   className="flex flex-1 items-center justify-center gap-1.5 rounded-xl bg-gray-100 px-3 py-2 text-xs font-semibold text-gray-600 transition-colors hover:bg-gray-200"
                 >
                   <Download className="size-3.5" strokeWidth={2} />
                   Download CV
-                </button>
+                </a>
               </div>
             </DrawerSection>
           )}
@@ -1295,9 +1267,15 @@ export function TalentDashboard({
     (filterWorkType !== "All" ? 1 : 0) +
     (filterClaim !== "All" ? 1 : 0);
 
-  // Keep state in sync with refreshed server data
+  // Keep state in sync with refreshed server data. Guard against a transient
+  // empty payload (e.g. a failed/in-flight refetch during rapid approvals)
+  // overwriting a populated list — only re-seed when the incoming list has
+  // rows, or when we currently have none.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: re-seed must key off initialProfiles only; `profiles` is read as a guard, adding it would loop.
   useEffect(() => {
-    setProfiles(initialProfiles);
+    if (initialProfiles.length > 0 || profiles.length === 0) {
+      setProfiles(initialProfiles);
+    }
   }, [initialProfiles]);
 
   // Auto-dismiss toast
@@ -1383,7 +1361,6 @@ export function TalentDashboard({
     const result = await updateTalentStatus(profile.id, status);
     if (result.success) {
       setToast(`Marked as ${STATUS_LABELS[status]}`);
-      router.refresh();
     } else {
       setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
       setToast(`Update failed: ${friendlyError(result.error)}`);
@@ -1411,7 +1388,6 @@ export function TalentDashboard({
     if (result.success) {
       const label = STATUS_LABELS[flag];
       setToast(value ? `Marked as ${label}` : `Cleared ${label}`);
-      router.refresh();
     } else {
       setProfiles((prev) => prev.map((p) => (p.id === profile.id ? profile : p)));
       setToast(`Update failed: ${friendlyError(result.error)}`);
