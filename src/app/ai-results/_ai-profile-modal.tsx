@@ -33,7 +33,6 @@ type Props = {
   isUnlocked: boolean;
   isUnlocking: boolean;
   isSaving: boolean;
-  isViewingCv: boolean;
   saved: boolean;
   effectiveContact: {
     github: string | null;
@@ -44,7 +43,6 @@ type Props = {
   onClose: () => void;
   onToggleSave: (id: string) => void;
   onUnlock: (id: string) => void;
-  onViewCv: (id: string) => void;
 };
 
 function formatSalary(min: number | null, max: number | null): string | null {
@@ -91,14 +89,12 @@ export default function AIProfileModal({
   isUnlocked,
   isUnlocking,
   isSaving,
-  isViewingCv,
   saved,
   effectiveContact,
   unlockNote,
   onClose,
   onToggleSave,
   onUnlock,
-  onViewCv,
 }: Props) {
   const p = match.profile;
   const type = deriveType(p.role_category);
@@ -479,19 +475,14 @@ export default function AIProfileModal({
                     );
                   })()}
                 {effectiveContact.cvUrl && (
-                  <button
-                    type="button"
-                    onClick={() => onViewCv(match.candidate_id)}
-                    disabled={isViewingCv}
-                    aria-busy={isViewingCv}
-                    className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple disabled:cursor-wait disabled:opacity-70"
+                  <a
+                    href={`/api/cv/browse/${match.candidate_id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
                   >
-                    {isViewingCv ? (
-                      <Loader2 className="size-3 animate-spin" />
-                    ) : (
-                      <>Resume ✦</>
-                    )}
-                  </button>
+                    Resume ✦
+                  </a>
                 )}
                 {!effectiveContact.github &&
                   !effectiveContact.linkedin &&

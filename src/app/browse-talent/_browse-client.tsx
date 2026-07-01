@@ -41,7 +41,6 @@ function preloadProfileModal(): void {
 }
 import {
   fetchProfileDetail,
-  getCvSignedUrl,
   refreshTier,
   toggleSave,
   unlockCandidate,
@@ -352,14 +351,13 @@ export type EffectiveContact = {
 
 // Phase 4 D1: memoized. With useCallback'd handlers + stable c/saved/flag props
 // per candidate, typing in the search input no longer re-renders every card —
-// only cards whose isUnlocking/isSaving/isViewingCv actually flip will repaint.
+// only cards whose isUnlocking/isSaving actually flip will repaint.
 const CardItem = memo(function CardItem({
   c,
   saved,
   onView,
   onSave,
   onLocked,
-  onViewCv,
   index,
   isUnlocked,
   canUnlock,
@@ -367,14 +365,12 @@ const CardItem = memo(function CardItem({
   effectiveContact,
   isUnlocking = false,
   isSaving = false,
-  isViewingCv = false,
 }: {
   c: Card;
   saved: boolean;
   onView: () => void;
   onSave: () => void;
   onLocked: () => void;
-  onViewCv: () => void;
   index: number;
   isUnlocked: boolean;
   canUnlock: boolean;
@@ -382,7 +378,6 @@ const CardItem = memo(function CardItem({
   effectiveContact: EffectiveContact;
   isUnlocking?: boolean;
   isSaving?: boolean;
-  isViewingCv?: boolean;
 }) {
   const cfg = ROLE_CFG[c.type];
   return (
@@ -512,16 +507,15 @@ const CardItem = memo(function CardItem({
           )}
           {/* Resume */}
           {isUnlocked && effectiveContact.cvUrl ? (
-            <button
-              type="button"
+            <a
               className="bt-clink"
-              onClick={onViewCv}
-              disabled={isViewingCv}
+              href={`/api/cv/browse/${c.id}`}
+              target="_blank"
+              rel="noopener noreferrer"
               style={{ minWidth: 100 }}
-              aria-busy={isViewingCv}
             >
-              {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" aria-label="Loading CV" /> : "Resume ✦"}
-            </button>
+              Resume ✦
+            </a>
           ) : canUnlock ? (
             <button
               type="button"
@@ -770,7 +764,6 @@ export function BrowseClient({
   // and powers per-button Loader2 spinners.
   const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set());
   const [savingIds, setSavingIds] = useState<Set<string>>(new Set());
-  const [viewingCvIds, setViewingCvIds] = useState<Set<string>>(new Set());
   // A2: persistent toast shown when a subscriber hits no_credits.
   const [outOfCreditsToast, setOutOfCreditsToast] = useState<boolean>(false);
   // B3/J2: persistent toast shown when the client tier prop disagrees with
@@ -1058,47 +1051,6 @@ export function BrowseClient({
     // Auto-dismiss handled by the [toast] useEffect.
     setToast("🔒 Subscriptions coming soon. Check back later.");
   };
-
-  // Phase 4 D1: useCallback so CardItem's memo stays stable.
-  const handleViewCv = useCallback(async (candidateId: string): Promise<void> => {
-    // K1: in-flight guard + spinner. Ignore subsequent clicks while a previous
-    // request is pending; spinner state lives in viewingCvIds.
-    if (viewingCvIds.has(candidateId)) return;
-    setViewingCvIds((prev) => {
-      const next = new Set(prev);
-      next.add(candidateId);
-      return next;
-    });
-
-    try {
-      const result = await getCvSignedUrl(candidateId);
-      if (result.ok) {
-        const win = window.open(result.url, "_blank", "noopener,noreferrer");
-        if (!win) {
-          setToast("Pop-up blocked. Allow pop-ups for this site to view CVs.");
-        }
-        return;
-      }
-      // B3/J2: client thinks subscriber but server says not authenticated → session stale.
-      if (result.error === "not_authenticated" && tier === "subscriber") {
-        setSessionStaleToast(true);
-        return;
-      }
-      const errorMessages: Record<string, string> = {
-        not_authenticated: "Please log in to view this CV.",
-        not_unlocked: "Please unlock this candidate to view their CV.",
-        cv_missing: "CV unavailable — please contact support.",
-        internal_error: "Could not load CV. Please try again.",
-      };
-      setToast(errorMessages[result.error] ?? "Could not load CV. Please try again.");
-    } finally {
-      setViewingCvIds((prev) => {
-        const next = new Set(prev);
-        next.delete(candidateId);
-        return next;
-      });
-    }
-  }, [viewingCvIds, tier]);
 
   // Phase 4 D1: useCallback so CardItem's memo stays stable.
   const handleUnlock = useCallback(async (candidateId: string, candidateName: string): Promise<UnlockResult> => {
@@ -1485,7 +1437,6 @@ export function BrowseClient({
                       onView={() => handleOpenCard(c)}
                       onSave={() => handleToggleSave(c.id)}
                       onLocked={handleLockedAction}
-                      onViewCv={() => { void handleViewCv(c.id); }}
                       index={i}
                       isUnlocked={unlockedSet.has(c.id)}
                       canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(c.id)}
@@ -1493,7 +1444,6 @@ export function BrowseClient({
                       effectiveContact={getEffectiveContact(c)}
                       isUnlocking={unlockingIds.has(c.id)}
                       isSaving={savingIds.has(c.id)}
-                      isViewingCv={viewingCvIds.has(c.id)}
                     />
                   ))}
                   {tier === "subscriber" && currentPage < totalPages && (
@@ -1539,7 +1489,6 @@ export function BrowseClient({
                             onView={() => {}}
                             onSave={() => {}}
                             onLocked={() => {}}
-                            onViewCv={() => {}}
                             index={i + 15}
                             isUnlocked={false}
                             canUnlock={false}
@@ -1547,7 +1496,6 @@ export function BrowseClient({
                             effectiveContact={{ email: null, phone: null, linkedin: null, cvUrl: null, github: null }}
                             isUnlocking={false}
                             isSaving={false}
-                            isViewingCv={false}
                           />
                         ))}
                       </div>
@@ -1645,10 +1593,8 @@ export function BrowseClient({
             setOpenCard(null);
             handleLockedAction();
           }}
-          onViewCv={() => { void handleViewCv(openCard.id); }}
           isUnlocking={unlockingIds.has(openCard.id)}
           isSaving={savingIds.has(openCard.id)}
-          isViewingCv={viewingCvIds.has(openCard.id)}
           detail={profileDetailCache.get(openCard.id) ?? null}
           isLoadingDetail={loadingDetailIds.has(openCard.id)}
         />

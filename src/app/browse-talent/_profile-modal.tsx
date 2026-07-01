@@ -30,10 +30,8 @@ export type ProfileModalProps = {
   onSave: () => void;
   onClose: () => void;
   onLocked: () => void;
-  onViewCv: () => void;
   isUnlocking?: boolean;
   isSaving?: boolean;
-  isViewingCv?: boolean;
   // Phase 4 Lean Projection: arrives from fetchProfileDetail once the modal
   // opens. While `detail` is null and `isLoadingDetail` is true, the modal
   // shows skeleton placeholders for the detail-only sections.
@@ -79,10 +77,8 @@ export default function ProfileModal({
   onSave,
   onClose,
   onLocked,
-  onViewCv,
   isUnlocking = false,
   isSaving = false,
-  isViewingCv = false,
   detail = null,
   isLoadingDetail = false,
 }: ProfileModalProps) {
@@ -289,15 +285,15 @@ export default function ProfileModal({
                 <button type="button" className="bt-plink" onClick={onLocked}>LinkedIn</button>
               )}
               {isUnlocked && effectiveContact.cvUrl ? (
-                <button
-                  type="button"
+                <a
                   className="bt-plink"
-                  onClick={onViewCv}
-                  disabled={isViewingCv}
+                  href={`/api/cv/browse/${c.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
                   style={{ minWidth: 100 }}
                 >
-                  {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "Resume ✦"}
-                </button>
+                  Resume ✦
+                </a>
               ) : canUnlock ? (
                 <button
                   type="button"
@@ -515,15 +511,15 @@ export default function ProfileModal({
                 {effectiveContact.cvUrl && (
                   <div className="bt-unlocked-row">
                     <span className="bt-unlocked-label">CV</span>
-                    <button
-                      type="button"
-                      onClick={onViewCv}
+                    <a
+                      href={`/api/cv/browse/${c.id}`}
+                      target="_blank"
+                      rel="noopener noreferrer"
                       className="bt-unlocked-link"
-                      disabled={isViewingCv}
                       style={{ minWidth: 88 }}
                     >
-                      {isViewingCv ? <Loader2 className="h-4 w-4 animate-spin" /> : "View CV"}
-                    </button>
+                      View CV
+                    </a>
                   </div>
                 )}
               </div>

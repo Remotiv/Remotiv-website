@@ -5,7 +5,7 @@ import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
 import { Suspense, useCallback, useEffect, useRef, useState } from "react";
-import { getCvSignedUrl, toggleSave, unlockCandidate } from "@/app/browse-talent/actions";
+import { toggleSave, unlockCandidate } from "@/app/browse-talent/actions";
 import { Navbar } from "@/components/navbar";
 import {
   type CandidateProfile,
@@ -219,12 +219,10 @@ function TalentCard({
   saved,
   isUnlocked,
   isUnlocking,
-  isViewingCv,
   effectiveContact,
   unlockNote,
   onToggleSave,
   onUnlock,
-  onViewCv,
   onOpenProfile,
 }: {
   match: EnrichedMatch;
@@ -232,7 +230,6 @@ function TalentCard({
   saved: boolean;
   isUnlocked: boolean;
   isUnlocking: boolean;
-  isViewingCv: boolean;
   effectiveContact: {
     github: string | null;
     linkedin: string | null;
@@ -241,7 +238,6 @@ function TalentCard({
   unlockNote: string | null;
   onToggleSave: (id: string) => void;
   onUnlock: (id: string) => void;
-  onViewCv: (id: string) => void;
   onOpenProfile: (id: string) => void;
 }) {
   const p = match.profile;
@@ -341,19 +337,14 @@ function TalentCard({
                 server action. `effectiveContact.cvUrl` truthiness only tells
                 us a CV exists; the actual URL is fetched on click. */}
             {effectiveContact.cvUrl && (
-              <button
-                type="button"
-                onClick={() => onViewCv(match.candidate_id)}
-                disabled={isViewingCv}
-                aria-busy={isViewingCv}
-                className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple disabled:cursor-wait disabled:opacity-70"
+              <a
+                href={`/api/cv/browse/${match.candidate_id}`}
+                target="_blank"
+                rel="noopener noreferrer"
+                className="flex items-center gap-1.5 rounded-full border border-black/[0.08] bg-white px-3 py-1.5 text-[0.72rem] font-medium text-[#555] transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
               >
-                {isViewingCv ? (
-                  <Loader2 className="size-3 animate-spin" />
-                ) : (
-                  <>Resume ✦</>
-                )}
-              </button>
+                Resume ✦
+              </a>
             )}
             {!effectiveContact.github &&
               !effectiveContact.linkedin &&
@@ -594,8 +585,6 @@ function ResultsContent() {
     >
   >(new Map());
   const [unlockingIds, setUnlockingIds] = useState<Set<string>>(new Set());
-  // Phase 5C fix: in-flight guard for Resume click (signed-URL re-fetch).
-  const [viewingCvIds, setViewingCvIds] = useState<Set<string>>(new Set());
   // Per-card unlock note — tells the user whether a credit was charged or
   // the candidate was already unlocked (e.g. from a prior browse-talent unlock).
   const [lastUnlockNote, setLastUnlockNote] = useState<{ id: string; text: string } | null>(null);
@@ -834,46 +823,6 @@ function ResultsContent() {
     [tier, unlockedSet, unlockingIds],
   );
 
-  // Phase 5C fix: Resume click → fetch a fresh 1-hour signed URL via
-  // getCvSignedUrl and open it. Mirrors browse-talent's handleViewCv exactly.
-  // The `cvs` storage bucket is private, so the raw cv_url stored on
-  // talent_profiles is never directly clickable — must be re-signed per click.
-  const handleViewCv = useCallback(
-    async (candidateId: string) => {
-      if (viewingCvIds.has(candidateId)) return;
-      setViewingCvIds((prev) => {
-        const next = new Set(prev);
-        next.add(candidateId);
-        return next;
-      });
-      try {
-        const result = await getCvSignedUrl(candidateId);
-        if (result.ok) {
-          // Clear any stale CV notice from a prior failed attempt.
-          setCvNotice(null);
-          window.open(result.url, "_blank", "noopener,noreferrer");
-          return;
-        }
-        // Auth/subscription errors → PricingModal (unified upgrade prompt).
-        if (result.error === "not_authenticated" || result.error === "not_unlocked") {
-          setIsPricingModalOpen(true);
-        } else if (result.error === "cv_missing") {
-          setCvNotice("This candidate hasn't uploaded a resume.");
-        } else {
-          // internal_error or any other unexpected !ok branch.
-          setCvNotice("Couldn't open the resume. Please try again.");
-        }
-      } finally {
-        setViewingCvIds((prev) => {
-          const next = new Set(prev);
-          next.delete(candidateId);
-          return next;
-        });
-      }
-    },
-    [viewingCvIds],
-  );
-
   const visible = showOnlySaved
     ? results.filter((r) => shortlist.has(r.candidate_id))
     : results;
@@ -971,14 +920,12 @@ function ResultsContent() {
                 saved={shortlist.has(m.candidate_id)}
                 isUnlocked={cardUnlocked}
                 isUnlocking={unlockingIds.has(m.candidate_id)}
-                isViewingCv={viewingCvIds.has(m.candidate_id)}
                 effectiveContact={effectiveContact}
                 unlockNote={
                   lastUnlockNote?.id === m.candidate_id ? lastUnlockNote.text : null
                 }
                 onToggleSave={handleToggleSave}
                 onUnlock={handleUnlock}
-                onViewCv={handleViewCv}
                 onOpenProfile={setOpenProfileId}
               />
             );
@@ -1039,7 +986,6 @@ function ResultsContent() {
             isUnlocked={cardUnlocked}
             isUnlocking={unlockingIds.has(openMatch.candidate_id)}
             isSaving={savingIds.has(openMatch.candidate_id)}
-            isViewingCv={viewingCvIds.has(openMatch.candidate_id)}
             saved={shortlist.has(openMatch.candidate_id)}
             effectiveContact={effectiveContact}
             unlockNote={
@@ -1050,7 +996,6 @@ function ResultsContent() {
             onClose={() => setOpenProfileId(null)}
             onToggleSave={handleToggleSave}
             onUnlock={handleUnlock}
-            onViewCv={handleViewCv}
           />
         );
       })()}
