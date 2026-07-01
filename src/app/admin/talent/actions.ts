@@ -107,8 +107,11 @@ export async function fetchTalentProfiles(): Promise<TalentProfile[]> {
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) {
+      // THROW (don't silently return []) — a transient page error must fail the
+      // server render so the client keeps its last good state / shows the error
+      // boundary, instead of an empty list overwriting populated data.
       console.error("[talent_profiles] read failed:", error);
-      return [];
+      throw error;
     }
     const batch = (data ?? []) as Array<Record<string, unknown>>;
     rows.push(...batch);
