@@ -6,7 +6,6 @@ import { useEffect, useState } from "react";
 import { createClient } from "@/lib/supabase/client";
 import { getAvatarUrl } from "@/lib/avatars";
 import {
-  getOwnCvSignedUrl,
   getOwnPhotoSignedUrl,
   removeCv,
   removePhoto,
@@ -2335,19 +2334,6 @@ export function EditClient({
     }
   }
 
-  async function handleCvDownload() {
-    if (!activeProfile) return;
-    const result = await getOwnCvSignedUrl({
-      profileId: activeProfile.id,
-      sourceTable: activeProfile.sourceTable,
-    });
-    if (!result.success) {
-      setToast(result.error || "Could not load CV.");
-      return;
-    }
-    window.open(result.data.url, "_blank", "noopener,noreferrer");
-  }
-
   async function handleCvUpload(file: File) {
     if (!activeProfile) return;
     const isPakistan = activeProfile.sourceTable === "talent_profiles";
@@ -4517,13 +4503,14 @@ export function EditClient({
 
                         {hasCv && (
                           <div className="mb-3 flex flex-wrap items-center gap-2">
-                            <button
-                              type="button"
-                              onClick={handleCvDownload}
+                            <a
+                              href={`/api/cv/own/${activeProfile.sourceTable}/${activeProfile.id}`}
+                              target="_blank"
+                              rel="noopener noreferrer"
                               className="rounded-full bg-remotiv-purple px-4 py-1.5 text-xs font-bold text-white hover:opacity-90"
                             >
                               Download current CV
-                            </button>
+                            </a>
                             <button
                               type="button"
                               onClick={handleCvRemove}
