@@ -89,7 +89,7 @@ const ALLOWED_PHOTO_TYPES = [
   "image/gif",
 ] as const;
 
-// Verbatim from intake: src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
+// Verbatim from intake: src/app/join-as-freelancer/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
   "Native",
   "Fluent",
@@ -97,17 +97,17 @@ const REMOTE_LANGUAGE_LEVELS = [
   "Basic",
 ] as const;
 
-// Verbatim from intake: src/app/remote-ready/page.tsx:299 portfolio URL test
+// Verbatim from intake: src/app/join-as-freelancer/page.tsx:299 portfolio URL test
 // `/^https?:\/\//i` — must start with http:// or https://.
 const PORTFOLIO_URL_REGEX = /^https?:\/\//i;
 
-// Verbatim regex from src/app/remote-ready/page.tsx:274 — intake form
+// Verbatim regex from src/app/join-as-freelancer/page.tsx:274 — intake form
 // requires a `linkedin.com/in/...` profile URL. Server and intake must
 // match exactly so users can't bypass intake validation via the edit page.
 const REMOTE_LINKEDIN_REGEX =
   /^https?:\/\/(www\.)?linkedin\.com\/in\//i;
 
-// Verbatim from intake form src/app/remote-ready/page.tsx:118-135.
+// Verbatim from intake form src/app/join-as-freelancer/page.tsx:118-135.
 const REMOTE_HOURS_PER_WEEK_OPTIONS = [
   "More than 30 hrs/week",
   "20-30 hrs/week",
@@ -121,7 +121,7 @@ const REMOTE_WORK_TYPE_OPTIONS = [
   "Part-time",
 ] as const;
 
-// Verbatim from intake AVAIL_LABEL (src/app/remote-ready/page.tsx:131-135).
+// Verbatim from intake AVAIL_LABEL (src/app/join-as-freelancer/page.tsx:131-135).
 // "now" → "Available Now" (capital N), "twoWeeks" → "Available within 2 weeks".
 const REMOTE_AVAIL_LABELS: Record<"now" | "twoWeeks", string> = {
   now: "Available Now",
@@ -1099,7 +1099,7 @@ export async function updateRemoteProfessional(
     bio = bioTrimmed;
   }
 
-  // Match intake parseFloat (src/app/remote-ready/page.tsx:591). Allows
+  // Match intake parseFloat (src/app/join-as-freelancer/page.tsx:591). Allows
   // decimals; we still clamp to integer range 10..999 client-side via
   // step=1 but server-side accept any numeric in range.
   const rateRaw = input.hourlyRate.trim();
@@ -1449,7 +1449,7 @@ export async function updateRemoteEducation(
   if (allEmpty) {
     updatePayload = { education: null };
   } else {
-    // Verbatim intake join: src/app/remote-ready/page.tsx:556
+    // Verbatim intake join: src/app/join-as-freelancer/page.tsx:556
     // dates: [eduStart.trim(), eduEnd.trim()].filter(Boolean).join("–")
     // — en-dash U+2013, NO surrounding spaces.
     datesOut = [start, end].filter(Boolean).join("–");
@@ -1552,7 +1552,7 @@ export async function updateRemoteEmployment(
         error: `Description must be ${EMPLOYMENT_DESCRIPTION_MAX} characters or fewer.`,
       };
     }
-    // Verbatim intake separator: src/app/remote-ready/page.tsx:549
+    // Verbatim intake separator: src/app/join-as-freelancer/page.tsx:549
     // [e.start, e.end].filter(Boolean).join(" — ")  ← em-dash U+2014 with spaces.
     const dates = [start, end].filter(Boolean).join(" — ");
     stored.push({ title, company, start, end, description, dates });

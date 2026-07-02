@@ -400,7 +400,7 @@ export function DashboardClient({
           const intakePath =
             missingPool === "talent_profiles"
               ? "/join-as-talent"
-              : "/remote-ready";
+              : "/join-as-freelancer";
 
           if (unclaimedInMissing && unclaimedInMissing.status === "approved") {
             return (

@@ -376,7 +376,7 @@ export default function BecomeATalentPage() {
   const [summary, setSummary] = useState("");
   const [githubUrl, setGithubUrl] = useState("");
   // Honeypot — bots fill this hidden input; humans leave it blank. Mirrors
-  // remote-ready's pattern. /api/talent checks the same field name
+  // join-as-freelancer's pattern. /api/talent checks the same field name
   // (website_url) and silently fake-succeeds when it's non-empty.
   const [websiteUrl, setWebsiteUrl] = useState("");
 

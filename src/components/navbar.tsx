@@ -96,7 +96,7 @@ const NAV_ITEMS: readonly NavItem[] = [
         icon: Briefcase,
         title: "Join as Freelancer",
         description: "Find remote freelance work",
-        href: "/remote-ready",
+        href: "/join-as-freelancer",
       },
     ],
   },

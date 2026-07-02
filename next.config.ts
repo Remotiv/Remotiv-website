@@ -25,6 +25,11 @@ const nextConfig: NextConfig = {
         destination: "/find-freelancers",
         permanent: true,
       },
+      {
+        source: "/remote-ready",
+        destination: "/join-as-freelancer",
+        permanent: true,
+      },
     ];
   },
   async headers() {

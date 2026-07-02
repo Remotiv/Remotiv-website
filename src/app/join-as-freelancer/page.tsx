@@ -1,6 +1,6 @@
 "use client";
 
-import "./remote-ready.css";
+import "./join-as-freelancer.css";
 import Link from "next/link";
 import {
   Children,

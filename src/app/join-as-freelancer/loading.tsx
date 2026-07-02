@@ -1,4 +1,4 @@
-// Route-level loading state shown during navigation to /remote-ready while the
+// Route-level loading state shown during navigation to /join-as-freelancer while the
 // page chunk loads. Block-shaped placeholders roughly match the real layout
 // (hero band + stats strip + sticky steps bar + form card) so the perceived
 // transition feels continuous rather than blank → content.

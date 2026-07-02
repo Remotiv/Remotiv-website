@@ -31,7 +31,7 @@ const ALLOWED_ROUTES = [
   "/find-freelancers",
   "/jobs",
   "/pricing",
-  "/remote-ready",
+  "/join-as-freelancer",
   "/services/dedicated-team",
   "/services/payroll",
   "/services/recruitment",

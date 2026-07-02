@@ -16,7 +16,7 @@ const footerLinks: ReadonlyArray<{
     title: "For Talent",
     links: [
       { label: "Join as Talent", href: "/join-as-talent" },
-      { label: "Join as Freelancer", href: "/remote-ready" },
+      { label: "Join as Freelancer", href: "/join-as-freelancer" },
       { label: "Browse Jobs", href: "/jobs" },
     ],
   },

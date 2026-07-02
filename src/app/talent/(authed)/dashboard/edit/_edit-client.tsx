@@ -116,7 +116,7 @@ const EXPERIENCE_FIELD_MAX = 200;
 const EXPERIENCE_DESCRIPTION_MAX = 1000;
 const EXPERIENCE_SKILLS_MAX = 30;
 
-// Verbatim from src/app/remote-ready/page.tsx (HOURS_LABEL line 118-122,
+// Verbatim from src/app/join-as-freelancer/page.tsx (HOURS_LABEL line 118-122,
 // WORK_TYPE_LABEL line 124-129, AVAIL_LABEL line 131-135).
 const REMOTE_HOURS_PER_WEEK_OPTIONS = [
   "More than 30 hrs/week",
@@ -164,7 +164,7 @@ const REMOTE_PHOTO_MAX_BYTES = 5 * 1024 * 1024;
 const PHOTO_ACCEPT =
   ".jpg,.jpeg,.png,.webp,.gif,image/jpeg,image/png,image/webp,image/gif";
 
-// Verbatim from intake src/app/remote-ready/page.tsx:112 LANGUAGE_LEVELS.
+// Verbatim from intake src/app/join-as-freelancer/page.tsx:112 LANGUAGE_LEVELS.
 const REMOTE_LANGUAGE_LEVELS = [
   "Native",
   "Fluent",
@@ -172,7 +172,7 @@ const REMOTE_LANGUAGE_LEVELS = [
   "Basic",
 ] as const;
 
-// Verbatim from intake src/app/remote-ready/page.tsx:299 — must start with
+// Verbatim from intake src/app/join-as-freelancer/page.tsx:299 — must start with
 // http:// or https://. Same regex used server-side in actions.ts.
 const PORTFOLIO_URL_REGEX = /^https?:\/\//i;
 
@@ -282,7 +282,7 @@ function parsePortfolioFromRaw(raw: unknown): PortfolioRowState[] {
   });
 }
 
-// Verbatim from intake form: src/app/remote-ready/page.tsx:274.
+// Verbatim from intake form: src/app/join-as-freelancer/page.tsx:274.
 const REMOTE_LINKEDIN_REGEX =
   /^https?:\/\/(www\.)?linkedin\.com\/in\//i;
 
