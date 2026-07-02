@@ -816,7 +816,7 @@ export default function RemoteReadyPage() {
                   >
                     Edit or manage your profile →
                   </Link>
-                  <Link href="/hire-remote" className="bta-success-btn">
+                  <Link href="/find-freelancers" className="bta-success-btn">
                     View Find Freelancers →
                   </Link>
                 </div>

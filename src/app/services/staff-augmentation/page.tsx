@@ -604,7 +604,7 @@ function Hero() {
           </p>
           <div className="flex flex-col sm:flex-row sm:flex-wrap items-stretch sm:items-center justify-center gap-2.5 sm:gap-3.5">
             <Link
-              href="/hire-remote"
+              href="/find-freelancers"
               className="w-full sm:w-auto text-center rounded-full bg-remotiv-green px-8 py-[12px] sm:py-[15px] font-heading text-base font-bold text-remotiv-text-dark transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →
@@ -1044,7 +1044,7 @@ function CtaInquiry() {
           </p>
           <div className="mb-7 flex flex-wrap gap-2.5">
             <Link
-              href="/hire-remote"
+              href="/find-freelancers"
               className="inline-flex items-center rounded-full bg-remotiv-green px-6 py-[13px] sm:py-3 font-heading text-[0.82rem] font-bold text-remotiv-text-dark transition-opacity hover:opacity-[0.88]"
             >
               Get Your First Specialist →

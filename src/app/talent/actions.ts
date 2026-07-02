@@ -188,7 +188,7 @@ export async function claimProfile(
   if (sourceTable === "talent_profiles") {
     revalidatePath("/browse-talent");
   } else {
-    revalidatePath("/hire-remote");
+    revalidatePath("/find-freelancers");
   }
 
   return { success: true };

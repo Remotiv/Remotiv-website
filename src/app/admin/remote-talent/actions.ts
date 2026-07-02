@@ -176,7 +176,7 @@ export async function updateRemoteTalentStatus(
   }
 
   revalidatePath("/admin/remote-talent");
-  revalidatePath("/hire-remote");
+  revalidatePath("/find-freelancers");
   return { success: true, data: undefined };
 }
 
@@ -197,7 +197,7 @@ export async function updateRemoteTalentVerification(
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/remote-talent");
-  revalidatePath("/hire-remote");
+  revalidatePath("/find-freelancers");
   return { success: true, data: undefined };
 }
 
@@ -229,7 +229,7 @@ export async function deleteRemoteTalentProfile(
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/remote-talent");
-  revalidatePath("/hire-remote");
+  revalidatePath("/find-freelancers");
   return { success: true, data: undefined };
 }
 

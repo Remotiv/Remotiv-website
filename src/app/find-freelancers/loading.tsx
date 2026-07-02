@@ -1,4 +1,4 @@
-// Route-level loading state shown during navigation to /hire-remote while the
+// Route-level loading state shown during navigation to /find-freelancers while the
 // page chunk loads + the initial Supabase query resolves. Block-shaped
 // placeholders roughly match the real layout (hero band + stats strip + filter
 // bar + 6-card candidate grid) so the perceived transition feels continuous.

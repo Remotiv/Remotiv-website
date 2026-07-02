@@ -17,8 +17,8 @@ import { useState } from "react";
  * own visual identity (role-colored squircle, hash-colored circle,
  * gradient drawer avatar, etc.).
  *
- * Used by /browse-talent modal, /hire-remote list card, and
- * /hire-remote drawer.
+ * Used by /browse-talent modal, /find-freelancers list card, and
+ * /find-freelancers drawer.
  */
 export function LazyPhoto({
   src,

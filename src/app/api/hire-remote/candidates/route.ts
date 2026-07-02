@@ -7,7 +7,7 @@ export const runtime = "nodejs";
 const PAGE_SIZE = 12;
 const RATE_FILTER_MAX = 200;
 
-// KEEP IN SYNC with ENGLISH_LEVEL_RANK in src/app/hire-remote/_marketplace.tsx
+// KEEP IN SYNC with ENGLISH_LEVEL_RANK in src/app/find-freelancers/_marketplace.tsx
 // and the trigger mapping in migration 012.
 const ENGLISH_LEVEL_RANK: Record<string, number> = {
   Native: 4,
@@ -26,7 +26,7 @@ const EXP_BUCKETS: Record<string, [number, number | null]> = {
   "10+ yrs": [10, null],
 };
 
-// Allow-list mirrors src/app/hire-remote/page.tsx — never add email, phone,
+// Allow-list mirrors src/app/find-freelancers/page.tsx — never add email, phone,
 // linkedin_url, or cv_*. photo_path is OK to ship (post 4.3C.0: photos live
 // in the public talent_photos bucket; the URL is safe to expose).
 const SELECT_COLUMNS =

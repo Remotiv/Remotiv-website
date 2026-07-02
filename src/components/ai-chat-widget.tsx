@@ -28,7 +28,7 @@ const ALLOWED_ROUTES = [
   "/book-a-meeting",
   "/browse-talent",
   "/contact",
-  "/hire-remote",
+  "/find-freelancers",
   "/jobs",
   "/pricing",
   "/remote-ready",
