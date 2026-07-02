@@ -152,7 +152,113 @@ export default async function BrowseTalentPage({
   // critical path. Anonymous viewers skip both queries entirely.
   const savedIdsArr: string[] = [];
   const savedIdsSet = new Set<string>();
-  if (user && userId) {
+
+  let rows: TalentRow[] = [];
+  let totalCount = 0;
+  let totalPages = 1;
+  // Fast path only: the user's unlock rows fetched by user_id (an indexed
+  // superset of the visible page's unlocks); intersected with the page's
+  // candidate ids in the unlock block below. null = sequential path (which
+  // queries by candidate ids as before).
+  let unlockRowsByUser: Array<{ candidate_id: string }> | null = null;
+
+  // Phase 4 Lean Projection: list query selects ONLY columns CardItem
+  // renders + columns rowToCard derives from. Modal-only fields (summary
+  // remains for CardItem.bio; experience, degree, institution moved to
+  // fetchProfileDetail). `industry` dropped — mapped but never displayed.
+  // Shared by the fast and sequential paths so the construction can't drift;
+  // only the row range (and the saved view's id list) differs per caller.
+  const buildTalentQuery = (
+    fromRow: number,
+    toRow: number,
+    savedInList?: string[],
+  ) => {
+    let t = supabase
+      .from("talent_profiles")
+      .select(
+        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
+      )
+      .not("approved_at", "is", null)
+      .eq("is_paused", false)
+      .eq("is_archived", false);
+    if (claimedOnly) {
+      t = t.not("user_id", "is", null);
+    }
+    if (savedInList) {
+      t = t.in("id", savedInList);
+    }
+    if (role !== "All") {
+      t = t.eq("role_category", role);
+    }
+    if (q !== "") {
+      const safeQ = escapeIlike(q);
+      const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
+      t = t.or(orFilter);
+    }
+    const ordered =
+      sort === "name"
+        ? t.order("first_name", { ascending: true })
+        : t.order("created_at", { ascending: false });
+    return ordered.range(fromRow, toRow);
+  };
+
+  // Fast path: authenticated + default view + page 1. subscriptions, saved,
+  // list, count, and unlocks-by-user each depend only on userId / URL params,
+  // so they run in ONE Promise.all after getUser (4 sequential round-trips →
+  // 2). Tier isn't known yet, so the list fetches the subscriber page size
+  // (30) and the free-tier 15-row cap is applied in-memory below — server-
+  // side, before serialization. Saved view and ?page>1 keep the sequential
+  // flow unchanged (saved needs the saved ids first; the free page-1 lock
+  // needs tier before a range can be chosen).
+  const useFastPath = Boolean(user && userId) && !isSavedView && page === 1;
+
+  if (useFastPath) {
+    const [subResult, savedResult, talentResult, countResult, unlockResult] =
+      await Promise.all([
+        auth
+          .from("subscriptions")
+          .select("tier, credits_remaining")
+          .eq("user_id", userId)
+          .maybeSingle(),
+        // Phase 4 EDIT 7: defensive .limit(500) — without a cap, a user with
+        // tens of thousands of saves would hand a giant array back to the page.
+        supabase
+          .from("saved_profiles")
+          .select("candidate_id")
+          .eq("user_id", userId)
+          .limit(500),
+        buildTalentQuery(0, 29),
+        // Non-saved view here by definition — earlyCountPromise is in flight.
+        earlyCountPromise ?? countQuery,
+        auth
+          .from("unlock_events")
+          .select("candidate_id")
+          .eq("user_id", userId),
+      ]);
+    const sub = subResult.data;
+    if (sub?.tier === "starter" || sub?.tier === "pro") {
+      tier = "subscriber";
+      creditsRemaining = sub.credits_remaining ?? 0;
+    }
+    const savedRows = savedResult.data ?? [];
+    for (const r of savedRows as Array<{ candidate_id: string }>) {
+      savedIdsArr.push(r.candidate_id);
+      savedIdsSet.add(r.candidate_id);
+    }
+    if (talentResult.error || countResult.error) {
+      console.error(
+        "Browse talent query failed:",
+        talentResult.error ?? countResult.error,
+      );
+      // rows/totalCount/totalPages keep their defaults — empty state renders gracefully
+    } else {
+      rows = (talentResult.data ?? []) as TalentRow[];
+      totalCount = countResult.count ?? 0;
+    }
+    unlockRowsByUser = (unlockResult.data ?? []) as Array<{
+      candidate_id: string;
+    }>;
+  } else if (user && userId) {
     const [subResult, savedResult] = await Promise.all([
       auth
         .from("subscriptions")
@@ -187,59 +293,31 @@ export default async function BrowseTalentPage({
   const from = (effectivePage - 1) * PAGE_SIZE;
   const to = from + PAGE_SIZE - 1;
 
+  if (useFastPath) {
+    // fast path fetched the subscriber page size (30 rows); now that tier is
+    // known, apply the free-tier cap in-memory. The slice happens server-side
+    // before serialization — free users never receive more than 15 rows.
+    rows = rows.slice(0, PAGE_SIZE);
+    // Free tier always sees only page 1 — never expose pagination affordance to them
+    totalPages = isFreeViewer(tier) ? 1 : Math.max(1, Math.ceil(totalCount / PAGE_SIZE));
+  }
+
   // Phase 4 A1: savedIdsArr / savedIdsSet are populated in the Promise.all
   // above (alongside the subscriptions fetch) — no separate round-trip here.
 
   // Short-circuit: saved view with zero saves → render empty state
   const shouldReturnEmpty = isSavedView && savedIdsSet.size === 0;
 
-  let rows: TalentRow[] = [];
-  let totalCount = 0;
-  let totalPages = 1;
-
-  if (!shouldReturnEmpty) {
-    // Phase 4 Lean Projection: list query selects ONLY columns CardItem
-    // renders + columns rowToCard derives from. Modal-only fields (summary
-    // remains for CardItem.bio; experience, degree, institution moved to
-    // fetchProfileDetail). `industry` dropped — mapped but never displayed.
-    let talentQuery = supabase
-      .from("talent_profiles")
-      .select(
-        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
-      )
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false);
-
-    if (claimedOnly) {
-      talentQuery = talentQuery.not("user_id", "is", null);
-    }
-
+  if (!useFastPath && !shouldReturnEmpty) {
+    let savedInList: string[] | undefined;
     if (isSavedView) {
       // Free tier: cap saved view to 15 IDs server-side (defense in depth)
       const allIds = Array.from(savedIdsSet);
-      const inList = isFreeViewer(tier) ? allIds.slice(0, 15) : allIds;
-      talentQuery = talentQuery.in("id", inList);
-      countQuery = countQuery.in("id", inList);
+      savedInList = isFreeViewer(tier) ? allIds.slice(0, 15) : allIds;
+      countQuery = countQuery.in("id", savedInList);
     }
 
-    if (role !== "All") {
-      talentQuery = talentQuery.eq("role_category", role);
-    }
-
-    if (q !== "") {
-      const safeQ = escapeIlike(q);
-      const orFilter = `first_name.ilike.%${safeQ}%,last_name.ilike.%${safeQ}%,job_title.ilike.%${safeQ}%`;
-      talentQuery = talentQuery.or(orFilter);
-    }
-
-    if (sort === "name") {
-      talentQuery = talentQuery.order("first_name", { ascending: true });
-    } else {
-      talentQuery = talentQuery.order("created_at", { ascending: false });
-    }
-
-    talentQuery = talentQuery.range(from, to);
+    const talentQuery = buildTalentQuery(from, to, savedInList);
 
     try {
       const [talentResult, countResult] = await Promise.all([
@@ -292,13 +370,25 @@ export default async function BrowseTalentPage({
       candidateIds.push(deepLinkedRow.id);
     }
     if (candidateIds.length > 0) {
-      const { data: unlockRows } = await auth
-        .from("unlock_events")
-        .select("candidate_id")
-        .eq("user_id", user.id)
-        .in("candidate_id", candidateIds);
-      if (unlockRows) {
-        unlockedIds = new Set(unlockRows.map((u) => u.candidate_id as string));
+      if (unlockRowsByUser !== null) {
+        // fast path: intersect the by-user unlock superset with the visible
+        // ids in-memory — identical result set to the .in(candidateIds)
+        // query below, without waiting on the list round-trip first.
+        const visibleIds = new Set(candidateIds);
+        unlockedIds = new Set(
+          unlockRowsByUser
+            .map((u) => u.candidate_id)
+            .filter((id) => visibleIds.has(id)),
+        );
+      } else {
+        const { data: unlockRows } = await auth
+          .from("unlock_events")
+          .select("candidate_id")
+          .eq("user_id", user.id)
+          .in("candidate_id", candidateIds);
+        if (unlockRows) {
+          unlockedIds = new Set(unlockRows.map((u) => u.candidate_id as string));
+        }
       }
     }
   }
