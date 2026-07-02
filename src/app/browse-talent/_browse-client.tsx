@@ -863,10 +863,20 @@ export function BrowseClient({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Sync the search input value when the activeQuery prop changes (e.g. user
-  // clears the URL, navigates back, or another route updates ?q=).
+  // Tracks the last ?q= value we ourselves pushed to the URL (via the
+  // debounced effect or the clear-X handler). The sync-from-prop effect uses
+  // it to ignore echoes of our own push — the RSC round-trip re-delivers
+  // activeQuery matching what we just pushed, and syncing that back into
+  // searchInput would clobber characters the user typed during the round-trip.
+  const lastPushedQRef = useRef(activeQuery);
+
+  // Sync the search input value when the activeQuery prop changes (back/
+  // forward nav, external URL edit, programmatic clear). Skips echoes of our
+  // own debounced push so mid-typing keystrokes aren't overwritten.
   useEffect(() => {
+    if (activeQuery === lastPushedQRef.current) return;
     setSearchInput(activeQuery);
+    lastPushedQRef.current = activeQuery;
   }, [activeQuery]);
 
   // Phase 5C follow-up: 500ms debounce (was 300) — tested sweet spot; below
@@ -875,6 +885,7 @@ export function BrowseClient({
   useEffect(() => {
     if (searchInput === activeQuery) return;
     const handle = setTimeout(() => {
+      lastPushedQRef.current = searchInput;
       updateUrl({ q: searchInput || null }, { replace: true });
     }, 500);
     return () => clearTimeout(handle);
@@ -1310,6 +1321,7 @@ export function BrowseClient({
                     type="button"
                     onClick={() => {
                       setSearchInput("");
+                      lastPushedQRef.current = "";
                       updateUrl({ q: null }, { replace: true });
                     }}
                     aria-label="Clear search"
