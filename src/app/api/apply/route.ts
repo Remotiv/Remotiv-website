@@ -28,7 +28,7 @@ const MAX_PHONE_LENGTH = 50;
 const MAX_NOTES_LENGTH = 2000;
 
 // Phase 2b — wizard fields. Caps mirror /api/talent/route.ts FIELD_MAX (29-46)
-// so an applicant's payload is interchangeable with a /become-a-talent submit.
+// so an applicant's payload is interchangeable with a /join-as-talent submit.
 // Named APPLY_FIELD_MAX to avoid confusion with the existing MAX_* set above.
 const APPLY_FIELD_MAX = {
   jobTitle: 200,
@@ -305,7 +305,7 @@ export async function POST(request: NextRequest) {
     //    Bridge-flow change: dedup is now scoped to (email|phone, job_id).
     //    A candidate applying to the same job twice with the same email or
     //    phone is blocked; applying to a DIFFERENT job with the same details
-    //    is allowed. This is required for the apply → become-a-talent bridge
+    //    is allowed. This is required for the apply → join-as-talent bridge
     //    (we want repeat applicants across jobs to keep getting the bridge
     //    CTA on each application). Skip the check entirely when there's no
     //    job_id (manual-title submissions with placeholder job).
@@ -582,7 +582,7 @@ export async function POST(request: NextRequest) {
     const applicationId = (insertedRow as { id: string }).id;
 
     // 5. Issue a bridge token so the success modal can offer
-    //    "Complete your profile" → /become-a-talent?token=… . Reuses the
+    //    "Complete your profile" → /join-as-talent?token=… . Reuses the
     //    talent_claim_tokens infrastructure with source_table='job_applications'
     //    (the source_table CHECK was widened to accept this value — see
     //    src/lib/supabase/schema.sql talent_claim_tokens migration).

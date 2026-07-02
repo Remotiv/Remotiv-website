@@ -1,4 +1,4 @@
-// Route-level loading state shown during navigation to /become-a-talent.
+// Route-level loading state shown during navigation to /join-as-talent.
 // Block-shaped placeholders mirror the real page layout:
 //   bat-outer hero band (#F5F1EC, rounded-[32px]) — pill + heading + subtitle + purple stats row
 //   bta-steps-bar — sticky white nav with 4 step pills + connecting lines

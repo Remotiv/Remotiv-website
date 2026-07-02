@@ -2,7 +2,7 @@ import { NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createServiceClient } from "@/lib/supabase/server";
 
-// Bridge endpoint for the apply → become-a-talent flow. Verifies a
+// Bridge endpoint for the apply → join-as-talent flow. Verifies a
 // single-use token issued by /api/apply, marks it as opened, and returns
 // the source job_application's contact fields so the client can pre-fill
 // the talent form. cv_path/cv_text are NEVER returned to the client; the

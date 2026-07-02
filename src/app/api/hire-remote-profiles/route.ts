@@ -16,7 +16,7 @@ const ALLOWED_IMAGE_TYPES = [
 
 // M10: PDF only. DOC/DOCX were previously accepted on MIME-type alone with
 // no magic-byte verification, letting a renamed .exe / .html slip through
-// with a forged content type. Matches /become-a-talent's intake stance.
+// with a forged content type. Matches /join-as-talent's intake stance.
 const ALLOWED_CV_TYPES = ["application/pdf"];
 
 const MAX_CV_BYTES = 5 * 1024 * 1024;

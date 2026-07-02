@@ -10,6 +10,18 @@ const nextConfig: NextConfig = {
       },
     ],
   },
+  async redirects() {
+    // 308 permanent redirects for renamed public routes. Preserves query
+    // strings and transfers SEO ranking. Old URL stays reachable for
+    // bookmarks, external links, and search-engine crawls.
+    return [
+      {
+        source: "/become-a-talent",
+        destination: "/join-as-talent",
+        permanent: true,
+      },
+    ];
+  },
   async headers() {
     // Dev gate: HSTS pins for 2 years with preload — once a browser sees it
     // on localhost (via tunnel, prod-pointing config, etc.) Safari will

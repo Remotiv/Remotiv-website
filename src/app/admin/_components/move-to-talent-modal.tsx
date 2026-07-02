@@ -9,7 +9,7 @@ import {
 import type { ExtractedTalentFields } from "@/lib/cv-extract";
 
 // ── Option sets ───────────────────────────────────────────────
-// Values mirror the strings written by /become-a-talent so the resulting
+// Values mirror the strings written by /join-as-talent so the resulting
 // talent profile is interchangeable with one created via the public form.
 
 const ROLE_CATEGORIES = [

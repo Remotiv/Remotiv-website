@@ -286,7 +286,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                   every Remotiv employer.
                 </p>
                 <Link
-                  href={`/become-a-talent?token=${bridgeToken}`}
+                  href={`/join-as-talent?token=${bridgeToken}`}
                   className="ap-cta font-heading"
                 >
                   Complete your profile for more opportunities →

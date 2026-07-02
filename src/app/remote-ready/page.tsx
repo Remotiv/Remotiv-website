@@ -203,7 +203,7 @@ function FooterNote() {
 export default function RemoteReadyPage() {
   const [step, setStep] = useState(1);
   const [submitted, setSubmitted] = useState(false);
-  // Mirrors /become-a-talent's pattern — discriminated union lets the
+  // Mirrors /join-as-talent's pattern — discriminated union lets the
   // submitted view branch into "Already in our network" vs. the normal
   // success card. `submitted` stays as the outer toggle for back-compat.
   type SubmitState = "form" | "success" | "duplicate";
@@ -622,7 +622,7 @@ export default function RemoteReadyPage() {
         // our network" success card instead of an inline red error. The
         // email-vs-phone-vs-generic distinction wasn't actionable for the
         // user (both branches mean "use your existing account"). Mirrors
-        // /become-a-talent's duplicate-state pattern.
+        // /join-as-talent's duplicate-state pattern.
         setSubmitState("duplicate");
         setSubmitted(true);
         setSubmitting(false);

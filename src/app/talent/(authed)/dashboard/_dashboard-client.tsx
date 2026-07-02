@@ -399,7 +399,7 @@ export function DashboardClient({
               : "Hire Remote";
           const intakePath =
             missingPool === "talent_profiles"
-              ? "/become-a-talent"
+              ? "/join-as-talent"
               : "/remote-ready";
 
           if (unclaimedInMissing && unclaimedInMissing.status === "approved") {

@@ -528,7 +528,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   <p className="text-[0.85rem]">
                     Don&apos;t see your role?{" "}
                     <Link
-                      href="/become-a-talent"
+                      href="/join-as-talent"
                       className="font-medium text-remotiv-purple hover:underline"
                     >
                       Join our talent network
@@ -554,7 +554,7 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
                   <p className="text-[0.85rem]">
                     Or{" "}
                     <Link
-                      href="/become-a-talent"
+                      href="/join-as-talent"
                       className="font-medium text-remotiv-purple hover:underline"
                     >
                       join our talent network

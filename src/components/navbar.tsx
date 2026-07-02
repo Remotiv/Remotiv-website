@@ -90,7 +90,7 @@ const NAV_ITEMS: readonly NavItem[] = [
         icon: UserPlus,
         title: "Join as Talent",
         description: "Get hired by top companies",
-        href: "/become-a-talent",
+        href: "/join-as-talent",
       },
       {
         icon: Briefcase,

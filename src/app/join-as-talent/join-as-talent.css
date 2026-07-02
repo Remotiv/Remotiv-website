@@ -1,4 +1,4 @@
-/* Styles for /become-a-talent.
+/* Styles for /join-as-talent.
    Migrated from a <style jsx global> block to a plain CSS import so the
    rules ship in the SSR'd CSS chunk (fixes a post-hydration FOUC where
    styled-jsx injected these only after the client JS ran).

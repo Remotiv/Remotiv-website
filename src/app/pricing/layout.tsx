@@ -4,7 +4,7 @@ import { canonicalUrl } from "@/lib/seo";
 // Phase 6: route-specific metadata for /pricing.
 //
 // The page itself is a server component, but route-specific metadata + JSON-LD
-// are kept in this sibling layout to mirror the /about and /become-a-talent
+// are kept in this sibling layout to mirror the /about and /join-as-talent
 // pattern: metadata + structured data live in a server-only layout that wraps
 // the page and passes children through unchanged.
 //

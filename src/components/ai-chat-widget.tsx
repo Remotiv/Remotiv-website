@@ -24,7 +24,7 @@ const ALLOWED_ROUTES = [
   "/about",
   "/ai-matching",
   "/ai-results",
-  "/become-a-talent",
+  "/join-as-talent",
   "/book-a-meeting",
   "/browse-talent",
   "/contact",

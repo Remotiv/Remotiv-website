@@ -47,7 +47,7 @@ const MAX_SKILLS = 30;
 const MAX_EXPERIENCES = 30;
 
 // Phase 2 security: enum value sets. The CLIENT sends the LABEL strings
-// (see *_LABEL maps in /become-a-talent/page.tsx and the FormData appends
+// (see *_LABEL maps in /join-as-talent/page.tsx and the FormData appends
 // at handleSubmit) — NOT the camelCase radio keys. So these arrays match
 // the labels exactly. Invalid values are coerced to the client's default
 // rather than rejected, to avoid breaking the happy path on any future
@@ -279,7 +279,7 @@ export async function POST(request: NextRequest) {
     const cvFile    = form.get("cv")    as File | null;
     const photoFile = form.get("photo") as File | null;
 
-    // Bridge from /jobs/[id] apply → /become-a-talent. Presence of a valid
+    // Bridge from /jobs/[id] apply → /join-as-talent. Presence of a valid
     // 64-char hex token signals "this submission inherits its CV from the
     // source job_application; skip the upload + reuse cv_path/cv_text".
     const bridgeTokenRaw = form.get("bridgeToken");
@@ -303,7 +303,7 @@ export async function POST(request: NextRequest) {
 
     // Phase 2 A1: mirror the client's Step 1 + Step 2 required-field gates
     // server-side. The client validators (validateStep1Fields /
-    // validateStep2Fields in /become-a-talent/page.tsx) require: lastName,
+    // validateStep2Fields in /join-as-talent/page.tsx) require: lastName,
     // phone, city, country, linkedin (valid URL), degree, institution, and
     // ≥1 experience entry. Without these server checks an attacker hitting
     // the API directly could submit a profile with only firstName + email.

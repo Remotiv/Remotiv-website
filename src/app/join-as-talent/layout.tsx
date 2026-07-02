@@ -1,7 +1,7 @@
 import type { Metadata } from "next";
 import { canonicalUrl } from "@/lib/seo";
 
-// Phase 6: route-specific metadata for /become-a-talent.
+// Phase 6: route-specific metadata for /join-as-talent.
 //
 // The page is a client component ("use client" at the top of page.tsx) so it
 // can't `export const metadata` itself — Next.js disallows that from client
@@ -17,12 +17,12 @@ export const metadata: Metadata = {
   title: "Join Our Talent Network — Remotiv",
   description:
     "Submit your profile once and get matched to remote roles at vetted global companies. Free to join. Built for engineers, sales, design and ops talent.",
-  alternates: { canonical: "/become-a-talent" },
+  alternates: { canonical: "/join-as-talent" },
   openGraph: {
     title: "Join the Remotiv Talent Network",
     description:
       "Submit your profile once and get matched to remote roles at vetted global companies.",
-    url: "/become-a-talent",
+    url: "/join-as-talent",
     siteName: "Remotiv",
     locale: "en_US",
     type: "website",
@@ -66,7 +66,7 @@ export default function BecomeATalentLayout({
                 "@type": "ListItem",
                 position: 2,
                 name: "Join as Talent",
-                item: canonicalUrl("/become-a-talent"),
+                item: canonicalUrl("/join-as-talent"),
               },
             ],
           }),

@@ -4,7 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
-import "./become-a-talent.css";
+import "./join-as-talent.css";
 
 // Phase 4 G2: one-time pdfjs worker URL setup flag. The URL assignment was
 // previously inside extractPdfText, running on every call. Now configured
