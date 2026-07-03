@@ -125,6 +125,25 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
     setAnswers((prev) => ({ ...prev, [id]: value }));
   }
 
+  // Fire-and-forget click counter. keepalive lets the request survive the
+  // navigation to LinkedIn; we never await, never preventDefault — the <a>
+  // opens LinkedIn instantly regardless of whether the insert succeeds.
+  function handleFollowClick() {
+    try {
+      fetch("/api/track/follow-click", {
+        method: "POST",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({
+          source: "apply_success_modal",
+          platform: "linkedin",
+        }),
+        keepalive: true,
+      }).catch(() => {});
+    } catch {
+      // Swallow — the click MUST open LinkedIn regardless of tracking failure.
+    }
+  }
+
   function handleFileChange(e: React.ChangeEvent<HTMLInputElement>) {
     const file = e.target.files?.[0] ?? null;
     setCvError(null);
@@ -291,6 +310,34 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                 >
                   Complete your profile for more opportunities →
                 </Link>
+                <div className="ap-follow">
+                  <h3 className="ap-follow-title font-heading">
+                    Don&apos;t miss the next role
+                  </h3>
+                  <p className="ap-follow-sub">
+                    New roles get posted to our LinkedIn first. Follow to see them
+                    before anyone else.
+                  </p>
+                  <a
+                    href="https://www.linkedin.com/company/remotiv-inc/"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    onClick={handleFollowClick}
+                    className="ap-linkedin font-heading"
+                    aria-label="Follow Remotiv on LinkedIn (opens in new tab)"
+                  >
+                    <svg
+                      aria-hidden="true"
+                      width="17"
+                      height="17"
+                      viewBox="0 0 24 24"
+                      fill="currentColor"
+                    >
+                      <path d="M19 0h-14c-2.761 0-5 2.239-5 5v14c0 2.761 2.239 5 5 5h14c2.762 0 5-2.239 5-5v-14c0-2.761-2.238-5-5-5zm-11 19h-3v-11h3v11zm-1.5-12.268c-.966 0-1.75-.79-1.75-1.764s.784-1.764 1.75-1.764 1.75.79 1.75 1.764-.783 1.764-1.75 1.764zm13.5 12.268h-3v-5.604c0-3.368-4-3.113-4 0v5.604h-3v-11h3v1.765c1.396-2.586 7-2.777 7 2.476v6.759z" />
+                    </svg>
+                    Follow Remotiv on LinkedIn
+                  </a>
+                </div>
                 <button type="button" onClick={onClose} className="ap-ghostbtn">
                   Close
                 </button>
