@@ -17,6 +17,7 @@ import {
   KeyRound,
   Mail,
   PauseCircle,
+  Pencil,
   Plus,
   PlayCircle,
   RefreshCcw,
@@ -325,12 +326,14 @@ function ClientDrawer({
   onSetStatus,
   onDelete,
   onToast,
+  onUpdated,
 }: {
   client: Client;
   onClose: () => void;
   onSetStatus: (status: ClientStatus) => Promise<void>;
   onDelete: () => void;
   onToast: (msg: string) => void;
+  onUpdated: (patch: { company_name: string; contact_name: string; email: string }) => void;
 }) {
   const router = useRouter();
   const meta = STATUS_BADGE[client.status];
@@ -342,6 +345,17 @@ function ClientDrawer({
   const [resetError, setResetError] = useState<string | null>(null);
 
   const [busyStatus, setBusyStatus] = useState<ClientStatus | null>(null);
+
+  // Inline "Edit Details" form — mirrors the showResetForm pattern so the
+  // drawer stays a single component. Fields are seeded from `client` here
+  // AND re-seeded at button-click time so an optimistic parent update
+  // between opens is picked up without stale local state.
+  const [showEditForm, setShowEditForm] = useState(false);
+  const [editCompany, setEditCompany] = useState(client.company_name);
+  const [editContact, setEditContact] = useState(client.contact_name ?? "");
+  const [editEmail, setEditEmail] = useState(client.email);
+  const [editSubmitting, setEditSubmitting] = useState(false);
+  const [editError, setEditError] = useState<string | null>(null);
 
   // Copy-to-clipboard feedback for the credentials section. `copiedField`
   // tracks which row's check icon should flash; `copiedAll` covers the
@@ -357,6 +371,18 @@ function ClientDrawer({
     setCopiedField(null);
     setCopiedAll(false);
   }, [client.id]);
+
+  // Kept separate from the effect above because it depends on the
+  // editable client fields; folding those into the reset effect's dep
+  // list would flip Biome's useExhaustiveDependencies rule and clear
+  // reset state on unrelated field changes.
+  useEffect(() => {
+    setShowEditForm(false);
+    setEditCompany(client.company_name);
+    setEditContact(client.contact_name ?? "");
+    setEditEmail(client.email);
+    setEditError(null);
+  }, [client.id, client.company_name, client.contact_name, client.email]);
 
   async function handleCopyField(text: string, field: "email" | "url") {
     try {
@@ -389,6 +415,60 @@ function ClientDrawer({
   // twice in quick succession is a real footgun (the second call invalidates
   // the password the admin just typed before the toast confirms it).
   const resetInFlightRef = useRef(false);
+  // Mirror guard for the edit path: an email change kicks a Supabase auth
+  // updateUserById; firing it twice from a double-click is the same
+  // half-successful footgun so we lock the ref until the server settles.
+  const editInFlightRef = useRef(false);
+
+  async function handleEditSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (editInFlightRef.current) return;
+    setEditError(null);
+
+    const companyTrim = editCompany.trim();
+    const contactTrim = editContact.trim();
+    const emailTrim = editEmail.trim();
+
+    if (!companyTrim) {
+      setEditError("Company name is required.");
+      return;
+    }
+    if (!contactTrim) {
+      setEditError("Contact name is required.");
+      return;
+    }
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(emailTrim)) {
+      setEditError("Please enter a valid email address.");
+      return;
+    }
+
+    editInFlightRef.current = true;
+    setEditSubmitting(true);
+    try {
+      const result = await updateClient(client.id, {
+        company_name: companyTrim,
+        contact_name: contactTrim,
+        email: emailTrim,
+      });
+      if (result.success) {
+        onToast("Client updated");
+        // Optimistic parent update — no router.refresh(), the action
+        // already ran revalidatePath so a subsequent navigation picks
+        // up the server truth. Email is lowercased to match the action.
+        onUpdated({
+          company_name: companyTrim,
+          contact_name: contactTrim,
+          email: emailTrim.toLowerCase(),
+        });
+        setShowEditForm(false);
+      } else {
+        setEditError(result.error);
+      }
+    } finally {
+      editInFlightRef.current = false;
+      setEditSubmitting(false);
+    }
+  }
 
   async function handleResetSubmit(e: React.FormEvent) {
     e.preventDefault();
@@ -567,6 +647,75 @@ function ClientDrawer({
 
           <DrawerSection title="Actions">
             <div className="flex flex-col gap-2">
+              {showEditForm ? (
+                <form onSubmit={handleEditSubmit} className="flex flex-col gap-3 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
+                  <Field label="Company Name" required>
+                    <input
+                      type="text"
+                      value={editCompany}
+                      onChange={(e) => setEditCompany(e.target.value)}
+                      autoFocus
+                      className={INPUT_CLS}
+                    />
+                  </Field>
+                  <Field label="Contact Name" required>
+                    <input
+                      type="text"
+                      value={editContact}
+                      onChange={(e) => setEditContact(e.target.value)}
+                      className={INPUT_CLS}
+                    />
+                  </Field>
+                  <Field label="Login Email" required hint="Also updates the Supabase auth login email.">
+                    <input
+                      type="email"
+                      value={editEmail}
+                      onChange={(e) => setEditEmail(e.target.value)}
+                      className={INPUT_CLS}
+                    />
+                  </Field>
+                  {editError && (
+                    <p className="text-[10px] font-medium text-red-500">{editError}</p>
+                  )}
+                  <div className="flex gap-2">
+                    <button
+                      type="submit"
+                      disabled={editSubmitting} aria-busy={editSubmitting}
+                      className="flex flex-1 items-center justify-center gap-1 rounded-lg bg-remotiv-purple px-3 py-2 text-xs font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                    >
+                      <Save className="size-3.5" strokeWidth={2} />
+                      {editSubmitting ? "Saving…" : "Save"}
+                    </button>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        setShowEditForm(false);
+                        setEditError(null);
+                      }}
+                      disabled={editSubmitting} aria-busy={editSubmitting}
+                      className="rounded-lg border border-gray-200 px-3 py-2 text-xs font-medium text-gray-600 transition-colors hover:bg-gray-100 disabled:opacity-50"
+                    >
+                      Cancel
+                    </button>
+                  </div>
+                </form>
+              ) : (
+                <button
+                  type="button"
+                  onClick={() => {
+                    setEditCompany(client.company_name);
+                    setEditContact(client.contact_name ?? "");
+                    setEditEmail(client.email);
+                    setEditError(null);
+                    setShowEditForm(true);
+                  }}
+                  className="flex w-full items-center gap-2 rounded-xl border border-gray-100 bg-white px-3 py-2.5 text-xs font-semibold text-gray-700 transition-colors hover:bg-gray-50"
+                >
+                  <Pencil className="size-3.5 text-remotiv-purple" strokeWidth={2} />
+                  Edit Details
+                </button>
+              )}
+
               {showResetForm ? (
                 <form onSubmit={handleResetSubmit} className="flex flex-col gap-2 rounded-xl border border-gray-100 bg-gray-50/60 p-3">
                   <label className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
@@ -1129,6 +1278,28 @@ export function ClientsDashboard({
 
   const openClient = openId ? clients.find((c) => c.id === openId) ?? null : null;
 
+  // Optimistic local update after a successful edit in the drawer.
+  // Mirrors the setClients spread in handleSetStatus but for editable
+  // detail fields; deliberately no router.refresh() — updateClient's
+  // revalidatePath already invalidates the cache for next navigation.
+  function handleClientUpdated(
+    clientId: string,
+    patch: { company_name: string; contact_name: string; email: string },
+  ) {
+    setClients((prev) =>
+      prev.map((c) =>
+        c.id === clientId
+          ? {
+              ...c,
+              company_name: patch.company_name,
+              contact_name: patch.contact_name,
+              email: patch.email,
+            }
+          : c,
+      ),
+    );
+  }
+
   async function handleSetStatus(client: Client, status: ClientStatus) {
     setClients((prev) =>
       prev.map((c) => (c.id === client.id ? { ...c, status } : c)),
@@ -1345,6 +1516,7 @@ export function ClientsDashboard({
           onSetStatus={(status) => handleSetStatus(openClient, status)}
           onDelete={() => setDeleteTarget(openClient)}
           onToast={setToast}
+          onUpdated={(patch) => handleClientUpdated(openClient.id, patch)}
         />
       )}
 

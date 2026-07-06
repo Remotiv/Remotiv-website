@@ -156,6 +156,7 @@ export async function updateClient(
   updates: {
     company_name?: string;
     contact_name?: string;
+    email?: string;
     status?: ClientStatus;
   },
 ): Promise<MutationResult<undefined>> {
@@ -166,13 +167,72 @@ export async function updateClient(
   if (typeof updates.contact_name === "string") patch.contact_name = updates.contact_name.trim();
   if (updates.status) patch.status = updates.status;
 
+  const supabase = createServiceClient();
+
+  // Email edits must also swap the Supabase auth login email — clients.email
+  // and auth.users.email are seeded together at create-time but nothing
+  // keeps them in sync afterwards, so a DB-only patch would silently
+  // desync login. Order: validate → auth first (the likely failure) →
+  // DB → best-effort auth rollback if the DB write fails after auth
+  // already changed.
+  let authEmailChanged = false;
+  let rollbackUserId: string | null = null;
+  let rollbackEmail: string | null = null;
+
+  if (typeof updates.email === "string" && updates.email.trim().length > 0) {
+    const newEmail = updates.email.trim().toLowerCase();
+    if (!isValidEmail(newEmail)) {
+      return { success: false, error: "Please enter a valid email address." };
+    }
+
+    const { data: currentRow, error: fetchErr } = await supabase
+      .from("clients")
+      .select("user_id, email")
+      .eq("id", id)
+      .maybeSingle();
+    if (fetchErr) return { success: false, error: fetchErr.message };
+    const current = currentRow as { user_id: string | null; email: string | null } | null;
+    if (!current || !current.user_id) {
+      return { success: false, error: "Client not found." };
+    }
+
+    const oldEmail = current.email ?? "";
+    if (oldEmail.toLowerCase() !== newEmail) {
+      const { error: authErr } = await supabase.auth.admin.updateUserById(current.user_id, {
+        email: newEmail,
+        email_confirm: true,
+      });
+      if (authErr) {
+        const msg = authErr.message ?? "Failed to update auth email.";
+        if (/already|exists|registered/i.test(msg)) {
+          return { success: false, error: "This email is already registered." };
+        }
+        return { success: false, error: msg };
+      }
+      authEmailChanged = true;
+      rollbackUserId = current.user_id;
+      rollbackEmail = oldEmail;
+      patch.email = newEmail;
+    }
+  }
+
   if (Object.keys(patch).length === 0) {
     return { success: true, data: undefined };
   }
 
-  const supabase = createServiceClient();
   const { error } = await supabase.from("clients").update(patch).eq("id", id);
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    if (authEmailChanged && rollbackUserId && rollbackEmail) {
+      // Best-effort: put the auth email back so login and record don't
+      // silently diverge. If the rollback itself fails there's nothing
+      // sensible we can do from here — surface the original DB error.
+      await supabase.auth.admin.updateUserById(rollbackUserId, {
+        email: rollbackEmail,
+        email_confirm: true,
+      });
+    }
+    return { success: false, error: error.message };
+  }
 
   revalidatePath("/admin/clients");
   return { success: true, data: undefined };
