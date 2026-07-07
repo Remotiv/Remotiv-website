@@ -2,7 +2,6 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import Image from "next/image";
 import { useRouter } from "next/navigation";
 import {
   ArrowLeft,
@@ -34,7 +33,7 @@ import {
   type CandidateNote,
   type ClientCandidate,
 } from "@/app/client/actions";
-import { getClientAvatarUrl, getInitials } from "@/lib/client-avatars";
+import { getInitials } from "@/lib/client-avatars";
 
 const DECISION_LABEL: Record<NonNullable<ClientCandidate["client_decision"]>, string> = {
   approve: "Approved",
@@ -268,34 +267,13 @@ function CandidateAvatar({
   candidate: { first_name: string; last_name: string };
   size: number;
 }) {
-  const [errored, setErrored] = useState(false);
-  const url = getClientAvatarUrl(candidate.first_name, candidate.last_name);
-
-  if (errored) {
-    return (
-      <span
-        className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF] ring-4 ring-white"
-        style={{ width: size, height: size, fontSize: Math.max(11, size / 2.6) }}
-      >
-        {getInitials(candidate.first_name, candidate.last_name)}
-      </span>
-    );
-  }
-
   return (
-    <div
-      className="relative shrink-0 overflow-hidden rounded-full bg-gray-100 ring-4 ring-white"
-      style={{ width: size, height: size }}
+    <span
+      className="flex shrink-0 items-center justify-center rounded-full bg-[#7E47FF]/10 font-bold text-[#7E47FF] ring-4 ring-white"
+      style={{ width: size, height: size, fontSize: Math.max(11, size / 2.6) }}
     >
-      <Image
-        src={url}
-        alt={fullName(candidate)}
-        fill
-        sizes={`${size}px`}
-        className="object-cover"
-        onError={() => setErrored(true)}
-      />
-    </div>
+      {getInitials(candidate.first_name, candidate.last_name)}
+    </span>
   );
 }
 
