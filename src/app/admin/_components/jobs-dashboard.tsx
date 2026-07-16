@@ -88,15 +88,16 @@ const LABEL_CLS =
 
 // ── Helpers ──────────────────────────────────────────────────
 
-function fmtSalary(min: number | null, max: number | null): string {
+function fmtSalary(min: number | null, max: number | null, currency: string | null): string {
   if (!min && !max) return "—";
-  const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
+  const cur = (currency ?? "").trim().toUpperCase() || "USD";
+  const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
-    if (min === max) return `${fmt(min)}/yr`;
-    return `${fmt(min)} – ${fmt(max)}/yr`;
+    if (min === max) return `${cur} ${fmt(min)}/mo`;
+    return `${cur} ${fmt(min)} – ${fmt(max)}/mo`;
   }
-  if (min) return `From ${fmt(min)}/yr`;
-  return `Up to ${fmt(max!)}/yr`;
+  if (min) return `From ${cur} ${fmt(min)}/mo`;
+  return `Up to ${cur} ${fmt(max!)}/mo`;
 }
 
 function timeAgo(iso: string): string {
@@ -168,7 +169,7 @@ function JobCardMobile({
         </div>
 
         <p className="mt-1.5 text-xs font-semibold text-gray-700">
-          {fmtSalary(job.salary_min, job.salary_max)}
+          {fmtSalary(job.salary_min, job.salary_max, job.salary_currency)}
         </p>
       </div>
 
@@ -369,9 +370,15 @@ export function JobsDashboard({
 
   async function handleConfirmDelete() {
     if (!confirmDeleteId) return;
-    setJobs((prev) => prev.filter((j) => j.id !== confirmDeleteId));
+    const targetId = confirmDeleteId;
+    const snapshot = jobs;
+    setJobs((prev) => prev.filter((j) => j.id !== targetId));
     setConfirmDeleteId(null);
-    await deleteJob(confirmDeleteId);
+    const result = await deleteJob(targetId);
+    if (!result.success) {
+      setJobs(snapshot);
+      setMutError(result.error);
+    }
   }
 
   // ── Derived stats ─────────────────────────────────────────
@@ -555,7 +562,7 @@ export function JobsDashboard({
                           </div>
                         </td>
                         <td className="px-6 py-4 text-gray-500">
-                          {fmtSalary(job.salary_min, job.salary_max)}
+                          {fmtSalary(job.salary_min, job.salary_max, job.salary_currency)}
                         </td>
                         <td className="px-6 py-4">
                           <div className="flex flex-col gap-1">
@@ -937,7 +944,7 @@ export function JobsDashboard({
             </div>
             <h2 id="delete-job-title" className="font-heading text-base font-bold text-[#111]">Delete job?</h2>
             <p className="mt-2 text-sm text-gray-500">
-              This permanently removes the job posting from the public site. This action cannot be undone.
+              This permanently deletes the job. Any candidate applications for it are kept in Applications, with the job title preserved. This action cannot be undone.
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">
               <button type="button" onClick={() => setConfirmDeleteId(null)} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">

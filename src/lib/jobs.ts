@@ -19,7 +19,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order";
+  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 

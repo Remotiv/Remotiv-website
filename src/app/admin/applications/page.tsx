@@ -17,7 +17,7 @@ async function fetchAllApplications(
 ): Promise<Record<string, unknown>[]> {
   const PAGE = 1000;
   const cols =
-    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, screening_answers, jobs(title)";
+    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, screening_answers, job_title_snapshot, jobs(title)";
   let from = 0;
   const all: Record<string, unknown>[] = [];
   for (;;) {
@@ -132,7 +132,7 @@ export default async function ApplicationsPage({
     source: ((a.source as JobApplication["source"]) ?? "job_application"),
     notes: (a.notes as string | null) ?? null,
     created_at: a.created_at as string,
-    job_title: (a.jobs as { title?: string } | null)?.title ?? null,
+    job_title: (a.jobs as { title?: string } | null)?.title ?? (a.job_title_snapshot as string | null) ?? null,
     alreadyMoved: movedEmails.has(normaliseEmail(a.email)),
     myTags: tagMap.get(a.id as string) ?? [],
     screening_answers: (a.screening_answers as ScreeningAnswerSnapshot[]) ?? [],

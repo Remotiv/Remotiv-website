@@ -42,15 +42,16 @@ type SavedSearch = {
   pendingLanguage: string;
 };
 
-function fmtSalary(min: number | null, max: number | null): string {
+function fmtSalary(min: number | null, max: number | null, currency: string | null): string {
   if (!min && !max) return "Salary not disclosed";
-  const fmt = (n: number) => `$${n.toLocaleString("en-US")}`;
+  const cur = (currency ?? "").trim().toUpperCase() || "USD";
+  const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
-    if (min === max) return `${fmt(min)}/mo`;
-    return `${fmt(min)} – ${fmt(max)}/mo`;
+    if (min === max) return `${cur} ${fmt(min)}/mo`;
+    return `${cur} ${fmt(min)} – ${fmt(max)}/mo`;
   }
-  if (min) return `From ${fmt(min)}/mo`;
-  return `Up to ${fmt(max!)}/mo`;
+  if (min) return `From ${cur} ${fmt(min)}/mo`;
+  return `Up to ${cur} ${fmt(max!)}/mo`;
 }
 
 function timeAgo(iso: string): string {
@@ -877,7 +878,7 @@ const JobCard = memo(function JobCard({
         </div>
         <div className="mb-4 text-[0.82rem] text-remotiv-text-light">{job.location}</div>
         <div className="mb-4 text-[0.9rem] font-semibold text-remotiv-text-mid">
-          Salary: {fmtSalary(job.salary_min, job.salary_max)}
+          Salary: {fmtSalary(job.salary_min, job.salary_max, job.salary_currency)}
         </div>
         <div className="flex flex-wrap gap-1.5">
           <span className="rounded-full border-[1.5px] border-black/10 bg-[#FAFAFA] px-3.5 py-1 text-[0.72rem] font-semibold text-[#555]">

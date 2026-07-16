@@ -255,9 +255,31 @@ export async function deleteJob(
 ): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
-  const { error } = await supabase.from("jobs").delete().eq("id", id);
 
+  const { data: row, error: fetchErr } = await supabase
+    .from("jobs")
+    .select("title")
+    .eq("id", id)
+    .maybeSingle();
+  if (fetchErr) return { success: false, error: fetchErr.message };
+  if (!row) return { success: false, error: "Job not found." };
+  const title = (row as { title: string }).title;
+
+  // Snapshot the job title onto every application BEFORE deleting the job.
+  // Once the FK's ON DELETE SET NULL fires we lose the link back to jobs.title,
+  // so the admin Applications list would render a blank job column. If the
+  // snapshot write fails, abort — preserving the title is the whole point.
+  const { error: snapErr } = await supabase
+    .from("job_applications")
+    .update({ job_title_snapshot: title })
+    .eq("job_id", id);
+  if (snapErr) return { success: false, error: snapErr.message };
+
+  const { error } = await supabase.from("jobs").delete().eq("id", id);
   if (error) return { success: false, error: error.message };
+
   revalidatePath("/admin/jobs");
+  revalidatePath("/admin/applications");
+  revalidatePath("/jobs");
   return { success: true, data: undefined };
 }
