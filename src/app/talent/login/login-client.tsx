@@ -48,6 +48,18 @@ export function TalentLoginClient({
   const [error, setError] = useState<string | null>(null);
   // Banner shown above the email form after a recoverable token failure.
   const [notice, setNotice] = useState<string | null>(null);
+  // Resend state — deliberately separate from `busy`, which is shared with the
+  // verify button (reusing it would disable/relabel "Verify & sign in").
+  const [resending, setResending] = useState(false);
+  const [cooldown, setCooldown] = useState(0);
+
+  // Cooldown countdown. Cleanup is mandatory — this component unmounts on a
+  // successful verify (router.replace), which would otherwise leak the timer.
+  useEffect(() => {
+    if (cooldown <= 0) return;
+    const t = setInterval(() => setCooldown((c) => c - 1), 1000);
+    return () => clearInterval(t);
+  }, [cooldown]);
 
   // Token path (admin invite): validate token, pre-fill email, trigger code send,
   // jump straight to code-entry step.
@@ -113,23 +125,41 @@ export function TalentLoginClient({
     };
   }, [token]);
 
+  // Shared by the email form and the code-step resend so both hit the same
+  // endpoint with the same request shape. `status` is surfaced so callers can
+  // distinguish the server's 429 rate-limit from a generic failure.
+  async function requestCode(targetEmail: string): Promise<{
+    ok: boolean;
+    message?: string;
+    reason?: string;
+    status: number;
+  }> {
+    const res = await fetch("/api/claim/initiate", {
+      method: "POST",
+      cache: "no-store",
+      headers: { "Content-Type": "application/json" },
+      body: JSON.stringify({ email: targetEmail }),
+    });
+    const json = (await res.json().catch(() => ({}))) as {
+      ok?: boolean;
+      reason?: string;
+      message?: string;
+    };
+    return {
+      ok: Boolean(json.ok),
+      message: json.message,
+      reason: json.reason,
+      status: res.status,
+    };
+  }
+
   async function handleEmailSubmit(e: React.FormEvent) {
     e.preventDefault();
     setError(null);
     setMessage(null);
     setBusy(true);
     try {
-      const res = await fetch("/api/claim/initiate", {
-        method: "POST",
-        cache: "no-store",
-        headers: { "Content-Type": "application/json" },
-        body: JSON.stringify({ email: email.trim() }),
-      });
-      const json = (await res.json().catch(() => ({}))) as {
-        ok?: boolean;
-        reason?: string;
-        message?: string;
-      };
+      const json = await requestCode(email.trim());
       if (json.reason === "email_conflict") {
         setError(REASON_BANNER.email_conflict ?? "Email conflict.");
         return;
@@ -187,6 +217,34 @@ export function TalentLoginClient({
       setError("Unexpected error. Please try again.");
     } finally {
       setBusy(false);
+    }
+  }
+
+  async function handleResend() {
+    if (resending || cooldown > 0) return;
+    if (step.kind !== "code") return;
+    const targetEmail = step.email;
+    setResending(true);
+    setError(null);
+    try {
+      const r = await requestCode(targetEmail);
+      if (r.status === 429) {
+        setError("Please wait a moment before requesting another code.");
+      } else if (r.ok) {
+        setMessage(`We sent a new 6-digit code to ${targetEmail}.`);
+        setError(null);
+        // The previous code is invalidated by the new send — clear the input
+        // so a stale value can't be submitted.
+        setCode("");
+        setCooldown(30);
+      } else {
+        setError("Couldn't resend the code. Please try again.");
+      }
+    } catch (err) {
+      console.error("[talent-login] resend failed:", err);
+      setError("Network error. Please try again.");
+    } finally {
+      setResending(false);
     }
   }
 
@@ -377,6 +435,18 @@ export function TalentLoginClient({
                 className="mt-2 rounded-xl bg-remotiv-purple px-4 py-3 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
                 {busy ? "Verifying…" : "Verify & sign in"}
+              </button>
+              <button
+                type="button"
+                onClick={handleResend}
+                disabled={resending || cooldown > 0}
+                className="text-xs text-gray-400 hover:text-gray-600 disabled:opacity-50"
+              >
+                {resending
+                  ? "Sending…"
+                  : cooldown > 0
+                    ? `Resend code (${cooldown}s)`
+                    : "Resend code"}
               </button>
               <button
                 type="button"
