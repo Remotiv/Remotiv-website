@@ -22,6 +22,12 @@ type Step =
   | { kind: "code"; email: string }
   | { kind: "error"; reason: string };
 
+// Token failures split two ways. Recoverable ones (bad/stale link) drop the
+// candidate back to the email step so they can self-serve a fresh code via the
+// existing /api/claim/initiate flow — the banner copy already promises that.
+// Terminal ones can't be fixed by a resend, so they stay a dead end.
+const TERMINAL_TOKEN_REASONS = new Set(["already_claimed", "email_conflict"]);
+
 export function TalentLoginClient({
   token,
   reason,
@@ -40,6 +46,8 @@ export function TalentLoginClient({
   const [busy, setBusy] = useState(false);
   const [message, setMessage] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
+  // Banner shown above the email form after a recoverable token failure.
+  const [notice, setNotice] = useState<string | null>(null);
 
   // Token path (admin invite): validate token, pre-fill email, trigger code send,
   // jump straight to code-entry step.
@@ -62,7 +70,15 @@ export function TalentLoginClient({
         };
         if (cancelled) return;
         if (!json.ok || !json.email) {
-          setStep({ kind: "error", reason: json.reason ?? "invalid" });
+          const reason = json.reason ?? "invalid";
+          if (TERMINAL_TOKEN_REASONS.has(reason)) {
+            setStep({ kind: "error", reason });
+          } else {
+            // expired / invalid / unknown → recoverable: land on the email
+            // step with the banner so the candidate can request a new code.
+            setStep({ kind: "email" });
+            setNotice(REASON_BANNER[reason] ?? REASON_BANNER.invalid ?? null);
+          }
           setBusy(false);
           return;
         }
@@ -182,6 +198,9 @@ export function TalentLoginClient({
   }
 
   const reasonBanner = reason ? REASON_BANNER[reason] : null;
+  // A recoverable token failure's notice takes precedence over the ?reason=
+  // banner — both render through the same element below.
+  const banner = notice ?? reasonBanner;
   const stepError =
     step.kind === "error" ? REASON_BANNER[step.reason] : null;
 
@@ -266,13 +285,13 @@ export function TalentLoginClient({
             Sign in to claim or manage your profile.
           </p>
 
-          {reasonBanner && !stepError && (
+          {banner && !stepError && (
             <p
               role="status"
               aria-live="polite"
               className="mt-5 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-sm text-amber-800"
             >
-              {reasonBanner}
+              {banner}
             </p>
           )}
           {stepError && (

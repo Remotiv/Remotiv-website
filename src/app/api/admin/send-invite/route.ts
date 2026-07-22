@@ -74,7 +74,13 @@ export async function POST(request: Request) {
     "https://remotiv.work";
 
   const sent: string[] = [];
+  const failed: Array<{ profileId: string; reason: string }> = [];
   const skipped: Array<{ profileId: string; reason: SkippedReason }> = [];
+  // Sends for profiles whose token insert succeeded; settled after the loop.
+  const pendingSends: Array<{
+    profileId: string;
+    promise: Promise<{ ok: boolean; error?: string }>;
+  }> = [];
 
   for (const profileId of profileIds as string[]) {
     try {
@@ -143,29 +149,51 @@ export async function POST(request: Request) {
       const candidateName =
         (row.first_name?.trim() ?? "") || "there";
 
-      sendEmail({
-        to: row.email,
-        subject: claimInviteSubject,
-        html: renderClaimInviteEmail({
-          candidateName,
-          loginUrl,
-          adminName: adminCtx.user.email,
+      // Collected, not fire-and-forget: an un-awaited send is torn down with
+      // the container when the handler returns, so the Resend request never
+      // dispatches. Awaited together after the loop.
+      pendingSends.push({
+        profileId,
+        promise: sendEmail({
+          to: row.email,
+          subject: claimInviteSubject,
+          html: renderClaimInviteEmail({
+            candidateName,
+            loginUrl,
+            adminName: adminCtx.user.email,
+          }),
+          replyTo: "talent@remotiv.work",
         }),
-        replyTo: "talent@remotiv.work",
-      }).catch((err) => {
-        console.error("[send-invite] email error", err);
       });
-
-      sent.push(profileId);
     } catch (e) {
       console.error("[send-invite] unexpected error for", profileId, e);
       skipped.push({ profileId, reason: "internal_error" });
     }
   }
 
+  // Await every send BEFORE returning — the response must not resolve while a
+  // Resend request is still pending, or the container is frozen mid-flight.
+  const results = await Promise.allSettled(pendingSends.map((s) => s.promise));
+  results.forEach((result, i) => {
+    const { profileId } = pendingSends[i];
+    if (result.status === "fulfilled" && result.value.ok) {
+      sent.push(profileId);
+      return;
+    }
+    const reason =
+      result.status === "rejected"
+        ? result.reason instanceof Error
+          ? result.reason.message
+          : "Unknown error"
+        : (result.value.error ?? "Unknown error");
+    console.error("[send-invite] email error", profileId, reason);
+    failed.push({ profileId, reason });
+  });
+
   return NextResponse.json({
     ok: true,
     sent: sent.length,
+    failed: failed.length,
     skipped,
   });
 }
