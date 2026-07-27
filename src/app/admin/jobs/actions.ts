@@ -27,6 +27,8 @@ export type Job = {
   requirements: string | null;
   screening_questions: ScreeningQuestion[];
   display_order: number | null;
+  client_id: string | null;
+  created_by: string | null;
   status: "open" | "on_hold" | "closed";
   created_at: string;
 };
@@ -161,7 +163,7 @@ function slugifyTitle(title: string): string {
 export async function createJob(
   input: JobInput,
 ): Promise<MutationResult<Job>> {
-  await requireAdmin();
+  const ctx = await requireAdmin();
   const built = buildPatch(input);
   if (!built.ok) return { success: false, error: built.error };
 
@@ -186,7 +188,8 @@ export async function createJob(
 
   const { data, error } = await supabase
     .from("jobs")
-    .insert({ ...built.patch, slug: candidate })
+    // Admin-created jobs: stamp the acting admin; client_id null = Remotiv-owned.
+    .insert({ ...built.patch, slug: candidate, created_by: ctx.user.id, client_id: null })
     .select()
     .single();
 

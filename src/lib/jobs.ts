@@ -19,7 +19,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order";
+  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,6 +74,10 @@ export interface Job {
   requirements: string | null;
   screening_questions: ScreeningQuestion[];
   display_order: number | null;
+  // Ownership: client_id null = Remotiv-owned; created_by = the acting user
+  // who created the job. System-stamped, not user-editable form fields.
+  client_id: string | null;
+  created_by: string | null;
   status: string;
   created_at: string;
 }
