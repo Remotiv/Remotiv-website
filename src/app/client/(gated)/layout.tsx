@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createClient } from "@/lib/supabase/server";
+import { getClientContext } from "../lib/client-guards";
 
 export default async function GatedClientLayout({
   children,
@@ -15,17 +16,17 @@ export default async function GatedClientLayout({
     redirect("/client/login");
   }
 
-  const service = createServiceClient();
-  const { data: client } = await service
-    .from("clients")
-    .select("must_change_password")
-    .eq("user_id", user.id)
-    .single();
+  // Resolve company + role (client_members → clients fallback) purely to read
+  // the password gate. A non-client (e.g. admin preview) throws — swallow it
+  // and let the page-level getCurrentClientOrAdmin guard authorize.
+  let mustChangePassword = false;
+  try {
+    mustChangePassword = (await getClientContext()).mustChangePassword;
+  } catch {
+    // No client membership — admin preview / non-client; page-level guard authorizes.
+  }
 
-  // No client row = admin preview (or no role at all). Let the page-level
-  // getCurrentClientOrAdmin guard handle authorization; we only enforce
-  // the password-change gate here.
-  if (client?.must_change_password === true) {
+  if (mustChangePassword) {
     redirect("/client/change-password?forced=true");
   }
 

@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { BATCH_STAGES } from "@/app/admin/_components/batch-stages";
 import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { getClientContext } from "./lib/client-guards";
 import { notifyAllAdmins } from "@/lib/notifications";
 
 // ── Types ────────────────────────────────────────────────────
@@ -84,23 +85,13 @@ const CLIENT_CANDIDATE_COLUMNS = `
 
 // ── Auth gate — every public function below routes through this ────
 
-/** Resolve the current client row, or throw if the session isn't a client. */
+/** Resolve the current client company row, or throw if the session isn't a
+ *  client. Resolution now flows through getClientContext (client_members →
+ *  clients.user_id fallback); the returned company row shape is unchanged, so
+ *  all downstream `.eq("client_id", client.id)` scoping is identical. */
 export async function getCurrentClient(): Promise<ClientRow> {
-  const auth = await createAuthClient();
-  const { data: { user } } = await auth.auth.getUser();
-  if (!user) throw new Error("Not authenticated");
-
-  const service = createServiceClient();
-  const { data: row } = await service
-    .from("clients")
-    .select("id, user_id, company_name, contact_name, email, status, created_at")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!row) throw new Error("Not a client account");
-  const client = row as ClientRow;
-  if (client.status !== "active") throw new Error(`Client status: ${client.status}`);
-  return client;
+  const ctx = await getClientContext();
+  return ctx.company;
 }
 
 /**
@@ -148,17 +139,15 @@ export async function getCurrentClientOrAdmin(): Promise<ClientOrAdminCtx> {
     return { type: "admin", user: { id: user.id, email: user.email ?? "" } };
   }
 
-  const service = createServiceClient();
-  const { data: row } = await service
-    .from("clients")
-    .select("id, user_id, company_name, contact_name, email, status, created_at")
-    .eq("user_id", user.id)
-    .maybeSingle();
-
-  if (!row) return { type: "none" };
-  const client = row as ClientRow;
-  if (client.status !== "active") return { type: "none" };
-  return { type: "client", client };
+  // Client branch resolved via getClientContext (client_members → clients
+  // fallback). It throws for non-clients / non-active companies; map that to
+  // "none" so the caller redirects to /client/login, preserving prior behavior.
+  try {
+    const ctx = await getClientContext();
+    return { type: "client", client: ctx.company };
+  } catch {
+    return { type: "none" };
+  }
 }
 
 // ── Reads ────────────────────────────────────────────────────
