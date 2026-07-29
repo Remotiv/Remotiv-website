@@ -32,18 +32,24 @@ export async function getCompanyContext(): Promise<CompanyContext> {
 
   let companyId: string | null = null;
   let role: CompanyRole = "owner";
+  let memberName: string | null = null;
 
   // 1. company_members (multi-user teams).
   const { data: memberRow } = await service
     .from("company_members")
-    .select("company_id, role")
+    .select("company_id, role, name")
     .eq("user_id", user.id)
     .eq("status", "active")
     .maybeSingle();
-  const member = memberRow as { company_id: string; role: CompanyRole } | null;
+  const member = memberRow as {
+    company_id: string;
+    role: CompanyRole;
+    name: string | null;
+  } | null;
   if (member) {
     companyId = member.company_id;
     role = member.role;
+    memberName = member.name;
   } else {
     // 2. Fallback: company resolved directly by companies.user_id.
     const { data: fallbackRow } = await service
@@ -84,11 +90,17 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     created_at: row.created_at,
   };
 
+  const email = user.email ?? "";
+
   return {
-    user: { id: user.id, email: user.email ?? "" },
+    user: { id: user.id, email },
     companyId,
     company,
     role,
+    // The owner-by-companies.user_id fallback has no member row, so it falls
+    // through to contact_name — which IS that user's name on that path.
+    memberName:
+      memberName?.trim() || company.contact_name?.trim() || email.split("@")[0] || "",
     mustChangePassword: row.must_change_password === true,
   };
 }

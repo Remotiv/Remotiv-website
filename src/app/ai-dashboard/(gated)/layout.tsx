@@ -37,7 +37,7 @@ export default async function GatedCompanyLayout({
     <AiShell
       companyName={ctx.company.name}
       role={ctx.role}
-      userName={ctx.company.contact_name ?? ""}
+      userName={ctx.memberName}
       userEmail={ctx.user.email}
     >
       {children}

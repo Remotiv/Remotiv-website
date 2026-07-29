@@ -59,6 +59,10 @@ export type TeamMemberRow = {
   is_self: boolean;
   /** True for the company's owner row — never editable or removable. */
   is_owner: boolean;
+  /** Pending invites only — who sent it. Null on real member rows. */
+  invited_by_name: string | null;
+  /** Pending invites only — when it was sent. Null on real member rows. */
+  invited_at: string | null;
 };
 
 /** What each role can reach, shown in the Team table's ACCESS column. */
@@ -76,5 +80,11 @@ export type CompanyContext = {
   companyId: string;
   company: CompanyRow;
   role: CompanyRole;
+  /**
+   * The viewer's OWN display name from their company_members row — not the
+   * company's contact_name, which belongs to the owner. Falls back to
+   * contact_name (owner path) then the email local-part.
+   */
+  memberName: string;
   mustChangePassword: boolean;
 };

@@ -9,11 +9,14 @@ import {
   Mail,
   MoreHorizontal,
   Plus,
+  RefreshCcw,
+  Send,
   ShieldCheck,
   Trash2,
   UserRound,
   Video,
   X,
+  XCircle,
 } from "lucide-react";
 import {
   canManageTeam,
@@ -22,7 +25,13 @@ import {
   type CompanyRole,
   type TeamMemberRow,
 } from "@/app/ai-dashboard/lib/company-roles";
-import { removeMember, updateMemberRole } from "./actions";
+import {
+  inviteMember,
+  removeMember,
+  resendInvite,
+  revokeInvite,
+  updateMemberRole,
+} from "./actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -95,6 +104,23 @@ function fmtLastActive(iso: string | null): { main: string; sub: string } {
   return { main: `${days} days ago`, sub: date };
 }
 
+/** Sub-line for a pending invite row: "Invited by Ayesha · 2 days ago". */
+function fmtInvitedBy(row: TeamMemberRow): string {
+  const who = row.invited_by_name?.trim();
+  const prefix = who ? `Invited by ${who}` : "Invited";
+  if (!row.invited_at) return `${prefix} · awaiting acceptance`;
+
+  const ms = Date.now() - new Date(row.invited_at).getTime();
+  if (Number.isNaN(ms)) return `${prefix} · awaiting acceptance`;
+
+  const days = Math.floor(ms / 86_400_000);
+  const hours = Math.floor(ms / 3_600_000);
+  if (hours < 1) return `${prefix} · just now`;
+  if (days < 1) return `${prefix} · ${hours} ${hours === 1 ? "hour" : "hours"} ago`;
+  if (days === 1) return `${prefix} · yesterday`;
+  return `${prefix} · ${days} days ago`;
+}
+
 // ── Stat card ────────────────────────────────────────────────
 
 function StatCard({
@@ -137,12 +163,19 @@ function StatCard({
 
 // ── Row menu ─────────────────────────────────────────────────
 
+type MenuItem = {
+  label: string;
+  icon: typeof Trash2;
+  onSelect: () => void;
+  danger?: boolean;
+};
+
 function RowMenu({
   memberName,
-  onRemove,
+  items,
 }: {
   memberName: string;
-  onRemove: () => void;
+  items: ReadonlyArray<MenuItem>;
 }) {
   const [open, setOpen] = useState(false);
   const ref = useRef<HTMLDivElement>(null);
@@ -171,29 +204,84 @@ function RowMenu({
 
       {open && (
         <div className="absolute right-0 top-[38px] z-30 min-w-[184px] rounded-[13px] border border-[var(--ai-line)] bg-white p-1.5 shadow-[0_20px_54px_rgba(20,16,32,0.18)]">
-          <button
-            type="button"
-            onClick={() => {
-              setOpen(false);
-              onRemove();
-            }}
-            className="flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2.5 text-left text-[13px] text-[var(--ai-danger)] transition-colors hover:bg-[var(--ai-danger-tint)]"
-          >
-            <Trash2 className="size-4" strokeWidth={1.7} />
-            Remove from team
-          </button>
+          {items.map(({ label, icon: Icon, onSelect, danger }) => (
+            <button
+              key={label}
+              type="button"
+              onClick={() => {
+                setOpen(false);
+                onSelect();
+              }}
+              className={`flex w-full items-center gap-2.5 rounded-[9px] px-2.5 py-2.5 text-left text-[13px] transition-colors ${
+                danger
+                  ? "text-[var(--ai-danger)] hover:bg-[var(--ai-danger-tint)]"
+                  : "text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+              }`}
+            >
+              <Icon className="size-4" strokeWidth={1.7} />
+              {label}
+            </button>
+          ))}
         </div>
       )}
     </div>
   );
 }
 
-// ── Invite modal (placeholder until Step 1d) ─────────────────
+// ── Invite modal ─────────────────────────────────────────────
 
-function InviteModal({ companyName, onClose }: { companyName: string; onClose: () => void }) {
+function InviteModal({
+  companyName,
+  onClose,
+  onSent,
+}: {
+  companyName: string;
+  onClose: () => void;
+  onSent: (email: string) => void;
+}) {
+  const [email, setEmail] = useState("");
+  const [name, setName] = useState("");
+  const [role, setRole] = useState<CompanyRole>("recruiter");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  // Sending creates an invite row and dispatches mail — a double-click would
+  // expire the first invite and issue a second.
+  const inFlightRef = useRef(false);
+
+  async function handleSubmit(e: React.FormEvent) {
+    e.preventDefault();
+    if (inFlightRef.current) return;
+    setError(null);
+
+    const trimmedEmail = email.trim();
+    if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(trimmedEmail)) {
+      setError("Please enter a valid email address.");
+      return;
+    }
+
+    inFlightRef.current = true;
+    setSubmitting(true);
+    try {
+      const result = await inviteMember({
+        email: trimmedEmail,
+        name: name.trim(),
+        role,
+      });
+      if (result.success) {
+        onSent(trimmedEmail.toLowerCase());
+      } else {
+        setError(result.error);
+      }
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
   useEffect(() => {
     function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
+      if (e.key === "Escape" && !submitting) onClose();
     }
     document.addEventListener("keydown", onKey);
     const prev = document.body.style.overflow;
@@ -202,7 +290,7 @@ function InviteModal({ companyName, onClose }: { companyName: string; onClose: (
       document.removeEventListener("keydown", onKey);
       document.body.style.overflow = prev;
     };
-  }, [onClose]);
+  }, [onClose, submitting]);
 
   return (
     <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
@@ -240,28 +328,107 @@ function InviteModal({ companyName, onClose }: { companyName: string; onClose: (
           </button>
         </div>
 
-        <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-5 text-center">
-          <Mail className="mx-auto mb-2 size-6 text-[var(--ai-t3)]" strokeWidth={1.6} />
-          <p className="text-sm font-semibold text-[var(--ai-t1)]">Coming soon</p>
-          <p className="mt-1 text-[13px] text-[var(--ai-t3)]">
-            Email invites arrive in the next release. For now, contact your
-            Remotiv account manager to add a teammate.
-          </p>
-        </div>
+        <form onSubmit={handleSubmit} className="flex flex-col gap-4">
+          <div>
+            <label
+              htmlFor="invite-email"
+              className="mb-1.5 block text-xs font-semibold text-[var(--ai-t2)]"
+            >
+              Email address <span className="text-red-500">*</span>
+            </label>
+            <input
+              id="invite-email"
+              type="email"
+              value={email}
+              onChange={(e) => setEmail(e.target.value)}
+              placeholder="name@company.com"
+              autoComplete="off"
+              autoFocus
+              className={MODAL_INPUT_CLS}
+            />
+          </div>
 
-        <div className="mt-6 flex justify-end">
-          <button
-            type="button"
-            onClick={onClose}
-            className="rounded-[11px] border border-[var(--ai-line)] px-[17px] py-[11px] text-sm font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
-          >
-            Close
-          </button>
-        </div>
+          <div>
+            <label
+              htmlFor="invite-name"
+              className="mb-1.5 block text-xs font-semibold text-[var(--ai-t2)]"
+            >
+              Full name
+            </label>
+            <input
+              id="invite-name"
+              type="text"
+              value={name}
+              onChange={(e) => setName(e.target.value)}
+              placeholder="Jane Doe"
+              className={MODAL_INPUT_CLS}
+            />
+          </div>
+
+          <div>
+            <label
+              htmlFor="invite-role"
+              className="mb-1.5 block text-xs font-semibold text-[var(--ai-t2)]"
+            >
+              Role <span className="text-red-500">*</span>
+            </label>
+            <div className="relative">
+              <select
+                id="invite-role"
+                value={role}
+                onChange={(e) => setRole(e.target.value as CompanyRole)}
+                className={`${MODAL_INPUT_CLS} appearance-none pr-10`}
+              >
+                {ASSIGNABLE_ROLES.map((r) => (
+                  <option key={r} value={r}>
+                    {COMPANY_ROLE_LABELS[r]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                className="pointer-events-none absolute right-3.5 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t3)]"
+                strokeWidth={2}
+              />
+            </div>
+            <p className="mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
+              {COMPANY_ROLE_LABELS[role]}s get access to:{" "}
+              {COMPANY_ROLE_ACCESS[role]}.
+            </p>
+          </div>
+
+          {error && (
+            <div className="rounded-xl border border-red-200 bg-red-50 px-4 py-3 text-sm text-red-700">
+              {error}
+            </div>
+          )}
+
+          <div className="mt-2 flex justify-end gap-2.5">
+            <button
+              type="button"
+              onClick={onClose}
+              disabled={submitting}
+              className="rounded-[11px] border border-[var(--ai-line)] px-[17px] py-[11px] text-sm font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:opacity-50"
+            >
+              Cancel
+            </button>
+            <button
+              type="submit"
+              disabled={submitting}
+              aria-busy={submitting}
+              className="inline-flex items-center gap-2 rounded-[11px] bg-remotiv-purple px-[18px] py-[11px] text-sm font-semibold text-white transition-colors hover:bg-[var(--ai-purple-hover)] disabled:opacity-60"
+            >
+              <Send className="size-4" strokeWidth={2} />
+              {submitting ? "Sending…" : "Send invite"}
+            </button>
+          </div>
+        </form>
       </div>
     </div>
   );
 }
+
+const MODAL_INPUT_CLS =
+  "w-full rounded-[11px] border border-[var(--ai-line)] bg-white px-3.5 py-3 text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
 
 // ── Main ─────────────────────────────────────────────────────
 
@@ -331,12 +498,31 @@ export function TeamClient({
 
   async function handleRemove(member: TeamMemberRow) {
     setRemoving(true);
-    const result = await removeMember(member.id);
+    // Members are removed; pending invites are revoked. Both drop the row.
+    const result =
+      member.status === "invited"
+        ? await revokeInvite(member.id)
+        : await removeMember(member.id);
     setRemoving(false);
     if (result.success) {
       setMembers((prev) => prev.filter((m) => m.id !== member.id));
       setRemoveTarget(null);
-      setToast(`${member.name} removed from team`);
+      setToast(
+        member.status === "invited"
+          ? `Invitation to ${member.email} revoked`
+          : `${member.name} removed from team`,
+      );
+      router.refresh();
+    } else {
+      setToast(result.error);
+    }
+  }
+
+  async function handleResend(member: TeamMemberRow) {
+    setToast(`Resending invitation to ${member.email}…`);
+    const result = await resendInvite(member.id);
+    if (result.success) {
+      setToast(`Invitation resent to ${member.email}`);
       router.refresh();
     } else {
       setToast(result.error);
@@ -482,6 +668,36 @@ export function TeamClient({
                 // the server enforces in updateMemberRole / removeMember.
                 const editable = canManage && !m.is_owner && !m.is_self && !pending;
 
+                // Pending rows get resend/revoke; member rows get remove.
+                // "Copy invite link" is deliberately absent — the raw token is
+                // never stored (only its hash), so it can't be recovered here.
+                const menuItems: MenuItem[] = !canManage
+                  ? []
+                  : pending
+                    ? [
+                        {
+                          label: "Resend invite",
+                          icon: RefreshCcw,
+                          onSelect: () => handleResend(m),
+                        },
+                        {
+                          label: "Revoke invite",
+                          icon: XCircle,
+                          onSelect: () => setRemoveTarget(m),
+                          danger: true,
+                        },
+                      ]
+                    : editable
+                      ? [
+                          {
+                            label: "Remove from team",
+                            icon: Trash2,
+                            onSelect: () => setRemoveTarget(m),
+                            danger: true,
+                          },
+                        ]
+                      : [];
+
                 return (
                   <div
                     key={m.id}
@@ -510,7 +726,7 @@ export function TeamClient({
                           )}
                         </p>
                         <p className="mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                          {pending ? "Awaiting acceptance" : m.email}
+                          {pending ? fmtInvitedBy(m) : m.email}
                         </p>
                       </div>
                     </div>
@@ -565,11 +781,8 @@ export function TeamClient({
                       </small>
                     </span>
 
-                    {editable ? (
-                      <RowMenu
-                        memberName={m.name}
-                        onRemove={() => setRemoveTarget(m)}
-                      />
+                    {menuItems.length > 0 ? (
+                      <RowMenu memberName={m.name} items={menuItems} />
                     ) : (
                       <span />
                     )}
@@ -588,7 +801,15 @@ export function TeamClient({
       </div>
 
       {showInvite && (
-        <InviteModal companyName={companyName} onClose={() => setShowInvite(false)} />
+        <InviteModal
+          companyName={companyName}
+          onClose={() => setShowInvite(false)}
+          onSent={(sentTo) => {
+            setShowInvite(false);
+            setToast(`Invitation sent to ${sentTo}`);
+            router.refresh();
+          }}
+        />
       )}
 
       {removeTarget && (
@@ -607,12 +828,24 @@ export function TeamClient({
                 id="remove-member-title"
                 className="font-heading text-lg font-bold text-[var(--ai-t1)]"
               >
-                Remove member?
+                {removeTarget.status === "invited"
+                  ? "Revoke invitation?"
+                  : "Remove member?"}
               </h3>
               <p className="mt-2 text-sm text-[var(--ai-t2)]">
-                <span className="font-semibold">{removeTarget.name}</span> will
-                lose access to the {companyName} workspace. Their account isn&apos;t
-                deleted — you can re-invite them later.
+                {removeTarget.status === "invited" ? (
+                  <>
+                    The invitation link sent to{" "}
+                    <span className="font-semibold">{removeTarget.email}</span> will
+                    stop working immediately. You can invite them again later.
+                  </>
+                ) : (
+                  <>
+                    <span className="font-semibold">{removeTarget.name}</span> will
+                    lose access to the {companyName} workspace. Their account
+                    isn&apos;t deleted — you can re-invite them later.
+                  </>
+                )}
               </p>
             </div>
             <div className="flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">
@@ -632,7 +865,11 @@ export function TeamClient({
                 aria-busy={removing}
                 className="flex-1 rounded-xl bg-[var(--ai-danger)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
               >
-                {removing ? "Removing…" : "Remove"}
+                {removing
+                  ? "Working…"
+                  : removeTarget.status === "invited"
+                    ? "Revoke"
+                    : "Remove"}
               </button>
             </div>
           </div>
