@@ -42,6 +42,33 @@ export type CompanyRow = {
   created_at: string;
 };
 
+export type CompanyMemberStatus = "active" | "invited" | "removed";
+
+// One row of the Team table. Lives here rather than in team/actions.ts because
+// a "use server" module may only export async functions.
+export type TeamMemberRow = {
+  id: string;
+  user_id: string | null;
+  name: string;
+  email: string;
+  role: CompanyRole;
+  status: CompanyMemberStatus;
+  /** auth.users.last_sign_in_at — null when never signed in or lookup failed. */
+  last_sign_in_at: string | null;
+  /** True for the row belonging to the viewer. */
+  is_self: boolean;
+  /** True for the company's owner row — never editable or removable. */
+  is_owner: boolean;
+};
+
+/** What each role can reach, shown in the Team table's ACCESS column. */
+export const COMPANY_ROLE_ACCESS: Record<CompanyRole, string> = {
+  owner: "Full access",
+  admin: "Billing · Jobs · Team",
+  recruiter: "Jobs · Applicants",
+  hiring_manager: "Assigned jobs only",
+};
+
 // Resolved identity for a logged-in /ai-dashboard user: which company they
 // belong to (companyId + the companies row) and their role within it.
 export type CompanyContext = {

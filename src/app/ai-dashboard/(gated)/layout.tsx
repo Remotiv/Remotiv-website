@@ -1,6 +1,8 @@
 import { redirect } from "next/navigation";
 import { createClient } from "@/lib/supabase/server";
+import { AiShell } from "../_components/ai-shell";
 import { getCompanyContext } from "../lib/company-guards";
+import type { CompanyContext } from "../lib/company-roles";
 
 export default async function GatedCompanyLayout({
   children,
@@ -18,17 +20,27 @@ export default async function GatedCompanyLayout({
 
   // Resolve company + role (company_members → companies.user_id fallback).
   // A non-company session throws — bounce it back to login rather than
-  // rendering an empty workspace.
-  let mustChangePassword = false;
+  // rendering an empty workspace. This is the ONLY resolution in the tree;
+  // the shell reads company/role/user straight off this ctx.
+  let ctx: CompanyContext;
   try {
-    mustChangePassword = (await getCompanyContext()).mustChangePassword;
+    ctx = await getCompanyContext();
   } catch {
     redirect("/ai-dashboard/login?reason=unauthorized");
   }
 
-  if (mustChangePassword) {
+  if (ctx.mustChangePassword) {
     redirect("/ai-dashboard/change-password?forced=true");
   }
 
-  return <>{children}</>;
+  return (
+    <AiShell
+      companyName={ctx.company.name}
+      role={ctx.role}
+      userName={ctx.company.contact_name ?? ""}
+      userEmail={ctx.user.email}
+    >
+      {children}
+    </AiShell>
+  );
 }

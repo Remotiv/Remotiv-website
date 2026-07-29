@@ -1,0 +1,49 @@
+/*
+ * AI-dashboard-only design tokens.
+ *
+ * IMPORTANT: this is a PLAIN CSS rule, deliberately NOT `@theme`. Tailwind v4
+ * registers `@theme` globally no matter which file declares it, so a token
+ * added there would bleed into every route in the app. Scoping the custom
+ * properties to `.ai-shell` means they only cascade inside this segment.
+ *
+ * Consume with arbitrary values: bg-[var(--ai-sidebar)], text-[var(--ai-t2)].
+ * Colors that already exist as global brand tokens (purple #7E47FF ->
+ * remotiv-purple, mint #49D7A7 -> remotiv-green) are NOT redeclared here —
+ * use those utilities directly.
+ */
+.ai-shell {
+  --ai-sidebar: #141020;
+  --ai-sidebar-hover: #1e1830;
+  --ai-page: #f4efea;
+  --ai-surface: #ffffff;
+  --ai-inset: #f7f3ef;
+
+  --ai-line: rgba(20, 16, 32, 0.09);
+  --ai-line-soft: rgba(20, 16, 32, 0.06);
+  --ai-line-strong: rgba(20, 16, 32, 0.16);
+
+  --ai-t1: #17131f;
+  --ai-t2: #4a4550;
+  --ai-t3: #847e8c;
+  --ai-t4: #b0aab8;
+
+  --ai-purple-hover: #6d38f0;
+  --ai-purple-tint: #eeedfe;
+  --ai-purple-ink: #2e2470;
+
+  --ai-mint-tint: #e1f5ee;
+  --ai-mint-ink: #04342c;
+
+  --ai-amber-tint: #fbebcf;
+  --ai-amber-ink: #7a4e05;
+  --ai-amber-dot: #e0a020;
+
+  --ai-peach-tint: #faece7;
+  --ai-peach-ink: #7a3618;
+
+  --ai-sky-tint: #e4eefb;
+  --ai-sky-ink: #123b6e;
+
+  --ai-danger: #c4362f;
+  --ai-danger-tint: #fbeae8;
+}
