@@ -5,6 +5,7 @@ import { Footer } from "./footer";
 
 const HIDDEN_PREFIXES = [
   "/admin",
+  "/ai-dashboard", // hides footer on all /ai-dashboard/* product pages
   "/login",
   "/client", // hides footer on all /client/* pages
   "/client/login",
