@@ -204,7 +204,12 @@ export function CompanyLoginClient({ reason }: { reason: string | null }) {
             </form>
 
             <p className="mt-6 text-center text-xs text-gray-400">
-              Forgot password? Contact your account manager.
+              <Link
+                href="/ai-dashboard/forgot-password"
+                className="font-semibold text-remotiv-purple hover:underline"
+              >
+                Forgot password?
+              </Link>
             </p>
           </div>
         </div>
