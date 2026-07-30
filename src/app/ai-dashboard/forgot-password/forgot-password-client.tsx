@@ -27,7 +27,7 @@ export function ForgotPasswordClient() {
     const { error: resetError } = await supabase.auth.resetPasswordForEmail(
       email.trim(),
       {
-        redirectTo: `${window.location.origin}/ai-dashboard/reset-password`,
+        redirectTo: `${window.location.origin}/auth/reset`,
       },
     );
 
