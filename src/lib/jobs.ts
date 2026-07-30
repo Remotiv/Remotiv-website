@@ -19,7 +19,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by";
+  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -74,9 +74,14 @@ export interface Job {
   requirements: string | null;
   screening_questions: ScreeningQuestion[];
   display_order: number | null;
-  // Ownership: client_id null = Remotiv-owned; created_by = the acting user
-  // who created the job. System-stamped, not user-editable form fields.
+  // Ownership. Exactly one of these two tenant columns is set, or neither:
+  //   company_id non-null → AI-product job (companies / /ai-dashboard)
+  //   client_id  non-null → client-portal job (clients / /client)
+  //   both null           → Remotiv-owned
+  // created_by = the acting user who created the job. All three are
+  // system-stamped, not user-editable form fields.
   client_id: string | null;
+  company_id: string | null;
   created_by: string | null;
   status: string;
   created_at: string;
