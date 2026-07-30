@@ -1,0 +1,1232 @@
+"use client";
+
+import { useMemo, useRef, useState } from "react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import {
+  ArrowRight,
+  Check,
+  ChevronLeft,
+  Eye,
+  Lightbulb,
+  Lock,
+  MapPin,
+  Plus,
+  Trash2,
+} from "lucide-react";
+import type { ScreeningQuestion } from "@/lib/jobs";
+import {
+  EMPTY_JOB_INPUT,
+  JOB_CATEGORIES,
+  JOB_CONTRACT_TYPES,
+  JOB_CURRENCIES,
+  JOB_EXPERIENCE_LEVELS,
+  JOB_TEXT_COUNTER_FROM,
+  JOB_TEXT_MAX,
+  JOB_WORK_TYPES,
+  type CompanyJobInput,
+  type JobCurrency,
+} from "@/app/ai-dashboard/lib/job-types";
+import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { createCompanyJob, updateCompanyJob } from "../actions";
+
+// ── Constants ────────────────────────────────────────────────
+
+const STEPS = [
+  { n: 1, label: "Basics", title: "Basics", desc: "This is what candidates see first on Remotiv." },
+  { n: 2, label: "Description", title: "Description", desc: "Tell candidates what the role is and who it's for." },
+  { n: 3, label: "Compensation", title: "Compensation", desc: "Transparent pay attracts stronger applicants." },
+  { n: 4, label: "Screening", title: "Screening", desc: "Questions your AI recruiter asks every applicant." },
+  { n: 5, label: "Review", title: "Review", desc: "One last look before it goes live." },
+] as const;
+
+const LOCKED_STEPS = [
+  { n: 6, label: "AI scoring" },
+  { n: 7, label: "Interview questions" },
+  { n: 8, label: "Answer weighting" },
+  { n: 9, label: "Auto-shortlist" },
+] as const;
+
+const LAST_STEP = 5;
+
+const INPUT_CLS =
+  "w-full rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-[11px] text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
+const INPUT_ERR_CLS =
+  "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
+const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
+const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
+
+/*
+ * Step-rail states, transcribed from the designer's `.step` spec. Extracted as
+ * constants so the four states stay visibly distinct and `done` can never
+ * drift into inheriting `active`'s elevated card.
+ *
+ *   .step        -> STEP_ROW        (+ STEP_ROW_IDLE for the hover-only default)
+ *   .step.active -> STEP_ROW_ACTIVE (white card: the ONLY state with a surface)
+ *   .step.done   -> STEP_NUM_DONE   (circle only — no row treatment)
+ *   .step.locked -> STEP_ROW_LOCKED
+ */
+const STEP_ROW =
+  "mb-0.5 flex w-full items-center gap-[11px] rounded-[11px] border px-[11px] py-2.5 text-left transition-colors";
+const STEP_ROW_IDLE = "border-transparent hover:bg-black/[0.035]";
+const STEP_ROW_ACTIVE =
+  "border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_2px_10px_rgba(20,16,32,0.05)]";
+const STEP_ROW_LOCKED = "cursor-not-allowed border-transparent opacity-[0.55]";
+
+const STEP_NUM =
+  "flex size-6 shrink-0 items-center justify-center rounded-full border-[1.5px] text-xs font-bold transition-colors";
+const STEP_NUM_IDLE = "border-[var(--ai-line-strong)] text-[var(--ai-t3)]";
+const STEP_NUM_ACTIVE = "border-remotiv-purple bg-remotiv-purple text-white";
+const STEP_NUM_DONE = "border-remotiv-green bg-remotiv-green text-[var(--ai-mint-ink)]";
+
+const STEP_LAB = "text-[13.5px] font-semibold";
+
+const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: string }> = [
+  { value: "yesno", label: "Yes / No" },
+  { value: "numeric", label: "Numeric" },
+  { value: "multiple", label: "Multiple choice" },
+];
+
+// ── Helpers ──────────────────────────────────────────────────
+
+function fmtNumber(value: string): string {
+  const n = Number.parseInt(String(value).replace(/[^0-9]/g, ""), 10);
+  return Number.isNaN(n) ? "" : n.toLocaleString("en-US");
+}
+
+function currencySymbol(currency: string): string {
+  return currency === "USD" ? "$" : "PKR";
+}
+
+/**
+ * Helper line under a long-text field: always states the ceiling, and turns
+ * into a live counter once the user gets close to it.
+ */
+function CharCount({ value, hint }: { value: string; hint?: string }) {
+  const near = value.length >= JOB_TEXT_COUNTER_FROM;
+  const atLimit = value.length >= JOB_TEXT_MAX;
+
+  return (
+    <p className="mt-[7px] flex items-baseline justify-between gap-3 text-xs leading-relaxed text-[var(--ai-t3)]">
+      <span>{hint ?? `Max ${JOB_TEXT_MAX.toLocaleString()} characters.`}</span>
+      {near ? (
+        <span
+          className={`shrink-0 font-semibold tabular-nums ${
+            atLimit ? "text-[#C4362F]" : "text-[var(--ai-amber-ink)]"
+          }`}
+        >
+          {value.length.toLocaleString()} / {JOB_TEXT_MAX.toLocaleString()}
+        </span>
+      ) : (
+        hint && (
+          <span className="shrink-0 text-[var(--ai-t4)]">
+            Max {JOB_TEXT_MAX.toLocaleString()}
+          </span>
+        )
+      )}
+    </p>
+  );
+}
+
+function Toggle({
+  on,
+  onClick,
+  label,
+}: {
+  on: boolean;
+  onClick: () => void;
+  label: string;
+}) {
+  return (
+    <button
+      type="button"
+      role="switch"
+      aria-checked={on}
+      aria-label={label}
+      onClick={onClick}
+      className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors ${
+        on ? "bg-remotiv-green" : "bg-[var(--ai-line-strong)]"
+      }`}
+    >
+      <span
+        className={`absolute left-0.5 top-0.5 size-[18px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform ${
+          on ? "translate-x-4" : ""
+        }`}
+      />
+    </button>
+  );
+}
+
+// ── Main ─────────────────────────────────────────────────────
+
+/**
+ * One wizard, two modes.
+ *
+ * "create" inserts a new job via createCompanyJob and ends on the success
+ * overlay. "edit" prefills from an existing row and saves via
+ * updateCompanyJob, returning straight to the jobs list. Every step, the
+ * validation rules, the live preview and the locked 6–9 rail are shared —
+ * only the copy, the primary action and the post-success path differ.
+ */
+export function WizardClient({
+  companyName,
+  mode = "create",
+  jobId,
+  initialState,
+}: {
+  companyName: string;
+  mode?: "create" | "edit";
+  /** Required in edit mode — the row being updated. */
+  jobId?: string;
+  /** Prefill for edit mode; create starts from EMPTY_JOB_INPUT. */
+  initialState?: CompanyJobInput;
+}) {
+  const router = useRouter();
+  const isEdit = mode === "edit";
+
+  const [state, setState] = useState<CompanyJobInput>(
+    initialState ?? EMPTY_JOB_INPUT,
+  );
+  const [step, setStep] = useState(1);
+  const [errors, setErrors] = useState<Record<string, string>>({});
+  const [toast, setToast] = useState<string | null>(null);
+  const [submitting, setSubmitting] = useState(false);
+  const [published, setPublished] = useState<{ title: string } | null>(null);
+
+  // Publishing inserts a row; a double-click would create two jobs.
+  const inFlightRef = useRef(false);
+  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
+
+  function showToast(message: string) {
+    setToast(message);
+    if (toastTimer.current) clearTimeout(toastTimer.current);
+    toastTimer.current = setTimeout(() => setToast(null), 2600);
+  }
+
+  function set<K extends keyof CompanyJobInput>(key: K, value: CompanyJobInput[K]) {
+    setState((prev) => ({ ...prev, [key]: value }));
+    setErrors((prev) => {
+      if (!prev[key as string]) return prev;
+      const next = { ...prev };
+      delete next[key as string];
+      return next;
+    });
+  }
+
+  // ── Validation ─────────────────────────────────────────────
+
+  function validate(target: number): boolean {
+    const next: Record<string, string> = {};
+
+    if (target === 1) {
+      if (!state.title.trim()) next.title = "Add a job title to continue.";
+      else if (!state.location.trim()) next.location = "Where is this role based?";
+    }
+    if (target === 2) {
+      if (!state.description.trim()) {
+        next.description = "Add a short overview so candidates know what they're applying to.";
+      }
+    }
+    if (target === 3 && state.show_salary) {
+      const min = Number.parseInt(state.salary_min, 10);
+      const max = Number.parseInt(state.salary_max, 10);
+      if (!state.salary_min || Number.isNaN(min)) next.salary_min = "Enter a minimum.";
+      else if (!state.salary_max || Number.isNaN(max) || max < min) {
+        next.salary_max = "Max must be equal to or above the minimum.";
+      }
+    }
+
+    if (Object.keys(next).length > 0) {
+      setErrors(next);
+      showToast(Object.values(next)[0]);
+      return false;
+    }
+    return true;
+  }
+
+  /** Rail navigation: going forward re-validates every intervening step. */
+  function goTo(target: number) {
+    if (target <= step) {
+      setStep(target);
+      return;
+    }
+    for (let k = step; k < target; k++) {
+      if (!validate(k)) {
+        setStep(k);
+        return;
+      }
+    }
+    setStep(target);
+  }
+
+  // ── Screening builder ──────────────────────────────────────
+
+  const questions = state.screening_questions;
+
+  function addQuestion() {
+    if (questions.length >= 10) return;
+    set("screening_questions", [
+      ...questions,
+      {
+        id: crypto.randomUUID(),
+        question: "",
+        type: "yesno",
+        ideal: "Yes",
+        options: [],
+        essential: false,
+      },
+    ]);
+  }
+
+  function patchQuestion(index: number, patch: Partial<ScreeningQuestion>) {
+    set(
+      "screening_questions",
+      questions.map((q, i) => (i === index ? { ...q, ...patch } : q)),
+    );
+  }
+
+  function changeType(index: number, type: ScreeningQuestion["type"]) {
+    // Reset `ideal`/`options` to that type's shape so a half-migrated question
+    // can never reach the server.
+    patchQuestion(index, {
+      type,
+      ideal: type === "yesno" ? "Yes" : type === "numeric" ? "0" : "0",
+      options: type === "multiple" ? ["", ""] : [],
+    });
+  }
+
+  function removeQuestion(index: number) {
+    set(
+      "screening_questions",
+      questions.filter((_, i) => i !== index),
+    );
+  }
+
+  // ── Submit ─────────────────────────────────────────────────
+
+  async function submit(status: CompanyJobInput["status"]) {
+    if (inFlightRef.current) return;
+
+    // Drafts skip validation beyond a title — the point of a draft is that it
+    // isn't finished yet. Publishing runs every gate.
+    if (status === "open") {
+      for (let k = 1; k <= 3; k++) {
+        if (!validate(k)) {
+          setStep(k);
+          return;
+        }
+      }
+    } else if (!state.title.trim()) {
+      setErrors({ title: "Add a job title to save a draft." });
+      setStep(1);
+      showToast("Add a job title to save a draft");
+      return;
+    }
+
+    inFlightRef.current = true;
+    setSubmitting(true);
+    try {
+      const payload = { ...state, status };
+      const result =
+        isEdit && jobId
+          ? await updateCompanyJob(jobId, payload)
+          : await createCompanyJob(payload);
+
+      if (!result.success) {
+        showToast(result.error);
+        return;
+      }
+
+      // Editing returns straight to the list — the "Post another" overlay only
+      // makes sense right after creating something.
+      if (isEdit) {
+        router.push("/ai-dashboard/jobs");
+        router.refresh();
+        return;
+      }
+      if (status === "open") {
+        setPublished({ title: state.title.trim() || "Your role" });
+      } else {
+        router.push("/ai-dashboard/jobs");
+      }
+    } finally {
+      inFlightRef.current = false;
+      setSubmitting(false);
+    }
+  }
+
+  // ── Preview ────────────────────────────────────────────────
+
+  const compensation = useMemo(() => {
+    if (!state.show_salary) return null;
+    const min = fmtNumber(state.salary_min);
+    const max = fmtNumber(state.salary_max);
+    if (!min && !max) return null;
+    return `${currencySymbol(state.salary_currency)} ${min || "—"} – ${max || "—"}`;
+  }, [state.show_salary, state.salary_min, state.salary_max, state.salary_currency]);
+
+  const meta = STEPS[step - 1];
+
+  return (
+    <div className="flex min-h-full flex-col">
+      {/* Wizard topbar */}
+      <div className="sticky top-[60px] z-20 flex h-[60px] shrink-0 items-center gap-3.5 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/85 px-4 backdrop-blur-xl min-[840px]:px-8">
+        <Link
+          href="/ai-dashboard/jobs"
+          className="inline-flex items-center gap-[7px] rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-2 text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+        >
+          <ChevronLeft className="size-[15px]" strokeWidth={2} />
+          Jobs
+        </Link>
+        <span className="text-sm font-semibold text-[var(--ai-t1)]">
+          {isEdit ? "Edit job" : "New job"}
+        </span>
+
+        <div className="ml-auto flex gap-2.5">
+          <button
+            type="button"
+            onClick={() => submit("on_hold")}
+            disabled={submitting}
+            className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:opacity-50"
+          >
+            {isEdit ? "Save as draft" : "Save draft"}
+          </button>
+          <button
+            type="button"
+            onClick={() => submit(isEdit ? state.status : "open")}
+            disabled={submitting}
+            aria-busy={submitting}
+            className="inline-flex items-center gap-2 rounded-[11px] bg-remotiv-purple px-[18px] py-[9px] text-[13.5px] font-semibold text-white shadow-[0_4px_16px_rgba(126,71,255,0.28)] transition-colors hover:bg-[var(--ai-purple-hover)] disabled:opacity-60"
+          >
+            <ArrowRight className="size-[15px]" strokeWidth={2} />
+            {submitting
+              ? isEdit
+                ? "Saving…"
+                : "Publishing…"
+              : isEdit
+                ? "Save changes"
+                : "Publish"}
+          </button>
+        </div>
+      </div>
+
+      <PageContainer>
+        {/*
+          Track sizing from the mock's `.wiz` rule: fixed rail / flexible form /
+          fixed preview. minmax(0,1fr) on the middle track is load-bearing — a
+          bare 1fr keeps an auto minimum, refuses to shrink, and inflates the
+          two side tracks instead.
+
+          The mock's own fallbacks are 1240px and 860px; this segment's
+          breakpoints are scaled by the 0.82 zoom, so those become 1017 and 705.
+          Deliberately NOT the scaled lg/xl (840/1049) used elsewhere — these
+          two widths are the wizard's own, set by where its columns stop fitting.
+        */}
+        <div className="grid grid-cols-1 items-start gap-[22px] min-[705px]:grid-cols-[190px_minmax(0,1fr)] min-[1017px]:grid-cols-[200px_minmax(0,1fr)_280px]">
+          {/* Step rail */}
+          <div className="min-[705px]:sticky min-[705px]:top-[146px]">
+            <h1 className="mb-[3px] font-heading text-xl font-extrabold tracking-[-0.03em]">
+              {isEdit ? "Edit job" : "Post a job"}
+            </h1>
+            <p className="mb-[18px] text-[12.5px] text-[var(--ai-t3)]">
+              {isEdit ? "5 steps · edit any section" : "5 steps · ~4 min"}
+            </p>
+
+            <div>
+              {STEPS.map((s) => {
+                const active = s.n === step;
+                const done = s.n < step;
+                return (
+                  <button
+                    key={s.n}
+                    type="button"
+                    onClick={() => goTo(s.n)}
+                    /* `.step` + `.step.active` only. A completed step gets NO
+                       row treatment — no background, border or shadow — which
+                       is what stops it looking like a second active card. */
+                    className={`${STEP_ROW} ${
+                      active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE
+                    }`}
+                  >
+                    <span
+                      /* `.step.done` styles the CIRCLE ONLY. */
+                      className={`${STEP_NUM} ${
+                        active
+                          ? STEP_NUM_ACTIVE
+                          : done
+                            ? STEP_NUM_DONE
+                            : STEP_NUM_IDLE
+                      }`}
+                    >
+                      {/* Completing a step recolours the badge — the digit stays. */}
+                      {s.n}
+                    </span>
+                    <span
+                      /* `.step.active .lab` is the only label override; a done
+                         label stays at the default --ai-t2. */
+                      className={`${STEP_LAB} ${
+                        active ? "text-[var(--ai-t1)]" : "text-[var(--ai-t2)]"
+                      }`}
+                    >
+                      {s.label}
+                    </span>
+                  </button>
+                );
+              })}
+            </div>
+
+            <div className="mx-1 my-2 h-px bg-[var(--ai-line)]" />
+
+            <div>
+              {LOCKED_STEPS.map((s) => (
+                <button
+                  key={s.n}
+                  type="button"
+                  onClick={() => showToast(`${s.label} unlocks in a later release`)}
+                  /* `.step.locked` — dimmed, no hover surface. */
+                  className={`${STEP_ROW} ${STEP_ROW_LOCKED}`}
+                >
+                  <span className={`${STEP_NUM} ${STEP_NUM_IDLE}`}>{s.n}</span>
+                  <span className={`${STEP_LAB} text-[var(--ai-t4)]`}>
+                    {s.label}
+                  </span>
+                </button>
+              ))}
+            </div>
+
+            <p className="mx-[11px] mt-3.5 border-t border-dashed border-[var(--ai-line)] pt-3 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+              Steps 6–9 (AI scoring, interview questions &amp; weighting) unlock in a
+              later release.
+            </p>
+          </div>
+
+          {/* Form card */}
+          <div className="overflow-hidden rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_4px_24px_rgba(20,16,32,0.05)]">
+            <div className="px-6 pb-1 pt-5">
+              <h2 className="mb-1 font-heading text-xl font-extrabold tracking-[-0.02em]">
+                {meta.title}
+              </h2>
+              <p className="text-[13px] text-[var(--ai-t3)]">{meta.desc}</p>
+            </div>
+
+            <div className="px-6 pb-[22px] pt-[18px]">
+              {step === 1 && (
+                <>
+                  <div className="mb-4">
+                    <label htmlFor="w-title" className={LABEL_CLS}>
+                      Job title <span className="text-remotiv-purple">*</span>
+                    </label>
+                    <input
+                      id="w-title"
+                      value={state.title}
+                      onChange={(e) => set("title", e.target.value)}
+                      placeholder="e.g. Senior Frontend Engineer"
+                      className={`${INPUT_CLS} ${errors.title ? INPUT_ERR_CLS : ""}`}
+                    />
+                    {errors.title && (
+                      <p className="mt-1.5 text-xs text-[#C4362F]">{errors.title}</p>
+                    )}
+                  </div>
+
+                  <div className="mb-4 grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-2">
+                    <div>
+                      <label htmlFor="w-category" className={LABEL_CLS}>
+                        Category <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <select
+                        id="w-category"
+                        value={state.category}
+                        onChange={(e) => set("category", e.target.value)}
+                        className={INPUT_CLS}
+                      >
+                        {JOB_CATEGORIES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="w-experience" className={LABEL_CLS}>
+                        Experience <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <select
+                        id="w-experience"
+                        value={state.experience_level}
+                        onChange={(e) => set("experience_level", e.target.value)}
+                        className={INPUT_CLS}
+                      >
+                        {JOB_EXPERIENCE_LEVELS.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="mb-4 grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-2">
+                    <div>
+                      <label htmlFor="w-worktype" className={LABEL_CLS}>
+                        Work type <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <select
+                        id="w-worktype"
+                        value={state.work_type}
+                        onChange={(e) => set("work_type", e.target.value)}
+                        className={INPUT_CLS}
+                      >
+                        {JOB_WORK_TYPES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                    <div>
+                      <label htmlFor="w-contract" className={LABEL_CLS}>
+                        Contract <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <select
+                        id="w-contract"
+                        value={state.contract_type}
+                        onChange={(e) => set("contract_type", e.target.value)}
+                        className={INPUT_CLS}
+                      >
+                        {JOB_CONTRACT_TYPES.map((c) => (
+                          <option key={c} value={c}>{c}</option>
+                        ))}
+                      </select>
+                    </div>
+                  </div>
+
+                  <div className="grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-[1fr_108px]">
+                    <div>
+                      <label htmlFor="w-location" className={LABEL_CLS}>
+                        Location <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <input
+                        id="w-location"
+                        value={state.location}
+                        onChange={(e) => set("location", e.target.value)}
+                        placeholder="e.g. Remote — Pakistan"
+                        className={`${INPUT_CLS} ${errors.location ? INPUT_ERR_CLS : ""}`}
+                      />
+                      {errors.location && (
+                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.location}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="w-openings" className={LABEL_CLS}>
+                        Openings
+                      </label>
+                      <input
+                        id="w-openings"
+                        type="number"
+                        min={1}
+                        value={state.positions}
+                        onChange={(e) => set("positions", e.target.value)}
+                        className={INPUT_CLS}
+                      />
+                    </div>
+                  </div>
+                </>
+              )}
+
+              {step === 2 && (
+                <>
+                  <div className="mb-4">
+                    <label htmlFor="w-about" className={LABEL_CLS}>
+                      About the role <span className="text-remotiv-purple">*</span>
+                    </label>
+                    <textarea
+                      id="w-about"
+                      value={state.description}
+                      onChange={(e) => set("description", e.target.value)}
+                      maxLength={JOB_TEXT_MAX}
+                      placeholder="A short overview of the role, the team, and why it matters."
+                      className={`${TEXTAREA_CLS} ${errors.description ? INPUT_ERR_CLS : ""}`}
+                    />
+                    {errors.description && (
+                      <p className="mt-1.5 text-xs text-[#C4362F]">{errors.description}</p>
+                    )}
+                    <CharCount value={state.description} hint="Markdown isn't supported — plain text only." />
+                  </div>
+                  <div className="mb-4">
+                    <label htmlFor="w-resp" className={LABEL_CLS}>Responsibilities</label>
+                    <textarea
+                      id="w-resp"
+                      value={state.responsibilities}
+                      onChange={(e) => set("responsibilities", e.target.value)}
+                      maxLength={JOB_TEXT_MAX}
+                      placeholder="One responsibility per line…"
+                      className={TEXTAREA_CLS}
+                    />
+                    <CharCount
+                      value={state.responsibilities}
+                      hint="One per line — these render as bullets on the public post."
+                    />
+                  </div>
+                  <div>
+                    <label htmlFor="w-reqs" className={LABEL_CLS}>Requirements</label>
+                    <textarea
+                      id="w-reqs"
+                      value={state.requirements}
+                      onChange={(e) => set("requirements", e.target.value)}
+                      maxLength={JOB_TEXT_MAX}
+                      placeholder="Must-have skills and experience, one per line…"
+                      className={TEXTAREA_CLS}
+                    />
+                    <CharCount value={state.requirements} />
+                  </div>
+                </>
+              )}
+
+              {step === 3 && (
+                <>
+                  <div className="mb-4">
+                    <span className={LABEL_CLS}>Currency</span>
+                    <div className="flex gap-0.5 rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+                      {JOB_CURRENCIES.map((c) => (
+                        <button
+                          key={c}
+                          type="button"
+                          onClick={() => set("salary_currency", c as JobCurrency)}
+                          className={`flex-1 rounded-lg py-[9px] text-[13px] font-semibold transition-colors ${
+                            state.salary_currency === c
+                              ? "bg-[var(--ai-surface)] text-[var(--ai-t1)] shadow-[0_1px_4px_rgba(0,0,0,0.08)]"
+                              : "text-[var(--ai-t3)]"
+                          }`}
+                        >
+                          {c === "USD" ? "USD ($)" : "PKR"}
+                        </button>
+                      ))}
+                    </div>
+                  </div>
+
+                  <div className="mb-4 grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-2">
+                    <div>
+                      <label htmlFor="w-min" className={LABEL_CLS}>
+                        Minimum <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-[13px] top-1/2 -translate-y-1/2 text-sm text-[var(--ai-t3)]">
+                          {currencySymbol(state.salary_currency)}
+                        </span>
+                        <input
+                          id="w-min"
+                          type="number"
+                          min={0}
+                          value={state.salary_min}
+                          onChange={(e) => set("salary_min", e.target.value)}
+                          placeholder="400000"
+                          className={`${INPUT_CLS} pl-11 ${errors.salary_min ? INPUT_ERR_CLS : ""}`}
+                        />
+                      </div>
+                      {errors.salary_min && (
+                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.salary_min}</p>
+                      )}
+                    </div>
+                    <div>
+                      <label htmlFor="w-max" className={LABEL_CLS}>
+                        Maximum <span className="text-remotiv-purple">*</span>
+                      </label>
+                      <div className="relative">
+                        <span className="pointer-events-none absolute left-[13px] top-1/2 -translate-y-1/2 text-sm text-[var(--ai-t3)]">
+                          {currencySymbol(state.salary_currency)}
+                        </span>
+                        <input
+                          id="w-max"
+                          type="number"
+                          min={0}
+                          value={state.salary_max}
+                          onChange={(e) => set("salary_max", e.target.value)}
+                          placeholder="600000"
+                          className={`${INPUT_CLS} pl-11 ${errors.salary_max ? INPUT_ERR_CLS : ""}`}
+                        />
+                      </div>
+                      {errors.salary_max && (
+                        <p className="mt-1.5 text-xs text-[#C4362F]">{errors.salary_max}</p>
+                      )}
+                    </div>
+                  </div>
+
+                  <p className="mb-4 text-xs leading-relaxed text-[var(--ai-t3)]">
+                    Salary displays as a monthly range (<b>/mo</b>) on the public post.
+                  </p>
+
+                  <div className="flex items-center gap-3 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-[13px]">
+                    <div>
+                      <div className="text-[13.5px] font-semibold text-[var(--ai-t1)]">
+                        Show salary publicly
+                      </div>
+                      <div className="mt-0.5 text-xs text-[var(--ai-t3)]">
+                        Posts with visible pay get up to 2× more qualified applicants.
+                      </div>
+                    </div>
+                    <span className="ml-auto">
+                      <Toggle
+                        on={state.show_salary}
+                        onClick={() => set("show_salary", !state.show_salary)}
+                        label="Show salary publicly"
+                      />
+                    </span>
+                  </div>
+                </>
+              )}
+
+              {step === 4 && (
+                <>
+                  {questions.map((q, i) => (
+                    <div
+                      key={q.id}
+                      className="mb-3 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)] p-3.5 transition-shadow hover:shadow-[0_4px_16px_rgba(20,16,32,0.06)]"
+                    >
+                      <div className="mb-[11px] flex items-center gap-2.5">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-[var(--ai-purple-tint)] text-xs font-bold text-[var(--ai-purple-ink)]">
+                          {i + 1}
+                        </span>
+                        <input
+                          value={q.question}
+                          onChange={(e) => patchQuestion(i, { question: e.target.value })}
+                          placeholder="Ask a screening question…"
+                          aria-label={`Question ${i + 1}`}
+                          className={`${INPUT_CLS} flex-1`}
+                        />
+                        <button
+                          type="button"
+                          onClick={() => removeQuestion(i)}
+                          aria-label={`Remove question ${i + 1}`}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-danger-tint)] hover:text-[var(--ai-danger)]"
+                        >
+                          <Trash2 className="size-[17px]" strokeWidth={1.8} />
+                        </button>
+                      </div>
+
+                      <div className="grid grid-cols-1 items-end gap-2.5 min-[525px]:grid-cols-[150px_1fr]">
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Answer type
+                          </span>
+                          <select
+                            value={q.type}
+                            onChange={(e) =>
+                              changeType(i, e.target.value as ScreeningQuestion["type"])
+                            }
+                            aria-label={`Answer type for question ${i + 1}`}
+                            className={INPUT_CLS}
+                          >
+                            {QUESTION_TYPES.map((t) => (
+                              <option key={t.value} value={t.value}>{t.label}</option>
+                            ))}
+                          </select>
+                        </div>
+
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            {q.type === "numeric"
+                              ? "Ideal answer (minimum)"
+                              : q.type === "multiple"
+                                ? "Options (one per line) · ideal is the first"
+                                : "Ideal answer"}
+                          </span>
+                          {q.type === "yesno" && (
+                            <select
+                              value={q.ideal}
+                              onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
+                              aria-label={`Ideal answer for question ${i + 1}`}
+                              className={INPUT_CLS}
+                            >
+                              <option value="Yes">Yes</option>
+                              <option value="No">No</option>
+                            </select>
+                          )}
+                          {q.type === "numeric" && (
+                            <input
+                              type="number"
+                              min={0}
+                              value={q.ideal}
+                              onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
+                              placeholder="e.g. 3"
+                              aria-label={`Ideal answer for question ${i + 1}`}
+                              className={INPUT_CLS}
+                            />
+                          )}
+                          {q.type === "multiple" && (
+                            <textarea
+                              value={q.options.join("\n")}
+                              onChange={(e) =>
+                                patchQuestion(i, {
+                                  options: e.target.value.split("\n"),
+                                  ideal: "0",
+                                })
+                              }
+                              placeholder={"Best match\nAcceptable\nNot a fit"}
+                              aria-label={`Options for question ${i + 1}`}
+                              className={`${INPUT_CLS} min-h-20 resize-y`}
+                            />
+                          )}
+                        </div>
+                      </div>
+
+                      <div className="mt-[11px] flex items-center gap-2.5 border-t border-[var(--ai-line-soft)] pt-[11px]">
+                        <span className="ml-auto flex items-center gap-2.5 text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                          Essential
+                          <Toggle
+                            on={q.essential}
+                            onClick={() => patchQuestion(i, { essential: !q.essential })}
+                            label={`Question ${i + 1} is essential`}
+                          />
+                        </span>
+                      </div>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={addQuestion}
+                    disabled={questions.length >= 10}
+                    className="flex w-full items-center justify-center gap-2 rounded-xl border-[1.5px] border-dashed border-[var(--ai-line-strong)] px-3 py-3 text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-remotiv-purple hover:bg-[var(--ai-purple-tint)] hover:text-remotiv-purple disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="size-4" strokeWidth={2} />
+                    Add question
+                  </button>
+                  <p className="mx-0.5 mt-2.5 text-right text-xs text-[var(--ai-t3)]">
+                    {questions.length} of 10 questions
+                  </p>
+                </>
+              )}
+
+              {step === 5 && (
+                <>
+                  <div className="mb-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
+                    <ReviewCard label="Role" onEdit={() => setStep(1)}>
+                      {state.title || "—"}{" "}
+                      <span className="text-[var(--ai-t4)]">
+                        · {state.category} · {state.experience_level}
+                      </span>
+                    </ReviewCard>
+                    <ReviewCard label="Location & type" onEdit={() => setStep(1)}>
+                      {state.location || "—"}{" "}
+                      <span className="text-[var(--ai-t4)]">
+                        · {state.work_type} · {state.contract_type} · {state.positions}{" "}
+                        opening{state.positions === "1" ? "" : "s"}
+                      </span>
+                    </ReviewCard>
+                  </div>
+
+                  <div className="mb-3">
+                    <ReviewCard label="Compensation" onEdit={() => setStep(3)}>
+                      {compensation ? (
+                        <>
+                          {compensation}{" "}
+                          <small className="text-[var(--ai-t3)]">/mo</small>
+                        </>
+                      ) : (
+                        <span className="text-[var(--ai-t4)]">Not shown publicly</span>
+                      )}
+                    </ReviewCard>
+                  </div>
+
+                  <div className="mb-3">
+                    <ReviewCard label="Description" onEdit={() => setStep(2)}>
+                      {state.description.trim() || (
+                        <span className="text-[var(--ai-t4)]">
+                          No description added yet.
+                        </span>
+                      )}
+                    </ReviewCard>
+                  </div>
+
+                  <ReviewCard label="Screening questions" onEdit={() => setStep(4)}>
+                    {questions.length === 0 ? (
+                      <span className="text-[var(--ai-t4)]">No screening questions.</span>
+                    ) : (
+                      <div>
+                        {questions.map((q, i) => (
+                          <div
+                            key={q.id}
+                            className="flex items-baseline gap-2 border-b border-[var(--ai-line-soft)] py-[7px] text-[13px] text-[var(--ai-t2)] last:border-b-0"
+                          >
+                            <span className="shrink-0 font-bold text-remotiv-purple">
+                              {i + 1}
+                            </span>
+                            <span>
+                              {q.question || (
+                                <span className="text-[var(--ai-t4)]">
+                                  Untitled question
+                                </span>
+                              )}
+                              {q.essential && (
+                                <span className="font-bold text-remotiv-purple">
+                                  {" "}· essential
+                                </span>
+                              )}
+                            </span>
+                            <span className="ml-auto shrink-0 text-[11px] font-semibold text-[var(--ai-t4)]">
+                              {QUESTION_TYPES.find((t) => t.value === q.type)?.label}
+                            </span>
+                          </div>
+                        ))}
+                      </div>
+                    )}
+                  </ReviewCard>
+
+                  <div className="mt-[18px] flex items-start gap-[11px] rounded-[13px] border border-remotiv-purple/20 bg-[var(--ai-purple-tint)] px-4 py-3.5">
+                    <Eye
+                      className="mt-px size-[18px] shrink-0 text-remotiv-purple"
+                      strokeWidth={1.9}
+                    />
+                    <p className="text-[13px] leading-relaxed text-[var(--ai-purple-ink)]">
+                      {isEdit ? (
+                        state.status === "open" ? (
+                          <>
+                            <b className="font-bold">
+                              Changes go live on remotiv.work/jobs immediately.
+                            </b>{" "}
+                            Anyone viewing the post sees the updated version, and new
+                            applicants are screened against these questions.
+                          </>
+                        ) : (
+                          <>
+                            <b className="font-bold">
+                              This job is a draft — it isn&apos;t public yet.
+                            </b>{" "}
+                            Saving keeps it private. Set the status to Published to put
+                            it live on remotiv.work/jobs.
+                          </>
+                        )
+                      ) : (
+                        <>
+                          <b className="font-bold">
+                            This publishes to remotiv.work/jobs immediately.
+                          </b>{" "}
+                          Applicants can apply right away and your AI recruiter starts
+                          screening them against these questions.
+                        </>
+                      )}
+                    </p>
+                  </div>
+                </>
+              )}
+            </div>
+
+            <div className="flex items-center justify-between border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-6 py-[15px]">
+              <span className="text-[12.5px] font-semibold text-[var(--ai-t3)]">
+                Step <b>{step}</b> of {LAST_STEP}
+              </span>
+              <div className="flex gap-2.5">
+                {step > 1 && (
+                  <button
+                    type="button"
+                    onClick={() => setStep(step - 1)}
+                    className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+                  >
+                    Back
+                  </button>
+                )}
+                <button
+                  type="button"
+                  disabled={submitting}
+                  onClick={() => {
+                    if (step === LAST_STEP) {
+                      // Edit keeps whatever status the job already has; only
+                      // create implies "publish now".
+                      submit(isEdit ? state.status : "open");
+                      return;
+                    }
+                    if (validate(step)) setStep(step + 1);
+                  }}
+                  className={`inline-flex items-center gap-2 rounded-[11px] px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors disabled:opacity-60 ${
+                    step === LAST_STEP
+                      ? "bg-remotiv-purple shadow-[0_4px_16px_rgba(126,71,255,0.28)] hover:bg-[var(--ai-purple-hover)]"
+                      : "bg-[var(--ai-sidebar)] hover:bg-[#241d38]"
+                  }`}
+                >
+                  {step === LAST_STEP ? (
+                    <>
+                      <ArrowRight className="size-[15px]" strokeWidth={2} />
+                      {submitting
+                        ? isEdit
+                          ? "Saving…"
+                          : "Publishing…"
+                        : isEdit
+                          ? "Save changes"
+                          : "Publish job"}
+                    </>
+                  ) : (
+                    <>
+                      Continue
+                      <ArrowRight className="size-[15px]" strokeWidth={2} />
+                    </>
+                  )}
+                </button>
+              </div>
+            </div>
+          </div>
+
+          {/* Live public preview */}
+          {/* Appears exactly when the third grid track does — same 1017px. */}
+          <div className="hidden min-[1017px]:sticky min-[1017px]:top-[146px] min-[1017px]:block">
+            <p className="mb-[9px] pl-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ai-t3)]">
+              Public preview
+            </p>
+            <div className="rounded-2xl border border-[var(--ai-line)] bg-[var(--ai-surface)] p-[18px] shadow-[0_8px_30px_rgba(20,16,32,0.07)]">
+              <div className="mb-3 flex items-center justify-between">
+                <span className="flex size-[38px] items-center justify-center rounded-[11px] bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light text-[15px] font-bold text-white">
+                  {companyName.trim()[0]?.toUpperCase() ?? "?"}
+                </span>
+                <span className="rounded-full bg-[var(--ai-inset)] px-2.5 py-1 text-[11px] text-[var(--ai-t4)]">
+                  Posted just now
+                </span>
+              </div>
+              <h3 className="mb-[5px] font-heading text-[17px] font-extrabold leading-tight tracking-[-0.02em]">
+                {state.title || "Untitled role"}
+              </h3>
+              {/* Company + rating are workspace facts, never wizard fields. */}
+              <p className="mb-0.5 flex items-center gap-1.5 text-[12.5px] text-[var(--ai-t2)]">
+                {companyName}{" "}
+                <span className="font-bold text-[var(--ai-amber-dot)]">★ 4.5</span>
+              </p>
+              <p className="mb-3 flex items-center gap-1.5 text-[12.5px] text-[var(--ai-t3)]">
+                <MapPin className="size-[13px]" strokeWidth={1.8} />
+                {state.location || "Location TBD"}
+              </p>
+              <p className="mb-[13px] font-heading text-base font-extrabold tracking-[-0.01em]">
+                {compensation ? (
+                  <>
+                    {compensation}
+                    <small className="font-sans text-[11.5px] font-medium tracking-normal text-[var(--ai-t3)]">
+                      /mo
+                    </small>
+                  </>
+                ) : (
+                  <small className="font-sans text-[13px] font-medium text-[var(--ai-t3)]">
+                    Compensation not shown
+                  </small>
+                )}
+              </p>
+              <div className="mb-3.5 flex flex-wrap gap-1.5">
+                {[state.contract_type, state.work_type, state.experience_level].map((t) => (
+                  <span
+                    key={t}
+                    className="rounded-full border border-[var(--ai-line-strong)] px-[11px] py-1 text-[11.5px] text-[var(--ai-t2)]"
+                  >
+                    {t}
+                  </span>
+                ))}
+              </div>
+              <button
+                type="button"
+                disabled
+                className="w-full cursor-default rounded-[10px] bg-remotiv-green py-2.5 text-[13px] font-bold text-[var(--ai-mint-ink)]"
+              >
+                Apply now
+              </button>
+              {state.description.trim() && (
+                <p className="mt-3 line-clamp-4 border-t border-[var(--ai-line-soft)] pt-3 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+                  {state.description}
+                </p>
+              )}
+            </div>
+            <p className="mx-0.5 mt-[11px] text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+              Publishing makes this live on remotiv.work/jobs immediately.
+            </p>
+
+            <div className="mt-4 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] p-3.5">
+              <p className="mb-1 flex items-center gap-[7px] text-[12.5px] font-semibold">
+                <Lightbulb className="size-[15px] text-remotiv-green" strokeWidth={2} />
+                Write once, screen forever
+              </p>
+              <small className="block text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+                Your screening questions power the AI recruiter on every applicant
+                automatically.
+              </small>
+            </div>
+          </div>
+        </div>
+      </PageContainer>
+
+      {published && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.45)] p-6 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="published-title"
+            className="w-full max-w-[420px] rounded-[22px] bg-white px-[30px] py-[34px] text-center shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+          >
+            <div className="mx-auto mb-4 flex size-[62px] items-center justify-center rounded-full bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]">
+              <Check className="size-[30px]" strokeWidth={2.4} />
+            </div>
+            <h2
+              id="published-title"
+              className="mb-[7px] font-heading text-[22px] font-extrabold"
+            >
+              Your job is live
+            </h2>
+            <p className="mb-[22px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+              “{published.title}” is now on remotiv.work/jobs. We&apos;ll notify you as
+              applicants come in.
+            </p>
+            <div className="flex justify-center gap-2.5">
+              <button
+                type="button"
+                onClick={() => {
+                  setPublished(null);
+                  setState(EMPTY_JOB_INPUT);
+                  setStep(1);
+                  setErrors({});
+                  showToast("Started a new draft");
+                }}
+                className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+              >
+                Post another
+              </button>
+              <Link
+                href="/ai-dashboard/jobs"
+                className="inline-flex items-center gap-2 rounded-[11px] bg-remotiv-purple px-[18px] py-[9px] text-[13.5px] font-semibold text-white transition-colors hover:bg-[var(--ai-purple-hover)]"
+              >
+                View in Jobs
+              </Link>
+            </div>
+          </div>
+        </div>
+      )}
+
+      {toast && (
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-xl bg-[var(--ai-sidebar)] px-[18px] py-3 text-[13.5px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.3)]"
+        >
+          <Check className="size-4 text-remotiv-green" strokeWidth={2.4} />
+          {toast}
+        </div>
+      )}
+    </div>
+  );
+}
+
+function ReviewCard({
+  label,
+  onEdit,
+  children,
+}: {
+  label: string;
+  onEdit: () => void;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
+      {/* A <div>, not a <p>: a <button> can't be a descendant of <p>, and the
+          browser's parser silently closes the paragraph early — which is what
+          the dev overlay was reporting. Classes unchanged. */}
+      <div className="mb-[7px] flex items-center justify-between text-[11px] font-semibold uppercase tracking-[0.05em] text-[var(--ai-t3)]">
+        {label}
+        <button
+          type="button"
+          onClick={onEdit}
+          className="text-[11px] font-semibold text-remotiv-purple hover:underline"
+        >
+          Edit
+        </button>
+      </div>
+      <div className="text-sm leading-relaxed text-[var(--ai-t1)]">{children}</div>
+    </div>
+  );
+}

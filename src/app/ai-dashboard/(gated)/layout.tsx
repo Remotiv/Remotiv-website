@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { AiShell } from "../_components/ai-shell";
 import { getCompanyContext } from "../lib/company-guards";
 import type { CompanyContext } from "../lib/company-roles";
@@ -33,12 +33,19 @@ export default async function GatedCompanyLayout({
     redirect("/ai-dashboard/change-password?forced=true");
   }
 
+  // Sidebar badge only — a HEAD count, so no rows cross the wire.
+  const { count: jobCount } = await createServiceClient()
+    .from("jobs")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id", ctx.companyId);
+
   return (
     <AiShell
       companyName={ctx.company.name}
       role={ctx.role}
       userName={ctx.memberName}
       userEmail={ctx.user.email}
+      jobCount={jobCount ?? 0}
     >
       {children}
     </AiShell>

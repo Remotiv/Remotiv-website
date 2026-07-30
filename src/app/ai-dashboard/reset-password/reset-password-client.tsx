@@ -81,7 +81,7 @@ export function ResetPasswordClient({
   }
 
   return (
-    <div className="ai-shell flex min-h-screen items-center justify-center bg-[var(--ai-page)] px-6 py-16 font-sans">
+    <div className="ai-shell flex min-h-[var(--vh-full)] items-center justify-center bg-[var(--ai-page)] px-6 py-16 font-sans">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <Link
@@ -92,7 +92,7 @@ export function ResetPasswordClient({
           </Link>
         </div>
 
-        <div className="rounded-3xl border border-[var(--ai-line)] bg-white p-8 shadow-lg sm:p-10">
+        <div className="rounded-3xl border border-[var(--ai-line)] bg-white p-8 shadow-lg min-[525px]:p-10">
           <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-purple-tint)]">
             <ShieldCheck className="size-7 text-remotiv-purple" strokeWidth={2} />
           </div>

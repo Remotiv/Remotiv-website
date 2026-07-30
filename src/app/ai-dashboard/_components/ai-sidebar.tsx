@@ -27,12 +27,14 @@ type NavItem = {
   soon?: boolean;
 };
 
-const PRIMARY_NAV: ReadonlyArray<NavItem> = [
-  { label: "Overview",   href: "/ai-dashboard",            icon: LayoutGrid },
-  { label: "Jobs",       href: "/ai-dashboard/jobs",       icon: Briefcase, count: 0, soon: true },
-  { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: 0, soon: true },
-  { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video,     count: 0, soon: true },
-];
+function primaryNav(jobCount: number): ReadonlyArray<NavItem> {
+  return [
+    { label: "Overview",   href: "/ai-dashboard",            icon: LayoutGrid },
+    { label: "Jobs",       href: "/ai-dashboard/jobs",       icon: Briefcase, count: jobCount },
+    { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: 0, soon: true },
+    { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video,     count: 0, soon: true },
+  ];
+}
 
 const WORKSPACE_NAV: ReadonlyArray<NavItem> = [
   { label: "Team",     href: "/ai-dashboard/team",     icon: UserRound },
@@ -114,11 +116,13 @@ function getCompanyInitial(name: string): string {
 function SidebarBody({
   companyName,
   role,
+  jobCount,
   pathname,
   onNavigate,
 }: {
   companyName: string;
   role: CompanyRole;
+  jobCount: number;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -143,7 +147,7 @@ function SidebarBody({
       </div>
 
       <nav className="mb-1.5 flex flex-col gap-0.5">
-        {PRIMARY_NAV.map((item) => (
+        {primaryNav(jobCount).map((item) => (
           <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
         ))}
       </nav>
@@ -163,11 +167,13 @@ function SidebarBody({
 export function AiSidebar({
   companyName,
   role,
+  jobCount,
   mobileOpen,
   onClose,
 }: {
   companyName: string;
   role: CompanyRole;
+  jobCount: number;
   mobileOpen: boolean;
   onClose: () => void;
 }) {
@@ -176,20 +182,25 @@ export function AiSidebar({
   return (
     <>
       {/* Desktop — sticky full-height rail */}
-      <aside className="sticky top-0 hidden h-screen w-[236px] shrink-0 flex-col self-start bg-[var(--ai-sidebar)] px-4 pb-[18px] pt-[22px] lg:flex">
-        <SidebarBody companyName={companyName} role={role} pathname={pathname} />
+      <aside className="sticky top-0 hidden h-[var(--vh-full)] w-[236px] shrink-0 flex-col self-start bg-[var(--ai-sidebar)] px-4 pb-[18px] pt-[22px] min-[840px]:flex">
+        <SidebarBody
+          companyName={companyName}
+          role={role}
+          jobCount={jobCount}
+          pathname={pathname}
+        />
       </aside>
 
       {/* Mobile — overlay drawer */}
       <div
-        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
+        className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 min-[840px]:hidden ${
           mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={onClose}
         aria-hidden="true"
       />
       <aside
-        className={`fixed inset-y-0 left-0 z-50 flex w-[264px] max-w-[85vw] flex-col overflow-y-auto bg-[var(--ai-sidebar)] px-4 pb-[18px] pt-[22px] shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+        className={`fixed inset-y-0 left-0 z-50 flex w-[264px] max-w-[85vw] flex-col overflow-y-auto bg-[var(--ai-sidebar)] px-4 pb-[18px] pt-[22px] shadow-2xl transition-transform duration-300 ease-out min-[840px]:hidden ${
           mobileOpen ? "translate-x-0" : "-translate-x-full"
         }`}
         aria-hidden={!mobileOpen}
@@ -205,6 +216,7 @@ export function AiSidebar({
         <SidebarBody
           companyName={companyName}
           role={role}
+          jobCount={jobCount}
           pathname={pathname}
           onNavigate={onClose}
         />

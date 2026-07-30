@@ -61,7 +61,7 @@ export function AcceptClient({
   const greeting = inviteeName || email.split("@")[0];
 
   return (
-    <div className="ai-shell flex min-h-screen items-center justify-center bg-[var(--ai-page)] px-6 py-16 font-sans">
+    <div className="ai-shell flex min-h-[var(--vh-full)] items-center justify-center bg-[var(--ai-page)] px-6 py-16 font-sans">
       <div className="w-full max-w-md">
         <div className="mb-6 text-center">
           <Link
@@ -72,7 +72,7 @@ export function AcceptClient({
           </Link>
         </div>
 
-        <div className="rounded-3xl border border-[var(--ai-line)] bg-white p-8 shadow-lg sm:p-10">
+        <div className="rounded-3xl border border-[var(--ai-line)] bg-white p-8 shadow-lg min-[525px]:p-10">
           <h1 className="font-heading text-2xl font-bold text-[var(--ai-t1)]">
             {signInMode
               ? `Sign in to join ${companyName}`

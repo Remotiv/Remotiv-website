@@ -47,12 +47,12 @@ export function AiTopbar({
   }, [menuOpen]);
 
   return (
-    <header className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/80 px-4 backdrop-blur-xl lg:px-8">
+    <header className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/80 px-4 backdrop-blur-xl min-[840px]:px-8">
       <button
         type="button"
         onClick={onMenuClick}
         aria-label="Open menu"
-        className="flex size-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] lg:hidden"
+        className="flex size-9 shrink-0 items-center justify-center rounded-[10px] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] min-[840px]:hidden"
       >
         <Menu className="size-5" strokeWidth={2} />
       </button>
@@ -67,7 +67,7 @@ export function AiTopbar({
         )}
       </span>
 
-      <div className="ml-auto hidden items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] md:flex md:w-[220px]">
+      <div className="ml-auto hidden items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] min-[630px]:flex min-[630px]:w-[220px]">
         <Search className="size-[15px] shrink-0" strokeWidth={1.8} />
         <input
           type="search"
@@ -81,7 +81,7 @@ export function AiTopbar({
       <button
         type="button"
         aria-label="Notifications"
-        className="relative ml-auto flex size-[34px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] md:ml-0"
+        className="relative ml-auto flex size-[34px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] min-[630px]:ml-0"
       >
         <Bell className="size-[18px]" strokeWidth={1.7} />
       </button>

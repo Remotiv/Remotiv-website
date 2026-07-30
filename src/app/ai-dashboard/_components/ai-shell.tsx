@@ -16,12 +16,14 @@ export function AiShell({
   role,
   userName,
   userEmail,
+  jobCount,
   children,
 }: {
   companyName: string;
   role: CompanyRole;
   userName: string;
   userEmail: string;
+  jobCount: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -48,10 +50,11 @@ export function AiShell({
   }, [mobileOpen]);
 
   return (
-    <div className="ai-shell flex min-h-screen bg-[var(--ai-page)] font-sans text-[var(--ai-t1)]">
+    <div className="ai-shell ai-app-bg flex min-h-[var(--vh-full)] bg-[var(--ai-page)] font-sans text-[var(--ai-t1)]">
       <AiSidebar
         companyName={companyName}
         role={role}
+        jobCount={jobCount}
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
       />

@@ -1,5 +1,6 @@
 import { redirect } from "next/navigation";
 import { Briefcase, Users, Video } from "lucide-react";
+import { PageContainer } from "../_components/page-container";
 import { getCompanyContext } from "../lib/company-guards";
 import {
   COMPANY_ROLE_LABELS,
@@ -30,7 +31,7 @@ export default async function CompanyOverviewPage() {
   }
 
   return (
-    <div className="mx-auto max-w-[1560px] px-4 pb-16 pt-[30px] lg:px-8">
+    <PageContainer>
       <div className="mb-[22px]">
         <h1 className="font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
           {ctx.company.name}
@@ -40,7 +41,7 @@ export default async function CompanyOverviewPage() {
         </p>
       </div>
 
-      <div className="mb-6 grid grid-cols-1 gap-3.5 sm:grid-cols-2 xl:grid-cols-3">
+      <div className="mb-6 grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-2 min-[1049px]:grid-cols-3">
         {STATS.map(({ label, icon: Icon, tintBg, tintFg }) => (
           <div
             key={label}
@@ -71,6 +72,6 @@ export default async function CompanyOverviewPage() {
           your workspace members from the Team page in the meantime.
         </p>
       </div>
-    </div>
+    </PageContainer>
   );
 }
