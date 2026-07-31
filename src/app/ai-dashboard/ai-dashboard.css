@@ -112,3 +112,34 @@
     );
   }
 }
+
+/*
+ * Overview hero's live pill — the mock's `@keyframes beat`, an expanding mint
+ * ring rather than an opacity blink.
+ *
+ * A plain CSS rule, not `@theme` and not a Tailwind arbitrary value: keyframes
+ * can't be expressed inline, and `@theme` registers globally no matter which
+ * file declares it, which would leak this animation to the marketing site.
+ * Scoped under .ai-shell so it exists only inside the dashboard subtree.
+ */
+.ai-shell .ai-beat {
+  animation: ai-beat 2s ease-in-out infinite;
+}
+
+@keyframes ai-beat {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(73, 215, 167, 0.5);
+  }
+  50% {
+    box-shadow: 0 0 0 6px rgba(73, 215, 167, 0);
+  }
+}
+
+/* Respect a reduced-motion preference: the pill still reads as "live" from
+   its colour and label without the pulse. */
+@media (prefers-reduced-motion: reduce) {
+  .ai-shell .ai-beat {
+    animation: none;
+  }
+}
