@@ -8,6 +8,8 @@ import { Bell, LogOut, Menu, Search } from "lucide-react";
 // is the Overview page.
 const CRUMBS: Record<string, { section: string; page: string }> = {
   "/ai-dashboard": { section: "Workspace", page: "Overview" },
+  "/ai-dashboard/jobs": { section: "Workspace", page: "Jobs" },
+  "/ai-dashboard/applicants": { section: "Workspace", page: "Applicants" },
   "/ai-dashboard/team": { section: "Workspace", page: "Team" },
 };
 

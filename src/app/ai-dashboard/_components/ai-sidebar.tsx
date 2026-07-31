@@ -27,11 +27,11 @@ type NavItem = {
   soon?: boolean;
 };
 
-function primaryNav(jobCount: number): ReadonlyArray<NavItem> {
+function primaryNav(jobCount: number, applicantCount: number): ReadonlyArray<NavItem> {
   return [
     { label: "Overview",   href: "/ai-dashboard",            icon: LayoutGrid },
     { label: "Jobs",       href: "/ai-dashboard/jobs",       icon: Briefcase, count: jobCount },
-    { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: 0, soon: true },
+    { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: applicantCount },
     { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video,     count: 0, soon: true },
   ];
 }
@@ -117,12 +117,14 @@ function SidebarBody({
   companyName,
   role,
   jobCount,
+  applicantCount,
   pathname,
   onNavigate,
 }: {
   companyName: string;
   role: CompanyRole;
   jobCount: number;
+  applicantCount: number;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -147,7 +149,7 @@ function SidebarBody({
       </div>
 
       <nav className="mb-1.5 flex flex-col gap-0.5">
-        {primaryNav(jobCount).map((item) => (
+        {primaryNav(jobCount, applicantCount).map((item) => (
           <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
         ))}
       </nav>
@@ -168,12 +170,14 @@ export function AiSidebar({
   companyName,
   role,
   jobCount,
+  applicantCount,
   mobileOpen,
   onClose,
 }: {
   companyName: string;
   role: CompanyRole;
   jobCount: number;
+  applicantCount: number;
   mobileOpen: boolean;
   onClose: () => void;
 }) {
@@ -187,6 +191,7 @@ export function AiSidebar({
           companyName={companyName}
           role={role}
           jobCount={jobCount}
+          applicantCount={applicantCount}
           pathname={pathname}
         />
       </aside>
@@ -217,6 +222,7 @@ export function AiSidebar({
           companyName={companyName}
           role={role}
           jobCount={jobCount}
+          applicantCount={applicantCount}
           pathname={pathname}
           onNavigate={onClose}
         />

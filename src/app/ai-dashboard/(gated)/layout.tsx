@@ -33,11 +33,20 @@ export default async function GatedCompanyLayout({
     redirect("/ai-dashboard/change-password?forced=true");
   }
 
-  // Sidebar badge only — a HEAD count, so no rows cross the wire.
-  const { count: jobCount } = await createServiceClient()
-    .from("jobs")
-    .select("id", { count: "exact", head: true })
-    .eq("company_id", ctx.companyId);
+  // Sidebar badges only — HEAD counts, so no rows cross the wire. Applicants
+  // are scoped on company_id_snapshot, matching fetchCompanyApplicants: it
+  // survives job deletion, unlike a join through jobs.company_id.
+  const service = createServiceClient();
+  const [{ count: jobCount }, { count: applicantCount }] = await Promise.all([
+    service
+      .from("jobs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", ctx.companyId),
+    service
+      .from("job_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id_snapshot", ctx.companyId),
+  ]);
 
   return (
     <AiShell
@@ -46,6 +55,7 @@ export default async function GatedCompanyLayout({
       userName={ctx.memberName}
       userEmail={ctx.user.email}
       jobCount={jobCount ?? 0}
+      applicantCount={applicantCount ?? 0}
     >
       {children}
     </AiShell>
