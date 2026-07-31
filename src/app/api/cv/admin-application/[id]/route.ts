@@ -76,6 +76,13 @@ export async function GET(
     .from("job_applications")
     .select("cv_path, cv_url")
     .eq("id", id)
+    // Hard product separation: an application to a COMPANY-owned job
+    // (company_id_snapshot non-null) belongs to that company's pipeline and is
+    // never signed for Remotiv admin. Filtering in the query rather than
+    // branching after the fetch means a company row returns null here and
+    // falls into the SAME generic "CV not found" a genuinely missing row
+    // gets — no distinct error that would confirm the application exists.
+    .is("company_id_snapshot", null)
     .maybeSingle();
   if (appErr || !appRow) {
     return htmlError(404, "CV not found", "We couldn't find this application.");

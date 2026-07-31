@@ -409,14 +409,20 @@ export async function POST(request: NextRequest) {
     // so scoring can't be spoofed by the client. job missing / no questions →
     // [] → snapshot []. Never throws.
     let serverScreeningQuestions: ScreeningQuestion[] = [];
+    // Frozen at apply time so the company still sees this applicant after the
+    // job row is deleted (job_id is ON DELETE SET NULL). Null for Remotiv-owned
+    // and placeholder jobs — those simply aren't company-scoped.
+    let companyIdSnapshot: string | null = null;
     if (resolvedJobId) {
       const { data: jobQ } = await supabase
         .from("jobs")
-        .select("screening_questions")
+        .select("screening_questions, company_id")
         .eq("id", resolvedJobId)
         .maybeSingle();
       const raw = (jobQ as { screening_questions?: unknown } | null)?.screening_questions;
       serverScreeningQuestions = Array.isArray(raw) ? (raw as ScreeningQuestion[]) : [];
+      companyIdSnapshot =
+        (jobQ as { company_id?: string | null } | null)?.company_id ?? null;
     }
 
     // Phase 2b — parse the wizard's new fields just before the INSERT. Placed
@@ -554,6 +560,7 @@ export async function POST(request: NextRequest) {
         skills,
         employment_history:  employmentHistory,
         screening_answers:   screeningSnapshot,
+        company_id_snapshot: companyIdSnapshot,
       })
       .select("id")
       .single();

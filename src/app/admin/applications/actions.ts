@@ -72,7 +72,10 @@ export async function updateApplicationStatus(
   const { error } = await supabase
     .from("job_applications")
     .update({ status })
-    .eq("id", id);
+    .eq("id", id)
+    // Defence in depth: admin can't see company applications, so shouldn't be
+    // able to reach this — but a forged action call must not mutate one.
+    .is("company_id_snapshot", null);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/applications");
@@ -188,7 +191,9 @@ export async function deleteApplication(
   const { error } = await supabase
     .from("job_applications")
     .delete()
-    .eq("id", id);
+    .eq("id", id)
+    // Remotiv must never delete a customer's applicant record.
+    .is("company_id_snapshot", null);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/applications");
@@ -249,6 +254,8 @@ export async function moveApplicationToTalent(
     .from("job_applications")
     .select("*")
     .eq("id", applicationId)
+    // Remotiv must not harvest a company's applicant into its own talent pool.
+    .is("company_id_snapshot", null)
     .maybeSingle();
 
   if (fetchErr) return { success: false, error: fetchErr.message };
@@ -419,6 +426,9 @@ export async function getApplicationCvSignedUrl(
     .from("job_applications")
     .select("cv_path, cv_url")
     .eq("id", applicationId)
+    // Never sign a company applicant's CV for Remotiv admin. Falls through to
+    // the same generic "cv_missing" a genuinely absent row returns.
+    .is("company_id_snapshot", null)
     .maybeSingle();
   if (appErr || !appRow) {
     return { ok: false, error: "cv_missing" };

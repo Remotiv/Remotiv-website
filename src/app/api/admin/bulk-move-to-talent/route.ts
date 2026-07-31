@@ -107,6 +107,10 @@ export async function POST(request: Request) {
     .from("job_applications")
     .select("id, email, cv_text")
     .eq("cv_text_status", "completed")
+    // Company applicants are never moved into Remotiv's talent pool. A
+    // company id in the batch is simply not returned — neither moved nor
+    // counted, matching how a non-completed id is handled.
+    .is("company_id_snapshot", null)
     .in("id", ids);
   if (fetchErr) {
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });

@@ -24,6 +24,10 @@ async function fetchAllApplications(
     const { data, error } = await service
       .from("job_applications")
       .select(cols)
+      // Hard product separation: applications to COMPANY-owned jobs
+      // (company_id_snapshot non-null) belong to that company's pipeline and
+      // must never surface in Remotiv admin. Null = Remotiv-owned.
+      .is("company_id_snapshot", null)
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw error;

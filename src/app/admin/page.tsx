@@ -150,6 +150,8 @@ async function fetchSubmissionsByDay(
     supabase
       .from("job_applications")
       .select("created_at")
+      // Remotiv-owned only — company applications are theirs, not ours.
+      .is("company_id_snapshot", null)
       .gte("created_at", since),
   ]);
 
@@ -205,6 +207,9 @@ async function fetchApplicationsByStatus(
     const { data } = await supabase
       .from("job_applications")
       .select("status")
+      // Must match the /admin/applications list filter, or the stat counts
+      // disagree with the rows the admin can actually see.
+      .is("company_id_snapshot", null)
       .range(from, from + PAGE - 1);
     const batch = (data ?? []) as Array<{ status: string | null }>;
     rows.push(...batch);
@@ -284,6 +289,9 @@ async function fetchActivityFeed(
       supabase
         .from("job_applications")
         .select("id, first_name, last_name, created_at")
+        // Activity feed shows applicant NAMES — company applicants must never
+        // appear here.
+        .is("company_id_snapshot", null)
         .order("created_at", { ascending: false })
         .limit(10),
       supabase

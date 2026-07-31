@@ -170,6 +170,8 @@ export async function POST(request: Request) {
         "id, cv_text, applicant_job_title, role_category, years_experience, degree, institution, city, country, summary, availability, work_type, notice_period, work_location, skills, employment_history",
       )
       .eq("id", applicationId)
+      // Remotiv must not run CV extraction over a company's applicant data.
+      .is("company_id_snapshot", null)
       .maybeSingle();
 
     if (!row) {

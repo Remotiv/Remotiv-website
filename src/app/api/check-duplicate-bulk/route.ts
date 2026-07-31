@@ -86,6 +86,11 @@ export async function POST(request: NextRequest) {
             .from("job_applications")
             .select("first_name, last_name")
             .or(orFilter)
+            // Remotiv-owned applications only — this endpoint is reachable
+            // from the public apply flow, and a match confirms that the
+            // person applied somewhere. A customer's applicants are their
+            // data, not a signal Remotiv surfaces publicly.
+            .is("company_id_snapshot", null)
             .limit(1)
             .maybeSingle(),
           supabase

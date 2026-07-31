@@ -267,6 +267,8 @@ export async function fetchAvailableCandidates(
     let appQ = supabase
       .from("job_applications")
       .select("id, first_name, last_name, email, phone, linkedin_url, cv_url, jobs(title)")
+      // Company applicants are not Remotiv's to place into client batches.
+      .is("company_id_snapshot", null)
       .order("created_at", { ascending: false })
       .limit(50);
     if (q) {
@@ -455,6 +457,9 @@ export async function addCandidateToBatch(
         .from("job_applications")
         .select("cv_path")
         .eq("id", candidate.source_id)
+        // A batch candidate sourced before the separation could still point at
+        // a company application; never sign its CV.
+        .is("company_id_snapshot", null)
         .maybeSingle();
       cvPath = (appRow?.cv_path as string | null) ?? null;
     } else if (candidate.source_type === "talent") {
@@ -759,6 +764,9 @@ export async function copyCandidateToApplications(
     .from("job_applications")
     .select("id")
     .eq("email", c.email)
+    // Scoped to Remotiv's own applications: a candidate who applied to a
+    // customer's job must not block Remotiv from adding them to a batch.
+    .is("company_id_snapshot", null)
     .maybeSingle();
   if (existing && (existing as { id: string }).id) {
     return {

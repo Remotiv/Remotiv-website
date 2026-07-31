@@ -74,6 +74,15 @@ export async function POST(request: NextRequest) {
         .from("job_applications")
         .select("id, first_name, last_name, email, phone, status, created_at, jobs(title)")
         .eq("email", email)
+        // Remotiv-owned applications only. This endpoint is called from the
+        // PUBLIC apply form and returns the matched job's title — without the
+        // filter, anyone could type an email and learn that person applied to
+        // a specific customer's job, exposing that customer's hiring activity
+        // on a public endpoint. Cross-product dedup isn't meaningful either: a
+        // Remotiv job and a company job are different applications. Companies
+        // get their own scoped dedup when the apply flow becomes
+        // company-aware.
+        .is("company_id_snapshot", null)
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -100,6 +109,9 @@ export async function POST(request: NextRequest) {
         .from("job_applications")
         .select("id, first_name, last_name, email, phone, status, created_at, jobs(title)")
         .not("phone", "is", null)
+        // Same public-exposure reasoning as the email match above — the phone
+        // path returns the identical shape, job title included.
+        .is("company_id_snapshot", null)
         .order("created_at", { ascending: false })
         .limit(100);
 
