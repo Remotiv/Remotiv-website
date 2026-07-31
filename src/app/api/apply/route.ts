@@ -5,6 +5,7 @@ import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/app/admin/lib/validators";
 import { extractPdfTextServer } from "@/lib/pdf-text";
+import { enqueue } from "@/lib/jobs-queue";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -587,6 +588,32 @@ export async function POST(request: NextRequest) {
     }
 
     const applicationId = (insertedRow as { id: string }).id;
+
+    // 4b. Queue AI CV scoring. Company-owned jobs only — a Remotiv-owned
+    //     application has no company to score for. Failure MUST NOT fail the
+    //     application: the candidate has already applied, and an unscored CV
+    //     is a missing convenience, not a lost submission. Logged, never
+    //     surfaced, same contract as the bridge token below.
+    if (resolvedJobId && companyIdSnapshot) {
+      try {
+        const queued = await enqueue({
+          type: "ai_cv_score",
+          payload: { applicationId },
+          companyId: companyIdSnapshot,
+        });
+        if (!queued.ok) {
+          console.error(
+            "[/api/apply] cv scoring enqueue failed (non-fatal):",
+            queued.error,
+          );
+        }
+      } catch (queueErr) {
+        console.error(
+          "[/api/apply] cv scoring enqueue threw (non-fatal):",
+          queueErr,
+        );
+      }
+    }
 
     // 5. Issue a bridge token so the success modal can offer
     //    "Complete your profile" → /join-as-talent?token=… . Reuses the

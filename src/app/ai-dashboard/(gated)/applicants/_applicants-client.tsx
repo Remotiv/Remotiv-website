@@ -16,6 +16,8 @@ import {
 import {
   PIPELINE_STAGES,
   PIPELINE_STAGE_LABELS,
+  type ApplicantScore,
+  type ApplicantScoreDetail,
   type CompanyApplicantRow,
   type PipelineStage,
   type StageHistoryRow,
@@ -154,23 +156,144 @@ function csvCell(value: string): string {
 // ── Score ring (pending state only, until Step 4) ────────────
 
 /**
- * AI scoring ships in Step 4. Until then EVERY row renders the pending
- * treatment from the mock — a dashed circle + clock + "Pending". No score is
- * invented, and no placeholder number is shown.
+ * Score ring, per the design system's spec: 38px donut, r=16, stroke-width
+ * 3.5, rotated -90deg so it fills clockwise from twelve o'clock.
+ * C = 2*pi*16 = 100.53; offset = C * (1 - score/100).
  *
- * The scored variant is intentionally absent rather than dead code: the ring
- * geometry (38px, r=16, stroke-width 3.5, C = 2π×16 = 100.53,
- * offset = C × (1 − score/100), rotated -90°) is recorded here so Step 4 has
- * the spec without re-deriving it.
+ * Bands are absolute, matching the rubric the model scores against — a 92 is
+ * "strong" on every job, which is the entire reason the prompt anchors them.
  */
-function PendingScore() {
+const RING_C = 2 * Math.PI * 16;
+
+function scoreBand(score: number): { stroke: string; ink: string } {
+  if (score >= 80) return { stroke: "#49D7A7", ink: "#04342C" };
+  if (score >= 60) return { stroke: "#F5A524", ink: "#7A4E05" };
+  return { stroke: "#E0524B", ink: "#B02A24" };
+}
+
+/**
+ * No number to show. Covers pending (queued, not yet run), failed and skipped
+ * alike — in all three cases the honest answer is that there is no score, and
+ * the tooltip carries the specific reason when there is one.
+ */
+function PendingScore({ score }: { score?: ApplicantScore }) {
+  const label =
+    score?.status === "failed"
+      ? "Failed"
+      : score?.status === "skipped"
+        ? "No CV text"
+        : "Pending";
   return (
-    <div className="flex items-center gap-[9px]">
+    <div className="flex items-center gap-[9px]" title={score?.error ?? undefined}>
       <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-dashed border-[var(--ai-line-strong)] text-[var(--ai-t4)]">
         <Clock className="size-4" strokeWidth={1.8} />
       </span>
-      <span className="text-xs font-semibold text-[var(--ai-t4)]">Pending</span>
+      <span className="text-xs font-semibold text-[var(--ai-t4)]">{label}</span>
     </div>
+  );
+}
+
+/** The scored state: ring + numeral, with a dot when a human has overridden. */
+function ScoreRing({ score }: { score: ApplicantScore }) {
+  if (score.status !== "scored" || score.overall == null) {
+    return <PendingScore score={score} />;
+  }
+  const band = scoreBand(score.overall);
+  return (
+    <div
+      className="flex items-center gap-[9px]"
+      title={
+        score.adjusted
+          ? "Adjusted by a member of your team"
+          : score.confidence
+            ? `AI score · ${score.confidence} confidence`
+            : "AI score"
+      }
+    >
+      <span className="relative flex size-[38px] shrink-0 items-center justify-center">
+        <svg className="size-[38px] -rotate-90" viewBox="0 0 38 38" aria-hidden>
+          <circle
+            cx="19"
+            cy="19"
+            r="16"
+            fill="none"
+            stroke="rgba(20,16,32,0.08)"
+            strokeWidth="3.5"
+          />
+          <circle
+            cx="19"
+            cy="19"
+            r="16"
+            fill="none"
+            stroke={band.stroke}
+            strokeWidth="3.5"
+            strokeLinecap="round"
+            strokeDasharray={RING_C.toFixed(2)}
+            strokeDashoffset={(RING_C * (1 - score.overall / 100)).toFixed(2)}
+          />
+        </svg>
+        <span
+          className="absolute font-heading text-[12.5px] font-extrabold tracking-[-0.03em] tabular-nums"
+          style={{ color: band.ink }}
+        >
+          {score.overall}
+        </span>
+      </span>
+      {score.adjusted && (
+        <span className="text-[10px] font-bold uppercase tracking-[0.04em] text-[var(--ai-t3)]">
+          Adjusted
+        </span>
+      )}
+    </div>
+  );
+}
+
+const CONFIDENCE_LABEL: Record<string, string> = {
+  high: "High confidence",
+  medium: "Medium confidence",
+  low: "Low confidence",
+};
+
+const DIMENSION_LABEL: Record<string, string> = {
+  requirements_match: "Requirements match",
+  experience_depth: "Experience depth",
+  domain_relevance: "Domain relevance",
+  responsibilities_fit: "Responsibilities fit",
+};
+
+/** 74px ring for the drawer hero, on the dark surface. */
+function DrawerScoreRing({ score }: { score: number }) {
+  const C = 2 * Math.PI * 32;
+  const band = scoreBand(score);
+  return (
+    <span className="relative flex size-[74px] shrink-0 items-center justify-center">
+      <svg className="size-[74px] -rotate-90" viewBox="0 0 74 74" aria-hidden>
+        <circle cx="37" cy="37" r="32" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="6" />
+        <circle
+          cx="37"
+          cy="37"
+          r="32"
+          fill="none"
+          stroke={band.stroke}
+          strokeWidth="6"
+          strokeLinecap="round"
+          strokeDasharray={C.toFixed(2)}
+          strokeDashoffset={(C * (1 - score / 100)).toFixed(2)}
+        />
+      </svg>
+      <span className="absolute font-heading text-[22px] font-extrabold tracking-[-0.03em] tabular-nums text-white">
+        {score}
+      </span>
+    </span>
+  );
+}
+
+/** A claim plus the CV span that was verified to support it. */
+function EvidenceQuote({ quote }: { quote: string }) {
+  return (
+    <p className="m-0 mt-1.5 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[12px] italic leading-snug text-[var(--ai-t3)]">
+      &ldquo;{quote}&rdquo;
+    </p>
   );
 }
 
@@ -258,7 +381,7 @@ function ApplicantCard({
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3">
-        <PendingScore />
+        <ScoreRing score={row.score} />
         <span
           className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
         >
@@ -280,6 +403,7 @@ function ApplicantCard({
 function ApplicantDrawer({
   row,
   history,
+  scoreDetail,
   historyLoading,
   saving,
   onClose,
@@ -287,6 +411,7 @@ function ApplicantDrawer({
 }: {
   row: CompanyApplicantRow;
   history: StageHistoryRow[];
+  scoreDetail: ApplicantScoreDetail | null;
   historyLoading: boolean;
   saving: boolean;
   onClose: () => void;
@@ -372,17 +497,42 @@ function ApplicantDrawer({
             </button>
           </div>
 
-          {/* Score breakdown — pending until Step 4, stated plainly rather
-              than shown as an empty ring that reads like a zero. */}
-          <div className="relative z-[1] rounded-2xl border border-dashed border-white/20 bg-white/[0.06] px-4 py-[15px] text-center">
-            <b className="mb-[3px] block text-[13px] text-white">
-              AI score pending
-            </b>
-            <span className="text-xs leading-relaxed text-white/50">
-              Skills, experience and screening breakdown appear here once your
-              AI recruiter scores this CV.
-            </span>
-          </div>
+          {/* Score headline. Every <p> on this dark surface sets its own
+              colour — the DS's global `p { color:#444 }` beats inheritance. */}
+          {row.score.status === "scored" && row.score.overall != null ? (
+            <div className="relative z-[1] flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
+              <DrawerScoreRing score={row.score.overall} />
+              <div className="min-w-0">
+                <p className="m-0 text-[13px] font-bold text-white">
+                  {row.score.adjusted ? "Adjusted score" : "AI score"}
+                  {scoreDetail?.screening_score != null && (
+                    <span className="ml-2 font-normal text-white/55">
+                      Screening {scoreDetail.screening_score}%
+                    </span>
+                  )}
+                </p>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
+                  {row.score.confidence
+                    ? `${CONFIDENCE_LABEL[row.score.confidence]} — based on how much the CV actually showed.`
+                    : "Scored against this job's stated requirements."}
+                </p>
+              </div>
+            </div>
+          ) : (
+            <div className="relative z-[1] rounded-2xl border border-dashed border-white/20 bg-white/[0.06] px-4 py-[15px] text-center">
+              <b className="mb-[3px] block text-[13px] text-white">
+                {row.score.status === "failed"
+                  ? "Scoring failed"
+                  : row.score.status === "skipped"
+                    ? "Not scored"
+                    : "AI score pending"}
+              </b>
+              <span className="text-xs leading-relaxed text-white/50">
+                {row.score.error ??
+                  "The breakdown appears here once this CV has been scored."}
+              </span>
+            </div>
+          )}
         </div>
 
         {/* Light body */}
@@ -468,6 +618,124 @@ function ApplicantDrawer({
                   </div>
                 ))}
               </div>
+            </>
+          )}
+
+          {scoreDetail && scoreDetail.status === "scored" && (
+            <>
+              {scoreDetail.summary && (
+                <>
+                  <DrawerLabel>Summary</DrawerLabel>
+                  <p className="mb-[22px] text-[13px] leading-relaxed text-[var(--ai-t2)]">
+                    {scoreDetail.summary}
+                  </p>
+                </>
+              )}
+
+              {scoreDetail.dimensions.length > 0 && (
+                <>
+                  <DrawerLabel>Score breakdown</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col gap-3">
+                    {scoreDetail.dimensions.map((d) => {
+                      const band = scoreBand(d.score);
+                      const quote = scoreDetail.evidence.find(
+                        (e) => e.claim === d.dimension,
+                      );
+                      return (
+                        <div key={d.dimension}>
+                          <div className="flex items-baseline justify-between gap-3">
+                            <span className="text-[13px] font-bold text-[var(--ai-t1)]">
+                              {DIMENSION_LABEL[d.dimension] ?? d.dimension}
+                            </span>
+                            <span
+                              className="font-heading text-[13px] font-extrabold tabular-nums"
+                              style={{ color: band.ink }}
+                            >
+                              {d.score}
+                            </span>
+                          </div>
+                          <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
+                            <div
+                              className="h-full rounded-[3px]"
+                              style={{
+                                width: `${d.score}%`,
+                                background: band.stroke,
+                              }}
+                            />
+                          </div>
+                          {d.reasoning && (
+                            <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
+                              {d.reasoning}
+                            </p>
+                          )}
+                          {quote && <EvidenceQuote quote={quote.quote} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {scoreDetail.strengths.length > 0 && (
+                <>
+                  <DrawerLabel>Strengths</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col gap-2.5">
+                    {scoreDetail.strengths.map((str, i) => {
+                      const quote = scoreDetail.evidence.filter(
+                        (e) => e.claim === "strength",
+                      )[i];
+                      return (
+                        <div key={str}>
+                          <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
+                            <Check
+                              className="mt-px size-3.5 shrink-0 text-remotiv-green"
+                              strokeWidth={2.6}
+                            />
+                            {str}
+                          </p>
+                          {quote && <EvidenceQuote quote={quote.quote} />}
+                        </div>
+                      );
+                    })}
+                  </div>
+                </>
+              )}
+
+              {scoreDetail.missing_requirements.length > 0 && (
+                <>
+                  <DrawerLabel>Missing requirements</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col gap-2">
+                    {scoreDetail.missing_requirements.map((m) => (
+                      <p
+                        key={m}
+                        className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]"
+                      >
+                        <span
+                          aria-hidden
+                          className="mt-[7px] h-px w-2.5 shrink-0 bg-[var(--ai-t4)]"
+                        />
+                        {m}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              )}
+
+              {scoreDetail.concerns.length > 0 && (
+                <>
+                  <DrawerLabel>Worth a look</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col gap-2">
+                    {scoreDetail.concerns.map((c) => (
+                      <p
+                        key={c}
+                        className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]"
+                      >
+                        {c}
+                      </p>
+                    ))}
+                  </div>
+                </>
+              )}
             </>
           )}
 
@@ -609,6 +877,7 @@ export function ApplicantsClient({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [history, setHistory] = useState<StageHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
 
   useEffect(() => {
     if (!toast) return;
@@ -654,12 +923,11 @@ export function ApplicantsClient({
         }
         return true;
       })
-      // Ranking IS the feature: score desc, pending last. No scores exist yet,
-      // so every row is pending and this falls through to created_at desc —
-      // and starts ranking on its own the moment Step 4 populates scores.
+      // Ranking IS the feature: score desc, unscored last, then newest first
+      // among equals. `overall` is the human override when one exists.
       .sort((a, b) => {
-        const sa: number | null = null;
-        const sb: number | null = null;
+        const sa = a.score.status === "scored" ? a.score.overall : null;
+        const sb = b.score.status === "scored" ? b.score.overall : null;
         if (sa !== null && sb !== null) return sb - sa;
         if (sa !== null) return -1;
         if (sb !== null) return 1;
@@ -684,6 +952,7 @@ export function ApplicantsClient({
   useEffect(() => {
     if (!openId) {
       setHistory([]);
+      setScoreDetail(null);
       return;
     }
     let cancelled = false;
@@ -691,10 +960,14 @@ export function ApplicantsClient({
     setHistory([]);
     fetchCompanyApplicant(openId)
       .then((detail) => {
-        if (!cancelled) setHistory(detail?.history ?? []);
+        if (cancelled) return;
+        setHistory(detail?.history ?? []);
+        setScoreDetail(detail?.scoreDetail ?? null);
       })
       .catch(() => {
-        if (!cancelled) setHistory([]);
+        if (cancelled) return;
+        setHistory([]);
+        setScoreDetail(null);
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -1087,7 +1360,7 @@ export function ApplicantsClient({
                       {r.job_title}
                     </span>
 
-                    <PendingScore />
+                    <ScoreRing score={r.score} />
 
                     <span
                       className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
@@ -1125,6 +1398,7 @@ export function ApplicantsClient({
         <ApplicantDrawer
           row={openRow}
           history={history}
+          scoreDetail={scoreDetail}
           historyLoading={historyLoading}
           saving={savingId === openRow.id}
           onClose={() => setOpenId(null)}

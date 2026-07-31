@@ -7,12 +7,17 @@ import {
   getCompanyContext,
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
+import { enqueue } from "@/lib/jobs-queue";
 import {
   PIPELINE_STAGES,
+  type ApplicantScore,
+  type ApplicantScoreDetail,
   type CompanyApplicantDetail,
   type CompanyApplicantQuery,
   type CompanyApplicantRow,
   type PipelineStage,
+  type ScoreConfidence,
+  type ScoreStatus,
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
 
@@ -49,7 +54,53 @@ type ApplicantQueryRow = {
   jobs: { title: string | null } | null;
 };
 
-function toRow(r: ApplicantQueryRow): CompanyApplicantRow {
+/** Summary columns for the list; the drawer selects the jsonb on top. */
+const SCORE_SUMMARY_COLUMNS =
+  "application_id, status, overall_score, human_adjusted_score, confidence, error";
+
+type ScoreSummaryRow = {
+  application_id: string;
+  status: string | null;
+  overall_score: number | null;
+  human_adjusted_score: number | null;
+  confidence: string | null;
+  error: string | null;
+};
+
+/** An applicant with no score row at all reads as pending, not as an error. */
+const NO_SCORE: ApplicantScore = {
+  status: "pending",
+  overall: null,
+  adjusted: false,
+  confidence: null,
+  error: null,
+};
+
+/**
+ * A human override wins over the model's number wherever a score is shown —
+ * that is the whole point of the column. `adjusted` lets the UI say so rather
+ * than passing a human judgement off as the AI's.
+ */
+function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
+  if (!r) return NO_SCORE;
+  const status = (r.status ?? "pending") as ScoreStatus;
+  const adjusted = r.human_adjusted_score != null;
+  const overall =
+    status === "scored" ? (r.human_adjusted_score ?? r.overall_score) : null;
+  return {
+    status,
+    overall,
+    adjusted,
+    confidence: (r.confidence as ScoreConfidence | null) ?? null,
+    error: r.error,
+  };
+}
+
+function jsonArray<T>(v: unknown): T[] {
+  return Array.isArray(v) ? (v as T[]) : [];
+}
+
+function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantRow {
   return {
     id: r.id,
     first_name: r.first_name ?? "",
@@ -72,8 +123,45 @@ function toRow(r: ApplicantQueryRow): CompanyApplicantRow {
     // DB default is 'applied'; the coalesce covers rows written before the
     // column existed.
     pipeline_stage: ((r.pipeline_stage as PipelineStage) ?? "applied"),
+    score: toScore(score),
     has_cv: Boolean(r.cv_path || r.cv_url),
   };
+}
+
+/**
+ * Score summaries for a set of applications, keyed by application_id.
+ *
+ * Fetched in id batches rather than one giant `.in()` — a few thousand uuids
+ * overflow the PostgREST request URL, the same limit the applicants list
+ * already range-pages around.
+ */
+async function fetchScoreSummaries(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  applicationIds: string[],
+): Promise<Map<string, ScoreSummaryRow>> {
+  const byId = new Map<string, ScoreSummaryRow>();
+  const CHUNK = 200;
+
+  for (let i = 0; i < applicationIds.length; i += CHUNK) {
+    const chunk = applicationIds.slice(i, i + CHUNK);
+    const { data, error } = await service
+      .from("application_scores")
+      .select(SCORE_SUMMARY_COLUMNS)
+      .eq("company_id", companyId)
+      .in("application_id", chunk);
+
+    if (error) {
+      // A scoring outage must not blank the applicants list — every row simply
+      // reads as pending, which is what it looks like before scoring anyway.
+      console.error("[applicants] score summary query failed:", error);
+      return byId;
+    }
+    for (const r of (data ?? []) as ScoreSummaryRow[]) {
+      byId.set(r.application_id, r);
+    }
+  }
+  return byId;
 }
 
 /**
@@ -128,7 +216,12 @@ export async function fetchCompanyApplicants(
     if (batch.length < PAGE) break;
   }
 
-  return rows.map(toRow);
+  const scores = await fetchScoreSummaries(
+    service,
+    ctx.companyId,
+    rows.map((r) => r.id),
+  );
+  return rows.map((r) => toRow(r, scores.get(r.id)));
 }
 
 /**
@@ -171,9 +264,40 @@ export async function fetchCompanyApplicant(
     console.error("[applicants] stage history query failed:", histErr);
   }
 
+  // Full scorecard — the jsonb columns are drawer-only, never in the list.
+  const { data: scoreData, error: scoreErr } = await service
+    .from("application_scores")
+    .select(
+      `${SCORE_SUMMARY_COLUMNS}, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at`,
+    )
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId)
+    .maybeSingle();
+
+  if (scoreErr) {
+    console.error("[applicants] score detail query failed:", scoreErr);
+  }
+
+  const sRow = scoreData as (ScoreSummaryRow & Record<string, unknown>) | null;
+  const scoreDetail: ApplicantScoreDetail | null = sRow
+    ? {
+        ...toScore(sRow),
+        dimensions: jsonArray(sRow.dimension_scores),
+        evidence: jsonArray(sRow.evidence),
+        strengths: jsonArray(sRow.strengths),
+        missing_requirements: jsonArray(sRow.missing_requirements),
+        concerns: jsonArray(sRow.concerns),
+        summary: (sRow.summary as string | null) ?? null,
+        screening_score: (sRow.screening_score as number | null) ?? null,
+        ai_model: (sRow.ai_model as string | null) ?? null,
+        scored_at: (sRow.scored_at as string | null) ?? null,
+      }
+    : null;
+
   return {
-    applicant: toRow(row),
+    applicant: toRow(row, sRow ?? undefined),
     history: (histData ?? []) as StageHistoryRow[],
+    scoreDetail,
   };
 }
 
@@ -270,4 +394,112 @@ export async function updateApplicationStage(
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
+}
+
+/**
+ * Re-queue AI scoring for one application.
+ *
+ * Ownership is re-checked against company_id_snapshot before enqueueing: the
+ * client-supplied id proves nothing, and without the check any member could
+ * spend another company's scoring budget on their applicants.
+ *
+ * The handler upserts on the unique application_id, so re-scoring overwrites
+ * the previous card rather than erroring or accumulating duplicates.
+ */
+export async function rescoreApplication(
+  applicationId: string,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+
+  const service = createServiceClient();
+  const { data } = await service
+    .from("job_applications")
+    .select("id, company_id_snapshot, job_id")
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  const target = data as {
+    company_id_snapshot: string | null;
+    job_id: string | null;
+  } | null;
+
+  // Not-found and not-yours return the SAME message so ids can't be probed.
+  if (!target || target.company_id_snapshot !== ctx.companyId) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+  if (!target.job_id) {
+    return { success: false, error: "This application has no job to score against." };
+  }
+
+  const queued = await enqueue({
+    type: "ai_cv_score",
+    payload: { applicationId },
+    companyId: ctx.companyId,
+  });
+  if (!queued.ok) return { success: false, error: queued.error };
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Re-queue scoring for every application on one job — the after-you-changed-
+ * the-criteria path.
+ *
+ * The job's own ownership is checked once, then applications are selected by
+ * BOTH job_id and company_id_snapshot, so a mismatched snapshot can never be
+ * swept in. Range-paged for the same reason the list is.
+ */
+export async function rescoreJob(
+  jobId: string,
+): Promise<MutationResult<{ queued: number }>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+  const service = createServiceClient();
+
+  const { data: jobData } = await service
+    .from("jobs")
+    .select("id, company_id")
+    .eq("id", jobId)
+    .maybeSingle();
+
+  const job = jobData as { company_id: string | null } | null;
+  if (!job || job.company_id !== ctx.companyId) {
+    return { success: false, error: "Job not found in your workspace." };
+  }
+
+  const PAGE = 1000;
+  const ids: string[] = [];
+  for (let from = 0; ; from += PAGE) {
+    const { data, error } = await service
+      .from("job_applications")
+      .select("id")
+      .eq("job_id", jobId)
+      .eq("company_id_snapshot", ctx.companyId)
+      .range(from, from + PAGE - 1);
+
+    if (error) return { success: false, error: error.message };
+    const batch = (data ?? []) as { id: string }[];
+    ids.push(...batch.map((b) => b.id));
+    if (batch.length < PAGE) break;
+  }
+
+  // One job row per application. Enqueued sequentially in small waves so a
+  // 500-applicant job doesn't open 500 concurrent inserts.
+  let queued = 0;
+  const WAVE = 25;
+  for (let i = 0; i < ids.length; i += WAVE) {
+    const results = await Promise.all(
+      ids.slice(i, i + WAVE).map((applicationId) =>
+        enqueue({
+          type: "ai_cv_score",
+          payload: { applicationId },
+          companyId: ctx.companyId,
+        }),
+      ),
+    );
+    queued += results.filter((r) => r.ok).length;
+  }
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: { queued } };
 }

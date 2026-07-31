@@ -60,6 +60,8 @@ export type CompanyApplicantRow = {
   created_at: string;
   /** Current hiring-pipeline stage. DB default is 'applied'. */
   pipeline_stage: PipelineStage;
+  /** AI scoring summary. Never null — an unscored applicant reads 'pending'. */
+  score: ApplicantScore;
   /**
    * Whether a CV exists — NEVER the storage path. The path is a capability:
    * handing it to the browser would let anyone with it mint their own signed
@@ -67,6 +69,59 @@ export type CompanyApplicantRow = {
    * open CVs through /api/cv/company-application/[id] instead.
    */
   has_cv: boolean;
+};
+
+/**
+ * AI scoring state, from application_scores.
+ *
+ * 'pending' also covers "no row yet" — a job is queued but hasn't run. The UI
+ * treats pending / failed / skipped identically as "no score", which keeps the
+ * existing Pending treatment honest: in all three cases there is no number to
+ * show, and inventing one would be worse than saying so.
+ */
+export const SCORE_STATUSES = ["pending", "scored", "failed", "skipped"] as const;
+export type ScoreStatus = (typeof SCORE_STATUSES)[number];
+
+export type ScoreConfidence = "high" | "medium" | "low";
+
+/** Summary attached to every applicant row. Null when never scored. */
+export type ApplicantScore = {
+  status: ScoreStatus;
+  /**
+   * human_adjusted_score when a human has overridden, otherwise the AI's
+   * overall_score. Null unless status is 'scored'.
+   */
+  overall: number | null;
+  /** True when `overall` came from a human override rather than the model. */
+  adjusted: boolean;
+  confidence: ScoreConfidence | null;
+  /** Why the score is missing, for failed/skipped. */
+  error: string | null;
+};
+
+export type ScoreDimensionRow = {
+  dimension: string;
+  score: number;
+  reasoning: string;
+};
+
+export type ScoreEvidenceRow = {
+  claim: string;
+  quote: string;
+};
+
+/** The full breakdown, loaded only for the drawer. */
+export type ApplicantScoreDetail = ApplicantScore & {
+  dimensions: ScoreDimensionRow[];
+  evidence: ScoreEvidenceRow[];
+  strengths: string[];
+  missing_requirements: string[];
+  concerns: string[];
+  summary: string | null;
+  /** Deterministic screening result, 0-100. Null when the job asked nothing. */
+  screening_score: number | null;
+  ai_model: string | null;
+  scored_at: string | null;
 };
 
 /**
@@ -86,6 +141,8 @@ export type StageHistoryRow = {
 export type CompanyApplicantDetail = {
   applicant: CompanyApplicantRow;
   history: StageHistoryRow[];
+  /** Full scorecard for the drawer. Null when never scored. */
+  scoreDetail: ApplicantScoreDetail | null;
 };
 
 /** Filters accepted by fetchCompanyApplicants. */
