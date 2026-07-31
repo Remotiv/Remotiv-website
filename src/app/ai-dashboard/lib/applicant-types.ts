@@ -11,9 +11,8 @@ import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
  */
 
 /**
- * Company hiring pipeline. DEFINED NOW, NOT YET USED — `pipeline_stage` lands
- * in Step 2d along with application_stage_history. Nothing in this step reads
- * or writes it.
+ * Company hiring pipeline, stored in `job_applications.pipeline_stage` and
+ * audited in `application_stage_history`.
  *
  * Deliberately distinct from `job_applications.status`, which is Remotiv
  * admin's own triage vocabulary ("new" | "shortlisted" | "not_a_fit" | "maybe")
@@ -59,6 +58,8 @@ export type CompanyApplicantRow = {
   notice_period: string | null;
   availability: string | null;
   created_at: string;
+  /** Current hiring-pipeline stage. DB default is 'applied'. */
+  pipeline_stage: PipelineStage;
   /**
    * Whether a CV exists — NEVER the storage path. The path is a capability:
    * handing it to the browser would let anyone with it mint their own signed
@@ -66,6 +67,25 @@ export type CompanyApplicantRow = {
    * open CVs through /api/cv/company-application/[id] instead.
    */
   has_cv: boolean;
+};
+
+/**
+ * One row of application_stage_history. The seeded initial entry has a null
+ * `from_stage` and renders as just "Applied" rather than an arrow.
+ */
+export type StageHistoryRow = {
+  id: string;
+  from_stage: PipelineStage | null;
+  to_stage: PipelineStage;
+  changed_by_name: string | null;
+  note: string | null;
+  created_at: string;
+};
+
+/** An applicant plus their audit trail, for the detail drawer. */
+export type CompanyApplicantDetail = {
+  applicant: CompanyApplicantRow;
+  history: StageHistoryRow[];
 };
 
 /** Filters accepted by fetchCompanyApplicants. */

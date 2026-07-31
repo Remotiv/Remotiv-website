@@ -18,8 +18,10 @@ import {
   PIPELINE_STAGE_LABELS,
   type CompanyApplicantRow,
   type PipelineStage,
+  type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { fetchCompanyApplicant, updateApplicationStage } from "./actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -28,10 +30,9 @@ const GRID =
   "grid grid-cols-[46px_minmax(0,2.1fr)_1.35fr_104px_1fr_0.8fr_40px] items-center gap-[14px] px-5";
 
 /**
- * The funnel and the stage tabs both key off pipeline stage. That column
- * doesn't exist yet (Step 2d), so every applicant reads as "applied" — the
- * counts below are therefore honest rather than invented, and will populate
- * on their own once the column lands.
+ * The funnel and the stage tabs both key off pipeline stage, counted from the
+ * same rows the table renders — including any optimistic edit — so a moved
+ * candidate can never be in one place in the funnel and another in the list.
  */
 const FUNNEL_STEPS: ReadonlyArray<{
   stage: PipelineStage;
@@ -123,12 +124,9 @@ function fmtApplied(iso: string): { main: string; sub: string } {
   return { main: `${days}d ago`, sub: abs };
 }
 
-/**
- * Pipeline stage for a row. Hard-coded to "applied" until Step 2d adds the
- * column — deliberately a single function so 2d swaps one line, not the UI.
- */
-function stageOf(_row: CompanyApplicantRow): PipelineStage {
-  return "applied";
+/** Pipeline stage for a row — the real column, since Step 2d. */
+function stageOf(row: CompanyApplicantRow): PipelineStage {
+  return row.pipeline_stage;
 }
 
 /**
@@ -281,12 +279,18 @@ function ApplicantCard({
 
 function ApplicantDrawer({
   row,
+  history,
+  historyLoading,
+  saving,
   onClose,
   onStageChange,
 }: {
   row: CompanyApplicantRow;
+  history: StageHistoryRow[];
+  historyLoading: boolean;
+  saving: boolean;
   onClose: () => void;
-  onStageChange: () => void;
+  onStageChange: (next: PipelineStage) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
@@ -419,13 +423,14 @@ function ApplicantDrawer({
           </div>
 
           <DrawerLabel>Pipeline stage</DrawerLabel>
-          {/* Read-only placeholder: pipeline_stage lands in Step 2d. The
-              select is real so 2d wires an action rather than redesigning. */}
+          {/* `value` is driven by the optimistic row, so the select shows the
+              new stage immediately and snaps back if the write is rejected. */}
           <select
             value={stage}
-            onChange={onStageChange}
+            disabled={saving}
+            onChange={(e) => onStageChange(e.target.value as PipelineStage)}
             aria-label="Pipeline stage"
-            className="mb-[22px] w-full cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-3 pl-3.5 pr-[34px] text-sm font-bold text-[var(--ai-t1)] transition-colors hover:border-remotiv-purple focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16]"
+            className="mb-[22px] w-full cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-3 pl-3.5 pr-[34px] text-sm font-bold text-[var(--ai-t1)] transition-colors hover:border-remotiv-purple focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
           >
             {PIPELINE_STAGES.map((s) => (
               <option key={s} value={s}>
@@ -499,19 +504,57 @@ function ApplicantDrawer({
           </div>
 
           <DrawerLabel>Stage history</DrawerLabel>
-          {/* Only the created entry until application_stage_history lands. */}
-          <div className="flex flex-col">
-            <div className="relative flex items-start gap-3 pb-0">
-              <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
-              <div>
-                <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                  Applied
-                </p>
-                <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                  {applied.main} · {applied.sub}
-                </small>
+          <div className="flex flex-col gap-[14px]">
+            {history.map((h) => {
+              const when = fmtApplied(h.created_at);
+              // The seeded first entry has no from_stage — it reads as plain
+              // "Applied" rather than an arrow from nowhere.
+              const meta = [h.changed_by_name, when.main]
+                .filter(Boolean)
+                .join(" · ");
+              return (
+                <div key={h.id} className="relative flex items-start gap-3">
+                  <span
+                    className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
+                  />
+                  <div className="min-w-0">
+                    <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                      {h.from_stage
+                        ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
+                        : PIPELINE_STAGE_LABELS[h.to_stage]}
+                    </p>
+                    {h.note && (
+                      <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
+                        {h.note}
+                      </p>
+                    )}
+                    <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
+                      {meta || when.sub}
+                    </small>
+                  </div>
+                </div>
+              );
+            })}
+
+            {/* Falls back to the application itself: rows created before the
+                history table existed have nothing seeded. */}
+            {!historyLoading && history.length === 0 && (
+              <div className="relative flex items-start gap-3">
+                <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
+                <div>
+                  <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                    Applied
+                  </p>
+                  <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
+                    {applied.main} · {applied.sub}
+                  </small>
+                </div>
               </div>
-            </div>
+            )}
+
+            {historyLoading && history.length === 0 && (
+              <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+            )}
           </div>
         </div>
       </div>
@@ -553,31 +596,55 @@ export function ApplicantsClient({
   const [openId, setOpenId] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
+  /**
+   * Optimistic stage edits, keyed by application id, layered over the
+   * server-rendered rows. One overlay feeds the funnel, the tab counts, the
+   * table, the mobile cards and the drawer at once, so they cannot disagree —
+   * and reverting is just deleting the key. Entries are harmless once the
+   * revalidated server data catches up: they then hold the same value.
+   */
+  const [stageOverrides, setStageOverrides] = useState<
+    Record<string, PipelineStage>
+  >({});
+  const [savingId, setSavingId] = useState<string | null>(null);
+  const [history, setHistory] = useState<StageHistoryRow[]>([]);
+  const [historyLoading, setHistoryLoading] = useState(false);
+
   useEffect(() => {
     if (!toast) return;
     const t = setTimeout(() => setToast(null), 2600);
     return () => clearTimeout(t);
   }, [toast]);
 
+  const rows = useMemo(
+    () =>
+      applicants.map((r) =>
+        stageOverrides[r.id] && stageOverrides[r.id] !== r.pipeline_stage
+          ? { ...r, pipeline_stage: stageOverrides[r.id] }
+          : r,
+      ),
+    [applicants, stageOverrides],
+  );
+
   const stageCounts = useMemo(() => {
     const counts: Record<string, number> = {};
     for (const s of PIPELINE_STAGES) counts[s] = 0;
-    for (const r of applicants) counts[stageOf(r)] += 1;
+    for (const r of rows) counts[stageOf(r)] += 1;
     return counts;
-  }, [applicants]);
+  }, [rows]);
 
   /** Distinct jobs present in the result set — no extra query needed. */
   const jobOptions = useMemo(() => {
     const seen = new Map<string, string>();
-    for (const r of applicants) {
+    for (const r of rows) {
       if (r.job_id && !seen.has(r.job_id)) seen.set(r.job_id, r.job_title);
     }
     return [...seen.entries()];
-  }, [applicants]);
+  }, [rows]);
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return applicants
+    return rows
       .filter((r) => {
         if (tab !== "all" && stageOf(r) !== tab) return false;
         if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
@@ -600,9 +667,81 @@ export function ApplicantsClient({
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
       });
-  }, [applicants, tab, jobFilter, search]);
+  }, [rows, tab, jobFilter, search]);
 
-  const openRow = openId ? (applicants.find((r) => r.id === openId) ?? null) : null;
+  const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
+
+  /**
+   * Load the audit trail when the drawer opens. `cancelled` guards the case
+   * where the user closes or opens a different applicant mid-flight — a late
+   * response must not paint another candidate's history.
+   */
+  // Which applicant the drawer is showing right now, readable from async
+  // callbacks that were started for a possibly-different one.
+  const openIdRef = useRef<string | null>(null);
+  openIdRef.current = openId;
+
+  useEffect(() => {
+    if (!openId) {
+      setHistory([]);
+      return;
+    }
+    let cancelled = false;
+    setHistoryLoading(true);
+    setHistory([]);
+    fetchCompanyApplicant(openId)
+      .then((detail) => {
+        if (!cancelled) setHistory(detail?.history ?? []);
+      })
+      .catch(() => {
+        if (!cancelled) setHistory([]);
+      })
+      .finally(() => {
+        if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
+  /**
+   * Optimistic move: paint the new stage, then write. A rejected write puts
+   * the row back exactly where it was — the previous value is captured before
+   * the optimistic paint, so a revert can't resurrect a stale override.
+   */
+  async function handleStageChange(id: string, next: PipelineStage) {
+    const current = rows.find((r) => r.id === id);
+    if (!current || current.pipeline_stage === next) return;
+    const previous = current.pipeline_stage;
+
+    setStageOverrides((prev) => ({ ...prev, [id]: next }));
+    setSavingId(id);
+
+    // The guard inside the action THROWS on a non-company session, so a
+    // rejection has to revert too — not just a { success: false } result.
+    // Without this the row would keep showing a stage that never saved.
+    let result: Awaited<ReturnType<typeof updateApplicationStage>>;
+    try {
+      result = await updateApplicationStage(id, next);
+    } catch {
+      result = { success: false, error: "Couldn't save — please try again." };
+    }
+
+    setSavingId(null);
+
+    if (!result.success) {
+      setStageOverrides((prev) => ({ ...prev, [id]: previous }));
+      setToast(result.error);
+      return;
+    }
+
+    setToast(`Moved to ${PIPELINE_STAGE_LABELS[next]}`);
+
+    // Pull the trail back so the new entry (and its author) is real, not
+    // guessed client-side. Skipped if the drawer has since moved on.
+    const detail = await fetchCompanyApplicant(id);
+    if (openIdRef.current === id) setHistory(detail?.history ?? []);
+  }
 
   /**
    * Client-side CSV of the rows currently on screen — no server action needed,
@@ -985,10 +1124,13 @@ export function ApplicantsClient({
       {openRow && (
         <ApplicantDrawer
           row={openRow}
+          history={history}
+          historyLoading={historyLoading}
+          saving={savingId === openRow.id}
           onClose={() => setOpenId(null)}
-          onStageChange={() =>
-            setToast("Pipeline stages arrive in the next release")
-          }
+          onStageChange={(next) => {
+            void handleStageChange(openRow.id, next);
+          }}
         />
       )}
 
