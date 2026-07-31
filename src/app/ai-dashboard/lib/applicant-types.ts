@@ -103,6 +103,21 @@ export type ScoreDimensionRow = {
   dimension: string;
   score: number;
   reasoning: string;
+  /** CV span supporting this dimension. Empty when none was verifiable. */
+  quote?: string;
+};
+
+/**
+ * A strength and its proof, in one object.
+ *
+ * v1 scorecards stored strengths as bare strings alongside a parallel
+ * `evidence` array, and the UI paired them by position — which is how a real
+ * quote ended up under an unrelated strength. Reading normalises the old shape
+ * to this one so historic rows still render, just without quotes.
+ */
+export type ScoreStrengthRow = {
+  point: string;
+  quote: string;
 };
 
 export type ScoreEvidenceRow = {
@@ -114,7 +129,7 @@ export type ScoreEvidenceRow = {
 export type ApplicantScoreDetail = ApplicantScore & {
   dimensions: ScoreDimensionRow[];
   evidence: ScoreEvidenceRow[];
-  strengths: string[];
+  strengths: ScoreStrengthRow[];
   missing_requirements: string[];
   concerns: string[];
   summary: string | null;

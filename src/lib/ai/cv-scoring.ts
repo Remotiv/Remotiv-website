@@ -27,7 +27,7 @@ import { recordUsage } from "@/lib/usage";
  * prompt change is distinguishable from a re-score after a criteria change
  * (which is what job_criteria_version tracks).
  */
-export const PROMPT_VERSION = "cv-scoring-v1";
+export const PROMPT_VERSION = "cv-scoring-v2";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -69,13 +69,21 @@ export type DimensionScore = {
   dimension: ScoreDimension;
   score: number;
   reasoning: string;
+  /** The CV span supporting THIS dimension. Empty when none survived. */
+  quote: string;
+};
+
+/** A strength and the span that proves it — one object, never two arrays. */
+export type Strength = {
+  point: string;
+  quote: string;
 };
 
 export type Scorecard = {
   overall_score: number;
   dimension_scores: DimensionScore[];
   evidence: EvidenceItem[];
-  strengths: string[];
+  strengths: Strength[];
   missing_requirements: string[];
   concerns: string[];
   confidence: Confidence;
@@ -174,8 +182,19 @@ You judge against THAT JOB'S stated requirements and responsibilities — never 
 
 ${BAND_DEFINITIONS}
 
-EVIDENCE IS MANDATORY.
-Every dimension score and every strength you report must be justified by a quote copied EXACTLY, character for character, from the CV text you are given. Do not paraphrase, do not summarise, do not tidy up spelling inside a quote. If you cannot find a literal span of the CV that supports a claim, you must not make that claim. A claim without a verifiable quote will be discarded.
+EVIDENCE IS MANDATORY, AND IT MUST BE THE RIGHT EVIDENCE.
+Every dimension score and every strength carries its own "quote" field. Two rules, and the second matters as much as the first:
+
+1. VERBATIM. Copy the span EXACTLY, character for character, from the CV text you are given. Do not paraphrase, do not summarise, do not tidy up spelling or spacing inside a quote. A quote that is not literally present in the CV is discarded.
+
+2. DIRECTLY RELEVANT. The quote must be the span that supports THAT SPECIFIC claim — the sentence a reader would point at to check it. A real quote from elsewhere in the CV is NOT partial credit; it is a failure, and worse than omitting the claim, because it makes an unsupported statement look verified.
+
+Examples of rule 2 being broken — do not do this:
+- Claim "currently employed at Acme since July 2024" with quote "Increased profits by 15,000 AED per month". The quote is real but it proves the profit figure, not the employment date. The correct quote names the employer and the date.
+- Claim "built pipelines of 70+ companies" with quote "MBA in Marketing". Unrelated.
+- Claim "multi-channel outreach using LinkedIn Sales Navigator" with quote "100% month on month growth". Unrelated.
+
+If the CV genuinely contains no span that directly supports a claim, DROP THE CLAIM. Reporting four well-evidenced strengths is better than reporting eight with three mismatched quotes. An empty strengths array is an acceptable answer.
 
 DIMENSIONS — score each 0-100 using the same bands:
 - requirements_match     Against the job's stated requirements specifically.
@@ -195,26 +214,27 @@ A one-page CV listing only skills is low confidence even if those skills match p
 
 SUMMARY — two or three sentences for the hiring manager. Factual, specific to this candidate and this job, no filler.
 
-OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no code fences. Exactly this shape:
+OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no code fences. Every claim carries its quote INSIDE the same object, so nothing has to be matched up by position. Exactly this shape:
 {
   "overall_score": <integer 0-100>,
   "dimension_scores": [
-    {"dimension": "requirements_match", "score": <integer 0-100>, "reasoning": "<one sentence>"},
-    {"dimension": "experience_depth", "score": <integer 0-100>, "reasoning": "<one sentence>"},
-    {"dimension": "domain_relevance", "score": <integer 0-100>, "reasoning": "<one sentence>"},
-    {"dimension": "responsibilities_fit", "score": <integer 0-100>, "reasoning": "<one sentence>"}
+    {"dimension": "requirements_match", "score": <integer 0-100>, "reasoning": "<one sentence>", "quote": "<exact CV span supporting THIS dimension>"},
+    {"dimension": "experience_depth", "score": <integer 0-100>, "reasoning": "<one sentence>", "quote": "<exact CV span supporting THIS dimension>"},
+    {"dimension": "domain_relevance", "score": <integer 0-100>, "reasoning": "<one sentence>", "quote": "<exact CV span supporting THIS dimension>"},
+    {"dimension": "responsibilities_fit", "score": <integer 0-100>, "reasoning": "<one sentence>", "quote": "<exact CV span supporting THIS dimension>"}
   ],
-  "evidence": [
-    {"claim": "<the dimension name this supports, or 'strength'>", "quote": "<exact span copied from the CV>"}
+  "strengths": [
+    {"point": "<specific strength>", "quote": "<exact CV span that directly proves THIS strength>"}
   ],
-  "strengths": ["<specific strength, each backed by a quote in evidence>"],
   "missing_requirements": ["<specific stated requirement with no CV evidence>"],
   "concerns": ["<neutral observation>"],
   "confidence": "high" | "medium" | "low",
   "summary": "<2-3 sentences>"
 }
 
-overall_score is your holistic judgement anchored to the bands — not a mechanical average of the dimensions — but it must be defensible given them. Provide at least one evidence entry per dimension you score above 40.`;
+Each quote belongs to the object it sits in. Before you emit each one, re-read it and ask: does this span, on its own, show that this specific claim is true? If not, find the right span or drop the claim.
+
+overall_score is your holistic judgement anchored to the bands — not a mechanical average of the dimensions — but it must be defensible given them. For any dimension you score above 40, the quote must be a real span; if you cannot find one, score it lower and say why in the reasoning.`;
 
 function section(label: string, value: string | null | undefined): string {
   const v = (value ?? "").trim();
@@ -385,8 +405,7 @@ function stringList(v: unknown, max = 12): string[] {
 type RawResponse = {
   overall_score: number;
   dimension_scores: DimensionScore[];
-  evidence: EvidenceItem[];
-  strengths: string[];
+  strengths: Strength[];
   missing_requirements: string[];
   concerns: string[];
   confidence: Confidence;
@@ -413,19 +432,24 @@ export function parseScoreJson(raw: string): RawResponse | null {
             score: clampScore(d.score),
             reasoning:
               typeof d.reasoning === "string" ? d.reasoning.slice(0, 400) : "",
+            quote: typeof d.quote === "string" ? d.quote.slice(0, 1000) : "",
           }))
       : [];
 
-    const evidence: EvidenceItem[] = Array.isArray(parsed.evidence)
-      ? (parsed.evidence as Record<string, unknown>[])
-          .filter(
-            (e) => e && typeof e.quote === "string" && typeof e.claim === "string",
-          )
-          .map((e) => ({
-            claim: (e.claim as string).slice(0, 120),
-            quote: (e.quote as string).slice(0, 1000),
-          }))
-          .slice(0, 40)
+    // Strengths are objects now. A v1 row (bare strings) still parses — the
+    // quote is simply absent, and an unquoted strength is dropped below.
+    const strengths: Strength[] = Array.isArray(parsed.strengths)
+      ? (parsed.strengths as unknown[])
+          .map((raw) => {
+            if (typeof raw === "string") return { point: raw.trim(), quote: "" };
+            const o = raw as Record<string, unknown>;
+            return {
+              point: typeof o?.point === "string" ? o.point.trim().slice(0, 400) : "",
+              quote: typeof o?.quote === "string" ? o.quote.slice(0, 1000) : "",
+            };
+          })
+          .filter((x) => x.point.length > 0)
+          .slice(0, 12)
       : [];
 
     const conf = parsed.confidence;
@@ -435,8 +459,7 @@ export function parseScoreJson(raw: string): RawResponse | null {
     return {
       overall_score: clampScore(parsed.overall_score),
       dimension_scores: dims,
-      evidence,
-      strengths: stringList(parsed.strengths),
+      strengths,
       missing_requirements: stringList(parsed.missing_requirements),
       concerns: stringList(parsed.concerns),
       confidence,
@@ -492,33 +515,58 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   }
 
   // ── Evidence gate ──
-  const { verified, failRate } = verifyEvidence(parsed.evidence, cvText);
+  //
+  // Verification is now PER CLAIM, because each claim owns its quote. Under v1
+  // the model returned two parallel arrays and the UI paired strengths[i] with
+  // the i-th strength-evidence entry — a positional join the model was never
+  // told to maintain, which is how a real quote ended up attached to the wrong
+  // strength. There is no longer any pairing step to get wrong.
+  const dimensionScores: DimensionScore[] = parsed.dimension_scores.map((d) => {
+    const [ok] = verifyEvidence([{ claim: d.dimension, quote: d.quote }], cvText)
+      .verified;
+    return ok
+      ? { ...d, quote: ok.quote }
+      : {
+          ...d,
+          quote: "",
+          reasoning: `${d.reasoning} (no verifiable CV quote)`.trim(),
+        };
+  });
+
+  // A strength IS a claim about the CV, so an unverifiable one is dropped
+  // outright rather than shown without its proof.
+  const strengths: Strength[] = parsed.strengths.flatMap((st) => {
+    const [ok] = verifyEvidence([{ claim: "strength", quote: st.quote }], cvText)
+      .verified;
+    return ok ? [{ point: st.point, quote: ok.quote }] : [];
+  });
+
+  // Flat list kept for the `evidence` jsonb column and for the fail-rate maths.
+  // Derived from the claims above, so it can never disagree with them.
+  const allQuotes: EvidenceItem[] = [
+    ...parsed.dimension_scores.map((d) => ({ claim: d.dimension, quote: d.quote })),
+    ...parsed.strengths.map((st) => ({ claim: "strength", quote: st.quote })),
+  ].filter((e) => e.quote.trim().length > 0);
+
+  const verified: EvidenceItem[] = [
+    ...dimensionScores
+      .filter((d) => d.quote)
+      .map((d) => ({ claim: d.dimension as string, quote: d.quote })),
+    ...strengths.map((st) => ({ claim: "strength", quote: st.quote })),
+  ];
+
+  const failRate =
+    allQuotes.length === 0
+      ? 0
+      : (allQuotes.length - verified.length) / allQuotes.length;
 
   if (failRate > MAX_FAIL_RATE) {
     throw new Error(
       `Evidence verification failed: ${Math.round(failRate * 100)}% of ${
-        parsed.evidence.length
+        allQuotes.length
       } quotes could not be found in the CV. Refusing to store a fabricated scorecard.`,
     );
   }
-
-  const verifiedClaims = new Set(verified.map((v) => v.claim));
-
-  // A dimension whose supporting quotes all failed keeps its score but loses
-  // the unverifiable reasoning — the number stays, the justification doesn't
-  // get to claim evidence it no longer has.
-  const dimensionScores = parsed.dimension_scores.map((d) =>
-    verifiedClaims.has(d.dimension)
-      ? d
-      : { ...d, reasoning: `${d.reasoning} (no verifiable CV quote)`.trim() },
-  );
-
-  // Strengths are dropped outright when nothing verifiable backs them: unlike
-  // a dimension score, a strength IS a claim about the CV.
-  const strengthsKept =
-    verifiedClaims.has("strength") || verified.length > 0
-      ? parsed.strengths
-      : [];
 
   const confidence =
     failRate > 0 ? lowerConfidence(parsed.confidence) : parsed.confidence;
@@ -537,7 +585,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     overall_score: parsed.overall_score,
     dimension_scores: dimensionScores,
     evidence: verified,
-    strengths: strengthsKept,
+    strengths,
     missing_requirements: missing,
     concerns: parsed.concerns,
     confidence,

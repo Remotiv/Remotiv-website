@@ -18,6 +18,7 @@ import {
   type PipelineStage,
   type ScoreConfidence,
   type ScoreStatus,
+  type ScoreStrengthRow,
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
 
@@ -98,6 +99,25 @@ function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
 
 function jsonArray<T>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
+}
+
+/**
+ * Strengths are {point, quote} from prompt v2 onward; v1 rows stored bare
+ * strings. Normalise both so a scorecard written before the change still
+ * renders — it simply has no quote to show.
+ */
+function normaliseStrengths(v: unknown): ScoreStrengthRow[] {
+  if (!Array.isArray(v)) return [];
+  return v
+    .map((raw) => {
+      if (typeof raw === "string") return { point: raw, quote: "" };
+      const o = raw as Record<string, unknown>;
+      return {
+        point: typeof o?.point === "string" ? o.point : "",
+        quote: typeof o?.quote === "string" ? o.quote : "",
+      };
+    })
+    .filter((x) => x.point.length > 0);
 }
 
 function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantRow {
@@ -284,7 +304,7 @@ export async function fetchCompanyApplicant(
         ...toScore(sRow),
         dimensions: jsonArray(sRow.dimension_scores),
         evidence: jsonArray(sRow.evidence),
-        strengths: jsonArray(sRow.strengths),
+        strengths: normaliseStrengths(sRow.strengths),
         missing_requirements: jsonArray(sRow.missing_requirements),
         concerns: jsonArray(sRow.concerns),
         summary: (sRow.summary as string | null) ?? null,

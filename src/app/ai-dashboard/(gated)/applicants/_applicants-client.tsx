@@ -439,6 +439,17 @@ function ApplicantDrawer({
     };
   }, [onClose]);
 
+  /**
+   * The drawer's authoritative score.
+   *
+   * `row` comes from the list, which was fetched when the page rendered — an
+   * applicant scored since then still reads 'pending' there. `scoreDetail` is
+   * fetched when this drawer opens, so it wins whenever it exists. Using
+   * row.score here is what made the header say "pending" while the breakdown
+   * directly below it showed a full scorecard.
+   */
+  const headerScore: ApplicantScore = scoreDetail ?? row.score;
+
   const location = [row.city, row.country].filter(Boolean).join(", ");
 
   return (
@@ -498,13 +509,16 @@ function ApplicantDrawer({
           </div>
 
           {/* Score headline. Every <p> on this dark surface sets its own
-              colour — the DS's global `p { color:#444 }` beats inheritance. */}
-          {row.score.status === "scored" && row.score.overall != null ? (
+              colour — the DS's global `p { color:#444 }` beats inheritance.
+              Reads `headerScore`, NOT row.score: the list row was fetched when
+              the page loaded and goes stale the moment the worker scores
+              someone, which is the normal case. */}
+          {headerScore.status === "scored" && headerScore.overall != null ? (
             <div className="relative z-[1] flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
-              <DrawerScoreRing score={row.score.overall} />
+              <DrawerScoreRing score={headerScore.overall} />
               <div className="min-w-0">
                 <p className="m-0 text-[13px] font-bold text-white">
-                  {row.score.adjusted ? "Adjusted score" : "AI score"}
+                  {headerScore.adjusted ? "Adjusted score" : "AI score"}
                   {scoreDetail?.screening_score != null && (
                     <span className="ml-2 font-normal text-white/55">
                       Screening {scoreDetail.screening_score}%
@@ -512,8 +526,8 @@ function ApplicantDrawer({
                   )}
                 </p>
                 <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
-                  {row.score.confidence
-                    ? `${CONFIDENCE_LABEL[row.score.confidence]} — based on how much the CV actually showed.`
+                  {headerScore.confidence
+                    ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
                     : "Scored against this job's stated requirements."}
                 </p>
               </div>
@@ -521,14 +535,14 @@ function ApplicantDrawer({
           ) : (
             <div className="relative z-[1] rounded-2xl border border-dashed border-white/20 bg-white/[0.06] px-4 py-[15px] text-center">
               <b className="mb-[3px] block text-[13px] text-white">
-                {row.score.status === "failed"
+                {headerScore.status === "failed"
                   ? "Scoring failed"
-                  : row.score.status === "skipped"
+                  : headerScore.status === "skipped"
                     ? "Not scored"
                     : "AI score pending"}
               </b>
               <span className="text-xs leading-relaxed text-white/50">
-                {row.score.error ??
+                {headerScore.error ??
                   "The breakdown appears here once this CV has been scored."}
               </span>
             </div>
@@ -638,9 +652,6 @@ function ApplicantDrawer({
                   <div className="mb-[22px] flex flex-col gap-3">
                     {scoreDetail.dimensions.map((d) => {
                       const band = scoreBand(d.score);
-                      const quote = scoreDetail.evidence.find(
-                        (e) => e.claim === d.dimension,
-                      );
                       return (
                         <div key={d.dimension}>
                           <div className="flex items-baseline justify-between gap-3">
@@ -668,7 +679,7 @@ function ApplicantDrawer({
                               {d.reasoning}
                             </p>
                           )}
-                          {quote && <EvidenceQuote quote={quote.quote} />}
+                          {d.quote && <EvidenceQuote quote={d.quote} />}
                         </div>
                       );
                     })}
@@ -680,23 +691,20 @@ function ApplicantDrawer({
                 <>
                   <DrawerLabel>Strengths</DrawerLabel>
                   <div className="mb-[22px] flex flex-col gap-2.5">
-                    {scoreDetail.strengths.map((str, i) => {
-                      const quote = scoreDetail.evidence.filter(
-                        (e) => e.claim === "strength",
-                      )[i];
-                      return (
-                        <div key={str}>
-                          <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
-                            <Check
-                              className="mt-px size-3.5 shrink-0 text-remotiv-green"
-                              strokeWidth={2.6}
-                            />
-                            {str}
-                          </p>
-                          {quote && <EvidenceQuote quote={quote.quote} />}
-                        </div>
-                      );
-                    })}
+                    {/* Each strength carries its own quote — no pairing by
+                        position, which is what misattributed quotes in v1. */}
+                    {scoreDetail.strengths.map((str) => (
+                      <div key={str.point}>
+                        <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
+                          <Check
+                            className="mt-px size-3.5 shrink-0 text-remotiv-green"
+                            strokeWidth={2.6}
+                          />
+                          {str.point}
+                        </p>
+                        {str.quote && <EvidenceQuote quote={str.quote} />}
+                      </div>
+                    ))}
                   </div>
                 </>
               )}
