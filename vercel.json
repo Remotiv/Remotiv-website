@@ -5,6 +5,15 @@
     },
     "src/app/api/admin/bulk-move-to-talent/route.ts": {
       "maxDuration": 60
+    },
+    "src/app/api/jobs/worker/route.ts": {
+      "maxDuration": 60
     }
-  }
+  },
+  "crons": [
+    {
+      "path": "/api/jobs/worker",
+      "schedule": "*/5 * * * *"
+    }
+  ]
 }
