@@ -9,11 +9,5 @@
     "src/app/api/jobs/worker/route.ts": {
       "maxDuration": 60
     }
-  },
-  "crons": [
-    {
-      "path": "/api/jobs/worker",
-      "schedule": "*/5 * * * *"
-    }
-  ]
+  }
 }
