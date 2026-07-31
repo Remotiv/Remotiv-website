@@ -4,10 +4,10 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  Archive,
   Briefcase,
   Check,
   Copy,
-  DollarSign,
   Eye,
   Lock,
   MoreHorizontal,
@@ -16,7 +16,6 @@ import {
   RotateCcw,
   Search as SearchIcon,
   Trash2,
-  Users,
   X,
   XCircle,
 } from "lucide-react";
@@ -62,18 +61,29 @@ const STATUS_BADGE: Record<JobStatus, { badge: string; dot: string }> = {
   },
 };
 
+/**
+ * Icon tint + the matching volume-bar colour, picked together so a job's
+ * avatar and its applicant bar always agree. `bar` values are the DS accents
+ * (mint / purple-soft / sky / lime) — vivid enough to read at 5–6px, unlike
+ * the pale `bg` tints.
+ */
 const ICON_TINTS = [
-  { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)" },
-  { bg: "var(--ai-mint-tint)", fg: "var(--ai-mint-ink)" },
-  { bg: "var(--ai-peach-tint)", fg: "var(--ai-peach-ink)" },
-  { bg: "var(--ai-sky-tint)", fg: "var(--ai-sky-ink)" },
+  { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)", bar: "#9886FE" },
+  { bg: "var(--ai-mint-tint)", fg: "var(--ai-mint-ink)", bar: "#49D7A7" },
+  { bg: "var(--ai-peach-tint)", fg: "var(--ai-peach-ink)", bar: "#D9F972" },
+  { bg: "var(--ai-sky-tint)", fg: "var(--ai-sky-ink)", bar: "#4C8DD9" },
 ];
 
+/** Mock's `.gridrow`: Job / Status / Applicants / Posted / ⋯ */
 const ROW_GRID =
-  "grid grid-cols-[minmax(0,2.6fr)_1fr_0.9fr_0.9fr_40px] items-center gap-4 px-5";
+  "grid grid-cols-[minmax(0,2.5fr)_1fr_1.15fr_0.9fr_40px] items-center gap-4 px-5";
+
+/** Roles shown in the hero breakdown, matching the mock's four bars. */
+const HERO_ROLE_LIMIT = 4;
 
 // ── Helpers ──────────────────────────────────────────────────
 
+/** Tint derived from a stable hash of the job id, never array position. */
 function getTint(key: string) {
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
@@ -96,36 +106,292 @@ function fmtPosted(iso: string, status: JobStatus): { main: string; sub: string 
   return { main: `${days}d ago`, sub: abs };
 }
 
-// ── Stat card ────────────────────────────────────────────────
+/**
+ * The design system's lime highlight sticker — one keyword per page lede.
+ *
+ * The sticker is a pseudo-element behind the text, rotated -1.2deg. The `z-0`
+ * on the span is load-bearing: it opens a stacking context so the pseudo's
+ * negative z-index resolves INSIDE the span instead of dropping behind the
+ * page background, which is what makes a bare `-z-10` highlight vanish.
+ */
+function LimeHighlight({ children }: { children: React.ReactNode }) {
+  return (
+    <span className="relative z-0 inline-block px-1 font-bold text-[var(--ai-t1)] before:absolute before:-left-[3px] before:-right-[3px] before:bottom-[8%] before:top-[6%] before:-z-10 before:-rotate-[1.2deg] before:rounded-[3px] before:bg-remotiv-lime before:content-['']">
+      {children}
+    </span>
+  );
+}
 
-function StatCard({
-  label,
-  value,
-  icon: Icon,
-  tintBg,
-  tintFg,
+// ── Dark hero ────────────────────────────────────────────────
+
+type RoleBar = { id: string; title: string; count: number; bar: string };
+
+/**
+ * The hero's right-hand column: up to HERO_ROLE_LIMIT bars, biggest first.
+ *
+ * Split out of JobsHero so the "nothing published yet" case is a plain
+ * absence of this component rather than a conditional wrapped around half the
+ * hero's markup.
+ */
+function RoleBreakdown({
+  bars,
+  top,
+  hiddenRoles,
+  onShowAll,
 }: {
-  label: string;
-  value: number;
-  icon: typeof Briefcase;
-  tintBg: string;
-  tintFg: string;
+  bars: RoleBar[];
+  top: number;
+  hiddenRoles: number;
+  onShowAll: () => void;
 }) {
   return (
-    <div className="rounded-2xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[18px] py-4">
-      <div className="flex items-center gap-[7px] text-xs font-medium text-[var(--ai-t3)]">
-        <span
-          className="flex size-[26px] items-center justify-center rounded-lg"
-          style={{ background: tintBg, color: tintFg }}
-        >
-          <Icon className="size-[15px]" strokeWidth={1.9} />
-        </span>
-        {label}
-      </div>
-      <div className="mt-3 font-heading text-[28px] font-extrabold leading-none tracking-[-0.02em]">
-        {value}
-      </div>
+    <div className="relative z-[1] min-w-0">
+        <p className="m-0 mb-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
+          Applicants by role
+        </p>
+
+        {bars.length === 0 ? (
+          <p className="m-0 text-[12.5px] leading-relaxed text-white/50">
+            No applications yet. Every published role appears here as soon as
+            its first candidate applies.
+          </p>
+        ) : (
+          <div className="flex flex-col gap-2">
+            {bars.map((b) => (
+              <div
+                key={b.id}
+                className="grid grid-cols-[minmax(0,110px)_1fr_34px] items-center gap-3 min-[630px]:grid-cols-[minmax(0,150px)_1fr_34px]"
+              >
+                <span className="truncate text-[12.5px] text-white/70">
+                  {b.title}
+                </span>
+                <span className="h-[6px] overflow-hidden rounded-[4px] bg-white/10">
+                  <span
+                    className="block h-full origin-left rounded-[4px]"
+                    style={{
+                      // Scaled to the top role, so the longest bar is always
+                      // full width and the rest read as a proportion of it.
+                      width: `${top > 0 ? Math.round((b.count / top) * 100) : 0}%`,
+                      background: b.bar,
+                    }}
+                  />
+                </span>
+                <span className="text-right text-[12.5px] font-bold tabular-nums text-white">
+                  {b.count}
+                </span>
+              </div>
+            ))}
+
+            {hiddenRoles > 0 && (
+              <button
+                type="button"
+                onClick={onShowAll}
+                className="mt-1 self-start text-[11.5px] font-semibold text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
+              >
+                +{hiddenRoles} more role{hiddenRoles === 1 ? "" : "s"}
+              </button>
+            )}
+          </div>
+        )}
     </div>
+  );
+}
+
+/**
+ * The segment's signature dark strip: #141020, 22px radius, a purple radial
+ * glow bleeding in from the top-right, and the page's headline metric beside a
+ * breakdown.
+ *
+ * Every <p> here sets its colour explicitly. The design system ships a global
+ * `p { color: #444 }` that beats an inherited white from the parent, so a <p>
+ * without its own colour renders near-invisible on this surface.
+ */
+function JobsHero({
+  totalApplicants,
+  publishedCount,
+  bars,
+  hiddenRoles,
+  onShowAll,
+}: {
+  totalApplicants: number;
+  publishedCount: number;
+  bars: RoleBar[];
+  hiddenRoles: number;
+  onShowAll: () => void;
+}) {
+  const top = bars[0]?.count ?? 0;
+
+  /**
+   * With nothing published there is no breakdown to draw, so the whole
+   * right-hand column and its divider are dropped rather than rendering a
+   * heading over empty space. The metric block then spans the strip alone.
+   */
+  const hasBreakdown = publishedCount > 0;
+
+  const subline = (() => {
+    if (publishedCount === 0) return "No roles are live yet";
+    return `Across ${publishedCount} published role${publishedCount === 1 ? "" : "s"}`;
+  })();
+
+  return (
+    <div
+      className={`relative mb-[26px] grid grid-cols-1 gap-6 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-6 py-6 shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[840px]:gap-7 min-[840px]:px-7 ${
+        hasBreakdown ? "min-[840px]:grid-cols-[auto_1px_1fr]" : ""
+      }`}
+    >
+      <span
+        aria-hidden
+        className="pointer-events-none absolute -right-[90px] -top-[110px] size-[340px] rounded-full"
+        style={{
+          background:
+            "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
+        }}
+      />
+
+      <div className="relative z-[1]">
+        <p className="m-0 mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
+          Applicants in play
+        </p>
+        <p className="m-0 font-heading text-[46px] font-extrabold leading-none tracking-[-0.04em] text-white">
+          {totalApplicants}
+        </p>
+        <p className="m-0 mt-[9px] text-[12.5px] text-white/50">{subline}</p>
+      </div>
+
+      {hasBreakdown && (
+        <>
+          <div
+            aria-hidden
+            className="hidden h-[78px] self-center bg-white/[0.12] min-[840px]:block"
+          />
+          <RoleBreakdown
+            bars={bars}
+            top={top}
+            hiddenRoles={hiddenRoles}
+            onShowAll={onShowAll}
+          />
+        </>
+      )}
+    </div>
+  );
+}
+
+// ── Mobile card ──────────────────────────────────────────────
+
+/**
+ * Stacked card shown below the table breakpoint. Same information hierarchy as
+ * the desktop row — identity, status, volume, posted — just laid out
+ * vertically so nothing needs horizontal scrolling. Opens the same drawer.
+ *
+ * Tappable only for members who can manage jobs, mirroring the desktop row:
+ * there the ⋯ trigger is the ONLY way into the drawer and it isn't rendered
+ * for hiring managers, so a tappable card here would hand them a panel of
+ * actions the table deliberately withholds.
+ */
+function JobCard({
+  job,
+  maxApplicants,
+  isTopRole,
+  canManage,
+  onOpen,
+}: {
+  job: CompanyJobRow;
+  maxApplicants: number;
+  isTopRole: boolean;
+  canManage: boolean;
+  onOpen: () => void;
+}) {
+  const tint = getTint(job.id);
+  const badge = STATUS_BADGE[job.status];
+  const posted = fmtPosted(job.created_at, job.status);
+  const notPosted = job.status === "on_hold" && job.applicant_count === 0;
+
+  const body = (
+    <>
+      <div className="flex items-start gap-3">
+        <span
+          className="flex size-10 shrink-0 items-center justify-center rounded-xl"
+          style={{ background: tint.bg, color: tint.fg }}
+        >
+          <Briefcase className="size-[18px]" strokeWidth={1.8} />
+        </span>
+        <div className="min-w-0 flex-1">
+          <p className="m-0 truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+            {job.title}
+          </p>
+          <p className="m-0 mt-[3px] flex flex-wrap items-center gap-[7px] text-[12.5px] text-[var(--ai-t3)]">
+            <span className="truncate">{job.location}</span>
+            <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
+            {job.contract_type}
+            <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
+            {job.experience_level}
+          </p>
+        </div>
+      </div>
+
+      <div className="mt-3 flex items-center justify-between gap-3">
+        <span
+          className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${badge.badge}`}
+        >
+          <span className={`size-[5px] shrink-0 rounded-full ${badge.dot}`} />
+          {JOB_STATUS_LABELS[job.status]}
+        </span>
+
+        {notPosted ? (
+          <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">
+            Not posted
+          </span>
+        ) : (
+          <span className="flex min-w-0 items-center gap-2">
+            <span className="font-heading text-[15px] font-extrabold tabular-nums tracking-[-0.03em] text-[var(--ai-t1)]">
+              {job.applicant_count}
+            </span>
+            <span className="h-[5px] w-[54px] shrink-0 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
+              <span
+                className="block h-full origin-left rounded-[3px]"
+                style={{
+                  width: `${
+                    maxApplicants > 0
+                      ? Math.round((job.applicant_count / maxApplicants) * 100)
+                      : 0
+                  }%`,
+                  background: job.status === "open" ? tint.bar : "var(--ai-t4)",
+                }}
+              />
+            </span>
+            {isTopRole && (
+              <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-[2px] text-[10px] font-extrabold uppercase tracking-[0.04em] text-[#2F3A00]">
+                Top role
+              </span>
+            )}
+          </span>
+        )}
+      </div>
+
+      <p className="m-0 mt-3 text-[11.5px] text-[var(--ai-t4)]">
+        {posted.main} · {posted.sub}
+      </p>
+    </>
+  );
+
+  const shell = `w-full border-b border-[var(--ai-line-soft)] px-4 py-4 text-left last:border-b-0 ${
+    job.status === "closed" ? "opacity-[0.66]" : ""
+  }`;
+
+  if (!canManage) {
+    return <div className={shell}>{body}</div>;
+  }
+
+  return (
+    <button
+      type="button"
+      onClick={onOpen}
+      aria-haspopup="dialog"
+      aria-label={`Actions for ${job.title}`}
+      className={`${shell} bg-[var(--ai-surface)] transition-colors active:bg-[#FCFBFA]`}
+    >
+      {body}
+    </button>
   );
 }
 
@@ -388,7 +654,77 @@ export function JobsClient({
 
   const totalApplicants = jobs.reduce((sum, j) => sum + j.applicant_count, 0);
 
+  /**
+   * Published roles that actually have applicants, biggest first.
+   *
+   * Roles on zero are excluded rather than drawn as empty bars: an empty bar
+   * carries no information and would push a role that DOES have applicants out
+   * of the four slots. They are still counted in "Across N published roles"
+   * below the headline, so nothing disappears.
+   *
+   * Ties break on created_at (newest first), then id — without a total order
+   * the browser's sort is free to reorder equal counts between renders and the
+   * bars would shuffle on every keystroke in the search box.
+   */
+  const rankedRoles = useMemo(
+    () =>
+      jobs
+        .filter((j) => j.status === "open" && j.applicant_count > 0)
+        .sort((a, b) => {
+          if (b.applicant_count !== a.applicant_count) {
+            return b.applicant_count - a.applicant_count;
+          }
+          const byDate =
+            new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
+        }),
+    [jobs],
+  );
+
+  const heroBars = useMemo<RoleBar[]>(
+    () =>
+      rankedRoles.slice(0, HERO_ROLE_LIMIT).map((j) => ({
+        id: j.id,
+        title: j.title,
+        count: j.applicant_count,
+        bar: getTint(j.id).bar,
+      })),
+    [rankedRoles],
+  );
+
+  /** Roles with applicants that didn't fit the four slots. */
+  const hiddenRoles = Math.max(0, rankedRoles.length - HERO_ROLE_LIMIT);
+
+  /** Longest row bar. Every other bar is drawn as a fraction of this. */
+  const maxApplicants = jobs.reduce(
+    (max, j) => Math.max(max, j.applicant_count),
+    0,
+  );
+
+  /**
+   * The job carrying the lime flag. Only meaningful once at least two roles
+   * have applicants — flagging the "top" of a field of one says nothing.
+   */
+  const topJobId = useMemo(() => {
+    const ranked = jobs
+      .filter((j) => j.applicant_count > 0)
+      .sort((a, b) => b.applicant_count - a.applicant_count);
+    return ranked.length >= 2 ? ranked[0].id : null;
+  }, [jobs]);
+
   const openJob = openId ? (jobs.find((j) => j.id === openId) ?? null) : null;
+
+  /**
+   * "+N more roles" jumps to the table on the Published tab, where every
+   * published role is listed with its own count and proportional bar. The
+   * panel carries `scroll-mt` so the sticky topbar doesn't cover the tabs on
+   * arrival.
+   */
+  const panelRef = useRef<HTMLDivElement>(null);
+  function showAllRoles() {
+    setTab("open");
+    panelRef.current?.scrollIntoView({ behavior: "smooth", block: "start" });
+  }
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
@@ -526,6 +862,22 @@ export function JobsClient({
     }
   }
 
+  /**
+   * The lede's opening clause. The tail after it is fixed, so the sticker
+   * always lands on the same word.
+   *
+   * Deliberately says nothing about screening or scoring: the AI recruiter
+   * does not read CVs yet, and the mock's sample copy assumes it does. What
+   * IS true today is that publishing puts the role on remotiv.work at once.
+   */
+  const ledeCount = (() => {
+    const total = counts.all;
+    if (total === 0) return "No roles posted yet.";
+    const roles = `${total} role${total === 1 ? "" : "s"} posted`;
+    if (counts.open === 0) return `${roles}, none live yet.`;
+    return `${roles}, ${counts.open} live right now.`;
+  })();
+
   const emptyCopy = (() => {
     if (search.trim()) {
       return {
@@ -548,86 +900,95 @@ export function JobsClient({
   return (
     <PageContainer>
       {/* Header */}
-      <div className="mb-[22px] flex flex-col items-start justify-between gap-4 min-[525px]:flex-row min-[525px]:gap-6">
+      <div className="mb-5 flex flex-col items-start justify-between gap-4 min-[630px]:flex-row min-[630px]:items-end min-[630px]:gap-6">
         <div>
           <h1 className="font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
             Jobs
           </h1>
-          <p className="mt-2 max-w-[460px] text-sm text-[var(--ai-t2)]">
-            Post roles that go live on remotiv.work instantly and start
-            collecting AI-screened applicants.
+          <p className="mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
+            {ledeCount} Every published job goes live on remotiv.work{" "}
+            <LimeHighlight>instantly</LimeHighlight> and starts collecting
+            applicants.
           </p>
         </div>
-        {canManage ? (
-          <Link
-            href="/ai-dashboard/jobs/new"
-            className="inline-flex shrink-0 items-center gap-2 rounded-xl bg-remotiv-purple px-[18px] py-3 text-sm font-semibold text-white shadow-[0_4px_16px_rgba(126,71,255,0.28)] transition-colors hover:bg-[var(--ai-purple-hover)]"
-          >
-            <Plus className="size-4" strokeWidth={2.5} />
-            New job
-          </Link>
-        ) : (
-          <span className="inline-flex shrink-0 items-center gap-2 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-[15px] py-[11px] text-[13px] text-[var(--ai-t3)]">
-            <Lock className="size-[15px]" strokeWidth={1.8} />
-            Read-only · assigned jobs
-          </span>
-        )}
+        <div className="flex shrink-0 gap-2.5">
+          {canManage ? (
+            <>
+              <button
+                type="button"
+                disabled
+                title="Archived jobs arrive in a later release"
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] disabled:cursor-not-allowed disabled:opacity-55"
+              >
+                <Archive className="size-[15px]" strokeWidth={1.9} />
+                Archive
+              </button>
+              <Link
+                href="/ai-dashboard/jobs/new"
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl bg-remotiv-purple px-[18px] py-[11px] text-[13.5px] font-bold text-white shadow-[0_6px_20px_rgba(126,71,255,0.3)] transition-colors hover:bg-[var(--ai-purple-hover)] hover:shadow-[0_10px_28px_rgba(126,71,255,0.4)]"
+              >
+                <Plus className="size-[15px]" strokeWidth={2.2} />
+                New job
+              </Link>
+            </>
+          ) : (
+            <span className="inline-flex items-center gap-2 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[15px] py-[11px] text-[13px] font-semibold text-[var(--ai-t3)]">
+              <Lock className="size-[15px]" strokeWidth={1.9} />
+              Read-only · assigned jobs
+            </span>
+          )}
+        </div>
       </div>
 
-      {/* Stats */}
-      <div className="mb-6 grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-2 min-[1049px]:grid-cols-4">
-        <StatCard
-          label="Published"
-          value={counts.open}
-          icon={Check}
-          tintBg="var(--ai-mint-tint)"
-          tintFg="var(--ai-mint-ink)"
-        />
-        <StatCard
-          label="Draft"
-          value={counts.on_hold}
-          icon={Pencil}
-          tintBg="var(--ai-amber-tint)"
-          tintFg="var(--ai-amber-ink)"
-        />
-        <StatCard
-          label="Applicants"
-          value={totalApplicants}
-          icon={Users}
-          tintBg="var(--ai-purple-tint)"
-          tintFg="var(--ai-purple-ink)"
-        />
-        <StatCard
-          label="Closed"
-          value={counts.closed}
-          icon={DollarSign}
-          tintBg="var(--ai-sky-tint)"
-          tintFg="var(--ai-sky-ink)"
-        />
-      </div>
+      <JobsHero
+        totalApplicants={totalApplicants}
+        publishedCount={counts.open}
+        bars={heroBars}
+        hiddenRoles={hiddenRoles}
+        onShowAll={showAllRoles}
+      />
 
       {/* Panel */}
-      <div className="overflow-hidden rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_4px_24px_rgba(20,16,32,0.05)]">
+      <div
+        ref={panelRef}
+        className="scroll-mt-[76px] overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]"
+      >
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-          <div className="flex rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+          {/* Active tab is solid ink with a white count badge — the segment's
+              standard active state, not a pale pill.
+
+              The four-tab strip is wider than a small phone, so it scrolls
+              WITHIN itself (max-w-full + overflow-x-auto) and can never widen
+              the page. */}
+          <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`flex items-center gap-1.5 rounded-lg px-[13px] py-1.5 text-[12.5px] font-semibold transition-colors ${
+                className={`flex items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors min-[525px]:px-[14px] ${
                   tab === t.key
-                    ? "bg-[var(--ai-surface)] text-[var(--ai-t1)] shadow-[0_1px_4px_rgba(0,0,0,0.08)]"
+                    ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
                     : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
                 }`}
               >
                 {t.label}
-                <span className="text-[11px] opacity-70">{counts[t.key]}</span>
+                <span
+                  className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
+                    tab === t.key
+                      ? "bg-white/20 text-white"
+                      : "bg-[rgba(20,16,32,0.07)]"
+                  }`}
+                >
+                  {counts[t.key]}
+                </span>
               </button>
             ))}
           </div>
 
-          <div className="ml-auto flex w-[220px] items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple">
+          {/* Full-width on phones so search stacks UNDER the tabs rather than
+              forcing the toolbar wider than the viewport. */}
+          <div className="flex w-full min-w-0 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:ml-auto min-[630px]:w-[220px]">
             <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
             <input
               type="search"
@@ -640,8 +1001,55 @@ export function JobsClient({
           </div>
         </div>
 
-        <div className="overflow-x-auto">
-          <div className="min-w-[820px]">
+        {/* Hoisted OUT of the table wrapper on purpose: nested inside it, the
+            empty state inherited the min-width and only rendered at desktop
+            widths, leaving phones with a blank panel. */}
+        {filtered.length === 0 && (
+          <div className="flex flex-col items-center px-6 py-16 text-center">
+            <div className="mb-[18px] flex size-16 items-center justify-center rounded-[18px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
+              <Briefcase className="size-7" strokeWidth={1.7} />
+            </div>
+            <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
+              {emptyCopy.title}
+            </h3>
+            <p className="mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+              {emptyCopy.text}
+            </p>
+            {canManage && jobs.length === 0 && (
+              <Link
+                href="/ai-dashboard/jobs/new"
+                className="mt-5 inline-flex items-center gap-2 rounded-xl bg-remotiv-purple px-[18px] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--ai-purple-hover)]"
+              >
+                <Plus className="size-4" strokeWidth={2.5} />
+                Post your first job
+              </Link>
+            )}
+          </div>
+        )}
+
+        {/* Stacked cards below the table breakpoint. The 5-column grid needs
+            900 design px; the widest phone in scope offers 415. Squeezing it
+            would crush the volume bar, and scrolling it sideways hides Status,
+            Applicants and Posted. */}
+        {filtered.length > 0 && (
+          <div className="min-[1049px]:hidden">
+            {filtered.map((job) => (
+              <JobCard
+                key={job.id}
+                job={job}
+                maxApplicants={maxApplicants}
+                isTopRole={job.id === topJobId}
+                canManage={canManage}
+                onOpen={() => setOpenId(job.id)}
+              />
+            ))}
+          </div>
+        )}
+
+        {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
+            kept as a belt-and-braces guard; at >=1049px the grid fits. */}
+        <div className="hidden overflow-x-auto min-[1049px]:block">
+          <div className="min-w-[900px]">
             <div
               className={`${ROW_GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ai-t3)]`}
             >
@@ -652,29 +1060,7 @@ export function JobsClient({
               <span />
             </div>
 
-            {filtered.length === 0 ? (
-              <div className="flex flex-col items-center px-6 py-16 text-center">
-                <div className="mb-[18px] flex size-16 items-center justify-center rounded-[18px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
-                  <Briefcase className="size-7" strokeWidth={1.7} />
-                </div>
-                <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
-                  {emptyCopy.title}
-                </h3>
-                <p className="mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-                  {emptyCopy.text}
-                </p>
-                {canManage && jobs.length === 0 && (
-                  <Link
-                    href="/ai-dashboard/jobs/new"
-                    className="mt-5 inline-flex items-center gap-2 rounded-xl bg-remotiv-purple px-[18px] py-3 text-sm font-semibold text-white transition-colors hover:bg-[var(--ai-purple-hover)]"
-                  >
-                    <Plus className="size-4" strokeWidth={2.5} />
-                    Post your first job
-                  </Link>
-                )}
-              </div>
-            ) : (
-              filtered.map((job) => {
+            {filtered.map((job) => {
                 const tint = getTint(job.id);
                 const badge = STATUS_BADGE[job.status];
                 const posted = fmtPosted(job.created_at, job.status);
@@ -682,19 +1068,22 @@ export function JobsClient({
                 return (
                   <div
                     key={job.id}
-                    className={`${ROW_GRID} border-b border-[var(--ai-line-soft)] py-[15px] transition-colors last:border-b-0 hover:bg-[#FCFBFA] ${
-                      job.status === "closed" ? "opacity-[0.72]" : ""
+                    // `group` drives both the ⋯ reveal and the icon lift.
+                    // `hover:z-[2]` lets the lift shadow sit over the rows
+                    // either side of it instead of being clipped by them.
+                    className={`${ROW_GRID} group relative border-b border-[var(--ai-line-soft)] py-[15px] transition-[background-color,box-shadow] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-remotiv-purple before:opacity-0 before:transition-opacity before:content-[''] last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] hover:before:opacity-100 ${
+                      job.status === "closed" ? "opacity-[0.66]" : ""
                     }`}
                   >
                     <div className="flex min-w-0 items-center gap-3.5">
                       <span
-                        className="flex size-[42px] shrink-0 items-center justify-center rounded-xl"
+                        className="flex size-[42px] shrink-0 items-center justify-center rounded-[13px] transition-transform group-hover:scale-105"
                         style={{ background: tint.bg, color: tint.fg }}
                       >
                         <Briefcase className="size-[19px]" strokeWidth={1.8} />
                       </span>
                       <div className="min-w-0">
-                        <p className="truncate text-[14.5px] font-semibold leading-tight text-[var(--ai-t1)]">
+                        <p className="truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
                           {job.title}
                         </p>
                         <p className="mt-[3px] flex flex-wrap items-center gap-[7px] text-[12.5px] text-[var(--ai-t3)]">
@@ -708,28 +1097,52 @@ export function JobsClient({
                     </div>
 
                     <span
-                      className={`inline-flex items-center gap-1.5 justify-self-start rounded-full px-3 py-1 text-xs font-semibold ${badge.badge}`}
+                      className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${badge.badge}`}
                     >
                       <span className={`size-[5px] rounded-full ${badge.dot}`} />
                       {JOB_STATUS_LABELS[job.status]}
                     </span>
 
-                    <span className="flex items-center gap-[7px] text-sm font-semibold text-[var(--ai-t1)]">
+                    {/* Volume, drawn as a share of the busiest role so the
+                        column reads as a ranking at a glance. */}
+                    <span className="flex min-w-0 items-center gap-[11px]">
                       {job.status === "on_hold" && job.applicant_count === 0 ? (
-                        <span className="font-medium text-[var(--ai-t4)]">—</span>
+                        <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">
+                          Not posted
+                        </span>
                       ) : (
                         <>
-                          {job.applicant_count}{" "}
-                          <small className="text-xs font-medium text-[var(--ai-t3)]">
-                            applicants
-                          </small>
+                          <span className="w-7 shrink-0 font-heading text-[17px] font-extrabold tracking-[-0.03em] tabular-nums text-[var(--ai-t1)]">
+                            {job.applicant_count}
+                          </span>
+                          <span className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
+                            <span
+                              className="block h-full origin-left rounded-[3px]"
+                              style={{
+                                width: `${
+                                  maxApplicants > 0
+                                    ? Math.round(
+                                        (job.applicant_count / maxApplicants) * 100,
+                                      )
+                                    : 0
+                                }%`,
+                                background:
+                                  job.status === "open" ? tint.bar : "var(--ai-t4)",
+                              }}
+                            />
+                          </span>
+                          {job.id === topJobId && (
+                            <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-[2px] text-[10px] font-extrabold uppercase tracking-[0.04em] text-[#2F3A00]">
+                              Top role
+                            </span>
+                          )}
                         </>
                       )}
                     </span>
 
-                    <span className="text-[13px] text-[var(--ai-t2)]">
+                    <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
                       {posted.main}
-                      <small className="block text-[11.5px] text-[var(--ai-t4)]">
+                      <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
                         {posted.sub}
                       </small>
                     </span>
@@ -740,7 +1153,10 @@ export function JobsClient({
                         onClick={() => setOpenId(job.id)}
                         aria-label={`Actions for ${job.title}`}
                         aria-haspopup="dialog"
-                        className="flex size-8 items-center justify-center justify-self-end rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-black/[0.06] hover:text-[var(--ai-t1)]"
+                        // Hidden until the row is hovered, per the mock — but
+                        // focus-visible brings it back so it stays reachable
+                        // by keyboard.
+                        className="flex size-8 items-center justify-center justify-self-end rounded-[9px] text-[var(--ai-t4)] opacity-0 transition-[opacity,background-color,color] hover:bg-[var(--ai-sidebar)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
                       >
                         <MoreHorizontal className="size-[18px]" strokeWidth={2} />
                       </button>
@@ -749,14 +1165,14 @@ export function JobsClient({
                     )}
                   </div>
                 );
-              })
-            )}
+            })}
           </div>
         </div>
 
         <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
           <p className="text-[12.5px] text-[var(--ai-t3)]">
-            Published jobs appear on your public careers page.
+            Published jobs appear on your public careers page at
+            remotiv.work/jobs.
           </p>
           <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">
             <b className="text-remotiv-purple">{filtered.length}</b> of {jobs.length} jobs
