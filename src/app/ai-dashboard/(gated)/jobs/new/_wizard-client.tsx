@@ -7,12 +7,12 @@ import {
   ArrowRight,
   Check,
   ChevronLeft,
-  Eye,
   Lightbulb,
   Lock,
   MapPin,
   Plus,
   Trash2,
+  Zap,
 } from "lucide-react";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import {
@@ -57,29 +57,29 @@ const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
 const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
 
 /*
- * Step-rail states, transcribed from the designer's `.step` spec. Extracted as
- * constants so the four states stay visibly distinct and `done` can never
- * drift into inheriting `active`'s elevated card.
+ * Step-rail states, transcribed from the designer's v2 `.step` spec. The rail
+ * is now a DARK card, so every state is expressed in translucent white rather
+ * than the page's ink tokens. Extracted as constants so the four states stay
+ * visibly distinct and `done` can never drift into inheriting `active`.
  *
  *   .step        -> STEP_ROW        (+ STEP_ROW_IDLE for the hover-only default)
- *   .step.active -> STEP_ROW_ACTIVE (white card: the ONLY state with a surface)
- *   .step.done   -> STEP_NUM_DONE   (circle only — no row treatment)
- *   .step.locked -> STEP_ROW_LOCKED
+ *   .step.active -> STEP_ROW_ACTIVE (raised translucent surface + purple numeral)
+ *   .step.done   -> STEP_NUM_DONE   (mint circle, KEEPING its number)
+ *   .step.locked -> STEP_ROW_LOCKED (dimmed, no hover surface)
  */
 const STEP_ROW =
-  "mb-0.5 flex w-full items-center gap-[11px] rounded-[11px] border px-[11px] py-2.5 text-left transition-colors";
-const STEP_ROW_IDLE = "border-transparent hover:bg-black/[0.035]";
-const STEP_ROW_ACTIVE =
-  "border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_2px_10px_rgba(20,16,32,0.05)]";
-const STEP_ROW_LOCKED = "cursor-not-allowed border-transparent opacity-[0.55]";
+  "mb-0.5 flex w-full items-center gap-[11px] rounded-[11px] border border-transparent px-2.5 py-[9px] text-left transition-colors";
+const STEP_ROW_IDLE = "hover:bg-white/[0.06]";
+const STEP_ROW_ACTIVE = "border-white/[0.14] bg-white/[0.11]";
+const STEP_ROW_LOCKED = "cursor-not-allowed opacity-40";
 
 const STEP_NUM =
-  "flex size-6 shrink-0 items-center justify-center rounded-full border-[1.5px] text-xs font-bold transition-colors";
-const STEP_NUM_IDLE = "border-[var(--ai-line-strong)] text-[var(--ai-t3)]";
+  "flex size-[23px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[11.5px] font-bold transition-colors";
+const STEP_NUM_IDLE = "border-white/[0.22] text-white/50";
 const STEP_NUM_ACTIVE = "border-remotiv-purple bg-remotiv-purple text-white";
 const STEP_NUM_DONE = "border-remotiv-green bg-remotiv-green text-[var(--ai-mint-ink)]";
 
-const STEP_LAB = "text-[13.5px] font-semibold";
+const STEP_LAB = "text-[13px] font-semibold";
 
 const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: string }> = [
   { value: "yesno", label: "Yes / No" },
@@ -421,18 +421,44 @@ export function WizardClient({
           breakpoints are scaled by the 0.82 zoom, so those become 1017 and 705.
           Deliberately NOT the scaled lg/xl (840/1049) used elsewhere — these
           two widths are the wizard's own, set by where its columns stop fitting.
-        */}
-        <div className="grid grid-cols-1 items-start gap-[22px] min-[705px]:grid-cols-[190px_minmax(0,1fr)] min-[1017px]:grid-cols-[200px_minmax(0,1fr)_280px]">
-          {/* Step rail */}
-          <div className="min-[705px]:sticky min-[705px]:top-[146px]">
-            <h1 className="mb-[3px] font-heading text-xl font-extrabold tracking-[-0.03em]">
-              {isEdit ? "Edit job" : "Post a job"}
-            </h1>
-            <p className="mb-[18px] text-[12.5px] text-[var(--ai-t3)]">
-              {isEdit ? "5 steps · edit any section" : "5 steps · ~4 min"}
-            </p>
 
-            <div>
+          Track widths are the mock's v2 values and are NOT scaled: they sit
+          inside the zoomed subtree, so they are already design px. Only the
+          media-query thresholds scale, because those evaluate against the
+          unzoomed viewport.
+        */}
+        <div className="grid grid-cols-1 items-start gap-[22px] min-[705px]:grid-cols-[220px_minmax(0,1fr)] min-[1017px]:grid-cols-[236px_minmax(0,1fr)_300px]">
+          {/* Step rail — the segment's dark panel treatment.
+              Every <p> inside sets its own colour: the design system's global
+              `p { color:#444 }` beats an inherited white and would render these
+              near-invisible on #141020. */}
+          <div className="min-[705px]:sticky min-[705px]:top-[146px]">
+            <div className="relative overflow-hidden rounded-[20px] bg-[var(--ai-sidebar)] px-[18px] py-5 shadow-[0_18px_46px_rgba(20,16,32,0.24)]">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute -right-20 -top-[100px] size-[280px] rounded-full"
+                style={{
+                  background:
+                    "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
+                }}
+              />
+
+              <h1 className="relative z-[1] mb-1 font-heading text-xl font-extrabold tracking-[-0.03em] text-white">
+                {isEdit ? "Edit job" : "Post a job"}
+              </h1>
+              <p className="relative z-[1] mb-3.5 text-xs text-white/50">
+                {isEdit ? "5 steps · edit any section" : "5 steps · ~4 min"}
+              </p>
+
+              {/* Lime progress bar — how far through the five steps the user is. */}
+              <div className="relative z-[1] mb-[18px] h-1 overflow-hidden rounded-[3px] bg-white/[0.12]">
+                <div
+                  className="h-full rounded-[3px] bg-remotiv-lime transition-[width] duration-300 ease-out"
+                  style={{ width: `${(step / LAST_STEP) * 100}%` }}
+                />
+              </div>
+
+              <div className="relative z-[1]">
               {STEPS.map((s) => {
                 const active = s.n === step;
                 const done = s.n < step;
@@ -462,10 +488,14 @@ export function WizardClient({
                       {s.n}
                     </span>
                     <span
-                      /* `.step.active .lab` is the only label override; a done
-                         label stays at the default --ai-t2. */
+                      /* `.step.active .lab` and `.step.done .lab` are the only
+                         label overrides; an untouched label stays at 62%. */
                       className={`${STEP_LAB} ${
-                        active ? "text-[var(--ai-t1)]" : "text-[var(--ai-t2)]"
+                        active
+                          ? "text-white"
+                          : done
+                            ? "text-white/70"
+                            : "text-white/[0.62]"
                       }`}
                     >
                       {s.label}
@@ -473,43 +503,51 @@ export function WizardClient({
                   </button>
                 );
               })}
+              </div>
+
+              <div className="relative z-[1] mx-1 my-2.5 h-px bg-white/10" />
+
+              <div className="relative z-[1]">
+                {LOCKED_STEPS.map((s) => (
+                  <button
+                    key={s.n}
+                    type="button"
+                    onClick={() => showToast(`${s.label} unlocks in a later release`)}
+                    /* `.step.locked` — dimmed, no hover surface. */
+                    className={`${STEP_ROW} ${STEP_ROW_LOCKED}`}
+                  >
+                    <span className={`${STEP_NUM} ${STEP_NUM_IDLE}`}>{s.n}</span>
+                    <span className={`${STEP_LAB} text-white/[0.62]`}>
+                      {s.label}
+                    </span>
+                  </button>
+                ))}
+              </div>
+
+              <p className="relative z-[1] mx-2.5 mt-3 text-[11px] leading-relaxed text-white/40">
+                Steps 6–9 (AI scoring, interview questions &amp; weighting) unlock
+                in a later release.
+              </p>
             </div>
-
-            <div className="mx-1 my-2 h-px bg-[var(--ai-line)]" />
-
-            <div>
-              {LOCKED_STEPS.map((s) => (
-                <button
-                  key={s.n}
-                  type="button"
-                  onClick={() => showToast(`${s.label} unlocks in a later release`)}
-                  /* `.step.locked` — dimmed, no hover surface. */
-                  className={`${STEP_ROW} ${STEP_ROW_LOCKED}`}
-                >
-                  <span className={`${STEP_NUM} ${STEP_NUM_IDLE}`}>{s.n}</span>
-                  <span className={`${STEP_LAB} text-[var(--ai-t4)]`}>
-                    {s.label}
-                  </span>
-                </button>
-              ))}
-            </div>
-
-            <p className="mx-[11px] mt-3.5 border-t border-dashed border-[var(--ai-line)] pt-3 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-              Steps 6–9 (AI scoring, interview questions &amp; weighting) unlock in a
-              later release.
-            </p>
           </div>
 
           {/* Form card */}
-          <div className="overflow-hidden rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_4px_24px_rgba(20,16,32,0.05)]">
-            <div className="px-6 pb-1 pt-5">
-              <h2 className="mb-1 font-heading text-xl font-extrabold tracking-[-0.02em]">
-                {meta.title}
-              </h2>
-              <p className="text-[13px] text-[var(--ai-t3)]">{meta.desc}</p>
+          <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
+            <div className="flex items-start justify-between gap-4 px-[26px] pb-1.5 pt-[22px]">
+              <div className="min-w-0">
+                <h2 className="mb-[5px] font-heading text-[21px] font-extrabold tracking-[-0.025em]">
+                  {meta.title}
+                </h2>
+                <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">
+                  {meta.desc}
+                </p>
+              </div>
+              <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--ai-purple-tint)] px-[11px] py-[5px] text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-[var(--ai-purple-ink)]">
+                Step {step} of {LAST_STEP}
+              </span>
             </div>
 
-            <div className="px-6 pb-[22px] pt-[18px]">
+            <div className="px-[26px] pb-6 pt-5">
               {step === 1 && (
                 <>
                   <div className="mb-4">
@@ -966,16 +1004,27 @@ export function WizardClient({
                     )}
                   </ReviewCard>
 
-                  <div className="mt-[18px] flex items-start gap-[11px] rounded-[13px] border border-remotiv-purple/20 bg-[var(--ai-purple-tint)] px-4 py-3.5">
-                    <Eye
-                      className="mt-px size-[18px] shrink-0 text-remotiv-purple"
+                  {/* v2 `.publishnote` — the dark card, not the purple tint.
+                      The <p> below carries an explicit colour: a dark surface
+                      loses to the DS's global `p { color:#444 }` otherwise. */}
+                  <div className="relative mt-[18px] flex items-start gap-3 overflow-hidden rounded-[15px] bg-[var(--ai-sidebar)] px-[18px] py-4">
+                    <span
+                      aria-hidden
+                      className="pointer-events-none absolute -right-[60px] -top-[70px] size-[200px] rounded-full"
+                      style={{
+                        background:
+                          "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
+                      }}
+                    />
+                    <Zap
+                      className="relative z-[1] mt-px size-[18px] shrink-0 text-remotiv-lime"
                       strokeWidth={1.9}
                     />
-                    <p className="text-[13px] leading-relaxed text-[var(--ai-purple-ink)]">
+                    <p className="relative z-[1] text-[13px] leading-relaxed text-white/[0.72]">
                       {isEdit ? (
                         state.status === "open" ? (
                           <>
-                            <b className="font-bold">
+                            <b className="font-bold text-white">
                               Changes go live on remotiv.work/jobs immediately.
                             </b>{" "}
                             Anyone viewing the post sees the updated version, and new
@@ -983,7 +1032,7 @@ export function WizardClient({
                           </>
                         ) : (
                           <>
-                            <b className="font-bold">
+                            <b className="font-bold text-white">
                               This job is a draft — it isn&apos;t public yet.
                             </b>{" "}
                             Saving keeps it private. Set the status to Published to put
@@ -992,7 +1041,7 @@ export function WizardClient({
                         )
                       ) : (
                         <>
-                          <b className="font-bold">
+                          <b className="font-bold text-white">
                             This publishes to remotiv.work/jobs immediately.
                           </b>{" "}
                           Applicants can apply right away and your AI recruiter starts
@@ -1005,9 +1054,9 @@ export function WizardClient({
               )}
             </div>
 
-            <div className="flex items-center justify-between border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-6 py-[15px]">
+            <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-[26px] py-4">
               <span className="text-[12.5px] font-semibold text-[var(--ai-t3)]">
-                Step <b>{step}</b> of {LAST_STEP}
+                Step <b className="text-[var(--ai-t1)]">{step}</b> of {LAST_STEP}
               </span>
               <div className="flex gap-2.5">
                 {step > 1 && (
