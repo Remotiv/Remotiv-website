@@ -27,7 +27,7 @@ import { recordUsage } from "@/lib/usage";
  * prompt change is distinguishable from a re-score after a criteria change
  * (which is what job_criteria_version tracks).
  */
-export const PROMPT_VERSION = "cv-scoring-v2";
+export const PROMPT_VERSION = "cv-scoring-v3";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -183,18 +183,21 @@ You judge against THAT JOB'S stated requirements and responsibilities — never 
 ${BAND_DEFINITIONS}
 
 EVIDENCE IS MANDATORY, AND IT MUST BE THE RIGHT EVIDENCE.
-Every dimension score and every strength carries its own "quote" field. Two rules, and the second matters as much as the first:
+Every dimension score and every strength carries its own "quote" field. Three rules, and each matters as much as the first:
 
 1. VERBATIM. Copy the span EXACTLY, character for character, from the CV text you are given. Do not paraphrase, do not summarise, do not tidy up spelling or spacing inside a quote. A quote that is not literally present in the CV is discarded.
 
 2. DIRECTLY RELEVANT. The quote must be the span that supports THAT SPECIFIC claim — the sentence a reader would point at to check it. A real quote from elsewhere in the CV is NOT partial credit; it is a failure, and worse than omitting the claim, because it makes an unsupported statement look verified.
 
-Examples of rule 2 being broken — do not do this:
+3. FROM THE CV TEXT ONLY. Strengths must be evidenced from the CV. The screening answers and the candidate profile are given to you as CONTEXT for your judgement — they are not a source of strengths, because neither contains a CV span you could quote. If something is shown only by a screening answer or a self-reported profile field, it does NOT become a strength: put it in the relevant dimension's reasoning or in the summary instead, where no quote is required.
+
+Examples of these rules being broken — do not do this:
 - Claim "currently employed at Acme since July 2024" with quote "Increased profits by 15,000 AED per month". The quote is real but it proves the profit figure, not the employment date. The correct quote names the employer and the date.
 - Claim "built pipelines of 70+ companies" with quote "MBA in Marketing". Unrelated.
 - Claim "multi-channel outreach using LinkedIn Sales Navigator" with quote "100% month on month growth". Unrelated.
+- Claim "substantial cold calling experience, validated by the screening answer of 5 years" with quote "Successfully increased company profits by over 15,000 AED each month". This is a different and worse mistake: the claim came from a screening answer, so no CV span could ever have proved it, and rather than dropping it you reached for the nearest real sentence. The five years of cold calling belongs in reasoning or the summary. It is NOT a strength, because it is not quotable from the CV.
 
-If the CV genuinely contains no span that directly supports a claim, DROP THE CLAIM. Reporting four well-evidenced strengths is better than reporting eight with three mismatched quotes. An empty strengths array is an acceptable answer.
+DROPPING A CLAIM IS ALWAYS AVAILABLE AND ALWAYS CORRECT when the CV does not support it. Do not attach an approximate quote to keep a claim alive. Do not treat a claim as too important to drop. Before you emit any strength, ask: is there a CV span that, read alone, proves this? If no — drop it, or move it to the summary. Reporting four well-evidenced strengths is better than reporting eight with three mismatched quotes. An empty strengths array is an acceptable answer.
 
 DIMENSIONS — score each 0-100 using the same bands:
 - requirements_match     Against the job's stated requirements specifically.
@@ -283,10 +286,10 @@ ${section("Responsibilities", job.responsibilities)}
 
 ${section("Requirements", job.requirements)}
 
-=== SCREENING ANSWERS (already scored — do not re-judge these, use them as context) ===
+=== SCREENING ANSWERS (already scored — do not re-judge these. Context for your judgement only: NOT a source of strengths, because there is no CV span to quote for them) ===
 ${screening}
 
-=== CANDIDATE PROFILE (self-reported at apply time) ===
+=== CANDIDATE PROFILE (self-reported at apply time — context only, not quotable, so not a source of strengths) ===
 ${profile || "(nothing beyond the CV)"}
 
 === CV TEXT (quote from this, exactly) ===
