@@ -577,9 +577,14 @@ function ApplicantDrawer({
               <div className="min-w-0">
                 <p className="m-0 text-[13px] font-bold text-white">
                   {headerScore.adjusted ? "Adjusted score" : "AI score"}
+                  {/* NOT "completed": screening_score is the weighted share of
+                      thresholds MET (computeScreeningScore counts a.matched),
+                      so someone who answered everything but met nothing scores
+                      0%, not 100%. Labelled for what it measures, and tagged
+                      self-reported like the answers themselves. */}
                   {scoreDetail?.screening_score != null && (
                     <span className="ml-2 font-normal text-white/55">
-                      Screening answers completed:{" "}
+                      Self-reported thresholds met:{" "}
                       {scoreDetail.screening_score}%
                     </span>
                   )}
@@ -674,6 +679,14 @@ function ApplicantDrawer({
           {row.screening_answers.length > 0 && (
             <>
               <DrawerLabel>Screening answers</DrawerLabel>
+              {/* Provenance stated ONCE here rather than repeated on every
+                  pill. The pills then stay short enough to sit inline beside
+                  the answer, and this line can say the thing a pill never
+                  could — that nobody verified any of it. */}
+              <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
+                Answered by the candidate at apply time and checked against the
+                thresholds you set. Self-reported — not verified by Remotiv.
+              </p>
               <div className="mb-[22px] flex flex-col gap-[9px]">
                 {row.screening_answers.map((a) => (
                   <div
@@ -686,15 +699,21 @@ function ApplicantDrawer({
                     <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
                       {a.answer_label || a.answer || "—"}
                       {/* The snapshot's own `matched` flag, scored at apply
-                          time — never re-derived here. */}
+                          time — never re-derived here.
+
+                          Deliberately NOT green. A mint success pill reads as
+                          "Remotiv verified this", and nobody did: it is the
+                          candidate's own number compared to the employer's
+                          threshold. Neutral slate for met, muted amber for
+                          below — distinguishable, but neither endorses. */}
                       <span
-                        className={`rounded-full px-2 py-[2.5px] text-[10px] font-extrabold uppercase tracking-[0.04em] ${
+                        className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
                           a.matched
-                            ? "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]"
+                            ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
                             : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
                         }`}
                       >
-                        {a.matched ? "Match" : "No match"}
+                        {a.matched ? "Meets threshold" : "Below threshold"}
                       </span>
                     </p>
                   </div>
