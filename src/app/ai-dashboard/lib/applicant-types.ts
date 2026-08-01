@@ -127,6 +127,11 @@ export type ScoreEvidenceRow = {
 
 /** The full breakdown, loaded only for the drawer. */
 export type ApplicantScoreDetail = ApplicantScore & {
+  /**
+   * One-line headline. Empty string for v1-v3 scorecards, which predate it —
+   * the UI omits the line entirely rather than inventing one.
+   */
+  verdict: string;
   dimensions: ScoreDimensionRow[];
   evidence: ScoreEvidenceRow[];
   strengths: ScoreStrengthRow[];

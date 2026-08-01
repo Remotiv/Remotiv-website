@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
+  ChevronRight,
   Clock,
   Download,
   ExternalLink,
@@ -288,12 +289,40 @@ function DrawerScoreRing({ score }: { score: number }) {
   );
 }
 
-/** A claim plus the CV span that was verified to support it. */
+/**
+ * The verified CV span, hidden behind a per-item toggle.
+ *
+ * PER ITEM rather than one switch for the whole card, on purpose. A recruiter
+ * checking a scorecard is almost never asking "show me all twelve quotes" —
+ * they are asking "is THAT one claim real?", usually the one that decides it.
+ * A single card-level toggle answers a question nobody asked and dumps the
+ * full wall of prose back on screen, which is the problem being fixed. Per
+ * item keeps the default scannable while making any single claim one click
+ * from proof, and the open/closed state stays local so opening one does not
+ * expand the rest.
+ */
 function EvidenceQuote({ quote }: { quote: string }) {
+  const [open, setOpen] = useState(false);
   return (
-    <p className="m-0 mt-1.5 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[12px] italic leading-snug text-[var(--ai-t3)]">
-      &ldquo;{quote}&rdquo;
-    </p>
+    <div className="mt-1.5">
+      <button
+        type="button"
+        onClick={() => setOpen((p) => !p)}
+        aria-expanded={open}
+        className="inline-flex items-center gap-1 text-[11px] font-semibold text-[var(--ai-t3)] transition-colors hover:text-remotiv-purple"
+      >
+        <ChevronRight
+          className={`size-3 transition-transform ${open ? "rotate-90" : ""}`}
+          strokeWidth={2.2}
+        />
+        {open ? "Hide evidence" : "View evidence"}
+      </button>
+      {open && (
+        <p className="m-0 mt-1.5 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[12px] italic leading-snug text-[var(--ai-t3)]">
+          &ldquo;{quote}&rdquo;
+        </p>
+      )}
+    </div>
   );
 }
 
@@ -550,10 +579,20 @@ function ApplicantDrawer({
                   {headerScore.adjusted ? "Adjusted score" : "AI score"}
                   {scoreDetail?.screening_score != null && (
                     <span className="ml-2 font-normal text-white/55">
-                      Screening {scoreDetail.screening_score}%
+                      Screening answers completed:{" "}
+                      {scoreDetail.screening_score}%
                     </span>
                   )}
                 </p>
+                {/* The verdict is the headline a recruiter reads first, so it
+                    sits directly under the score and above the confidence
+                    note. v1-v3 scorecards predate it and simply have none —
+                    the line is omitted rather than filled with a guess. */}
+                {scoreDetail?.verdict ? (
+                  <p className="m-0 mt-1.5 text-[13.5px] font-semibold leading-snug text-white">
+                    {scoreDetail.verdict}
+                  </p>
+                ) : null}
                 <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
                   {headerScore.confidence
                     ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
@@ -760,7 +799,7 @@ function ApplicantDrawer({
 
               {scoreDetail.concerns.length > 0 && (
                 <>
-                  <DrawerLabel>Worth a look</DrawerLabel>
+                  <DrawerLabel>Risks / points to verify</DrawerLabel>
                   <div className="mb-[22px] flex flex-col gap-2">
                     {scoreDetail.concerns.map((c) => (
                       <p

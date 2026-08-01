@@ -18,6 +18,7 @@ import {
   type PipelineStage,
   type ScoreConfidence,
   type ScoreStatus,
+  type ScoreEvidenceRow,
   type ScoreStrengthRow,
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
@@ -99,6 +100,48 @@ function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
 
 function jsonArray<T>(v: unknown): T[] {
   return Array.isArray(v) ? (v as T[]) : [];
+}
+
+/**
+ * Evidence items, from either storage shape.
+ *
+ *   bare array                       — v1-v3, and v4 once the column landed
+ *   { v, verdict, items: [...] }     — v4 rows written before the column
+ *                                      existed, when the verdict had nowhere
+ *                                      else to live
+ *
+ * The envelope branch is pure back-compat and can be deleted once no rows
+ * carry it (`select count(*) from application_scores
+ *  where jsonb_typeof(evidence) = 'object'` reaching zero).
+ */
+function evidenceItems(v: unknown): ScoreEvidenceRow[] {
+  if (Array.isArray(v)) return v as ScoreEvidenceRow[];
+  if (v && typeof v === "object") {
+    const items = (v as Record<string, unknown>).items;
+    return Array.isArray(items) ? (items as ScoreEvidenceRow[]) : [];
+  }
+  return [];
+}
+
+/**
+ * The verdict, checked in write-recency order so no existing row loses it:
+ *
+ *   1. the `verdict` column      — everything written from now on
+ *   2. the evidence envelope     — v4 rows written before the column existed
+ *   3. ""                        — v1-v3, which predate the verdict entirely
+ *
+ * Column first matters: a row that is re-scored after the migration gets a
+ * fresh column value while its old envelope may still sit in `evidence`
+ * (the upsert overwrites `evidence` too, but ordering it this way means the
+ * newer source always wins even if that ever stops being true).
+ */
+function resolveVerdict(column: unknown, evidence: unknown): string {
+  if (typeof column === "string" && column.trim()) return column;
+  if (evidence && typeof evidence === "object" && !Array.isArray(evidence)) {
+    const v = (evidence as Record<string, unknown>).verdict;
+    if (typeof v === "string") return v;
+  }
+  return "";
 }
 
 /**
@@ -288,7 +331,7 @@ export async function fetchCompanyApplicant(
   const { data: scoreData, error: scoreErr } = await service
     .from("application_scores")
     .select(
-      `${SCORE_SUMMARY_COLUMNS}, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at`,
+      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at`,
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -302,8 +345,9 @@ export async function fetchCompanyApplicant(
   const scoreDetail: ApplicantScoreDetail | null = sRow
     ? {
         ...toScore(sRow),
+        verdict: resolveVerdict(sRow.verdict, sRow.evidence),
         dimensions: jsonArray(sRow.dimension_scores),
-        evidence: jsonArray(sRow.evidence),
+        evidence: evidenceItems(sRow.evidence),
         strengths: normaliseStrengths(sRow.strengths),
         missing_requirements: jsonArray(sRow.missing_requirements),
         concerns: jsonArray(sRow.concerns),

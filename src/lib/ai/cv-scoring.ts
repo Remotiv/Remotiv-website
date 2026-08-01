@@ -27,7 +27,7 @@ import { recordUsage } from "@/lib/usage";
  * prompt change is distinguishable from a re-score after a criteria change
  * (which is what job_criteria_version tracks).
  */
-export const PROMPT_VERSION = "cv-scoring-v3";
+export const PROMPT_VERSION = "cv-scoring-v4";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -44,6 +44,19 @@ const MIN_CV_TEXT_CHARS = 200;
 
 /** Hard cap on what we send. Long CVs are truncated, never rejected. */
 const MAX_CV_TEXT_CHARS = 24_000;
+
+/**
+ * Output caps, mirrored in the prompt as maximums.
+ *
+ * Enforced here as well as asked for there: the prompt is a request, the slice
+ * is a guarantee. A model that returns eight strengths still produces a card a
+ * recruiter can read.
+ */
+const MAX_STRENGTHS = 4;
+const MAX_MISSING = 3;
+const MAX_CONCERNS = 3;
+/** Verdict is a headline, not a sentence — clipped hard if it overruns. */
+const MAX_VERDICT_CHARS = 120;
 
 /** The four dimensions. Fixed so scores stay comparable across jobs. */
 export const SCORE_DIMENSIONS = [
@@ -80,6 +93,8 @@ export type Strength = {
 };
 
 export type Scorecard = {
+  /** One-line headline, max ~12 words. Empty for v1-v3 rows. */
+  verdict: string;
   overall_score: number;
   dimension_scores: DimensionScore[];
   evidence: EvidenceItem[];
@@ -199,15 +214,15 @@ Examples of these rules being broken — do not do this:
 
 DROPPING A CLAIM IS ALWAYS AVAILABLE AND ALWAYS CORRECT when the CV does not support it. Do not attach an approximate quote to keep a claim alive. Do not treat a claim as too important to drop. Before you emit any strength, ask: is there a CV span that, read alone, proves this? If no — drop it, or move it to the summary. Reporting four well-evidenced strengths is better than reporting eight with three mismatched quotes. An empty strengths array is an acceptable answer.
 
-DIMENSIONS — score each 0-100 using the same bands:
+DIMENSIONS — score each 0-100 using the same bands. Reasoning is ONE OR TWO SENTENCES, never more; the quote carries the proof, so do not restate it in prose:
 - requirements_match     Against the job's stated requirements specifically.
 - experience_depth       Is the depth and seniority consistent with the stated experience level?
 - domain_relevance       Is their background in the same domain, industry, or technical area this role sits in?
 - responsibilities_fit   Have they demonstrably done the things this job lists as responsibilities?
 
-MISSING REQUIREMENTS — the most useful thing you produce. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". If every stated requirement has evidence, return an empty array.
+MISSING REQUIREMENTS — the most useful thing you produce. MAXIMUM 3. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". Return only gaps that would change a hiring decision; if every stated requirement has evidence, return an empty array.
 
-CONCERNS — neutral factual observations a human reviewer should look at, such as an unexplained multi-year gap, a run of very short tenures, or a career change mid-CV. State them as observations only. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show.
+CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only — an unexplained multi-year gap, a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
 
 CONFIDENCE — how much usable signal the CV actually contained, NOT how good the candidate is:
 - high    A detailed CV with dates, employers, and concrete descriptions of work done.
@@ -215,10 +230,32 @@ CONFIDENCE — how much usable signal the CV actually contained, NOT how good th
 - low     Sparse, very short, badly extracted, or largely a list of skills with no context.
 A one-page CV listing only skills is low confidence even if those skills match perfectly.
 
-SUMMARY — two or three sentences for the hiring manager. Factual, specific to this candidate and this job, no filler.
+VERDICT — the first thing you output and the only thing many recruiters will read. ONE line, MAXIMUM 12 WORDS. State the fit AND the single most important caveat, if there is one. It must be readable on its own, with no other context.
+Good: "Strong match — verify cold-calling experience."
+Good: "Partial fit — no evidence of the core requirement."
+Good: "Excellent fit across every stated requirement."
+Bad: "This candidate has a number of relevant strengths and some gaps." (says nothing)
+Bad: "Recommend interviewing." (you do not make hiring decisions)
+
+SUMMARY — 3 to 5 sentences. This is a HARD CAP, not a target; 3 good sentences beat 5 padded ones. Prose only — DO NOT LIST, do not use bullets, dashes or numbering. In this order:
+  1. Who they are and their headline fit for THIS role.
+  2. The strongest specific evidence for that fit.
+  3. The main gap or caveat.
+  4. Anything a manager must verify before deciding.
+Length tracks the DECISION, not the CV. A seven-page CV does not earn a longer summary than a two-page one. If the decision is obvious, three sentences is the right answer.
+
+NO REPETITION — this is the rule that keeps the card readable, and it is as important as the evidence rules.
+Every fact appears EXACTLY ONCE, in the single most useful place. Before you emit a field, check it does not repeat something you already said.
+- A fact stated in the summary must NOT reappear as a strength.
+- A gap named in missing_requirements must NOT be restated in concerns.
+- A dimension's reasoning must NOT restate its own quote in prose.
+Violation, do not do this: summary says "She has eight years in B2B sales at Acme", strengths contains {"point": "Eight years of B2B sales experience at Acme"}, and requirements_match reasoning says "Eight years of B2B sales at Acme meets the requirement." That is one fact charged three times to the reader.
+Correct: state it once, in the place where it does the most work — usually the summary if it drives the verdict, otherwise a strength with its quote.
+The recruiter is reading 60 of these. Repetition is not thoroughness; it is a cost you impose on them.
 
 OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no code fences. Every claim carries its quote INSIDE the same object, so nothing has to be matched up by position. Exactly this shape:
 {
+  "verdict": "<one line, max 12 words: the fit and the key caveat>",
   "overall_score": <integer 0-100>,
   "dimension_scores": [
     {"dimension": "requirements_match", "score": <integer 0-100>, "reasoning": "<one sentence>", "quote": "<exact CV span supporting THIS dimension>"},
@@ -230,10 +267,16 @@ OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no cod
     {"point": "<specific strength>", "quote": "<exact CV span that directly proves THIS strength>"}
   ],
   "missing_requirements": ["<specific stated requirement with no CV evidence>"],
-  "concerns": ["<neutral observation>"],
+  "concerns": ["<neutral observation to verify>"],
   "confidence": "high" | "medium" | "low",
-  "summary": "<2-3 sentences>"
+  "summary": "<3-5 sentences, prose, no lists>"
 }
+
+CAPS — these are MAXIMUMS, not targets. Fewer is better every time. Return only the items that would change a decision:
+  strengths            max 4
+  missing_requirements max 3
+  concerns             max 3
+Four weak strengths are worse than two strong ones. An empty array is a valid, useful answer.
 
 Each quote belongs to the object it sits in. Before you emit each one, re-read it and ask: does this span, on its own, show that this specific claim is true? If not, find the right span or drop the claim.
 
@@ -406,6 +449,7 @@ function stringList(v: unknown, max = 12): string[] {
 }
 
 type RawResponse = {
+  verdict: string;
   overall_score: number;
   dimension_scores: DimensionScore[];
   strengths: Strength[];
@@ -452,7 +496,7 @@ export function parseScoreJson(raw: string): RawResponse | null {
             };
           })
           .filter((x) => x.point.length > 0)
-          .slice(0, 12)
+          .slice(0, MAX_STRENGTHS)
       : [];
 
     const conf = parsed.confidence;
@@ -460,11 +504,15 @@ export function parseScoreJson(raw: string): RawResponse | null {
       conf === "high" || conf === "medium" || conf === "low" ? conf : "low";
 
     return {
+      verdict:
+        typeof parsed.verdict === "string"
+          ? parsed.verdict.trim().slice(0, MAX_VERDICT_CHARS)
+          : "",
       overall_score: clampScore(parsed.overall_score),
       dimension_scores: dims,
       strengths,
-      missing_requirements: stringList(parsed.missing_requirements),
-      concerns: stringList(parsed.concerns),
+      missing_requirements: stringList(parsed.missing_requirements, MAX_MISSING),
+      concerns: stringList(parsed.concerns, MAX_CONCERNS),
       confidence,
       summary:
         typeof parsed.summary === "string" ? parsed.summary.slice(0, 1500) : "",
@@ -585,6 +633,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   ].filter((v, i, arr) => arr.indexOf(v) === i);
 
   return {
+    verdict: parsed.verdict,
     overall_score: parsed.overall_score,
     dimension_scores: dimensionScores,
     evidence: verified,
@@ -770,6 +819,7 @@ export async function handleAiCvScore(job: {
     job_id: app.job_id,
     overall_score: card.overall_score,
     dimension_scores: card.dimension_scores,
+    verdict: card.verdict,
     evidence: card.evidence,
     missing_requirements: card.missing_requirements,
     concerns: card.concerns,
