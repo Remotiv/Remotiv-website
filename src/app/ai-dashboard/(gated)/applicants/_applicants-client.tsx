@@ -1476,6 +1476,24 @@ export function ApplicantsClient({
 
       {openRow && (
         <ApplicantDrawer
+          /**
+           * Keyed by applicant so switching from one to another REMOUNTS the
+           * drawer instead of reusing it.
+           *
+           * Without this, every piece of local state inside survives the
+           * switch — and the evidence toggles did. The dimension list is keyed
+           * `d.dimension`, and those four keys ("requirements_match", …) are
+           * identical for every applicant, so React reused the same
+           * EvidenceQuote instances and carried their open/closed state across.
+           * Strengths are keyed on their text, which differs per applicant, so
+           * those remounted and reset — which is exactly why dimensions showed
+           * "Hide evidence" while strengths showed "View evidence".
+           *
+           * Keying here rather than patching the two lists fixes the whole
+           * class: anything stateful added to the drawer later starts clean
+           * for each applicant.
+           */
+          key={openRow.id}
           row={openRow}
           history={history}
           scoreDetail={scoreDetail}

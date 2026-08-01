@@ -27,7 +27,7 @@ import { recordUsage } from "@/lib/usage";
  * prompt change is distinguishable from a re-score after a criteria change
  * (which is what job_criteria_version tracks).
  */
-export const PROMPT_VERSION = "cv-scoring-v4";
+export const PROMPT_VERSION = "cv-scoring-v5";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -220,6 +220,11 @@ DIMENSIONS — score each 0-100 using the same bands. Reasoning is ONE OR TWO SE
 - domain_relevance       Is their background in the same domain, industry, or technical area this role sits in?
 - responsibilities_fit   Have they demonstrably done the things this job lists as responsibilities?
 
+WEIGHT CORE REQUIREMENTS FAR ABOVE INCIDENTAL ONES.
+Job descriptions mix the things the role actually exists to do with administrative or incidental duties that happen to be listed. Judge against the former. A candidate with no evidence for a minor listed task — scheduling meetings, maintaining a spreadsheet, attending a weekly stand-up — should NOT drop a band for it; a candidate with no evidence for a core requirement should. Ask what this person is being hired to DO, and weight accordingly.
+This is not permission to be generous. Missing evidence for a core requirement is still missing, and still scores low. You are being told which absences matter, not told to overlook absences.
+If the job description is thin, vague, or mostly generic boilerplate, say so in the reasoning — "the description lists few concrete requirements, so this is judged on domain fit alone" — rather than scoring the candidate down for failing to evidence trivia the employer happened to write. A weak job description is the employer's gap, not the candidate's.
+
 MISSING REQUIREMENTS — the most useful thing you produce. MAXIMUM 3. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". Return only gaps that would change a hiring decision; if every stated requirement has evidence, return an empty array.
 
 CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only — an unexplained multi-year gap, a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
@@ -249,8 +254,17 @@ Every fact appears EXACTLY ONCE, in the single most useful place. Before you emi
 - A fact stated in the summary must NOT reappear as a strength.
 - A gap named in missing_requirements must NOT be restated in concerns.
 - A dimension's reasoning must NOT restate its own quote in prose.
-Violation, do not do this: summary says "She has eight years in B2B sales at Acme", strengths contains {"point": "Eight years of B2B sales experience at Acme"}, and requirements_match reasoning says "Eight years of B2B sales at Acme meets the requirement." That is one fact charged three times to the reader.
-Correct: state it once, in the place where it does the most work — usually the summary if it drives the verdict, otherwise a strength with its quote.
+- The summary's "what to verify" sentence must NAME the concern in a few words, not explain it. The concerns array is where it gets explained. If a concern is fully stated in concerns, the summary REFERENCES it in a clause — it does not spend a sentence on it.
+
+Violation 1, do not do this: summary says "She has eight years in B2B sales at Acme", strengths contains {"point": "Eight years of B2B sales experience at Acme"}, and requirements_match reasoning says "Eight years of B2B sales at Acme meets the requirement." That is one fact charged three times to the reader.
+
+Violation 2 — summary and concerns saying the same thing twice, do not do this:
+  summary ends: "...However, his roles have emphasised account growth and relationship management rather than new lead generation. His interest in a high-volume outbound calling role should be verified given his background is weighted towards farming existing accounts."
+  concerns:     ["Roles emphasise account growth over new lead generation", "Fit for a high-volume outbound role should be verified"]
+The reader pays for both. Two sentences of the summary were spent on what the concerns array already says.
+Correct: summary ends "...though his background leans towards account growth over new lead generation — see the points to verify." and concerns carries the detail. One clause names it; the array explains it.
+
+Correct in general: state it once, in the place where it does the most work — usually the summary if it drives the verdict, otherwise a strength with its quote or a concern with its explanation.
 The recruiter is reading 60 of these. Repetition is not thoroughness; it is a cost you impose on them.
 
 OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no code fences. Every claim carries its quote INSIDE the same object, so nothing has to be matched up by position. Exactly this shape:
