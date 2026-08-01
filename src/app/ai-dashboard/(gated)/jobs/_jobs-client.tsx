@@ -7,6 +7,8 @@ import {
   Archive,
   Briefcase,
   Check,
+  ChevronLeft,
+  ChevronRight,
   Copy,
   Eye,
   Lock,
@@ -80,6 +82,9 @@ const ROW_GRID =
 
 /** Roles shown in the hero breakdown, matching the mock's four bars. */
 const HERO_ROLE_LIMIT = 4;
+
+/** Rows per page, table and cards alike. */
+const PAGE_SIZE = 20;
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -623,6 +628,7 @@ export function JobsClient({
   const [jobs, setJobs] = useState<CompanyJobRow[]>(initialJobs);
   const [tab, setTab] = useState<Tab>("all");
   const [search, setSearch] = useState("");
+  const [page, setPage] = useState(1);
   /** Job whose action drawer is open. Replaces the old per-row dropdown, which
    *  clipped inside the table's horizontal-scroll container. */
   const [openId, setOpenId] = useState<string | null>(null);
@@ -734,6 +740,20 @@ export function JobsClient({
       return true;
     });
   }, [jobs, tab, search]);
+
+  const pageCount = Math.max(1, Math.ceil(filtered.length / PAGE_SIZE));
+  // Clamped, not reset: closing the last job on the last page should land on
+  // the new last page rather than bouncing to page 1.
+  const safePage = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const paged = filtered.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Changing what is filtered resets to page 1 — page 4 of a one-page result
+  // set renders empty.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resets on filter change, not on page change
+  useEffect(() => {
+    setPage(1);
+  }, [tab, search]);
 
   async function handleStatus(job: CompanyJobRow, status: JobStatus, message: string) {
     const previous = job.status;
@@ -1031,9 +1051,9 @@ export function JobsClient({
             900 design px; the widest phone in scope offers 415. Squeezing it
             would crush the volume bar, and scrolling it sideways hides Status,
             Applicants and Posted. */}
-        {filtered.length > 0 && (
+        {paged.length > 0 && (
           <div className="min-[1049px]:hidden">
-            {filtered.map((job) => (
+            {paged.map((job) => (
               <JobCard
                 key={job.id}
                 job={job}
@@ -1060,7 +1080,7 @@ export function JobsClient({
               <span />
             </div>
 
-            {filtered.map((job) => {
+            {paged.map((job) => {
                 const tint = getTint(job.id);
                 const badge = STATUS_BADGE[job.status];
                 const posted = fmtPosted(job.created_at, job.status);
@@ -1175,8 +1195,43 @@ export function JobsClient({
             remotiv.work/jobs.
           </p>
           <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">
-            <b className="text-remotiv-purple">{filtered.length}</b> of {jobs.length} jobs
+            <b className="text-remotiv-purple">
+              {filtered.length === 0 ? 0 : pageStart + 1}–
+              {pageStart + paged.length}
+            </b>{" "}
+            of {filtered.length}
+            {filtered.length !== jobs.length && (
+              <span className="text-[var(--ai-t3)]">
+                {" "}
+                (filtered from {jobs.length})
+              </span>
+            )}
           </span>
+          {pageCount > 1 && (
+            <div className="flex items-center gap-1.5">
+              <button
+                type="button"
+                onClick={() => setPage(Math.max(1, safePage - 1))}
+                disabled={safePage <= 1}
+                aria-label="Previous page"
+                className="flex size-8 items-center justify-center rounded-lg border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronLeft className="size-4" strokeWidth={2} />
+              </button>
+              <span className="whitespace-nowrap px-1 text-[12.5px] font-semibold tabular-nums text-[var(--ai-t2)]">
+                {safePage} / {pageCount}
+              </span>
+              <button
+                type="button"
+                onClick={() => setPage(Math.min(pageCount, safePage + 1))}
+                disabled={safePage >= pageCount}
+                aria-label="Next page"
+                className="flex size-8 items-center justify-center rounded-lg border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <ChevronRight className="size-4" strokeWidth={2} />
+              </button>
+            </div>
+          )}
         </div>
       </div>
 

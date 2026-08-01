@@ -26,6 +26,9 @@ import {
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/query types live in lib/applicant-types.ts.
 
+/** Matches the bucket the apply route and the CV route both use. */
+const CV_BUCKET = "cvs";
+
 /**
  * `cv_path` is deliberately absent from what we return, but IS selected so we
  * can derive `has_cv`. `cv_url` is the legacy public-URL column kept for rows
@@ -566,4 +569,92 @@ export async function rescoreJob(
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: { queued } };
+}
+
+/**
+ * Permanently delete one application.
+ *
+ * HARD delete, not soft, for three reasons:
+ *
+ *  1. Privacy is the usual motive. A company removing an applicant is most
+ *     often acting on a deletion request or clearing a spam/test submission.
+ *     A soft delete keeps the name, email, phone, cv_text and the CV file
+ *     itself — i.e. it keeps exactly what the request asked to remove.
+ *  2. A `deleted_at` column does not exist, and adding one is a migration.
+ *  3. application_scores and application_stage_history are FK'd to
+ *     application_id and cascade. That is correct: a scorecard about a deleted
+ *     candidate is just their PII in another table.
+ *
+ * The cost is the audit trail — after this, nothing records that the applicant
+ * existed. If that becomes a requirement, the right shape is a separate
+ * deleted_applications table holding non-PII only (application id, job id,
+ * deleted_by, deleted_at), NOT a flag on a row that still carries the person's
+ * details.
+ *
+ * ORDER: storage object first, then the row. Deliberate — this order is
+ * retry-safe. If the row delete fails, cv_path is still on the row so the
+ * operation can simply be repeated (removing an already-gone object is a
+ * no-op). Row-first would leave the PDF — the single largest piece of PII —
+ * orphaned in the bucket with no record of its path outside the logs.
+ */
+export async function deleteApplication(
+  applicationId: string,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+  const service = createServiceClient();
+
+  // Ownership recheck. Not-found and not-yours return the SAME message so a
+  // probe can't confirm another company's id exists.
+  const { data } = await service
+    .from("job_applications")
+    .select("id, company_id_snapshot, cv_path")
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  const target = data as {
+    id: string;
+    company_id_snapshot: string | null;
+    cv_path: string | null;
+  } | null;
+
+  if (!target || target.company_id_snapshot !== ctx.companyId) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+
+  // 1. The CV file. Best-effort: a storage failure must not block the row
+  //    delete, but it IS logged with the grep tag the apply route uses so an
+  //    orphaned object can be found and cleaned up.
+  if (target.cv_path) {
+    try {
+      const { error: storageErr } = await service.storage
+        .from(CV_BUCKET)
+        .remove([target.cv_path]);
+      if (storageErr) {
+        console.error("[CV_ORPHAN][applicants] CV delete failed", {
+          applicationId,
+          path: target.cv_path,
+          error: storageErr.message,
+        });
+      }
+    } catch (err) {
+      console.error("[CV_ORPHAN][applicants] CV delete threw", {
+        applicationId,
+        path: target.cv_path,
+        error: err,
+      });
+    }
+  }
+
+  // 2. The row. Scoped again on company_id_snapshot so the DELETE itself
+  //    cannot touch another tenant even if the check above were bypassed.
+  const { error: delErr } = await service
+    .from("job_applications")
+    .delete()
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId);
+
+  if (delErr) return { success: false, error: delErr.message };
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: undefined };
 }

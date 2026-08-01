@@ -1128,8 +1128,10 @@ export function WizardClient({
               </h3>
               {/* Company + rating are workspace facts, never wizard fields. */}
               <p className="mb-0.5 flex items-center gap-1.5 text-[12.5px] text-[var(--ai-t2)]">
-                {companyName}{" "}
-                <span className="font-bold text-[var(--ai-amber-dot)]">★ 4.5</span>
+                {/* No rating is shown. There is no ratings system anywhere in
+                    the product, and the mock's star figure was a fabricated
+                    number rendered on the employer's own listing preview. */}
+                {companyName}
               </p>
               <p className="mb-3 flex items-center gap-1.5 text-[12.5px] text-[var(--ai-t3)]">
                 <MapPin className="size-[13px]" strokeWidth={1.8} />

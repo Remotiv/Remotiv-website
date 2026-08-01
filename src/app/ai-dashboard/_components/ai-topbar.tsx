@@ -80,10 +80,15 @@ export function AiTopbar({
         />
       </div>
 
+      {/* Disabled until notifications exist. It previously had no handler and
+          no disabled state — the one control in the product that looked live
+          and did nothing. Same honest treatment as Archive and Weekly report. */}
       <button
         type="button"
+        disabled
         aria-label="Notifications"
-        className="relative ml-auto flex size-[34px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] min-[630px]:ml-0"
+        title="Notifications arrive in a later release"
+        className="relative ml-auto flex size-[34px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] disabled:cursor-not-allowed disabled:opacity-55 min-[630px]:ml-0"
       >
         <Bell className="size-[18px]" strokeWidth={1.7} />
       </button>

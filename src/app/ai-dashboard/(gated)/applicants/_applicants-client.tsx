@@ -1,8 +1,10 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useRouter } from "next/navigation";
 import {
   Check,
+  ChevronLeft,
   ChevronRight,
   Clock,
   Download,
@@ -10,6 +12,7 @@ import {
   FileText,
   Mail,
   Search as SearchIcon,
+  Trash2,
   Users,
   X,
   Zap,
@@ -24,7 +27,11 @@ import {
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
-import { fetchCompanyApplicant, updateApplicationStage } from "./actions";
+import {
+  deleteApplication,
+  fetchCompanyApplicant,
+  updateApplicationStage,
+} from "./actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -87,6 +94,24 @@ const STAGE_PILL: Record<PipelineStage, { cls: string; dot: string }> = {
     dot: "bg-[#E0524B]",
   },
 };
+
+/**
+ * A "Top match" chip marks a GENUINE top match, not merely first place.
+ *
+ * Ranking first in a weak field is not an achievement — before this rule a
+ * candidate scoring 12 wore the same lime chip as one scoring 94. The chip now
+ * requires an absolute score, so when nobody clears the bar NO chip appears,
+ * which is the honest outcome.
+ */
+const TOP_MATCH_MIN_SCORE = 90;
+/** Even in a strong field the chip has to stay scarce to mean anything. */
+const TOP_MATCH_MAX_CHIPS = 10;
+
+/** Rows per page, list and cards alike. */
+const PAGE_SIZE = 20;
+
+/** "Review top 10" shows this many, best first. */
+const TOP_N = 10;
 
 const AVATAR_TINTS = [
   { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)" },
@@ -326,6 +351,67 @@ function EvidenceQuote({ quote }: { quote: string }) {
   );
 }
 
+/**
+ * Page controls. Rendered in the panel foot for both the table and the cards,
+ * so mobile paginates identically — the card list is the same `paged` slice.
+ */
+function Pagination({
+  page,
+  pageCount,
+  total,
+  grandTotal,
+  rangeStart,
+  rangeEnd,
+  onPage,
+}: {
+  page: number;
+  pageCount: number;
+  total: number;
+  grandTotal: number;
+  rangeStart: number;
+  rangeEnd: number;
+  onPage: (p: number) => void;
+}) {
+  return (
+    <div className="flex flex-wrap items-center justify-end gap-3">
+      <span className="whitespace-nowrap text-[12.5px] font-semibold text-[var(--ai-t2)]">
+        <b className="text-remotiv-purple">
+          {rangeStart}–{rangeEnd}
+        </b>{" "}
+        of {total}
+        {total !== grandTotal && (
+          <span className="text-[var(--ai-t3)]"> (filtered from {grandTotal})</span>
+        )}
+      </span>
+      {pageCount > 1 && (
+        <div className="flex items-center gap-1.5">
+          <button
+            type="button"
+            onClick={() => onPage(Math.max(1, page - 1))}
+            disabled={page <= 1}
+            aria-label="Previous page"
+            className="flex size-8 items-center justify-center rounded-lg border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronLeft className="size-4" strokeWidth={2} />
+          </button>
+          <span className="whitespace-nowrap px-1 text-[12.5px] font-semibold tabular-nums text-[var(--ai-t2)]">
+            {page} / {pageCount}
+          </span>
+          <button
+            type="button"
+            onClick={() => onPage(Math.min(pageCount, page + 1))}
+            disabled={page >= pageCount}
+            aria-label="Next page"
+            className="flex size-8 items-center justify-center rounded-lg border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40"
+          >
+            <ChevronRight className="size-4" strokeWidth={2} />
+          </button>
+        </div>
+      )}
+    </div>
+  );
+}
+
 // ── Mobile card ──────────────────────────────────────────────
 
 /**
@@ -336,11 +422,14 @@ function EvidenceQuote({ quote }: { quote: string }) {
 function ApplicantCard({
   row,
   index,
+  isTop,
   selected,
   onOpen,
 }: {
   row: CompanyApplicantRow;
   index: number;
+  /** Genuine top match — see TOP_MATCH_MIN_SCORE, not "first in the list". */
+  isTop: boolean;
   selected: boolean;
   onOpen: () => void;
 }) {
@@ -348,7 +437,6 @@ function ApplicantCard({
   const applied = fmtApplied(row.created_at);
   const stage = stageOf(row);
   const pill = STAGE_PILL[stage];
-  const isTop = index === 0;
 
   return (
     <button
@@ -437,6 +525,7 @@ function ApplicantDrawer({
   saving,
   onClose,
   onStageChange,
+  onDelete,
 }: {
   row: CompanyApplicantRow;
   history: StageHistoryRow[];
@@ -445,6 +534,7 @@ function ApplicantDrawer({
   saving: boolean;
   onClose: () => void;
   onStageChange: (next: PipelineStage) => void;
+  onDelete: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
@@ -923,6 +1013,25 @@ function ApplicantDrawer({
               <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
             )}
           </div>
+
+          {/* Danger, last and visually separated — same placement and weight
+              as the jobs drawer's. Opens a confirm rather than deleting on
+              click; this is irreversible and takes the CV with it. */}
+          <div className="mt-7 border-t border-[var(--ai-line)] pt-5">
+            <DrawerLabel>Danger</DrawerLabel>
+            <button
+              type="button"
+              onClick={onDelete}
+              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ai-danger-tint)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-danger)] transition-opacity hover:opacity-80"
+            >
+              <Trash2 className="size-3.5" strokeWidth={2} />
+              Delete applicant
+            </button>
+            <p className="m-0 mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
+              Permanently removes this applicant, their CV file, their AI
+              scorecard and their pipeline history. This cannot be undone.
+            </p>
+          </div>
         </div>
       </div>
     </>
@@ -949,7 +1058,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 // ── Main ─────────────────────────────────────────────────────
 
 export function ApplicantsClient({
-  applicants,
+  applicants: initialApplicants,
   newThisWeek,
   openRoles,
 }: {
@@ -957,10 +1066,27 @@ export function ApplicantsClient({
   newThisWeek: number;
   openRoles: number;
 }) {
+  const router = useRouter();
+
+  // Local copy so a delete can drop the row immediately. Re-synced whenever
+  // the server sends a fresh list, the same pattern the jobs list uses.
+  const [applicants, setApplicants] =
+    useState<CompanyApplicantRow[]>(initialApplicants);
+  useEffect(() => {
+    setApplicants(initialApplicants);
+  }, [initialApplicants]);
+
   const [tab, setTab] = useState<"all" | PipelineStage>("all");
   const [jobFilter, setJobFilter] = useState("all");
   const [search, setSearch] = useState("");
   const [openId, setOpenId] = useState<string | null>(null);
+  /** "Review top 10" — a view mode over the same filtered set, not a filter. */
+  const [topOnly, setTopOnly] = useState(false);
+  const [page, setPage] = useState(1);
+  const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(
+    null,
+  );
+  const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
   /**
@@ -1036,7 +1162,72 @@ export function ApplicantsClient({
       });
   }, [rows, tab, jobFilter, search]);
 
+  /**
+   * The ids wearing a "Top match" chip: scored >= 90, best first, capped.
+   * Computed over the WHOLE result set rather than the current page so a
+   * candidate doesn't gain or lose the chip by being paginated.
+   */
+  const topMatchIds = useMemo(() => {
+    const ids = new Set<string>();
+    for (const r of filtered) {
+      if (ids.size >= TOP_MATCH_MAX_CHIPS) break;
+      if (r.score.status === "scored" && (r.score.overall ?? 0) >= TOP_MATCH_MIN_SCORE) {
+        ids.add(r.id);
+      }
+    }
+    return ids;
+  }, [filtered]);
+
+  /** Scored candidates only — "top 10" of a pending list would be arbitrary. */
+  const topTen = useMemo(
+    () => filtered.filter((r) => r.score.status === "scored").slice(0, TOP_N),
+    [filtered],
+  );
+
+  /** What the list actually renders before paging. */
+  const visible = topOnly ? topTen : filtered;
+
+  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
+  // Clamp rather than reset: deleting the last row of the last page should
+  // land on the new last page, not throw the user back to page 1.
+  const safePage = Math.min(page, pageCount);
+  const pageStart = (safePage - 1) * PAGE_SIZE;
+  const paged = visible.slice(pageStart, pageStart + PAGE_SIZE);
+
+  // Any change to what is being filtered resets to the first page — staying on
+  // page 4 of a result set that now has one page shows an empty list.
+  // biome-ignore lint/correctness/useExhaustiveDependencies: resets on filter change, not on page change
+  useEffect(() => {
+    setPage(1);
+  }, [tab, jobFilter, search, topOnly]);
+
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
+
+  /**
+   * Permanent delete. Optimistic: the row leaves the list immediately and is
+   * put back if the server refuses, matching how stage changes behave.
+   */
+  async function handleDelete(target: CompanyApplicantRow) {
+    setDeleting(true);
+    let result: Awaited<ReturnType<typeof deleteApplication>>;
+    try {
+      result = await deleteApplication(target.id);
+    } catch {
+      result = { success: false, error: "Couldn't delete — please try again." };
+    }
+    setDeleting(false);
+
+    if (!result.success) {
+      setToast(result.error);
+      return;
+    }
+
+    setApplicants((prev) => prev.filter((a) => a.id !== target.id));
+    setDeleteTarget(null);
+    setOpenId(null);
+    setToast(`${fullName(target)} deleted`);
+    router.refresh();
+  }
 
   /**
    * Load the audit trail when the drawer opens. `cancelled` guards the case
@@ -1121,18 +1312,55 @@ export function ApplicantsClient({
    * exactly. `cv_path` is never included (and never reaches the client at all);
    * CVs are only reachable through the audited signed-URL route.
    */
+  /**
+   * CSV of the CURRENT PAGE, not the whole result set.
+   *
+   * Page-wise because the button sits beside a paginated list and "Export"
+   * silently emitting 2,000 rows when 20 are on screen is a surprise. The
+   * label says so explicitly.
+   *
+   * Columns deliberately include the AI score, confidence and the screening
+   * result — the three things a recruiter actually sorts on, and all of them
+   * were missing. `cv_path` and signed URLs are NEVER included: the path is a
+   * capability that would bypass the ownership gate and the signed_url_logs
+   * audit, so CVs stay reachable only through the audited route.
+   */
   function exportCsv() {
-    if (filtered.length === 0) return;
+    if (paged.length === 0) return;
 
-    const header = ["Candidate", "Email", "Job", "Stage", "Applied"];
+    const header = [
+      "Candidate",
+      "Email",
+      "Job",
+      "Stage",
+      "AI score",
+      "Score status",
+      "Confidence",
+      "Screening",
+      "Applied",
+    ];
+
+    const screeningCell = (r: CompanyApplicantRow): string => {
+      const total = r.screening_answers.length;
+      if (total === 0) return "No questions";
+      const met = r.screening_answers.filter((a) => a.matched).length;
+      return `${met}/${total} thresholds met`;
+    };
+
     const lines = [
       header.map(csvCell).join(","),
-      ...filtered.map((r) =>
+      ...paged.map((r) =>
         [
           fullName(r),
           r.email,
           r.job_title,
           PIPELINE_STAGE_LABELS[stageOf(r)],
+          r.score.status === "scored" && r.score.overall != null
+            ? String(r.score.overall)
+            : "",
+          r.score.adjusted ? "Adjusted" : r.score.status,
+          r.score.confidence ?? "",
+          screeningCell(r),
           new Date(r.created_at).toISOString().slice(0, 10),
         ]
           .map(csvCell)
@@ -1147,12 +1375,12 @@ export function ApplicantsClient({
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
-    a.download = `applicants-${new Date().toISOString().slice(0, 10)}.csv`;
+    a.download = `applicants-page-${safePage}-${new Date().toISOString().slice(0, 10)}.csv`;
     a.click();
     URL.revokeObjectURL(url);
 
     setToast(
-      `Exported ${filtered.length} applicant${filtered.length === 1 ? "" : "s"}`,
+      `Exported ${paged.length} applicant${paged.length === 1 ? "" : "s"} from page ${safePage}`,
     );
   }
 
@@ -1200,21 +1428,34 @@ export function ApplicantsClient({
           <button
             type="button"
             onClick={exportCsv}
-            disabled={filtered.length === 0}
+            disabled={paged.length === 0}
             className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[var(--ai-line-strong)] disabled:hover:bg-[var(--ai-surface)] disabled:hover:text-[var(--ai-t2)]"
           >
             <Download className="size-[15px]" strokeWidth={1.9} />
-            Export
+            Export page
           </button>
+          {/* A view MODE, not a filter: it narrows whatever the tabs, job
+              filter and search already selected, so the two compose. Active
+              state is unmistakable — the button inverts to purple, says "Show
+              all", and a banner above the list states what is being shown. */}
           <button
             type="button"
-            onClick={() =>
-              setToast("Ranking arrives once your AI recruiter scores CVs")
-            }
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] px-[17px] py-[11px] text-[13.5px] font-semibold text-white transition-all hover:border-remotiv-purple hover:bg-remotiv-purple hover:shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
+            onClick={() => {
+              if (!topOnly && topTen.length === 0) {
+                setToast("No applicants have been scored yet");
+                return;
+              }
+              setTopOnly((p) => !p);
+            }}
+            aria-pressed={topOnly}
+            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-[17px] py-[11px] text-[13.5px] font-semibold transition-all ${
+              topOnly
+                ? "border border-remotiv-purple bg-remotiv-purple text-white shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
+                : "border border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white hover:border-remotiv-purple hover:bg-remotiv-purple hover:shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
+            }`}
           >
             <Zap className="size-[15px]" strokeWidth={1.9} />
-            Review top 10
+            {topOnly ? "Show all" : `Review top ${TOP_N}`}
           </button>
         </div>
       </div>
@@ -1365,13 +1606,30 @@ export function ApplicantsClient({
             960 design px, which simply doesn't exist on a phone. Squeezing it
             would clip the candidate name; scrolling it sideways hides Job /
             Score / Stage. Same data, same tap target, no horizontal scroll. */}
-        {filtered.length > 0 && (
+        {topOnly && (
+          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
+            <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
+              Showing the top {topTen.length} scored applicant
+              {topTen.length === 1 ? "" : "s"} of {filtered.length}.
+            </p>
+            <button
+              type="button"
+              onClick={() => setTopOnly(false)}
+              className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
+            >
+              Show all applicants
+            </button>
+          </div>
+        )}
+
+        {paged.length > 0 && (
           <div className="min-[1049px]:hidden">
-            {filtered.map((r, i) => (
+            {paged.map((r, i) => (
               <ApplicantCard
                 key={r.id}
                 row={r}
-                index={i}
+                index={pageStart + i}
+                isTop={topMatchIds.has(r.id)}
                 selected={openId === r.id}
                 onOpen={() => setOpenId(r.id)}
               />
@@ -1395,12 +1653,13 @@ export function ApplicantsClient({
               <span />
             </div>
 
-            {filtered.map((r, i) => {
+            {paged.map((r, i) => {
                 const tint = getTint(r.id);
                 const applied = fmtApplied(r.created_at);
                 const stage = stageOf(r);
                 const pill = STAGE_PILL[stage];
-                const isTop = i === 0;
+                const isTop = topMatchIds.has(r.id);
+                const rank = pageStart + i;
 
                 return (
                   <button
@@ -1422,7 +1681,7 @@ export function ApplicantsClient({
                         isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
                       }`}
                     >
-                      {String(i + 1).padStart(2, "0")}
+                      {String(rank + 1).padStart(2, "0")}
                     </span>
 
                     <div className="flex min-w-0 items-center gap-3">
@@ -1486,10 +1745,15 @@ export function ApplicantsClient({
           <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
             Ranked by AI score once your recruiter has read each CV.
           </p>
-          <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">
-            <b className="text-remotiv-purple">{filtered.length}</b> of{" "}
-            {applicants.length}
-          </span>
+          <Pagination
+            page={safePage}
+            pageCount={pageCount}
+            total={visible.length}
+            grandTotal={applicants.length}
+            rangeStart={visible.length === 0 ? 0 : pageStart + 1}
+            rangeEnd={pageStart + paged.length}
+            onPage={setPage}
+          />
         </div>
       </div>
 
@@ -1522,7 +1786,55 @@ export function ApplicantsClient({
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);
           }}
+          onDelete={() => setDeleteTarget(openRow)}
         />
+      )}
+
+      {deleteTarget && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="confirm-delete-applicant"
+            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+          >
+            <div className="flex flex-col items-center p-8 text-center">
+              <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
+                <Trash2 className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
+              </div>
+              <h3
+                id="confirm-delete-applicant"
+                className="font-heading text-lg font-bold text-[var(--ai-t1)]"
+              >
+                Delete this applicant?
+              </h3>
+              <p className="m-0 mt-2 text-sm text-[var(--ai-t2)]">
+                <span className="font-semibold">{fullName(deleteTarget)}</span>{" "}
+                will be permanently removed, along with their CV file, AI
+                scorecard and pipeline history. This cannot be undone.
+              </p>
+            </div>
+            <div className="flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">
+              <button
+                type="button"
+                onClick={() => setDeleteTarget(null)}
+                disabled={deleting}
+                className="flex-1 rounded-xl border border-[var(--ai-line)] py-2.5 text-sm font-medium text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+              >
+                Cancel
+              </button>
+              <button
+                type="button"
+                onClick={() => void handleDelete(deleteTarget)}
+                disabled={deleting}
+                aria-busy={deleting}
+                className="flex-1 rounded-xl bg-[var(--ai-danger)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+              >
+                {deleting ? "Deleting…" : "Delete"}
+              </button>
+            </div>
+          </div>
+        </div>
       )}
 
       {toast && (
