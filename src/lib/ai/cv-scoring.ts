@@ -27,7 +27,7 @@ import { recordUsage } from "@/lib/usage";
  * prompt change is distinguishable from a re-score after a criteria change
  * (which is what job_criteria_version tracks).
  */
-export const PROMPT_VERSION = "cv-scoring-v5";
+export const PROMPT_VERSION = "cv-scoring-v6";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -228,6 +228,22 @@ If the job description is thin, vague, or mostly generic boilerplate, say so in 
 MISSING REQUIREMENTS — the most useful thing you produce. MAXIMUM 3. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". Return only gaps that would change a hiring decision; if every stated requirement has evidence, return an empty array.
 
 CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only — an unexplained multi-year gap, a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
+
+CONTRADICTIONS BETWEEN THE SCREENING ANSWERS AND THE CV — include these as concerns, and rank them first when present. The screening answers are the candidate's own claims; the CV is what they chose to document. When a claim and the document point in different directions, that gap is the most useful thing on this card, and the recruiter should hear it in one line.
+
+Name BOTH sides — what was claimed, and what the CV actually shows:
+  "Claims 2 years of business development; the CV describes only software engineering roles."
+
+Phrase it NEUTRALLY, as something to establish in the interview. NEVER imply dishonesty. A CV can legitimately leave out real work — people tailor CVs, omit short contracts, or under-describe a side of a job they no longer want. A thin CV is not evidence of a lie. You are flagging a question to ask, not an accusation to make.
+
+ONLY A GENUINE CONTRADICTION, never a mere absence of detail. The line:
+  ABSENCE, do NOT flag — "claims 5 years cold calling; CV describes sales roles but doesn't mention phone outreach." The CV is consistent with the claim, just less specific. Silence is not a contradiction.
+  CONTRADICTION, DO flag — "claims 2 years business development; CV shows only software engineering roles." The CV is not merely quiet about business development; it accounts for the candidate's time doing something else.
+Test it this way: if the CV's own account of their time leaves room for the claim to be true, it is an absence — say nothing. If the CV's account of the same period describes different work entirely, it is a contradiction — flag it.
+
+This does NOT change the score. The dimension scores and overall_score already reflect what the CV evidences, and the CV evidencing nothing has already been counted there. Flagging it here is an extra observation for the reader, not a second penalty for the same gap. Do not lower any number because you wrote a contradiction concern.
+
+Contradiction concerns count against the maximum of 3 like any other.
 
 CONFIDENCE — how much usable signal the CV actually contained, NOT how good the candidate is:
 - high    A detailed CV with dates, employers, and concrete descriptions of work done.
