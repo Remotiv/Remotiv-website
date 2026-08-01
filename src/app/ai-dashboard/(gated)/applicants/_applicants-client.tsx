@@ -452,6 +452,35 @@ function ApplicantDrawer({
 
   const location = [row.city, row.country].filter(Boolean).join(", ");
 
+  /**
+   * Experience as display text, or null when unknown.
+   *
+   * Compared against null rather than tested for truthiness on purpose: 0 is a
+   * real answer ("0 years"), and `row.years_experience && …` would silently
+   * treat a genuine zero as missing.
+   */
+  const experienceText =
+    row.years_experience === null
+      ? null
+      : `${row.years_experience} year${row.years_experience === 1 ? "" : "s"}`;
+
+  /**
+   * The public apply form has never collected city, country or years of
+   * experience, and collected notice period and availability only from today
+   * — so for most applications several of these are null and always will be.
+   * Rendering them as permanent em-dashes made the drawer look broken rather
+   * than empty, so each row appears only when it has a value, and the whole
+   * section is dropped when none do.
+   */
+  const hasDetails = Boolean(
+    location ||
+      experienceText ||
+      row.notice_period ||
+      row.availability ||
+      row.phone ||
+      row.linkedin_url,
+  );
+
   return (
     <>
       <button
@@ -747,37 +776,41 @@ function ApplicantDrawer({
             </>
           )}
 
-          <DrawerLabel>Details</DrawerLabel>
-          <div className="mb-[22px] flex flex-col">
-            <DetailRow label="Location" value={location || "—"} />
-            <DetailRow
-              label="Experience"
-              value={
-                row.years_experience === null
-                  ? "—"
-                  : `${row.years_experience} year${row.years_experience === 1 ? "" : "s"}`
-              }
-            />
-            <DetailRow label="Notice period" value={row.notice_period || "—"} />
-            <DetailRow label="Availability" value={row.availability || "—"} />
-            {row.phone && <DetailRow label="Phone" value={row.phone} />}
-            <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
-              <span className="text-[var(--ai-t3)]">LinkedIn</span>
-              {row.linkedin_url ? (
-                <a
-                  href={row.linkedin_url}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  className="inline-flex items-center gap-1 font-bold text-remotiv-purple hover:underline"
-                >
-                  Profile
-                  <ExternalLink className="size-3" strokeWidth={2} />
-                </a>
-              ) : (
-                <b className="font-bold text-[var(--ai-t1)]">—</b>
-              )}
-            </div>
-          </div>
+          {/* Each row is conditional, so `last:border-b-0` lands on whichever
+              row actually renders last — a `{cond && …}` that resolves false
+              produces no DOM node, so :last-child stays correct. */}
+          {hasDetails && (
+            <>
+              <DrawerLabel>Details</DrawerLabel>
+              <div className="mb-[22px] flex flex-col">
+                {location && <DetailRow label="Location" value={location} />}
+                {experienceText && (
+                  <DetailRow label="Experience" value={experienceText} />
+                )}
+                {row.notice_period && (
+                  <DetailRow label="Notice period" value={row.notice_period} />
+                )}
+                {row.availability && (
+                  <DetailRow label="Availability" value={row.availability} />
+                )}
+                {row.phone && <DetailRow label="Phone" value={row.phone} />}
+                {row.linkedin_url && (
+                  <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
+                    <span className="text-[var(--ai-t3)]">LinkedIn</span>
+                    <a
+                      href={row.linkedin_url}
+                      target="_blank"
+                      rel="noopener noreferrer"
+                      className="inline-flex items-center gap-1 font-bold text-remotiv-purple hover:underline"
+                    >
+                      Profile
+                      <ExternalLink className="size-3" strokeWidth={2} />
+                    </a>
+                  </div>
+                )}
+              </div>
+            </>
+          )}
 
           <DrawerLabel>Stage history</DrawerLabel>
           <div className="flex flex-col gap-[14px]">

@@ -26,9 +26,30 @@ const EMPTY_APPLY = {
   email: "",
   phone: "",
   linkedin: "",
+  noticePeriod: "",
+  availability: "",
 };
 
+// Required fields. noticePeriod and availability are deliberately ABSENT —
+// they are optional, and adding them here would gate the submit button.
 const BASIC_KEYS = ["firstName", "lastName", "email", "phone", "linkedin"] as const;
+
+/**
+ * Option values, copied VERBATIM from VALID_NOTICE_PERIOD / VALID_AVAILABILITY
+ * in src/app/api/apply/route.ts.
+ *
+ * The route coerces an unrecognised non-empty value to its default rather than
+ * rejecting it, so a typo here would not error — it would silently store the
+ * wrong answer for every applicant. Empty stays null, which is what makes both
+ * fields optional end to end. Keep these two lists in step with the route.
+ */
+const NOTICE_PERIOD_OPTIONS = [
+  "Immediate",
+  "2 Weeks",
+  "1 Month",
+  "Negotiable",
+] as const;
+const AVAILABILITY_OPTIONS = ["Available Now", "Not Available"] as const;
 
 // Abort the submit fetch if the network stalls for this long. Keeps the
 // "Submitting…" button from sticking forever on flaky mobile connections.
@@ -190,6 +211,11 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       fd.append("email",        form.email);
       fd.append("phone",        form.phone);
       fd.append("linkedin_url", form.linkedin);
+      // Optional — appended only when chosen. An empty string would also be
+      // stored as null by the route's nullable(), but omitting the key keeps
+      // the payload honest about what the candidate actually answered.
+      if (form.noticePeriod) fd.append("notice_period", form.noticePeriod);
+      if (form.availability) fd.append("availability",  form.availability);
       fd.append("cv",           cvFile as File);
       // New: screening answers, normalized to strings and keyed by question id.
       // Ignored by /api/apply until its own step reads this key.
@@ -456,6 +482,50 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                     className="ap-input"
                   />
                   {tried && !form.linkedin.trim() && <div className="ap-fielderr">Required</div>}
+                </div>
+              </div>
+
+              {/* Optional. Neither is derivable from a CV, and both are what a
+                  hiring manager reaches for first — but this form is
+                  deliberately short, so they are never gated and default to
+                  empty, which the route stores as null. `ap-rowpair` already
+                  stacks to one column below 640px. */}
+              <div className="ap-rowpair">
+                <div>
+                  <label htmlFor="apply-notice" className="ap-label">
+                    Notice period <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <select
+                    id="apply-notice"
+                    className="ap-input"
+                    value={form.noticePeriod}
+                    onChange={(e) => setField("noticePeriod", e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {NOTICE_PERIOD_OPTIONS.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+                <div>
+                  <label htmlFor="apply-availability" className="ap-label">
+                    Availability <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
+                  </label>
+                  <select
+                    id="apply-availability"
+                    className="ap-input"
+                    value={form.availability}
+                    onChange={(e) => setField("availability", e.target.value)}
+                  >
+                    <option value="">Select…</option>
+                    {AVAILABILITY_OPTIONS.map((v) => (
+                      <option key={v} value={v}>
+                        {v}
+                      </option>
+                    ))}
+                  </select>
                 </div>
               </div>
 
