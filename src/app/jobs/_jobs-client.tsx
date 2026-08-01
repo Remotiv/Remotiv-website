@@ -825,6 +825,30 @@ function SearchField({
 // JobCard re-renders are kept O(changed-cards) via React.memo + id-based
 // callback signatures from the parent. Without this, typing in the search
 // box re-rendered all ~100 cards per keystroke.
+/**
+ * Whether this job's star rating represents anything real.
+ *
+ * Company-posted jobs (company_id non-null) are stamped with a fixed
+ * COMPANY_JOB_RATING at creation — there is no reviews or ratings system
+ * anywhere in the product, so that number is a placeholder, not a measurement.
+ * Publishing it tells candidates a company scored 4.5 out of something that
+ * has never been scored.
+ *
+ * Deliberately ONE named predicate rather than an inline `company_id === null`
+ * at each render site: when real ratings do arrive, this is the single place
+ * that changes (likely to "has at least one review"), and neither renderer
+ * needs unpicking. The twin of this function lives in the other public jobs
+ * renderer — keep them in step, or hoist both to lib/jobs.ts.
+ *
+ * Remotiv's own admin-posted jobs keep their rating. It is hand-entered in the
+ * admin form (defaulting to 4.5) rather than derived from reviews, so it is
+ * editorial rather than measured — see the audit note. Changing that is a
+ * product decision, not this fix.
+ */
+function hasPublicRating(job: { company_id: string | null }): boolean {
+  return job.company_id === null;
+}
+
 const JobCard = memo(function JobCard({
   job,
   isFavorited,
@@ -873,8 +897,12 @@ const JobCard = memo(function JobCard({
         </h3>
         <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-remotiv-text-light">
           <span>{job.company}</span>
-          <Star className="size-3 fill-remotiv-green text-remotiv-green" />
-          <span>{job.company_rating.toFixed(1)}</span>
+          {hasPublicRating(job) && (
+            <>
+              <Star className="size-3 fill-remotiv-green text-remotiv-green" />
+              <span>{job.company_rating.toFixed(1)}</span>
+            </>
+          )}
         </div>
         <div className="mb-4 text-[0.82rem] text-remotiv-text-light">{job.location}</div>
         <div className="mb-4 text-[0.9rem] font-semibold text-remotiv-text-mid">

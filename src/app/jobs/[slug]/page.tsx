@@ -182,6 +182,30 @@ function SectionBar({
   );
 }
 
+/**
+ * Whether this job's star rating represents anything real.
+ *
+ * Company-posted jobs (company_id non-null) are stamped with a fixed
+ * COMPANY_JOB_RATING at creation — there is no reviews or ratings system
+ * anywhere in the product, so that number is a placeholder, not a measurement.
+ * Publishing it tells candidates a company scored 4.5 out of something that
+ * has never been scored.
+ *
+ * Deliberately ONE named predicate rather than an inline `company_id === null`
+ * at each render site: when real ratings do arrive, this is the single place
+ * that changes (likely to "has at least one review"), and neither renderer
+ * needs unpicking. The twin of this function lives in the other public jobs
+ * renderer — keep them in step, or hoist both to lib/jobs.ts.
+ *
+ * Remotiv's own admin-posted jobs keep their rating. It is hand-entered in the
+ * admin form (defaulting to 4.5) rather than derived from reviews, so it is
+ * editorial rather than measured — see the audit note. Changing that is a
+ * product decision, not this fix.
+ */
+function hasPublicRating(job: { company_id: string | null }): boolean {
+  return job.company_id === null;
+}
+
 export default async function JobDetailPage({ params }: PageProps) {
   const { slug } = await params;
   const job: Job | null = await getJobBySlug(slug);
@@ -261,11 +285,20 @@ export default async function JobDetailPage({ params }: PageProps) {
                 {companyInitial}
               </span>
               <span className="font-heading text-base font-bold">{job.company}</span>
-              <span className="h-[22px] w-px bg-white/25" />
-              <span className="inline-flex items-center gap-1 text-sm">
-                <IconStar size={15} className="fill-remotiv-lime text-remotiv-lime" />
-                {job.company_rating.toFixed(1)}
-              </span>
+              {/* Separator travels WITH the rating — hiding the rating alone
+                  would leave two dividers back to back. */}
+              {hasPublicRating(job) && (
+                <>
+                  <span className="h-[22px] w-px bg-white/25" />
+                  <span className="inline-flex items-center gap-1 text-sm">
+                    <IconStar
+                      size={15}
+                      className="fill-remotiv-lime text-remotiv-lime"
+                    />
+                    {job.company_rating.toFixed(1)}
+                  </span>
+                </>
+              )}
               <span className="h-[22px] w-px bg-white/25" />
               <span className="inline-flex items-center gap-1 text-[13.5px] text-[#e6dbff]">
                 <IconClock size={15} /> Posted {timeAgo(job.created_at)}
