@@ -172,6 +172,54 @@ export async function createCompany(input: {
   return { success: true, data: { id: companyId } };
 }
 
+/**
+ * Look up an auth user by exact email, in ONE bounded request.
+ *
+ * Deliberately NOT listUsers: that paginates the entire project's auth table
+ * and truncates, so a collision with the 5,000th user would be missed while
+ * the request cost grows with the whole user base.
+ *
+ * Uses GoTrue's admin REST endpoint, which filters server-side and honours
+ * per_page. Verified against this project: an exact address returns exactly
+ * one row and a nonsense address returns zero, so the filter really is
+ * applied rather than silently ignored.
+ *
+ * `filter` is a PARTIAL match, which makes the exact-equality check below
+ * load-bearing twice over — it stops a substring hit counting as a collision,
+ * and it keeps this function safe if a future GoTrue ever drops the param
+ * (an unfiltered page simply won't contain an exact match).
+ *
+ * Fails OPEN. A lookup error returns null and the edit proceeds to the real
+ * auth call, which still guards. This is a message-quality improvement, not a
+ * security control, and it must never block a legitimate edit.
+ */
+async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
+  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
+  if (!base || !key) return null;
+
+  const target = email.trim().toLowerCase();
+  try {
+    const res = await fetch(
+      `${base}/auth/v1/admin/users?filter=${encodeURIComponent(target)}&page=1&per_page=10`,
+      {
+        headers: { apikey: key, Authorization: `Bearer ${key}` },
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) return null;
+    const body = (await res.json()) as {
+      users?: Array<{ id?: string; email?: string }>;
+    };
+    const hit = (body.users ?? []).find(
+      (u) => (u.email ?? "").toLowerCase() === target,
+    );
+    return hit?.id ?? null;
+  } catch {
+    return null;
+  }
+}
+
 export async function updateCompany(
   id: string,
   updates: {
@@ -221,14 +269,60 @@ export async function updateCompany(
 
     const oldEmail = current.contact_email ?? "";
     if (oldEmail.toLowerCase() !== newEmail) {
+      // Deterministic collision answer BEFORE calling GoTrue. GoTrue returns a
+      // friendly "already registered" for some collisions and a generic 500 for
+      // others — soft-deleted users, unconfirmed signups, races — and the
+      // generic one is what reached production as "Error updating user".
+      // Checking first means the message no longer depends on which shape
+      // comes back.
+      //
+      // An id match against THIS user is not a collision: it means auth already
+      // holds the new address and only the DB copy was stale, so letting the
+      // update through repairs the drift.
+      const existingId = await findAuthUserIdByEmail(newEmail);
+      if (existingId && existingId !== current.user_id) {
+        return {
+          success: false,
+          error: "This email is already registered to another account.",
+        };
+      }
+
       const { error: authErr } = await supabase.auth.admin.updateUserById(current.user_id, {
         email: newEmail,
         email_confirm: true,
       });
       if (authErr) {
+        // Forensic trail — this path previously logged nothing at all, so a
+        // failure left no server-side record of what GoTrue actually said.
+        // The address itself is PII and logs are retained and broadly readable,
+        // so only the DOMAIN is recorded: enough to tell a typo'd domain from a
+        // genuine collision without storing the person's address.
+        console.error("[admin/companies] auth email update failed", {
+          companyId: id,
+          userId: current.user_id,
+          emailDomain: newEmail.split("@")[1] ?? "(none)",
+          status: authErr.status,
+          code: authErr.code,
+          message: authErr.message,
+        });
+
         const msg = authErr.message ?? "Failed to update auth email.";
         if (/already|exists|registered/i.test(msg)) {
-          return { success: false, error: "This email is already registered." };
+          return {
+            success: false,
+            error: "This email is already registered to another account.",
+          };
+        }
+        // A 5xx from GoTrue ("Error updating user") carries no cause. In
+        // practice it is usually a collision the pre-check could not see, such
+        // as a soft-deleted row. Say something actionable instead of passing
+        // the raw string to an admin who can do nothing with it.
+        if ((authErr.status ?? 0) >= 500) {
+          return {
+            success: false,
+            error:
+              "Couldn't update the login email. It may already be in use by another Remotiv account.",
+          };
         }
         return { success: false, error: msg };
       }
