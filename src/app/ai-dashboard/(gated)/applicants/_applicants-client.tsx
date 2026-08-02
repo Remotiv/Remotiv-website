@@ -11,6 +11,7 @@ import {
   ExternalLink,
   FileText,
   Mail,
+  Minus,
   Search as SearchIcon,
   Trash2,
   Users,
@@ -20,6 +21,7 @@ import {
 import {
   PIPELINE_STAGES,
   PIPELINE_STAGE_LABELS,
+  SCORING_OFF_REASON,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type CompanyApplicantRow,
@@ -198,23 +200,63 @@ function scoreBand(score: number): { stroke: string; ink: string } {
 }
 
 /**
+ * Distinguishes "the company turned scoring off for this job" from every other
+ * skip. Matched on the exact string the handler writes, shared via
+ * SCORING_OFF_REASON so neither side carries its own copy of the literal.
+ *
+ * A row written with an older wording simply falls through to the generic
+ * label — an unrecognised reason is a stale label, never a crash.
+ */
+function isScoringOff(score?: ApplicantScore): boolean {
+  return score?.status === "skipped" && score.error === SCORING_OFF_REASON;
+}
+
+/** Extracted rather than nested-ternaried inline — four cases, one order. */
+function pendingLabel(score?: ApplicantScore): string {
+  if (isScoringOff(score)) return "Scoring off";
+  if (score?.status === "failed") return "Failed";
+  if (score?.status === "skipped") return "No CV text";
+  return "Pending";
+}
+
+/** The drawer's version of pendingLabel — longer, since it has the room. */
+function drawerScoreHeading(score: ApplicantScore): string {
+  if (isScoringOff(score)) return "Scoring off for this job";
+  if (score.status === "failed") return "Scoring failed";
+  if (score.status === "skipped") return "Not scored";
+  return "AI score pending";
+}
+
+/**
  * No number to show. Covers pending (queued, not yet run), failed and skipped
  * alike — in all three cases the honest answer is that there is no score, and
  * the tooltip carries the specific reason when there is one.
+ *
+ * Scoring-off gets a different affordance from the other three: a SOLID muted
+ * ring with a dash, not the dashed ring and ticking clock. The clock means
+ * "waiting" — on a job with scoring off nothing is coming, and a screenful of
+ * clocks would read as a queue backlog rather than a setting.
  */
 function PendingScore({ score }: { score?: ApplicantScore }) {
-  const label =
-    score?.status === "failed"
-      ? "Failed"
-      : score?.status === "skipped"
-        ? "No CV text"
-        : "Pending";
+  const off = isScoringOff(score);
   return (
     <div className="flex items-center gap-[9px]" title={score?.error ?? undefined}>
-      <span className="flex size-[38px] shrink-0 items-center justify-center rounded-full border-[1.5px] border-dashed border-[var(--ai-line-strong)] text-[var(--ai-t4)]">
-        <Clock className="size-4" strokeWidth={1.8} />
+      <span
+        className={`flex size-[38px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[var(--ai-t4)] ${
+          off
+            ? "border-[var(--ai-line)] bg-[var(--ai-inset)]"
+            : "border-dashed border-[var(--ai-line-strong)]"
+        }`}
+      >
+        {off ? (
+          <Minus className="size-4" strokeWidth={2} />
+        ) : (
+          <Clock className="size-4" strokeWidth={1.8} />
+        )}
       </span>
-      <span className="text-xs font-semibold text-[var(--ai-t4)]">{label}</span>
+      <span className="text-xs font-semibold text-[var(--ai-t4)]">
+        {pendingLabel(score)}
+      </span>
     </div>
   );
 }
@@ -696,13 +738,18 @@ function ApplicantDrawer({
               </div>
             </div>
           ) : (
-            <div className="relative z-[1] rounded-2xl border border-dashed border-white/20 bg-white/[0.06] px-4 py-[15px] text-center">
+            /* Solid border for scoring-off, dashed for the rest — same
+               reasoning as PendingScore: dashed reads as "in progress", and
+               nothing is in progress on a job with scoring turned off. */
+            <div
+              className={`relative z-[1] rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
+                isScoringOff(headerScore)
+                  ? "border-white/[0.14]"
+                  : "border-dashed border-white/20"
+              }`}
+            >
               <b className="mb-[3px] block text-[13px] text-white">
-                {headerScore.status === "failed"
-                  ? "Scoring failed"
-                  : headerScore.status === "skipped"
-                    ? "Not scored"
-                    : "AI score pending"}
+                {drawerScoreHeading(headerScore)}
               </b>
               <span className="text-xs leading-relaxed text-white/50">
                 {headerScore.error ??

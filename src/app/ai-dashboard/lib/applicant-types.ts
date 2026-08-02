@@ -82,6 +82,22 @@ export type CompanyApplicantRow = {
 export const SCORE_STATUSES = ["pending", "scored", "failed", "skipped"] as const;
 export type ScoreStatus = (typeof SCORE_STATUSES)[number];
 
+/**
+ * The exact `error` text handleAiCvScore writes when a job has AI CV scoring
+ * turned off, so the client can tell that skip apart from the CV-text ones and
+ * say "Scoring off" instead of "No CV text".
+ *
+ * It lives HERE rather than in lib/ai/cv-scoring.ts because that module pulls
+ * in @/lib/supabase/server → next/headers, which a "use client" component may
+ * not import at any depth. This file is types-only and is already imported by
+ * both sides, so it's the one place the string can be shared rather than
+ * duplicated as a literal on each side of the boundary.
+ *
+ * Changing this string orphans every row already written with the old one —
+ * those fall back to the generic "Not scored" label rather than breaking.
+ */
+export const SCORING_OFF_REASON = "AI CV scoring is turned off for this job.";
+
 export type ScoreConfidence = "high" | "medium" | "low";
 
 /** Summary attached to every applicant row. Null when never scored. */

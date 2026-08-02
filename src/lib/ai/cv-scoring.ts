@@ -1,3 +1,4 @@
+import { SCORING_OFF_REASON } from "@/app/ai-dashboard/lib/applicant-types";
 import { getAnthropic } from "@/lib/anthropic";
 import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -705,6 +706,8 @@ type JobRow = {
   category: string | null;
   screening_questions: unknown;
   criteria_version: number | null;
+  /** Null only on a row written before the column existed — treated as ON. */
+  ai_cv_scoring_enabled: boolean | null;
 };
 
 /** Upsert on the unique application_id so a retry overwrites rather than
@@ -776,7 +779,7 @@ export async function handleAiCvScore(job: {
   const { data: jobData, error: jobErr } = await service
     .from("jobs")
     .select(
-      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version",
+      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version, ai_cv_scoring_enabled",
     )
     .eq("id", app.job_id)
     .maybeSingle();
@@ -785,6 +788,20 @@ export async function handleAiCvScore(job: {
   const jobRow = jobData as JobRow | null;
   if (!jobRow) {
     await skip("The job this application targets no longer exists.");
+    return;
+  }
+
+  // The company turned scoring off for this job. This is the ONLY place the
+  // check lives: /api/apply could refuse to enqueue, but that writes no row,
+  // and "no row" is indistinguishable from "queued, not run yet" — the list
+  // would read Pending forever. Skipping here writes a row that says why.
+  //
+  // Deliberately BEFORE the CV-text check: a scoring-off job whose CV is an
+  // image-only PDF should report the setting, not blame the PDF.
+  //
+  // `=== false` so a row predating the column (null) still scores.
+  if (jobRow.ai_cv_scoring_enabled === false) {
+    await skip(SCORING_OFF_REASON);
     return;
   }
 
