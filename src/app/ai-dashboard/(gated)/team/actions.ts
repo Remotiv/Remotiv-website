@@ -139,9 +139,33 @@ export async function fetchTeamMembers(): Promise<TeamMemberRow[]> {
     }),
   );
 
+  /**
+   * Identity is resolved from whoever OWNS the edit, never from the
+   * company_members copy — which is written once and updated by nothing, so a
+   * stale value there used to win over the truth.
+   *
+   * email — always auth.users. It is the login, it is what changing an email
+   *   actually changes, and getUserById is already called per member, so the
+   *   column saved nothing while being able to disagree.
+   *
+   * name — depends on who can edit it, because the two populations genuinely
+   *   differ:
+   *     owner           -> companies.contact_name. An admin edits this in
+   *                        /admin/companies; nothing in the company product
+   *                        edits an owner's name.
+   *     invited member  -> company_members.name. They set it themselves at
+   *                        accept time and there is no companies row for them.
+   *   Both fall back to the email local-part, then "Unknown".
+   *
+   * ctx.company.contact_name is already loaded by getCompanyContext, so this
+   * costs no extra query.
+   */
   const memberRows: TeamMemberRow[] = members.map((m, i) => {
-    const email = m.email?.trim() || authResults[i].email || "";
-    const name = m.name?.trim() || email.split("@")[0] || "Unknown";
+    const email = authResults[i].email || m.email?.trim() || "";
+    const authoritativeName =
+      m.role === "owner" ? ctx.company.contact_name?.trim() : m.name?.trim();
+    const name =
+      authoritativeName || m.name?.trim() || email.split("@")[0] || "Unknown";
     return {
       id: m.id,
       user_id: m.user_id,

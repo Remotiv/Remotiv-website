@@ -351,6 +351,36 @@ export async function updateCompany(
     return { success: false, error: error.message };
   }
 
+  // Clear the owner's denormalised identity copy on company_members.
+  //
+  // That row is written at provisioning and updated by nothing, so a stale
+  // name/email there used to outrank the truth: the Team page rendered
+  // company_members.name, and getCompanyContext resolves memberName as
+  // `member.name || company.contact_name`, so the topbar and sidebar showed
+  // the stale value too. Nulling it makes BOTH fall through to
+  // companies.contact_name — the field this action just edited — so an admin
+  // edit is reflected immediately with no backfill.
+  //
+  // The COLUMNS stay: invited members legitimately own their own name there,
+  // set at accept time. Only the owner's copy is cleared, because for the
+  // owner it is a pure duplicate of contact_name/contact_email.
+  //
+  // Best-effort: the company edit has already committed and must not be
+  // reported as failed because a cache clear didn't land.
+  if (patch.contact_name !== undefined || patch.contact_email !== undefined) {
+    const { error: cacheErr } = await supabase
+      .from("company_members")
+      .update({ name: null, email: null })
+      .eq("company_id", id)
+      .eq("role", "owner");
+    if (cacheErr) {
+      console.error(
+        "[admin/companies] owner identity cache clear failed (non-fatal)",
+        { companyId: id, error: cacheErr.message },
+      );
+    }
+  }
+
   revalidatePath("/admin/companies");
   return { success: true, data: undefined };
 }

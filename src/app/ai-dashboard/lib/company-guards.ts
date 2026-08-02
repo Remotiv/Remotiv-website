@@ -97,10 +97,27 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     companyId,
     company,
     role,
-    // The owner-by-companies.user_id fallback has no member row, so it falls
-    // through to contact_name — which IS that user's name on that path.
+    // Identity resolves from whoever OWNS the edit, matching fetchTeamMembers:
+    //
+    //   owner          -> companies.contact_name FIRST. An admin edits it in
+    //                     /admin/companies; nothing in the company product
+    //                     edits an owner's name. company_members.name is a
+    //                     copy written once at provisioning and updated by
+    //                     nothing, so letting it win showed a stale name in
+    //                     the topbar and sidebar long after the admin edit.
+    //   invited member -> company_members.name FIRST. They set it themselves
+    //                     at accept time and have no companies row; the
+    //                     company's contact_name is somebody else's name.
+    //
+    // Both then fall back to the other source, then the email local-part. The
+    // owner-by-companies.user_id fallback path has no member row and `role`
+    // stays "owner", so it lands on contact_name — correct on that path too.
     memberName:
-      memberName?.trim() || company.contact_name?.trim() || email.split("@")[0] || "",
+      (role === "owner"
+        ? company.contact_name?.trim() || memberName?.trim()
+        : memberName?.trim() || company.contact_name?.trim()) ||
+      email.split("@")[0] ||
+      "",
     mustChangePassword: row.must_change_password === true,
   };
 }
