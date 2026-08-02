@@ -6,11 +6,13 @@ import { useRouter } from "next/navigation";
 import {
   ArrowRight,
   Check,
+  ChevronDown,
   ChevronLeft,
   Lightbulb,
   Lock,
   MapPin,
   Plus,
+  Settings2,
   Trash2,
   Zap,
 } from "lucide-react";
@@ -21,6 +23,7 @@ import {
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
   JOB_EXPERIENCE_LEVELS,
+  JOB_INTERVIEWER_NAME_MAX,
   JOB_TEXT_COUNTER_FROM,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
@@ -80,6 +83,21 @@ const STEP_NUM_ACTIVE = "border-remotiv-purple bg-remotiv-purple text-white";
 const STEP_NUM_DONE = "border-remotiv-green bg-remotiv-green text-[var(--ai-mint-ink)]";
 
 const STEP_LAB = "text-[13px] font-semibold";
+
+/*
+ * "More options" honesty markers.
+ *
+ * Four of the five options are stored today but read by nothing until video
+ * interviews ship. They stay fully editable — the company IS really saving the
+ * setting — so a disabled control would be the lie. Instead every one of them
+ * carries the SAME amber pill, and AI CV scoring carries a mint one, so the
+ * two states read as a deliberate pair rather than one row missing a label.
+ */
+const PILL = "shrink-0 rounded-full px-[7px] py-0.5 text-[10.5px] font-bold";
+const PILL_SOON = `${PILL} bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]`;
+const PILL_LIVE = `${PILL} bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]`;
+const SOON_LABEL = "When interviews launch";
+const LIVE_LABEL = "Active now";
 
 const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: string }> = [
   { value: "yesno", label: "Yes / No" },
@@ -157,6 +175,94 @@ function Toggle({
   );
 }
 
+/**
+ * One row of the "More options" section: title + honesty pill, a one-line
+ * explanation, the shared Toggle, and an optional revealed field underneath
+ * (the two interviewer names, which only exist while their toggle is on).
+ *
+ * The title/pill pair wraps rather than truncating — at 375px the wizard column
+ * is ~457 design px wide once .ai-shell's 0.82 zoom is accounted for, and
+ * "Measure response relevancy" + the pill do not fit on one line there.
+ */
+function OptionRow({
+  title,
+  desc,
+  live,
+  on,
+  onToggle,
+  children,
+}: {
+  title: string;
+  desc: string;
+  /** true → the mint "Active now" pill; false → the amber "soon" pill. */
+  live?: boolean;
+  on: boolean;
+  onToggle: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-[13px]">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0">
+          <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
+            <span className="text-[13.5px] font-semibold text-[var(--ai-t1)]">
+              {title}
+            </span>
+            <span className={live ? PILL_LIVE : PILL_SOON}>
+              {live ? LIVE_LABEL : SOON_LABEL}
+            </span>
+          </div>
+          <p className="mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">{desc}</p>
+        </div>
+        <span className="ml-auto pt-0.5">
+          <Toggle on={on} onClick={onToggle} label={title} />
+        </span>
+      </div>
+      {on && children}
+    </div>
+  );
+}
+
+/**
+ * The name field revealed by an interview toggle. Rendered only while its
+ * toggle is on, and the server writes NULL when it's off — so an abandoned
+ * name never lingers in the column waiting to reappear.
+ *
+ * maxLength only stops typing; buildPatch caps the value again server-side.
+ */
+function InterviewerNameField({
+  id,
+  label,
+  placeholder,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  placeholder: string;
+  value: string;
+  onChange: (value: string) => void;
+}) {
+  return (
+    <div className="mt-3 border-t border-[var(--ai-line-soft)] pt-3">
+      <label className={LABEL_CLS} htmlFor={id}>
+        {label}
+      </label>
+      <input
+        id={id}
+        value={value}
+        onChange={(e) => onChange(e.target.value)}
+        placeholder={placeholder}
+        maxLength={JOB_INTERVIEWER_NAME_MAX}
+        className={INPUT_CLS}
+      />
+      <p className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
+        Shown to candidates. Up to {JOB_INTERVIEWER_NAME_MAX} characters.
+      </p>
+    </div>
+  );
+}
+
 // ── Main ─────────────────────────────────────────────────────
 
 /**
@@ -192,6 +298,10 @@ export function WizardClient({
   const [toast, setToast] = useState<string | null>(null);
   const [submitting, setSubmitting] = useState(false);
   const [published, setPublished] = useState<{ title: string } | null>(null);
+
+  // Collapsed by default: Review's job is to get to Publish, and five toggles
+  // above the publish note would bury it. Every option already has a default.
+  const [moreOpen, setMoreOpen] = useState(false);
 
   // Publishing inserts a row; a double-click would create two jobs.
   const inFlightRef = useRef(false);
@@ -1003,6 +1113,116 @@ export function WizardClient({
                       </div>
                     )}
                   </ReviewCard>
+
+                  <div className="mt-3 overflow-hidden rounded-[13px] border border-[var(--ai-line)]">
+                    <button
+                      type="button"
+                      onClick={() => setMoreOpen((prev) => !prev)}
+                      aria-expanded={moreOpen}
+                      className="flex w-full items-center gap-2.5 bg-[var(--ai-inset)] px-4 py-3.5 text-left transition-colors hover:bg-[var(--ai-line-soft)]"
+                    >
+                      <Settings2
+                        className="size-[17px] shrink-0 text-[var(--ai-t3)]"
+                        strokeWidth={1.9}
+                      />
+                      <span className="min-w-0">
+                        <span className="block text-[13.5px] font-semibold text-[var(--ai-t1)]">
+                          More options
+                        </span>
+                        <span className="mt-0.5 block text-xs leading-relaxed text-[var(--ai-t3)]">
+                          Interview and scoring behaviour for this job.
+                        </span>
+                      </span>
+                      <ChevronDown
+                        className={`ml-auto size-[18px] shrink-0 text-[var(--ai-t3)] transition-transform ${
+                          moreOpen ? "rotate-180" : ""
+                        }`}
+                        strokeWidth={2}
+                      />
+                    </button>
+
+                    {moreOpen && (
+                      <div className="border-t border-[var(--ai-line)] bg-[var(--ai-surface)] p-4">
+                        <p className="mb-3 text-xs leading-relaxed text-[var(--ai-t3)]">
+                          Saved with the job and editable at any time. Anything
+                          marked{" "}
+                          <b className="font-bold text-[var(--ai-amber-ink)]">
+                            {SOON_LABEL}
+                          </b>{" "}
+                          is stored now and starts working when video interviews
+                          ship — it changes nothing about this job today.
+                        </p>
+
+                        <div className="grid gap-2.5">
+                          <OptionRow
+                            title="Allow re-recording"
+                            desc="Candidates can re-record their interview before submitting."
+                            on={state.allow_rerecord}
+                            onToggle={() => set("allow_rerecord", !state.allow_rerecord)}
+                          />
+
+                          <OptionRow
+                            title="AI CV scoring"
+                            desc="Score each CV against this job when someone applies."
+                            live
+                            on={state.ai_cv_scoring_enabled}
+                            onToggle={() =>
+                              set("ai_cv_scoring_enabled", !state.ai_cv_scoring_enabled)
+                            }
+                          />
+
+                          <OptionRow
+                            title="Measure response relevancy"
+                            desc="Score how closely interview answers address the question."
+                            on={state.measure_relevancy}
+                            onToggle={() =>
+                              set("measure_relevancy", !state.measure_relevancy)
+                            }
+                          />
+
+                          <OptionRow
+                            title="AI avatar video interview"
+                            desc="An AI avatar runs the first interview and records the answers."
+                            on={state.avatar_interview_enabled}
+                            onToggle={() =>
+                              set(
+                                "avatar_interview_enabled",
+                                !state.avatar_interview_enabled,
+                              )
+                            }
+                          >
+                            <InterviewerNameField
+                              id="avatar-interviewer-name"
+                              label="Avatar interviewer name"
+                              placeholder="e.g. Aisha"
+                              value={state.avatar_interviewer_name}
+                              onChange={(v) => set("avatar_interviewer_name", v)}
+                            />
+                          </OptionRow>
+
+                          <OptionRow
+                            title="Async video interview"
+                            desc="Candidates record answers in their own time, with no live call."
+                            on={state.async_interview_enabled}
+                            onToggle={() =>
+                              set(
+                                "async_interview_enabled",
+                                !state.async_interview_enabled,
+                              )
+                            }
+                          >
+                            <InterviewerNameField
+                              id="async-interview-name"
+                              label="Async interview name"
+                              placeholder="e.g. First-round questions"
+                              value={state.async_interview_name}
+                              onChange={(v) => set("async_interview_name", v)}
+                            />
+                          </OptionRow>
+                        </div>
+                      </div>
+                    )}
+                  </div>
 
                   {/* v2 `.publishnote` — the dark card, not the purple tint.
                       The <p> below carries an explicit colour: a dark surface

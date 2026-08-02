@@ -12,6 +12,7 @@ import {
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
   JOB_EXPERIENCE_LEVELS,
+  JOB_INTERVIEWER_NAME_MAX,
   JOB_STATUSES,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
@@ -90,6 +91,23 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
 }
 
 /**
+ * Interviewer display name for one of the two interview options.
+ *
+ * The name only means anything while its toggle is on, so an off toggle writes
+ * NULL rather than leaving a name behind that nothing reads and the UI would
+ * later resurrect if the toggle came back on months later. Trimmed, capped at
+ * JOB_INTERVIEWER_NAME_MAX, and an empty result collapses to null so the
+ * column never holds "".
+ *
+ * Truncation, not rejection: the input's maxLength already stops typing, and a
+ * forged over-length payload isn't worth failing an otherwise valid publish.
+ */
+function interviewerName(value: string | undefined, enabled: boolean): string | null {
+  if (!enabled) return null;
+  return (value ?? "").trim().slice(0, JOB_INTERVIEWER_NAME_MAX) || null;
+}
+
+/**
  * Build the writable column patch from wizard input. Mirrors the admin
  * buildPatch's required-field rules. Deliberately returns ONLY editable
  * columns — ownership/identity columns are stamped by the caller so no client
@@ -122,6 +140,12 @@ function buildPatch(input: CompanyJobInput):
 
   const positions = Math.max(1, Number.parseInt(input.positions, 10) || 1);
   const status = oneOf<JobStatus>(input.status, JOB_STATUSES, "open");
+
+  // "More options". Coerced, never trusted: `!== false` lands on TRUE and
+  // `=== true` lands on FALSE when a field is absent, which reproduces each
+  // column's DB default for a client that predates these options.
+  const avatarOn = input.avatar_interview_enabled === true;
+  const asyncOn = input.async_interview_enabled === true;
 
   // Length ceiling enforced server-side too — the textarea's maxLength only
   // stops typing, not a direct action call with a forged payload.
@@ -158,6 +182,13 @@ function buildPatch(input: CompanyJobInput):
       requirements: (input.requirements ?? "").trim() || null,
       screening_questions: sanitizeQuestions(input.screening_questions),
       status,
+      allow_rerecord: input.allow_rerecord !== false,
+      ai_cv_scoring_enabled: input.ai_cv_scoring_enabled !== false,
+      measure_relevancy: input.measure_relevancy === true,
+      avatar_interview_enabled: avatarOn,
+      avatar_interviewer_name: interviewerName(input.avatar_interviewer_name, avatarOn),
+      async_interview_enabled: asyncOn,
+      async_interview_name: interviewerName(input.async_interview_name, asyncOn),
     },
   };
 }
@@ -429,7 +460,9 @@ export async function duplicateCompanyJob(
   const { data } = await supabase
     .from("jobs")
     .select(
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions",
+      // The "More options" columns copy across too — a duplicate that silently
+      // reverted to scoring-on would contradict the original's setting.
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name",
     )
     .eq("id", jobId)
     .maybeSingle();

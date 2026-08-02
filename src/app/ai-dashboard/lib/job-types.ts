@@ -61,6 +61,18 @@ export const JOB_TEXT_MAX = 10_000;
 export const JOB_TEXT_COUNTER_FROM = 9_000;
 
 /**
+ * Ceiling for the two interviewer display names.
+ *
+ * Like JOB_TEXT_MAX this is a product guard, not a DB one — both columns are
+ * unbounded `text`. These are person-sized labels a candidate reads at the top
+ * of an interview ("Aisha, Talent Partner"), so 60 leaves room for a name plus
+ * a short role while keeping the string from wrapping the interview header.
+ * Over-length input is TRUNCATED rather than rejected: it's a display label,
+ * not content, so silently capping loses nothing worth failing a publish over.
+ */
+export const JOB_INTERVIEWER_NAME_MAX = 60;
+
+/**
  * DB status enum. The design speaks Published/Draft/Closed; the column only has
  * these three values, so the UI maps onto them (see JOB_STATUS_LABELS).
  * Critically, ONLY 'open' is public — getInitialJobs filters status='open' —
@@ -116,6 +128,26 @@ export type CompanyJobInput = {
   show_salary: boolean;
   screening_questions: ScreeningQuestion[];
   status: JobStatus;
+
+  /*
+   * "More options" — per-job interview and scoring behaviour. Defaults here
+   * mirror the `jobs` column defaults exactly, so a job created before these
+   * columns existed and a job created by a client that omits them both land on
+   * the same behaviour.
+   *
+   * Only ai_cv_scoring_enabled is read by shipped code today (the /api/apply →
+   * ai_cv_score path). The other four are stored now and consumed when video
+   * interviews ship; the wizard labels them as such rather than pretending.
+   */
+  allow_rerecord: boolean;
+  ai_cv_scoring_enabled: boolean;
+  measure_relevancy: boolean;
+  avatar_interview_enabled: boolean;
+  /** Meaningful only while avatar_interview_enabled — stored null otherwise. */
+  avatar_interviewer_name: string;
+  async_interview_enabled: boolean;
+  /** Meaningful only while async_interview_enabled — stored null otherwise. */
+  async_interview_name: string;
 };
 
 export const EMPTY_JOB_INPUT: CompanyJobInput = {
@@ -135,4 +167,11 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   show_salary: true,
   screening_questions: [],
   status: "open",
+  allow_rerecord: true,
+  ai_cv_scoring_enabled: true,
+  measure_relevancy: false,
+  avatar_interview_enabled: false,
+  avatar_interviewer_name: "",
+  async_interview_enabled: false,
+  async_interview_name: "",
 };

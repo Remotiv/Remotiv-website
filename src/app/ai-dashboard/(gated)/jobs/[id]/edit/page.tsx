@@ -31,6 +31,13 @@ type JobRow = {
   salary_max: number | null;
   screening_questions: unknown;
   status: string | null;
+  allow_rerecord: boolean | null;
+  ai_cv_scoring_enabled: boolean | null;
+  measure_relevancy: boolean | null;
+  avatar_interview_enabled: boolean | null;
+  avatar_interviewer_name: string | null;
+  async_interview_enabled: boolean | null;
+  async_interview_name: string | null;
 };
 
 export default async function EditJobPage({
@@ -51,7 +58,7 @@ export default async function EditJobPage({
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name",
     )
     .eq("id", id)
     .maybeSingle();
@@ -86,6 +93,19 @@ export default async function EditJobPage({
     show_salary: job.salary_min !== null || job.salary_max !== null,
     screening_questions: questions,
     status: (job.status as JobStatus) ?? "open",
+    // `?? default` rather than `=== true`: these columns are NOT NULL with
+    // defaults, so null only appears on a row written before they existed —
+    // and that row behaved as the default, so the form must open on it.
+    allow_rerecord: job.allow_rerecord ?? EMPTY_JOB_INPUT.allow_rerecord,
+    ai_cv_scoring_enabled:
+      job.ai_cv_scoring_enabled ?? EMPTY_JOB_INPUT.ai_cv_scoring_enabled,
+    measure_relevancy: job.measure_relevancy ?? EMPTY_JOB_INPUT.measure_relevancy,
+    avatar_interview_enabled:
+      job.avatar_interview_enabled ?? EMPTY_JOB_INPUT.avatar_interview_enabled,
+    avatar_interviewer_name: job.avatar_interviewer_name ?? "",
+    async_interview_enabled:
+      job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
+    async_interview_name: job.async_interview_name ?? "",
   };
 
   return (
