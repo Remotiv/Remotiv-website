@@ -78,6 +78,17 @@ export type ScreeningAnswerSnapshot = {
    * test" is not the same as "failed the test".
    */
   scored?: boolean;
+  /**
+   * Which direction this numeric answer was tested in, frozen alongside the
+   * rest of the snapshot so a display can name the operator without consulting
+   * the job — whose question may since have been re-pointed or re-typed.
+   *
+   * Numeric answers only, and ABSENT on every snapshot written before the modes
+   * existed. Absent is not ambiguous: until then `/api/apply`'s sole numeric
+   * branch was `a >= ideal`, so a snapshot without this field was scored as a
+   * minimum as a matter of historical fact, not assumption.
+   */
+  numeric_mode?: NumericMode;
 };
 
 export interface Job {

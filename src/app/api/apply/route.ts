@@ -1,6 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ScreeningQuestion } from "@/lib/jobs";
-import { resolveNumericMode } from "@/lib/screening";
+import { resolveNumericMode, type NumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
@@ -119,6 +119,8 @@ type ScreeningAnswerSnapshot = {
   /** Absent = scored. False only for a numeric_mode 'none' question — collected
    *  but never tested, so `matched` carries no meaning and must be ignored. */
   scored?: boolean;
+  /** Numeric answers only. Absent on pre-mode rows, which were all minimums. */
+  numeric_mode?: NumericMode;
 };
 
 function buildScreeningSnapshot(
@@ -133,6 +135,9 @@ function buildScreeningSnapshot(
     // from the snapshot otherwise, so every other answer serialises exactly as
     // it did before this existed.
     let scored = true;
+    // Frozen so a display can name the operator later without re-reading the
+    // job, whose question may since have been re-typed. Numeric answers only.
+    let numeric_mode: NumericMode | undefined;
     let answer_label: string | undefined;
     let ideal_label: string | undefined;
 
@@ -141,6 +146,7 @@ function buildScreeningSnapshot(
     } else if (q.type === "numeric") {
       // resolveNumericMode covers questions stored before numeric_mode existed.
       const mode = resolveNumericMode(q);
+      numeric_mode = mode;
       if (mode === "none") {
         // Collected, not tested. `matched` stays false so a reader that only
         // knows about `matched` under-claims rather than over-claims.
@@ -172,6 +178,7 @@ function buildScreeningSnapshot(
       ...(ideal_label !== undefined ? { ideal_label } : {}),
       matched,
       ...(scored ? {} : { scored }),
+      ...(numeric_mode ? { numeric_mode } : {}),
     };
   });
 }

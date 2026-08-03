@@ -38,6 +38,28 @@ export function summarizeScreening(
   return { kind, matched, total };
 }
 
+/**
+ * A numeric ideal, with the operator it was actually tested with.
+ *
+ * The operator was hardcoded to "≥", which became a lie the moment maximum
+ * questions shipped: "at most 3000" displayed as "≥ 3000", the inverse of the
+ * threshold the candidate was judged against.
+ *
+ * The mode is read from the SNAPSHOT rather than the job, because the job's
+ * question can be re-typed afterwards and the snapshot is what the candidate
+ * was actually scored against.
+ *
+ * Absent mode means the row predates the modes, and that is not a guess: until
+ * then /api/apply's only numeric branch was `a >= ideal`, so those rows were
+ * scored as minimums as a matter of fact. "≥" is therefore correct for them,
+ * and the fallback needs no hedging in the UI.
+ *
+ * 'none' never reaches here — those rows are untested and the ideal is hidden.
+ */
+function numericIdealText(a: ScreeningAnswerSnapshot): string {
+  return `${a.numeric_mode === "max" ? "≤" : "≥"} ${a.ideal}`;
+}
+
 const PILL_BASE =
   "inline-flex items-center gap-1 rounded-full px-2.5 py-1 text-xs font-semibold";
 const PILL_TONE: Record<ScreeningSummary["kind"], string> = {
@@ -112,7 +134,7 @@ export function ScreeningAnswersView({
           const failedEssential = !untested && a.essential && !a.matched;
           const answerText = a.answer_label ?? (a.answer || "—");
           const idealText =
-            a.type === "numeric" ? `≥ ${a.ideal}` : (a.ideal_label ?? a.ideal);
+            a.type === "numeric" ? numericIdealText(a) : (a.ideal_label ?? a.ideal);
           return (
             <div
               key={a.question_id}
