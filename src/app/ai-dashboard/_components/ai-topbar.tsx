@@ -48,8 +48,14 @@ export function AiTopbar({
     return () => document.removeEventListener("mousedown", onOutside);
   }, [menuOpen]);
 
+  // 64px, borderless, sitting directly on the page colour with a blur — the
+  // shipped 60px + hairline + --ai-inset predated the current spec.
+  //
+  // The height is LOAD-BEARING, not cosmetic: the wizard's sub-bar sticks to
+  // it at top-[64px] and its step rail at top-[150px] (64 + 60 + 26). Changing
+  // it here without those two leaves the sub-bar overlapping or gapping.
   return (
-    <header className="sticky top-0 z-30 flex h-[60px] shrink-0 items-center gap-4 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/80 px-4 backdrop-blur-xl min-[840px]:px-8">
+    <header className="sticky top-0 z-30 flex h-[64px] shrink-0 items-center gap-4 bg-[var(--ai-page)]/[0.86] px-4 backdrop-blur-xl min-[840px]:px-8">
       <button
         type="button"
         onClick={onMenuClick}

@@ -13,6 +13,7 @@ import { AiTopbar } from "./ai-topbar";
  */
 export function AiShell({
   companyName,
+  companyLogoUrl,
   role,
   userName,
   userEmail,
@@ -21,6 +22,7 @@ export function AiShell({
   children,
 }: {
   companyName: string;
+  companyLogoUrl: string | null;
   role: CompanyRole;
   userName: string;
   userEmail: string;
@@ -55,6 +57,7 @@ export function AiShell({
     <div className="ai-shell ai-app-bg flex min-h-[var(--vh-full)] bg-[var(--ai-page)] font-sans text-[var(--ai-t1)]">
       <AiSidebar
         companyName={companyName}
+        companyLogoUrl={companyLogoUrl}
         role={role}
         jobCount={jobCount}
         applicantCount={applicantCount}

@@ -2,6 +2,7 @@ import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { AiShell } from "../_components/ai-shell";
 import { getCompanyContext } from "../lib/company-guards";
+import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import type { CompanyContext } from "../lib/company-roles";
 
 export default async function GatedCompanyLayout({
@@ -48,9 +49,17 @@ export default async function GatedCompanyLayout({
       .eq("company_id_snapshot", ctx.companyId),
   ]);
 
+  // Public URL — a logo appears on every public job post, so it is served
+  // straight from the public bucket rather than signed per render.
+  const logoUrl = ctx.company.logo_path
+    ? service.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(ctx.company.logo_path)
+        .data.publicUrl
+    : null;
+
   return (
     <AiShell
       companyName={ctx.company.name}
+      companyLogoUrl={logoUrl}
       role={ctx.role}
       userName={ctx.memberName}
       userEmail={ctx.user.email}

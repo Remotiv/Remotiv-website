@@ -4,6 +4,11 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail } from "@/lib/validators";
+import { slugify, uniqueSlug } from "@/lib/slug";
+import {
+  findAuthUserIdByEmail,
+  syncJobsCompanyName,
+} from "@/lib/company-identity";
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
 
 // ── Types ────────────────────────────────────────────────────
@@ -125,11 +130,29 @@ export async function createCompany(input: {
   //    user so the email can be reused without manual intervention.
   //    must_change_password=true forces the owner through
   //    /ai-dashboard/change-password on first login.
+  // The careers link (/jobs?company=<slug>) is the company's own filtered job
+  // list, so provisioning without a slug hands every new customer a link that
+  // silently falls back to the FULL board — every competitor's roles included.
+  // Generated here, once, from the name.
+  //
+  // Same probe-and-suffix helper the job slugs use, so "Acme" then "Acme"
+  // again yields acme / acme-2 rather than a constraint violation. The loop is
+  // a backstop only — see the 23505 branch below.
+  const slug = await uniqueSlug(supabase, {
+    table: "companies",
+    base: slugify(name),
+    // A name that slugifies to nothing ("!!!", or a purely non-Latin name)
+    // would otherwise produce an empty slug and a careers link matching
+    // nothing at all.
+    fallback: "company",
+  });
+
   const { data: row, error: insertError } = await supabase
     .from("companies")
     .insert({
       user_id: userId,
       name,
+      slug,
       contact_name: contact_name || null,
       contact_email,
       status: "active",
@@ -141,6 +164,20 @@ export async function createCompany(input: {
   if (insertError || !row) {
     await supabase.auth.admin.deleteUser(userId);
     if (insertError?.code === "23505") {
+      // Two unique constraints can raise this, and they need different copy —
+      // telling someone their email is taken when the SLUG collided sends them
+      // hunting for a duplicate account that does not exist.
+      //
+      // The slug case is the probe-then-insert race: uniqueSlug saw the name
+      // free a moment before a concurrent provisioning claimed it. Retrying
+      // resolves it, because the second probe now sees the winner.
+      const detail = `${insertError.message} ${insertError.details ?? ""}`;
+      if (/slug/i.test(detail)) {
+        return {
+          success: false,
+          error: "That company name was just taken. Try again.",
+        };
+      }
       return { success: false, error: "This email is already registered." };
     }
     return { success: false, error: insertError?.message ?? "Failed to insert company." };
@@ -172,53 +209,6 @@ export async function createCompany(input: {
   return { success: true, data: { id: companyId } };
 }
 
-/**
- * Look up an auth user by exact email, in ONE bounded request.
- *
- * Deliberately NOT listUsers: that paginates the entire project's auth table
- * and truncates, so a collision with the 5,000th user would be missed while
- * the request cost grows with the whole user base.
- *
- * Uses GoTrue's admin REST endpoint, which filters server-side and honours
- * per_page. Verified against this project: an exact address returns exactly
- * one row and a nonsense address returns zero, so the filter really is
- * applied rather than silently ignored.
- *
- * `filter` is a PARTIAL match, which makes the exact-equality check below
- * load-bearing twice over — it stops a substring hit counting as a collision,
- * and it keeps this function safe if a future GoTrue ever drops the param
- * (an unfiltered page simply won't contain an exact match).
- *
- * Fails OPEN. A lookup error returns null and the edit proceeds to the real
- * auth call, which still guards. This is a message-quality improvement, not a
- * security control, and it must never block a legitimate edit.
- */
-async function findAuthUserIdByEmail(email: string): Promise<string | null> {
-  const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
-  const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
-  if (!base || !key) return null;
-
-  const target = email.trim().toLowerCase();
-  try {
-    const res = await fetch(
-      `${base}/auth/v1/admin/users?filter=${encodeURIComponent(target)}&page=1&per_page=10`,
-      {
-        headers: { apikey: key, Authorization: `Bearer ${key}` },
-        cache: "no-store",
-      },
-    );
-    if (!res.ok) return null;
-    const body = (await res.json()) as {
-      users?: Array<{ id?: string; email?: string }>;
-    };
-    const hit = (body.users ?? []).find(
-      (u) => (u.email ?? "").toLowerCase() === target,
-    );
-    return hit?.id ?? null;
-  } catch {
-    return null;
-  }
-}
 
 export async function updateCompany(
   id: string,
@@ -231,6 +221,19 @@ export async function updateCompany(
 ): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
 
+  // NOTE: `slug` is deliberately absent from this patch and from the `updates`
+  // type above, so a rename CANNOT change it.
+  //
+  // The slug is the company's careers link — /jobs?company=<slug> — which they
+  // paste into job ads, email signatures and their own site. Regenerating it on
+  // rename would silently break every copy already in circulation, and the new
+  // URL would be one nobody has. Job slugs are frozen after creation for the
+  // same reason.
+  //
+  // The displayed NAME still updates everywhere, including on existing job
+  // posts via syncJobsCompanyName below — only the URL handle is stable. If a
+  // company ever genuinely needs a new slug, that is a deliberate one-off with
+  // a redirect, not a side effect of editing a text field.
   const patch: Record<string, unknown> = {};
   if (typeof updates.name === "string") patch.name = updates.name.trim();
   if (typeof updates.contact_name === "string") {
@@ -407,19 +410,14 @@ export async function updateCompany(
   // touched. Best-effort for the same reason as the block above: the rename has
   // already committed and must not report failure because a sync didn't land.
   if (typeof patch.name === "string") {
-    const { error: jobsErr } = await supabase
-      .from("jobs")
-      .update({ company: patch.name })
-      .eq("company_id", id);
-    if (jobsErr) {
-      console.error(
-        "[admin/companies] job company-name sync failed (non-fatal)",
-        { companyId: id, error: jobsErr.message },
-      );
-    } else {
-      // The public list and the job detail pages cache the old name.
-      revalidatePath("/jobs");
-    }
+    const synced = await syncJobsCompanyName(
+      supabase,
+      id,
+      patch.name,
+      "admin/companies",
+    );
+    // The public list and the job detail pages cache the old name.
+    if (synced) revalidatePath("/jobs");
   }
 
   revalidatePath("/admin/companies");

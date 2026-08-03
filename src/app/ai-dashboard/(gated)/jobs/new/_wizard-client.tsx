@@ -704,7 +704,7 @@ export function WizardClient({
   return (
     <div className="flex min-h-full flex-col">
       {/* Wizard topbar */}
-      <div className="sticky top-[60px] z-20 flex h-[60px] shrink-0 items-center gap-3.5 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/85 px-4 backdrop-blur-xl min-[840px]:px-8">
+      <div className="sticky top-[64px] z-20 flex h-[60px] shrink-0 items-center gap-3.5 border-b border-[var(--ai-line)] bg-[var(--ai-inset)]/85 px-4 backdrop-blur-xl min-[840px]:px-8">
         <Link
           href="/ai-dashboard/jobs"
           className="inline-flex items-center gap-[7px] rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-2 text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
@@ -766,7 +766,7 @@ export function WizardClient({
               Every <p> inside sets its own colour: the design system's global
               `p { color:#444 }` beats an inherited white and would render these
               near-invisible on #141020. */}
-          <div className="min-[705px]:sticky min-[705px]:top-[146px]">
+          <div className="min-[705px]:sticky min-[705px]:top-[150px]">
             <div className="relative overflow-hidden rounded-[20px] bg-[var(--ai-sidebar)] px-[18px] py-5 shadow-[0_18px_46px_rgba(20,16,32,0.24)]">
               <span
                 aria-hidden
@@ -1646,7 +1646,7 @@ export function WizardClient({
 
           {/* Live public preview */}
           {/* Appears exactly when the third grid track does — same 1017px. */}
-          <div className="hidden min-[1017px]:sticky min-[1017px]:top-[146px] min-[1017px]:block">
+          <div className="hidden min-[1017px]:sticky min-[1017px]:top-[150px] min-[1017px]:block">
             <p className="mb-[9px] pl-0.5 text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ai-t3)]">
               Public preview
             </p>

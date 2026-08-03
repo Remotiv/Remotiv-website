@@ -3,7 +3,6 @@
 import Link from "next/link";
 import {
   ArrowRight,
-  Briefcase,
   FileText,
   LineChart,
   Mail,
@@ -11,6 +10,7 @@ import {
   Plus,
   Users,
 } from "lucide-react";
+import { categoryVisual } from "@/app/ai-dashboard/lib/category-icons";
 import {
   PIPELINE_STAGE_LABELS,
   type PipelineStage,
@@ -418,17 +418,21 @@ function ApplicantRow({ row, index }: { row: RecentApplicant; index: number }) {
 }
 
 function RoleCard({ role, index, max }: { role: LiveRole; index: number; max: number }) {
+  const visual = categoryVisual(role.category);
   return (
     <Link
       href="/ai-dashboard/applicants"
       className="block rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[18px] py-[17px] transition-[box-shadow,border-color,transform] hover:-translate-y-0.5 hover:border-[var(--ai-line-strong)] hover:shadow-[0_12px_32px_rgba(20,16,32,0.09)]"
     >
       <div className="mb-[13px] flex items-center gap-2.5">
+        {/* Icon AND tint come from the role's category, not a hash of its id.
+            Every job used to get the same briefcase in a random colour, so the
+            one element carrying category information carried none. */}
         <span
           className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px]"
-          style={{ background: getTint(role.id).bg, color: getTint(role.id).fg }}
+          style={{ background: visual.bg, color: visual.fg }}
         >
-          <Briefcase className="size-4" strokeWidth={1.8} />
+          <visual.icon className="size-4" strokeWidth={1.8} />
         </span>
         <span className="min-w-0 truncate text-[13.5px] font-bold leading-tight tracking-[-0.01em]">
           {role.title}

@@ -5,7 +5,7 @@ import {
 import type { CompanyContext, CompanyRole, CompanyRow } from "./company-roles";
 
 const COMPANY_COLUMNS =
-  "id, name, slug, contact_name, contact_email, website, logo_path, status, user_id, must_change_password, created_at";
+  "id, name, slug, contact_name, contact_email, website, logo_path, industry, description, status, user_id, must_change_password, created_at";
 
 /**
  * Resolve the logged-in user to their company + role for /ai-dashboard.
@@ -84,6 +84,8 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     contact_email: row.contact_email,
     website: row.website,
     logo_path: row.logo_path,
+    industry: row.industry,
+    description: row.description,
     status: row.status,
     user_id: row.user_id,
     must_change_password: row.must_change_password === true,

@@ -22,6 +22,7 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import { categoryVisual } from "@/app/ai-dashboard/lib/category-icons";
 import {
   canCreateJobs,
   type CompanyRole,
@@ -310,6 +311,9 @@ function JobCard({
   canManage: boolean;
   onOpen: () => void;
 }) {
+  const visual = categoryVisual(job.category);
+  // `tint` is still the id-hashed palette: it drives the progress BAR,
+  // which is a per-job accent and deliberately varied, not a category signal.
   const tint = getTint(job.id);
   const badge = STATUS_BADGE[job.status];
   const posted = fmtPosted(job.created_at, job.status);
@@ -320,9 +324,9 @@ function JobCard({
       <div className="flex items-start gap-3">
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-xl"
-          style={{ background: tint.bg, color: tint.fg }}
+          style={{ background: visual.bg, color: visual.fg }}
         >
-          <Briefcase className="size-[18px]" strokeWidth={1.8} />
+          <visual.icon className="size-[18px]" strokeWidth={1.8} />
         </span>
         <div className="min-w-0 flex-1">
           <p className="m-0 truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
@@ -472,6 +476,7 @@ function JobDrawer({
   actions: ReadonlyArray<MenuItem>;
   dangerActions: ReadonlyArray<MenuItem>;
 }) {
+  const drawerVisual = categoryVisual(job.category);
   const badge = STATUS_BADGE[job.status];
   const posted = fmtPosted(job.created_at, job.status);
   const publicUrl = job.slug ? `/jobs/${job.slug}` : null;
@@ -520,9 +525,9 @@ function JobDrawer({
           <div className="flex items-start gap-4 pr-8">
             <span
               className="flex size-[42px] shrink-0 items-center justify-center rounded-xl"
-              style={{ background: getTint(job.id).bg, color: getTint(job.id).fg }}
+              style={{ background: drawerVisual.bg, color: drawerVisual.fg }}
             >
-              <Briefcase className="size-[19px]" strokeWidth={1.8} />
+              <drawerVisual.icon className="size-[19px]" strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
               <p className="font-heading text-lg font-bold text-[var(--ai-t1)]">
@@ -1120,6 +1125,7 @@ export function JobsClient({
             </div>
 
             {paged.map((job) => {
+                const rowVisual = categoryVisual(job.category);
                 const tint = getTint(job.id);
                 const badge = STATUS_BADGE[job.status];
                 const posted = fmtPosted(job.created_at, job.status);
@@ -1137,9 +1143,9 @@ export function JobsClient({
                     <div className="flex min-w-0 items-center gap-3.5">
                       <span
                         className="flex size-[42px] shrink-0 items-center justify-center rounded-[13px] transition-transform group-hover:scale-105"
-                        style={{ background: tint.bg, color: tint.fg }}
+                        style={{ background: rowVisual.bg, color: rowVisual.fg }}
                       >
-                        <Briefcase className="size-[19px]" strokeWidth={1.8} />
+                        <rowVisual.icon className="size-[19px]" strokeWidth={1.8} />
                       </span>
                       <div className="min-w-0">
                         <p className="truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">

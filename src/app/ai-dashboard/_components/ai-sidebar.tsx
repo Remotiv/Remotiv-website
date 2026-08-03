@@ -38,7 +38,7 @@ function primaryNav(jobCount: number, applicantCount: number): ReadonlyArray<Nav
 
 const WORKSPACE_NAV: ReadonlyArray<NavItem> = [
   { label: "Team",     href: "/ai-dashboard/team",     icon: UserRound },
-  { label: "Settings", href: "/ai-dashboard/settings", icon: Settings, soon: true },
+  { label: "Settings", href: "/ai-dashboard/settings", icon: Settings },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -115,6 +115,7 @@ function getCompanyInitial(name: string): string {
 
 function SidebarBody({
   companyName,
+  companyLogoUrl,
   role,
   jobCount,
   applicantCount,
@@ -122,6 +123,7 @@ function SidebarBody({
   onNavigate,
 }: {
   companyName: string;
+  companyLogoUrl: string | null;
   role: CompanyRole;
   jobCount: number;
   applicantCount: number;
@@ -137,8 +139,16 @@ function SidebarBody({
       </div>
 
       <div className="mb-[18px] flex items-center gap-2.5 rounded-xl border border-white/[0.09] bg-white/[0.06] px-[11px] py-[9px]">
-        <span className="flex size-[30px] shrink-0 items-center justify-center rounded-[9px] bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light text-[13px] font-bold text-white">
-          {getCompanyInitial(companyName)}
+        {/* The uploaded logo where the letter tile is, falling back to the
+            initial when there is none. object-cover so a non-square upload
+            fills the tile instead of letterboxing inside it. */}
+        <span className="flex size-[30px] shrink-0 items-center justify-center overflow-hidden rounded-[9px] bg-gradient-to-br from-remotiv-purple to-remotiv-purple-light text-[13px] font-bold text-white">
+          {companyLogoUrl ? (
+            // eslint-disable-next-line @next/next/no-img-element
+            <img src={companyLogoUrl} alt="" className="size-full object-cover" />
+          ) : (
+            getCompanyInitial(companyName)
+          )}
         </span>
         <div className="min-w-0">
           <div className="truncate text-[13px] font-semibold leading-tight text-white">
@@ -168,6 +178,7 @@ function SidebarBody({
 
 export function AiSidebar({
   companyName,
+  companyLogoUrl,
   role,
   jobCount,
   applicantCount,
@@ -175,6 +186,7 @@ export function AiSidebar({
   onClose,
 }: {
   companyName: string;
+  companyLogoUrl: string | null;
   role: CompanyRole;
   jobCount: number;
   applicantCount: number;
@@ -189,6 +201,7 @@ export function AiSidebar({
       <aside className="sticky top-0 hidden h-[var(--vh-full)] w-[236px] shrink-0 flex-col self-start bg-[var(--ai-sidebar)] px-4 pb-[18px] pt-[22px] min-[840px]:flex">
         <SidebarBody
           companyName={companyName}
+          companyLogoUrl={companyLogoUrl}
           role={role}
           jobCount={jobCount}
           applicantCount={applicantCount}
@@ -220,6 +233,7 @@ export function AiSidebar({
         </button>
         <SidebarBody
           companyName={companyName}
+          companyLogoUrl={companyLogoUrl}
           role={role}
           jobCount={jobCount}
           applicantCount={applicantCount}

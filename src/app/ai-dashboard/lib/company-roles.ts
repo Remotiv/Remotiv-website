@@ -36,11 +36,39 @@ export type CompanyRow = {
   contact_email: string;
   website: string | null;
   logo_path: string | null;
+  /** Free-text-ish; constrained to COMPANY_INDUSTRIES by the settings form. */
+  industry: string | null;
+  description: string | null;
   status: CompanyStatus;
   user_id: string | null;
   must_change_password: boolean;
   created_at: string;
 };
+
+/**
+ * Industry options for the company profile.
+ *
+ * A short, closed list on purpose: it is shown publicly beside the company name
+ * and feeds the AI recruiter as context, so free text would produce a hundred
+ * spellings of "Software" and make the value useless for both. "Other" is
+ * always last and is the escape hatch rather than a catch-all default.
+ */
+export const COMPANY_INDUSTRIES = [
+  "Recruitment & staffing",
+  "Software",
+  "Finance",
+  "Healthcare",
+  "E-commerce",
+  "Education",
+  "Marketing & advertising",
+  "Manufacturing",
+  "Real estate",
+  "Other",
+] as const;
+export type CompanyIndustry = (typeof COMPANY_INDUSTRIES)[number];
+
+/** Same ceiling as a job description — see JOB_TEXT_MAX. */
+export const COMPANY_DESCRIPTION_MAX = 10_000;
 
 export type CompanyMemberStatus = "active" | "invited" | "removed";
 

@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
+import { slugify, uniqueSlug } from "@/lib/slug";
 import {
   getCompanyContext,
   requireCompanyRole,
@@ -324,15 +325,6 @@ function buildPatch(input: CompanyJobInput):
   };
 }
 
-/** URL-safe slug fragment. Same transform the admin uses. */
-function slugify(value: string): string {
-  return value
-    .toLowerCase()
-    .trim()
-    .replace(/[^a-z0-9]+/g, "-")
-    .replace(/^-+|-+$/g, "");
-}
-
 /**
  * Company-qualified slug: `acme-technologies-senior-frontend-engineer`.
  * Unlike the admin's title-only slug this stays unambiguous when two companies
@@ -344,21 +336,8 @@ async function buildSlug(
   companyName: string,
   title: string,
 ): Promise<string> {
-  const base =
-    [slugify(companyName), slugify(title)].filter(Boolean).join("-") || "job";
-  let candidate = base;
-  let n = 2;
-  for (;;) {
-    const { data: clash } = await supabase
-      .from("jobs")
-      .select("id")
-      .eq("slug", candidate)
-      .maybeSingle();
-    if (!clash) break;
-    candidate = `${base}-${n}`;
-    n += 1;
-  }
-  return candidate;
+  const base = [slugify(companyName), slugify(title)].filter(Boolean).join("-");
+  return uniqueSlug(supabase, { table: "jobs", base, fallback: "job" });
 }
 
 function revalidateJobSurfaces(): void {

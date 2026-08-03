@@ -1,6 +1,6 @@
 "use client";
 
-import { Bookmark, Briefcase, Globe, MapPin, Search, Star } from "lucide-react";
+import { ArrowLeft, Bookmark, Briefcase, Globe, MapPin, Search, Star } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
@@ -64,8 +64,16 @@ function timeAgo(iso: string): string {
   return `${days}d ago`;
 }
 
-export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
+export function JobsClient({
+  initialJobs,
+  company = null,
+}: {
+  initialJobs: Job[];
+  /** Set when /jobs?company=<slug> resolved. Null = the full public list. */
+  company?: { id: string; name: string; slug: string } | null;
+}) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
+  const companyId = company?.id ?? null;
   // Jobs are already populated from the server prop on mount, so we start in
   // the non-loading state. The refetch useEffect below skips its first run
   // (see isFirstRender ref) to avoid an immediate redundant client fetch.
@@ -211,14 +219,21 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
       try {
         const res = await fetch(`/api/jobs?${params.toString()}`);
         const data = await res.json();
-        setJobs(Array.isArray(data) ? data : []);
+        const rows: Job[] = Array.isArray(data) ? data : [];
+        // /api/jobs has no company parameter and is out of this change's
+        // scope, so the company filter is re-applied HERE. Without it the
+        // first time a visitor touched a category or contract-type filter the
+        // list would silently widen to every company's roles — which is the
+        // exact leak this page exists to prevent. Applying it at the render
+        // boundary means no fetch path can bypass it.
+        setJobs(companyId ? rows.filter((j) => j.company_id === companyId) : rows);
       } catch {
         setJobs([]);
       } finally {
         setLoading(false);
       }
     },
-    [],
+    [companyId],
   );
 
   useEffect(() => {
@@ -338,18 +353,49 @@ export function JobsClient({ initialJobs }: { initialJobs: Job[] }) {
             <div className="flex min-h-[280px] flex-col rounded-[20px] bg-[#0e0e0e] p-6 sm:p-8 md:p-10">
               <span className="mb-3.5 inline-flex w-fit items-center gap-2 rounded-full border border-remotiv-green/30 bg-remotiv-green/[0.08] px-4 py-1.5 text-[0.68rem] font-semibold uppercase tracking-[0.14em] text-remotiv-green">
                 <span className="size-1.5 rounded-full bg-remotiv-green" />
-                Now Hiring
+                {company ? "Company roles" : "Now Hiring"}
               </span>
+              {/* Filtered state has to be unmistakable — a visitor who lands
+                  here from a shared link must never mistake one company's
+                  roles for the whole board. The company's name IS the heading,
+                  and the way back out sits directly under it rather than
+                  buried in the filter panel. */}
               <h1 className="m-0 flex-1 font-heading text-[clamp(2rem,4vw,3.2rem)] font-semibold uppercase leading-none tracking-[-0.02em] text-white">
-                Jobs &amp;
-                <br />
-                <em className="not-italic text-remotiv-green">Talent</em>
+                {company ? (
+                  <>
+                    Jobs at
+                    <br />
+                    <em className="not-italic text-remotiv-green">{company.name}</em>
+                  </>
+                ) : (
+                  <>
+                    Jobs &amp;
+                    <br />
+                    <em className="not-italic text-remotiv-green">Talent</em>
+                  </>
+                )}
               </h1>
-              <p className="mt-5 text-[0.82rem] leading-[1.7] text-white/45">
-                Explore our diverse range of job openings across various departments
-                and locations, designed to match your skills, experience, and career
-                aspirations.
-              </p>
+              {company ? (
+                <div className="mt-5">
+                  <p className="text-[0.82rem] leading-[1.7] text-white/45">
+                    You&apos;re seeing only the open roles at {company.name}. Filters
+                    and search below apply to these roles.
+                  </p>
+                  <Link
+                    href="/jobs"
+                    className="mt-3.5 inline-flex items-center gap-2 rounded-full border border-white/20 bg-white/[0.06] px-4 py-2 text-[0.72rem] font-semibold uppercase tracking-[0.1em] text-white transition-colors hover:border-remotiv-green/40 hover:bg-remotiv-green/10 hover:text-remotiv-green"
+                  >
+                    <ArrowLeft className="size-3.5" strokeWidth={2.2} />
+                    View all jobs on Remotiv
+                  </Link>
+                </div>
+              ) : (
+                <p className="mt-5 text-[0.82rem] leading-[1.7] text-white/45">
+                  Explore our diverse range of job openings across various departments
+                  and locations, designed to match your skills, experience, and career
+                  aspirations.
+                </p>
+              )}
             </div>
 
             <div className="flex min-h-[160px] max-h-[320px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] bg-[linear-gradient(135deg,#0e0e0e_0%,#1a1a2e_50%,#0e0e0e_100%)] md:min-h-[280px]">
