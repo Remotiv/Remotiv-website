@@ -21,6 +21,7 @@ import {
 import {
   PIPELINE_STAGES,
   PIPELINE_STAGE_LABELS,
+  SCORE_FEEDBACK_MAX,
   SCORING_OFF_REASON,
   type ApplicantScore,
   type ApplicantScoreDetail,
@@ -30,6 +31,8 @@ import {
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
+  adjustScore,
+  clearScoreAdjustment,
   deleteApplication,
   fetchCompanyApplicant,
   updateApplicationStage,
@@ -152,6 +155,34 @@ function fmtApplied(iso: string): { main: string; sub: string } {
   if (days < 1) return { main: "Today", sub: abs };
   if (days === 1) return { main: "1d ago", sub: abs };
   return { main: `${days}d ago`, sub: abs };
+}
+
+/** "12 Mar 2026", or null when the timestamp is missing or unparseable. */
+function fmtDay(iso: string | null): string | null {
+  if (!iso) return null;
+  const d = new Date(iso);
+  if (Number.isNaN(d.getTime())) return null;
+  return d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
+  });
+}
+
+/**
+ * " · adjusted by Sara on 12 Mar 2026", or "" when neither is known.
+ *
+ * Both halves are optional because the optimistic paint deliberately doesn't
+ * guess the byline — it renders without one until the refetch supplies it.
+ */
+function adjustmentByline(detail: ApplicantScoreDetail | null): string {
+  if (!detail) return "";
+  const when = fmtDay(detail.adjusted_at);
+  const who = detail.adjusted_by_name?.trim();
+  if (who && when) return ` · adjusted by ${who} on ${when}`;
+  if (who) return ` · adjusted by ${who}`;
+  if (when) return ` · adjusted on ${when}`;
+  return "";
 }
 
 /** Pipeline stage for a row — the real column, since Step 2d. */
@@ -557,6 +588,167 @@ function ApplicantCard({
   );
 }
 
+const ADJ_BTN =
+  "rounded-[9px] px-3 py-[7px] text-xs font-semibold transition-colors disabled:cursor-not-allowed disabled:opacity-50";
+const ADJ_BTN_PRIMARY = `${ADJ_BTN} bg-remotiv-purple text-white hover:bg-[#6d38ec]`;
+const ADJ_BTN_QUIET = `${ADJ_BTN} border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`;
+
+/**
+ * Human correction of an AI score.
+ *
+ * Available on ANY row that has a score record, including failed and skipped
+ * ones — "the model couldn't read this CV but I did, and it's a 78" is a real
+ * and useful judgement, and the server contract is the same either way.
+ *
+ * The note is optional but pushed hard in the copy: two numbers say the model
+ * was wrong, only the note says why, and why is the part a readout can never
+ * reconstruct after the fact.
+ */
+function ScoreAdjuster({
+  detail,
+  saving,
+  onSave,
+  onClear,
+}: {
+  detail: ApplicantScoreDetail;
+  saving: boolean;
+  onSave: (score: number, feedback: string) => void;
+  onClear: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const [value, setValue] = useState("");
+  const [note, setNote] = useState("");
+  const [error, setError] = useState<string | null>(null);
+
+  function begin() {
+    // Seeded from whatever is showing now, so a small correction is a small
+    // edit rather than a retype.
+    setValue(String(detail.overall ?? detail.ai_overall ?? 50));
+    setNote(detail.human_feedback ?? "");
+    setError(null);
+    setEditing(true);
+  }
+
+  function commit() {
+    const parsed = Number.parseInt(value, 10);
+    if (!Number.isInteger(parsed) || parsed < 0 || parsed > 100) {
+      setError("Enter a whole number from 0 to 100.");
+      return;
+    }
+    setEditing(false);
+    onSave(parsed, note);
+  }
+
+  if (!editing) {
+    return (
+      <div className="mt-[22px] rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
+        {detail.adjusted ? (
+          <>
+            <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
+              Adjusted to {detail.overall} from the AI&apos;s{" "}
+              {detail.ai_overall ?? "—"}
+              <span className="font-normal text-[var(--ai-t3)]">
+                {adjustmentByline(detail)}
+              </span>
+            </p>
+            {detail.human_feedback && (
+              <p className="m-0 mt-2 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[13px] italic leading-relaxed text-[var(--ai-t2)]">
+                {detail.human_feedback}
+              </p>
+            )}
+            <div className="mt-3 flex flex-wrap gap-2">
+              <button type="button" onClick={begin} disabled={saving} className={ADJ_BTN_QUIET}>
+                Edit adjustment
+              </button>
+              <button type="button" onClick={onClear} disabled={saving} className={ADJ_BTN_QUIET}>
+                Revert to AI score
+              </button>
+            </div>
+          </>
+        ) : (
+          <>
+            <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
+              Disagree with this score?
+            </p>
+            <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
+              Corrections are how we find out where the AI reads candidates too
+              high or too low. The AI&apos;s own score is always kept.
+            </p>
+            <button
+              type="button"
+              onClick={begin}
+              disabled={saving}
+              className={`${ADJ_BTN_PRIMARY} mt-3`}
+            >
+              Adjust score
+            </button>
+          </>
+        )}
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-[22px] rounded-[13px] border border-remotiv-purple bg-[var(--ai-purple-tint)] px-4 py-3.5">
+      <DrawerLabel>Your score</DrawerLabel>
+      <div className="mt-1.5 flex items-center gap-3">
+        <input
+          type="range"
+          min={0}
+          max={100}
+          step={1}
+          value={Number.parseInt(value, 10) || 0}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label="Adjusted score"
+          className="h-1.5 min-w-0 flex-1 cursor-pointer accent-remotiv-purple"
+        />
+        <input
+          type="number"
+          min={0}
+          max={100}
+          step={1}
+          value={value}
+          onChange={(e) => setValue(e.target.value)}
+          aria-label="Adjusted score value"
+          className="w-[72px] shrink-0 rounded-[9px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-2.5 py-2 text-center text-sm font-bold tabular-nums text-[var(--ai-t1)] outline-none focus:border-remotiv-purple"
+        />
+      </div>
+      {detail.ai_overall != null && (
+        <p className="m-0 mt-1.5 text-xs text-[var(--ai-t3)]">
+          The AI scored {detail.ai_overall}.
+        </p>
+      )}
+
+      <div className="mt-3">
+        <DrawerLabel>Why was the AI wrong?</DrawerLabel>
+        <textarea
+          value={note}
+          onChange={(e) => setNote(e.target.value)}
+          maxLength={SCORE_FEEDBACK_MAX}
+          placeholder="Optional, but this is the part that teaches us something — e.g. “Undervalued 6 years of agency work because the CV lists clients, not employers.”"
+          className="mt-1.5 min-h-20 w-full resize-y rounded-[9px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-2.5 py-2 text-[13px] leading-relaxed text-[var(--ai-t1)] outline-none focus:border-remotiv-purple"
+        />
+      </div>
+
+      {error && <p className="m-0 mt-2 text-xs text-[#C4362F]">{error}</p>}
+
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={commit} disabled={saving} className={ADJ_BTN_PRIMARY}>
+          {saving ? "Saving…" : "Save adjustment"}
+        </button>
+        <button
+          type="button"
+          onClick={() => setEditing(false)}
+          disabled={saving}
+          className={ADJ_BTN_QUIET}
+        >
+          Cancel
+        </button>
+      </div>
+    </div>
+  );
+}
+
 // ── Drawer ───────────────────────────────────────────────────
 
 function ApplicantDrawer({
@@ -565,8 +757,11 @@ function ApplicantDrawer({
   scoreDetail,
   historyLoading,
   saving,
+  scoreSaving,
   onClose,
   onStageChange,
+  onAdjustScore,
+  onClearAdjustment,
   onDelete,
 }: {
   row: CompanyApplicantRow;
@@ -574,8 +769,11 @@ function ApplicantDrawer({
   scoreDetail: ApplicantScoreDetail | null;
   historyLoading: boolean;
   saving: boolean;
+  scoreSaving: boolean;
   onClose: () => void;
   onStageChange: (next: PipelineStage) => void;
+  onAdjustScore: (score: number, feedback: string) => void;
+  onClearAdjustment: () => void;
   onDelete: () => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
@@ -730,11 +928,24 @@ function ApplicantDrawer({
                     {scoreDetail.verdict}
                   </p>
                 ) : null}
-                <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
-                  {headerScore.confidence
-                    ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
-                    : "Scored against this job's stated requirements."}
-                </p>
+                {/* When a human has overridden, the AI's own number stays on
+                    screen right beside theirs. Hiding it would leave nothing
+                    to calibrate against — the pair, and the gap between them,
+                    is the entire signal this feature exists to collect. */}
+                {headerScore.adjusted && headerScore.ai_overall != null ? (
+                  <p className="m-0 mt-1.5 text-xs leading-relaxed text-white/55">
+                    <span className="font-semibold text-white/80">
+                      AI scored {headerScore.ai_overall}
+                    </span>
+                    {adjustmentByline(scoreDetail)}
+                  </p>
+                ) : (
+                  <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
+                    {headerScore.confidence
+                      ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
+                      : "Scored against this job's stated requirements."}
+                  </p>
+                )}
               </div>
             </div>
           ) : (
@@ -971,6 +1182,18 @@ function ApplicantDrawer({
             </>
           )}
 
+          {/* Sits after the breakdown on purpose: a reviewer should read what
+              the model concluded before overriding it. Rendered for any score
+              row, not just 'scored' — see ScoreAdjuster. */}
+          {scoreDetail && (
+            <ScoreAdjuster
+              detail={scoreDetail}
+              saving={scoreSaving}
+              onSave={onAdjustScore}
+              onClear={onClearAdjustment}
+            />
+          )}
+
           {/* Each row is conditional, so `last:border-b-0` lands on whichever
               row actually renders last — a `{cond && …}` that resolves false
               produces no DOM node, so :last-child stays correct. */}
@@ -1150,6 +1373,11 @@ export function ApplicantsClient({
   const [history, setHistory] = useState<StageHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
+  const [scoreSaving, setScoreSaving] = useState(false);
+  /** Same optimistic-override trick as stageOverrides, for the list's ring. */
+  const [scoreOverrides, setScoreOverrides] = useState<
+    Record<string, ApplicantScore>
+  >({});
 
   useEffect(() => {
     if (!toast) return;
@@ -1159,12 +1387,16 @@ export function ApplicantsClient({
 
   const rows = useMemo(
     () =>
-      applicants.map((r) =>
-        stageOverrides[r.id] && stageOverrides[r.id] !== r.pipeline_stage
-          ? { ...r, pipeline_stage: stageOverrides[r.id] }
-          : r,
-      ),
-    [applicants, stageOverrides],
+      applicants.map((r) => {
+        const stage =
+          stageOverrides[r.id] && stageOverrides[r.id] !== r.pipeline_stage
+            ? stageOverrides[r.id]
+            : r.pipeline_stage;
+        const score = scoreOverrides[r.id] ?? r.score;
+        if (stage === r.pipeline_stage && score === r.score) return r;
+        return { ...r, pipeline_stage: stage, score };
+      }),
+    [applicants, stageOverrides, scoreOverrides],
   );
 
   const stageCounts = useMemo(() => {
@@ -1351,6 +1583,107 @@ export function ApplicantsClient({
     // guessed client-side. Skipped if the drawer has since moved on.
     const detail = await fetchCompanyApplicant(id);
     if (openIdRef.current === id) setHistory(detail?.history ?? []);
+  }
+
+  /**
+   * Optimistic score correction.
+   *
+   * Both the drawer's detail and the list's ring are painted before the write,
+   * and BOTH are captured first so a rejection restores exactly what was there
+   * — including the case where the reviewer is editing an existing override
+   * rather than creating one.
+   *
+   * `adjusted_by_name` is deliberately NOT guessed client-side: it stays as it
+   * was until the refetch supplies the real value, because a byline is audit
+   * data and inventing one would be indistinguishable from the real thing.
+   */
+  async function handleAdjustScore(id: string, score: number, feedback: string) {
+    const beforeDetail = scoreDetail;
+    const beforeScore = rows.find((r) => r.id === id)?.score;
+    if (!beforeDetail || !beforeScore) return;
+
+    const optimistic: ApplicantScore = {
+      ...beforeScore,
+      overall: score,
+      adjusted: true,
+    };
+    setScoreDetail({
+      ...beforeDetail,
+      overall: score,
+      adjusted: true,
+      human_feedback: feedback.trim() || null,
+    });
+    setScoreOverrides((prev) => ({ ...prev, [id]: optimistic }));
+    setScoreSaving(true);
+
+    // The role guard THROWS rather than returning, so a rejection has to
+    // revert too — the same reason handleStageChange wraps its call.
+    let result: Awaited<ReturnType<typeof adjustScore>>;
+    try {
+      result = await adjustScore(id, score, feedback);
+    } catch {
+      result = { success: false, error: "Couldn't save — please try again." };
+    }
+    setScoreSaving(false);
+
+    if (!result.success) {
+      setScoreDetail(beforeDetail);
+      setScoreOverrides((prev) => ({ ...prev, [id]: beforeScore }));
+      setToast(result.error);
+      return;
+    }
+
+    setToast("Score adjusted");
+    const detail = await fetchCompanyApplicant(id);
+    if (openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
+    if (detail?.applicant) {
+      setScoreOverrides((prev) => ({ ...prev, [id]: detail.applicant.score }));
+    }
+  }
+
+  /** Revert to the model's own number. Same optimistic contract as above. */
+  async function handleClearAdjustment(id: string) {
+    const beforeDetail = scoreDetail;
+    const beforeScore = rows.find((r) => r.id === id)?.score;
+    if (!beforeDetail || !beforeScore) return;
+
+    const optimistic: ApplicantScore = {
+      ...beforeScore,
+      overall: beforeScore.ai_overall,
+      adjusted: false,
+    };
+    setScoreDetail({
+      ...beforeDetail,
+      overall: beforeDetail.ai_overall,
+      adjusted: false,
+      human_feedback: null,
+      adjusted_by_name: null,
+      adjusted_at: null,
+    });
+    setScoreOverrides((prev) => ({ ...prev, [id]: optimistic }));
+    setScoreSaving(true);
+
+    let result: Awaited<ReturnType<typeof clearScoreAdjustment>>;
+    try {
+      result = await clearScoreAdjustment(id);
+    } catch {
+      result = { success: false, error: "Couldn't save — please try again." };
+    }
+    setScoreSaving(false);
+
+    if (!result.success) {
+      setScoreDetail(beforeDetail);
+      setScoreOverrides((prev) => ({ ...prev, [id]: beforeScore }));
+      setToast(result.error);
+      return;
+    }
+
+    setToast("Reverted to the AI score");
+    const detail = await fetchCompanyApplicant(id);
+    if (openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
+    if (detail?.applicant) {
+      setScoreOverrides((prev) => ({ ...prev, [id]: detail.applicant.score }));
+    }
   }
 
   /**
@@ -1829,9 +2162,16 @@ export function ApplicantsClient({
           scoreDetail={scoreDetail}
           historyLoading={historyLoading}
           saving={savingId === openRow.id}
+          scoreSaving={scoreSaving}
           onClose={() => setOpenId(null)}
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);
+          }}
+          onAdjustScore={(score, feedback) => {
+            void handleAdjustScore(openRow.id, score, feedback);
+          }}
+          onClearAdjustment={() => {
+            void handleClearAdjustment(openRow.id);
           }}
           onDelete={() => setDeleteTarget(openRow)}
         />

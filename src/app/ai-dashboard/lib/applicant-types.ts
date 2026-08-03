@@ -100,6 +100,16 @@ export const SCORING_OFF_REASON = "AI CV scoring is turned off for this job.";
 
 export type ScoreConfidence = "high" | "medium" | "low";
 
+/**
+ * Ceiling on a human's calibration note.
+ *
+ * Generous on purpose — the note is the only place anyone explains WHY the
+ * model was wrong, which is the part a calibration readout can't reconstruct
+ * from two numbers. Long enough for a real paragraph, short enough that it
+ * can't be used to stash a CV in the scores table.
+ */
+export const SCORE_FEEDBACK_MAX = 1_000;
+
 /** Summary attached to every applicant row. Null when never scored. */
 export type ApplicantScore = {
   status: ScoreStatus;
@@ -108,6 +118,15 @@ export type ApplicantScore = {
    * overall_score. Null unless status is 'scored'.
    */
   overall: number | null;
+  /**
+   * The MODEL's own number, always — never replaced by the override.
+   *
+   * Carried separately so an adjusted score can be shown next to what the AI
+   * actually said. Collapsing the two would destroy the only comparison the
+   * calibration data rests on: without the original, an override records that
+   * a human disagreed but not by how much or in which direction.
+   */
+  ai_overall: number | null;
   /** True when `overall` came from a human override rather than the model. */
   adjusted: boolean;
   confidence: ScoreConfidence | null;
@@ -158,6 +177,11 @@ export type ApplicantScoreDetail = ApplicantScore & {
   screening_score: number | null;
   ai_model: string | null;
   scored_at: string | null;
+  /** The reviewer's note on why the model was off. Null when not adjusted. */
+  human_feedback: string | null;
+  /** Identity cache of whoever adjusted — frozen history, not a live lookup. */
+  adjusted_by_name: string | null;
+  adjusted_at: string | null;
 };
 
 /**

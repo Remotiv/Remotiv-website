@@ -710,15 +710,65 @@ type JobRow = {
   ai_cv_scoring_enabled: boolean | null;
 };
 
-/** Upsert on the unique application_id so a retry overwrites rather than
- *  erroring on the constraint — the handler is safe to run repeatedly. */
+/**
+ * Columns a HUMAN owns. The model must never write them, at any status.
+ *
+ * A human override is the only ground truth we will ever have about where this
+ * model runs high or low, and it is not reproducible — nobody re-reviews a
+ * candidate to regenerate it. Losing one to a routine re-score destroys the
+ * data the whole calibration effort depends on, silently.
+ */
+const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
+  "human_adjusted_score",
+  "human_feedback",
+  "adjusted_by",
+  "adjusted_by_name",
+  "adjusted_at",
+];
+
+/**
+ * Upsert on the unique application_id so a retry overwrites rather than
+ * erroring on the constraint — the handler is safe to run repeatedly.
+ *
+ * The human-override columns are STRIPPED from the payload rather than merged
+ * into it. On the ON CONFLICT DO UPDATE branch the SET list is built from the
+ * keys actually sent, so a column that was never in the payload is not
+ * assigned at all and keeps whatever the last adjustScore wrote.
+ *
+ * This is deliberately NOT a read-then-merge. Reading the override and writing
+ * it back opens a lost-update window: an adjustScore committing between the
+ * read and the write would be overwritten by the stale value we had already
+ * loaded. Never naming the columns has no such window — the re-score and a
+ * concurrent adjust touch disjoint column sets, so whichever row lock lands
+ * second leaves the other's work intact regardless of ordering.
+ *
+ * The strip is defensive, not decorative: it means a future caller that adds
+ * one of these keys to its payload gets a loud log instead of quiet data loss.
+ */
 async function writeScoreRow(
   row: Record<string, unknown>,
 ): Promise<{ error: string | null }> {
   const service = createServiceClient();
+
+  const payload: Record<string, unknown> = {};
+  const refused: string[] = [];
+  for (const [column, value] of Object.entries(row)) {
+    if (HUMAN_OVERRIDE_COLUMNS.includes(column)) {
+      refused.push(column);
+      continue;
+    }
+    payload[column] = value;
+  }
+  if (refused.length > 0) {
+    console.error(
+      "[cv-scoring] refused to write human-override columns — a re-score must never clobber a reviewer's correction",
+      { applicationId: row.application_id, refused },
+    );
+  }
+
   const { error } = await service
     .from("application_scores")
-    .upsert(row, { onConflict: "application_id" });
+    .upsert(payload, { onConflict: "application_id" });
   return { error: error?.message ?? null };
 }
 

@@ -10,6 +10,7 @@ import {
 import { enqueue } from "@/lib/jobs-queue";
 import {
   PIPELINE_STAGES,
+  SCORE_FEEDBACK_MAX,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type CompanyApplicantDetail,
@@ -76,6 +77,7 @@ type ScoreSummaryRow = {
 const NO_SCORE: ApplicantScore = {
   status: "pending",
   overall: null,
+  ai_overall: null,
   adjusted: false,
   confidence: null,
   error: null,
@@ -95,6 +97,9 @@ function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
   return {
     status,
     overall,
+    // The model's number travels alongside the override rather than being
+    // replaced by it — the UI shows both, and the difference IS the signal.
+    ai_overall: status === "scored" ? r.overall_score : null,
     adjusted,
     confidence: (r.confidence as ScoreConfidence | null) ?? null,
     error: r.error,
@@ -334,7 +339,7 @@ export async function fetchCompanyApplicant(
   const { data: scoreData, error: scoreErr } = await service
     .from("application_scores")
     .select(
-      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at`,
+      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at`,
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -358,6 +363,9 @@ export async function fetchCompanyApplicant(
         screening_score: (sRow.screening_score as number | null) ?? null,
         ai_model: (sRow.ai_model as string | null) ?? null,
         scored_at: (sRow.scored_at as string | null) ?? null,
+        human_feedback: (sRow.human_feedback as string | null) ?? null,
+        adjusted_by_name: (sRow.adjusted_by_name as string | null) ?? null,
+        adjusted_at: (sRow.adjusted_at as string | null) ?? null,
       }
     : null;
 
@@ -458,6 +466,142 @@ export async function updateApplicationStage(
       histErr,
     );
   }
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Shared ownership check for the two score-adjustment actions.
+ *
+ * Verifies the application is the caller's AND that a score row already
+ * exists. Not-found, not-yours and no-score-yet are three different failures
+ * but the first two return the SAME message, so an id from another company
+ * can't be confirmed by probing.
+ */
+async function assertAdjustableScore(
+  service: ReturnType<typeof createServiceClient>,
+  applicationId: string,
+  companyId: string,
+): Promise<{ ok: true } | { ok: false; error: string }> {
+  const { data } = await service
+    .from("job_applications")
+    .select("id, company_id_snapshot")
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  const target = data as { company_id_snapshot: string | null } | null;
+  if (!target || target.company_id_snapshot !== companyId) {
+    return { ok: false, error: "Applicant not found in your workspace." };
+  }
+
+  // Scoped by company_id too — the tenant boundary shouldn't rest on the
+  // application lookup alone, same rule the stage history follows.
+  const { data: scoreRow } = await service
+    .from("application_scores")
+    .select("application_id")
+    .eq("application_id", applicationId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+
+  if (!scoreRow) {
+    return {
+      ok: false,
+      error: "There's no AI score to correct yet. Score this CV first.",
+    };
+  }
+  return { ok: true };
+}
+
+/**
+ * Record a human's correction to an AI score.
+ *
+ * Open to hiring managers as well as the three senior roles: they review
+ * candidates, so they are exactly the people who notice the model reading
+ * someone wrong. Withholding it from them would throw away most of the signal.
+ *
+ * Writes ONLY the five override columns. overall_score and the scorecard jsonb
+ * are left exactly as the model wrote them — the original has to survive for
+ * the override to mean anything, and a re-score can still refresh the AI half
+ * without disturbing this half (see writeScoreRow in lib/ai/cv-scoring.ts).
+ */
+export async function adjustScore(
+  applicationId: string,
+  score: number,
+  feedback?: string,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole(
+    "owner",
+    "admin",
+    "recruiter",
+    "hiring_manager",
+  );
+
+  // Validated server-side against a forged payload, not just by the input's
+  // min/max. Integer, because a fractional human judgement is false precision.
+  if (!Number.isFinite(score) || !Number.isInteger(score) || score < 0 || score > 100) {
+    return { success: false, error: "Score must be a whole number from 0 to 100." };
+  }
+
+  const service = createServiceClient();
+  const allowed = await assertAdjustableScore(service, applicationId, ctx.companyId);
+  if (!allowed.ok) return { success: false, error: allowed.error };
+
+  const note = (feedback ?? "").trim().slice(0, SCORE_FEEDBACK_MAX);
+
+  const { error } = await service
+    .from("application_scores")
+    .update({
+      human_adjusted_score: score,
+      human_feedback: note || null,
+      adjusted_by: ctx.user.id,
+      // Cached, not looked up later: this is audit history and must keep
+      // saying who made the call even after they leave the company.
+      adjusted_by_name: ctx.memberName,
+      adjusted_at: new Date().toISOString(),
+    })
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId);
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Drop a correction and fall back to the model's own score.
+ *
+ * Nulls all five columns together — a half-cleared row (a score with no author,
+ * or an author with no score) would read as corrupt in the calibration set.
+ */
+export async function clearScoreAdjustment(
+  applicationId: string,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole(
+    "owner",
+    "admin",
+    "recruiter",
+    "hiring_manager",
+  );
+
+  const service = createServiceClient();
+  const allowed = await assertAdjustableScore(service, applicationId, ctx.companyId);
+  if (!allowed.ok) return { success: false, error: allowed.error };
+
+  const { error } = await service
+    .from("application_scores")
+    .update({
+      human_adjusted_score: null,
+      human_feedback: null,
+      adjusted_by: null,
+      adjusted_by_name: null,
+      adjusted_at: null,
+    })
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId);
+
+  if (error) return { success: false, error: error.message };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
