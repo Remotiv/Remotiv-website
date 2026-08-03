@@ -83,9 +83,13 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
     const essential = q.essential === true;
 
     if (type === "yesno") {
-      // Anything that isn't one of the two real answers is "unset" — no
-      // silent fallback to "Yes", which decided the question for the company.
-      const ideal = q.ideal === "Yes" || q.ideal === "No" ? q.ideal : "";
+      // Defaults to "Yes" — the one type where a default is honest rather than
+      // a hidden decision. Screening questions are near-universally phrased so
+      // that Yes is the good answer ("Do you have a work permit?"), and there
+      // are only two options, both visible in the select. Numeric and multiple
+      // choice keep their no-default rule: those have no natural right answer,
+      // and inventing one is what shipped the 0-threshold bug.
+      const ideal = q.ideal === "No" ? "No" : "Yes";
       cleaned.push({ id, question, type, ideal, options: [], essential });
     } else if (type === "numeric") {
       // "collect this number, don't filter on it" IS the mode now — a company
@@ -163,6 +167,10 @@ function assertPublishableQuestions(
     const bound = resolveNumericMode(unset) === "max" ? "maximum" : "minimum";
     return `Screening question "${unset.question}" needs a ${bound} above 0, or set it to collect the number without a threshold, before this job can be published.`;
   }
+  // yesno can no longer reach here — sanitizeQuestions defaults it to "Yes",
+  // including legacy rows stored with "". Kept in the map so the record stays
+  // exhaustive over the type union rather than silently losing a case if the
+  // default is ever removed.
   const NEEDS: Record<"multiple" | "yesno", string> = {
     multiple: "needs its ideal option chosen",
     yesno: "needs an ideal answer chosen",

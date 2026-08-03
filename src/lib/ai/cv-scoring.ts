@@ -218,10 +218,19 @@ export function computeScreeningScore(
   return Math.round((earned / possible) * 100);
 }
 
-/** Essential questions the candidate did not match, phrased for the employer. */
+/**
+ * Essential questions the candidate did not match, phrased for the employer.
+ *
+ * `scored === false` is excluded for the same reason it is excluded from
+ * computeScreeningScore: a numeric_mode 'none' question has no ideal by design,
+ * so it cannot be missed. Without this check it produced a live scorecard
+ * reading `Screening: "How many qualified leads…" — answered "1", you asked for
+ * ""` — a missing requirement invented from a question that was never a test,
+ * with the empty ideal printed straight into the recruiter's card.
+ */
 function unmatchedEssentials(answers: ScreeningAnswerSnapshot[]): string[] {
   return answers
-    .filter((a) => a.essential && !a.matched)
+    .filter((a) => a.scored !== false && a.essential && !a.matched)
     .map((a) => {
       const given = a.answer_label || a.answer || "no answer";
       const wanted = a.ideal_label || a.ideal;

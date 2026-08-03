@@ -1,7 +1,6 @@
 "use client";
 
 import {
-  IconAlertTriangle,
   IconCheck,
   IconFileText,
   IconSend,
@@ -10,7 +9,7 @@ import {
   IconX,
 } from "@tabler/icons-react";
 import Link from "next/link";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
@@ -62,12 +61,11 @@ function isAnswered(q: ScreeningQuestion, ans: string | undefined): boolean {
   if (q.type === "numeric") return String(ans).trim() !== "";
   return ans !== "";
 }
-function isMatch(q: ScreeningQuestion, ans: string | undefined): boolean {
-  if (!isAnswered(q, ans)) return false;
-  if (q.type === "yesno") return ans === q.ideal;
-  if (q.type === "numeric") return Number(ans) >= Number(q.ideal);
-  return String(ans) === String(q.ideal); // multiple — index vs index
-}
+// isMatch() lived here and was deleted with the qualifications warning: it was
+// the CLIENT's copy of the matching rule, and its numeric branch was a bare
+// `>=` that predates numeric_mode — so it would have told a candidate they
+// "failed" a maximum or a no-threshold question. /api/apply is and remains the
+// only place answers are scored.
 
 export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
   const questions = job.screening_questions ?? [];
@@ -113,13 +111,6 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       document.body.style.overflow = prev;
     };
   }, []);
-
-  // Live soft warning — any ESSENTIAL question that is answered but fails its
-  // ideal. Soft only: it never blocks submit.
-  const failedEssentials = useMemo(
-    () => questions.filter((q) => q.essential && isAnswered(q, answers[q.id]) && !isMatch(q, answers[q.id])),
-    [questions, answers],
-  );
 
   // Auto-close after success — but only when we have nothing more to offer.
   // When a bridge token is present, the success modal renders the
@@ -646,19 +637,13 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                 </>
               )}
 
-              {failedEssentials.length > 0 && (
-                <div className="ap-warn">
-                  <IconAlertTriangle size={20} className="ap-warn-ic" />
-                  <div>
-                    <div className="ap-warn-title font-heading">
-                      You don&apos;t meet all the preferred qualifications for this role
-                    </div>
-                    <div className="ap-warn-sub">
-                      You can still submit your application — the team will review it.
-                    </div>
-                  </div>
-                </div>
-              )}
+              {/* The "you don't meet all the preferred qualifications" warning
+                  was removed here. It discouraged candidates mid-application
+                  for a soft check that never blocked submit anyway, and it
+                  leaked the employer's thresholds: a candidate could vary one
+                  answer at a time and read the exact cut-off off the warning
+                  appearing and disappearing. Screening answers are still
+                  captured and scored server-side, unchanged. */}
 
               {submitError && (
                 <p role="alert" className="ap-errbanner">

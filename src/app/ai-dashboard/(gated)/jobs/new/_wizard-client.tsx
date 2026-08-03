@@ -189,7 +189,11 @@ function hasUsableIdeal(q: ScreeningQuestion): boolean {
     return Number.isFinite(n) && n > 0;
   }
   if (q.type === "multiple") return idealOptionLabel(q) !== undefined;
-  return q.ideal === "Yes" || q.ideal === "No";
+  // Yes/No is ALWAYS publishable: it defaults to "Yes", and sanitizeQuestions
+  // coerces anything else to "Yes"/"No" server-side, so there is no unset state
+  // to gate on. Blocking publish to make a company confirm the obvious answer
+  // on every binary question was pure friction.
+  return true;
 }
 
 /**
@@ -509,9 +513,10 @@ export function WizardClient({
         id: crypto.randomUUID(),
         question: "",
         type: "yesno",
-        // Starts UNSET, not "Yes". A pre-filled ideal is a decision the company
-        // never made, and every published question had one.
-        ideal: "",
+        // "Yes" by default. A binary whose good answer is Yes ~95% of the time
+        // does not need confirming on every question — see hasUsableIdeal.
+        // Numeric and multiple choice still start UNSET.
+        ideal: "Yes",
         options: [],
         essential: false,
       },
@@ -532,7 +537,9 @@ export function WizardClient({
     // fresh default would be the very thing that shipped 0-thresholds.
     patchQuestion(index, {
       type,
-      ideal: "",
+      // Yes/No lands on its default; the other two reset to unset, because an
+      // ideal carried over from another answer type is meaningless.
+      ideal: type === "yesno" ? "Yes" : "",
       options: type === "multiple" ? ["", ""] : [],
       // Switching TO numeric starts on "minimum", the mode most people mean
       // when they add one. Switching AWAY clears it so a stale mode can't ride
@@ -1166,7 +1173,6 @@ export function WizardClient({
                               aria-label={`Ideal answer for question ${i + 1}`}
                               className={idealCls(q)}
                             >
-                              <option value="">Choose the ideal answer…</option>
                               <option value="Yes">Yes</option>
                               <option value="No">No</option>
                             </select>

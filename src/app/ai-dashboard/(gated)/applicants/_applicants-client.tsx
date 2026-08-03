@@ -1732,10 +1732,15 @@ export function ApplicantsClient({
     ];
 
     const screeningCell = (r: CompanyApplicantRow): string => {
-      const total = r.screening_answers.length;
-      if (total === 0) return "No questions";
-      const met = r.screening_answers.filter((a) => a.matched).length;
-      return `${met}/${total} thresholds met`;
+      // Counted over TESTED questions only, both sides. A numeric_mode 'none'
+      // question has no threshold to meet, so including it in the denominator
+      // would report "2/3 thresholds met" on a candidate who met both of the
+      // two that existed.
+      const tested = r.screening_answers.filter((a) => a.scored !== false);
+      if (r.screening_answers.length === 0) return "No questions";
+      if (tested.length === 0) return "No thresholds set";
+      const met = tested.filter((a) => a.matched).length;
+      return `${met}/${tested.length} thresholds met`;
     };
 
     const lines = [
