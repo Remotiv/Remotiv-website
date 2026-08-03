@@ -105,7 +105,63 @@ const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: s
   { value: "multiple", label: "Multiple choice" },
 ];
 
+/*
+ * `ideal` means something different per type, and "Ideal answer" said none of
+ * it. For numeric it is a FLOOR — /api/apply matches with `answer >= ideal` —
+ * which is why a job full of unset zeroes told a manager applicant answering
+ * 0 years, 0 reports and 0 Agile that they met every threshold.
+ */
+const IDEAL_LABEL: Record<ScreeningQuestion["type"], string> = {
+  yesno: "Ideal answer",
+  numeric: "Minimum acceptable",
+  multiple: "Answer options (one per line)",
+};
+
+const IDEAL_HINT: Record<ScreeningQuestion["type"], string> = {
+  yesno: "Candidates answering differently are flagged.",
+  numeric: "Candidates answering below this are flagged. Must be more than 0.",
+  multiple: "Candidates choosing anything else are flagged.",
+};
+
+/** Per-question validation errors share a prefix so they can be cleared as a set. */
+const QUESTION_ERR_PREFIX = "question_";
+
+const QUESTION_IDEAL_ERROR: Record<
+  ScreeningQuestion["type"],
+  (n: number) => string
+> = {
+  numeric: (n) =>
+    `Question ${n} needs a minimum above 0 — a minimum of 0 passes every candidate.`,
+  multiple: (n) => `Question ${n} needs its ideal option chosen.`,
+  yesno: (n) => `Question ${n} needs an ideal answer chosen.`,
+};
+
 // ── Helpers ──────────────────────────────────────────────────
+
+/**
+ * The options the SERVER will actually store: it drops blank lines before
+ * indexing, so an ideal index picked against the raw textarea rows would point
+ * at the wrong option the moment someone leaves a blank line in the middle.
+ */
+function liveOptions(q: ScreeningQuestion): string[] {
+  return q.options.map((o) => o.trim()).filter(Boolean);
+}
+
+/** The currently-chosen option's LABEL, or undefined when nothing is chosen. */
+function idealOptionLabel(q: ScreeningQuestion): string | undefined {
+  const idx = Number.parseInt(q.ideal, 10);
+  return Number.isInteger(idx) ? liveOptions(q)[idx] : undefined;
+}
+
+/** A numeric floor of 0 can never flag anyone — the answer field is min=0. */
+function hasUsableIdeal(q: ScreeningQuestion): boolean {
+  if (q.type === "numeric") {
+    const n = Number.parseFloat(q.ideal);
+    return Number.isFinite(n) && n > 0;
+  }
+  if (q.type === "multiple") return idealOptionLabel(q) !== undefined;
+  return q.ideal === "Yes" || q.ideal === "No";
+}
 
 function fmtNumber(value: string): string {
   const n = Number.parseInt(String(value).replace(/[^0-9]/g, ""), 10);
@@ -143,6 +199,13 @@ function CharCount({ value, hint }: { value: string; hint?: string }) {
         )
       )}
     </p>
+  );
+}
+
+/** Small explanatory line under a screening-question control. */
+function FieldHint({ text }: { text: string }) {
+  return (
+    <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--ai-t3)]">{text}</p>
   );
 }
 
@@ -316,9 +379,16 @@ export function WizardClient({
   function set<K extends keyof CompanyJobInput>(key: K, value: CompanyJobInput[K]) {
     setState((prev) => ({ ...prev, [key]: value }));
     setErrors((prev) => {
-      if (!prev[key as string]) return prev;
+      // Touching ANY question clears every per-question error: they're keyed by
+      // question id, and the row that was flagged may since have been removed.
+      const stale =
+        key === "screening_questions"
+          ? Object.keys(prev).filter((k) => k.startsWith(QUESTION_ERR_PREFIX))
+          : [];
+      if (!prev[key as string] && stale.length === 0) return prev;
       const next = { ...prev };
       delete next[key as string];
+      for (const k of stale) delete next[k];
       return next;
     });
   }
@@ -344,6 +414,22 @@ export function WizardClient({
       else if (!state.salary_max || Number.isNaN(max) || max < min) {
         next.salary_max = "Max must be equal to or above the minimum.";
       }
+    }
+
+    // Step 4 was previously ungated entirely — publish only ran steps 1–3,
+    // which is how numeric questions reached production with no threshold.
+    if (target === 4) {
+      state.screening_questions.forEach((q, i) => {
+        const key = `${QUESTION_ERR_PREFIX}${q.id}`;
+        if (next[key]) return;
+        if (!q.question.trim()) {
+          next[key] = `Question ${i + 1} has no text — write it or remove it.`;
+        } else if (q.type === "multiple" && liveOptions(q).length < 2) {
+          next[key] = `Question ${i + 1} needs at least two answer options.`;
+        } else if (!hasUsableIdeal(q)) {
+          next[key] = QUESTION_IDEAL_ERROR[q.type](i + 1);
+        }
+      });
     }
 
     if (Object.keys(next).length > 0) {
@@ -381,7 +467,9 @@ export function WizardClient({
         id: crypto.randomUUID(),
         question: "",
         type: "yesno",
-        ideal: "Yes",
+        // Starts UNSET, not "Yes". A pre-filled ideal is a decision the company
+        // never made, and every published question had one.
+        ideal: "",
         options: [],
         essential: false,
       },
@@ -397,12 +485,40 @@ export function WizardClient({
 
   function changeType(index: number, type: ScreeningQuestion["type"]) {
     // Reset `ideal`/`options` to that type's shape so a half-migrated question
-    // can never reach the server.
+    // can never reach the server. `ideal` resets to UNSET whatever the type —
+    // an ideal carried over from another answer type is meaningless, and a
+    // fresh default would be the very thing that shipped 0-thresholds.
     patchQuestion(index, {
       type,
-      ideal: type === "yesno" ? "Yes" : type === "numeric" ? "0" : "0",
+      ideal: "",
       options: type === "multiple" ? ["", ""] : [],
     });
+  }
+
+  /**
+   * Re-splitting the options textarea can invalidate an index already chosen,
+   * so the selection is remapped BY LABEL: rename or delete the ideal option
+   * and it clears, reorder the list and the same option stays ideal. Without
+   * this, adding a line above the chosen one would silently move the ideal.
+   */
+  function changeOptions(index: number, raw: string) {
+    const q = questions[index];
+    const previous = idealOptionLabel(q);
+    const options = raw.split("\n");
+    const nextIdx = previous
+      ? options.map((o) => o.trim()).filter(Boolean).indexOf(previous)
+      : -1;
+    patchQuestion(index, {
+      options,
+      ideal: nextIdx >= 0 ? String(nextIdx) : "",
+    });
+  }
+
+  /** Red ring on an ideal field the publish gate flagged. */
+  function idealCls(q: ScreeningQuestion): string {
+    return errors[`${QUESTION_ERR_PREFIX}${q.id}`]
+      ? `${INPUT_CLS} ${INPUT_ERR_CLS}`
+      : INPUT_CLS;
   }
 
   function removeQuestion(index: number) {
@@ -420,7 +536,9 @@ export function WizardClient({
     // Drafts skip validation beyond a title — the point of a draft is that it
     // isn't finished yet. Publishing runs every gate.
     if (status === "open") {
-      for (let k = 1; k <= 3; k++) {
+      // 4, not 3: screening is now a publish gate. A draft still saves with
+      // half-built questions — buildPatch only enforces this for status 'open'.
+      for (let k = 1; k <= 4; k++) {
         if (!validate(k)) {
           setStep(k);
           return;
@@ -945,7 +1063,7 @@ export function WizardClient({
                         </button>
                       </div>
 
-                      <div className="grid grid-cols-1 items-end gap-2.5 min-[525px]:grid-cols-[150px_1fr]">
+                      <div className="grid grid-cols-1 items-start gap-2.5 min-[525px]:grid-cols-[150px_1fr]">
                         <div>
                           <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
                             Answer type
@@ -966,19 +1084,16 @@ export function WizardClient({
 
                         <div>
                           <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
-                            {q.type === "numeric"
-                              ? "Ideal answer (minimum)"
-                              : q.type === "multiple"
-                                ? "Options (one per line) · ideal is the first"
-                                : "Ideal answer"}
+                            {IDEAL_LABEL[q.type]}
                           </span>
                           {q.type === "yesno" && (
                             <select
                               value={q.ideal}
                               onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
                               aria-label={`Ideal answer for question ${i + 1}`}
-                              className={INPUT_CLS}
+                              className={idealCls(q)}
                             >
+                              <option value="">Choose the ideal answer…</option>
                               <option value="Yes">Yes</option>
                               <option value="No">No</option>
                             </select>
@@ -987,29 +1102,63 @@ export function WizardClient({
                             <input
                               type="number"
                               min={0}
+                              step="any"
                               value={q.ideal}
                               onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
                               placeholder="e.g. 3"
-                              aria-label={`Ideal answer for question ${i + 1}`}
-                              className={INPUT_CLS}
+                              aria-label={`Minimum acceptable answer for question ${i + 1}`}
+                              className={idealCls(q)}
                             />
                           )}
                           {q.type === "multiple" && (
                             <textarea
                               value={q.options.join("\n")}
-                              onChange={(e) =>
-                                patchQuestion(i, {
-                                  options: e.target.value.split("\n"),
-                                  ideal: "0",
-                                })
-                              }
+                              onChange={(e) => changeOptions(i, e.target.value)}
                               placeholder={"Best match\nAcceptable\nNot a fit"}
                               aria-label={`Options for question ${i + 1}`}
                               className={`${INPUT_CLS} min-h-20 resize-y`}
                             />
                           )}
+                          {q.type !== "multiple" && <FieldHint text={IDEAL_HINT[q.type]} />}
                         </div>
                       </div>
+
+                      {/* Multiple choice stores `ideal` as an option INDEX, and
+                          nothing ever asked which one — it was hardcoded to 0
+                          on every keystroke, so "the first option" looked like
+                          a choice the company had made. Now it's explicit. */}
+                      {q.type === "multiple" && (
+                        <div className="mt-2.5">
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Ideal option
+                          </span>
+                          <select
+                            value={q.ideal}
+                            onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
+                            disabled={liveOptions(q).length < 2}
+                            aria-label={`Ideal option for question ${i + 1}`}
+                            className={`${idealCls(q)} disabled:cursor-not-allowed disabled:opacity-50`}
+                          >
+                            <option value="">
+                              {liveOptions(q).length < 2
+                                ? "Add at least two options first…"
+                                : "Choose the ideal option…"}
+                            </option>
+                            {liveOptions(q).map((opt, idx) => (
+                              <option key={`${idx}-${opt}`} value={String(idx)}>
+                                {opt}
+                              </option>
+                            ))}
+                          </select>
+                          <FieldHint text={IDEAL_HINT.multiple} />
+                        </div>
+                      )}
+
+                      {errors[`${QUESTION_ERR_PREFIX}${q.id}`] && (
+                        <p className="mt-2 text-xs text-[#C4362F]">
+                          {errors[`${QUESTION_ERR_PREFIX}${q.id}`]}
+                        </p>
+                      )}
 
                       <div className="mt-[11px] flex items-center gap-2.5 border-t border-[var(--ai-line-soft)] pt-[11px]">
                         <span className="ml-auto flex items-center gap-2.5 text-[12.5px] font-semibold text-[var(--ai-t2)]">
@@ -1105,7 +1254,20 @@ export function WizardClient({
                                 </span>
                               )}
                             </span>
-                            <span className="ml-auto shrink-0 text-[11px] font-semibold text-[var(--ai-t4)]">
+                            {/* Surfaced here too — Review is the last place a
+                                company looks before publishing, and the gate
+                                should be visible rather than only firing on
+                                the button. */}
+                            {!hasUsableIdeal(q) && (
+                              <span className={`${PILL} ml-auto bg-[#FBE3E1] text-[#B02A24]`}>
+                                No threshold
+                              </span>
+                            )}
+                            <span
+                              className={`shrink-0 text-[11px] font-semibold text-[var(--ai-t4)] ${
+                                hasUsableIdeal(q) ? "ml-auto" : ""
+                              }`}
+                            >
                               {QUESTION_TYPES.find((t) => t.value === q.type)?.label}
                             </span>
                           </div>

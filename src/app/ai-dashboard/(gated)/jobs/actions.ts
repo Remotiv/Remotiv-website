@@ -48,6 +48,20 @@ function oneOf<T extends string>(
  * Server-side cleanup of the screening-questions array — mirrors the admin
  * sanitizeQuestions exactly so both surfaces write the identical jsonb shape
  * that /api/apply re-reads and scores against. Empty result ([]) is valid.
+ *
+ * An unset/invalid `ideal` now stores "" rather than coercing to "0".
+ *
+ * That coercion was the bug: /api/apply matches numeric answers with
+ * `answer >= ideal`, the answer field can't go below 0, so `>= 0` passed
+ * EVERY candidate. A manager applicant answering 0 years leading teams,
+ * 0 team size and 0 years Agile met all three "thresholds".
+ *
+ * "" is the honest "not set yet", and it is fail-CLOSED for yesno and
+ * multiple (`answer === ""` never matches a real answer). It is NOT
+ * fail-closed for numeric — `Number("")` is 0, not NaN, which reproduces the
+ * same tautology — so assertPublishableQuestions below keeps "" off any job
+ * that is actually open. Drafts keep it, so a half-built question survives a
+ * save instead of being silently dropped.
  */
 function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
   if (!Array.isArray(input)) return [];
@@ -69,25 +83,54 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
     const essential = q.essential === true;
 
     if (type === "yesno") {
-      const ideal = q.ideal === "No" ? "No" : "Yes";
+      // Anything that isn't one of the two real answers is "unset" — no
+      // silent fallback to "Yes", which decided the question for the company.
+      const ideal = q.ideal === "Yes" || q.ideal === "No" ? q.ideal : "";
       cleaned.push({ id, question, type, ideal, options: [], essential });
     } else if (type === "numeric") {
+      // `> 0`, not `>= 0`: the answer field is min=0, so a minimum of 0 is a
+      // tautology that can never flag anyone. A company that wants 0 wants
+      // "collect this number, don't filter on it" — a mode we don't have yet.
       const n = Number.parseFloat(String(q.ideal ?? ""));
-      const ideal = Number.isFinite(n) && n >= 0 ? String(n) : "0";
+      const ideal = Number.isFinite(n) && n > 0 ? String(n) : "";
       cleaned.push({ id, question, type, ideal, options: [], essential });
     } else {
       const options = (Array.isArray(q.options) ? q.options : [])
         .map((o) => (typeof o === "string" ? o.trim() : ""))
         .filter((o) => o.length > 0);
       if (options.length < 2) continue; // multiple requires >= 2 options
-      const idx = Number.parseInt(String(q.ideal ?? "0"), 10);
-      const ideal = String(
-        Number.isInteger(idx) && idx >= 0 && idx < options.length ? idx : 0,
-      );
+      // No fallback to index 0 either: "the first option" was never a choice
+      // the company made, just what an unset field happened to mean.
+      const idx = Number.parseInt(String(q.ideal ?? ""), 10);
+      const ideal =
+        Number.isInteger(idx) && idx >= 0 && idx < options.length ? String(idx) : "";
       cleaned.push({ id, question, type, ideal, options, essential });
     }
   }
   return cleaned;
+}
+
+/**
+ * Publish gate for screening questions.
+ *
+ * A question whose `ideal` is "" scores nothing meaningful, so it must not
+ * reach a public job. Returns an error string naming the offender, or null.
+ *
+ * Only enforced for status 'open'. Drafts are allowed to be half-built —
+ * that is what a draft is — and 'closed' jobs take no new applications.
+ */
+function assertPublishableQuestions(
+  questions: ScreeningQuestion[],
+): string | null {
+  const unset = questions.find((q) => q.ideal === "");
+  if (!unset) return null;
+
+  const NEEDS: Record<ScreeningQuestion["type"], string> = {
+    numeric: "needs a minimum acceptable value",
+    multiple: "needs its ideal option chosen",
+    yesno: "needs an ideal answer chosen",
+  };
+  return `Screening question "${unset.question}" ${NEEDS[unset.type]} before this job can be published.`;
 }
 
 /**
@@ -147,6 +190,12 @@ function buildPatch(input: CompanyJobInput):
   const avatarOn = input.avatar_interview_enabled === true;
   const asyncOn = input.async_interview_enabled === true;
 
+  const screeningQuestions = sanitizeQuestions(input.screening_questions);
+  if (status === "open") {
+    const unpublishable = assertPublishableQuestions(screeningQuestions);
+    if (unpublishable) return { ok: false, error: unpublishable };
+  }
+
   // Length ceiling enforced server-side too — the textarea's maxLength only
   // stops typing, not a direct action call with a forged payload.
   const longFields: ReadonlyArray<[string, string]> = [
@@ -180,7 +229,7 @@ function buildPatch(input: CompanyJobInput):
       description: (input.description ?? "").trim() || null,
       responsibilities: (input.responsibilities ?? "").trim() || null,
       requirements: (input.requirements ?? "").trim() || null,
-      screening_questions: sanitizeQuestions(input.screening_questions),
+      screening_questions: screeningQuestions,
       status,
       allow_rerecord: input.allow_rerecord !== false,
       ai_cv_scoring_enabled: input.ai_cv_scoring_enabled !== false,
@@ -406,6 +455,24 @@ export async function updateCompanyJobStatus(
   const supabase = createServiceClient();
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
+
+  // Draft → Published never goes through buildPatch, so without this a job
+  // could carry an unset threshold onto the public site by the back door.
+  // Re-read what's actually stored rather than trusting anything client-side.
+  if (status === "open") {
+    const { data: stored } = await supabase
+      .from("jobs")
+      .select("screening_questions")
+      .eq("id", jobId)
+      .maybeSingle();
+    const unpublishable = assertPublishableQuestions(
+      sanitizeQuestions((stored as { screening_questions?: unknown } | null)
+        ?.screening_questions),
+    );
+    if (unpublishable) {
+      return { success: false, error: `${unpublishable} Open the job to fix it.` };
+    }
+  }
 
   const { error } = await supabase
     .from("jobs")
