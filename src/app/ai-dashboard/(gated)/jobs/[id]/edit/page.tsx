@@ -75,6 +75,36 @@ export default async function EditJobPage({
     ? (job.screening_questions as ScreeningQuestion[])
     : [];
 
+  /**
+   * How many people have already answered each screening question.
+   *
+   * Drives the wizard's warning when an answer type is changed on a question
+   * that already has answers — those answers become incomparable with anything
+   * collected afterwards (a live job had four "6 years" replies and one "Yes"
+   * sitting under the same question after a numeric → yes/no switch).
+   *
+   * Counted per QUESTION, not per job: a question added last week has fewer
+   * answers than the job has applications, and the warning claims a number.
+   * Scoped by company_id_snapshot as well as job_id — the same tenant rule
+   * every other applicant query follows, never the id lookup alone. Failure is
+   * non-fatal: an empty map just means no warnings, never a blocked edit.
+   */
+  const { data: answerRows } = await service
+    .from("job_applications")
+    .select("screening_answers")
+    .eq("job_id", job.id)
+    .eq("company_id_snapshot", ctx.companyId)
+    .limit(1000);
+
+  const answeredCounts: Record<string, number> = {};
+  for (const row of (answerRows ?? []) as { screening_answers: unknown }[]) {
+    if (!Array.isArray(row.screening_answers)) continue;
+    for (const a of row.screening_answers as { question_id?: unknown }[]) {
+      const qid = typeof a?.question_id === "string" ? a.question_id : null;
+      if (qid) answeredCounts[qid] = (answeredCounts[qid] ?? 0) + 1;
+    }
+  }
+
   const initialState: CompanyJobInput = {
     title: job.title ?? "",
     location: job.location ?? "",
@@ -114,6 +144,7 @@ export default async function EditJobPage({
       mode="edit"
       jobId={job.id}
       initialState={initialState}
+      answeredCounts={answeredCounts}
     />
   );
 }

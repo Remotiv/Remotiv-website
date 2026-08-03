@@ -37,7 +37,7 @@ import { recordUsage } from "@/lib/usage";
  * buckets costs sample size and is recoverable in analysis; pooling two
  * sampling regimes is not recoverable at all.
  */
-export const PROMPT_VERSION = "cv-scoring-v8";
+export const PROMPT_VERSION = "cv-scoring-v9";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -403,12 +403,22 @@ export function buildUserMessage(input: ScoreInput): string {
   const screening =
     screeningAnswers.length > 0
       ? screeningAnswers
-          .map(
-            (a) =>
-              `- ${a.essential ? "[essential] " : ""}${a.question}\n  answered: ${
-                a.answer_label || a.answer || "(no answer)"
-              }\n  employer's ideal: ${a.ideal_label || a.ideal}\n  matched: ${a.matched ? "yes" : "no"}`,
-          )
+          .map((a) => {
+            const head = `- ${a.essential ? "[essential] " : ""}${a.question}\n  answered: ${
+              a.answer_label || a.answer || "(no answer)"
+            }`;
+            // A numeric_mode 'none' question was collected, never tested. It has
+            // no ideal by design, so the ideal/matched pair is OMITTED rather
+            // than printed as an empty ideal and "matched: no" — that read as a
+            // failed test, and the model duly invented a missing requirement
+            // out of a question nobody could fail.
+            if (a.scored === false) {
+              return `${head}\n  (collected for context — the employer set no threshold, so there is nothing to pass or fail here)`;
+            }
+            return `${head}\n  employer's ideal: ${a.ideal_label || a.ideal}\n  matched: ${
+              a.matched ? "yes" : "no"
+            }`;
+          })
           .join("\n")
       : "(this job asked no screening questions)";
 

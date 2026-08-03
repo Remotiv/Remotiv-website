@@ -4,6 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   ChevronDown,
@@ -388,6 +389,7 @@ export function WizardClient({
   mode = "create",
   jobId,
   initialState,
+  answeredCounts,
 }: {
   companyName: string;
   mode?: "create" | "edit";
@@ -395,6 +397,12 @@ export function WizardClient({
   jobId?: string;
   /** Prefill for edit mode; create starts from EMPTY_JOB_INPUT. */
   initialState?: CompanyJobInput;
+  /**
+   * question_id → how many applicants already answered it. Edit mode only;
+   * a newly created job has none, and a question added in this session cannot
+   * have any either.
+   */
+  answeredCounts?: Record<string, number>;
 }) {
   const router = useRouter();
   const isEdit = mode === "edit";
@@ -411,6 +419,38 @@ export function WizardClient({
   // Collapsed by default: Review's job is to get to Publish, and five toggles
   // above the publish note would bury it. Every option already has a default.
   const [moreOpen, setMoreOpen] = useState(false);
+
+  /**
+   * The answer type each question had WHEN THE PAGE LOADED.
+   *
+   * Captured once from the prefill, so the type-change warning compares against
+   * what applicants actually answered rather than against whatever the select
+   * showed a keystroke ago. A ref, not state: it must never be recomputed as
+   * the user edits, or changing a type would immediately update the baseline
+   * and the warning would vanish the moment it became true.
+   */
+  const originalTypesRef = useRef<Record<string, ScreeningQuestion["type"]>>(
+    Object.fromEntries(
+      (initialState?.screening_questions ?? []).map((q) => [q.id, q.type]),
+    ),
+  );
+
+  /**
+   * Non-blocking warning for a question whose type changed after people had
+   * already answered it. Null when there is nothing to say.
+   *
+   * Deliberately advisory: the company owns its job, and the mis-set type this
+   * exists to catch is often exactly what they are trying to correct. Blocking
+   * would strand them; saying nothing produced a live drawer listing "6 years"
+   * and "Yes" under one question, both marked as meeting the threshold.
+   */
+  function typeChangeWarning(q: ScreeningQuestion): string | null {
+    const original = originalTypesRef.current[q.id];
+    if (!original || original === q.type) return null;
+    const answered = answeredCounts?.[q.id] ?? 0;
+    if (answered === 0) return null;
+    return `${answered} ${answered === 1 ? "person has" : "people have"} already answered this question. Changing the answer type makes their answers incomparable — consider adding a new question instead.`;
+  }
 
   // Publishing inserts a row; a double-click would create two jobs.
   const inFlightRef = useRef(false);
@@ -1189,6 +1229,21 @@ export function WizardClient({
                           {q.type === "yesno" && <FieldHint text={IDEAL_HINT.yesno} />}
                         </div>
                       </div>
+
+                      {/* Fires the instant the type select changes, directly
+                          under the control that caused it — the company can see
+                          the consequence while deciding, rather than at publish
+                          when the change already feels settled. Advisory only:
+                          no error styling, nothing disabled, publish unaffected. */}
+                      {typeChangeWarning(q) && (
+                        <p className="mt-2.5 flex gap-2 rounded-[10px] bg-[var(--ai-amber-tint)] px-3 py-2.5 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
+                          <AlertTriangle
+                            className="mt-px size-3.5 shrink-0"
+                            strokeWidth={2}
+                          />
+                          <span>{typeChangeWarning(q)}</span>
+                        </p>
+                      )}
 
                       {/* The threshold field follows the mode: it carries the
                           direction in its own label, and 'none' hides it

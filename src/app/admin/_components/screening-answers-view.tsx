@@ -22,9 +22,16 @@ export function summarizeScreening(
   answers: ScreeningAnswerSnapshot[] | undefined | null,
 ): ScreeningSummary {
   if (!answers || answers.length === 0) return { kind: "none", matched: 0, total: 0 };
-  const total = answers.length;
-  const matched = answers.filter((a) => a.matched).length;
-  const failedEssential = answers.some((a) => a.essential && !a.matched);
+  // Questions the employer set no threshold on (numeric_mode 'none') are not
+  // tests, so they are excluded from BOTH sides of the count — leaving them in
+  // `total` alone reported "2/3 matched" for a candidate who matched both of
+  // the two thresholds that existed. `scored` is absent on every snapshot
+  // written before the mode existed, so those still count.
+  const tested = answers.filter((a) => a.scored !== false);
+  if (tested.length === 0) return { kind: "none", matched: 0, total: 0 };
+  const total = tested.length;
+  const matched = tested.filter((a) => a.matched).length;
+  const failedEssential = tested.some((a) => a.essential && !a.matched);
   let kind: ScreeningSummary["kind"] = "ok";
   if (failedEssential) kind = "fail";
   else if (matched < total) kind = "partial";
@@ -99,7 +106,10 @@ export function ScreeningAnswersView({
 
       <div className="flex flex-col gap-2">
         {answers.map((a) => {
-          const failedEssential = a.essential && !a.matched;
+          // Collected, never tested — no threshold, so no verdict and no way to
+          // fail an essential.
+          const untested = a.scored === false;
+          const failedEssential = !untested && a.essential && !a.matched;
           const answerText = a.answer_label ?? (a.answer || "—");
           const idealText =
             a.type === "numeric" ? `≥ ${a.ideal}` : (a.ideal_label ?? a.ideal);
@@ -119,7 +129,11 @@ export function ScreeningAnswersView({
                     </span>
                   )}
                 </div>
-                {a.matched ? (
+                {untested ? (
+                  <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-gray-400">
+                    <Minus className="size-3.5" strokeWidth={2.5} /> No threshold
+                  </span>
+                ) : a.matched ? (
                   <span className="inline-flex shrink-0 items-center gap-1 text-xs font-semibold text-emerald-600">
                     <Check className="size-3.5" strokeWidth={2.5} /> Match
                   </span>
@@ -134,9 +148,11 @@ export function ScreeningAnswersView({
                 <span>
                   Answer: <span className="font-semibold text-gray-800">{answerText}</span>
                 </span>
-                <span>
-                  Ideal: <span className="font-medium text-gray-600">{idealText}</span>
-                </span>
+                {!untested && (
+                  <span>
+                    Ideal: <span className="font-medium text-gray-600">{idealText}</span>
+                  </span>
+                )}
               </div>
 
               {failedEssential && (
