@@ -189,7 +189,12 @@ export type ScoreInput = {
  * essential is saying it matters more, and a flat average would let three
  * nice-to-haves paper over a missed must-have.
  *
- * Returns null when the job asked nothing, which is different from scoring 0.
+ * Returns null when the job asked nothing, which is different from scoring 0 —
+ * and, since numeric questions gained a "no threshold" mode, also null when the
+ * job asked only questions that were never tests.
+ *
+ * NOT a rubric change. This is deterministic arithmetic over a frozen snapshot;
+ * it touches no prompt text, so PROMPT_VERSION does not move.
  */
 export function computeScreeningScore(
   answers: ScreeningAnswerSnapshot[],
@@ -199,6 +204,12 @@ export function computeScreeningScore(
   let earned = 0;
   let possible = 0;
   for (const a of answers) {
+    // Collected, never tested (numeric_mode 'none'). Excluded from BOTH sides
+    // of the fraction: counting it in `possible` alone would deflate every
+    // candidate for a question nobody could pass, and counting it in `earned`
+    // too would inflate them for one nobody could fail. `scored` is absent on
+    // every snapshot written before the mode existed, so those still count.
+    if (a.scored === false) continue;
     const weight = a.essential ? 2 : 1;
     possible += weight;
     if (a.matched) earned += weight;

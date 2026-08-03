@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { ScreeningQuestion } from "@/lib/jobs";
+import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
 import {
   getCompanyContext,
   requireCompanyRole,
@@ -88,12 +88,39 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
       const ideal = q.ideal === "Yes" || q.ideal === "No" ? q.ideal : "";
       cleaned.push({ id, question, type, ideal, options: [], essential });
     } else if (type === "numeric") {
-      // `> 0`, not `>= 0`: the answer field is min=0, so a minimum of 0 is a
-      // tautology that can never flag anyone. A company that wants 0 wants
-      // "collect this number, don't filter on it" — a mode we don't have yet.
-      const n = Number.parseFloat(String(q.ideal ?? ""));
-      const ideal = Number.isFinite(n) && n > 0 ? String(n) : "";
-      cleaned.push({ id, question, type, ideal, options: [], essential });
+      // "collect this number, don't filter on it" IS the mode now — a company
+      // asking current salary or times-terminated wants a ceiling or nothing,
+      // and forcing a floor on those made them write a meaningless threshold.
+      const mode = resolveNumericMode(q);
+
+      if (mode === "none") {
+        // No threshold to store, so `ideal` is cleared rather than left to
+        // carry a stale number that nothing reads but the drawer might show.
+        cleaned.push({
+          id,
+          question,
+          type,
+          ideal: "",
+          options: [],
+          essential,
+          numeric_mode: "none",
+        });
+      } else {
+        // `> 0` for BOTH directions. A minimum of 0 passes everyone (the answer
+        // field can't go below 0); a maximum of 0 demands exactly 0, which is a
+        // threshold nobody means to set from a number input defaulting to empty.
+        const n = Number.parseFloat(String(q.ideal ?? ""));
+        const ideal = Number.isFinite(n) && n > 0 ? String(n) : "";
+        cleaned.push({
+          id,
+          question,
+          type,
+          ideal,
+          options: [],
+          essential,
+          numeric_mode: mode,
+        });
+      }
     } else {
       const options = (Array.isArray(q.options) ? q.options : [])
         .map((o) => (typeof o === "string" ? o.trim() : ""))
@@ -122,11 +149,21 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
 function assertPublishableQuestions(
   questions: ScreeningQuestion[],
 ): string | null {
-  const unset = questions.find((q) => q.ideal === "");
+  // A numeric_mode 'none' question has an empty `ideal` BY DESIGN — there is no
+  // threshold to set — so it is the one legitimate empty and must not be caught
+  // by the unset check below.
+  const unset = questions.find(
+    (q) =>
+      q.ideal === "" &&
+      !(q.type === "numeric" && resolveNumericMode(q) === "none"),
+  );
   if (!unset) return null;
 
-  const NEEDS: Record<ScreeningQuestion["type"], string> = {
-    numeric: "needs a minimum acceptable value",
+  if (unset.type === "numeric") {
+    const bound = resolveNumericMode(unset) === "max" ? "maximum" : "minimum";
+    return `Screening question "${unset.question}" needs a ${bound} above 0, or set it to collect the number without a threshold, before this job can be published.`;
+  }
+  const NEEDS: Record<"multiple" | "yesno", string> = {
     multiple: "needs its ideal option chosen",
     yesno: "needs an ideal answer chosen",
   };

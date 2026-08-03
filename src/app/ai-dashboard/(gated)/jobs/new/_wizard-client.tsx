@@ -17,6 +17,9 @@ import {
   Zap,
 } from "lucide-react";
 import type { ScreeningQuestion } from "@/lib/jobs";
+// Value import MUST come from lib/screening, not lib/jobs: this is a client
+// component and lib/jobs pulls in next/headers via getInitialJobs.
+import { resolveNumericMode, type NumericMode } from "@/lib/screening";
 import {
   EMPTY_JOB_INPUT,
   JOB_CATEGORIES,
@@ -107,19 +110,37 @@ const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: s
 
 /*
  * `ideal` means something different per type, and "Ideal answer" said none of
- * it. For numeric it is a FLOOR — /api/apply matches with `answer >= ideal` —
- * which is why a job full of unset zeroes told a manager applicant answering
- * 0 years, 0 reports and 0 Agile that they met every threshold.
+ * it. A numeric question now says which DIRECTION it tests, because a floor is
+ * the wrong operator for most of them: "current salary" and "times terminated"
+ * want a ceiling, and "years of experience" wants a floor.
  */
+const NUMERIC_MODES: ReadonlyArray<{ value: NumericMode; label: string }> = [
+  { value: "min", label: "At least (minimum)" },
+  { value: "max", label: "At most (maximum)" },
+  { value: "none", label: "No threshold — just collect it" },
+];
+
+const NUMERIC_MODE_LABEL: Record<NumericMode, string> = {
+  min: "Minimum acceptable",
+  max: "Maximum acceptable",
+  none: "",
+};
+
+const NUMERIC_MODE_HINT: Record<NumericMode, string> = {
+  min: "Candidates answering below this are flagged. Must be more than 0.",
+  max: "Candidates answering above this are flagged. Must be more than 0.",
+  none: "The number is shown on the applicant and given to the AI as context. Nobody passes or fails it, and it doesn't affect the screening percentage.",
+};
+
 const IDEAL_LABEL: Record<ScreeningQuestion["type"], string> = {
   yesno: "Ideal answer",
-  numeric: "Minimum acceptable",
+  numeric: "Minimum acceptable", // overridden per-mode; see NUMERIC_MODE_LABEL
   multiple: "Answer options (one per line)",
 };
 
 const IDEAL_HINT: Record<ScreeningQuestion["type"], string> = {
   yesno: "Candidates answering differently are flagged.",
-  numeric: "Candidates answering below this are flagged. Must be more than 0.",
+  numeric: NUMERIC_MODE_HINT.min,
   multiple: "Candidates choosing anything else are flagged.",
 };
 
@@ -131,7 +152,7 @@ const QUESTION_IDEAL_ERROR: Record<
   (n: number) => string
 > = {
   numeric: (n) =>
-    `Question ${n} needs a minimum above 0 — a minimum of 0 passes every candidate.`,
+    `Question ${n} needs a threshold above 0 — or set it to collect the number without one.`,
   multiple: (n) => `Question ${n} needs its ideal option chosen.`,
   yesno: (n) => `Question ${n} needs an ideal answer chosen.`,
 };
@@ -153,14 +174,35 @@ function idealOptionLabel(q: ScreeningQuestion): string | undefined {
   return Number.isInteger(idx) ? liveOptions(q)[idx] : undefined;
 }
 
-/** A numeric floor of 0 can never flag anyone — the answer field is min=0. */
+/**
+ * Is this question ready to publish?
+ *
+ * A numeric_mode 'none' question is ALWAYS ready — there is no threshold to
+ * set, and requiring one is exactly the thing being fixed. Both other modes
+ * need a value above 0: a minimum of 0 passes everyone (the answer field can't
+ * go below 0), and a maximum of 0 demands exactly 0.
+ */
 function hasUsableIdeal(q: ScreeningQuestion): boolean {
   if (q.type === "numeric") {
+    if (resolveNumericMode(q) === "none") return true;
     const n = Number.parseFloat(q.ideal);
     return Number.isFinite(n) && n > 0;
   }
   if (q.type === "multiple") return idealOptionLabel(q) !== undefined;
   return q.ideal === "Yes" || q.ideal === "No";
+}
+
+/**
+ * Review-row label. Numeric questions carry their direction, because "Numeric"
+ * alone no longer says what the question DOES — and a company should be able to
+ * see at a glance which of their questions actually filter anybody.
+ */
+function reviewTypeLabel(q: ScreeningQuestion): string {
+  const base = QUESTION_TYPES.find((t) => t.value === q.type)?.label ?? q.type;
+  if (q.type !== "numeric") return base;
+  const mode = resolveNumericMode(q);
+  if (mode === "none") return "Numeric · collected only";
+  return `Numeric · ${mode === "max" ? "max" : "min"} ${q.ideal || "—"}`;
 }
 
 function fmtNumber(value: string): string {
@@ -492,7 +534,24 @@ export function WizardClient({
       type,
       ideal: "",
       options: type === "multiple" ? ["", ""] : [],
+      // Switching TO numeric starts on "minimum", the mode most people mean
+      // when they add one. Switching AWAY clears it so a stale mode can't ride
+      // along on a question that is no longer numeric.
+      numeric_mode: type === "numeric" ? "min" : undefined,
     });
+  }
+
+  /**
+   * Changing the mode clears the threshold rather than carrying it across.
+   *
+   * A 3 typed as a minimum means "at least 3"; the same 3 read as a maximum
+   * means "at most 3" — the opposite test on the same candidates. Silently
+   * reinterpreting it would flip who passes without the company touching the
+   * number, so the field empties and has to be entered again for the new
+   * direction. Moving to "none" clears it because there is nothing to keep.
+   */
+  function changeNumericMode(index: number, mode: NumericMode) {
+    patchQuestion(index, { numeric_mode: mode, ideal: "" });
   }
 
   /**
@@ -1084,8 +1143,22 @@ export function WizardClient({
 
                         <div>
                           <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
-                            {IDEAL_LABEL[q.type]}
+                            {q.type === "numeric"
+                              ? "How is this number judged?"
+                              : IDEAL_LABEL[q.type]}
                           </span>
+                          {q.type === "numeric" && (
+                            <select
+                              value={resolveNumericMode(q)}
+                              onChange={(e) => changeNumericMode(i, e.target.value as NumericMode)}
+                              aria-label={`How question ${i + 1} is judged`}
+                              className={INPUT_CLS}
+                            >
+                              {NUMERIC_MODES.map((m) => (
+                                <option key={m.value} value={m.value}>{m.label}</option>
+                              ))}
+                            </select>
+                          )}
                           {q.type === "yesno" && (
                             <select
                               value={q.ideal}
@@ -1098,18 +1171,6 @@ export function WizardClient({
                               <option value="No">No</option>
                             </select>
                           )}
-                          {q.type === "numeric" && (
-                            <input
-                              type="number"
-                              min={0}
-                              step="any"
-                              value={q.ideal}
-                              onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
-                              placeholder="e.g. 3"
-                              aria-label={`Minimum acceptable answer for question ${i + 1}`}
-                              className={idealCls(q)}
-                            />
-                          )}
                           {q.type === "multiple" && (
                             <textarea
                               value={q.options.join("\n")}
@@ -1119,9 +1180,38 @@ export function WizardClient({
                               className={`${INPUT_CLS} min-h-20 resize-y`}
                             />
                           )}
-                          {q.type !== "multiple" && <FieldHint text={IDEAL_HINT[q.type]} />}
+                          {q.type === "yesno" && <FieldHint text={IDEAL_HINT.yesno} />}
                         </div>
                       </div>
+
+                      {/* The threshold field follows the mode: it carries the
+                          direction in its own label, and 'none' hides it
+                          entirely rather than showing a disabled box — there is
+                          genuinely nothing to fill in, and a greyed field would
+                          imply otherwise. */}
+                      {q.type === "numeric" && resolveNumericMode(q) !== "none" && (
+                        <div className="mt-2.5">
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            {NUMERIC_MODE_LABEL[resolveNumericMode(q)]}
+                          </span>
+                          <input
+                            type="number"
+                            min={0}
+                            step="any"
+                            value={q.ideal}
+                            onChange={(e) => patchQuestion(i, { ideal: e.target.value })}
+                            placeholder="e.g. 3"
+                            aria-label={`${NUMERIC_MODE_LABEL[resolveNumericMode(q)]} for question ${i + 1}`}
+                            className={idealCls(q)}
+                          />
+                          <FieldHint text={NUMERIC_MODE_HINT[resolveNumericMode(q)]} />
+                        </div>
+                      )}
+                      {q.type === "numeric" && resolveNumericMode(q) === "none" && (
+                        <div className="mt-2.5">
+                          <FieldHint text={NUMERIC_MODE_HINT.none} />
+                        </div>
+                      )}
 
                       {/* Multiple choice stores `ideal` as an option INDEX, and
                           nothing ever asked which one — it was hardcoded to 0
@@ -1258,9 +1348,12 @@ export function WizardClient({
                                 company looks before publishing, and the gate
                                 should be visible rather than only firing on
                                 the button. */}
+                            {/* "Needs a threshold", not "No threshold" — the
+                                latter is now a legitimate numeric mode, and the
+                                error pill must not read like a valid setting. */}
                             {!hasUsableIdeal(q) && (
                               <span className={`${PILL} ml-auto bg-[#FBE3E1] text-[#B02A24]`}>
-                                No threshold
+                                Needs a threshold
                               </span>
                             )}
                             <span
@@ -1268,7 +1361,7 @@ export function WizardClient({
                                 hasUsableIdeal(q) ? "ml-auto" : ""
                               }`}
                             >
-                              {QUESTION_TYPES.find((t) => t.value === q.type)?.label}
+                              {reviewTypeLabel(q)}
                             </span>
                           </div>
                         ))}

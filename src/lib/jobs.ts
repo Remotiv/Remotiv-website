@@ -23,6 +23,15 @@ export const LIST_SELECT =
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
+// NumericMode + resolveNumericMode live in lib/screening.ts, which has no
+// runtime imports — this module pulls in next/headers via getInitialJobs, so a
+// client component cannot import a VALUE from here. Re-exported so server-side
+// callers keep a single import site and there is one implementation of the rule.
+export { resolveNumericMode, type NumericMode } from "@/lib/screening";
+// The re-export above does not bind the name in this module's own scope, and
+// ScreeningQuestion below references it. Type-only, so nothing is emitted.
+import type { NumericMode } from "@/lib/screening";
+
 export type ScreeningQuestion = {
   id: string;
   question: string; // <= 200 chars
@@ -33,7 +42,15 @@ export type ScreeningQuestion = {
   ideal: string;
   options: string[]; // [] unless type === "multiple"
   essential: boolean;
+  /**
+   * Numeric questions only. OPTIONAL, and that is the whole compatibility
+   * story: every question already stored in jobs.screening_questions predates
+   * this field, so an absent value has to mean something sensible — see
+   * resolveNumericMode.
+   */
+  numeric_mode?: NumericMode;
 };
+
 
 // Frozen-at-apply-time snapshot of one screening answer, scored server-side in
 // /api/apply and stored in job_applications.screening_answers (jsonb). The
@@ -48,6 +65,19 @@ export type ScreeningAnswerSnapshot = {
   answer_label?: string;
   ideal_label?: string;
   matched: boolean;
+  /**
+   * False when the question was collected but never tested (numeric_mode
+   * "none"). ABSENT on every snapshot written before this existed, and absent
+   * means scored — so old rows read exactly as they always did.
+   *
+   * `matched` still has to carry a boolean, and for an unscored answer it is
+   * written FALSE rather than true: anything reading only `matched` then
+   * under-claims rather than over-claims, which is the safer direction when a
+   * hiring decision is downstream. Readers that understand this field must
+   * check it FIRST and ignore `matched` entirely when it is false — "wasn't a
+   * test" is not the same as "failed the test".
+   */
+  scored?: boolean;
 };
 
 export interface Job {

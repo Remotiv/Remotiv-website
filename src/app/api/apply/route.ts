@@ -1,5 +1,6 @@
 import { NextRequest, NextResponse } from "next/server";
 import type { ScreeningQuestion } from "@/lib/jobs";
+import { resolveNumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
@@ -104,7 +105,7 @@ function slug(value: string): string {
 // Scored entirely against the SERVER's questions (source of truth) — only the
 // answer string comes from the client. Pure + never-throws: bad/missing input
 // yields answer:"" / matched:false. Mirrors the modal's matching exactly
-// (yesno equal · numeric >= · multiple index-equal).
+// (yesno equal · numeric per numeric_mode · multiple index-equal).
 type ScreeningAnswerSnapshot = {
   question_id: string;
   question: string;
@@ -115,6 +116,9 @@ type ScreeningAnswerSnapshot = {
   answer_label?: string;
   ideal_label?: string;
   matched: boolean;
+  /** Absent = scored. False only for a numeric_mode 'none' question — collected
+   *  but never tested, so `matched` carries no meaning and must be ignored. */
+  scored?: boolean;
 };
 
 function buildScreeningSnapshot(
@@ -125,15 +129,29 @@ function buildScreeningSnapshot(
   return questions.slice(0, 10).map((q) => {
     const answer = (answerMap.get(q.id) ?? "").trim();
     let matched = false;
+    // Only ever set false, and only by a numeric_mode 'none' question. Absent
+    // from the snapshot otherwise, so every other answer serialises exactly as
+    // it did before this existed.
+    let scored = true;
     let answer_label: string | undefined;
     let ideal_label: string | undefined;
 
     if (q.type === "yesno") {
       matched = answer !== "" && answer === q.ideal;
     } else if (q.type === "numeric") {
-      const a = Number(answer);
-      const ideal = Number(q.ideal);
-      matched = answer !== "" && Number.isFinite(a) && Number.isFinite(ideal) && a >= ideal;
+      // resolveNumericMode covers questions stored before numeric_mode existed.
+      const mode = resolveNumericMode(q);
+      if (mode === "none") {
+        // Collected, not tested. `matched` stays false so a reader that only
+        // knows about `matched` under-claims rather than over-claims.
+        scored = false;
+      } else {
+        const a = Number(answer);
+        const ideal = Number(q.ideal);
+        const comparable =
+          answer !== "" && Number.isFinite(a) && Number.isFinite(ideal);
+        matched = comparable && (mode === "min" ? a >= ideal : a <= ideal);
+      }
     } else if (q.type === "multiple") {
       matched = answer !== "" && String(answer) === String(q.ideal);
       const ai = Number(answer);
@@ -153,6 +171,7 @@ function buildScreeningSnapshot(
       ...(answer_label !== undefined ? { answer_label } : {}),
       ...(ideal_label !== undefined ? { ideal_label } : {}),
       matched,
+      ...(scored ? {} : { scored }),
     };
   });
 }

@@ -1053,16 +1053,27 @@ function ApplicantDrawer({
                           "Remotiv verified this", and nobody did: it is the
                           candidate's own number compared to the employer's
                           threshold. Neutral slate for met, muted amber for
-                          below — distinguishable, but neither endorses. */}
-                      <span
-                        className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
-                          a.matched
-                            ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
-                            : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
-                        }`}
-                      >
-                        {a.matched ? "Meets threshold" : "Below threshold"}
-                      </span>
+                          below — distinguishable, but neither endorses.
+
+                          NO pill at all when `scored` is false: the employer
+                          asked for the number without setting a threshold, so
+                          there was nothing to pass or fail. `matched` is false
+                          on those rows and would render "Below threshold",
+                          which is not a weaker claim than the truth — it is a
+                          different and wrong one. Absent on every snapshot
+                          written before the mode existed, so `!== false` keeps
+                          those rendering exactly as they always did. */}
+                      {a.scored !== false && (
+                        <span
+                          className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
+                            a.matched
+                              ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
+                              : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+                          }`}
+                        >
+                          {a.matched ? "Meets threshold" : "Below threshold"}
+                        </span>
+                      )}
                     </p>
                   </div>
                 ))}
