@@ -22,13 +22,22 @@ import { recordUsage } from "@/lib/usage";
 // ── Versioning ───────────────────────────────────────────────
 
 /**
- * Bump on ANY change to the prompt, the band definitions, or the dimension
- * set. Stored on every row as prompt_version, so a scorecard can always be
- * traced to the exact rubric that produced it — and so a re-score after a
- * prompt change is distinguishable from a re-score after a criteria change
- * (which is what job_criteria_version tracks).
+ * Bump on ANY change to the prompt, the band definitions, the dimension set,
+ * OR the sampling parameters. Stored on every row as prompt_version, so a
+ * scorecard can always be traced to the exact rubric that produced it — and so
+ * a re-score after a prompt change is distinguishable from a re-score after a
+ * criteria change (which is what job_criteria_version tracks).
+ *
+ * "or the sampling parameters" is new at v7 and is the reason v7 exists: the
+ * rubric is byte-identical to v6, only SCORING_TEMPERATURE changed. Nothing
+ * else in the schema records sampling — there is no temperature column and
+ * ai_model doesn't move — so without a bump the calibration set would silently
+ * pool two different generation processes under one label, with no way to
+ * separate them afterwards. Splitting a rubric-identical version into two
+ * buckets costs sample size and is recoverable in analysis; pooling two
+ * sampling regimes is not recoverable at all.
  */
-export const PROMPT_VERSION = "cv-scoring-v6";
+export const PROMPT_VERSION = "cv-scoring-v7";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -36,6 +45,40 @@ export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
 export function resolveScoringModel(): string {
   return process.env.AI_SCORING_MODEL?.trim() || DEFAULT_SCORING_MODEL;
 }
+
+/**
+ * Sampling temperature for the scoring call.
+ *
+ * Previously unset, which meant the API default — and the consistency harness
+ * measured what that costs on an obviously-unqualified candidate: overall
+ * spread 7, experience_depth spread 10, three different verdicts and a
+ * missing_requirements list that changed between runs. A candidate whose
+ * rejection should be unambiguous was scored three different ways.
+ *
+ * 0 is the right setting for a scorer specifically. Sampling variety is a
+ * feature when generating prose and a defect when assigning a number a
+ * recruiter acts on: nothing about a fixed CV read against a fixed job should
+ * come out differently on a second look.
+ *
+ * Two things this does NOT do, both worth knowing before reading the re-run:
+ *
+ *   - It does not guarantee identical output. Temperature 0 is greedy
+ *     decoding, not determinism; ties and floating-point non-associativity in
+ *     batched inference still leave a little movement. Expect small spread,
+ *     not zero.
+ *   - It does not make the scorer CORRECT. It makes it repeatable, including
+ *     where it is repeatably wrong. Residual spread after this change is the
+ *     part the rubric owns, which is exactly what this pass is isolating.
+ *
+ * CAUTION on model swaps: `temperature` is REJECTED WITH A 400 on Opus 4.7 and
+ * later, Sonnet 5, and Fable 5 — the parameter was removed on those models.
+ * It is accepted on Sonnet 4.5, which is what DEFAULT_SCORING_MODEL resolves
+ * to. Pointing AI_SCORING_MODEL at a newer model therefore fails every scoring
+ * call until this is removed. That failure is loud (every application lands on
+ * status 'failed' with the API's message), not silent, so it is documented
+ * here rather than branched on.
+ */
+const SCORING_TEMPERATURE = 0;
 
 /** Ceiling for the model's JSON reply. Generous — evidence quotes are verbose. */
 const MAX_TOKENS = 3000;
@@ -583,6 +626,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   const response = await anthropic.messages.create({
     model,
     max_tokens: MAX_TOKENS,
+    temperature: SCORING_TEMPERATURE,
     system: SYSTEM_PROMPT,
     messages: [{ role: "user", content: buildUserMessage(input) }],
   });
