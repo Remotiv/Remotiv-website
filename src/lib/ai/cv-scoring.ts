@@ -80,6 +80,50 @@ export function resolveScoringModel(): string {
  */
 const SCORING_TEMPERATURE = 0;
 
+/**
+ * Cache lifetime for the system prompt.
+ *
+ * "5m" is the SDK default and what we want. Writes cost 1.25x standard input at
+ * 5m versus 2x at 1h; reads are ~0.1x either way.
+ *
+ * Scoring runs from a worker every 5 minutes in bursts of whatever arrived. The
+ * saving that matters is INSIDE a burst — first CV writes the cache, every
+ * other CV in the same burst reads it — and 5m captures all of that at the
+ * cheaper write. 1h would only pay off if a later burst landed within the hour
+ * often enough to cover the extra 0.75x on every write: break-even needs that
+ * roughly 65% of the time, and at current volume (single figures of
+ * applications per job across days) bursts are usually hours apart, where no
+ * TTL helps. Revisit if volume rises to a steady trickle.
+ */
+const CACHE_TTL = "5m" as const;
+
+/**
+ * Report the cache split so the saving is verifiable rather than assumed.
+ *
+ * `input_tokens` on a cached response counts ONLY the uncached remainder, so it
+ * is not comparable to the pre-cache figure on its own — the three numbers have
+ * to be read together.
+ */
+function logCacheUsage(usage: {
+  input_tokens?: number | null;
+  output_tokens?: number | null;
+  cache_creation_input_tokens?: number | null;
+  cache_read_input_tokens?: number | null;
+} | null): void {
+  if (!usage) return;
+  const written = usage.cache_creation_input_tokens ?? 0;
+  const read = usage.cache_read_input_tokens ?? 0;
+  const fresh = usage.input_tokens ?? 0;
+  console.log("[cv-scoring] tokens", {
+    uncached_input: fresh,
+    cache_write: written,
+    cache_read: read,
+    output: usage.output_tokens ?? 0,
+    total_input: fresh + written + read,
+    cache: read > 0 ? "HIT" : written > 0 ? "WRITE" : "MISS",
+  });
+}
+
 /** Ceiling for the model's JSON reply. Generous — evidence quotes are verbose. */
 const MAX_TOKENS = 3000;
 
@@ -709,9 +753,23 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     model,
     max_tokens: MAX_TOKENS,
     temperature: SCORING_TEMPERATURE,
-    system: SYSTEM_PROMPT,
+    // Same text as the plain-string form this replaces — a single text block
+    // renders identically — with a cache breakpoint on it. The rubric is
+    // byte-identical on every call and ~3.7k tokens, so re-sending it at full
+    // price per CV was the single largest line on the bill. PURELY a billing
+    // change: the model receives exactly the same bytes, which is why
+    // PROMPT_VERSION does NOT move.
+    system: [
+      {
+        type: "text",
+        text: SYSTEM_PROMPT,
+        cache_control: { type: "ephemeral", ttl: CACHE_TTL },
+      },
+    ],
     messages: [{ role: "user", content: buildUserMessage(input) }],
   });
+
+  logCacheUsage(response.usage);
 
   const block = response.content[0];
   const text = block && block.type === "text" ? block.text : "";
@@ -802,7 +860,16 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     screening_score: screeningScore,
     ai_model: model,
     prompt_version: PROMPT_VERSION,
-    input_tokens: response.usage?.input_tokens ?? 0,
+    // TOTAL prompt tokens, not the uncached remainder. With caching on,
+    // usage.input_tokens counts only what was NOT served from cache, so
+    // storing it raw would silently redefine this column mid-history and make
+    // every cost figure computed from it collapse overnight for the wrong
+    // reason. Summing the three keeps `input_tokens` meaning exactly what it
+    // has always meant; the cache split goes to the log instead.
+    input_tokens:
+      (response.usage?.input_tokens ?? 0) +
+      (response.usage?.cache_creation_input_tokens ?? 0) +
+      (response.usage?.cache_read_input_tokens ?? 0),
     output_tokens: response.usage?.output_tokens ?? 0,
   };
 }
