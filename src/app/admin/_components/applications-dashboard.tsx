@@ -60,7 +60,7 @@ import {
   type OpenJob,
 } from "@/app/admin/applications/actions";
 import { type UserRole, canDelete, canEdit } from "@/app/admin/lib/roles";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { toWhatsAppDigits } from "@/lib/normalize";
 import {
   EditableCell,

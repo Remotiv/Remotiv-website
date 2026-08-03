@@ -3,7 +3,7 @@
 import { track } from "@vercel/analytics";
 import { Check, Lock } from "lucide-react";
 import { cloneElement, type FormEvent, type ReactElement, useEffect, useId, useRef, useState } from "react";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { submitBooking } from "./actions";
 
 const BENEFITS = [

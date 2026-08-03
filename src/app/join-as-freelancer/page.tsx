@@ -12,7 +12,7 @@ import {
   useRef,
   useState,
 } from "react";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { Navbar } from "@/components/navbar";
 
 // Validation thresholds — keep client and server in agreement (server caps

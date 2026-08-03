@@ -4,7 +4,7 @@ import { track } from "@vercel/analytics";
 import { ArrowRight, Check, Clock, Lock, Mail, MapPin } from "lucide-react";
 import { type FormEvent, useEffect, useRef, useState } from "react";
 import { submitContact } from "./actions";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { Navbar } from "@/components/navbar";
 import { MARKETING_STATS } from "@/lib/marketing-stats";
 

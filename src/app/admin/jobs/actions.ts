@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { trimRequired, trimToNull } from "@/lib/validators";
 
 export type Job = {
   id: string;

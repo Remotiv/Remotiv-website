@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
 import { createServiceClient } from "@/lib/supabase/server";
 

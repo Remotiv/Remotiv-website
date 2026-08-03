@@ -4,7 +4,7 @@ import { resolveNumericMode, type NumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { extractPdfTextServer } from "@/lib/pdf-text";
 import { enqueue } from "@/lib/jobs-queue";
 

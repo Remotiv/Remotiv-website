@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
 
 // ── Types ────────────────────────────────────────────────────
@@ -378,6 +378,47 @@ export async function updateCompany(
         "[admin/companies] owner identity cache clear failed (non-fatal)",
         { companyId: id, error: cacheErr.message },
       );
+    }
+  }
+
+  // Keep jobs.company in step with the rename.
+  //
+  // jobs.company is free text stamped at creation, so before this a rename left
+  // every existing job advertising the OLD name on remotiv.work/jobs.
+  //
+  // Same denormalised-identity class as company_members.name, resolved the
+  // OPPOSITE way, and the difference is what the field is FOR. company_members
+  // .name is read once per request beside a companies row we already load, so
+  // clearing it and resolving at read time costs nothing. jobs.company is read
+  // on the public jobs list — the hottest page on the site — whose LIST_SELECT
+  // deliberately avoids joins for payload size. Adding a companies join to
+  // every anonymous page view, to correct a value that changes approximately
+  // never, is the wrong trade.
+  //
+  // On the history argument: a job's company name at posting time IS history,
+  // but this column is not a historical record — it is the label on a LIVE
+  // listing, which makes a present-tense claim that this company is hiring
+  // right now. A candidate reading a defunct name is simply being told
+  // something false. If the posting-time name is ever wanted it belongs in a
+  // separate snapshot column, exactly as job_title_snapshot does for
+  // applications — not smuggled in as the display field.
+  //
+  // Scoped to this company's jobs by company_id, so no other tenant's rows are
+  // touched. Best-effort for the same reason as the block above: the rename has
+  // already committed and must not report failure because a sync didn't land.
+  if (typeof patch.name === "string") {
+    const { error: jobsErr } = await supabase
+      .from("jobs")
+      .update({ company: patch.name })
+      .eq("company_id", id);
+    if (jobsErr) {
+      console.error(
+        "[admin/companies] job company-name sync failed (non-fatal)",
+        { companyId: id, error: jobsErr.message },
+      );
+    } else {
+      // The public list and the job detail pages cache the old name.
+      revalidatePath("/jobs");
     }
   }
 

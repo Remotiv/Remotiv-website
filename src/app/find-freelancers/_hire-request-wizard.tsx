@@ -2,7 +2,7 @@
 
 import { ArrowLeft, ArrowRight, Check, X } from "lucide-react";
 import { useCallback, useEffect, useRef, useState } from "react";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { submitHireRequest } from "./hire-request-action";
 

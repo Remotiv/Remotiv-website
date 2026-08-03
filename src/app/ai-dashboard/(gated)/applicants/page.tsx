@@ -1,3 +1,4 @@
+import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { fetchCompanyApplicants } from "./actions";
 import { ApplicantsClient } from "./_applicants-client";
 
@@ -7,7 +8,10 @@ export const metadata = { title: "Applicants — Remotiv AI Interviews" };
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function ApplicantsPage() {
-  const applicants = await fetchCompanyApplicants();
+  const [ctx, applicants] = await Promise.all([
+    getCompanyContext(),
+    fetchCompanyApplicants(),
+  ]);
 
   // Computed, never hardcoded — same rule the handoff sets for Overview.
   const since = Date.now() - WEEK_MS;
@@ -25,6 +29,7 @@ export default async function ApplicantsPage() {
 
   return (
     <ApplicantsClient
+      viewerRole={ctx.role}
       applicants={applicants}
       newThisWeek={newThisWeek}
       openRoles={openRoles}

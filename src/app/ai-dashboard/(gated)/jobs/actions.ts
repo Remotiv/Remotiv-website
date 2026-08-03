@@ -196,6 +196,43 @@ function interviewerName(value: string | undefined, enabled: boolean): string | 
 }
 
 /**
+ * Columns the SCORER reads. Editing any of them changes what a scorecard was
+ * judged against, so criteria_version bumps and every existing score for the
+ * job becomes stale.
+ *
+ * Taken from the job SELECT in handleAiCvScore, not from intuition — if that
+ * select ever grows a column, this list has to grow with it or staleness goes
+ * undetected again.
+ *
+ * `title` is included even though it reads like mere labelling: buildUserMessage
+ * puts it at the top of the job block, and re-titling "Junior Analyst" to "Head
+ * of Analytics" genuinely changes the seniority the model judges against.
+ *
+ * Deliberately EXCLUDED — the scorer never reads them, so they cannot make a
+ * scorecard stale: location, work_type, contract_type, positions, salary_*,
+ * show_salary, status, and the five interview/scoring option columns.
+ */
+const SCORING_RELEVANT_COLUMNS = [
+  "title",
+  "description",
+  "responsibilities",
+  "requirements",
+  "experience_level",
+  "category",
+  "screening_questions",
+] as const;
+
+/** Deep-equal enough for these columns: scalars and the questions jsonb. */
+function scoringInputsChanged(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): boolean {
+  return SCORING_RELEVANT_COLUMNS.some(
+    (col) => JSON.stringify(before[col] ?? null) !== JSON.stringify(after[col] ?? null),
+  );
+}
+
+/**
  * Build the writable column patch from wizard input. Mirrors the admin
  * buildPatch's required-field rules. Deliberately returns ONLY editable
  * columns — ownership/identity columns are stamped by the caller so no client
@@ -445,18 +482,25 @@ async function assertOwned(
   supabase: ReturnType<typeof createServiceClient>,
   jobId: string,
   companyId: string,
-): Promise<{ ok: true; title: string } | { ok: false; error: string }> {
+): Promise<
+  | { ok: true; title: string; current: Record<string, unknown> }
+  | { ok: false; error: string }
+> {
   const { data } = await supabase
     .from("jobs")
-    .select("id, company_id, title")
+    .select(
+      `id, company_id, criteria_version, ${SCORING_RELEVANT_COLUMNS.join(", ")}`,
+    )
     .eq("id", jobId)
     .maybeSingle();
 
-  const row = data as { id: string; company_id: string | null; title: string } | null;
+  const row = data as
+    | (Record<string, unknown> & { id: string; company_id: string | null; title: string })
+    | null;
   if (!row || row.company_id !== companyId) {
     return { ok: false, error: "Job not found in your workspace." };
   }
-  return { ok: true, title: row.title };
+  return { ok: true, title: row.title, current: row };
 }
 
 export async function updateCompanyJob(
@@ -472,12 +516,32 @@ export async function updateCompanyJob(
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
 
+  // Bump criteria_version when anything the SCORER reads changed.
+  //
+  // The column existed and handleAiCvScore stamped it onto every scorecard, but
+  // nothing ever incremented it — so job_criteria_version was frozen at 1 and a
+  // scorecard judged against last month's requirements was indistinguishable
+  // from one judged against today's. Incrementing here is what makes staleness
+  // detectable at all; the applicants drawer compares the two and offers a
+  // re-score.
+  //
+  // Compared against what is actually STORED rather than against the form's
+  // initial state: a no-op save (open the wizard, change nothing, save) must not
+  // invalidate every existing scorecard, and a concurrent edit by a colleague
+  // must not be missed.
+  const patch: Record<string, unknown> = { ...built.patch };
+  const scoringChanged = scoringInputsChanged(owned.current, patch);
+  if (scoringChanged) {
+    const currentVersion = Number(owned.current.criteria_version ?? 1);
+    patch.criteria_version = (Number.isFinite(currentVersion) ? currentVersion : 1) + 1;
+  }
+
   // built.patch carries editable columns only — company, company_rating,
   // company_id, created_by and slug are absent by construction, so an edit can
   // never re-point a job at another tenant or change its public URL.
   const { error } = await supabase
     .from("jobs")
-    .update(built.patch)
+    .update(patch)
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 

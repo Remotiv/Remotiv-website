@@ -17,6 +17,7 @@ import {
   Plus,
   RotateCcw,
   Search as SearchIcon,
+  Sparkles,
   Trash2,
   X,
   XCircle,
@@ -36,6 +37,9 @@ import {
   duplicateCompanyJob,
   updateCompanyJobStatus,
 } from "./actions";
+// Lives with the applicants actions, not the jobs ones — it operates on
+// application_scores and re-checks ownership through company_id_snapshot.
+import { rescoreJob } from "../applicants/actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -455,6 +459,7 @@ function JobDrawer({
   onClose,
   onAction,
   onCopyUrl,
+  onRescoreAll,
   actions,
   dangerActions,
 }: {
@@ -462,6 +467,8 @@ function JobDrawer({
   onClose: () => void;
   onAction: (item: MenuItem) => void;
   onCopyUrl: () => void;
+  /** Null when the viewer can't spend the scoring budget, or nobody applied. */
+  onRescoreAll: (() => void) | null;
   actions: ReadonlyArray<MenuItem>;
   dangerActions: ReadonlyArray<MenuItem>;
 }) {
@@ -607,6 +614,22 @@ function JobDrawer({
               </p>
             </DrawerSection>
           )}
+          {onRescoreAll && (
+            <DrawerSection title="AI scoring">
+              <button
+                type="button"
+                onClick={onRescoreAll}
+                className="flex w-full items-center justify-center gap-1.5 rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+              >
+                <Sparkles className="size-3.5" strokeWidth={2} />
+                Re-score all applicants
+              </button>
+              <p className="mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
+                Re-runs the AI against this job&apos;s current requirements and
+                screening questions. Costs roughly two cents per CV.
+              </p>
+            </DrawerSection>
+          )}
         </div>
       </div>
     </div>
@@ -633,7 +656,7 @@ export function JobsClient({
    *  clipped inside the table's horizontal-scroll container. */
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<
-    { job: CompanyJobRow; kind: "close" | "delete" } | null
+    { job: CompanyJobRow; kind: "close" | "delete" | "rescore" } | null
   >(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -779,24 +802,40 @@ export function JobsClient({
     if (!confirm) return;
     const { job, kind } = confirm;
     setBusy(true);
-    const result =
-      kind === "close"
-        ? await updateCompanyJobStatus(job.id, "closed")
-        : await deleteCompanyJob(job.id);
+    // Re-score is the only non-destructive action routed through this dialog.
+    // It is here because it SPENDS MONEY — roughly two cents per CV — and the
+    // count is the number the confirm exists to show.
+    let result: { success: boolean; error?: string | undefined };
+    if (kind === "rescore") {
+      result = await rescoreJob(job.id);
+    } else if (kind === "close") {
+      result = await updateCompanyJobStatus(job.id, "closed");
+    } else {
+      result = await deleteCompanyJob(job.id);
+    }
     setBusy(false);
 
     if (result.success) {
-      setJobs((prev) =>
-        kind === "close"
-          ? prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j))
-          : prev.filter((j) => j.id !== job.id),
-      );
+      // A re-score changes no row in this list — only the scorecards behind it.
+      if (kind !== "rescore") {
+        setJobs((prev) =>
+          kind === "close"
+            ? prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j))
+            : prev.filter((j) => j.id !== job.id),
+        );
+      }
       setConfirm(null);
       setOpenId(null);
-      setToast(kind === "close" ? `“${job.title}” closed` : `“${job.title}” deleted`);
+      setToast(
+        kind === "rescore"
+          ? `Re-scoring ${job.applicant_count} applicant${job.applicant_count === 1 ? "" : "s"} for “${job.title}”`
+          : kind === "close"
+            ? `“${job.title}” closed`
+            : `“${job.title}” deleted`,
+      );
       router.refresh();
     } else {
-      setToast(result.error);
+      setToast(result.error ?? "Something went wrong. Please try again.");
     }
   }
 
@@ -1239,6 +1278,11 @@ export function JobsClient({
         <JobDrawer
           job={openJob}
           onClose={() => setOpenId(null)}
+          onRescoreAll={
+            canManage && openJob.applicant_count > 0
+              ? () => setConfirm({ job: openJob, kind: "rescore" })
+              : null
+          }
           onCopyUrl={() => handleCopyUrl(openJob)}
           actions={actionsFor(openJob).actions}
           dangerActions={actionsFor(openJob).danger}
@@ -1260,8 +1304,19 @@ export function JobsClient({
             className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
           >
             <div className="flex flex-col items-center p-8 text-center">
-              <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
-                {confirm.kind === "close" ? (
+              {/* Re-score spends money but destroys nothing, so it gets the
+                  purple treatment rather than the danger red the other two
+                  share — the dialog should not read as a warning. */}
+              <div
+                className={`mb-4 flex size-14 items-center justify-center rounded-full ${
+                  confirm.kind === "rescore"
+                    ? "bg-[var(--ai-purple-tint)]"
+                    : "bg-[var(--ai-danger-tint)]"
+                }`}
+              >
+                {confirm.kind === "rescore" ? (
+                  <Sparkles className="size-6 text-remotiv-purple" strokeWidth={2} />
+                ) : confirm.kind === "close" ? (
                   <XCircle className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 ) : (
                   <Trash2 className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
@@ -1271,10 +1326,28 @@ export function JobsClient({
                 id="confirm-job-title"
                 className="font-heading text-lg font-bold text-[var(--ai-t1)]"
               >
-                {confirm.kind === "close" ? "Close this job?" : "Delete this job?"}
+                {confirm.kind === "rescore"
+                  ? "Re-score all applicants?"
+                  : confirm.kind === "close"
+                    ? "Close this job?"
+                    : "Delete this job?"}
               </h3>
               <p className="mt-2 text-sm text-[var(--ai-t2)]">
-                {confirm.kind === "close" ? (
+                {confirm.kind === "rescore" ? (
+                  <>
+                    Every one of the{" "}
+                    <span className="font-semibold">
+                      {confirm.job.applicant_count} applicant
+                      {confirm.job.applicant_count === 1 ? "" : "s"}
+                    </span>{" "}
+                    for <span className="font-semibold">{confirm.job.title}</span> will be
+                    re-scored against the job&apos;s current requirements — about{" "}
+                    <span className="font-semibold">
+                      ${(confirm.job.applicant_count * 0.02).toFixed(2)}
+                    </span>{" "}
+                    in AI usage. Existing scores stay visible until each new one lands.
+                  </>
+                ) : confirm.kind === "close" ? (
                   <>
                     <span className="font-semibold">{confirm.job.title}</span> will be
                     removed from remotiv.work and stop accepting applications. Existing
@@ -1303,9 +1376,19 @@ export function JobsClient({
                 onClick={handleConfirm}
                 disabled={busy}
                 aria-busy={busy}
-                className="flex-1 rounded-xl bg-[var(--ai-danger)] py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 ${
+                  confirm.kind === "rescore"
+                    ? "bg-remotiv-purple"
+                    : "bg-[var(--ai-danger)]"
+                }`}
               >
-                {busy ? "Working…" : confirm.kind === "close" ? "Close job" : "Delete"}
+                {busy
+                  ? "Working…"
+                  : confirm.kind === "rescore"
+                    ? "Re-score all"
+                    : confirm.kind === "close"
+                      ? "Close job"
+                      : "Delete"}
               </button>
             </div>
           </div>

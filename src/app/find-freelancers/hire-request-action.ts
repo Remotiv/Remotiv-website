@@ -1,7 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
-import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { sendEmail } from "@/lib/email/send";
 import { renderHireRequestClientEmail } from "@/lib/email/templates/hire-request-client";
 import { renderHireRequestTeamEmail } from "@/lib/email/templates/hire-request-team";

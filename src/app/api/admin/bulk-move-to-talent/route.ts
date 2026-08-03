@@ -6,6 +6,7 @@ import {
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { extractTalentFieldsFromCv } from "@/lib/cv-extract";
 import { createServiceClient } from "@/lib/supabase/server";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 // Reuses the canonical move logic with ZERO replication:
 //   - extractTalentFieldsFromCv  → AI fields off stored cv_text
@@ -110,7 +111,7 @@ export async function POST(request: Request) {
     // Company applicants are never moved into Remotiv's talent pool. A
     // company id in the batch is simply not returned — neither moved nor
     // counted, matching how a non-completed id is handled.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .in("id", ids);
   if (fetchErr) {
     return NextResponse.json({ error: fetchErr.message }, { status: 500 });

@@ -3,6 +3,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ApplicationsDashboard } from "@/app/admin/_components/applications-dashboard";
 import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
 import type { ApplicationTag, JobApplication, OpenJob } from "./actions";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 export const dynamic = "force-dynamic";
 
@@ -27,7 +28,7 @@ async function fetchAllApplications(
       // Hard product separation: applications to COMPANY-owned jobs
       // (company_id_snapshot non-null) belong to that company's pipeline and
       // must never surface in Remotiv admin. Null = Remotiv-owned.
-      .is("company_id_snapshot", null)
+      .or(await adminApplicationScope())
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
     if (error) throw error;

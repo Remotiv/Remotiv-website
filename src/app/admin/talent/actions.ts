@@ -4,7 +4,7 @@ import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { trimToNull } from "@/app/admin/lib/validators";
+import { trimToNull } from "@/lib/validators";
 import type { InviteMetrics, InviteStatus } from "@/lib/claim-status";
 import { getAvatarUrl } from "@/lib/avatars";
 

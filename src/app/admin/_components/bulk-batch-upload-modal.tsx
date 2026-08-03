@@ -9,7 +9,7 @@ import {
   Upload,
   X,
 } from "lucide-react";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
 import { useFocusTrap } from "./_shared/use-focus-trap";
 import {
   EditableCell,

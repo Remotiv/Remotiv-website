@@ -3,7 +3,8 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import { isValidEmail } from "@/app/admin/lib/validators";
+import { isValidEmail } from "@/lib/validators";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 // 200-char ceiling on each input keeps payload-padding abuse in check.
 const MAX_INPUT_LENGTH = 200;
@@ -82,7 +83,7 @@ export async function POST(request: NextRequest) {
         // Remotiv job and a company job are different applications. Companies
         // get their own scoped dedup when the apply flow becomes
         // company-aware.
-        .is("company_id_snapshot", null)
+        .or(await adminApplicationScope())
         .order("created_at", { ascending: false })
         .limit(1)
         .maybeSingle();
@@ -111,7 +112,7 @@ export async function POST(request: NextRequest) {
         .not("phone", "is", null)
         // Same public-exposure reasoning as the email match above — the phone
         // path returns the identical shape, job title included.
-        .is("company_id_snapshot", null)
+        .or(await adminApplicationScope())
         .order("created_at", { ascending: false })
         .limit(100);
 

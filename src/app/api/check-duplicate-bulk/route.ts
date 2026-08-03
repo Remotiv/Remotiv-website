@@ -2,6 +2,7 @@ import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 /**
  * POST /api/check-duplicate-bulk
@@ -90,7 +91,7 @@ export async function POST(request: NextRequest) {
             // from the public apply flow, and a match confirms that the
             // person applied somewhere. A customer's applicants are their
             // data, not a signal Remotiv surfaces publicly.
-            .is("company_id_snapshot", null)
+            .or(await adminApplicationScope())
             .limit(1)
             .maybeSingle(),
           supabase

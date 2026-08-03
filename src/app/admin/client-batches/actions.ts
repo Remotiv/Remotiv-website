@@ -3,8 +3,9 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import { isValidEmail, trimToNull } from "@/app/admin/lib/validators";
+import { isValidEmail, trimToNull } from "@/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -268,7 +269,7 @@ export async function fetchAvailableCandidates(
       .from("job_applications")
       .select("id, first_name, last_name, email, phone, linkedin_url, cv_url, jobs(title)")
       // Company applicants are not Remotiv's to place into client batches.
-      .is("company_id_snapshot", null)
+      .or(await adminApplicationScope())
       .order("created_at", { ascending: false })
       .limit(50);
     if (q) {
@@ -459,7 +460,7 @@ export async function addCandidateToBatch(
         .eq("id", candidate.source_id)
         // A batch candidate sourced before the separation could still point at
         // a company application; never sign its CV.
-        .is("company_id_snapshot", null)
+        .or(await adminApplicationScope())
         .maybeSingle();
       cvPath = (appRow?.cv_path as string | null) ?? null;
     } else if (candidate.source_type === "talent") {
@@ -766,7 +767,7 @@ export async function copyCandidateToApplications(
     .eq("email", c.email)
     // Scoped to Remotiv's own applications: a candidate who applied to a
     // customer's job must not block Remotiv from adding them to a batch.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .maybeSingle();
   if (existing && (existing as { id: string }).id) {
     return {

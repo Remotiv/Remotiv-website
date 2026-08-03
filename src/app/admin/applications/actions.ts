@@ -5,7 +5,8 @@ import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -75,7 +76,7 @@ export async function updateApplicationStatus(
     .eq("id", id)
     // Defence in depth: admin can't see company applications, so shouldn't be
     // able to reach this — but a forged action call must not mutate one.
-    .is("company_id_snapshot", null);
+    .or(await adminApplicationScope());
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/applications");
@@ -193,7 +194,7 @@ export async function deleteApplication(
     .delete()
     .eq("id", id)
     // Remotiv must never delete a customer's applicant record.
-    .is("company_id_snapshot", null);
+    .or(await adminApplicationScope());
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/applications");
@@ -255,7 +256,7 @@ export async function moveApplicationToTalent(
     .select("*")
     .eq("id", applicationId)
     // Remotiv must not harvest a company's applicant into its own talent pool.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .maybeSingle();
 
   if (fetchErr) return { success: false, error: fetchErr.message };
@@ -428,7 +429,7 @@ export async function getApplicationCvSignedUrl(
     .eq("id", applicationId)
     // Never sign a company applicant's CV for Remotiv admin. Falls through to
     // the same generic "cv_missing" a genuinely absent row returns.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .maybeSingle();
   if (appErr || !appRow) {
     return { ok: false, error: "cv_missing" };

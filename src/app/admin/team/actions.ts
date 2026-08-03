@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { isValidEmail, trimRequired, trimToNull } from "@/app/admin/lib/validators";
+import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 
 export type AdminLoginStatus = "active" | "paused" | "archived";
 

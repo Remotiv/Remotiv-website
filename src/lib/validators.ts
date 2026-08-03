@@ -5,6 +5,13 @@
  * that lived inline in src/app/admin/clients/actions.ts and the dozen
  * `value || null` patterns scattered across actions). One source of truth
  * makes it impossible to skip a check by copy-pasting a stale snippet.
+ *
+ * Lives in src/lib, NOT src/app/admin/lib, where it started. Pure string
+ * predicates with no data path — but 14 non-admin files were importing them
+ * from the admin tree, including /api/apply, the public contact form and the
+ * company product's team invite. That is the product-separation rule broken 14
+ * times over, and the direction of the dependency was backwards: the shared
+ * layer must not live inside one of the products that consumes it.
  */
 
 /**

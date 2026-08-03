@@ -2,6 +2,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 export type SearchSource = "application" | "talent";
 
@@ -116,7 +117,7 @@ export async function searchCandidates(query: string): Promise<SearchResults> {
     .select("*, jobs(title)")
     // Global admin search returns full applicant rows — company-owned
     // applications are excluded outright.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .or(appOr)
     .order("created_at", { ascending: false })
     .limit(200);

@@ -177,6 +177,18 @@ export type ApplicantScoreDetail = ApplicantScore & {
   screening_score: number | null;
   ai_model: string | null;
   scored_at: string | null;
+  /**
+   * True when the job's scoring criteria have been edited since this card was
+   * produced — i.e. application_scores.job_criteria_version is behind
+   * jobs.criteria_version.
+   *
+   * Until updateCompanyJob started incrementing that column it was frozen at 1
+   * for every job, so a scorecard judged against last month's requirements was
+   * indistinguishable from one judged against today's. This is the flag that
+   * makes the difference visible, and the drawer puts the re-score action
+   * beside it.
+   */
+  stale: boolean;
   /** The reviewer's note on why the model was off. Null when not adjusted. */
   human_feedback: string | null;
   /** Identity cache of whoever adjusted — frozen history, not a live lookup. */

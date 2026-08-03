@@ -30,10 +30,12 @@ import {
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { canCreateJobs, type CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import {
   adjustScore,
   clearScoreAdjustment,
   deleteApplication,
+  rescoreApplication,
   fetchCompanyApplicant,
   updateApplicationStage,
 } from "./actions";
@@ -758,6 +760,9 @@ function ApplicantDrawer({
   historyLoading,
   saving,
   scoreSaving,
+  canRescore,
+  rescoring,
+  onRescore,
   onClose,
   onStageChange,
   onAdjustScore,
@@ -770,6 +775,9 @@ function ApplicantDrawer({
   historyLoading: boolean;
   saving: boolean;
   scoreSaving: boolean;
+  canRescore: boolean;
+  rescoring: boolean;
+  onRescore: () => void;
   onClose: () => void;
   onStageChange: (next: PipelineStage) => void;
   onAdjustScore: (score: number, feedback: string) => void;
@@ -1193,6 +1201,53 @@ function ApplicantDrawer({
             </>
           )}
 
+          {/* Staleness + re-score, ABOVE the adjuster: if the card was judged
+              against criteria that have since changed, that has to be known
+              before anyone reads the breakdown or corrects the number. The
+              action sits in the banner rather than in a menu because the flag
+              and its remedy are the same thought. */}
+          {scoreDetail?.stale && (
+            <div className="mt-[22px] rounded-[13px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-4 py-3.5">
+              <p className="m-0 text-[13px] font-semibold text-[var(--ai-amber-ink)]">
+                Scored against older criteria
+              </p>
+              <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
+                This job&apos;s requirements or screening questions have changed
+                since this CV was scored, so the numbers below were judged
+                against a different brief.
+              </p>
+              {canRescore && (
+                <button
+                  type="button"
+                  onClick={onRescore}
+                  disabled={rescoring}
+                  className={`${ADJ_BTN_PRIMARY} mt-3`}
+                >
+                  {rescoring ? "Queueing…" : "Re-score this applicant"}
+                </button>
+              )}
+            </div>
+          )}
+
+          {/* Re-score is also available when the card is current — a recruiter
+              may simply want a second read. Hidden when the banner above is
+              already showing it, so the action never appears twice. */}
+          {scoreDetail && !scoreDetail.stale && canRescore && (
+            <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3">
+              <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
+                Re-run the AI on this CV — costs about two cents.
+              </p>
+              <button
+                type="button"
+                onClick={onRescore}
+                disabled={rescoring}
+                className={`${ADJ_BTN_QUIET} shrink-0`}
+              >
+                {rescoring ? "Queueing…" : "Re-score"}
+              </button>
+            </div>
+          )}
+
           {/* Sits after the breakdown on purpose: a reviewer should read what
               the model concluded before overriding it. Rendered for any score
               row, not just 'scored' — see ScoreAdjuster. */}
@@ -1339,14 +1394,21 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 // ── Main ─────────────────────────────────────────────────────
 
 export function ApplicantsClient({
+  viewerRole,
   applicants: initialApplicants,
   newThisWeek,
   openRoles,
 }: {
+  viewerRole: CompanyRole;
   applicants: CompanyApplicantRow[];
   newThisWeek: number;
   openRoles: number;
 }) {
+  // Same predicate the server action enforces (owner / admin / recruiter).
+  // Hiring managers review candidates but do not spend the company's scoring
+  // budget — rescoreApplication would reject them anyway; this stops the UI
+  // offering a button that can only fail.
+  const canRescore = canCreateJobs(viewerRole);
   const router = useRouter();
 
   // Local copy so a delete can drop the row immediately. Re-synced whenever
@@ -1695,6 +1757,34 @@ export function ApplicantsClient({
     if (detail?.applicant) {
       setScoreOverrides((prev) => ({ ...prev, [id]: detail.applicant.score }));
     }
+  }
+
+  /**
+   * Re-queue AI scoring for one applicant.
+   *
+   * NOT optimistic. The others paint first because the outcome is known — the
+   * stage you picked, the score you typed. Here the outcome is a model call
+   * that lands seconds to minutes later via the worker, so the honest UI is a
+   * busy state and a "queued" toast; inventing a pending score would claim the
+   * old one is gone before anything has replaced it.
+   */
+  const [rescoringId, setRescoringId] = useState<string | null>(null);
+
+  async function handleRescore(id: string) {
+    if (rescoringId) return;
+    setRescoringId(id);
+    let result: Awaited<ReturnType<typeof rescoreApplication>>;
+    try {
+      result = await rescoreApplication(id);
+    } catch {
+      result = { success: false, error: "Couldn't queue a re-score — please try again." };
+    }
+    setRescoringId(null);
+    if (!result.success) {
+      setToast(result.error);
+      return;
+    }
+    setToast("Re-score queued — the new card appears here shortly.");
   }
 
   /**
@@ -2179,6 +2269,11 @@ export function ApplicantsClient({
           historyLoading={historyLoading}
           saving={savingId === openRow.id}
           scoreSaving={scoreSaving}
+          canRescore={canRescore}
+          rescoring={rescoringId === openRow.id}
+          onRescore={() => {
+            void handleRescore(openRow.id);
+          }}
           onClose={() => setOpenId(null)}
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);

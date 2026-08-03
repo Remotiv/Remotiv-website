@@ -2,6 +2,7 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 export const runtime = "nodejs";
 
@@ -82,7 +83,7 @@ export async function GET(
     // branching after the fetch means a company row returns null here and
     // falls into the SAME generic "CV not found" a genuinely missing row
     // gets — no distinct error that would confirm the application exists.
-    .is("company_id_snapshot", null)
+    .or(await adminApplicationScope())
     .maybeSingle();
   if (appErr || !appRow) {
     return htmlError(404, "CV not found", "We couldn't find this application.");

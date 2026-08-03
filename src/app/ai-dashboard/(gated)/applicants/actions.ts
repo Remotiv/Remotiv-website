@@ -339,7 +339,7 @@ export async function fetchCompanyApplicant(
   const { data: scoreData, error: scoreErr } = await service
     .from("application_scores")
     .select(
-      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at`,
+      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -350,6 +350,30 @@ export async function fetchCompanyApplicant(
   }
 
   const sRow = scoreData as (ScoreSummaryRow & Record<string, unknown>) | null;
+
+  // Staleness: compare the criteria version stamped on the card against the
+  // job's CURRENT one. Scoped by company like everything else — a job id alone
+  // proves nothing, and this read must not become a way to probe another
+  // tenant's jobs.
+  let jobCriteriaVersion: number | null = null;
+  if (row.job_id) {
+    const { data: jobRow } = await service
+      .from("jobs")
+      .select("criteria_version")
+      .eq("id", row.job_id)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle();
+    const v = (jobRow as { criteria_version?: number | null } | null)?.criteria_version;
+    jobCriteriaVersion = typeof v === "number" ? v : null;
+  }
+  // Both sides must be known before claiming staleness. A missing version on
+  // either end means "we can't tell", and an unprovable warning beside a
+  // money-costing button is worse than no warning.
+  const scoredUnder = Number(sRow?.job_criteria_version ?? Number.NaN);
+  const stale =
+    Number.isFinite(scoredUnder) &&
+    jobCriteriaVersion !== null &&
+    scoredUnder < jobCriteriaVersion;
   const scoreDetail: ApplicantScoreDetail | null = sRow
     ? {
         ...toScore(sRow),
@@ -363,6 +387,7 @@ export async function fetchCompanyApplicant(
         screening_score: (sRow.screening_score as number | null) ?? null,
         ai_model: (sRow.ai_model as string | null) ?? null,
         scored_at: (sRow.scored_at as string | null) ?? null,
+        stale,
         human_feedback: (sRow.human_feedback as string | null) ?? null,
         adjusted_by_name: (sRow.adjusted_by_name as string | null) ?? null,
         adjusted_at: (sRow.adjusted_at as string | null) ?? null,

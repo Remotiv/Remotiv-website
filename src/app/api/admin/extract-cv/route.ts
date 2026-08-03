@@ -6,6 +6,7 @@ import {
   extractTalentFieldsFromCv,
   type ExtractedTalentFields,
 } from "@/lib/cv-extract";
+import { adminApplicationScope } from "@/lib/admin-scope";
 
 export const runtime = "nodejs";
 
@@ -171,7 +172,7 @@ export async function POST(request: Request) {
       )
       .eq("id", applicationId)
       // Remotiv must not run CV extraction over a company's applicant data.
-      .is("company_id_snapshot", null)
+      .or(await adminApplicationScope())
       .maybeSingle();
 
     if (!row) {
