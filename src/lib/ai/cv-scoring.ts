@@ -37,7 +37,7 @@ import { recordUsage } from "@/lib/usage";
  * buckets costs sample size and is recoverable in analysis; pooling two
  * sampling regimes is not recoverable at all.
  */
-export const PROMPT_VERSION = "cv-scoring-v7";
+export const PROMPT_VERSION = "cv-scoring-v8";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -235,7 +235,13 @@ const BAND_DEFINITIONS = `SCORE BANDS — anchor every number to these. They are
 - 20-39   Weak. Little overlap between what the CV shows and what this job asks for.
 - 0-19    Unrelated. A different field, or the CV contains no evidence relevant to this role.`;
 
-const SYSTEM_PROMPT = `You are an experienced technical recruiter assessing ONE candidate's CV against ONE specific job description.
+/**
+ * Exported so the rubric can be reproduced outside the scoring path — the
+ * consistency harness and any fabrication diagnostic need to issue the exact
+ * request scoreCv issues, and a prompt that can't be read from a test is a
+ * prompt whose failures can only be guessed at. Read-only: nothing mutates it.
+ */
+export const SYSTEM_PROMPT = `You are an experienced technical recruiter assessing ONE candidate's CV against ONE specific job description.
 
 You judge against THAT JOB'S stated requirements and responsibilities — never against a generic idea of a good CV. A CV that is excellent for a different role scores low here if it does not match what this job asks for.
 
@@ -244,13 +250,18 @@ ${BAND_DEFINITIONS}
 EVIDENCE IS MANDATORY, AND IT MUST BE THE RIGHT EVIDENCE.
 Every dimension score and every strength carries its own "quote" field. Three rules, and each matters as much as the first:
 
-1. VERBATIM. Copy the span EXACTLY, character for character, from the CV text you are given. Do not paraphrase, do not summarise, do not tidy up spelling or spacing inside a quote. A quote that is not literally present in the CV is discarded.
+1. VERBATIM, AND ONE CONTIGUOUS SPAN. Copy the span EXACTLY, character for character, from the CV text you are given. Do not paraphrase, do not summarise, do not tidy up spelling or spacing inside a quote. A quote that is not literally present in the CV is discarded.
+
+The quote must be a SINGLE UNBROKEN RUN of characters from one place in the CV. Never join two separate places together, and never use "..." or "…" to skip over intervening text. Both halves being real does not make the joined string real: the quote as you wrote it appears nowhere in the CV, so it is discarded exactly like an invented one. If the proof you want is split across two parts of the CV, pick the ONE span that best supports this specific claim. If no single span supports it, drop the claim.
 
 2. DIRECTLY RELEVANT. The quote must be the span that supports THAT SPECIFIC claim — the sentence a reader would point at to check it. A real quote from elsewhere in the CV is NOT partial credit; it is a failure, and worse than omitting the claim, because it makes an unsupported statement look verified.
 
-3. FROM THE CV TEXT ONLY. Strengths must be evidenced from the CV. The screening answers and the candidate profile are given to you as CONTEXT for your judgement — they are not a source of strengths, because neither contains a CV span you could quote. If something is shown only by a screening answer or a self-reported profile field, it does NOT become a strength: put it in the relevant dimension's reasoning or in the summary instead, where no quote is required.
+3. FROM THE CV TEXT ONLY — NOT FROM THE JOB DESCRIPTION. Every quote must come from the section marked "CV TEXT". The job's requirements and responsibilities are what you are judging the candidate AGAINST; they are never evidence that the candidate did the thing. Quoting the job description back as proof is circular — it says what the employer wants, not what this person has done — and it is the most dangerous possible error, because it makes a candidate look like a perfect match for exactly the duties the CV is silent on. If a responsibility has no support in the CV, that is a MISSING REQUIREMENT, not a quote.
+
+Strengths must be evidenced from the CV. The screening answers and the candidate profile are given to you as CONTEXT for your judgement — they are not a source of strengths either, because neither contains a CV span you could quote. If something is shown only by a screening answer or a self-reported profile field, it does NOT become a strength: put it in the relevant dimension's reasoning or in the summary instead, where no quote is required.
 
 Examples of these rules being broken — do not do this:
+- Claim "led large engineering teams" with quote "Led global teams of 25+... managed teams of up to 35+ professionals". BOTH halves are real sentences from the CV, and joining them still fails: that string appears nowhere in the document. This is the most common way a well-intentioned quote breaks — you found two supporting facts and stitched them. Pick one and stop: "Led global teams of 25+". Never reach for the ellipsis.
 - Claim "currently employed at Acme since July 2024" with quote "Increased profits by 15,000 AED per month". The quote is real but it proves the profit figure, not the employment date. The correct quote names the employer and the date.
 - Claim "built pipelines of 70+ companies" with quote "MBA in Marketing". Unrelated.
 - Claim "multi-channel outreach using LinkedIn Sales Navigator" with quote "100% month on month growth". Unrelated.
@@ -435,14 +446,37 @@ function normalise(text: string): string {
     .trim();
 }
 
-/** Models sometimes wrap or elide a quote; strip that before comparing. */
+/** Models sometimes wrap a quote in quotation marks; strip those before comparing. */
 function trimQuoteArtifacts(quote: string): string {
-  return quote
-    .replace(/^["'`]+|["'`]+$/g, "")
-    .replace(/^\.{3}|…/g, "")
-    .replace(/\.{3}$|…$/g, "")
-    .trim();
+  return quote.replace(/^["'`]+|["'`]+$/g, "").trim();
 }
+
+/**
+ * Split a quote at any ellipsis into the spans the model actually meant.
+ *
+ * Ellipsis-stitching is the dominant fabrication mode in practice, and it is
+ * not invention: measured on a live application, EVERY unverifiable quote was
+ * two or more real CV sentences joined by "...", none drawn from the job
+ * description or the screening answers. The model reads rule 1 as satisfied —
+ * each half IS verbatim — and marks the elision honestly. The old contiguous
+ * `includes` test then failed the lot, and at four-plus bad quotes out of
+ * eight that tripped MAX_FAIL_RATE and threw the whole scorecard away.
+ *
+ * A leading or trailing ellipsis produces an empty segment, which the filter
+ * removes — that also replaces the previous start/end stripping, which had a
+ * latent bug: in `/^\.{3}|…/g` the `^` anchored only the first alternative, so
+ * a unicode ellipsis was stripped anywhere in the string while an ASCII one
+ * mid-quote (what models actually emit) was left in place.
+ */
+function ellipsisSegments(quote: string): string[] {
+  return quote
+    .split(/\s*(?:\.{3,}|…)\s*/g)
+    .map((segment) => segment.trim())
+    .filter(Boolean);
+}
+
+/** Below this a quote proves nothing — "React" appears in half of all CVs. */
+const MIN_QUOTE_CHARS = 8;
 
 export type VerificationOutcome = {
   verified: EvidenceItem[];
@@ -457,6 +491,14 @@ export type VerificationOutcome = {
  * Anything not found is dropped, and the claim it supported goes with it —
  * a fabricated quote is the one failure mode that would make the whole feature
  * untrustworthy, so it is never stored.
+ *
+ * A quote split by an ellipsis is checked SEGMENT BY SEGMENT, and every segment
+ * must be found: one real half plus one invented half is still fabrication and
+ * still drops. What gets STORED is the single longest verified segment, never
+ * the stitched string — so the quote a recruiter reads is always a contiguous
+ * run that genuinely appears in the CV, which is the whole point of the gate.
+ * Salvaging the segment rather than the join is what keeps this from being a
+ * loosening: nothing is stored now that could not have been stored before.
  */
 export function verifyEvidence(
   evidence: EvidenceItem[],
@@ -468,17 +510,27 @@ export function verifyEvidence(
 
   for (const item of evidence) {
     const cleaned = trimQuoteArtifacts(item.quote ?? "");
-    const needle = normalise(cleaned);
-    // Very short quotes prove nothing — "React" appears in half of all CVs.
-    if (needle.length < 8) {
+    const segments = ellipsisSegments(cleaned);
+
+    // Fabrication test: EVERY segment must appear in the CV.
+    const allFound =
+      segments.length > 0 &&
+      segments.every((segment) => haystack.includes(normalise(segment)));
+    if (!allFound) {
       dropped.push(item);
       continue;
     }
-    if (haystack.includes(needle)) {
-      verified.push({ claim: item.claim, quote: cleaned });
-    } else {
+
+    // Triviality test, applied to the span actually stored rather than to the
+    // whole quote — a short fragment that IS in the CV isn't fabrication, it
+    // just proves nothing on its own.
+    const best = segments.reduce((a, b) => (b.length > a.length ? b : a));
+    if (normalise(best).length < MIN_QUOTE_CHARS) {
       dropped.push(item);
+      continue;
     }
+
+    verified.push({ claim: item.claim, quote: best });
   }
 
   const total = verified.length + dropped.length;
