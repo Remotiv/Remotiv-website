@@ -4,6 +4,7 @@ import { useEffect, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
+import { isValidEmail } from "@/lib/validators";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   COMPANY_DESCRIPTION_MAX,
@@ -16,6 +17,7 @@ import {
   removeCompanyLogo,
   updateCompanyProfile,
   updateOwnAccount,
+  updateRejectionEmailDefault,
 } from "./actions";
 
 // ── Shared control classes ───────────────────────────────────
@@ -44,6 +46,7 @@ const BTN_DARK =
 type CompanyForm = {
   name: string;
   contact_name: string;
+  candidate_reply_email: string;
   website: string;
   industry: string;
   description: string;
@@ -74,11 +77,13 @@ export function SettingsClient({
   role,
   company,
   account,
+  sendRejectionDefault,
   stats,
 }: {
   role: CompanyRole;
   company: CompanyForm & { logoUrl: string | null; slug: string | null };
   account: { email: string };
+  sendRejectionDefault: boolean;
   stats: { liveRoles: number; applicants: number; seatsUsed: number };
 }) {
   const router = useRouter();
@@ -95,12 +100,34 @@ export function SettingsClient({
   // action re-checks this — a disabled input is a courtesy, not a permission.
   const canEditCompany = role === "owner" || role === "admin";
 
+  // Saved on toggle rather than behind a Save button: it is a single boolean
+  // with nothing to validate and no other field to be consistent with, so a
+  // footer would only add a way to leave it half-applied. Flipped optimistically
+  // and reverted if the action fails, so the switch never shows a state the
+  // database doesn't hold.
+  const [rejectDefault, setRejectDefault] = useState(sendRejectionDefault);
+  const [rejectBusy, setRejectBusy] = useState(false);
+
+  async function saveRejectionDefault(next: boolean) {
+    setRejectBusy(true);
+    setRejectDefault(next);
+    const res = await updateRejectionEmailDefault(next);
+    setRejectBusy(false);
+    if (!res.success) {
+      setRejectDefault(!next);
+      showToast(res.error);
+      return;
+    }
+    showToast(next ? "New jobs will send rejections" : "Default turned off");
+  }
+
   // Only the editable form fields. `company` also carries slug + logoUrl,
   // which are not part of this form — seeding state from the whole object put
   // them into the dirty comparison and into the save payload.
   const initialCompanyForm: CompanyForm = {
     name: company.name,
     contact_name: company.contact_name,
+    candidate_reply_email: company.candidate_reply_email,
     website: company.website,
     industry: company.industry,
     description: company.description,
@@ -174,6 +201,18 @@ export function SettingsClient({
     }
     if (co.website.trim() && !/^https?:\/\/.+\..+/.test(co.website.trim())) {
       setCoErr({ website: "Enter a full URL, starting with https://" });
+      return;
+    }
+    // Blank is allowed and means "replies go to Remotiv"; anything else has to
+    // be a real address. Same predicate the action re-checks server-side.
+    if (
+      co.candidate_reply_email.trim() &&
+      !isValidEmail(co.candidate_reply_email)
+    ) {
+      setCoErr({
+        candidate_reply_email:
+          "Enter a valid email address, or leave it blank to take no replies.",
+      });
       return;
     }
     if (co.description.length > COMPANY_DESCRIPTION_MAX) {
@@ -587,6 +626,29 @@ export function SettingsClient({
               {coErr.website && <p className={ERR_CLS}>{coErr.website}</p>}
             </div>
 
+            <div className="mb-4">
+              <label className={LABEL_CLS} htmlFor="co-reply">
+                Where candidate replies go
+              </label>
+              <input
+                id="co-reply"
+                type="email"
+                value={co.candidate_reply_email}
+                placeholder="careers@yourcompany.com"
+                disabled={!canEditCompany}
+                onChange={(e) => setCoField("candidate_reply_email", e.target.value)}
+                className={`${INPUT_CLS} ${coErr.candidate_reply_email ? INPUT_ERR_CLS : ""}`}
+              />
+              {coErr.candidate_reply_email && (
+                <p className={ERR_CLS}>{coErr.candidate_reply_email}</p>
+              )}
+              <p className={HINT_CLS}>
+                Candidates replying to your emails reach this address. Leave it
+                blank and they can&apos;t reply to you at all — replies go to an
+                unmonitored address and nobody reads them.
+              </p>
+            </div>
+
             <div>
               <div className="mb-[7px] flex items-baseline justify-between gap-3">
                 <label className={`${LABEL_CLS} mb-0`} htmlFor="co-about">
@@ -793,6 +855,65 @@ export function SettingsClient({
                 {acBusy ? "Saving…" : "Update account"}
               </button>
             </div>
+          </div>
+        </section>
+
+        {/* ── Card 3: Candidate email ── */}
+        <section className={CARD_CLS}>
+          <div className="flex items-start justify-between gap-4 px-6 pt-5">
+            <div>
+              <h2 className="m-0 mb-[5px] font-heading text-lg font-extrabold tracking-[-0.025em] text-[var(--ai-t1)]">
+                Candidate email
+              </h2>
+              <p className="m-0 text-[13px] leading-[1.5] text-[var(--ai-t3)]">
+                What candidates hear from you automatically.
+              </p>
+            </div>
+          </div>
+
+          <div className="px-6 pb-[22px] pt-[18px]">
+            <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-[13px]">
+              <div className="flex items-start gap-3">
+                <div className="min-w-0">
+                  <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t1)]">
+                    Automated rejection emails on new jobs
+                  </p>
+                  <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
+                    The starting value for every job you post from now on. It
+                    doesn&apos;t change jobs that are already live — switch those on
+                    one at a time from the job&apos;s own edit screen.
+                  </p>
+                </div>
+                <span className="ml-auto pt-0.5">
+                  <button
+                    type="button"
+                    role="switch"
+                    aria-checked={rejectDefault}
+                    aria-label="Automated rejection emails on new jobs"
+                    disabled={!canEditCompany || rejectBusy}
+                    onClick={() => {
+                      void saveRejectionDefault(!rejectDefault);
+                    }}
+                    className={`relative h-[22px] w-[38px] shrink-0 rounded-full transition-colors disabled:cursor-not-allowed disabled:opacity-[0.42] ${
+                      rejectDefault ? "bg-remotiv-green" : "bg-[var(--ai-line-strong)]"
+                    }`}
+                  >
+                    <span
+                      className={`absolute left-0.5 top-0.5 size-[18px] rounded-full bg-white shadow-[0_1px_3px_rgba(0,0,0,0.25)] transition-transform ${
+                        rejectDefault ? "translate-x-4" : ""
+                      }`}
+                    />
+                  </button>
+                </span>
+              </div>
+            </div>
+
+            <p className="m-0 mt-3 text-xs leading-[1.5] text-[var(--ai-t3)]">
+              Rejections are sent two days after you move someone to Rejected.
+              Moving them back out before then cancels the email. The only other
+              automatic email is the confirmation every candidate gets when they
+              apply — no other stage sends anything.
+            </p>
           </div>
         </section>
       </div>

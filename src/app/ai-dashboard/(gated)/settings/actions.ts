@@ -57,6 +57,7 @@ function normaliseWebsite(raw: string): { ok: true; value: string | null } | { o
 export async function updateCompanyProfile(input: {
   name: string;
   contact_name: string;
+  candidate_reply_email: string;
   website: string;
   industry: string;
   description: string;
@@ -67,6 +68,20 @@ export async function updateCompanyProfile(input: {
   if (!name) return { success: false, error: "Company name can't be empty." };
   if (name.length > 200) {
     return { success: false, error: "Company name is too long (max 200 characters)." };
+  }
+
+  // Where candidate replies land. Blank is a real, chosen value — it means "we
+  // don't take candidate replies", and the dispatcher then sends with no
+  // reply-to header at all — so it stores null rather than failing. A non-blank
+  // value must be a real address: a typo here sends every candidate reply into a
+  // bounce the company never sees.
+  const replyEmail = (input.candidate_reply_email ?? "").trim().toLowerCase();
+  if (replyEmail && !isValidEmail(replyEmail)) {
+    return {
+      success: false,
+      error:
+        "Enter a valid email address for candidate replies, or leave it blank to take none.",
+    };
   }
 
   const site = normaliseWebsite(input.website ?? "");
@@ -96,6 +111,7 @@ export async function updateCompanyProfile(input: {
     .update({
       name,
       contact_name: (input.contact_name ?? "").trim() || null,
+      candidate_reply_email: replyEmail || null,
       website: site.value,
       industry,
       description: description || null,
@@ -254,5 +270,33 @@ export async function removeCompanyLogo(): Promise<MutationResult<undefined>> {
 
   revalidatePath("/ai-dashboard/settings");
   revalidatePath("/ai-dashboard");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Set the company-wide DEFAULT for automated rejection emails.
+ *
+ * This value is a SEED, not a live switch: jobs/new copies it into the job at
+ * creation and nothing reads it afterwards. Flipping it on therefore changes
+ * nothing about jobs that are already posted, which is the point — a company
+ * turning this on today has not retroactively agreed to email everyone their
+ * existing pipelines rejected. Existing jobs are changed one at a time, on
+ * each job's own edit screen.
+ *
+ * Owner/admin only: it decides what goes out under the company's name.
+ */
+export async function updateRejectionEmailDefault(
+  enabled: boolean,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin");
+
+  const { error } = await createServiceClient()
+    .from("companies")
+    .update({ send_rejection_email: enabled === true })
+    .eq("id", ctx.companyId);
+
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/ai-dashboard/settings");
   return { success: true, data: undefined };
 }

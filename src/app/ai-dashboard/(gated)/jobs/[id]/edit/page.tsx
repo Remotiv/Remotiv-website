@@ -38,6 +38,7 @@ type JobRow = {
   avatar_interviewer_name: string | null;
   async_interview_enabled: boolean | null;
   async_interview_name: string | null;
+  send_rejection_email: boolean | null;
 };
 
 export default async function EditJobPage({
@@ -58,7 +59,7 @@ export default async function EditJobPage({
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email",
     )
     .eq("id", id)
     .maybeSingle();
@@ -136,6 +137,7 @@ export default async function EditJobPage({
     async_interview_enabled:
       job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
+    send_rejection_email: job.send_rejection_email ?? false,
   };
 
   return (

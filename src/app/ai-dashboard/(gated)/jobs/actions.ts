@@ -321,6 +321,7 @@ function buildPatch(input: CompanyJobInput):
       avatar_interviewer_name: interviewerName(input.avatar_interviewer_name, avatarOn),
       async_interview_enabled: asyncOn,
       async_interview_name: interviewerName(input.async_interview_name, asyncOn),
+      send_rejection_email: input.send_rejection_email === true,
     },
   };
 }

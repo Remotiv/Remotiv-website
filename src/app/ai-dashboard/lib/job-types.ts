@@ -148,6 +148,15 @@ export type CompanyJobInput = {
   async_interview_enabled: boolean;
   /** Meaningful only while async_interview_enabled — stored null otherwise. */
   async_interview_name: string;
+  /**
+   * Send an automated rejection email for this job, two days after a candidate
+   * is moved to Rejected.
+   *
+   * Per-JOB, seeded from the company default at creation and independent
+   * afterwards — changing the company setting must never retroactively switch
+   * automated rejections on for jobs that were posted without them.
+   */
+  send_rejection_email: boolean;
 };
 
 export const EMPTY_JOB_INPUT: CompanyJobInput = {
@@ -174,4 +183,7 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   avatar_interviewer_name: "",
   async_interview_enabled: false,
   async_interview_name: "",
+  // Off by default. An automated rejection carrying a company's name is
+  // switched on deliberately, never inherited by accident.
+  send_rejection_email: false,
 };

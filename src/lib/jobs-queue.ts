@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
+import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -164,7 +165,7 @@ async function notImplemented(job: BackgroundJob): Promise<never> {
 // Step 4 — the first real handler. Loads the application and its job
 // server-side; the payload carries only an applicationId.
 registerHandler(JOB_TYPES.AI_CV_SCORE, handleAiCvScore);
-registerHandler(JOB_TYPES.SEND_MESSAGE, notImplemented); // Step 5
+registerHandler(JOB_TYPES.SEND_MESSAGE, handleSendMessage);
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, notImplemented); // Step 6
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, notImplemented); // Step 6
 registerHandler(JOB_TYPES.TRANSCRIBE, notImplemented); // Step 7

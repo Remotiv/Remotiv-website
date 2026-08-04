@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { seedRejectionDefault } from "@/lib/email/candidate/triggers";
 import { SettingsClient } from "./_settings-client";
 import { COMPANY_LOGO_BUCKET } from "./constants";
 
@@ -31,6 +32,22 @@ export default async function SettingsPage() {
       .eq("status", "active"),
   ]);
 
+  // Read through the same helper jobs/new seeds from, so the switch shown here
+  // and the value a new job actually inherits can never disagree.
+  const sendRejectionDefault = await seedRejectionDefault(ctx.companyId);
+
+  // Read directly rather than widening COMPANY_COLUMNS: the shared company
+  // guard runs on every /ai-dashboard request and this column is only ever
+  // needed here and in the dispatcher.
+  const { data: replyRow } = await service
+    .from("companies")
+    .select("candidate_reply_email")
+    .eq("id", ctx.companyId)
+    .maybeSingle();
+  const candidateReplyEmail =
+    (replyRow as { candidate_reply_email: string | null } | null)
+      ?.candidate_reply_email ?? "";
+
   const logoUrl = ctx.company.logo_path
     ? service.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(ctx.company.logo_path)
         .data.publicUrl
@@ -43,12 +60,14 @@ export default async function SettingsPage() {
         name: ctx.company.name,
         slug: ctx.company.slug,
         contact_name: ctx.company.contact_name ?? "",
+        candidate_reply_email: candidateReplyEmail,
         website: ctx.company.website ?? "",
         industry: ctx.company.industry ?? "",
         description: ctx.company.description ?? "",
         logoUrl,
       }}
       account={{ email: ctx.user.email }}
+      sendRejectionDefault={sendRejectionDefault}
       stats={{
         liveRoles: publishedJobs.count ?? 0,
         applicants: applicants.count ?? 0,

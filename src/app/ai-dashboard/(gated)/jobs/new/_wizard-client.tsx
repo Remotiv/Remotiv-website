@@ -1516,6 +1516,21 @@ export function WizardClient({
                             />
                           </OptionRow>
 
+                          {/* LIVE today, unlike the four interview options —
+                              it gets the same "Active now" treatment as AI CV
+                              scoring rather than the "when interviews launch"
+                              pill, because switching it on changes what
+                              candidates receive immediately. */}
+                          <OptionRow
+                            title="Automated rejection email"
+                            desc="Two days after you move someone to Rejected, email them on your behalf. Moving them back out before then cancels it."
+                            live
+                            on={state.send_rejection_email}
+                            onToggle={() =>
+                              set("send_rejection_email", !state.send_rejection_email)
+                            }
+                          />
+
                           <OptionRow
                             title="Async video interview"
                             desc="Candidates record answers in their own time, with no live call."

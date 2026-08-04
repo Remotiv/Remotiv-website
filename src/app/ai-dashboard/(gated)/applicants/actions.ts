@@ -9,6 +9,10 @@ import {
 } from "@/app/ai-dashboard/lib/company-guards";
 import { enqueue } from "@/lib/jobs-queue";
 import {
+  cancelPendingRejection,
+  queueStageChange,
+} from "@/lib/email/candidate/triggers";
+import {
   PIPELINE_STAGES,
   SCORE_FEEDBACK_MAX,
   type ApplicantScore,
@@ -441,7 +445,7 @@ export async function updateApplicationStage(
   // return the SAME message so a probe can't confirm another company's id.
   const { data: targetRow } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot, pipeline_stage")
+    .select("id, company_id_snapshot, pipeline_stage, job_id")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -449,6 +453,7 @@ export async function updateApplicationStage(
     id: string;
     company_id_snapshot: string | null;
     pipeline_stage: string | null;
+    job_id: string | null;
   } | null;
 
   if (!target || target.company_id_snapshot !== ctx.companyId) {
@@ -491,6 +496,25 @@ export async function updateApplicationStage(
       histErr,
     );
   }
+
+  // Candidate email. Same non-fatal contract as the audit row above: both
+  // helpers swallow and log their own failures, because the stage move has
+  // already committed and a messaging outage must not report it as failed.
+  //
+  // Moving OFF Rejected cancels a rejection that has not gone out yet — that
+  // two-day window is the entire point of scheduling it rather than sending it
+  // immediately. Done first so a rapid Rejected → Shortlisted → Rejected
+  // sequence ends with the second rejection queued, not the first cancelled
+  // after the second was written.
+  if (toStage !== "rejected") {
+    await cancelPendingRejection(applicationId, ctx.companyId);
+  }
+  await queueStageChange({
+    applicationId,
+    companyId: ctx.companyId,
+    jobId: target.job_id,
+    toStage,
+  });
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };

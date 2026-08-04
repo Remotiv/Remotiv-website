@@ -7,6 +7,7 @@ import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
 import { extractPdfTextServer } from "@/lib/pdf-text";
 import { enqueue } from "@/lib/jobs-queue";
+import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -640,6 +641,12 @@ export async function POST(request: NextRequest) {
         );
       }
     }
+
+    // 4c. Tell the candidate we got it. Same non-fatal contract as the
+    //     scoring enqueue above — queueApplicationReceived never throws and
+    //     logs its own failures, so a queue outage costs a courtesy email and
+    //     never an application.
+    await queueApplicationReceived(applicationId, companyIdSnapshot);
 
     // 5. Issue a bridge token so the success modal can offer
     //    "Complete your profile" → /join-as-talent?token=… . Reuses the
