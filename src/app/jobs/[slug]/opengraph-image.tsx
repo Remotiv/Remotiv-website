@@ -223,6 +223,10 @@ export default async function Image({ params }: Props) {
         )
         .eq("slug", slug)
         .eq("status", "open")
+        // Without this the card renders a real title and salary for a job
+        // whose page 404s — the preview would leak an archived role into any
+        // chat or social unfurl that still has the link.
+        .is("archived_at", null)
         .maybeSingle();
       if (data) row = data as MinimalRow;
     } catch {

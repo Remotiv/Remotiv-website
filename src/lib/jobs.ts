@@ -126,6 +126,74 @@ export interface Job {
   created_by: string | null;
   status: string;
   created_at: string;
+  /**
+   * Public URL of the owning company's logo, or null.
+   *
+   * DERIVED, not a column — attachCompanyLogos fills it after the row query.
+   * Null for Remotiv-owned jobs (company_id null), which keep the letter mark,
+   * and for companies that have not uploaded one.
+   */
+  company_logo_url?: string | null;
+}
+
+/**
+ * Bucket holding company logos. Public-read, so a plain public URL is correct
+ * and no signing is involved.
+ *
+ * The name is duplicated from the settings segment's constants module rather
+ * than imported: that module lives inside the ai-dashboard product, and lib/
+ * must not depend on one of the products that consumes it. Worth consolidating
+ * into a shared constants module the next time either side is touched.
+ */
+const COMPANY_LOGO_BUCKET = "company-logos";
+
+/**
+ * Attach each company-owned job's logo URL, without a per-row join.
+ *
+ * /jobs is the hottest page on the site and LIST_SELECT deliberately avoids
+ * embeds for payload size, so this resolves the logos in ONE extra query keyed
+ * on the DISTINCT company ids in the batch — at most a handful for a page of
+ * 100 jobs, and an indexed primary-key lookup at that. A PostgREST embed would
+ * ship the company row per job; a denormalised jobs.company_logo_path column
+ * would remove the query but needs a migration, a backfill, and two write paths
+ * kept in step forever, and goes stale silently when one is missed.
+ *
+ * Never throws: a logo is decoration, and a storage or companies-table blip
+ * must not take down the jobs list. On failure every row simply gets null and
+ * falls back to the letter mark.
+ */
+export async function attachCompanyLogos<T extends { company_id: string | null }>(
+  rows: T[],
+): Promise<(T & { company_logo_url: string | null })[]> {
+  const ids = [...new Set(rows.map((r) => r.company_id).filter(Boolean))] as string[];
+  if (ids.length === 0) {
+    return rows.map((r) => ({ ...r, company_logo_url: null }));
+  }
+
+  const supabase = createServiceClient();
+  const byId = new Map<string, string>();
+
+  try {
+    const { data } = await supabase
+      .from("companies")
+      .select("id, logo_path")
+      .in("id", ids);
+
+    for (const row of (data ?? []) as { id: string; logo_path: string | null }[]) {
+      const path = (row.logo_path ?? "").trim();
+      if (!path) continue;
+      const url = supabase.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(path)
+        .data.publicUrl;
+      if (url) byId.set(row.id, url);
+    }
+  } catch {
+    // Fall through with an empty map — every card shows its letter.
+  }
+
+  return rows.map((r) => ({
+    ...r,
+    company_logo_url: (r.company_id && byId.get(r.company_id)) || null,
+  }));
 }
 
 export async function getInitialJobs(): Promise<Job[]> {
@@ -135,6 +203,10 @@ export async function getInitialJobs(): Promise<Job[]> {
     .from("jobs")
     .select(LIST_SELECT)
     .eq("status", "open")
+    // Archived jobs are kept for the company's records and are never public.
+    // Separate from status on purpose: 'closed' is a finished role that still
+    // has a public page, archived is a role withdrawn from the site entirely.
+    .is("archived_at", null)
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
@@ -145,7 +217,7 @@ export async function getInitialJobs(): Promise<Job[]> {
     return [];
   }
 
-  return (data ?? []) as unknown as Job[];
+  return attachCompanyLogos((data ?? []) as unknown as Job[]);
 }
 
 export async function getJobById(id: string): Promise<Job | null> {
@@ -159,10 +231,12 @@ export async function getJobById(id: string): Promise<Job | null> {
     .select("*")
     .eq("id", id)
     .eq("status", "open")
+    .is("archived_at", null)
     .maybeSingle();
 
-  if (error) return null;
-  return (data as Job | null) ?? null;
+  if (error || !data) return null;
+  const [job] = await attachCompanyLogos([data as Job]);
+  return job ?? null;
 }
 
 export async function getJobBySlug(slug: string): Promise<Job | null> {
@@ -177,8 +251,10 @@ export async function getJobBySlug(slug: string): Promise<Job | null> {
     .select("*")
     .eq("slug", slug)
     .eq("status", "open")
+    .is("archived_at", null)
     .maybeSingle();
 
-  if (error) return null;
-  return (data as Job | null) ?? null;
+  if (error || !data) return null;
+  const [job] = await attachCompanyLogos([data as Job]);
+  return job ?? null;
 }

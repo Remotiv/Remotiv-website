@@ -1,7 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
-import { LIST_SELECT, getJobById } from "@/lib/jobs";
+import { attachCompanyLogos, LIST_SELECT, getJobById } from "@/lib/jobs";
 
 // Cap each filter's raw query-string segment so a 50 KB ?category= can't
 // pad the payload or stall the comma-split into a giant array.
@@ -45,6 +45,10 @@ export async function GET(request: NextRequest) {
     .from("jobs")
     .select(LIST_SELECT)
     .eq("status", "open")
+    // Mirrors getInitialJobs. The client refetches through here on every
+    // filter change, so an archived job omitted from the SSR list would walk
+    // straight back in on the first keystroke without this.
+    .is("archived_at", null)
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
@@ -79,5 +83,9 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  return NextResponse.json(data ?? []);
+  // Same enrichment the SSR list uses, so a card keeps its logo across a
+  // refetch instead of flipping back to the letter on the first filter change.
+  return NextResponse.json(
+    await attachCompanyLogos((data ?? []) as { company_id: string | null }[]),
+  );
 }

@@ -56,7 +56,10 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
     const { data } = await supabase
       .from("jobs")
       .select("id, slug, created_at")
-      .eq("status", "open");
+      .eq("status", "open")
+      // An archived job 404s on /jobs/[slug], so leaving it in the sitemap
+      // would submit a dead URL to every crawler that reads this file.
+      .is("archived_at", null);
     const rows = (data ?? []) as Array<{
       id: string;
       slug: string | null;

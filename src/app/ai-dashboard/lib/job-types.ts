@@ -104,6 +104,15 @@ export type CompanyJobRow = {
   salary_currency: string | null;
   positions: number;
   created_at: string;
+  /**
+   * ISO timestamp, or null when the job is live in the workspace.
+   *
+   * Archived is orthogonal to status, not a fourth value of it: a job keeps
+   * whatever status it had, and archiving only decides whether it appears in
+   * the list and on the public site. That is why it is a separate column and a
+   * separate tab rather than JOB_STATUSES gaining a member.
+   */
+  archived_at: string | null;
   /** Count of job_applications pointing at this job. */
   applicant_count: number;
 };

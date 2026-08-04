@@ -895,6 +895,43 @@ function hasPublicRating(job: { company_id: string | null }): boolean {
   return job.company_id === null;
 }
 
+/**
+ * The company's logo, or the letter fallback.
+ *
+ * FIXED SQUARE + object-contain. Logos arrive at any aspect ratio — a wide
+ * wordmark is as common as a square glyph — and either `object-cover` (crops
+ * the wordmark to an unreadable slice) or an intrinsic width (a 4:1 logo
+ * pushes the company name off the card) would break the row. Containing inside
+ * a fixed box letterboxes instead: the mark shrinks to fit and the layout never
+ * moves, whatever gets uploaded.
+ *
+ * Remotiv-owned jobs (company_id null) never reach the image branch — they have
+ * no company and keep the letter, which is what the detail page has always
+ * shown.
+ */
+function CompanyMark({ job }: { job: Job }) {
+  const initial = (job.company ?? "").trim().charAt(0).toUpperCase() || "R";
+
+  if (job.company_logo_url) {
+    return (
+      // eslint-disable-next-line @next/next/no-img-element
+      <img
+        src={job.company_logo_url}
+        alt=""
+        loading="lazy"
+        decoding="async"
+        className="size-5 shrink-0 rounded-[5px] bg-white object-contain"
+      />
+    );
+  }
+
+  return (
+    <span className="flex size-5 shrink-0 items-center justify-center rounded-[5px] bg-remotiv-purple/10 font-heading text-[0.6rem] font-bold text-remotiv-purple">
+      {initial}
+    </span>
+  );
+}
+
 const JobCard = memo(function JobCard({
   job,
   isFavorited,
@@ -941,7 +978,8 @@ const JobCard = memo(function JobCard({
         <h3 className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-remotiv-text-dark">
           {job.title}
         </h3>
-        <div className="mb-1 flex items-center gap-1 text-[0.82rem] text-remotiv-text-light">
+        <div className="mb-1 flex items-center gap-1.5 text-[0.82rem] text-remotiv-text-light">
+          <CompanyMark job={job} />
           <span>{job.company}</span>
           {hasPublicRating(job) && (
             <>

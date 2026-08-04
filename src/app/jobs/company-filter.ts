@@ -1,6 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { LIST_SELECT, type Job } from "@/lib/jobs";
+import { attachCompanyLogos, LIST_SELECT, type Job } from "@/lib/jobs";
 
 /**
  * The company behind `/jobs?company=<slug>`.
@@ -70,6 +70,8 @@ export async function fetchCompanyJobs(companyId: string): Promise<Job[]> {
     .select(LIST_SELECT)
     .eq("company_id", companyId)
     .eq("status", "open")
+    // Same rule as the full list: archived roles are records, not listings.
+    .is("archived_at", null)
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
@@ -77,5 +79,5 @@ export async function fetchCompanyJobs(companyId: string): Promise<Job[]> {
   // Same contract as getInitialJobs: never crash the page on a transient
   // Supabase error, fall back to an empty list.
   if (error) return [];
-  return (data ?? []) as unknown as Job[];
+  return attachCompanyLogos((data ?? []) as unknown as Job[]);
 }

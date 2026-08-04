@@ -29,7 +29,7 @@ type MutationResult<T = undefined> =
   | { success: false; error: string };
 
 const JOB_COLUMNS =
-  "id, title, location, category, experience_level, contract_type, work_type, status, slug, salary_min, salary_max, salary_currency, positions, created_at";
+  "id, title, location, category, experience_level, contract_type, work_type, status, slug, salary_min, salary_max, salary_currency, positions, created_at, archived_at";
 
 /** Remotiv stamps every company job with the same rating — companies must
  *  never be able to set their own star rating on the public card. */
@@ -405,6 +405,7 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
     salary_currency: (r.salary_currency as string | null) ?? null,
     positions: (r.positions as number) ?? 1,
     created_at: (r.created_at as string) ?? "",
+    archived_at: (r.archived_at as string | null) ?? null,
     applicant_count: counts[i],
   }));
 }
@@ -571,6 +572,50 @@ export async function updateCompanyJobStatus(
 
   if (error) return { success: false, error: error.message };
 
+  revalidateJobSurfaces();
+  return { success: true, data: undefined };
+}
+
+/**
+ * Archive or restore a job.
+ *
+ * Archiving is deliberately NOT a status change. A closed job is a finished
+ * role that still has a public page a candidate may have bookmarked; an
+ * archived job is withdrawn from the site entirely and kept only for the
+ * company's records. Keeping them on separate columns means restoring a job
+ * puts it back exactly as it was — a Published job that was archived returns
+ * Published, without us having to remember what it used to be.
+ *
+ * A PUBLISHED job may be archived, and doing so takes it off the public site
+ * immediately. That is allowed on purpose: the alternative is forcing a company
+ * to close a role first, which writes a status they may not mean and which
+ * would then need undoing by hand on restore. The confirm dialog says plainly
+ * that the public post disappears.
+ *
+ * Applicants are untouched. They are scoped on company_id_snapshot, never
+ * through jobs, so archiving a role hides the listing and nobody who applied
+ * to it.
+ */
+export async function setCompanyJobArchived(
+  jobId: string,
+  archived: boolean,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+
+  const supabase = createServiceClient();
+  const owned = await assertOwned(supabase, jobId, ctx.companyId);
+  if (!owned.ok) return { success: false, error: owned.error };
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({ archived_at: archived ? new Date().toISOString() : null })
+    .eq("id", jobId)
+    .eq("company_id", ctx.companyId);
+
+  if (error) return { success: false, error: error.message };
+
+  // Same revalidation as a status change: the public list, the detail page and
+  // the company careers view all have to drop (or regain) the job at once.
   revalidateJobSurfaces();
   return { success: true, data: undefined };
 }

@@ -37,6 +37,7 @@ import {
   deleteCompanyJob,
   duplicateCompanyJob,
   updateCompanyJobStatus,
+  setCompanyJobArchived,
 } from "./actions";
 // Lives with the applicants actions, not the jobs ones — it operates on
 // application_scores and re-checks ownership through company_id_snapshot.
@@ -44,14 +45,20 @@ import { rescoreJob } from "../applicants/actions";
 
 // ── Constants ────────────────────────────────────────────────
 
-type Tab = "all" | "open" | "on_hold" | "closed";
+type Tab = "all" | "open" | "on_hold" | "closed" | "archived";
 
 const TABS: ReadonlyArray<{ key: Tab; label: string }> = [
   { key: "all", label: "All" },
   { key: "open", label: "Published" },
   { key: "on_hold", label: "Draft" },
   { key: "closed", label: "Closed" },
+  { key: "archived", label: "Archived" },
 ];
+
+/** Archived is a separate axis from status — see CompanyJobRow.archived_at. */
+function isArchived(job: CompanyJobRow): boolean {
+  return job.archived_at !== null;
+}
 
 const STATUS_BADGE: Record<JobStatus, { badge: string; dot: string }> = {
   open: {
@@ -661,7 +668,7 @@ export function JobsClient({
    *  clipped inside the table's horizontal-scroll container. */
   const [openId, setOpenId] = useState<string | null>(null);
   const [confirm, setConfirm] = useState<
-    { job: CompanyJobRow; kind: "close" | "delete" | "rescore" } | null
+    { job: CompanyJobRow; kind: "close" | "delete" | "rescore" | "archive" } | null
   >(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
@@ -676,17 +683,31 @@ export function JobsClient({
     return () => clearTimeout(t);
   }, [toast]);
 
-  const counts = useMemo(
-    () => ({
-      all: jobs.length,
-      open: jobs.filter((j) => j.status === "open").length,
-      on_hold: jobs.filter((j) => j.status === "on_hold").length,
-      closed: jobs.filter((j) => j.status === "closed").length,
-    }),
-    [jobs],
-  );
+  /**
+   * Tab counts.
+   *
+   * Every status tab — including All — counts only LIVE jobs. An archived job
+   * is out of the workspace's working set, so letting it inflate "All" or
+   * "Published" would make the header numbers disagree with the list under
+   * them. Archived is the one tab that counts the other side.
+   */
+  const counts = useMemo(() => {
+    const live = jobs.filter((j) => !isArchived(j));
+    return {
+      all: live.length,
+      open: live.filter((j) => j.status === "open").length,
+      on_hold: live.filter((j) => j.status === "on_hold").length,
+      closed: live.filter((j) => j.status === "closed").length,
+      archived: jobs.length - live.length,
+    };
+  }, [jobs]);
 
-  const totalApplicants = jobs.reduce((sum, j) => sum + j.applicant_count, 0);
+  // The hero describes the live pipeline. An archived role's applicants are
+  // still reachable on the Applicants page; they just don't belong in a
+  // headline about roles the company is currently running.
+  const liveJobs = useMemo(() => jobs.filter((j) => !isArchived(j)), [jobs]);
+
+  const totalApplicants = liveJobs.reduce((sum, j) => sum + j.applicant_count, 0);
 
   /**
    * Published roles that actually have applicants, biggest first.
@@ -702,7 +723,7 @@ export function JobsClient({
    */
   const rankedRoles = useMemo(
     () =>
-      jobs
+      liveJobs
         .filter((j) => j.status === "open" && j.applicant_count > 0)
         .sort((a, b) => {
           if (b.applicant_count !== a.applicant_count) {
@@ -712,7 +733,7 @@ export function JobsClient({
             new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
           return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
         }),
-    [jobs],
+    [liveJobs],
   );
 
   const heroBars = useMemo<RoleBar[]>(
@@ -730,7 +751,7 @@ export function JobsClient({
   const hiddenRoles = Math.max(0, rankedRoles.length - HERO_ROLE_LIMIT);
 
   /** Longest row bar. Every other bar is drawn as a fraction of this. */
-  const maxApplicants = jobs.reduce(
+  const maxApplicants = liveJobs.reduce(
     (max, j) => Math.max(max, j.applicant_count),
     0,
   );
@@ -763,7 +784,14 @@ export function JobsClient({
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
     return jobs.filter((j) => {
-      if (tab !== "all" && j.status !== tab) return false;
+      // Archived is its own view. Every other tab, All included, is the live
+      // working set — an archived job is a record, not a listing.
+      if (tab === "archived") {
+        if (!isArchived(j)) return false;
+      } else {
+        if (isArchived(j)) return false;
+        if (tab !== "all" && j.status !== tab) return false;
+      }
       if (q && !j.title.toLowerCase().includes(q)) return false;
       return true;
     });
@@ -782,6 +810,32 @@ export function JobsClient({
   useEffect(() => {
     setPage(1);
   }, [tab, search]);
+
+  /**
+   * Archive / restore. Restoring needs no confirm — it puts a job back exactly
+   * as it was and is itself undoable; archiving takes a public post down, so
+   * that direction goes through the dialog.
+   */
+  async function handleArchive(job: CompanyJobRow, archived: boolean) {
+    const stamp = archived ? new Date().toISOString() : null;
+    setJobs((prev) =>
+      prev.map((j) => (j.id === job.id ? { ...j, archived_at: stamp } : j)),
+    );
+    setOpenId(null);
+
+    const result = await setCompanyJobArchived(job.id, archived);
+    if (!result.success) {
+      setJobs((prev) =>
+        prev.map((j) =>
+          j.id === job.id ? { ...j, archived_at: job.archived_at } : j,
+        ),
+      );
+      setToast(result.error ?? "Something went wrong. Please try again.");
+      return;
+    }
+    setToast(archived ? `“${job.title}” archived` : `“${job.title}” restored`);
+    router.refresh();
+  }
 
   async function handleStatus(job: CompanyJobRow, status: JobStatus, message: string) {
     const previous = job.status;
@@ -815,6 +869,8 @@ export function JobsClient({
       result = await rescoreJob(job.id);
     } else if (kind === "close") {
       result = await updateCompanyJobStatus(job.id, "closed");
+    } else if (kind === "archive") {
+      result = await setCompanyJobArchived(job.id, true);
     } else {
       result = await deleteCompanyJob(job.id);
     }
@@ -822,12 +878,19 @@ export function JobsClient({
 
     if (result.success) {
       // A re-score changes no row in this list — only the scorecards behind it.
-      if (kind !== "rescore") {
+      if (kind === "close") {
         setJobs((prev) =>
-          kind === "close"
-            ? prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j))
-            : prev.filter((j) => j.id !== job.id),
+          prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j)),
         );
+      } else if (kind === "archive") {
+        // Stays in `jobs` — it moves to the Archived tab rather than leaving.
+        setJobs((prev) =>
+          prev.map((j) =>
+            j.id === job.id ? { ...j, archived_at: new Date().toISOString() } : j,
+          ),
+        );
+      } else if (kind === "delete") {
+        setJobs((prev) => prev.filter((j) => j.id !== job.id));
       }
       setConfirm(null);
       setOpenId(null);
@@ -836,7 +899,9 @@ export function JobsClient({
           ? `Re-scoring ${job.applicant_count} applicant${job.applicant_count === 1 ? "" : "s"} for “${job.title}”`
           : kind === "close"
             ? `“${job.title}” closed`
-            : `“${job.title}” deleted`,
+            : kind === "archive"
+              ? `“${job.title}” archived`
+              : `“${job.title}” deleted`,
       );
       router.refresh();
     } else {
@@ -866,10 +931,40 @@ export function JobsClient({
       icon: Eye,
       onSelect: () => window.open(`/jobs/${job.slug ?? ""}`, "_blank", "noopener"),
     };
+    const archive: MenuItem = {
+      label: "Archive job",
+      icon: Archive,
+      onSelect: () => setConfirm({ job, kind: "archive" }),
+    };
+
+    // An archived job has one way forward: back. Editing, duplicating or
+    // reopening it from here would all silently un-archive or fork something
+    // the company put away.
+    if (isArchived(job)) {
+      // No "View public post" either: an archived job 404s, so the link would
+      // only ever prove that archiving worked.
+      return {
+        actions: [
+          {
+            label: "Restore job",
+            icon: RotateCcw,
+            onSelect: () => handleArchive(job, false),
+          },
+        ],
+        danger: [
+          {
+            label: "Delete",
+            icon: Trash2,
+            onSelect: () => setConfirm({ job, kind: "delete" }),
+            danger: true,
+          },
+        ],
+      };
+    }
 
     if (job.status === "open") {
       return {
-        actions: [edit, duplicate, view],
+        actions: [edit, duplicate, view, archive],
         danger: [
           {
             label: "Close job",
@@ -882,7 +977,7 @@ export function JobsClient({
     }
     if (job.status === "on_hold") {
       return {
-        actions: [edit, duplicate],
+        actions: [edit, duplicate, archive],
         danger: [
           {
             label: "Delete draft",
@@ -902,6 +997,7 @@ export function JobsClient({
         },
         duplicate,
         view,
+        archive,
       ],
       danger: [
         {
@@ -955,6 +1051,12 @@ export function JobsClient({
         text: "Post your first role and it goes live on remotiv.work instantly — your AI recruiter starts screening applicants the moment they apply.",
       };
     }
+    if (tab === "archived") {
+      return {
+        title: "Nothing archived",
+        text: "Archived jobs are kept for your records and never appear on remotiv.work. Archive a role from its ⋯ menu when you're done with it.",
+      };
+    }
     return {
       title: `No ${JOB_STATUS_LABELS[tab as JobStatus]?.toLowerCase() ?? ""} jobs`,
       text: "Nothing here right now. Switch tabs or post a new role to get started.",
@@ -978,14 +1080,21 @@ export function JobsClient({
         <div className="flex shrink-0 gap-2.5">
           {canManage ? (
             <>
+              {/* Jumps to the Archived tab rather than acting on anything —
+                  archiving is a per-job decision and there is no selection
+                  model here for it to apply to. */}
               <button
                 type="button"
-                disabled
-                title="Archived jobs arrive in a later release"
-                className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] disabled:cursor-not-allowed disabled:opacity-55"
+                onClick={() => setTab("archived")}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
               >
                 <Archive className="size-[15px]" strokeWidth={1.9} />
-                Archive
+                Archived
+                {counts.archived > 0 && (
+                  <span className="rounded-full bg-[var(--ai-inset)] px-1.5 py-px text-[11px] font-bold text-[var(--ai-t3)]">
+                    {counts.archived}
+                  </span>
+                )}
               </button>
               <Link
                 href="/ai-dashboard/jobs/new"
@@ -1322,6 +1431,8 @@ export function JobsClient({
               >
                 {confirm.kind === "rescore" ? (
                   <Sparkles className="size-6 text-remotiv-purple" strokeWidth={2} />
+                ) : confirm.kind === "archive" ? (
+                  <Archive className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 ) : confirm.kind === "close" ? (
                   <XCircle className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 ) : (
@@ -1334,9 +1445,11 @@ export function JobsClient({
               >
                 {confirm.kind === "rescore"
                   ? "Re-score all applicants?"
-                  : confirm.kind === "close"
-                    ? "Close this job?"
-                    : "Delete this job?"}
+                  : confirm.kind === "archive"
+                    ? "Archive this job?"
+                    : confirm.kind === "close"
+                      ? "Close this job?"
+                      : "Delete this job?"}
               </h3>
               <p className="mt-2 text-sm text-[var(--ai-t2)]">
                 {confirm.kind === "rescore" ? (
@@ -1352,6 +1465,26 @@ export function JobsClient({
                       ${(confirm.job.applicant_count * 0.02).toFixed(2)}
                     </span>{" "}
                     in AI usage. Existing scores stay visible until each new one lands.
+                  </>
+                ) : confirm.kind === "archive" ? (
+                  <>
+                    <span className="font-semibold">{confirm.job.title}</span> moves to
+                    your Archived tab and{" "}
+                    {confirm.job.status === "open" ? (
+                      <>
+                        <span className="font-semibold">
+                          disappears from remotiv.work straight away
+                        </span>
+                      </>
+                    ) : (
+                      "stays out of your job list"
+                    )}
+                    . Its{" "}
+                    <span className="font-semibold">
+                      {confirm.job.applicant_count} applicant
+                      {confirm.job.applicant_count === 1 ? "" : "s"}
+                    </span>{" "}
+                    stay in your workspace, and you can restore it at any time.
                   </>
                 ) : confirm.kind === "close" ? (
                   <>
@@ -1392,9 +1525,11 @@ export function JobsClient({
                   ? "Working…"
                   : confirm.kind === "rescore"
                     ? "Re-score all"
-                    : confirm.kind === "close"
-                      ? "Close job"
-                      : "Delete"}
+                    : confirm.kind === "archive"
+                      ? "Archive job"
+                      : confirm.kind === "close"
+                        ? "Close job"
+                        : "Delete"}
               </button>
             </div>
           </div>

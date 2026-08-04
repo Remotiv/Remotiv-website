@@ -281,9 +281,25 @@ export default async function JobDetailPage({ params }: PageProps) {
 
             {/* Company glass bar */}
             <div className="mt-5 inline-flex flex-wrap items-center gap-3 rounded-[15px] border border-white/[0.18] bg-white/[0.12] px-4 py-2.5 backdrop-blur">
-              <span className="flex size-9 items-center justify-center rounded-[9px] bg-white font-heading text-base font-bold text-remotiv-purple">
-                {companyInitial}
-              </span>
+              {/* Same fixed box either way, so the glass bar's height and the
+                  name's position never depend on what was uploaded. The white
+                  tile stays: a logo with a transparent background needs
+                  something behind it on this dark hero, and object-contain
+                  letterboxes a wide wordmark rather than cropping or
+                  stretching it. */}
+              {job.company_logo_url ? (
+                // eslint-disable-next-line @next/next/no-img-element
+                <img
+                  src={job.company_logo_url}
+                  alt=""
+                  decoding="async"
+                  className="size-9 shrink-0 rounded-[9px] bg-white object-contain p-1"
+                />
+              ) : (
+                <span className="flex size-9 shrink-0 items-center justify-center rounded-[9px] bg-white font-heading text-base font-bold text-remotiv-purple">
+                  {companyInitial}
+                </span>
+              )}
               <span className="font-heading text-base font-bold">{job.company}</span>
               {/* Separator travels WITH the rating — hiding the rating alone
                   would leave two dividers back to back. */}
