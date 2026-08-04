@@ -1,14 +1,17 @@
 import "server-only";
-import { Resend } from "resend";
 import { createServiceClient } from "@/lib/supabase/server";
-import { defaultTemplate, EMAIL_SHELL } from "./templates";
+import {
+  buildCandidateHtml,
+  deliverEmail,
+  writeCommunicationLog,
+} from "./deliver";
+import { defaultTemplate } from "./templates";
 import {
   buildPlaceholders,
   escapePlaceholders,
   renderTemplate,
 } from "./render";
 import type { MessageEvent, SendMessagePayload } from "./types";
-import { unsubscribeUrl } from "./unsubscribe";
 
 /**
  * The send_message handler.
@@ -18,38 +21,6 @@ import { unsubscribeUrl } from "./unsubscribe";
  * the background worker — never inline from a request, because a Resend outage
  * must not fail an application or a stage change.
  */
-
-/** Resend's free tier is 100/day. Raising it after an upgrade needs no deploy. */
-const DEFAULT_DAILY_CAP = 100;
-function dailyCap(): number {
-  const raw = Number.parseInt(process.env.EMAIL_DAILY_CAP ?? "", 10);
-  return Number.isFinite(raw) && raw > 0 ? raw : DEFAULT_DAILY_CAP;
-}
-
-/**
- * Sender identity.
- *
- * The display name carries the COMPANY so the candidate knows who is writing;
- * the address stays on Remotiv's verified domain because that is the only
- * domain we can authenticate. "Acme Inc (via Remotiv)" is the honest form — it
- * never implies the mail left Acme's own mail server, which would be a
- * deliverability lie and, with DMARC, an undeliverable one.
- *
- * Reply-to is the company's contact email, so a candidate hitting Reply reaches
- * a human at the company rather than a Remotiv no-reply mailbox.
- */
-function senderName(companyName: string): string {
-  const clean = companyName.trim().replace(/[\r\n"<>]/g, "");
-  return clean ? `${clean} (via Remotiv)` : "Remotiv";
-}
-
-let resendClient: Resend | null = null;
-function getResend(): Resend | null {
-  const key = process.env.RESEND_API_KEY;
-  if (!key) return null;
-  if (!resendClient) resendClient = new Resend(key);
-  return resendClient;
-}
 
 type ApplicationRow = {
   id: string;
@@ -146,7 +117,7 @@ export async function handleSendMessage(job: {
 
   const to = (app.email ?? "").trim().toLowerCase();
   if (!to) {
-    await writeLog(service, {
+    await writeCommunicationLog(service, {
       companyId,
       applicationId,
       event,
@@ -173,7 +144,7 @@ export async function handleSendMessage(job: {
 
   if (optOut) {
     const reason = (optOut as { reason: string | null }).reason;
-    await writeLog(service, {
+    await writeCommunicationLog(service, {
       companyId,
       applicationId,
       event,
@@ -194,7 +165,7 @@ export async function handleSendMessage(job: {
 
   const resolved = await resolveTemplate(service, companyId, event, payload);
   if (!resolved) {
-    await writeLog(service, {
+    await writeCommunicationLog(service, {
       companyId,
       applicationId,
       event,
@@ -217,120 +188,38 @@ export async function handleSendMessage(job: {
   const subject = renderTemplate(resolved.subject, values);
   const inner = renderTemplate(resolved.body, escapePlaceholders(values));
 
-  const unsub = unsubscribeUrl(companyId, to);
-  const footer = unsub
-    ? `Sent by Remotiv on behalf of ${escapeText(companyName)}. <a href="${unsub}" style="color:#847E8C">Unsubscribe from ${escapeText(companyName)}'s updates</a>.`
-    : `Sent by Remotiv on behalf of ${escapeText(companyName)}.`;
-  const html = EMAIL_SHELL(inner, footer);
+  const html = buildCandidateHtml(inner, companyName, companyId, to);
 
-  // ── 5. Daily cap ──────────────────────────────────────────
+  // ── 5. Send ───────────────────────────────────────────────
   //
-  // Counted BEFORE the attempt, so we choose not to send rather than
-  // discovering the ceiling as an opaque provider error. Only 'sent' rows
-  // count: skipped and cancelled messages never touched Resend's quota.
-  const startOfDay = new Date();
-  startOfDay.setUTCHours(0, 0, 0, 0);
-  const { count: sentToday } = await service
-    .from("communication_logs")
-    .select("id", { count: "exact", head: true })
-    .eq("status", "sent")
-    .gte("sent_at", startOfDay.toISOString());
-
-  const cap = dailyCap();
-  if ((sentToday ?? 0) >= cap) {
-    console.error(
-      `[send_message] DAILY CAP REACHED — ${sentToday}/${cap} sent today. ` +
-        `Skipping ${event} for application ${applicationId}. ` +
-        `Raise EMAIL_DAILY_CAP after upgrading the Resend plan.`,
-    );
-    await writeLog(service, {
-      companyId,
-      applicationId,
-      event,
-      to,
-      subject,
-      body: html,
-      status: "skipped",
-      error: `Daily send cap of ${cap} reached.`,
-    });
-    return;
-  }
-
-  // ── 6. Log BEFORE the attempt, then send ──────────────────
-  //
-  // The row exists as 'queued' before Resend is called, so a crash between the
-  // call and the status update leaves evidence rather than silence — and a row
-  // that says 'sent' can only have been written after Resend accepted it.
-  const logId = await writeLog(service, {
+  // The cap check, the pre-send log row and the Resend call all live in
+  // deliverEmail, shared with the composer. What stays here is the queue's own
+  // contract: a provider failure must RETHROW so the job retries with backoff,
+  // and the 'failed' row it leaves behind is excluded from the idempotency set
+  // so that retry legitimately tries again.
+  const outcome = await deliverEmail(service, {
     companyId,
     applicationId,
     event,
     to,
     subject,
-    body: html,
-    status: "queued",
+    html,
+    companyName,
+    replyTo: (company.candidate_reply_email ?? "").trim() || null,
   });
 
-  const client = getResend();
-  if (!client) {
-    await service
-      .from("communication_logs")
-      .update({ status: "failed", error: "RESEND_API_KEY not configured." })
-      .eq("id", logId);
+  if (!outcome.ok && outcome.kind === "provider") {
+    throw new Error(`send_message: Resend rejected the message: ${outcome.message}`);
+  }
+  if (!outcome.ok && outcome.kind === "not_configured") {
     throw new Error("send_message: RESEND_API_KEY not configured");
   }
-
-  const fromEmail = process.env.RESEND_FROM_EMAIL ?? "noreply@remotiv.work";
-
-  // The ONLY source of a reply-to on a candidate email.
-  //
-  // NOT contact_email: that address is the owner's login and admin contact, and
-  // putting it here publishes one person's inbox to every applicant with no way
-  // to opt out.
-  //
-  // And no Remotiv fallback. Blank means the company chose not to take replies,
-  // so the message goes out with no reply-to at all and a reply lands on the
-  // noreply from-address and nowhere else. Routing those to talent@remotiv.work
-  // would quietly make Remotiv the inbox for every company's candidates.
-  const replyTo = (company.candidate_reply_email ?? "").trim() || undefined;
-
-  const { data: sent, error } = await client.emails.send({
-    from: `${senderName(companyName)} <${fromEmail}>`,
-    to,
-    subject,
-    html,
-    // Omitted entirely when unset — an explicit `replyTo: undefined` is not the
-    // same request to Resend as no reply-to header.
-    ...(replyTo ? { replyTo } : {}),
-  });
-
-  if (error) {
-    await service
-      .from("communication_logs")
-      .update({ status: "failed", error: error.message ?? "Resend error" })
-      .eq("id", logId);
-    // Rethrown so the queue applies backoff and retries. The log row is
-    // 'failed', which is excluded from the idempotency set, so a retry
-    // legitimately tries again and updates this same row.
-    throw new Error(`send_message: Resend rejected the message: ${error.message}`);
-  }
-
-  await service
-    .from("communication_logs")
-    .update({
-      status: "sent",
-      provider_id: sent?.id ?? null,
-      sent_at: new Date().toISOString(),
-      error: null,
-    })
-    .eq("id", logId);
+  // A cap skip is a decision, not a failure: the row is 'skipped' and the job
+  // completes. Retrying tomorrow would deliver "we got your application" a day
+  // late, which is worse than not sending it at all.
 }
 
 // ── Helpers ──────────────────────────────────────────────────
-
-function escapeText(value: string): string {
-  return value.replace(/&/g, "&amp;").replace(/</g, "&lt;").replace(/>/g, "&gt;");
-}
 
 /**
  * The company's own template for this event, else Remotiv's default.
@@ -364,40 +253,4 @@ async function resolveTemplate(
     return { subject: own.subject, body: own.body };
   }
   return defaultTemplate(event);
-}
-
-async function writeLog(
-  service: ReturnType<typeof createServiceClient>,
-  row: {
-    companyId: string;
-    applicationId: string;
-    event: MessageEvent;
-    to: string;
-    subject: string;
-    body: string;
-    status: "queued" | "sent" | "failed" | "skipped" | "cancelled";
-    error?: string;
-  },
-): Promise<string> {
-  const { data, error } = await service
-    .from("communication_logs")
-    .insert({
-      company_id: row.companyId,
-      application_id: row.applicationId,
-      event: row.event,
-      channel: "email",
-      to_address: row.to,
-      subject: row.subject,
-      body: row.body,
-      status: row.status,
-      error: row.error ?? null,
-      ...(row.status === "sent" ? { sent_at: new Date().toISOString() } : {}),
-    })
-    .select("id")
-    .single();
-
-  if (error || !data) {
-    throw new Error(`send_message: could not write communication_log: ${error?.message}`);
-  }
-  return (data as { id: string }).id;
 }

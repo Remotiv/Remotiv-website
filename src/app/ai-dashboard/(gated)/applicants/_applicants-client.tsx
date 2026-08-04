@@ -1,6 +1,15 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import {
+  Composer,
+  initialsOf as msgInitials,
+} from "@/app/ai-dashboard/(gated)/messages/_composer";
+import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
+import type {
+  ManualTemplate,
+  MessageRow as CandidateMessage,
+} from "@/app/ai-dashboard/(gated)/messages/types";
 import { useRouter } from "next/navigation";
 import {
   Check,
@@ -758,11 +767,14 @@ function ApplicantDrawer({
   history,
   scoreDetail,
   historyLoading,
+  messages,
+  messagesLoading,
   saving,
   scoreSaving,
   canRescore,
   rescoring,
   onRescore,
+  onEmail,
   onClose,
   onStageChange,
   onAdjustScore,
@@ -773,11 +785,14 @@ function ApplicantDrawer({
   history: StageHistoryRow[];
   scoreDetail: ApplicantScoreDetail | null;
   historyLoading: boolean;
+  messages: CandidateMessage[];
+  messagesLoading: boolean;
   saving: boolean;
   scoreSaving: boolean;
   canRescore: boolean;
   rescoring: boolean;
   onRescore: () => void;
+  onEmail: () => void;
   onClose: () => void;
   onStageChange: (next: PipelineStage) => void;
   onAdjustScore: (score: number, feedback: string) => void;
@@ -1006,13 +1021,18 @@ function ApplicantDrawer({
               <FileText className="size-[15px]" strokeWidth={1.9} />
               {row.has_cv ? "Open CV" : "No CV"}
             </a>
-            <a
-              href={`mailto:${row.email}`}
+            {/* Opens the composer rather than handing off to the OS mail
+                client. A mailto: sends from the recruiter's own address, which
+                is the one thing the identity block exists to prevent — and it
+                leaves no record on the applicant. */}
+            <button
+              type="button"
+              onClick={onEmail}
               className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
             >
               <Mail className="size-[15px]" strokeWidth={1.9} />
               Email
-            </a>
+            </button>
           </div>
 
           <DrawerLabel>Pipeline stage</DrawerLabel>
@@ -1296,6 +1316,21 @@ function ApplicantDrawer({
             </>
           )}
 
+          <DrawerLabel>Messages</DrawerLabel>
+          <div className="mb-[22px] flex flex-col gap-2.5">
+            {messagesLoading && messages.length === 0 && (
+              <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+            )}
+            {!messagesLoading && messages.length === 0 && (
+              <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">
+                No messages sent yet.
+              </p>
+            )}
+            {messages.map((m) => (
+              <MessageEntry key={m.id} message={m} />
+            ))}
+          </div>
+
           <DrawerLabel>Stage history</DrawerLabel>
           <div className="flex flex-col gap-[14px]">
             {history.map((h) => {
@@ -1374,6 +1409,83 @@ function ApplicantDrawer({
   );
 }
 
+/**
+ * One line of the drawer's message trail.
+ *
+ * The left border carries the distinction before any text is read: a solid
+ * heavy rule for something a person wrote, a lighter one for an automatic
+ * message, a dashed amber one for something still scheduled.
+ */
+function MessageEntry({ message }: { message: CandidateMessage }) {
+  const automatic = message.kind === "automatic";
+  const scheduled = message.kind === "scheduled";
+  const failed = message.kind === "failed";
+
+  const border = scheduled
+    ? "border-l-[2.5px] border-dashed border-l-[var(--ai-amber-dot)]"
+    : automatic
+      ? "border-l-[2.5px] border-solid border-l-[var(--ai-line)]"
+      : "border-l-[2.5px] border-solid border-l-[var(--ai-line-strong)] hover:border-l-remotiv-purple";
+
+  const when = message.kind === "scheduled" ? message.scheduledFor : message.sentAt;
+
+  return (
+    <div className={`py-px pl-3 transition-colors ${border}`}>
+      <p
+        className={`m-0 text-[13.5px] leading-snug ${
+          automatic || scheduled
+            ? "font-medium text-[var(--ai-t2)]"
+            : "font-bold text-[var(--ai-t1)]"
+        }`}
+      >
+        {message.subject || "(no subject)"}
+      </p>
+      <small
+        className={`mt-[3px] flex items-center gap-[7px] text-[11.5px] ${
+          automatic ? "text-[var(--ai-t4)]" : "text-[var(--ai-t3)]"
+        }`}
+      >
+        {scheduled && (
+          <span className="shrink-0 rounded-[5px] bg-[var(--ai-amber-tint)] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-amber-ink)]">
+            Scheduled
+          </span>
+        )}
+        {automatic && (
+          <span className="shrink-0 rounded-[5px] bg-[var(--ai-slate-tint)] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-slate-ink)]">
+            Automatic
+          </span>
+        )}
+        {failed && (
+          <span className="shrink-0 rounded-[5px] bg-[var(--ai-danger-tint)] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-danger)]">
+            Failed
+          </span>
+        )}
+        {message.sentByName && (
+          <span className="inline-flex items-center gap-1.5 font-semibold text-[var(--ai-t2)]">
+            <span className="flex size-[18px] shrink-0 items-center justify-center rounded-full bg-[var(--ai-mint-tint)] text-[8.5px] font-extrabold text-[var(--ai-mint-ink)]">
+              {msgInitials(message.sentByName)}
+            </span>
+            {message.sentByName}
+          </span>
+        )}
+        {fmtMessageWhen(when ?? message.createdAt)}
+      </small>
+    </div>
+  );
+}
+
+/** Short relative stamp for the drawer's message trail. */
+function fmtMessageWhen(iso: string): string {
+  const t = new Date(iso).getTime();
+  if (Number.isNaN(t)) return "";
+  const diff = t - Date.now();
+  const abs = Math.abs(diff);
+  const hours = Math.round(abs / 3600000);
+  const days = Math.round(abs / 86400000);
+  const unit = hours < 24 ? `${hours}h` : `${days} day${days === 1 ? "" : "s"}`;
+  return diff > 0 ? `in ${unit}` : `${unit} ago`;
+}
+
 function DrawerLabel({ children }: { children: React.ReactNode }) {
   return (
     <p className="m-0 mb-[9px] flex items-center gap-[9px] text-[10.5px] font-bold uppercase tracking-[0.1em] text-[var(--ai-t3)] after:h-px after:flex-1 after:bg-[var(--ai-line)] after:content-['']">
@@ -1398,11 +1510,17 @@ export function ApplicantsClient({
   applicants: initialApplicants,
   newThisWeek,
   openRoles,
+  companyName,
+  replyToAddress,
+  manualTemplates,
 }: {
   viewerRole: CompanyRole;
   applicants: CompanyApplicantRow[];
   newThisWeek: number;
   openRoles: number;
+  companyName: string;
+  replyToAddress: string | null;
+  manualTemplates: ManualTemplate[];
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -1431,6 +1549,11 @@ export function ApplicantsClient({
   );
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
+
+  /** The open applicant's message trail, and the composer over it. */
+  const [messages, setMessages] = useState<CandidateMessage[]>([]);
+  const [messagesLoading, setMessagesLoading] = useState(false);
+  const [composerOpen, setComposerOpen] = useState(false);
 
   /**
    * Optimistic stage edits, keyed by application id, layered over the
@@ -1613,6 +1736,32 @@ export function ApplicantsClient({
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
+  // The message trail is a separate query from the score/history detail: it is
+  // company-scoped rather than application-scoped in its guard, and a failure
+  // to read it must not blank the rest of the drawer.
+  useEffect(() => {
+    if (!openId) {
+      setMessages([]);
+      return;
+    }
+    let cancelled = false;
+    setMessagesLoading(true);
+    setMessages([]);
+    fetchApplicationMessages(openId)
+      .then((rows) => {
+        if (!cancelled) setMessages(rows);
+      })
+      .catch(() => {
+        if (!cancelled) setMessages([]);
+      })
+      .finally(() => {
+        if (!cancelled) setMessagesLoading(false);
       });
     return () => {
       cancelled = true;
@@ -2267,6 +2416,8 @@ export function ApplicantsClient({
           history={history}
           scoreDetail={scoreDetail}
           historyLoading={historyLoading}
+          messages={messages}
+          messagesLoading={messagesLoading}
           saving={savingId === openRow.id}
           scoreSaving={scoreSaving}
           canRescore={canRescore}
@@ -2274,6 +2425,7 @@ export function ApplicantsClient({
           onRescore={() => {
             void handleRescore(openRow.id);
           }}
+          onEmail={() => setComposerOpen(true)}
           onClose={() => setOpenId(null)}
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);
@@ -2285,6 +2437,39 @@ export function ApplicantsClient({
             void handleClearAdjustment(openRow.id);
           }}
           onDelete={() => setDeleteTarget(openRow)}
+        />
+      )}
+
+      {/* One recipient — the open applicant. The select still renders, so the
+          identity block and the required-To rule behave identically to the
+          page-level composer rather than being a second, looser path. */}
+      {openRow && (
+        <Composer
+          open={composerOpen}
+          onClose={() => setComposerOpen(false)}
+          companyName={companyName}
+          replyToAddress={replyToAddress}
+          recipients={[
+            {
+              applicationId: openRow.id,
+              name: fullName(openRow),
+              email: openRow.email ?? "",
+              jobTitle: openRow.job_title ?? "—",
+            },
+          ]}
+          templates={manualTemplates}
+          presetApplicationId={openRow.id}
+          onSent={async () => {
+            setToast("Email sent");
+            setMessagesLoading(true);
+            try {
+              setMessages(await fetchApplicationMessages(openRow.id));
+            } catch {
+              /* the send succeeded; a stale trail is not worth an error */
+            } finally {
+              setMessagesLoading(false);
+            }
+          }}
         />
       )}
 

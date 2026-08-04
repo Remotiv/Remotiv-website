@@ -38,7 +38,8 @@ export default async function GatedCompanyLayout({
   // are scoped on company_id_snapshot, matching fetchCompanyApplicants: it
   // survives job deletion, unlike a join through jobs.company_id.
   const service = createServiceClient();
-  const [{ count: jobCount }, { count: applicantCount }] = await Promise.all([
+  const [{ count: jobCount }, { count: applicantCount }, { count: messageCount }] =
+    await Promise.all([
     service
       .from("jobs")
       .select("id", { count: "exact", head: true })
@@ -47,6 +48,13 @@ export default async function GatedCompanyLayout({
       .from("job_applications")
       .select("id", { count: "exact", head: true })
       .eq("company_id_snapshot", ctx.companyId),
+    // Cancelled rows are tombstones for messages that deliberately never
+    // sent — counting them would inflate the badge with non-events.
+    service
+      .from("communication_logs")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id", ctx.companyId)
+      .neq("status", "cancelled"),
   ]);
 
   // Public URL — a logo appears on every public job post, so it is served
@@ -65,6 +73,7 @@ export default async function GatedCompanyLayout({
       userEmail={ctx.user.email}
       jobCount={jobCount ?? 0}
       applicantCount={applicantCount ?? 0}
+      messageCount={messageCount ?? 0}
     >
       {children}
     </AiShell>

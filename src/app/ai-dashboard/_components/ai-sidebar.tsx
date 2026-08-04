@@ -6,6 +6,7 @@ import {
   Briefcase,
   LayoutGrid,
   type LucideIcon,
+  Mail,
   Settings,
   UserRound,
   Users,
@@ -27,11 +28,16 @@ type NavItem = {
   soon?: boolean;
 };
 
-function primaryNav(jobCount: number, applicantCount: number): ReadonlyArray<NavItem> {
+function primaryNav(
+  jobCount: number,
+  applicantCount: number,
+  messageCount: number,
+): ReadonlyArray<NavItem> {
   return [
     { label: "Overview",   href: "/ai-dashboard",            icon: LayoutGrid },
     { label: "Jobs",       href: "/ai-dashboard/jobs",       icon: Briefcase, count: jobCount },
     { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: applicantCount },
+    { label: "Messages",   href: "/ai-dashboard/messages",   icon: Mail,      count: messageCount },
     { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video,     count: 0, soon: true },
   ];
 }
@@ -119,6 +125,7 @@ function SidebarBody({
   role,
   jobCount,
   applicantCount,
+  messageCount,
   pathname,
   onNavigate,
 }: {
@@ -127,6 +134,7 @@ function SidebarBody({
   role: CompanyRole;
   jobCount: number;
   applicantCount: number;
+  messageCount: number;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -159,7 +167,7 @@ function SidebarBody({
       </div>
 
       <nav className="mb-1.5 flex flex-col gap-0.5">
-        {primaryNav(jobCount, applicantCount).map((item) => (
+        {primaryNav(jobCount, applicantCount, messageCount).map((item) => (
           <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
         ))}
       </nav>
@@ -182,6 +190,7 @@ export function AiSidebar({
   role,
   jobCount,
   applicantCount,
+  messageCount,
   mobileOpen,
   onClose,
 }: {
@@ -190,6 +199,7 @@ export function AiSidebar({
   role: CompanyRole;
   jobCount: number;
   applicantCount: number;
+  messageCount: number;
   mobileOpen: boolean;
   onClose: () => void;
 }) {
@@ -205,6 +215,7 @@ export function AiSidebar({
           role={role}
           jobCount={jobCount}
           applicantCount={applicantCount}
+          messageCount={messageCount}
           pathname={pathname}
         />
       </aside>
@@ -237,6 +248,7 @@ export function AiSidebar({
           role={role}
           jobCount={jobCount}
           applicantCount={applicantCount}
+          messageCount={messageCount}
           pathname={pathname}
           onNavigate={onClose}
         />

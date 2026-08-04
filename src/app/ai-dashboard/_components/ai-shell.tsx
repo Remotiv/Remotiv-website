@@ -19,6 +19,7 @@ export function AiShell({
   userEmail,
   jobCount,
   applicantCount,
+  messageCount,
   children,
 }: {
   companyName: string;
@@ -28,6 +29,7 @@ export function AiShell({
   userEmail: string;
   jobCount: number;
   applicantCount: number;
+  messageCount: number;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
@@ -61,6 +63,7 @@ export function AiShell({
         role={role}
         jobCount={jobCount}
         applicantCount={applicantCount}
+        messageCount={messageCount}
         mobileOpen={mobileOpen}
         onClose={() => setMobileOpen(false)}
       />
