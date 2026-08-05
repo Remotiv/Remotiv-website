@@ -48,13 +48,16 @@ export default async function GatedCompanyLayout({
       .from("job_applications")
       .select("id", { count: "exact", head: true })
       .eq("company_id_snapshot", ctx.companyId),
-    // Cancelled rows are tombstones for messages that deliberately never
-    // sent — counting them would inflate the badge with non-events.
+    // Must match what the Messages page lists, or the badge and the page
+    // disagree. Cancelled rows are tombstones for messages that deliberately
+    // never sent; a null application_id is a message whose applicant has been
+    // deleted, which that page hides — see the orphan note in messages/actions.
     service
       .from("communication_logs")
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
-      .neq("status", "cancelled"),
+      .neq("status", "cancelled")
+      .not("application_id", "is", null),
   ]);
 
   // Public URL — a logo appears on every public job post, so it is served

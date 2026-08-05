@@ -98,9 +98,22 @@ type AppRow = {
   last_name: string | null;
   job_id: string | null;
   job_title_snapshot: string | null;
+  /** Embedded live job. Null once the job is deleted. */
+  jobs?: { title: string | null } | null;
   pipeline_stage: string | null;
   created_at: string;
 };
+
+/**
+ * LIVE title first, snapshot as the fallback.
+ *
+ * job_title_snapshot is only stamped when a job is deleted, so reading it
+ * alone grouped every applicant under "Untitled role". Same order the rest of
+ * the product uses.
+ */
+function roleOf(a: AppRow, fallback: string): string {
+  return a.jobs?.title?.trim() || (a.job_title_snapshot ?? "").trim() || fallback;
+}
 
 type HistRow = {
   application_id: string;
@@ -199,7 +212,7 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
     service
       .from("job_applications")
       .select(
-        "id, first_name, last_name, job_id, job_title_snapshot, pipeline_stage, created_at",
+        "id, first_name, last_name, job_id, job_title_snapshot, jobs(title), pipeline_stage, created_at",
       )
       .eq("company_id_snapshot", ctx.companyId)
       .lt("created_at", end.toISOString())
@@ -289,8 +302,7 @@ function buildRoles(
   lastWeek: AppRow[],
   hasPrior: boolean,
 ): RoleCount[] {
-  const titleFor = (a: AppRow) =>
-    (a.job_title_snapshot ?? "").trim() || "Untitled role";
+  const titleFor = (a: AppRow) => roleOf(a, "Untitled role");
   const key = (a: AppRow) => a.job_id ?? titleFor(a);
 
   const now = new Map<string, RoleCount>();
@@ -379,7 +391,7 @@ async function buildTopMatches(
       return {
         applicationId: id,
         name: nameOf(app),
-        role: (app.job_title_snapshot ?? "").trim() || "—",
+        role: roleOf(app, "—"),
         score: Math.round(score),
       };
     });

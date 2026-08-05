@@ -823,9 +823,16 @@ function MessageViewer({
                   <p className="m-0 truncate font-heading text-[19px] font-extrabold leading-tight tracking-[-0.028em] text-white">
                     {row.candidateName}
                   </p>
+                  {/* The address is omitted when it IS the name — an applicant
+                      with no name on record, or a deleted one — rather than
+                      printed twice under itself. */}
                   <p className="m-0 mt-1 flex flex-wrap items-center gap-2 text-[12.5px] text-white/50">
-                    <span className="truncate">{row.candidateEmail}</span>
-                    <span className="size-[3px] shrink-0 rounded-full bg-white/30" />
+                    {row.candidateEmail && row.candidateEmail !== row.candidateName && (
+                      <>
+                        <span className="truncate">{row.candidateEmail}</span>
+                        <span className="size-[3px] shrink-0 rounded-full bg-white/30" />
+                      </>
+                    )}
                     <span>
                       {row.kind === "scheduled" ? "Sends " : ""}
                       {when.rel}

@@ -47,6 +47,30 @@ const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 const HIDDEN_STATUS = "cancelled";
 
 /**
+ * Messages whose applicant has been deleted are hidden from this page.
+ *
+ * communication_logs.application_id is ON DELETE SET NULL, so the row survives
+ * the applicant — which is right for the record and wrong for this surface.
+ * Deleting an applicant already destroys their CV, their scorecard and their
+ * pipeline history; the product's delete means erasure, and it is usually a
+ * company acting on an erasure request. A Messages page that kept showing the
+ * person's address and the text of what we wrote them would be the one place
+ * their data survived, which defeats the delete.
+ *
+ * The ROW is untouched. It keeps its provider_id and its 'sent' status, so the
+ * daily-cap accounting is unaffected and the record is still there in the
+ * database for anyone who needs to prove the send happened. What changes is
+ * only that it stops being rendered.
+ *
+ * Applied to the list, every aggregate and the sidebar badge together — a
+ * filter on one of those and not the others is how a tab ends up disagreeing
+ * with the rows beneath it. Written inline at each site rather than behind a
+ * generic helper: wrapping the PostgREST builder in one defeats its type
+ * inference (TS2589), and a mis-typed query is worse than a repeated pair.
+ */
+const ORPHAN_COLUMN = "application_id";
+
+/**
  * How a stored row reads in the UI.
  *
  * Order matters: a queued row is Scheduled whatever its event, and a failed
@@ -101,7 +125,27 @@ type AppLite = {
   email: string | null;
   job_id: string | null;
   job_title_snapshot: string | null;
+  /** Embedded live job. Null once the job is deleted. */
+  jobs?: { title: string | null } | null;
 };
+
+/**
+ * The role to show for an application.
+ *
+ * LIVE title first, the snapshot only as a fallback. job_title_snapshot is
+ * written exactly twice in the codebase — by deleteCompanyJob and the admin
+ * equivalent, immediately before the job row goes away — so it is null for
+ * every application whose job still exists, which is nearly all of them.
+ * Reading it alone is why this column rendered "—" for everybody.
+ *
+ * Same order Applicants, Overview, admin Applications and the dispatcher
+ * already use; see CompanyApplicantRow.job_title.
+ */
+function roleOf(app: AppLite | undefined, fallback: string): string {
+  return (
+    app?.jobs?.title?.trim() || app?.job_title_snapshot?.trim() || fallback
+  );
+}
 
 /** Narrow a stored event string back to the union, defaulting to 'manual'. */
 function asEvent(value: string | null): MessageEvent {
@@ -131,27 +175,30 @@ async function hydrate(service: Service, logs: LogRow[]): Promise<MessageRow[]> 
   for (let i = 0; i < ids.length; i += 200) {
     const { data } = await service
       .from("job_applications")
-      .select("id, first_name, last_name, email, job_id, job_title_snapshot")
+      .select("id, first_name, last_name, email, job_id, job_title_snapshot, jobs(title)")
       .in("id", ids.slice(i, i + 200));
-    for (const row of (data ?? []) as AppLite[]) byId.set(row.id, row);
+    for (const row of (data ?? []) as unknown as AppLite[]) byId.set(row.id, row);
   }
 
   return logs.map((l) => {
     const app = l.application_id ? byId.get(l.application_id) : undefined;
     const email = (app?.email ?? l.to_address ?? "").trim();
+    // No application row means the applicant was deleted. Naming them by the
+    // address we mailed would put the identity straight back on screen, so the
+    // row says what is true instead. Reachable only defensively now that
+    // visibleOnly() hides these, and correct if they are ever surfaced.
+    const deleted = l.application_id === null || app === undefined;
     const status = l.status ?? "sent";
     const event = l.event ?? "manual";
     return {
       id: l.id,
       applicationId: l.application_id,
-      candidateName: fullName(
-        app?.first_name ?? null,
-        app?.last_name ?? null,
-        email || "Deleted applicant",
-      ),
-      candidateEmail: email,
+      candidateName: deleted
+        ? "Deleted applicant"
+        : fullName(app?.first_name ?? null, app?.last_name ?? null, email),
+      candidateEmail: deleted ? "" : email,
       jobId: app?.job_id ?? null,
-      jobTitle: (app?.job_title_snapshot ?? "").trim() || "—",
+      jobTitle: roleOf(app, "—"),
       subject: l.subject ?? "",
       body: htmlToPlain(l.body ?? ""),
       event,
@@ -192,7 +239,8 @@ export async function fetchMessageAggregates(): Promise<MessageAggregates> {
       .from("communication_logs")
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
-      .neq("status", HIDDEN_STATUS);
+      .neq("status", HIDDEN_STATUS)
+      .not(ORPHAN_COLUMN, "is", null);
 
   const weekAgo = new Date(Date.now() - WEEK_MS).toISOString();
 
@@ -244,16 +292,16 @@ export async function fetchMessages(input: {
   if (input.jobId || search) {
     let q = service
       .from("job_applications")
-      .select("id, first_name, last_name, email, job_title_snapshot")
+      .select("id, first_name, last_name, email, job_title_snapshot, jobs(title)")
       .eq("company_id_snapshot", ctx.companyId)
       .limit(1000);
     if (input.jobId) q = q.eq("job_id", input.jobId);
     const { data } = await q;
-    let rows = (data ?? []) as AppLite[];
+    let rows = (data ?? []) as unknown as AppLite[];
     if (search) {
       const needle = search.toLowerCase();
       rows = rows.filter((r) =>
-        [r.first_name, r.last_name, r.email, r.job_title_snapshot]
+        [r.first_name, r.last_name, r.email, roleOf(r, "")]
           .filter(Boolean)
           .join(" ")
           .toLowerCase()
@@ -275,7 +323,8 @@ export async function fetchMessages(input: {
         head ? { count: "exact", head: true } : undefined,
       )
       .eq("company_id", ctx.companyId)
-      .neq("status", HIDDEN_STATUS);
+      .neq("status", HIDDEN_STATUS)
+      .not(ORPHAN_COLUMN, "is", null);
 
     q = applyTab(q, tab);
 
@@ -335,19 +384,19 @@ export async function fetchRecipients(): Promise<MessageRecipient[]> {
 
   const { data } = await service
     .from("job_applications")
-    .select("id, first_name, last_name, email, job_title_snapshot, created_at")
+    .select("id, first_name, last_name, email, job_title_snapshot, jobs(title), created_at")
     .eq("company_id_snapshot", ctx.companyId)
     .not("email", "is", null)
     .order("created_at", { ascending: false })
     .limit(500);
 
-  return ((data ?? []) as (AppLite & { created_at: string })[])
+  return ((data ?? []) as unknown as (AppLite & { created_at: string })[])
     .filter((r) => (r.email ?? "").trim())
     .map((r) => ({
       applicationId: r.id,
       name: fullName(r.first_name, r.last_name, (r.email ?? "").trim()),
       email: (r.email ?? "").trim(),
-      jobTitle: (r.job_title_snapshot ?? "").trim() || "—",
+      jobTitle: roleOf(r, "—"),
     }));
 }
 
@@ -463,12 +512,14 @@ export async function sendManualMessage(input: {
   // reach another tenant's candidate by guessing an id.
   const { data: appData } = await service
     .from("job_applications")
-    .select("id, first_name, last_name, email, job_title_snapshot, company_id_snapshot")
+    .select(
+      "id, first_name, last_name, email, job_title_snapshot, jobs(title), company_id_snapshot",
+    )
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
 
-  const app = appData as (AppLite & { company_id_snapshot: string }) | null;
+  const app = appData as unknown as (AppLite & { company_id_snapshot: string }) | null;
   if (!app) return { success: false, error: "That applicant isn't in your workspace." };
 
   const to = (app.email ?? "").trim().toLowerCase();
@@ -488,7 +539,7 @@ export async function sendManualMessage(input: {
   const values = buildPlaceholders({
     firstName: app.first_name,
     lastName: app.last_name,
-    jobTitle: (app.job_title_snapshot ?? "").trim(),
+    jobTitle: roleOf(app, ""),
     companyName,
   });
 
