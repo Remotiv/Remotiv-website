@@ -39,6 +39,7 @@ import {
   updateCompanyJobStatus,
   setCompanyJobArchived,
 } from "./actions";
+import { HiringTeamSection } from "./_hiring-team";
 // Lives with the applicants actions, not the jobs ones — it operates on
 // application_scores and re-checks ownership through company_id_snapshot.
 import { rescoreJob } from "../applicants/actions";
@@ -466,6 +467,7 @@ function DrawerKv({ label, value, mono }: { label: string; value: string; mono?:
  * the two products never import each other's components.
  */
 function JobDrawer({
+  onToast,
   job,
   onClose,
   onAction,
@@ -474,6 +476,7 @@ function JobDrawer({
   actions,
   dangerActions,
 }: {
+  onToast: (message: string) => void;
   job: CompanyJobRow;
   onClose: () => void;
   onAction: (item: MenuItem) => void;
@@ -586,6 +589,10 @@ function JobDrawer({
                 </div>
               </div>
             )}
+          </DrawerSection>
+
+          <DrawerSection title="Hiring team">
+            <HiringTeamSection jobId={job.id} onToast={onToast} />
           </DrawerSection>
 
           <DrawerSection title="Actions">
@@ -1046,6 +1053,19 @@ export function JobsClient({
       };
     }
     if (jobs.length === 0) {
+      /*
+       * A scoped member with no assignments sees an empty product, and "No
+       * jobs yet" would read as "this company has posted nothing" — which is
+       * both wrong and unactionable. `canManage` is false exactly for hiring
+       * managers, and a recruiter with no assignments has nothing to manage
+       * either, so the copy names the reason and who to ask.
+       */
+      if (!canManage) {
+        return {
+          title: "You haven't been assigned to any roles yet",
+          text: "Jobs are assigned per role. Ask an owner or admin on your team to add you to a job's hiring team, and it'll appear here.",
+        };
+      }
       return {
         title: "No jobs yet",
         text: "Post your first role and it goes live on remotiv.work instantly — your AI recruiter starts screening applicants the moment they apply.",
@@ -1391,6 +1411,7 @@ export function JobsClient({
 
       {openJob && (
         <JobDrawer
+          onToast={setToast}
           job={openJob}
           onClose={() => setOpenId(null)}
           onRescoreAll={

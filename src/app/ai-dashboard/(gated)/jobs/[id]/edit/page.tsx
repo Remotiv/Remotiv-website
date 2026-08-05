@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
+import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import {
   EMPTY_JOB_INPUT,
   type CompanyJobInput,
@@ -69,6 +70,12 @@ export default async function EditJobPage({
   // Missing and not-yours are deliberately indistinguishable — both bounce to
   // the list rather than confirming that some other company's job id exists.
   if (!job || job.company_id !== ctx.companyId) {
+    redirect("/ai-dashboard/jobs");
+  }
+
+  // A recruiter may only open a job they're on the hiring team for. Same
+  // redirect as not-found, so the URL confirms nothing either way.
+  if (!(await canAccessJob(ctx, job.id))) {
     redirect("/ai-dashboard/jobs");
   }
 

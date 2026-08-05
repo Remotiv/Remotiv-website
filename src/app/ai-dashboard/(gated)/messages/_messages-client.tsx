@@ -104,6 +104,7 @@ export function MessagesClient({
   jobs,
   applicantCount,
   roleCount,
+  unassigned,
 }: {
   companyName: string;
   replyToAddress: string | null;
@@ -115,6 +116,8 @@ export function MessagesClient({
   jobs: { id: string; title: string }[];
   applicantCount: number;
   roleCount: number;
+  /** True for a scoped member on no hiring teams — see the empty state. */
+  unassigned: boolean;
 }) {
   const [rows, setRows] = useState(initialRows);
   const [matching, setMatching] = useState(initialMatching);
@@ -237,7 +240,12 @@ export function MessagesClient({
     await Promise.all([reload({ tab, jobId, search, page }), refreshAggregates()]);
   }
 
-  const emptyCopy = search
+  const emptyCopy = unassigned
+    ? {
+        title: "You haven't been assigned to any roles yet",
+        text: "Messages follow the roles you're on. Ask an owner or admin to add you to a job's hiring team and its candidate emails will appear here.",
+      }
+    : search
     ? {
         title: `Nothing matches “${search}”`,
         text: "Try a different candidate, subject, or role — or clear the filters.",

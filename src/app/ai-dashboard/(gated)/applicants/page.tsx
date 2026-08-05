@@ -1,5 +1,6 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { getJobScope, isEmptyScope } from "@/app/ai-dashboard/lib/job-scope";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
 import { fetchCompanyApplicants } from "./actions";
 import { ApplicantsClient } from "./_applicants-client";
@@ -15,6 +16,10 @@ export default async function ApplicantsPage() {
     fetchCompanyApplicants(),
     fetchManualTemplates(),
   ]);
+
+  // Distinguishes "this company has no applicants" from "you are on no jobs",
+  // which look identical on screen and need opposite copy.
+  const unassigned = isEmptyScope(await getJobScope(ctx));
 
   // The address the drawer's composer quotes back to the sender.
   const { data: replyRow } = await createServiceClient()
@@ -49,6 +54,7 @@ export default async function ApplicantsPage() {
       companyName={ctx.company.name}
       replyToAddress={replyToAddress}
       manualTemplates={manualTemplates}
+      unassigned={unassigned}
     />
   );
 }

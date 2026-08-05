@@ -1513,6 +1513,7 @@ export function ApplicantsClient({
   companyName,
   replyToAddress,
   manualTemplates,
+  unassigned,
 }: {
   viewerRole: CompanyRole;
   applicants: CompanyApplicantRow[];
@@ -1521,6 +1522,8 @@ export function ApplicantsClient({
   companyName: string;
   replyToAddress: string | null;
   manualTemplates: ManualTemplate[];
+  /** True for a scoped member on no hiring teams — see the empty state. */
+  unassigned: boolean;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -2024,6 +2027,15 @@ export function ApplicantsClient({
       return {
         title: `No applicants match “${search.trim()}”`,
         text: "Try a different name or email, or clear your search to see everyone.",
+      };
+    }
+    if (unassigned) {
+      // Not "no applicants yet" — this company may have hundreds. The reason
+      // the page is empty is assignment, so the copy says so and names who
+      // can fix it.
+      return {
+        title: "You haven't been assigned to any roles yet",
+        text: "You'll see applicants for the roles you're on. Ask an owner or admin to add you to a job's hiring team.",
       };
     }
     if (applicants.length === 0) {

@@ -36,6 +36,7 @@ import {
 } from "@/app/ai-dashboard/lib/job-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { createCompanyJob, updateCompanyJob } from "../actions";
+import { HiringTeamSection } from "../_hiring-team";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -1429,6 +1430,27 @@ export function WizardClient({
                       </div>
                     )}
                   </ReviewCard>
+
+                  {/* Hiring team.
+                      Editing an existing job manages the real team; a job that
+                      does not exist yet has no rows to manage, so the create
+                      flow states what will happen instead of rendering an
+                      empty list nobody can act on. */}
+                  <div className="mt-3 rounded-[13px] border border-[var(--ai-line)] p-4">
+                    <p className="m-0 mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--ai-t3)]">
+                      Hiring team
+                    </p>
+                    {isEdit && jobId ? (
+                      <HiringTeamSection jobId={jobId} onToast={setToast} />
+                    ) : (
+                      <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
+                        You&apos;ll be added to this job&apos;s hiring team when you
+                        publish it. Owners and admins see every job; recruiters and
+                        hiring managers see only the ones they&apos;re on. Add them
+                        from the job&apos;s drawer once it exists.
+                      </p>
+                    )}
+                  </div>
 
                   <div className="mt-3 overflow-hidden rounded-[13px] border border-[var(--ai-line)]">
                     <button

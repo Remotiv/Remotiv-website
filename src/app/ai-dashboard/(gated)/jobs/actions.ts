@@ -8,6 +8,7 @@ import {
   getCompanyContext,
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
+import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import {
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
@@ -353,13 +354,26 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  /*
+   * Per-job scoping. A recruiter or hiring manager sees only the jobs they are
+   * on the hiring team for; owner and admin see everything.
+   *
+   * The empty case short-circuits rather than issuing `.in("id", [])` — an
+   * empty IN list is both a malformed request and, if a builder ever dropped
+   * it, an unfiltered query. Returning [] is the same answer, safely.
+   */
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return [];
+
   const PAGE = 1000;
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += PAGE) {
-    const { data, error } = await service
+    let q = service
       .from("jobs")
       .select(JOB_COLUMNS)
-      .eq("company_id", ctx.companyId)
+      .eq("company_id", ctx.companyId);
+    if (scope.scoped) q = q.in("id", scope.jobIds);
+    const { data, error } = await q
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
 
@@ -412,6 +426,38 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
 
 // ── Mutations ────────────────────────────────────────────────
 
+
+/**
+ * Put the creator on the job's hiring team.
+ *
+ * Without this a recruiter posts a job and immediately cannot see it — their
+ * own visibility depends on team membership, and a brand-new job has none.
+ * Owner and admin are seeded too: they do not need it for access, but the
+ * Hiring team section should show who opened the role rather than reading
+ * empty on every new job.
+ *
+ * Non-fatal. A job that exists with nobody on its team is recoverable from the
+ * drawer; a job that failed to be created because a label row failed is not.
+ */
+async function seedHiringTeam(
+  supabase: ReturnType<typeof createServiceClient>,
+  ctx: { companyId: string; memberId: string | null; role: string },
+  jobId: string,
+): Promise<void> {
+  if (!ctx.memberId) return;
+  try {
+    await supabase.from("job_hiring_team").insert({
+      job_id: jobId,
+      company_id: ctx.companyId,
+      member_id: ctx.memberId,
+      team_role: ctx.role === "hiring_manager" ? "hiring_manager" : "recruiter",
+      added_by: ctx.memberId,
+    });
+  } catch (err) {
+    console.error("[jobs] hiring team seed failed (non-fatal):", err);
+  }
+}
+
 export async function createCompanyJob(
   input: CompanyJobInput,
 ): Promise<MutationResult<{ id: string; slug: string | null }>> {
@@ -453,8 +499,10 @@ export async function createCompanyJob(
     return { success: false, error: error.message };
   }
 
-  revalidateJobSurfaces();
   const row = data as { id: string; slug: string | null };
+  await seedHiringTeam(supabase, ctx, row.id);
+
+  revalidateJobSurfaces();
   return { success: true, data: { id: row.id, slug: row.slug } };
 }
 
@@ -496,6 +544,12 @@ export async function updateCompanyJob(
   const supabase = createServiceClient();
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
+  // Assignment is re-checked server-side against the hiring team; the job id
+  // came from the client and proves nothing. Same message as not-found, so a
+  // probe cannot tell "exists but not yours" from "doesn't exist".
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
 
   // Bump criteria_version when anything the SCORER reads changed.
   //
@@ -545,6 +599,12 @@ export async function updateCompanyJobStatus(
   const supabase = createServiceClient();
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
+  // Assignment is re-checked server-side against the hiring team; the job id
+  // came from the client and proves nothing. Same message as not-found, so a
+  // probe cannot tell "exists but not yours" from "doesn't exist".
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
 
   // Draft → Published never goes through buildPatch, so without this a job
   // could carry an unset threshold onto the public site by the back door.
@@ -605,6 +665,12 @@ export async function setCompanyJobArchived(
   const supabase = createServiceClient();
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
+  // Assignment is re-checked server-side against the hiring team; the job id
+  // came from the client and proves nothing. Same message as not-found, so a
+  // probe cannot tell "exists but not yours" from "doesn't exist".
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
 
   const { error } = await supabase
     .from("jobs")
@@ -628,6 +694,12 @@ export async function deleteCompanyJob(
   const supabase = createServiceClient();
   const owned = await assertOwned(supabase, jobId, ctx.companyId);
   if (!owned.ok) return { success: false, error: owned.error };
+  // Assignment is re-checked server-side against the hiring team; the job id
+  // came from the client and proves nothing. Same message as not-found, so a
+  // probe cannot tell "exists but not yours" from "doesn't exist".
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
 
   // Snapshot the job title onto every application BEFORE deleting the job.
   // Once the FK's ON DELETE SET NULL fires we lose the link back to jobs.title,
@@ -672,6 +744,9 @@ export async function duplicateCompanyJob(
   if (!source || source.company_id !== ctx.companyId) {
     return { success: false, error: "Job not found in your workspace." };
   }
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "Job not found in your workspace." };
+  }
 
   const title = `${source.title as string} (copy)`;
   const slug = await buildSlug(supabase, ctx.company.name, title);
@@ -697,6 +772,9 @@ export async function duplicateCompanyJob(
 
   if (error) return { success: false, error: error.message };
 
+  const copyId = (created as { id: string }).id;
+  await seedHiringTeam(supabase, ctx, copyId);
+
   revalidateJobSurfaces();
-  return { success: true, data: { id: (created as { id: string }).id } };
+  return { success: true, data: { id: copyId } };
 }

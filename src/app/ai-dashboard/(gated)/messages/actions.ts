@@ -3,6 +3,11 @@
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import {
+  canAccessJob,
+  getJobScope,
+  scopedApplicationIds,
+} from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { MANUAL_DEFAULTS } from "@/lib/email/candidate/templates";
 import { MESSAGE_EVENTS, type MessageEvent } from "@/lib/email/candidate/types";
@@ -147,6 +152,29 @@ function roleOf(app: AppLite | undefined, fallback: string): string {
   );
 }
 
+/**
+ * May this viewer see (and write to) this applicant?
+ *
+ * Resolves the application's job server-side and checks the hiring team.
+ * Company ownership is checked in the same query, so a caller gets one answer
+ * for both boundaries and cannot satisfy one while missing the other.
+ */
+async function canSeeApplication(
+  ctx: Awaited<ReturnType<typeof getCompanyContext>>,
+  applicationId: string,
+): Promise<boolean> {
+  if (!applicationId) return false;
+  const { data } = await createServiceClient()
+    .from("job_applications")
+    .select("id, job_id, company_id_snapshot")
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId)
+    .maybeSingle();
+  const row = data as { job_id: string | null } | null;
+  if (!row) return false;
+  return canAccessJob(ctx, row.job_id ?? "");
+}
+
 /** Narrow a stored event string back to the union, defaulting to 'manual'. */
 function asEvent(value: string | null): MessageEvent {
   return (MESSAGE_EVENTS as readonly string[]).includes(value ?? "")
@@ -234,13 +262,30 @@ export async function fetchMessageAggregates(): Promise<MessageAggregates> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
-  const base = () =>
-    service
+  /*
+   * communication_logs has no job_id, so per-job scoping travels through the
+   * applications belonging to scoped jobs. Resolved ONCE and applied to every
+   * count here as well as to the list query — a filter on the rows but not the
+   * counts is exactly how a tab ends up disagreeing with what is under it.
+   */
+  const scope = await getJobScope(ctx);
+  const allowedApps = await scopedApplicationIds(ctx, scope);
+  if (allowedApps !== null && allowedApps.length === 0) {
+    return {
+      all: 0, written: 0, automatic: 0, scheduled: 0,
+      sent: 0, failed: 0, sentThisWeek: 0,
+    };
+  }
+
+  const base = () => {
+    const q = service
       .from("communication_logs")
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
       .neq("status", HIDDEN_STATUS)
       .not(ORPHAN_COLUMN, "is", null);
+    return allowedApps === null ? q : q.in("application_id", allowedApps);
+  };
 
   const weekAgo = new Date(Date.now() - WEEK_MS).toISOString();
 
@@ -281,6 +326,12 @@ export async function fetchMessages(input: {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  const scope = await getJobScope(ctx);
+  const allowedApps = await scopedApplicationIds(ctx, scope);
+  if (allowedApps !== null && allowedApps.length === 0) {
+    return { rows: [], matching: 0 };
+  }
+
   const tab: MessageTab = input.tab;
   const search = (input.search ?? "").trim();
   const page = Math.max(0, Math.trunc(input.page ?? 0));
@@ -295,6 +346,7 @@ export async function fetchMessages(input: {
       .select("id, first_name, last_name, email, job_title_snapshot, jobs(title)")
       .eq("company_id_snapshot", ctx.companyId)
       .limit(1000);
+    if (scope.scoped) q = q.in("job_id", scope.jobIds);
     if (input.jobId) q = q.eq("job_id", input.jobId);
     const { data } = await q;
     let rows = (data ?? []) as unknown as AppLite[];
@@ -325,6 +377,8 @@ export async function fetchMessages(input: {
       .eq("company_id", ctx.companyId)
       .neq("status", HIDDEN_STATUS)
       .not(ORPHAN_COLUMN, "is", null);
+
+    if (allowedApps !== null) q = q.in("application_id", allowedApps);
 
     q = applyTab(q, tab);
 
@@ -363,6 +417,9 @@ export async function fetchApplicationMessages(
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  // The drawer opens on one applicant, so the list's allow-list never ran.
+  if (!(await canSeeApplication(ctx, applicationId))) return [];
+
   const { data } = await service
     .from("communication_logs")
     .select(
@@ -382,11 +439,16 @@ export async function fetchRecipients(): Promise<MessageRecipient[]> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  // The composer may only offer candidates the sender can already see.
+  const recipientScope = await getJobScope(ctx);
+  if (recipientScope.scoped && recipientScope.jobIds.length === 0) return [];
+
   const { data } = await service
     .from("job_applications")
     .select("id, first_name, last_name, email, job_title_snapshot, jobs(title), created_at")
     .eq("company_id_snapshot", ctx.companyId)
     .not("email", "is", null)
+    .in("job_id", recipientScope.scoped ? recipientScope.jobIds : [])
     .order("created_at", { ascending: false })
     .limit(500);
 
@@ -521,6 +583,10 @@ export async function sendManualMessage(input: {
 
   const app = appData as unknown as (AppLite & { company_id_snapshot: string }) | null;
   if (!app) return { success: false, error: "That applicant isn't in your workspace." };
+  // Same message for not-yours as for not-found, as everywhere else.
+  if (!(await canAccessJob(ctx, app.job_id ?? ""))) {
+    return { success: false, error: "That applicant isn't in your workspace." };
+  }
 
   const to = (app.email ?? "").trim().toLowerCase();
   if (!to) return { success: false, error: "This applicant has no email address." };
@@ -617,13 +683,20 @@ export async function cancelScheduledMessage(
 
   const { data: existing } = await service
     .from("communication_logs")
-    .select("id, status")
+    .select("id, status, application_id")
     .eq("id", logId)
     .eq("company_id", ctx.companyId)
     .maybeSingle();
 
-  const row = existing as { id: string; status: string } | null;
+  const row = existing as {
+    id: string;
+    status: string;
+    application_id: string | null;
+  } | null;
   if (!row) return { success: false, error: "That message isn't in your workspace." };
+  if (!(await canSeeApplication(ctx, row.application_id ?? ""))) {
+    return { success: false, error: "That message isn't in your workspace." };
+  }
 
   // Only a message that has not gone out can be cancelled. A 'sent' row means
   // the candidate has it; marking that cancelled would make the log lie.
@@ -647,12 +720,18 @@ export async function cancelScheduledMessage(
 export async function fetchMessageJobs(): Promise<{ id: string; title: string }[]> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
-  const { data } = await service
+
+  // The filter dropdown must not name a job the viewer can't open.
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return [];
+
+  let q = service
     .from("jobs")
     .select("id, title")
-    .eq("company_id", ctx.companyId)
-    .order("created_at", { ascending: false })
-    .limit(200);
+    .eq("company_id", ctx.companyId);
+  if (scope.scoped) q = q.in("id", scope.jobIds);
+
+  const { data } = await q.order("created_at", { ascending: false }).limit(200);
   return ((data ?? []) as { id: string; title: string | null }[]).map((j) => ({
     id: j.id,
     title: (j.title ?? "").trim() || "Untitled role",
@@ -684,6 +763,9 @@ export async function sendScheduledNow(
   } | null;
 
   if (!row) return { success: false, error: "That message isn't in your workspace." };
+  if (!(await canSeeApplication(ctx, row.application_id ?? ""))) {
+    return { success: false, error: "That message isn't in your workspace." };
+  }
   if (row.status !== "queued") {
     return { success: false, error: "This message has already been sent." };
   }

@@ -2,6 +2,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { getJobScope, type JobScope } from "@/app/ai-dashboard/lib/job-scope";
 import type {
   AttentionItem,
   RoleCount,
@@ -200,6 +201,14 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  /*
+   * Every figure on this page — the four hero cells, the sentence, the role
+   * bars, top matches and the attention items — is derived from `apps` and
+   * `hist` below, so narrowing those two reads scopes the entire report. The
+   * stale-draft check is scoped separately because it reads `jobs` directly.
+   */
+  const scope = await getJobScope(ctx);
+
   const step = Math.max(0, Math.trunc(offset ?? 0));
   const start = new Date(latestWeekStart().getTime() - step * WEEK_MS);
   const end = new Date(start.getTime() + WEEK_MS);
@@ -208,19 +217,23 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
   // Everything is derived in memory from two paged reads. Two round trips
   // regardless of how many weeks back the user walks, and both are bounded by
   // the company's own volume rather than the platform's.
-  const apps = await pageAll<AppRow>((from, to) =>
-    service
-      .from("job_applications")
-      .select(
-        "id, first_name, last_name, job_id, job_title_snapshot, jobs(title), pipeline_stage, created_at",
-      )
-      .eq("company_id_snapshot", ctx.companyId)
-      .lt("created_at", end.toISOString())
-      .order("created_at", { ascending: false })
-      .range(from, to),
-  );
+  const apps =
+    scope.scoped && scope.jobIds.length === 0
+      ? []
+      : await pageAll<AppRow>((from, to) => {
+          const q = service
+            .from("job_applications")
+            .select(
+              "id, first_name, last_name, job_id, job_title_snapshot, jobs(title), pipeline_stage, created_at",
+            )
+            .eq("company_id_snapshot", ctx.companyId)
+            .lt("created_at", end.toISOString());
+          return (scope.scoped ? q.in("job_id", scope.jobIds) : q)
+            .order("created_at", { ascending: false })
+            .range(from, to);
+        });
 
-  const hist = await pageAll<HistRow>((from, to) =>
+  const histAll = await pageAll<HistRow>((from, to) =>
     service
       .from("application_stage_history")
       .select("application_id, to_stage, created_at")
@@ -229,6 +242,15 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
       .order("created_at", { ascending: false })
       .range(from, to),
   );
+
+  // History keys on application_id, not job_id, so it is narrowed against the
+  // applications already scoped above rather than by a second query. Without
+  // this the "moved forward" and "rejected" counts would include another
+  // team's activity.
+  const visibleApps = new Set(apps.map((a) => a.id));
+  const hist = scope.scoped
+    ? histAll.filter((h) => visibleApps.has(h.application_id))
+    : histAll;
 
   /**
    * Is there anything before this week?
@@ -267,6 +289,7 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
     stalled,
     roles,
     hasPrior,
+    scope,
   });
 
   const endDay = new Date(end.getTime() - DAY_MS);
@@ -409,7 +432,7 @@ async function buildTopMatches(
 async function buildAttention(
   service: Service,
   companyId: string,
-  input: { stalled: number; roles: RoleCount[]; hasPrior: boolean },
+  input: { stalled: number; roles: RoleCount[]; hasPrior: boolean; scope: JobScope },
 ): Promise<AttentionItem[]> {
   const items: AttentionItem[] = [];
 
@@ -429,15 +452,24 @@ async function buildAttention(
   // Drafts that have been sitting unpublished. Archived jobs are excluded —
   // a draft the company put away is not something that needs attention.
   const staleBefore = new Date(Date.now() - 7 * DAY_MS).toISOString();
-  const { data: drafts } = await service
+  const draftQuery = service
     .from("jobs")
     .select("id, title, created_at")
     .eq("company_id", companyId)
     .eq("status", "on_hold")
     .is("archived_at", null)
-    .lt("created_at", staleBefore)
-    .order("created_at", { ascending: true })
-    .limit(3);
+    .lt("created_at", staleBefore);
+  // Reads `jobs` directly, so it needs the scope applied explicitly rather
+  // than inheriting it from the applications above.
+  const { data: drafts } =
+    input.scope.scoped && input.scope.jobIds.length === 0
+      ? { data: [] }
+      : await (input.scope.scoped
+          ? draftQuery.in("id", input.scope.jobIds)
+          : draftQuery
+        )
+          .order("created_at", { ascending: true })
+          .limit(3);
 
   for (const d of (drafts ?? []) as { id: string; title: string | null; created_at: string }[]) {
     const days = Math.max(

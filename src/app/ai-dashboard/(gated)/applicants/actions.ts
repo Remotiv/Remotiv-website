@@ -7,6 +7,8 @@ import {
   getCompanyContext,
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
+import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { enqueue } from "@/lib/jobs-queue";
 import {
   cancelPendingRejection,
@@ -258,6 +260,15 @@ export async function fetchCompanyApplicants(
 
   const search = (query.search ?? "").trim();
 
+  /*
+   * Per-job scoping, applied to the ROWS — and, because every count and stat
+   * card on the Applicants page is derived from this same array client-side,
+   * to those as well. That is why the filter lives here rather than at each
+   * call site: there is one query, so there is one place to get it wrong.
+   */
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return [];
+
   // Range-paged: job_applications has hit the PostgREST 1000-row cap before,
   // and an unbounded select silently truncates rather than erroring.
   const PAGE = 1000;
@@ -269,6 +280,10 @@ export async function fetchCompanyApplicants(
       .select(APPLICANT_COLUMNS)
       .eq("company_id_snapshot", ctx.companyId);
 
+    if (scope.scoped) q = q.in("job_id", scope.jobIds);
+    // A client-supplied job filter narrows WITHIN the scope, never past it —
+    // the .in() above still applies, so asking for an unassigned job returns
+    // nothing rather than that job's applicants.
     if (query.jobId) q = q.eq("job_id", query.jobId);
     if (search) {
       const safe = search.replace(/[%,()]/g, " ");
@@ -324,6 +339,10 @@ export async function fetchCompanyApplicant(
 
   const row = data as unknown as ApplicantQueryRow | null;
   if (!row) return null;
+
+  // The drawer is a read of one applicant, so the list's .in() never ran.
+  // Checked here against the job they applied to.
+  if (!(await canAccessJob(ctx, row.job_id ?? ""))) return null;
 
   // History is scoped by company_id too, not just application_id — the tenant
   // boundary shouldn't rest on the id lookup alone.
@@ -459,6 +478,9 @@ export async function updateApplicationStage(
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
 
   const fromStage = (target.pipeline_stage as PipelineStage) ?? "applied";
   // No-op: don't write a history row for a stage that didn't change.
@@ -531,16 +553,25 @@ export async function updateApplicationStage(
 async function assertAdjustableScore(
   service: ReturnType<typeof createServiceClient>,
   applicationId: string,
-  companyId: string,
+  ctx: CompanyContext,
 ): Promise<{ ok: true } | { ok: false; error: string }> {
+  const companyId = ctx.companyId;
   const { data } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot")
+    .select("id, company_id_snapshot, job_id")
     .eq("id", applicationId)
     .maybeSingle();
 
-  const target = data as { company_id_snapshot: string | null } | null;
+  const target = data as {
+    company_id_snapshot: string | null;
+    job_id: string | null;
+  } | null;
   if (!target || target.company_id_snapshot !== companyId) {
+    return { ok: false, error: "Applicant not found in your workspace." };
+  }
+  // Same message again: a scoped member probing another team's applicant id
+  // learns nothing it didn't already know.
+  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
     return { ok: false, error: "Applicant not found in your workspace." };
   }
 
@@ -593,7 +624,7 @@ export async function adjustScore(
   }
 
   const service = createServiceClient();
-  const allowed = await assertAdjustableScore(service, applicationId, ctx.companyId);
+  const allowed = await assertAdjustableScore(service, applicationId, ctx);
   if (!allowed.ok) return { success: false, error: allowed.error };
 
   const note = (feedback ?? "").trim().slice(0, SCORE_FEEDBACK_MAX);
@@ -635,7 +666,7 @@ export async function clearScoreAdjustment(
   );
 
   const service = createServiceClient();
-  const allowed = await assertAdjustableScore(service, applicationId, ctx.companyId);
+  const allowed = await assertAdjustableScore(service, applicationId, ctx);
   if (!allowed.ok) return { success: false, error: allowed.error };
 
   const { error } = await service
@@ -687,6 +718,9 @@ export async function rescoreApplication(
   if (!target || target.company_id_snapshot !== ctx.companyId) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
+  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
   if (!target.job_id) {
     return { success: false, error: "This application has no job to score against." };
   }
@@ -724,6 +758,9 @@ export async function rescoreJob(
 
   const job = jobData as { company_id: string | null } | null;
   if (!job || job.company_id !== ctx.companyId) {
+    return { success: false, error: "Job not found in your workspace." };
+  }
+  if (!(await canAccessJob(ctx, jobId))) {
     return { success: false, error: "Job not found in your workspace." };
   }
 
@@ -800,7 +837,7 @@ export async function deleteApplication(
   // probe can't confirm another company's id exists.
   const { data } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot, cv_path")
+    .select("id, company_id_snapshot, cv_path, job_id")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -808,9 +845,13 @@ export async function deleteApplication(
     id: string;
     company_id_snapshot: string | null;
     cv_path: string | null;
+    job_id: string | null;
   } | null;
 
   if (!target || target.company_id_snapshot !== ctx.companyId) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
     return { success: false, error: "Applicant not found in your workspace." };
   }
 

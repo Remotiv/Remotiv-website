@@ -114,5 +114,46 @@ export type CompanyContext = {
    * contact_name (owner path) then the email local-part.
    */
   memberName: string;
+  /**
+   * company_members.id for the viewer, or null on the legacy
+   * companies.user_id fallback path (which is always an owner).
+   *
+   * job_hiring_team.member_id points at this, so it is what per-job scoping
+   * resolves through — never user_id, which the hiring-team table does not
+   * carry.
+   */
+  memberId: string | null;
   mustChangePassword: boolean;
+};
+
+/**
+ * Roles whose visibility is limited to the jobs they are assigned to.
+ *
+ * Owner and admin are site-wide by definition and never appear here — they see
+ * every job without an assignment, which is what makes them able to fix a
+ * mis-assigned team in the first place.
+ */
+export function isJobScopedRole(role: CompanyRole): boolean {
+  return role === "recruiter" || role === "hiring_manager";
+}
+
+/** Who may add and remove members on a job's hiring team. */
+export function canManageHiringTeam(role: CompanyRole): boolean {
+  return role === "owner" || role === "admin" || role === "recruiter";
+}
+
+/** Per-job relationship labels. NOT what grants access — presence does. */
+export const TEAM_ROLES = [
+  "hiring_manager",
+  "recruiter",
+  "coordinator",
+  "sourcer",
+] as const;
+export type JobTeamRole = (typeof TEAM_ROLES)[number];
+
+export const TEAM_ROLE_LABELS: Record<JobTeamRole, string> = {
+  hiring_manager: "Hiring manager",
+  recruiter: "Recruiter",
+  coordinator: "Coordinator",
+  sourcer: "Sourcer",
 };

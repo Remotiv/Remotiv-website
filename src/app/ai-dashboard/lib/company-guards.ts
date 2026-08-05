@@ -33,15 +33,17 @@ export async function getCompanyContext(): Promise<CompanyContext> {
   let companyId: string | null = null;
   let role: CompanyRole = "owner";
   let memberName: string | null = null;
+  let memberId: string | null = null;
 
   // 1. company_members (multi-user teams).
   const { data: memberRow } = await service
     .from("company_members")
-    .select("company_id, role, name")
+    .select("id, company_id, role, name")
     .eq("user_id", user.id)
     .eq("status", "active")
     .maybeSingle();
   const member = memberRow as {
+    id: string;
     company_id: string;
     role: CompanyRole;
     name: string | null;
@@ -50,6 +52,7 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     companyId = member.company_id;
     role = member.role;
     memberName = member.name;
+    memberId = member.id;
   } else {
     // 2. Fallback: company resolved directly by companies.user_id.
     const { data: fallbackRow } = await service
@@ -120,6 +123,7 @@ export async function getCompanyContext(): Promise<CompanyContext> {
         : memberName?.trim() || company.contact_name?.trim()) ||
       email.split("@")[0] ||
       "",
+    memberId,
     mustChangePassword: row.must_change_password === true,
   };
 }

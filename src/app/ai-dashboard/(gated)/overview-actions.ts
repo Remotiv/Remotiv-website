@@ -2,6 +2,7 @@
 
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import {
   PIPELINE_STAGES,
   type PipelineStage,
@@ -128,27 +129,45 @@ export async function fetchOverview(): Promise<OverviewData> {
   const now = Date.now();
   const weekAgoIso = new Date(now - WEEK_MS).toISOString();
 
+  /*
+   * Everything on Overview — the hero counts, the funnel, the role bars, the
+   * recent-applicant list and the activity feed — is derived from `jobs` and
+   * `apps` below. Narrowing those two arrays is therefore the whole of the
+   * page's scoping; no stat is computed from a separate unscoped query.
+   *
+   * The stage-history feed is filtered afterwards, in memory, because it joins
+   * back through application_id rather than job_id.
+   */
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return { ...EMPTY };
+
   const [jobs, apps, history, invites] = await Promise.all([
     pageAll<JobRow>(
-      (from, to) =>
-        service
+      (from, to) => {
+        const q = service
           .from("jobs")
           .select("id, title, category, status, created_at")
-          .eq("company_id", ctx.companyId)
+          .eq("company_id", ctx.companyId);
+        // Conditional, never `.in("id", [])` for an unscoped role — that
+        // would return nothing for an owner.
+        return (scope.scoped ? q.in("id", scope.jobIds) : q)
           .order("created_at", { ascending: false })
-          .range(from, to),
+          .range(from, to);
+      },
       "jobs",
     ),
     pageAll<AppRow>(
-      (from, to) =>
-        service
+      (from, to) => {
+        const q = service
           .from("job_applications")
           .select(
             "id, first_name, last_name, email, job_id, job_title_snapshot, pipeline_stage, screening_answers, created_at",
           )
-          .eq("company_id_snapshot", ctx.companyId)
+          .eq("company_id_snapshot", ctx.companyId);
+        return (scope.scoped ? q.in("job_id", scope.jobIds) : q)
           .order("created_at", { ascending: false })
-          .range(from, to),
+          .range(from, to);
+      },
       "applications",
     ),
     service
@@ -171,6 +190,14 @@ export async function fetchOverview(): Promise<OverviewData> {
         return count ?? 0;
       }),
   ]);
+
+  // The stage-history feed keys on application_id, so it is narrowed in
+  // memory against the applications already scoped above rather than by a
+  // second query.
+  const visibleAppIds = new Set(apps.map((a) => a.id));
+  const scopedHistory = scope.scoped
+    ? history.filter((h) => h.application_id !== null && visibleAppIds.has(h.application_id))
+    : history;
 
   if (jobs.length === 0 && apps.length === 0) {
     return { ...EMPTY, pendingInvites: invites };
@@ -257,7 +284,7 @@ export async function fetchOverview(): Promise<OverviewData> {
   // and job publications. No synthetic "AI screened N" entries.
   const appById = new Map(apps.map((a) => [a.id, a]));
 
-  const stageItems: ActivityItem[] = history
+  const stageItems: ActivityItem[] = scopedHistory
     .filter((h) => h.to_stage && h.created_at)
     .map((h) => {
       const app = h.application_id ? appById.get(h.application_id) : undefined;
