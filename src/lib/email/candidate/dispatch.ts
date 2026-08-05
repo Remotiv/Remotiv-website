@@ -6,11 +6,7 @@ import {
   writeCommunicationLog,
 } from "./deliver";
 import { defaultTemplate } from "./templates";
-import {
-  buildPlaceholders,
-  escapePlaceholders,
-  renderTemplate,
-} from "./render";
+import { buildPlaceholders, renderCopy } from "./render";
 import type { MessageEvent, SendMessagePayload } from "./types";
 
 /**
@@ -184,9 +180,9 @@ export async function handleSendMessage(job: {
     jobTitle,
     companyName,
   });
-  // Subject is plain text; body is HTML, so its values are escaped.
-  const subject = renderTemplate(resolved.subject, values);
-  const inner = renderTemplate(resolved.body, escapePlaceholders(values));
+  // Shared with the Settings preview — see renderCopy. A preview that read
+  // differently from the sender would be worse than no preview at all.
+  const { subject, body: inner } = renderCopy(resolved, values);
 
   const html = buildCandidateHtml(inner, companyName, companyId, to);
 
@@ -246,6 +242,11 @@ async function resolveTemplate(
     .eq("company_id", companyId)
     .eq("event", event)
     .eq("channel", "email")
+    // Automatic templates are one-per-event and carry a NULL template_key;
+    // composer templates share event='manual' and are keyed. Stating it makes
+    // this maybeSingle() safe by construction rather than by the fact that no
+    // manual event reaches this function today.
+    .is("template_key", null)
     .maybeSingle();
 
   const own = data as { subject: string | null; body: string | null } | null;

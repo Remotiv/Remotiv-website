@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { seedRejectionDefault } from "@/lib/email/candidate/triggers";
+import { fetchTemplateRows } from "./template-actions";
 import { SettingsClient } from "./_settings-client";
 import { COMPANY_LOGO_BUCKET } from "./constants";
 
@@ -35,6 +36,7 @@ export default async function SettingsPage() {
   // Read through the same helper jobs/new seeds from, so the switch shown here
   // and the value a new job actually inherits can never disagree.
   const sendRejectionDefault = await seedRejectionDefault(ctx.companyId);
+  const templateRows = await fetchTemplateRows();
 
   // Read directly rather than widening COMPANY_COLUMNS: the shared company
   // guard runs on every /ai-dashboard request and this column is only ever
@@ -68,6 +70,7 @@ export default async function SettingsPage() {
       }}
       account={{ email: ctx.user.email }}
       sendRejectionDefault={sendRejectionDefault}
+      templateRows={templateRows}
       stats={{
         liveRoles: publishedJobs.count ?? 0,
         applicants: applicants.count ?? 0,

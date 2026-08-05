@@ -99,6 +99,67 @@ const TEMPLATES: Record<Exclude<MessageEvent, "manual">, DefaultTemplate> = {
   },
 };
 
+/**
+ * The editable lifecycle templates, in the order Settings lists them.
+ *
+ * `sending` records whether the event fires TODAY. Four of them do not —
+ * STAGE_EVENTS maps only `rejected`, and shortlisted/interview/offer/hired are
+ * commented out there. They still appear in Settings because the wording
+ * matters the day they are switched on, and a company that has already written
+ * theirs should not discover the default going out on their behalf.
+ */
+export type LifecycleTemplate = {
+  event: Exclude<MessageEvent, "manual">;
+  name: string;
+  trigger: string;
+  sending: boolean;
+};
+
+export const LIFECYCLE_TEMPLATES: ReadonlyArray<LifecycleTemplate> = [
+  {
+    event: "application_received",
+    name: "Application received",
+    trigger: "Sent the moment someone applies",
+    sending: true,
+  },
+  {
+    event: "screening",
+    name: "Screening",
+    trigger: "Sent when you move someone to Screening",
+    sending: false,
+  },
+  {
+    event: "shortlisted",
+    name: "Shortlisted",
+    trigger: "Sent when you move someone to Shortlisted",
+    sending: false,
+  },
+  {
+    event: "interview",
+    name: "Interview",
+    trigger: "Sent when you move someone to Interview",
+    sending: false,
+  },
+  {
+    event: "offer",
+    name: "Offer",
+    trigger: "Sent when you move someone to Offer",
+    sending: false,
+  },
+  {
+    event: "hired",
+    name: "Hired",
+    trigger: "Sent when you move someone to Hired",
+    sending: false,
+  },
+  {
+    event: "rejected",
+    name: "Rejected",
+    trigger: "Sent two days after moving to Rejected",
+    sending: true,
+  },
+];
+
 /** The Remotiv default for an event, or null for 'manual'. */
 export function defaultTemplate(event: MessageEvent): DefaultTemplate | null {
   if (event === "manual") return null;
@@ -130,7 +191,18 @@ export function defaultTemplate(event: MessageEvent): DefaultTemplate | null {
  * recruiter replacing it with their own name is the expected first edit.
  */
 export type ManualDefault = {
-  /** Stable id. Prefixed so it can never collide with a message_templates uuid. */
+  /**
+   * Stable key, stored verbatim in message_templates.template_key when a
+   * company overrides this template.
+   *
+   * Two disjoint namespaces share the column, separated by prefix:
+   *   default:<slug>  a Remotiv-shipped template, enumerable from this array
+   *   custom:<uuid>   a company-authored one, generated at creation
+   *
+   * A collision is therefore impossible by construction rather than by
+   * checking — and saveManualTemplate rejects any `default:` key that is not
+   * in MANUAL_DEFAULTS, so a client cannot invent one.
+   */
   id: string;
   label: string;
   subject: string;

@@ -601,19 +601,15 @@ export function OverviewClient({
           </p>
         </div>
         <div className="flex shrink-0 gap-2.5">
-          {/* Disabled, not wired: there is no report to generate — no export
-              endpoint, no scheduled digest, and no interviews or scores to
-              summarise. Shipping it live would open a toast that does nothing.
-              Same treatment as the Jobs list's Archive button. */}
-          <button
-            type="button"
-            disabled
-            title="Weekly reports arrive in a later release"
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] disabled:cursor-not-allowed disabled:opacity-55"
+          {/* Overview is the snapshot; the report is the period. Every role can
+              open it — it is the company's own activity, not a privileged view. */}
+          <Link
+            href="/ai-dashboard/weekly-report"
+            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
           >
             <LineChart className="size-[15px]" strokeWidth={1.9} />
             Weekly report
-          </button>
+          </Link>
           {canCreateJob && (
             <Link
               href="/ai-dashboard/jobs/new"

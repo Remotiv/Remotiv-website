@@ -51,6 +51,28 @@ export function renderTemplate(
   });
 }
 
+/**
+ * Render one template's subject and body against a set of values.
+ *
+ * THE single place a candidate template becomes copy. The dispatcher calls it
+ * to build a real email and the Settings editor calls it to build the preview,
+ * so a preview that reads differently from what will be sent is not something
+ * the two can drift into — there is only one implementation to drift.
+ *
+ * Subject is plain text and takes raw values; the body is HTML, so its values
+ * are escaped at substitution. That asymmetry is the whole reason this is a
+ * function rather than two calls a caller is trusted to get right.
+ */
+export function renderCopy(
+  template: { subject: string; body: string },
+  values: Placeholders,
+): { subject: string; body: string } {
+  return {
+    subject: renderTemplate(template.subject, values),
+    body: renderTemplate(template.body, escapePlaceholders(values)),
+  };
+}
+
 /** First word of a name, falling back to the whole string then to "there". */
 export function firstNameOf(fullName: string): string {
   const trimmed = fullName.trim();

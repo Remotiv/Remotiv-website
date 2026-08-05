@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
 import { isValidEmail } from "@/lib/validators";
+import { TemplatesCard } from "./_templates-card";
+import type { TemplateRow } from "./template-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   COMPANY_DESCRIPTION_MAX,
@@ -78,12 +80,14 @@ export function SettingsClient({
   company,
   account,
   sendRejectionDefault,
+  templateRows,
   stats,
 }: {
   role: CompanyRole;
   company: CompanyForm & { logoUrl: string | null; slug: string | null };
   account: { email: string };
   sendRejectionDefault: boolean;
+  templateRows: TemplateRow[];
   stats: { liveRoles: number; applicants: number; seatsUsed: number };
 }) {
   const router = useRouter();
@@ -916,6 +920,12 @@ export function SettingsClient({
             </p>
           </div>
         </section>
+
+        <TemplatesCard
+          rows={templateRows}
+          role={role}
+          onToast={showToast}
+        />
       </div>
 
       {toast && (

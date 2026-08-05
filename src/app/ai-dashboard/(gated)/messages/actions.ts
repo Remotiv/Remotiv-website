@@ -354,14 +354,18 @@ export async function fetchRecipients(): Promise<MessageRecipient[]> {
 /**
  * Templates offered in the composer picker.
  *
- * The company's own saved templates come FIRST — that is what precedence means
- * here. message_templates has no name or key column, so there is nothing to
- * match a company row against a Remotiv default by, and silently hiding a
- * default because a company happened to save something would be a guess. Both
- * sets appear; the company's are at the top, where a picker is read from.
+ * Resolved BY KEY, which is the whole point of message_templates.template_key:
+ * a company row carrying `default:invite-interview` REPLACES Remotiv's
+ * template of that key rather than appearing next to it. Before the column
+ * existed every composer template shared event='manual' with nothing to match
+ * on, so an edited template showed up as a second entry and the original kept
+ * being offered — which is the bug this fixes.
  *
- * Remotiv's defaults come from code, never from seeded rows, so an environment
- * with an empty message_templates table still offers a working picker.
+ * Order: the shipped templates in their authored order (each showing whichever
+ * copy is in force), then any the company wrote itself, newest last.
+ *
+ * Remotiv's own copy still comes from CODE, so an environment with an empty
+ * message_templates table offers a complete picker.
  */
 export async function fetchManualTemplates(): Promise<ManualTemplate[]> {
   const ctx = await getCompanyContext();
@@ -369,31 +373,46 @@ export async function fetchManualTemplates(): Promise<ManualTemplate[]> {
 
   const { data } = await service
     .from("message_templates")
-    .select("id, subject, body")
+    .select("id, template_key, subject, body")
     .eq("company_id", ctx.companyId)
     .eq("event", "manual")
     .eq("channel", "email")
+    .not("template_key", "is", null)
     .order("created_at", { ascending: true })
-    .limit(50);
+    .limit(100);
 
-  const own = ((data ?? []) as { id: string; subject: string | null; body: string | null }[])
-    .filter((t) => (t.subject ?? "").trim() && (t.body ?? "").trim())
-    .map((t) => ({
+  const own = new Map<string, { subject: string; body: string }>();
+  const custom: ManualTemplate[] = [];
+
+  for (const row of (data ?? []) as {
+    template_key: string | null;
+    subject: string | null;
+    body: string | null;
+  }[]) {
+    const key = (row.template_key ?? "").trim();
+    if (!key || !row.subject || !row.body) continue;
+    own.set(key, { subject: row.subject, body: row.body });
+    if (!key.startsWith("default:")) {
+      custom.push({
+        id: key,
+        subject: row.subject,
+        body: row.body,
+        label: row.subject.slice(0, 60),
+      });
+    }
+  }
+
+  const shipped = MANUAL_DEFAULTS.map((t) => {
+    const override = own.get(t.id);
+    return {
       id: t.id,
-      subject: t.subject ?? "",
-      body: t.body ?? "",
-      // message_templates has no name column, so the subject IS the label.
-      label: (t.subject ?? "").slice(0, 60),
-    }));
+      subject: override?.subject ?? t.subject,
+      body: override?.body ?? t.body,
+      label: t.label,
+    };
+  });
 
-  const defaults = MANUAL_DEFAULTS.map((t) => ({
-    id: t.id,
-    subject: t.subject,
-    body: t.body,
-    label: t.label,
-  }));
-
-  return [...own, ...defaults];
+  return [...shipped, ...custom];
 }
 
 /**
