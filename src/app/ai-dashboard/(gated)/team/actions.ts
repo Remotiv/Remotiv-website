@@ -3,6 +3,7 @@
 import { createHash, randomBytes } from "node:crypto";
 import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
+import { notifyCompany } from "@/lib/notifications/company";
 import { isValidEmail } from "@/lib/validators";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import { sendEmail } from "@/lib/email/send";
@@ -219,7 +220,7 @@ export async function updateMemberRole(
   // which company it belongs to.
   const { data: targetRow } = await service
     .from("company_members")
-    .select("id, company_id, user_id, role")
+    .select("id, company_id, user_id, role, name, email")
     .eq("id", memberId)
     .maybeSingle();
 
@@ -228,6 +229,8 @@ export async function updateMemberRole(
     company_id: string;
     user_id: string | null;
     role: CompanyRole;
+    name: string | null;
+    email: string | null;
   } | null;
 
   if (!target || target.company_id !== ctx.companyId) {
@@ -240,6 +243,9 @@ export async function updateMemberRole(
     return { success: false, error: "You can't change your own role." };
   }
 
+  const subjectName =
+    (target.name ?? "").trim() || (target.email ?? "").trim() || "A member";
+
   const { error } = await service
     .from("company_members")
     .update({ role })
@@ -247,6 +253,17 @@ export async function updateMemberRole(
     .eq("company_id", ctx.companyId);
 
   if (error) return { success: false, error: error.message };
+
+  // Owner/admin only — resolveRecipients routes team-administration types
+  // there. A recruiter does not need to know who was promoted.
+  await notifyCompany({
+    companyId: ctx.companyId,
+    type: "member_role_changed",
+    title: `${subjectName} is now ${COMPANY_ROLE_LABELS[role as CompanyRole] ?? role}`,
+    body: `${ctx.memberName} changed their account role.`,
+    href: "/ai-dashboard/team",
+    actorMemberId: ctx.memberId,
+  });
 
   revalidatePath("/ai-dashboard/team");
   return { success: true, data: undefined };
@@ -261,7 +278,7 @@ export async function removeMember(
 
   const { data: targetRow } = await service
     .from("company_members")
-    .select("id, company_id, user_id, role")
+    .select("id, company_id, user_id, role, name, email")
     .eq("id", memberId)
     .maybeSingle();
 
@@ -270,6 +287,8 @@ export async function removeMember(
     company_id: string;
     user_id: string | null;
     role: CompanyRole;
+    name: string | null;
+    email: string | null;
   } | null;
 
   if (!target || target.company_id !== ctx.companyId) {
@@ -282,6 +301,9 @@ export async function removeMember(
     return { success: false, error: "You can't remove yourself." };
   }
 
+  const subjectName =
+    (target.name ?? "").trim() || (target.email ?? "").trim() || "A member";
+
   // Soft removal: the status enum already carries "removed", so we keep the
   // row for audit. The auth user is deliberately NOT deleted — that account
   // may be in use elsewhere; we only sever this membership.
@@ -292,6 +314,15 @@ export async function removeMember(
     .eq("company_id", ctx.companyId);
 
   if (error) return { success: false, error: error.message };
+
+  await notifyCompany({
+    companyId: ctx.companyId,
+    type: "member_removed",
+    title: `${subjectName} was removed from the team`,
+    body: `${ctx.memberName} removed their access to this workspace.`,
+    href: "/ai-dashboard/team",
+    actorMemberId: ctx.memberId,
+  });
 
   revalidatePath("/ai-dashboard/team");
   return { success: true, data: undefined };

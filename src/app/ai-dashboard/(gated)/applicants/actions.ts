@@ -8,6 +8,7 @@ import {
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import { notifyCompany } from "@/lib/notifications/company";
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { enqueue } from "@/lib/jobs-queue";
 import {
@@ -16,6 +17,7 @@ import {
 } from "@/lib/email/candidate/triggers";
 import {
   PIPELINE_STAGES,
+  PIPELINE_STAGE_LABELS,
   SCORE_FEEDBACK_MAX,
   type ApplicantScore,
   type ApplicantScoreDetail,
@@ -464,7 +466,7 @@ export async function updateApplicationStage(
   // return the SAME message so a probe can't confirm another company's id.
   const { data: targetRow } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot, pipeline_stage, job_id")
+    .select("id, company_id_snapshot, pipeline_stage, job_id, first_name, last_name")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -473,6 +475,8 @@ export async function updateApplicationStage(
     company_id_snapshot: string | null;
     pipeline_stage: string | null;
     job_id: string | null;
+    first_name: string | null;
+    last_name: string | null;
   } | null;
 
   if (!target || target.company_id_snapshot !== ctx.companyId) {
@@ -485,6 +489,10 @@ export async function updateApplicationStage(
   const fromStage = (target.pipeline_stage as PipelineStage) ?? "applied";
   // No-op: don't write a history row for a stage that didn't change.
   if (fromStage === toStage) return { success: true, data: undefined };
+
+  const applicantLabel =
+    [target.first_name, target.last_name].filter(Boolean).join(" ").trim() ||
+    "An applicant";
 
   const { error: updateErr } = await service
     .from("job_applications")
@@ -528,6 +536,20 @@ export async function updateApplicationStage(
   // immediately. Done first so a rapid Rejected → Shortlisted → Rejected
   // sequence ends with the second rejection queued, not the first cancelled
   // after the second was written.
+  // Fire-and-forget, exactly like the candidate-email triggers below it: the
+  // stage has already committed, so a failed bell entry must not surface as a
+  // rejected move.
+  await notifyCompany({
+    companyId: ctx.companyId,
+    type: "stage_change",
+    title: `${applicantLabel} moved to ${PIPELINE_STAGE_LABELS[toStage as PipelineStage]}`,
+    body: `${ctx.memberName} moved them from ${PIPELINE_STAGE_LABELS[fromStage as PipelineStage]}.`,
+    jobId: target.job_id,
+    applicationId,
+    href: "/ai-dashboard/applicants",
+    actorMemberId: ctx.memberId,
+  });
+
   if (toStage !== "rejected") {
     await cancelPendingRejection(applicationId, ctx.companyId);
   }
@@ -837,7 +859,7 @@ export async function deleteApplication(
   // probe can't confirm another company's id exists.
   const { data } = await service
     .from("job_applications")
-    .select("id, company_id_snapshot, cv_path, job_id")
+    .select("id, company_id_snapshot, cv_path, job_id, first_name, last_name")
     .eq("id", applicationId)
     .maybeSingle();
 
@@ -846,6 +868,8 @@ export async function deleteApplication(
     company_id_snapshot: string | null;
     cv_path: string | null;
     job_id: string | null;
+    first_name: string | null;
+    last_name: string | null;
   } | null;
 
   if (!target || target.company_id_snapshot !== ctx.companyId) {
@@ -888,6 +912,18 @@ export async function deleteApplication(
     .eq("company_id_snapshot", ctx.companyId);
 
   if (delErr) return { success: false, error: delErr.message };
+
+  await notifyCompany({
+    companyId: ctx.companyId,
+    type: "applicant_deleted",
+    title: `${[target.first_name, target.last_name].filter(Boolean).join(" ").trim() || "An applicant"} was deleted`,
+    body: `${ctx.memberName} permanently removed them and their CV.`,
+    jobId: target.job_id,
+    // No application_id: the row it pointed at no longer exists, and a link to
+    // a deleted applicant is a dead end.
+    href: "/ai-dashboard/applicants",
+    actorMemberId: ctx.memberId,
+  });
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };

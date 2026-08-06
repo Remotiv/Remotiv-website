@@ -12,6 +12,7 @@ import {
   TEAM_ROLES,
 } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, type HiringTeamMember } from "@/app/ai-dashboard/lib/job-scope";
+import { notifyCompanyMember } from "@/lib/notifications/company";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Shapes live in lib/job-scope.ts.
@@ -206,6 +207,27 @@ export async function addToHiringTeam(input: {
   // the user needs to see.
   if (error && error.code !== "23505") {
     return { success: false, error: error.message };
+  }
+
+  // Only the person added. Telling the rest of the team that somebody else
+  // joined is exactly the noise this system avoids — and for the recipient it
+  // is the one notification that changes what they can see.
+  if (!error) {
+    const { data: jobRow } = await service
+      .from("jobs")
+      .select("title")
+      .eq("id", input.jobId)
+      .maybeSingle();
+    await notifyCompanyMember({
+      companyId: ctx.companyId,
+      memberId: input.memberId,
+      type: "added_to_job",
+      title: `You were added to “${((jobRow as { title: string | null } | null)?.title ?? "a job").trim()}”`,
+      body: `${ctx.memberName} added you to the hiring team. You can now see this role and its applicants.`,
+      jobId: input.jobId,
+      href: "/ai-dashboard/jobs",
+      actorMemberId: ctx.memberId,
+    });
   }
 
   revalidateJobTeamSurfaces();

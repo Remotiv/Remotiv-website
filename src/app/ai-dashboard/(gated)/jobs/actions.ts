@@ -9,6 +9,7 @@ import {
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import { notifyCompany } from "@/lib/notifications/company";
 import {
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
@@ -632,6 +633,26 @@ export async function updateCompanyJobStatus(
 
   if (error) return { success: false, error: error.message };
 
+  // 'on_hold' is the product's Draft; moving a job back to it is routine
+  // editing rather than an event the team needs told about.
+  if (status === "open" || status === "closed") {
+    await notifyCompany({
+      companyId: ctx.companyId,
+      type: status === "open" ? "job_published" : "job_closed",
+      title:
+        status === "open"
+          ? `“${owned.title}” is live`
+          : `“${owned.title}” was closed`,
+      body:
+        status === "open"
+          ? `${ctx.memberName} published it — it's on remotiv.work now.`
+          : `${ctx.memberName} closed it. It no longer accepts applications.`,
+      jobId,
+      href: "/ai-dashboard/jobs",
+      actorMemberId: ctx.memberId,
+    });
+  }
+
   revalidateJobSurfaces();
   return { success: true, data: undefined };
 }
@@ -679,6 +700,18 @@ export async function setCompanyJobArchived(
     .eq("company_id", ctx.companyId);
 
   if (error) return { success: false, error: error.message };
+
+  if (archived) {
+    await notifyCompany({
+      companyId: ctx.companyId,
+      type: "job_archived",
+      title: `“${owned.title}” was archived`,
+      body: `${ctx.memberName} archived it. Its applicants are still in your workspace.`,
+      jobId,
+      href: "/ai-dashboard/jobs",
+      actorMemberId: ctx.memberId,
+    });
+  }
 
   // Same revalidation as a status change: the public list, the detail page and
   // the company careers view all have to drop (or regain) the job at once.

@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
+import { notifyCompany } from "@/lib/notifications/company";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Types stay local / in lib/company-roles.ts.
@@ -159,6 +160,28 @@ export async function acceptInvite(input: {
     }
     return { success: false, error: memberError.message };
   }
+
+  /*
+   * Membership has committed, so there is now a team to tell.
+   *
+   * Placed AFTER the insert and its rollback branch — notifying about a join
+   * that was then rolled back would be a bell entry for something that never
+   * happened. Placed BEFORE the invite is burned only because that is the next
+   * statement; the two are independent, and notifyCompany never throws, so it
+   * cannot leave the invite un-burned and re-usable.
+   *
+   * Owner/admin only — resolveRecipients routes team-administration types
+   * there. No actorMemberId: the person joining has no company_members row
+   * until the insert above, and they are looking at the workspace they just
+   * walked into rather than needing a notification about it.
+   */
+  await notifyCompany({
+    companyId: invite.company_id,
+    type: "invite_accepted",
+    title: `${(invite.name ?? "").trim() || email} joined the team`,
+    body: "They accepted their invite and can sign in now.",
+    href: "/ai-dashboard/team",
+  });
 
   // Membership committed — now the invite can be burned (single-use).
   await service

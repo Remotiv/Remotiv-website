@@ -2,7 +2,8 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { Bell, LogOut, Menu, Search } from "lucide-react";
+import { LogOut, Menu, Search } from "lucide-react";
+import { NotificationBell } from "./notification-bell";
 
 // Breadcrumb tail per route. Keys are exact pathnames; the /ai-dashboard root
 // is the Overview page.
@@ -86,18 +87,7 @@ export function AiTopbar({
         />
       </div>
 
-      {/* Disabled until notifications exist. It previously had no handler and
-          no disabled state — the one control in the product that looked live
-          and did nothing. Same honest treatment as Archive and Weekly report. */}
-      <button
-        type="button"
-        disabled
-        aria-label="Notifications"
-        title="Notifications arrive in a later release"
-        className="relative ml-auto flex size-[34px] shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)] disabled:cursor-not-allowed disabled:opacity-55 min-[630px]:ml-0"
-      >
-        <Bell className="size-[18px]" strokeWidth={1.7} />
-      </button>
+      <NotificationBell />
 
       <div ref={menuRef} className="relative shrink-0">
         <button

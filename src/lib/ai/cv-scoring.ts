@@ -3,6 +3,7 @@ import { getAnthropic } from "@/lib/anthropic";
 import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
+import { notifyCompany } from "@/lib/notifications/company";
 
 /**
  * AI CV scoring (Step 4).
@@ -887,6 +888,9 @@ type ApplicationRow = {
   country: string | null;
   notice_period: string | null;
   availability: string | null;
+  /** Display only — names the applicant in the hiring team's notification. */
+  first_name: string | null;
+  last_name: string | null;
 };
 
 type JobRow = {
@@ -986,7 +990,7 @@ export async function handleAiCvScore(job: {
   const { data: appData, error: appErr } = await service
     .from("job_applications")
     .select(
-      "id, job_id, company_id_snapshot, cv_text, screening_answers, years_experience, city, country, notice_period, availability",
+      "id, job_id, company_id_snapshot, cv_text, screening_answers, years_experience, city, country, notice_period, availability, first_name, last_name",
     )
     .eq("id", applicationId)
     .maybeSingle();
@@ -1128,6 +1132,31 @@ export async function handleAiCvScore(job: {
   });
 
   if (writeErr) throw new Error(`ai_cv_score: score write failed: ${writeErr}`);
+
+  /*
+   * Tell the job's hiring team the card is ready, WITH the number — a bell
+   * entry that only says "a score is ready" makes the reader open the page to
+   * find out whether it was worth opening.
+   *
+   * Never throws, like recordUsage below it: the score has already been
+   * written, and failing the job here would retry the whole (paid) scoring
+   * call to fix a missing notification.
+   */
+  if (app.company_id_snapshot) {
+    const who =
+      [app.first_name, app.last_name].filter(Boolean).join(" ").trim() ||
+      "An applicant";
+    await notifyCompany({
+      companyId: app.company_id_snapshot,
+      type: "score_ready",
+      title: `${who} scored ${card.overall_score}`,
+      body: `AI screening finished for ${jobRow.title ?? "this role"}.`,
+      jobId: app.job_id,
+      applicationId: app.id,
+      href: "/ai-dashboard/applicants",
+      // No actor: the scorer is the machine, so there is nobody to exclude.
+    });
+  }
 
   // Metering. Never throws — see src/lib/usage.ts.
   if (app.company_id_snapshot) {
