@@ -7,6 +7,7 @@ import {
   type ExtractedTalentFields,
 } from "@/lib/cv-extract";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { stripInvalidPgChars } from "@/lib/pdf-text";
 
 export const runtime = "nodejs";
 
@@ -223,23 +224,40 @@ export async function POST(request: Request) {
     // 8. Cache write — best-effort, fire-and-forget. If this errors, the
     //    move flow still works (the modal already has the prefill in hand).
     //    Logged but never surfaced to the client.
+    //
+    //    Defense-in-depth sanitize on every AI-derived string that lands in
+    //    Postgres. Claude is unlikely to emit NUL/C0 controls, but the source
+    //    text (cv_text) can contain them — sanitizing here matches the /api/
+    //    apply fix so any residual character can't 22P05 this update either.
+    //    Length-neutral for well-formed values; applied AFTER the AI's own
+    //    field caps in sanitiseOutput.
+    const strip = (v: string | null): string | null =>
+      v === null ? null : stripInvalidPgChars(v);
+    const cleanEmpHistory = prefill.employment_history.map((e) => ({
+      title:       stripInvalidPgChars(e.title),
+      company:     stripInvalidPgChars(e.company),
+      start:       stripInvalidPgChars(e.start),
+      end:         stripInvalidPgChars(e.end),
+      description: stripInvalidPgChars(e.description),
+      skills:      e.skills.map(stripInvalidPgChars),
+    }));
     service
       .from("job_applications")
       .update({
-        applicant_job_title: prefill.applicant_job_title,
-        role_category: prefill.role_category,
+        applicant_job_title: strip(prefill.applicant_job_title),
+        role_category: strip(prefill.role_category),
         years_experience: prefill.years_experience,
-        degree: prefill.degree,
-        institution: prefill.institution,
-        city: prefill.city,
-        country: prefill.country,
-        summary: prefill.summary,
+        degree: strip(prefill.degree),
+        institution: strip(prefill.institution),
+        city: strip(prefill.city),
+        country: strip(prefill.country),
+        summary: strip(prefill.summary),
         availability: prefill.availability,
         work_type: prefill.work_type,
         notice_period: prefill.notice_period,
         work_location: prefill.work_location,
-        skills: prefill.skills,
-        employment_history: prefill.employment_history,
+        skills: prefill.skills.map(stripInvalidPgChars),
+        employment_history: cleanEmpHistory,
       })
       .eq("id", applicationId)
       .then(({ error }) => {

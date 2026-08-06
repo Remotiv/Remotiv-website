@@ -1,7 +1,7 @@
 import { NextResponse } from "next/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { createServiceClient } from "@/lib/supabase/server";
-import { extractPdfTextServer } from "@/lib/pdf-text";
+import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
 
 // pdf-parse / unpdf require Node. Pdfjs internally uses APIs not available
 // on the edge runtime, so pin nodejs explicitly.
@@ -114,7 +114,13 @@ async function backfillTable(
     const hasText = typeof result.text === "string" && result.text.length > 0;
 
     if (hasText) {
-      const patch: Record<string, unknown> = { cv_text: result.text };
+      // Defense-in-depth sanitize: extractPdfTextServer already strips NUL /
+      // C0 controls today, but sanitizing at THIS write boundary too keeps
+      // the path safe if a future text source is ever plumbed in here that
+      // bypasses the extractor. Matches the /api/apply fix for 22P05.
+      const patch: Record<string, unknown> = {
+        cv_text: stripInvalidPgChars(result.text as string),
+      };
       if (hasStatusCols) {
         patch.cv_text_status = result.status;
         patch.cv_text_error = result.error;

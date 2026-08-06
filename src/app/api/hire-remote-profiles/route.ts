@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
+import { stripInvalidPgChars } from "@/lib/pdf-text";
 
 export const runtime = "nodejs";
 
@@ -425,36 +426,65 @@ export async function POST(request: NextRequest) {
       photoPath = path;
     }
 
+    // Sanitize every user-derived string that reaches Postgres. Applied
+    // AFTER validation and length caps — the helper is length-changing, so
+    // running it earlier could let a value slip past a rejection threshold.
+    // Same shape as the /api/apply fix that stopped 22P05 on NUL bytes in
+    // extracted CV text; JSONB nested strings sanitized recursively.
+    const strip = (v: string | null): string | null =>
+      v === null ? null : stripInvalidPgChars(v);
+    const cleanEmpHistory = employmentHistory.map((e) => ({
+      title:       stripInvalidPgChars(e.title),
+      company:     stripInvalidPgChars(e.company),
+      dates:       stripInvalidPgChars(e.dates),
+      description: stripInvalidPgChars(e.description),
+    }));
+    const cleanEducation = {
+      institution: stripInvalidPgChars(education.institution),
+      degree:      stripInvalidPgChars(education.degree),
+      dates:       stripInvalidPgChars(education.dates),
+    };
+    const cleanPortfolio = portfolio.map((p) => ({
+      title:       stripInvalidPgChars(p.title),
+      role:        stripInvalidPgChars(p.role),
+      url:         stripInvalidPgChars(p.url),
+      description: stripInvalidPgChars(p.description),
+    }));
+    const cleanLanguages = languages.map((l) => ({
+      name:  stripInvalidPgChars(l.name),
+      level: stripInvalidPgChars(l.level),
+    }));
+
     // 4. Insert
     const { error: insertError } = await supabase
       .from("hire_remote_profiles")
       .insert({
-        first_name: firstName,
-        last_name: lastName,
-        email: normalisedEmail,
-        phone,
-        city,
-        country,
-        time_zone: timeZone,
-        linkedin_url: linkedinUrl,
+        first_name: stripInvalidPgChars(firstName),
+        last_name: stripInvalidPgChars(lastName),
+        email: stripInvalidPgChars(normalisedEmail),
+        phone: strip(phone),
+        city: stripInvalidPgChars(city),
+        country: stripInvalidPgChars(country),
+        time_zone: stripInvalidPgChars(timeZone),
+        linkedin_url: stripInvalidPgChars(linkedinUrl),
 
-        job_titles: jobTitles,
-        bio,
-        skills,
-        employment_history: employmentHistory,
-        education,
-        portfolio,
+        job_titles: stripInvalidPgChars(jobTitles),
+        bio: stripInvalidPgChars(bio),
+        skills: skills.map(stripInvalidPgChars),
+        employment_history: cleanEmpHistory,
+        education: cleanEducation,
+        portfolio: cleanPortfolio,
 
         hourly_rate: hourlyRate,
         hours_per_week: hoursPerWeek,
         work_type: workType,
         availability,
         available_from_date: availableFromDate,
-        languages,
+        languages: cleanLanguages,
 
         cv_url: cvUrl,
         cv_path: cvPath,
-        cv_text: cvText,
+        cv_text: strip(cvText),
         photo_url: photoUrl,
         photo_path: photoPath,
 

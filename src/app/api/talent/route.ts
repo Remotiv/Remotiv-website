@@ -4,6 +4,7 @@ import { getAvatarUrl } from "@/lib/avatars";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
+import { stripInvalidPgChars } from "@/lib/pdf-text";
 
 export const runtime = "nodejs";
 
@@ -696,24 +697,43 @@ export async function POST(request: NextRequest) {
       : cvText && cvText.length > MAX_CV_TEXT_LENGTH
         ? cvText.slice(0, MAX_CV_TEXT_LENGTH)
         : cvText;
+
+    // Sanitize every user-derived string that reaches Postgres. Applied
+    // AFTER validation and length caps — the helper is length-changing, so
+    // running it earlier could let a value slip past a rejection threshold.
+    // Same shape as the /api/apply protection; matching the fix that stopped
+    // 22P05 "unsupported Unicode escape sequence" on NUL bytes in extracted
+    // CV text.
+    const strip = (v: string | null): string | null =>
+      v === null ? null : stripInvalidPgChars(v);
+    const cleanExperience = experience.map((e) => ({
+      title:       stripInvalidPgChars(e.title),
+      company:     stripInvalidPgChars(e.company),
+      start:       stripInvalidPgChars(e.start),
+      end:         stripInvalidPgChars(e.end),
+      dates:       stripInvalidPgChars(e.dates),
+      skills:      e.skills.map(stripInvalidPgChars),
+      description: stripInvalidPgChars(e.description),
+    }));
+
     const { error: insertError } = await supabase.from("talent_profiles").insert({
-      first_name: firstName,
-      last_name: lastName,
-      email,
-      phone,
-      city,
-      country,
-      linkedin_url: linkedin,
-      github_url: githubUrl,
-      job_title: jobTitle,
-      role_category: roleCategory,
+      first_name: strip(firstName),
+      last_name: strip(lastName),
+      email: strip(email),
+      phone: strip(phone),
+      city: strip(city),
+      country: strip(country),
+      linkedin_url: strip(linkedin),
+      github_url: strip(githubUrl),
+      job_title: strip(jobTitle),
+      role_category: strip(roleCategory),
       years_experience: yearsExperience,
-      industry,
-      degree,
-      institution,
-      skills,
-      experience,
-      summary,
+      industry: strip(industry),
+      degree: strip(degree),
+      institution: strip(institution),
+      skills: skills.map(stripInvalidPgChars),
+      experience: cleanExperience,
+      summary: strip(summary),
       availability,
       work_type: workType,
       notice_period: noticePeriod,
@@ -723,7 +743,7 @@ export async function POST(request: NextRequest) {
       avatar_url: avatarUrl,
       cv_url: cvUrl,
       cv_path: cvPath,
-      cv_text: effectiveCvText,
+      cv_text: strip(effectiveCvText),
       status: "pending",
     });
 
