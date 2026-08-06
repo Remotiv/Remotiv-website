@@ -5,7 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
-import { extractPdfTextServer } from "@/lib/pdf-text";
+import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
 import { enqueue } from "@/lib/jobs-queue";
 import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 
@@ -192,6 +192,11 @@ export async function POST(request: NextRequest) {
       { status: 429, headers: { "Retry-After": String(rl.retryAfter) } },
     );
   }
+
+  // Short reference emitted on every 500 path — both in the JSON response
+  // and in the matching server log line — so a failing candidate can quote
+  // it back and the log can be grepped directly.
+  const errorId = crypto.randomUUID().slice(0, 8);
 
   try {
     const form = await request.formData();
@@ -403,9 +408,12 @@ export async function POST(request: NextRequest) {
       .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
 
     if (uploadError) {
-      console.error("[/api/apply] storage upload failed:", uploadError);
+      console.error(
+        `[/api/apply][${errorId}] storage upload failed:`,
+        uploadError,
+      );
       return NextResponse.json(
-        { error: GENERIC_ERROR_MESSAGE },
+        { error: GENERIC_ERROR_MESSAGE, errorId },
         { status: 500 },
       );
     }
@@ -417,7 +425,7 @@ export async function POST(request: NextRequest) {
       const { data: jobRow } = await supabase
         .from("jobs")
         .insert({
-          title: jobTitle,
+          title: stripInvalidPgChars(jobTitle),
           company: "Manual Entry",
           company_rating: 0,
           location: "—",
@@ -535,6 +543,9 @@ export async function POST(request: NextRequest) {
     // Screening answers — read the client's submitted answers (answer strings
     // only), key them by question id, then score against the server questions.
     // safeJson never throws; non-string ids/answers are coerced or skipped.
+    // Answer strings are user-derived and land in JSONB, so they are stripped
+    // of NUL/control chars here — BEFORE snapshot construction — so a PDF-
+    // paste or clipboard artifact can't fail the whole insert.
     const rawScreeningAnswers = safeJson<unknown>(form.get("screening_answers"), []);
     const screeningAnswerMap = new Map<string, string>();
     if (Array.isArray(rawScreeningAnswers)) {
@@ -543,7 +554,8 @@ export async function POST(request: NextRequest) {
           const id = (item as { id?: unknown }).id;
           const ans = (item as { answer?: unknown }).answer;
           if (typeof id === "string") {
-            screeningAnswerMap.set(id, typeof ans === "string" ? ans : String(ans ?? ""));
+            const answerStr = typeof ans === "string" ? ans : String(ans ?? "");
+            screeningAnswerMap.set(id, stripInvalidPgChars(answerStr));
           }
         }
       }
@@ -553,6 +565,25 @@ export async function POST(request: NextRequest) {
       screeningAnswerMap,
     );
 
+    // Sanitize every user-derived string that reaches Postgres. Applied
+    // HERE — after all validation, length caps, and enum coercion — so a
+    // shortened sanitized value can't sneak past a rejection threshold.
+    // extractPdfTextServer already sanitizes the server-extraction path;
+    // this covers the client-sent cv_text branch and every wizard/basic
+    // field. Length-neutral for well-formed input; only strips NUL and
+    // C0 controls that Postgres rejects (SQLSTATE 22P05).
+    const strip = (v: string | null): string | null =>
+      v === null ? null : stripInvalidPgChars(v);
+
+    const cleanEmpHistory = employmentHistory.map((row) => ({
+      title:       stripInvalidPgChars(row.title),
+      company:     stripInvalidPgChars(row.company),
+      start:       stripInvalidPgChars(row.start),
+      end:         stripInvalidPgChars(row.end),
+      description: stripInvalidPgChars(row.description),
+      skills:      row.skills.map(stripInvalidPgChars),
+    }));
+
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it
     //    via talent_claim_tokens.candidate_id.
@@ -560,33 +591,33 @@ export async function POST(request: NextRequest) {
       .from(APPLICATIONS_TABLE)
       .insert({
         job_id: resolvedJobId,
-        first_name: firstName,
-        last_name: lastName,
-        email,
-        phone,
-        linkedin_url: linkedin,
+        first_name: stripInvalidPgChars(firstName),
+        last_name: strip(lastName),
+        email: strip(email),
+        phone: strip(phone),
+        linkedin_url: stripInvalidPgChars(linkedin),
         cv_url: null,
         cv_path: path,
-        cv_text: boundedCvText,
+        cv_text: strip(boundedCvText),
         cv_text_status: cvTextStatus,
         cv_text_error: cvTextError,
         status: "new",
         source,
-        notes,
-        applicant_job_title: applicantJobTitle,
-        role_category:       roleCategory,
+        notes: strip(notes),
+        applicant_job_title: strip(applicantJobTitle),
+        role_category:       strip(roleCategory),
         years_experience:    yearsExperience,
-        degree,
-        institution,
-        city,
-        country,
+        degree:              strip(degree),
+        institution:         strip(institution),
+        city:                strip(city),
+        country:             strip(country),
         availability,
         work_type:           workType,
         notice_period:       noticePeriod,
         work_location:       workLocation,
-        summary,
-        skills,
-        employment_history:  employmentHistory,
+        summary:             strip(summary),
+        skills:              skills.map(stripInvalidPgChars),
+        employment_history:  cleanEmpHistory,
         screening_answers:   screeningSnapshot,
         company_id_snapshot: companyIdSnapshot,
       })
@@ -594,7 +625,10 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError || !insertedRow) {
-      console.error("[/api/apply] DB insert failed:", insertError);
+      console.error(
+        `[/api/apply][${errorId}] DB insert failed: code=${insertError?.code} msg=${insertError?.message} details=${insertError?.details} hint=${insertError?.hint}`,
+        insertError,
+      );
       // Rollback: the CV is already in storage but its DB row never landed.
       // Delete the orphaned object so storage doesn't accumulate junk PDFs.
       // Wrap the cleanup so its own failure can't mask the original 500.
@@ -604,12 +638,12 @@ export async function POST(request: NextRequest) {
         // [CV_ORPHAN] is the production grep tag — search logs for this
         // marker to surface every storage object whose rollback failed.
         console.error(
-          "[CV_ORPHAN][/api/apply] rollback delete failed",
+          `[CV_ORPHAN][/api/apply][${errorId}] rollback delete failed`,
           { path, bucket: CV_BUCKET, error: cleanupErr },
         );
       }
       return NextResponse.json(
-        { error: GENERIC_ERROR_MESSAGE },
+        { error: GENERIC_ERROR_MESSAGE, errorId },
         { status: 500 },
       );
     }
@@ -695,9 +729,9 @@ export async function POST(request: NextRequest) {
       bridgeToken,
     });
   } catch (err) {
-    console.error("[/api/apply] unexpected error:", err);
+    console.error(`[/api/apply][${errorId}] unexpected error:`, err);
     return NextResponse.json(
-      { error: GENERIC_ERROR_MESSAGE },
+      { error: GENERIC_ERROR_MESSAGE, errorId },
       { status: 500 },
     );
   }

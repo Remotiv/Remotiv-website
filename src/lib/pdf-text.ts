@@ -23,6 +23,30 @@ export type PdfTextResult = {
   error: string | null;
 };
 
+/**
+ * Strip characters Postgres refuses in text/jsonb. U+0000 (NUL) is the
+ * primary offender — it survives PDF extraction and causes SQLSTATE 22P05
+ * "unsupported Unicode escape sequence" on INSERT. C0 controls other than
+ * TAB (U+0009), LF (U+000A) and CR (U+000D) go too; they are never
+ * meaningful in extracted CV text and only cause parser/log noise
+ * downstream.
+ *
+ * Length-changing on purpose — apply AFTER any length validation so a
+ * shorter sanitized value doesn't sneak past a rejection threshold.
+ *
+ * Built with RegExp+string escapes rather than a regex literal so no literal
+ * control character ever appears in this source file.
+ */
+const NUL_RE = new RegExp("\\u0000", "g");
+const C0_RE = new RegExp(
+  "[\\u0001-\\u0008\\u000B\\u000C\\u000E-\\u001F]",
+  "g",
+);
+
+export function stripInvalidPgChars(s: string): string {
+  return s.replace(NUL_RE, "").replace(C0_RE, "");
+}
+
 export async function extractPdfTextServer(
   buffer: Buffer,
   opts?: { timeoutMs?: number; maxBytes?: number },
@@ -61,7 +85,10 @@ export async function extractPdfTextServer(
     const rawText = Array.isArray(result?.text)
       ? result.text.join("\n")
       : (result?.text ?? "");
-    const clean = rawText.trim();
+    // Sanitize at the extraction boundary so every consumer of this text is
+    // Postgres-safe. Trim after strip: a text of nothing but NUL bytes should
+    // report `empty`, not `completed` with an empty string.
+    const clean = stripInvalidPgChars(rawText).trim();
     if (clean.length === 0) {
       return { text: null, status: "failed", error: "empty" };
     }
