@@ -15,6 +15,7 @@ import {
   Pencil,
   Users,
 } from "lucide-react";
+import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { fetchWeekReport } from "./actions";
 import type { AttentionKind, DeltaTone, WeekReport } from "./types";
@@ -139,7 +140,7 @@ function Sentence({ week }: { week: WeekReport }) {
   }
 
   return (
-    <p className="relative z-[1] m-0 mb-[26px] max-w-[800px] font-heading text-[27px] font-extrabold leading-[1.32] tracking-[-0.032em] text-white">
+    <p className="m-0 mb-[26px] max-w-[800px] font-heading text-[27px] font-extrabold leading-[1.32] tracking-[-0.032em] text-white">
       <span className="relative z-0 inline-block px-1.5 text-[var(--ai-sidebar)] before:absolute before:inset-y-[4%] before:-inset-x-[3px] before:-z-10 before:-rotate-[1.2deg] before:rounded-[3px] before:bg-remotiv-lime before:content-['']">
         {week.applied} {people} applied
       </span>
@@ -246,17 +247,16 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
         </div>
       </div>
 
-      <div
-        className={`relative mb-[26px] overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-[30px] pb-[26px] pt-7 shadow-[0_18px_46px_rgba(20,16,32,0.24)] transition-opacity ${loading ? "opacity-60" : ""}`}
+      <DashboardHeroStatement
+        className={`transition-opacity ${loading ? "opacity-60" : ""}`}
       >
-        <span className="pointer-events-none absolute -right-[8%] -top-[130%] h-[360%] w-[62%] bg-[radial-gradient(ellipse_at_center,rgba(126,71,255,0.44),transparent_62%)]" />
-        <p className="relative z-[1] m-0 mb-4 text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/40">
+        <p className="m-0 mb-4 text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/40">
           The week in short
         </p>
 
         <Sentence week={week} />
 
-        <div className="relative z-[1] grid grid-cols-2 gap-y-[22px] border-t border-white/[0.12] pt-[22px] min-[1120px]:grid-cols-4 min-[1120px]:gap-y-0">
+        <div className="grid grid-cols-2 gap-y-[22px] border-t border-white/[0.12] pt-[22px] min-[1120px]:grid-cols-4 min-[1120px]:gap-y-0">
           <HeroCell
             label="New applicants"
             value={week.applied}
@@ -286,7 +286,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
             chip={<DeltaChip current={week.stalled} previous={week.previous?.stalled} tone="good-down" />}
           />
         </div>
-      </div>
+      </DashboardHeroStatement>
 
       <div className="mb-3.5 grid grid-cols-[minmax(0,1fr)] items-start gap-3.5 min-[1120px]:grid-cols-[minmax(0,1fr)_minmax(0,1fr)]">
         <section className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">

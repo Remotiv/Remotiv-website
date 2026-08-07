@@ -15,15 +15,14 @@ export default function Loading() {
 
       {/* Dark hero. Its shimmer is translucent white — the cream
           --ai-line-soft would be invisible on #141020. */}
-      <div className="mb-[26px] grid grid-cols-1 gap-6 rounded-[22px] bg-[var(--ai-sidebar)] px-6 py-6 min-[840px]:grid-cols-[auto_1px_1fr_auto] min-[840px]:items-center min-[840px]:gap-7 min-[840px]:px-7">
-        <div>
-          <div className="h-3 w-[90px] animate-pulse rounded bg-white/10" />
-          <div className="mt-3 h-[46px] w-[150px] animate-pulse rounded-lg bg-white/10" />
-          <div className="mt-3 h-[5px] w-[168px] animate-pulse rounded-[3px] bg-white/10" />
-          <div className="mt-3 h-3 w-[150px] animate-pulse rounded bg-white/10" />
+      <div className="mb-[26px] grid grid-cols-1 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] min-[1180px]:grid-cols-[340px_minmax(0,1fr)_auto]">
+        <div className="flex flex-col justify-center bg-remotiv-green px-[26px] py-[22px] min-[1180px]:px-7 min-[1180px]:py-[26px]">
+          <div className="h-3 w-[90px] animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-[46px] w-[150px] animate-pulse rounded-lg bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-[5px] w-[168px] animate-pulse rounded-[3px] bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-3 w-[150px] animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
         </div>
-        <div className="hidden h-[82px] self-center bg-white/[0.12] min-[840px]:block" />
-        <div className="min-w-0">
+        <div className="min-w-0 px-[26px] py-[22px] min-[1180px]:px-[30px] min-[1180px]:py-[26px]">
           <div className="mb-3 h-3 w-[120px] animate-pulse rounded bg-white/10" />
           {[0, 1, 2].map((i) => (
             <div
@@ -36,8 +35,8 @@ export default function Loading() {
             </div>
           ))}
         </div>
-        <div className="min-[840px]:text-right">
-          <div className="mb-[11px] h-3 w-[100px] animate-pulse rounded bg-white/10 min-[840px]:ml-auto" />
+        <div className="px-[26px] pb-[22px] min-[1180px]:py-[26px] min-[1180px]:pl-2.5 min-[1180px]:pr-[30px] min-[1180px]:text-right">
+          <div className="mb-[11px] h-3 w-[100px] animate-pulse rounded bg-white/10 min-[1180px]:ml-auto" />
           <div className="flex min-[840px]:justify-end">
             {[0, 1, 2].map((i) => (
               <div

@@ -10,12 +10,18 @@ export default function Loading() {
         <div className={`${SHIMMER} mt-3 h-4 w-[420px] max-w-full`} />
       </div>
 
-      {/* Dark hero keeps its colour while loading so the page doesn't flash
-          from light to dark when content arrives. */}
-      <div className="mb-[26px] rounded-[22px] bg-[var(--ai-sidebar)] px-7 py-6">
-        <div className="h-3 w-28 animate-pulse rounded bg-white/10" />
-        <div className="mt-3 h-11 w-32 animate-pulse rounded-lg bg-white/10" />
-        <div className="mt-3 h-3 w-40 animate-pulse rounded bg-white/10" />
+      {/* Mint block + ink breakdown, matching DashboardHero so the shape does
+          not change when content arrives. */}
+      <div className="mb-[26px] grid grid-cols-1 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] min-[1180px]:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="flex flex-col justify-center bg-remotiv-green px-[26px] py-[22px] min-[1180px]:px-7 min-[1180px]:py-[26px]">
+          <div className="h-3 w-28 animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-11 w-32 animate-pulse rounded-lg bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-3 w-40 animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
+        </div>
+        <div className="px-[26px] py-[22px] min-[1180px]:px-[30px] min-[1180px]:py-[26px]">
+          <div className="h-3 w-24 animate-pulse rounded bg-white/10" />
+          <div className="mt-3 h-8 w-40 animate-pulse rounded bg-white/10" />
+        </div>
       </div>
 
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)]">

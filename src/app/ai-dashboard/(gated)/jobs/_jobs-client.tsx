@@ -32,6 +32,7 @@ import {
   type CompanyJobRow,
   type JobStatus,
 } from "@/app/ai-dashboard/lib/job-types";
+import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   deleteCompanyJob,
@@ -163,7 +164,7 @@ function RoleBreakdown({
   onShowAll: () => void;
 }) {
   return (
-    <div className="relative z-[1] min-w-0">
+    <div className="min-w-0">
         <p className="m-0 mb-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
           Applicants by role
         </p>
@@ -252,45 +253,26 @@ function JobsHero({
   })();
 
   return (
-    <div
-      className={`relative mb-[26px] grid grid-cols-1 gap-6 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-6 py-6 shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[840px]:gap-7 min-[840px]:px-7 ${
-        hasBreakdown ? "min-[840px]:grid-cols-[auto_1px_1fr]" : ""
-      }`}
+    <DashboardHero
+      eyebrow="Applicants in play"
+      value={totalApplicants}
+      subline={subline}
     >
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-[90px] -top-[110px] size-[340px] rounded-full"
-        style={{
-          background:
-            "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
-        }}
-      />
-
-      <div className="relative z-[1]">
-        <p className="m-0 mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
-          Applicants in play
+      {hasBreakdown ? (
+        <RoleBreakdown
+          bars={bars}
+          top={top}
+          hiddenRoles={hiddenRoles}
+          onShowAll={onShowAll}
+        />
+      ) : (
+        /* The block still carries the number; the ink side says why there is
+           no breakdown rather than rendering an empty panel. */
+        <p className="m-0 text-[12.5px] leading-relaxed text-white/50">
+          Publish a role and its applicants appear here.
         </p>
-        <p className="m-0 font-heading text-[46px] font-extrabold leading-none tracking-[-0.04em] text-white">
-          {totalApplicants}
-        </p>
-        <p className="m-0 mt-[9px] text-[12.5px] text-white/50">{subline}</p>
-      </div>
-
-      {hasBreakdown && (
-        <>
-          <div
-            aria-hidden
-            className="hidden h-[78px] self-center bg-white/[0.12] min-[840px]:block"
-          />
-          <RoleBreakdown
-            bars={bars}
-            top={top}
-            hiddenRoles={hiddenRoles}
-            onShowAll={onShowAll}
-          />
-        </>
       )}
-    </div>
+    </DashboardHero>
   );
 }
 

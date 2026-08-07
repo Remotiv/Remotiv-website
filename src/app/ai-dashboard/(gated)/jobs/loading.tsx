@@ -13,16 +13,16 @@ export default function Loading() {
         <div className={`${SHIMMER} h-11 w-[130px] shrink-0`} />
       </div>
 
-      {/* Dark hero. Its own skeleton bars are translucent white, since the
-          surface underneath is #141020 rather than the page cream. */}
-      <div className="mb-[26px] grid grid-cols-1 gap-6 rounded-[22px] bg-[var(--ai-sidebar)] px-6 py-6 min-[840px]:grid-cols-[auto_1px_1fr] min-[840px]:gap-7 min-[840px]:px-7">
-        <div>
-          <div className="h-3 w-[110px] animate-pulse rounded bg-white/10" />
-          <div className="mt-3 h-[46px] w-[92px] animate-pulse rounded-lg bg-white/10" />
-          <div className="mt-3 h-3 w-[130px] animate-pulse rounded bg-white/10" />
+      {/* Mint block + ink breakdown, matching DashboardHero so the skeleton
+          does not flash a different shape when content arrives. Bars on the
+          mint side are ink-tinted; on the ink side, translucent white. */}
+      <div className="mb-[26px] grid grid-cols-1 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] min-[1180px]:grid-cols-[340px_minmax(0,1fr)]">
+        <div className="flex flex-col justify-center bg-remotiv-green px-[26px] py-[22px] min-[1180px]:px-7 min-[1180px]:py-[26px]">
+          <div className="h-3 w-[110px] animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-[46px] w-[92px] animate-pulse rounded-lg bg-[rgba(4,52,44,0.16)]" />
+          <div className="mt-3 h-3 w-[130px] animate-pulse rounded bg-[rgba(4,52,44,0.16)]" />
         </div>
-        <div className="hidden h-[78px] self-center bg-white/[0.12] min-[840px]:block" />
-        <div className="min-w-0">
+        <div className="min-w-0 px-[26px] py-[22px] min-[1180px]:px-[30px] min-[1180px]:py-[26px]">
           <div className="mb-3 h-3 w-[110px] animate-pulse rounded bg-white/10" />
           {[0, 1, 2, 3].map((i) => (
             <div

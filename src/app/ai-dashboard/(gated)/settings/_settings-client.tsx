@@ -7,6 +7,7 @@ import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
 import { isValidEmail } from "@/lib/validators";
 import { TemplatesCard } from "./_templates-card";
 import type { TemplateRow } from "./template-types";
+import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   COMPANY_DESCRIPTION_MAX,
@@ -387,16 +388,8 @@ export function SettingsClient({
           is the point of the hero, not decoration. Every <p> sets its own
           colour: the design system's global `p { color:#444 }` beats inherited
           white on a dark surface. */}
-      <div className="relative mb-[30px] grid grid-cols-1 items-center gap-[34px] overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-[30px] py-7 shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[1120px]:grid-cols-[minmax(0,1fr)_1px_auto]">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-[10%] -top-[120%] h-[340%] w-[70%]"
-          style={{
-            background:
-              "radial-gradient(ellipse at center, rgba(126,71,255,0.45), transparent 62%)",
-          }}
-        />
-        <div className="relative z-[1] min-w-0">
+      <DashboardHeroStatement className="mb-[30px] grid grid-cols-1 items-center gap-[34px] min-[1120px]:grid-cols-[minmax(0,1fr)_1px_auto]">
+        <div className="min-w-0">
           <p className="m-0 mb-4 text-[10.5px] font-bold uppercase tracking-[0.16em] text-white/40">
             Public company profile
           </p>
@@ -452,8 +445,8 @@ export function SettingsClient({
             </button>
           </div>
         </div>
-        <div className="relative z-[1] hidden h-[132px] self-center bg-white/[0.12] min-[1120px]:block" />
-        <div className="relative z-[1] flex flex-wrap gap-[34px]">
+        <div className="hidden h-[132px] self-center bg-white/[0.12] min-[1120px]:block" />
+        <div className="flex flex-wrap gap-[34px]">
           <HeroStat
             label="Live roles"
             value={String(stats.liveRoles)}
@@ -466,7 +459,7 @@ export function SettingsClient({
           />
           <HeroStat label="Team" value={String(stats.seatsUsed)} sub="seats used" />
         </div>
-      </div>
+      </DashboardHeroStatement>
 
       {/* The form column is capped at 900px while the hero stays full width.
           A 1560px-wide text input is unusable; the asymmetry is intentional. */}

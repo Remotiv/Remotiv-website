@@ -26,6 +26,7 @@ import {
   type CompanyRole,
   type TeamMemberRow,
 } from "@/app/ai-dashboard/lib/company-roles";
+import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   inviteMember,
@@ -300,41 +301,30 @@ function TeamHero({
   const extraFaces = Math.max(0, recentCount - faces.length);
 
   return (
-    <div className="relative mb-[26px] grid grid-cols-1 gap-6 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-6 py-6 shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[840px]:grid-cols-[auto_1px_1fr_auto] min-[840px]:items-center min-[840px]:gap-7 min-[840px]:px-7">
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-[90px] -top-[110px] size-[340px] rounded-full"
-        style={{
-          background:
-            "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
-        }}
-      />
-
-      <div className="relative z-[1]">
-        <p className="m-0 mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
-          Team size
-        </p>
-        <p className="m-0 flex items-baseline gap-1.5 font-heading text-[46px] font-extrabold leading-none tracking-[-0.04em] text-white">
+    <DashboardHero
+      eyebrow="Seats used"
+      value={
+        <>
           {activeCount}
-          <i className="text-[22px] font-bold not-italic text-white/40">
+          <i className="text-[22px] font-bold not-italic text-[rgba(4,52,44,0.45)]">
             {activeCount === 1 ? "member" : "members"}
           </i>
-        </p>
-        <div className="mt-3 h-[5px] w-[168px] max-w-full overflow-hidden rounded-[3px] bg-white/[0.12]">
+        </>
+      }
+      subline={subline}
+      belowValue={
+        /* On mint now, so the track and fill both invert — a white/12 track
+           and a lime fill are both invisible on #49D7A7. */
+        <div className="mt-3 h-[5px] w-[168px] max-w-full overflow-hidden rounded-[3px] bg-[rgba(4,52,44,0.18)]">
           <div
-            className="h-full rounded-[3px] bg-remotiv-lime"
+            className="h-full rounded-[3px] bg-[var(--ai-sidebar)]"
             style={{ width: `${acceptedPct}%` }}
           />
         </div>
-        <p className="m-0 mt-[9px] text-[12.5px] text-white/50">{subline}</p>
-      </div>
-
-      <div
-        aria-hidden
-        className="hidden h-[82px] self-center bg-white/[0.12] min-[840px]:block"
-      />
-
-      <div className="relative z-[1] min-w-0">
+      }
+      trailing={<TeamFacepile faces={faces} extraFaces={extraFaces} />}
+    >
+      <div className="min-w-0">
         <p className="m-0 mb-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
           Who&apos;s on the team
         </p>
@@ -364,14 +354,28 @@ function TeamHero({
         </div>
       </div>
 
-      <div className="relative z-[1] min-[840px]:text-right">
+    </DashboardHero>
+  );
+}
+
+/** Recently-active avatars. Its own component so the hero's third column is
+ *  one node rather than a stretch of markup inside a prop. */
+function TeamFacepile({
+  faces,
+  extraFaces,
+}: {
+  faces: TeamMemberRow[];
+  extraFaces: number;
+}) {
+  return (
+    <div className="min-[1180px]:text-right">
         <p className="m-0 mb-[11px] text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
           Recently active
         </p>
         {faces.length === 0 ? (
           <p className="m-0 text-[12.5px] text-white/50">No sign-ins this week</p>
         ) : (
-          <div className="flex min-[840px]:justify-end">
+          <div className="flex min-[1180px]:justify-end">
             {faces.map((m, i) => {
               const tint = getTint(m.email || m.id, m.is_owner);
               return (
@@ -399,7 +403,6 @@ function TeamHero({
         <p className="m-0 mt-2.5 text-[11.5px] text-white/40">
           0 interviews run this month
         </p>
-      </div>
     </div>
   );
 }
@@ -706,15 +709,7 @@ function RolePermissionsDrawer({
       >
         {/* Dark header. Both <p> here set an explicit colour — the DS's global
             `p { color:#444 }` beats inherited white. */}
-        <div className="relative shrink-0 overflow-hidden bg-[var(--ai-sidebar)] px-4 py-5 min-[840px]:px-6 min-[840px]:py-6">
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-[70px] -top-[90px] size-[250px] rounded-full"
-            style={{
-              background:
-                "radial-gradient(circle, rgba(126,71,255,0.55), transparent 68%)",
-            }}
-          />
+        <div className="relative shrink-0 bg-[var(--ai-sidebar)] px-4 py-5 min-[840px]:px-6 min-[840px]:py-6">
           <button
             type="button"
             onClick={onClose}
@@ -1012,16 +1007,8 @@ function InviteModal({
       >
         {/* Dark modal hero. Both <p> elements below carry an explicit colour —
             the DS's global `p { color:#444 }` beats inherited white here. */}
-        <div className="relative overflow-hidden bg-[var(--ai-sidebar)] px-7 pb-[22px] pt-6">
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-[70px] -top-[90px] size-[250px] rounded-full"
-            style={{
-              background:
-                "radial-gradient(circle, rgba(126,71,255,0.55), transparent 68%)",
-            }}
-          />
-          <div className="relative z-[1] flex items-start justify-between gap-4">
+        <div className="bg-[var(--ai-sidebar)] px-7 pb-[22px] pt-6">
+          <div className="flex items-start justify-between gap-4">
             <div className="min-w-0">
               <h2
                 id="invite-modal-title"

@@ -216,9 +216,8 @@ export function Composer({
         aria-label="New message"
         className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[580px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
       >
-        <div className="relative overflow-hidden bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
-          <span className="pointer-events-none absolute -right-[70px] -top-[90px] size-[250px] rounded-full bg-[radial-gradient(circle,rgba(126,71,255,0.55),transparent_68%)]" />
-          <div className="relative z-[1] flex items-start justify-between gap-3.5">
+        <div className="bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
+          <div className="flex items-start justify-between gap-3.5">
             <div className="min-w-0">
               <p className="m-0 mb-[7px] text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
                 {isFollowUp ? "Follow-up message" : "New message"}

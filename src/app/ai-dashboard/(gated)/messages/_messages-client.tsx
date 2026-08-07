@@ -17,6 +17,10 @@ import {
   X,
   XCircle,
 } from "lucide-react";
+import {
+  DashboardHero,
+  HeroDelta,
+} from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   cancelScheduledMessage,
@@ -304,24 +308,17 @@ export function MessagesClient({
         </div>
       </div>
 
-      <div className="relative mb-[26px] grid items-center gap-[30px] overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-[30px] py-[26px] shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[1180px]:grid-cols-[auto_1px_minmax(0,1fr)]">
-        <span className="pointer-events-none absolute -right-[90px] -top-[110px] size-[340px] rounded-full bg-[radial-gradient(circle,rgba(126,71,255,0.5),transparent_68%)]" />
-        <div className="relative z-[1]">
-          <p className="m-0 mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
-            Emails sent
-          </p>
-          <p className="m-0 flex items-baseline gap-[11px] font-heading text-[46px] font-extrabold leading-none tracking-[-0.04em] text-white">
-            {agg.sent}
-            {agg.sentThisWeek > 0 && (
-              <em className="rounded-full bg-remotiv-green px-[9px] py-1 font-sans text-[12.5px] font-bold not-italic tracking-normal text-[var(--ai-mint-ink)]">
-                +{agg.sentThisWeek} this week
-              </em>
-            )}
-          </p>
-          <p className="m-0 mt-[9px] text-[12.5px] text-white/50">{heroSub}</p>
-        </div>
-        <div className="hidden h-[84px] self-center bg-white/[0.12] min-[1180px]:block" />
-        <div className="relative z-[1] grid grid-cols-2 gap-y-5 min-[720px]:grid-cols-4 min-[720px]:gap-y-0">
+      <DashboardHero
+        eyebrow="Emails sent"
+        value={agg.sent}
+        delta={
+          agg.sentThisWeek > 0 ? (
+            <HeroDelta>+{agg.sentThisWeek} this week</HeroDelta>
+          ) : null
+        }
+        subline={heroSub}
+      >
+        <div className="grid grid-cols-2 gap-y-5 min-[720px]:grid-cols-4 min-[720px]:gap-y-0">
           <HeroCell
             label="Written by you"
             dot="var(--ai-purple-soft, #9886FE)"
@@ -359,7 +356,7 @@ export function MessagesClient({
             ok={agg.failed === 0}
           />
         </div>
-      </div>
+      </DashboardHero>
 
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
@@ -813,9 +810,8 @@ function MessageViewer({
         aria-label={row.subject || "Message"}
         className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[560px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
       >
-        <div className="relative overflow-hidden bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
-          <span className="pointer-events-none absolute -right-[70px] -top-[90px] size-[250px] rounded-full bg-[radial-gradient(circle,rgba(126,71,255,0.55),transparent_68%)]" />
-          <div className="relative z-[1] flex items-start justify-between gap-3.5">
+        <div className="bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
+          <div className="flex items-start justify-between gap-3.5">
             <div className="min-w-0">
               <p className="m-0 mb-[7px] text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
                 {provenance}

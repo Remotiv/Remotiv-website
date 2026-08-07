@@ -918,32 +918,24 @@ export function WizardClient({
               `p { color:#444 }` beats an inherited white and would render these
               near-invisible on #141020. */}
           <div className="min-[705px]:sticky min-[705px]:top-[150px]">
-            <div className="relative overflow-hidden rounded-[20px] bg-[var(--ai-sidebar)] px-[18px] py-5 shadow-[0_18px_46px_rgba(20,16,32,0.24)]">
-              <span
-                aria-hidden
-                className="pointer-events-none absolute -right-20 -top-[100px] size-[280px] rounded-full"
-                style={{
-                  background:
-                    "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
-                }}
-              />
+            <div className="rounded-[20px] bg-[var(--ai-sidebar)] px-[18px] py-5 shadow-[0_18px_46px_rgba(20,16,32,0.24)]">
 
-              <h1 className="relative z-[1] mb-1 font-heading text-xl font-extrabold tracking-[-0.03em] text-white">
+              <h1 className="mb-1 font-heading text-xl font-extrabold tracking-[-0.03em] text-white">
                 {isEdit ? "Edit job" : "Post a job"}
               </h1>
-              <p className="relative z-[1] mb-3.5 text-xs text-white/50">
+              <p className="mb-3.5 text-xs text-white/50">
                 {isEdit ? "5 steps · edit any section" : "5 steps · ~4 min"}
               </p>
 
               {/* Lime progress bar — how far through the five steps the user is. */}
-              <div className="relative z-[1] mb-[18px] h-1 overflow-hidden rounded-[3px] bg-white/[0.12]">
+              <div className="mb-[18px] h-1 overflow-hidden rounded-[3px] bg-white/[0.12]">
                 <div
                   className="h-full rounded-[3px] bg-remotiv-lime transition-[width] duration-300 ease-out"
                   style={{ width: `${(step / LAST_STEP) * 100}%` }}
                 />
               </div>
 
-              <div className="relative z-[1]">
+              <div>
               {STEPS.map((s) => {
                 const active = s.n === step;
                 const done = s.n < step;
@@ -990,9 +982,9 @@ export function WizardClient({
               })}
               </div>
 
-              <div className="relative z-[1] mx-1 my-2.5 h-px bg-white/10" />
+              <div className="mx-1 my-2.5 h-px bg-white/10" />
 
-              <div className="relative z-[1]">
+              <div>
                 {LOCKED_STEPS.map((s) => (
                   <button
                     key={s.n}
@@ -1009,7 +1001,7 @@ export function WizardClient({
                 ))}
               </div>
 
-              <p className="relative z-[1] mx-2.5 mt-3 text-[11px] leading-relaxed text-white/40">
+              <p className="mx-2.5 mt-3 text-[11px] leading-relaxed text-white/40">
                 Steps 6–9 (AI scoring, interview questions &amp; weighting) unlock
                 in a later release.
               </p>
@@ -1969,20 +1961,12 @@ export function WizardClient({
                   {/* v2 `.publishnote` — the dark card, not the purple tint.
                       The <p> below carries an explicit colour: a dark surface
                       loses to the DS's global `p { color:#444 }` otherwise. */}
-                  <div className="relative mt-[18px] flex items-start gap-3 overflow-hidden rounded-[15px] bg-[var(--ai-sidebar)] px-[18px] py-4">
-                    <span
-                      aria-hidden
-                      className="pointer-events-none absolute -right-[60px] -top-[70px] size-[200px] rounded-full"
-                      style={{
-                        background:
-                          "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
-                      }}
-                    />
+                  <div className="mt-[18px] flex items-start gap-3 rounded-[15px] bg-[var(--ai-sidebar)] px-[18px] py-4">
                     <Zap
-                      className="relative z-[1] mt-px size-[18px] shrink-0 text-remotiv-lime"
+                      className="mt-px size-[18px] shrink-0 text-remotiv-lime"
                       strokeWidth={1.9}
                     />
-                    <p className="relative z-[1] text-[13px] leading-relaxed text-white/[0.72]">
+                    <p className="text-[13px] leading-relaxed text-white/[0.72]">
                       {isEdit ? (
                         state.status === "open" ? (
                           <>

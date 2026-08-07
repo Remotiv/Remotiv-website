@@ -39,6 +39,10 @@ import {
   type PipelineStage,
   type StageHistoryRow,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import {
+  DashboardHero,
+  HeroDelta,
+} from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { canCreateJobs, type CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import {
@@ -886,16 +890,8 @@ function ApplicantDrawer({
       >
         {/* Dark hero — every <p> here carries an explicit colour, because the
             design system's global `p { color:#444 }` beats inherited white. */}
-        <div className="relative shrink-0 overflow-hidden bg-[var(--ai-sidebar)] px-[22px] pb-5 pt-[22px]">
-          <span
-            aria-hidden
-            className="pointer-events-none absolute -right-[70px] -top-[90px] size-[260px] rounded-full"
-            style={{
-              background:
-                "radial-gradient(circle, rgba(126,71,255,0.55), transparent 68%)",
-            }}
-          />
-          <div className="relative z-[1] mb-[18px] flex items-start justify-between gap-3">
+        <div className="shrink-0 bg-[var(--ai-sidebar)] px-[22px] pb-5 pt-[22px]">
+          <div className="mb-[18px] flex items-start justify-between gap-3">
             <div className="flex min-w-0 items-center gap-[13px]">
               <span
                 className="flex size-[50px] shrink-0 items-center justify-center rounded-full text-base font-bold"
@@ -928,7 +924,7 @@ function ApplicantDrawer({
               the page loaded and goes stale the moment the worker scores
               someone, which is the normal case. */}
           {headerScore.status === "scored" && headerScore.overall != null ? (
-            <div className="relative z-[1] flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
+            <div className="flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
               <DrawerScoreRing score={headerScore.overall} />
               <div className="min-w-0">
                 <p className="m-0 text-[13px] font-bold text-white">
@@ -979,7 +975,7 @@ function ApplicantDrawer({
                reasoning as PendingScore: dashed reads as "in progress", and
                nothing is in progress on a job with scoring turned off. */
             <div
-              className={`relative z-[1] rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
+              className={`rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
                 isScoringOff(headerScore)
                   ? "border-white/[0.14]"
                   : "border-dashed border-white/20"
@@ -2116,35 +2112,15 @@ export function ApplicantsClient({
       </div>
 
       {/* Dark hero strip */}
-      <div className="relative mb-[26px] grid grid-cols-1 items-center gap-7 overflow-hidden rounded-[22px] bg-[var(--ai-sidebar)] px-7 py-6 shadow-[0_18px_46px_rgba(20,16,32,0.24)] min-[840px]:grid-cols-[auto_1px_1fr]">
-        <span
-          aria-hidden
-          className="pointer-events-none absolute -right-[90px] -top-[110px] size-[340px] rounded-full"
-          style={{
-            background:
-              "radial-gradient(circle, rgba(126,71,255,0.5), transparent 68%)",
-          }}
-        />
-        <div className="relative z-[1]">
-          <p className="m-0 mb-2 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/[0.42]">
-            Total applicants
-          </p>
-          <div className="flex items-baseline gap-[11px] font-heading text-[46px] font-extrabold leading-none tracking-[-0.04em] text-white">
-            {applicants.length}
-            {newThisWeek > 0 && (
-              <em className="rounded-full bg-remotiv-green px-[9px] py-1 font-sans text-[12.5px] font-bold not-italic tracking-normal text-[var(--ai-mint-ink)]">
-                +{newThisWeek} this week
-              </em>
-            )}
-          </div>
-          <p className="m-0 mt-[9px] text-[12.5px] text-white/50">
-            Across {openRoles} open {openRoles === 1 ? "role" : "roles"}
-          </p>
-        </div>
-
-        <div className="hidden h-[66px] self-center bg-white/[0.12] min-[840px]:block" />
-
-        <div className="relative z-[1] flex flex-wrap items-stretch min-[840px]:flex-nowrap">
+      <DashboardHero
+        eyebrow="Total applicants"
+        value={applicants.length}
+        delta={
+          newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null
+        }
+        subline={`Across ${openRoles} open ${openRoles === 1 ? "role" : "roles"}`}
+      >
+        <div className="flex flex-wrap items-stretch min-[840px]:flex-nowrap">
           {FUNNEL_STEPS.map((step, i) => {
             const value = stageCounts[step.stage] ?? 0;
             const pct =
@@ -2185,7 +2161,7 @@ export function ApplicantsClient({
             );
           })}
         </div>
-      </div>
+      </DashboardHero>
 
       {/* Panel */}
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">

@@ -15,6 +15,7 @@ import {
   PIPELINE_STAGE_LABELS,
   type PipelineStage,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import type {
   ActivityItem,
@@ -204,17 +205,9 @@ function AiHero({
   })();
 
   return (
-    <div className="relative mb-3.5 grid grid-cols-1 gap-7 overflow-hidden rounded-[24px] bg-[var(--ai-sidebar)] px-6 py-7 shadow-[0_20px_52px_rgba(20,16,32,0.26)] min-[968px]:grid-cols-[minmax(0,1fr)_1px_minmax(0,1.15fr)] min-[968px]:items-center min-[968px]:gap-[30px] min-[968px]:px-[30px]">
-      <span
-        aria-hidden
-        className="pointer-events-none absolute -right-[100px] -top-[130px] size-[400px] rounded-full"
-        style={{
-          background:
-            "radial-gradient(circle, rgba(126,71,255,0.52), transparent 68%)",
-        }}
-      />
+    <DashboardHeroStatement className="mb-3.5 grid grid-cols-1 gap-7 min-[968px]:grid-cols-[minmax(0,1fr)_1px_minmax(0,1.15fr)] min-[968px]:items-center min-[968px]:gap-[30px]">
 
-      <div className="relative z-[1] min-w-0">
+      <div className="min-w-0">
         <span className="mb-3.5 inline-flex items-center gap-2 whitespace-nowrap rounded-full border border-remotiv-green/[0.32] bg-remotiv-green/[0.14] py-[5px] pl-[9px] pr-3 text-[11.5px] font-bold tracking-[0.04em] text-remotiv-green">
           <span className="ai-beat size-[7px] rounded-full bg-remotiv-green" />
           {pill}
@@ -246,7 +239,7 @@ function AiHero({
 
       <div aria-hidden className="hidden h-[150px] self-center bg-white/[0.12] min-[968px]:block" />
 
-      <div className="relative z-[1] min-w-0">
+      <div className="min-w-0">
         <p className="m-0 mb-3.5 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
           Pipeline
         </p>
@@ -290,7 +283,7 @@ function AiHero({
           ))}
         </div>
       </div>
-    </div>
+    </DashboardHeroStatement>
   );
 }
 
