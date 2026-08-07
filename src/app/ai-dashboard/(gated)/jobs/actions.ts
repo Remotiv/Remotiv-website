@@ -11,6 +11,17 @@ import {
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { notifyCompany } from "@/lib/notifications/company";
 import {
+  ANSWER_SECONDS_MAX,
+  ANSWER_SECONDS_MIN,
+  COMPETENCY_MAX,
+  MAX_QUESTIONS,
+  PREP_SECONDS_MAX,
+  PREP_SECONDS_MIN,
+  QUESTION_TEXT_MAX,
+  RUBRIC_MAX,
+  type InterviewQuestionInput,
+} from "@/lib/interviews/types";
+import {
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
@@ -27,7 +38,13 @@ import {
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/input types live in lib/job-types.ts.
 type MutationResult<T = undefined> =
-  | { success: true; data: T }
+  /**
+   * `warning` is for work that is genuinely secondary to the mutation but
+   * whose failure the user must still see — currently only the interview
+   * question sync, which must not fail a job save but must not be silent
+   * either. Optional, so every existing caller is unaffected.
+   */
+  | { success: true; data: T; warning?: string }
   | { success: false; error: string };
 
 const JOB_COLUMNS =
@@ -459,6 +476,103 @@ async function seedHiringTeam(
   }
 }
 
+/**
+ * Replace a job's interview questions with the list the wizard submitted.
+ *
+ * Delete-then-insert rather than a per-row diff. `position` is what the
+ * candidate page orders by and what interview_answers keys against, so a
+ * reorder changes almost every row anyway; a diff would be more code for the
+ * same writes and a real chance of leaving two rows claiming position 3.
+ *
+ * Rows are rebuilt with fresh ids on every save. That is safe TODAY because
+ * an answer snapshots its question_text, so an answered interview survives the
+ * question being re-saved — see interview_answers.question_text. It would stop
+ * being safe the moment anything joins answers back to interview_questions.id
+ * for display, and this comment is the warning for whoever does that.
+ *
+ * Never throws: a job that saved must not appear to have failed because its
+ * question list did. The wizard re-reads the list on the next open.
+ */
+async function syncInterviewQuestions(
+  supabase: ReturnType<typeof createServiceClient>,
+  jobId: string,
+  companyId: string,
+  inputs: InterviewQuestionInput[] | undefined,
+): Promise<string | null> {
+  if (!Array.isArray(inputs)) return null;
+
+  const clean = inputs
+    .map((q) => ({
+      question: (q.question ?? "").trim().slice(0, QUESTION_TEXT_MAX),
+      competency: (q.competency ?? "").trim().slice(0, COMPETENCY_MAX),
+      rubric: (q.rubric ?? "").trim().slice(0, RUBRIC_MAX),
+      prep_seconds: clampInt(q.prepSeconds, PREP_SECONDS_MIN, PREP_SECONDS_MAX, 30),
+      answer_seconds: clampInt(q.answerSeconds, ANSWER_SECONDS_MIN, ANSWER_SECONDS_MAX, 120),
+      weight: clampInt(q.weight, 1, 5, 1),
+      required: q.required !== false,
+    }))
+    // A blank row is someone who added a question and changed their mind, not
+    // a question. Dropped rather than stored empty for a candidate to read.
+    .filter((q) => q.question.length > 0)
+    .slice(0, MAX_QUESTIONS);
+
+  /*
+   * Returns a message instead of swallowing.
+   *
+   * This used to log to the server console and return void, so a recruiter
+   * whose questions failed to save was told the job saved — and only found
+   * out when a candidate opened an interview with no questions in it, or when
+   * sendInterviewInvite refused with "add interview questions first".
+   *
+   * The job save still succeeds: the questions are secondary to the role, and
+   * failing the whole save would lose the rest of the recruiter's work. But
+   * the caller now gets something to show.
+   */
+  try {
+    // The DELETE error was previously not checked at all — a failure here
+    // leaves the OLD questions in place while the insert adds the new ones,
+    // which is worse than either outcome alone.
+    const { error: delErr } = await supabase
+      .from("interview_questions")
+      .delete()
+      .eq("job_id", jobId)
+      .eq("company_id", companyId);
+
+    if (delErr) {
+      console.error("[jobs] interview question delete failed:", delErr.message);
+      return "The role saved, but its interview questions could not be updated. Open the job and save them again.";
+    }
+
+    if (clean.length === 0) return null;
+
+    const { error } = await supabase.from("interview_questions").insert(
+      clean.map((q, i) => ({
+        ...q,
+        job_id: jobId,
+        company_id: companyId,
+        position: i + 1,
+      })),
+    );
+    if (error) {
+      console.error("[jobs] interview question sync failed:", error.message);
+      // The delete succeeded, so the job now has NO questions. Said plainly,
+      // because it changes what the recruiter must do next.
+      return "The role saved, but its interview questions did not. The job currently has no questions — open it and add them again.";
+    }
+  } catch (err) {
+    console.error("[jobs] interview question sync threw:", err);
+    return "The role saved, but its interview questions could not be updated. Open the job and save them again.";
+  }
+
+  return null;
+}
+
+function clampInt(raw: string, min: number, max: number, fallback: number): number {
+  const n = Number.parseInt(raw ?? "", 10);
+  if (!Number.isFinite(n)) return fallback;
+  return Math.min(max, Math.max(min, n));
+}
+
 export async function createCompanyJob(
   input: CompanyJobInput,
 ): Promise<MutationResult<{ id: string; slug: string | null }>> {
@@ -502,9 +616,19 @@ export async function createCompanyJob(
 
   const row = data as { id: string; slug: string | null };
   await seedHiringTeam(supabase, ctx, row.id);
+  const questionWarning = await syncInterviewQuestions(
+    supabase,
+    row.id,
+    ctx.companyId,
+    input.interview_questions,
+  );
 
   revalidateJobSurfaces();
-  return { success: true, data: { id: row.id, slug: row.slug } };
+  return {
+    success: true,
+    data: { id: row.id, slug: row.slug },
+    ...(questionWarning ? { warning: questionWarning } : {}),
+  };
 }
 
 /** Re-fetch the target and confirm it belongs to the caller's company. */
@@ -583,8 +707,55 @@ export async function updateCompanyJob(
 
   if (error) return { success: false, error: error.message };
 
+  const questionWarning = await syncInterviewQuestions(
+    supabase,
+    jobId,
+    ctx.companyId,
+    input.interview_questions,
+  );
+
   revalidateJobSurfaces();
-  return { success: true, data: undefined };
+  return {
+    success: true,
+    data: undefined,
+    ...(questionWarning ? { warning: questionWarning } : {}),
+  };
+}
+
+/** A job's interview questions, for the wizard's edit-mode prefill. */
+export async function fetchInterviewQuestions(
+  jobId: string,
+): Promise<InterviewQuestionInput[]> {
+  const ctx = await getCompanyContext();
+  if (!jobId || !(await canAccessJob(ctx, jobId))) return [];
+
+  const { data } = await createServiceClient()
+    .from("interview_questions")
+    .select("id, position, question, competency, rubric, prep_seconds, answer_seconds, weight, required")
+    .eq("job_id", jobId)
+    .eq("company_id", ctx.companyId)
+    .order("position", { ascending: true })
+    .limit(MAX_QUESTIONS);
+
+  return ((data ?? []) as {
+    id: string;
+    question: string | null;
+    competency: string | null;
+    rubric: string | null;
+    prep_seconds: number | null;
+    answer_seconds: number | null;
+    weight: number | null;
+    required: boolean | null;
+  }[]).map((q) => ({
+    id: q.id,
+    question: q.question ?? "",
+    competency: q.competency ?? "",
+    rubric: q.rubric ?? "",
+    prepSeconds: String(q.prep_seconds ?? 30),
+    answerSeconds: String(q.answer_seconds ?? 120),
+    weight: String(q.weight ?? 1),
+    required: q.required !== false,
+  }));
 }
 
 export async function updateCompanyJobStatus(

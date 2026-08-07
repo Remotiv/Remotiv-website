@@ -1,0 +1,311 @@
+/* ============================================================
+   Candidate video interview — /interview/[token]
+
+   SELF-CONTAINED ON PURPOSE.
+
+   This page is NOT inside .ai-shell and must never be. The dashboard
+   segment ships `zoom: 0.82`, which is correct for a desktop product
+   rendered from mocks authored at that scale and wrong here: this is a
+   public page candidates open on real phones, and shrinking a mobile UI
+   to 82% drops 52px tap targets to 43px and body text below legibility.
+
+   So the tokens below are declared locally rather than imported from
+   ai-dashboard.css. They carry the same hex values as the shared palette
+   — same design system — but scoped to .iv so nothing about the dashboard
+   can reach this page and nothing here can leak back.
+
+   Fonts come from the root layout's --font-heading / --font-sans, which
+   are global and carry no sizing behaviour.
+   ============================================================ */
+
+.iv {
+  --purple: #7e47ff;
+  --purple-hover: #6d38f0;
+  --purple-tint: #eeedfe;
+  --purple-ink: #2e2470;
+  --mint: #49d7a7;
+  --mint-hover: #3bc495;
+  --mint-tint: #e1f5ee;
+  --mint-ink: #04342c;
+  --lime: #d9f972;
+  --amber-tint: #fbebcf;
+  --amber-ink: #7a4e05;
+  --red: #e0524b;
+  --red-tint: #fbeae8;
+  --red-ink: #b02a24;
+  --sky-tint: #e4eefb;
+  --sky-ink: #123b6e;
+  --page: #f4efea;
+  --surface: #ffffff;
+  --inset: #f7f3ef;
+  --ink: #141020;
+  --line: rgba(20, 16, 32, 0.09);
+  --line-soft: rgba(20, 16, 32, 0.06);
+  --line-strong: rgba(20, 16, 32, 0.16);
+  --t1: #17131f;
+  --t2: #4a4550;
+  --t3: #847e8c;
+  --t4: #b0aab8;
+
+  background: var(--page);
+  color: var(--t1);
+  font-family: var(--font-sans, "DM Sans", sans-serif);
+  -webkit-font-smoothing: antialiased;
+  -webkit-text-size-adjust: 100%;
+}
+
+/* Both units: 100vh overflows on mobile because browser chrome is not
+   subtracted, and 100dvh is not universal. The second wins where supported. */
+.iv-wrap {
+  min-height: 100vh;
+  min-height: 100dvh;
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  /* The submit button must clear the iPhone home bar. */
+  padding: 0 16px calc(24px + env(safe-area-inset-bottom));
+}
+
+.iv-sheet {
+  width: 100%;
+  max-width: 440px;
+  display: flex;
+  flex-direction: column;
+  flex: 1;
+}
+
+.iv-sora {
+  font-family: var(--font-heading, "Sora", sans-serif);
+}
+
+/* ── Progress rail ─────────────────────────────────────────── */
+.iv-rail {
+  display: flex;
+  gap: 5px;
+  margin-bottom: 18px;
+}
+.iv-rail i {
+  flex: 1;
+  height: 3px;
+  border-radius: 2px;
+  background: rgba(20, 16, 32, 0.1);
+  overflow: hidden;
+  position: relative;
+}
+.iv-rail i.on::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--purple);
+  border-radius: 2px;
+  transform-origin: left;
+  animation: iv-fill 0.45s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+.iv-rail i.done::after {
+  content: "";
+  position: absolute;
+  inset: 0;
+  background: var(--mint);
+  border-radius: 2px;
+}
+@keyframes iv-fill {
+  from { transform: scaleX(0); }
+  to { transform: scaleX(1); }
+}
+
+.iv-card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: 20px;
+  padding: 22px 20px;
+  box-shadow: 0 6px 30px rgba(20, 16, 32, 0.06);
+  animation: iv-up 0.34s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+@keyframes iv-up {
+  from { opacity: 0; transform: translateY(9px); }
+  to { opacity: 1; transform: none; }
+}
+
+/* ── Buttons — 52px min, never shrink ──────────────────────── */
+.iv-btn {
+  width: 100%;
+  border: none;
+  border-radius: 999px;
+  padding: 15px;
+  font-size: 15px;
+  font-weight: 700;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  gap: 9px;
+  transition: 0.16s;
+  min-height: 52px;
+  font-family: inherit;
+  cursor: pointer;
+}
+.iv-btn:disabled { opacity: 0.4; cursor: not-allowed; box-shadow: none; }
+.iv-purple { background: var(--purple); color: #fff; box-shadow: 0 8px 24px rgba(126, 71, 255, 0.3); }
+.iv-purple:hover:not(:disabled) { background: var(--purple-hover); }
+.iv-dark { background: var(--ink); color: #fff; }
+.iv-dark:hover:not(:disabled) { background: #241d38; }
+.iv-ghost { background: var(--surface); border: 1px solid var(--line-strong); color: var(--t2); }
+.iv-ghost:hover:not(:disabled) { background: var(--ink); border-color: var(--ink); color: #fff; }
+.iv-brow { display: flex; gap: 10px; }
+.iv-brow .iv-btn { flex: 1; font-size: 14px; padding: 13px; }
+
+/* The portrait preview is ~780px tall at full column width, which pushes
+   Done below the fold on every phone. Asking someone to scroll to stop
+   recording, while they are on camera, is unacceptable — so the controls
+   pin to the viewport and the preview scrolls behind them.
+
+   Do NOT "fix" this by capping stage height: max-height with aspect-ratio
+   and width:100% makes width win and silently flattens the video to
+   landscape. */
+.iv-recbtns {
+  position: sticky;
+  bottom: 8px;
+  z-index: 5;
+  background: rgba(255, 255, 255, 0.92);
+  backdrop-filter: blur(10px);
+  padding: 8px;
+  margin: -8px -8px 0;
+  border-radius: 999px;
+}
+
+/* ── Video stage — PORTRAIT, matching how a phone is held ──── */
+.iv-stage {
+  position: relative;
+  background: var(--ink);
+  border-radius: 16px;
+  aspect-ratio: 9 / 16;
+  overflow: hidden;
+  margin: 0 auto 14px;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 100%;
+}
+.iv-stage video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+}
+/* Front camera, mirrored — an unmirrored self-view reads as wrong. */
+.iv-stage video.mirror { transform: scaleX(-1); }
+
+@keyframes iv-blink {
+  0%, 100% { opacity: 1; }
+  50% { opacity: 0.25; }
+}
+.iv-blink { animation: iv-blink 1.2s ease-in-out infinite; }
+
+@keyframes iv-spin { to { transform: rotate(360deg); } }
+.iv-spin {
+  width: 13px;
+  height: 13px;
+  border: 2px solid var(--line-strong);
+  border-top-color: var(--t3);
+  border-radius: 50%;
+  animation: iv-spin 0.7s linear infinite;
+}
+
+/* Lime marker behind the Welcome headline's key phrase. */
+.iv-hl {
+  position: relative;
+  display: inline-block;
+  font-weight: 700;
+  color: var(--t1);
+  z-index: 0;
+  padding: 0 4px;
+}
+.iv-hl::before {
+  content: "";
+  position: absolute;
+  inset: 5% -3px 8% -3px;
+  background: var(--lime);
+  transform: rotate(-1.2deg);
+  border-radius: 3px;
+  z-index: -1;
+}
+
+/* ── Text over the video ───────────────────────────────────────
+   The design system sets a global `p` colour that beats an inherited white,
+   so this rule exists to win it back. But `.iv-stage p` is (0,1,1) and a
+   Tailwind `text-white` utility is only (0,1,0) — so this rule beat the
+   utilities too, and `inherit` resolved to .iv's dark --t1. Result: every
+   <p> on the stage rendered near-black on near-black.
+
+   Fixed at the root: the stage's own colour is white, so `inherit` is white.
+   Anything needing a different shade uses a .iv-stage-scoped class below,
+   which at (0,2,0) outranks `.iv-stage p` — a bare utility never can. */
+.iv-stage { color: #fff; }
+.iv-stage p { color: inherit; }
+.iv-stage .iv-dim { color: rgba(255, 255, 255, 0.62); }
+.iv-stage .iv-dimmer { color: rgba(255, 255, 255, 0.5); }
+
+/* The question must survive ANY frame behind it — a candidate against a
+   white wall, or backlit by a window. Two independent defences, because the
+   scrim alone fails at its fade tail and a shadow alone fails on mid-greys:
+   an almost-opaque scrim, and a shadow carried by the glyphs themselves.
+   Cream rather than pure white to sit with the page's #f4efea. */
+.iv-stage .iv-q {
+  color: #fffdf7;
+  text-shadow:
+    0 1px 2px rgba(0, 0, 0, 0.9),
+    0 2px 10px rgba(0, 0, 0, 0.7);
+}
+.iv-stage .iv-qlabel {
+  color: rgba(255, 255, 255, 0.78);
+  text-shadow: 0 1px 3px rgba(0, 0, 0, 0.85);
+}
+
+/* Held at 0.9 well past the text's last line, so the question never sits
+   over the fade. Against pure white that composites to ~rgb(34,34,40) —
+   about 15:1 against the cream. */
+.iv-qscrim {
+  background: linear-gradient(
+    to bottom,
+    rgba(10, 8, 18, 0.97) 0%,
+    rgba(10, 8, 18, 0.9) 45%,
+    rgba(10, 8, 18, 0.6) 74%,
+    rgba(10, 8, 18, 0) 100%
+  );
+}
+
+.iv-toast {
+  position: fixed;
+  left: 50%;
+  bottom: calc(20px + env(safe-area-inset-bottom));
+  transform: translateX(-50%) translateY(14px);
+  z-index: 200;
+  background: var(--ink);
+  color: #fff;
+  font-size: 13.5px;
+  font-weight: 600;
+  padding: 13px 18px;
+  border-radius: 13px;
+  box-shadow: 0 18px 44px rgba(0, 0, 0, 0.34);
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  opacity: 0;
+  pointer-events: none;
+  transition: opacity 0.25s, transform 0.25s;
+  max-width: calc(100vw - 32px);
+}
+.iv-toast.show { opacity: 1; transform: translateX(-50%) translateY(0); }
+
+/* Desktop is the SAME column, centred with more room. One thing on screen
+   at a time — there is no separate desktop layout and there shouldn't be. */
+@media (min-width: 640px) {
+  .iv-wrap { padding: 0 24px 48px; }
+  .iv-sheet { max-width: 460px; }
+  .iv-card { padding: 26px 24px; }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iv-card, .iv-rail i.on::after { animation: none; }
+  .iv-blink { animation: none; }
+}

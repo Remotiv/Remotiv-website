@@ -5,7 +5,9 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
+  ArrowDown,
   ArrowRight,
+  ArrowUp,
   Check,
   ChevronDown,
   ChevronLeft,
@@ -21,6 +23,17 @@ import type { ScreeningQuestion } from "@/lib/jobs";
 // Value import MUST come from lib/screening, not lib/jobs: this is a client
 // component and lib/jobs pulls in next/headers via getInitialJobs.
 import { resolveNumericMode, type NumericMode } from "@/lib/screening";
+import {
+  ANSWER_SECONDS_MAX,
+  ANSWER_SECONDS_MIN,
+  EMPTY_QUESTION_INPUT,
+  MAX_QUESTIONS,
+  MIN_QUESTIONS,
+  PREP_SECONDS_MAX,
+  PREP_SECONDS_MIN,
+  QUESTION_TEXT_MAX,
+  type InterviewQuestionInput,
+} from "@/lib/interviews/types";
 import {
   EMPTY_JOB_INPUT,
   JOB_CATEGORIES,
@@ -45,17 +58,67 @@ const STEPS = [
   { n: 2, label: "Description", title: "Description", desc: "Tell candidates what the role is and who it's for." },
   { n: 3, label: "Compensation", title: "Compensation", desc: "Transparent pay attracts stronger applicants." },
   { n: 4, label: "Screening", title: "Screening", desc: "Questions your AI recruiter asks every applicant." },
-  { n: 5, label: "Review", title: "Review", desc: "One last look before it goes live." },
+  {
+    n: 5,
+    label: "Interview",
+    title: "Interview questions",
+    desc: "What the candidate answers on camera, in their own time.",
+  },
+  { n: 6, label: "Review", title: "Review", desc: "One last look before it goes live." },
 ] as const;
 
+/*
+ * Interview questions were step 7 in the locked rail. Unlocking it in place
+ * would have left a live step behind a locked one and put Review in the middle
+ * of the flow, so it becomes step 5 and Review moves to 6. The three that stay
+ * locked keep their order and renumber behind it.
+ */
 const LOCKED_STEPS = [
-  { n: 6, label: "AI scoring" },
-  { n: 7, label: "Interview questions" },
+  { n: 7, label: "AI scoring" },
   { n: 8, label: "Answer weighting" },
   { n: 9, label: "Auto-shortlist" },
 ] as const;
 
-const LAST_STEP = 5;
+const LAST_STEP = 6;
+
+/**
+ * Competency suggestions for the interview builder.
+ *
+ * Suggestions, NOT a closed set: the value is stored as plain text on
+ * interview_questions.competency exactly as before, and the "Other…" option
+ * below reveals a free-text input. A company hiring for something our list has
+ * never heard of must not be blocked by it, so nothing validates against this
+ * array — it only populates a dropdown.
+ *
+ * Kept local to the wizard rather than promoted to lib/interviews/types.ts:
+ * it is a UI affordance for the person authoring the question, and no server
+ * code reads it. If the scorer later needs a canonical vocabulary, that is a
+ * different list with different rules and it should not inherit this one by
+ * accident.
+ */
+const COMPETENCY_SUGGESTIONS = [
+  "Communication",
+  "Problem solving",
+  "Technical depth",
+  "Domain knowledge",
+  "Leadership",
+  "Ownership",
+  "Collaboration",
+  "Customer focus",
+  "Adaptability",
+  "Handling pressure",
+  "Attention to detail",
+  "Commercial awareness",
+  "Values alignment",
+  "Motivation for the role",
+] as const;
+
+/** Sentinel for the reveal. Never stored — see the onChange below. */
+const COMPETENCY_OTHER = "__other__";
+
+function isSuggestedCompetency(value: string): boolean {
+  return (COMPETENCY_SUGGESTIONS as readonly string[]).includes(value);
+}
 
 const INPUT_CLS =
   "w-full rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-[11px] text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
@@ -635,6 +698,72 @@ export function WizardClient({
     );
   }
 
+  // ── Interview builder ──────────────────────────────────────
+  //
+  // Same shape as the screening builder above deliberately: add / patch /
+  // remove / move on an array in form state, persisted by the action. These
+  // rows land in their own table rather than a JSONB column, but that is the
+  // action's problem, not the form's.
+
+  const interviewQs = state.interview_questions;
+
+  /*
+   * Rows whose competency is being typed freehand.
+   *
+   * Only needed for the gap between picking "Other…" and typing anything: at
+   * that moment the stored value is "" and would otherwise derive straight
+   * back to the select. Everything else is DERIVED — a saved value that is not
+   * in the suggestion list opens in free-text mode on its own, so a company's
+   * existing wording survives the list changing under it.
+   */
+  const [otherCompetency, setOtherCompetencyIds] = useState<Set<string>>(new Set());
+
+  function setOtherCompetency(id: string, on: boolean) {
+    setOtherCompetencyIds((prev) => {
+      const next = new Set(prev);
+      if (on) next.add(id);
+      else next.delete(id);
+      return next;
+    });
+  }
+
+  function usesOtherCompetency(q: InterviewQuestionInput): boolean {
+    if (otherCompetency.has(q.id)) return true;
+    return q.competency !== "" && !isSuggestedCompetency(q.competency);
+  }
+
+  function addInterviewQ() {
+    if (interviewQs.length >= MAX_QUESTIONS) return;
+    set("interview_questions", [
+      ...interviewQs,
+      { ...EMPTY_QUESTION_INPUT, id: `new-${crypto.randomUUID()}` },
+    ]);
+  }
+
+  function patchInterviewQ(index: number, patch: Partial<InterviewQuestionInput>) {
+    set(
+      "interview_questions",
+      interviewQs.map((q, i) => (i === index ? { ...q, ...patch } : q)),
+    );
+  }
+
+  function removeInterviewQ(index: number) {
+    set(
+      "interview_questions",
+      interviewQs.filter((_, i) => i !== index),
+    );
+  }
+
+  /** Move one question up or down. Order IS the candidate's running order. */
+  function moveInterviewQ(index: number, delta: number) {
+    const next = index + delta;
+    if (next < 0 || next >= interviewQs.length) return;
+    const copy = [...interviewQs];
+    const [item] = copy.splice(index, 1);
+    copy.splice(next, 0, item);
+    set("interview_questions", copy);
+  }
+
   // ── Submit ─────────────────────────────────────────────────
 
   async function submit(status: CompanyJobInput["status"]) {
@@ -669,6 +798,27 @@ export function WizardClient({
 
       if (!result.success) {
         showToast(result.error);
+        return;
+      }
+
+      /*
+       * The role saved but its interview questions did not.
+       *
+       * Navigating away on a fleeting toast would lose the one message that
+       * says the job is incomplete, so the destination changes instead:
+       *   - editing STAYS on this page, where Save can simply be pressed
+       *     again (updates are idempotent);
+       *   - creating goes to the new job's EDIT page rather than the list or
+       *     the "published" overlay, because re-submitting THIS form would
+       *     create a second job — the edit page is the one place a retry is
+       *     both obvious and safe.
+       */
+      if (result.warning) {
+        showToast(result.warning);
+        if (!isEdit && result.data?.id) {
+          router.push(`/ai-dashboard/jobs/${result.data.id}/edit`);
+          router.refresh();
+        }
         return;
       }
 
@@ -1341,6 +1491,245 @@ export function WizardClient({
               )}
 
               {step === 5 && (
+                <>
+                  {interviewQs.length === 0 && (
+                    <div className="mb-3 rounded-[14px] border border-dashed border-[var(--ai-line-strong)] bg-[var(--ai-inset)] px-4 py-5 text-center">
+                      <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t2)]">
+                        No interview questions yet
+                      </p>
+                      <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
+                        Add {MIN_QUESTIONS}–{MAX_QUESTIONS}. Candidates answer each one
+                        on camera in their own time — there&apos;s no call to schedule.
+                        Leave this empty to skip the video round for this job.
+                      </p>
+                    </div>
+                  )}
+
+                  {interviewQs.map((q, i) => (
+                    <div
+                      key={q.id}
+                      className="mb-3 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)] p-3.5 transition-shadow hover:shadow-[0_4px_16px_rgba(20,16,32,0.06)]"
+                    >
+                      <div className="mb-[11px] flex items-center gap-2.5">
+                        <span className="flex size-6 shrink-0 items-center justify-center rounded-lg bg-[var(--ai-purple-tint)] text-xs font-bold text-[var(--ai-purple-ink)]">
+                          {i + 1}
+                        </span>
+                        <span className="flex-1 text-[11px] font-semibold text-[var(--ai-t3)]">
+                          Question {i + 1} of {interviewQs.length}
+                        </span>
+                        {/* Order is the candidate's running order, so it is
+                            editable here rather than fixed at creation. */}
+                        <button
+                          type="button"
+                          onClick={() => moveInterviewQ(i, -1)}
+                          disabled={i === 0}
+                          aria-label={`Move question ${i + 1} up`}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                          <ArrowUp className="size-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => moveInterviewQ(i, 1)}
+                          disabled={i === interviewQs.length - 1}
+                          aria-label={`Move question ${i + 1} down`}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-35"
+                        >
+                          <ArrowDown className="size-4" strokeWidth={2} />
+                        </button>
+                        <button
+                          type="button"
+                          onClick={() => removeInterviewQ(i)}
+                          aria-label={`Remove question ${i + 1}`}
+                          className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-danger-tint)] hover:text-[var(--ai-danger)]"
+                        >
+                          <Trash2 className="size-[17px]" strokeWidth={1.8} />
+                        </button>
+                      </div>
+
+                      <textarea
+                        value={q.question}
+                        maxLength={QUESTION_TEXT_MAX}
+                        onChange={(e) => patchInterviewQ(i, { question: e.target.value })}
+                        placeholder="e.g. Tell us about a time you improved the performance of a web application."
+                        aria-label={`Interview question ${i + 1}`}
+                        className={`${INPUT_CLS} min-h-[62px] resize-y leading-relaxed`}
+                      />
+
+                      <div className="mt-2.5 grid grid-cols-1 gap-2.5 min-[525px]:grid-cols-2">
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Competency
+                          </span>
+                          {/* A native select with an "Other…" reveal rather
+                              than a combobox: every other choice in this
+                              wizard is a native select, and there is no
+                              combobox primitive in the codebase to reuse. One
+                              would mean new keyboard, filtering and ARIA
+                              listbox behaviour for a single optional field —
+                              and native selects are what phones render as a
+                              full-screen picker, which is the better control
+                              at 375px anyway. */}
+                          <select
+                            value={
+                              usesOtherCompetency(q)
+                                ? COMPETENCY_OTHER
+                                : q.competency
+                            }
+                            onChange={(e) => {
+                              const value = e.target.value;
+                              if (value === COMPETENCY_OTHER) {
+                                // Remember the choice for THIS row so the
+                                // input stays open while it is still empty.
+                                setOtherCompetency(q.id, true);
+                                patchInterviewQ(i, { competency: "" });
+                                return;
+                              }
+                              setOtherCompetency(q.id, false);
+                              patchInterviewQ(i, { competency: value });
+                            }}
+                            aria-label={`Competency for question ${i + 1}`}
+                            className={`${INPUT_CLS} cursor-pointer appearance-none`}
+                          >
+                            <option value="">No competency</option>
+                            {COMPETENCY_SUGGESTIONS.map((c) => (
+                              <option key={c} value={c}>
+                                {c}
+                              </option>
+                            ))}
+                            <option value={COMPETENCY_OTHER}>Other…</option>
+                          </select>
+
+                          {usesOtherCompetency(q) && (
+                            <input
+                              value={q.competency}
+                              onChange={(e) =>
+                                patchInterviewQ(i, { competency: e.target.value })
+                              }
+                              placeholder="Name the competency"
+                              aria-label={`Custom competency for question ${i + 1}`}
+                              className={`${INPUT_CLS} mt-2`}
+                            />
+                          )}
+                        </div>
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Weight
+                          </span>
+                          <select
+                            value={q.weight}
+                            onChange={(e) => patchInterviewQ(i, { weight: e.target.value })}
+                            aria-label={`Weight for question ${i + 1}`}
+                            className={`${INPUT_CLS} cursor-pointer appearance-none`}
+                          >
+                            {["1", "2", "3", "4", "5"].map((w) => (
+                              <option key={w} value={w}>
+                                {w === "1" ? "1 — normal" : w === "5" ? "5 — critical" : w}
+                              </option>
+                            ))}
+                          </select>
+                        </div>
+                      </div>
+
+                      <div className="mt-2.5">
+                        <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                          What a good answer looks like
+                        </span>
+                        <textarea
+                          value={q.rubric}
+                          onChange={(e) => patchInterviewQ(i, { rubric: e.target.value })}
+                          placeholder="Names a specific problem, explains the trade-off, says what they measured."
+                          aria-label={`Rubric for question ${i + 1}`}
+                          className={`${INPUT_CLS} min-h-[54px] resize-y leading-relaxed`}
+                        />
+                        {/* The rubric is for the reviewer and, later, the
+                            scorer. It is never sent to the candidate — see
+                            CandidateQuestion, which has no rubric field. */}
+                        <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--ai-t3)]">
+                          Only your team sees this. Candidates never do.
+                        </p>
+                      </div>
+
+                      <div className="mt-2.5 grid grid-cols-1 gap-2.5 min-[400px]:grid-cols-2">
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Thinking time
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={PREP_SECONDS_MIN}
+                              max={PREP_SECONDS_MAX}
+                              value={q.prepSeconds}
+                              onChange={(e) =>
+                                patchInterviewQ(i, { prepSeconds: e.target.value })
+                              }
+                              aria-label={`Thinking time for question ${i + 1}, seconds`}
+                              className={`${INPUT_CLS} flex-1`}
+                            />
+                            <span className="shrink-0 text-xs text-[var(--ai-t3)]">sec</span>
+                          </div>
+                        </div>
+                        <div>
+                          <span className="mb-1.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                            Answer limit
+                          </span>
+                          <div className="flex items-center gap-2">
+                            <input
+                              type="number"
+                              inputMode="numeric"
+                              min={ANSWER_SECONDS_MIN}
+                              max={ANSWER_SECONDS_MAX}
+                              value={q.answerSeconds}
+                              onChange={(e) =>
+                                patchInterviewQ(i, { answerSeconds: e.target.value })
+                              }
+                              aria-label={`Answer limit for question ${i + 1}, seconds`}
+                              className={`${INPUT_CLS} flex-1`}
+                            />
+                            <span className="shrink-0 text-xs text-[var(--ai-t3)]">sec</span>
+                          </div>
+                        </div>
+                      </div>
+
+                      <label className="mt-3 flex cursor-pointer items-center gap-2.5">
+                        <input
+                          type="checkbox"
+                          checked={q.required}
+                          onChange={(e) =>
+                            patchInterviewQ(i, { required: e.target.checked })
+                          }
+                          className="size-4 shrink-0 accent-[var(--remotiv-purple,#7E47FF)]"
+                        />
+                        <span className="text-[12.5px] text-[var(--ai-t2)]">
+                          Required — the candidate can&apos;t submit without it
+                        </span>
+                      </label>
+                    </div>
+                  ))}
+
+                  <button
+                    type="button"
+                    onClick={addInterviewQ}
+                    disabled={interviewQs.length >= MAX_QUESTIONS}
+                    className="flex w-full items-center justify-center gap-2 rounded-[14px] border-[1.5px] border-dashed border-[var(--ai-line-strong)] bg-transparent px-4 py-3 text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-solid hover:border-remotiv-purple hover:bg-[var(--ai-purple-tint)] hover:text-remotiv-purple disabled:cursor-not-allowed disabled:opacity-50"
+                  >
+                    <Plus className="size-4" strokeWidth={2.4} />
+                    {interviewQs.length >= MAX_QUESTIONS
+                      ? `That's the maximum of ${MAX_QUESTIONS}`
+                      : "Add a question"}
+                  </button>
+
+                  <p className="mt-3 text-xs leading-relaxed text-[var(--ai-t3)]">
+                    {MIN_QUESTIONS}–{MAX_QUESTIONS} questions works best — long enough
+                    to judge, short enough that people finish. Candidates get a practice
+                    round first, which is never recorded or shared.
+                  </p>
+                </>
+              )}
+
+              {step === 6 && (
                 <>
                   <div className="mb-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
                     <ReviewCard label="Role" onEdit={() => setStep(1)}>

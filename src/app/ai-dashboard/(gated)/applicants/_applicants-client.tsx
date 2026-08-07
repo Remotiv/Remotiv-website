@@ -6,6 +6,7 @@ import {
   initialsOf as msgInitials,
 } from "@/app/ai-dashboard/(gated)/messages/_composer";
 import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
+import { InterviewPanel } from "./_interview-panel";
 import type {
   ManualTemplate,
   MessageRow as CandidateMessage,
@@ -775,6 +776,7 @@ function ApplicantDrawer({
   rescoring,
   onRescore,
   onEmail,
+  onToast,
   onClose,
   onStageChange,
   onAdjustScore,
@@ -793,6 +795,7 @@ function ApplicantDrawer({
   rescoring: boolean;
   onRescore: () => void;
   onEmail: () => void;
+  onToast: (message: string) => void;
   onClose: () => void;
   onStageChange: (next: PipelineStage) => void;
   onAdjustScore: (score: number, feedback: string) => void;
@@ -1329,6 +1332,11 @@ function ApplicantDrawer({
             {messages.map((m) => (
               <MessageEntry key={m.id} message={m} />
             ))}
+          </div>
+
+          <DrawerLabel>Video interview</DrawerLabel>
+          <div className="mb-[22px]">
+            <InterviewPanel applicationId={row.id} onToast={onToast} />
           </div>
 
           <DrawerLabel>Stage history</DrawerLabel>
@@ -2438,6 +2446,7 @@ export function ApplicantsClient({
             void handleRescore(openRow.id);
           }}
           onEmail={() => setComposerOpen(true)}
+          onToast={setToast}
           onClose={() => setOpenId(null)}
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);

@@ -42,7 +42,7 @@ const nextConfig: NextConfig = {
     const isProduction = process.env.NODE_ENV === "production";
 
     // Single source of truth for CSP directives.
-    const cspDirectives = [
+    const baseDirectives = [
       "default-src 'self'",
       "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://assets.calendly.com",
       "style-src 'self' 'unsafe-inline' https://assets.calendly.com",
@@ -55,6 +55,44 @@ const nextConfig: NextConfig = {
       "base-uri 'self'",
       "object-src 'none'",
       ...(isProduction ? ["upgrade-insecure-requests"] : []),
+    ];
+    const cspDirectives = baseDirectives.join("; ");
+
+    /*
+     * ── The two exceptions /interview/** needs ────────────────
+     *
+     * This is the only route on the origin that records video, and the only
+     * one that plays a recording back. Both were blocked by headers written
+     * for a site that did neither, and both failed in Chrome while working in
+     * Safari — Safari enforces neither Permissions-Policy nor, historically,
+     * media-src as strictly.
+     *
+     * 1. camera=() / microphone=() forbids getUserMedia in EVERY document on
+     *    the origin. Chrome refuses before showing a prompt, so the candidate
+     *    saw a tech check that never asked for anything:
+     *      [Violation] Permissions policy violation: camera is not allowed…
+     *
+     * 2. There is no media-src above, so <video src="https://…supabase.co/…">
+     *    falls back to default-src 'self' and the signed playback URL is
+     *    blocked. img-src and connect-src were both extended for Supabase
+     *    when they were needed; media is simply the case nobody had yet.
+     *
+     * `self` rather than `*`: the interview page embeds no third-party frame,
+     * so nothing but this origin ever needs the camera. blob: covers a
+     * locally recorded chunk played back before upload, which is same-origin
+     * by construction.
+     *
+     * Scoped to this prefix so the rest of the site keeps camera=() and
+     * microphone=() and its media fallback to default-src. Later entries win
+     * per key, so every other directive is inherited from the block above
+     * untouched — geolocation and interest-cohort are restated here only
+     * because a Permissions-Policy header replaces the whole value.
+     */
+    const INTERVIEW_PREFIX = "/interview/:path*";
+    const SUPABASE_ORIGIN = "https://jlezhdhzuyubhqvxdwvg.supabase.co";
+    const interviewCsp = [
+      ...baseDirectives,
+      `media-src 'self' blob: ${SUPABASE_ORIGIN}`,
     ].join("; ");
 
     return [
@@ -90,6 +128,20 @@ const nextConfig: NextConfig = {
           {
             key: "Content-Security-Policy",
             value: cspDirectives,
+          },
+        ],
+      },
+      {
+        source: INTERVIEW_PREFIX,
+        headers: [
+          {
+            key: "Permissions-Policy",
+            value:
+              "camera=(self), microphone=(self), geolocation=(), interest-cohort=()",
+          },
+          {
+            key: "Content-Security-Policy",
+            value: interviewCsp,
           },
         ],
       },

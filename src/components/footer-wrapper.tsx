@@ -9,6 +9,7 @@ const HIDDEN_PREFIXES = [
   "/login",
   "/client", // hides footer on all /client/* pages
   "/client/login",
+  "/interview", // public candidate interview — its own footer, no site chrome
   "/signin",
   "/signup",
   "/forgot-password",

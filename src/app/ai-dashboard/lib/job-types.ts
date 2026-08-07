@@ -1,4 +1,5 @@
 import type { ScreeningQuestion } from "@/lib/jobs";
+import type { InterviewQuestionInput } from "@/lib/interviews/types";
 
 /**
  * Company-facing job types.
@@ -166,6 +167,17 @@ export type CompanyJobInput = {
    * automated rejections on for jobs that were posted without them.
    */
   send_rejection_email: boolean;
+
+  /**
+   * Interview questions for the video round.
+   *
+   * NOT a jobs column — these live in their own `interview_questions` table,
+   * one row per question. They ride along on the form model because the wizard
+   * edits them on the same screen as the job, and the actions sync the table
+   * after the job row lands. buildPatch never sees them: it allow-lists the
+   * columns it writes, so a form field that is not a column cannot leak in.
+   */
+  interview_questions: InterviewQuestionInput[];
 };
 
 export const EMPTY_JOB_INPUT: CompanyJobInput = {
@@ -195,4 +207,5 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   // Off by default. An automated rejection carrying a company's name is
   // switched on deliberately, never inherited by accident.
   send_rejection_email: false,
+  interview_questions: [],
 };

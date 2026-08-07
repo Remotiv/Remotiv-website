@@ -4,6 +4,7 @@ import type { ScreeningQuestion } from "@/lib/jobs";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { fetchInterviewQuestions } from "../../actions";
 import {
   EMPTY_JOB_INPUT,
   type CompanyJobInput,
@@ -113,6 +114,8 @@ export default async function EditJobPage({
     }
   }
 
+  const interviewQuestions = await fetchInterviewQuestions(job.id);
+
   const initialState: CompanyJobInput = {
     title: job.title ?? "",
     location: job.location ?? "",
@@ -145,6 +148,7 @@ export default async function EditJobPage({
       job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
     send_rejection_email: job.send_rejection_email ?? false,
+    interview_questions: interviewQuestions,
   };
 
   return (

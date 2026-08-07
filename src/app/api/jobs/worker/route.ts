@@ -3,6 +3,7 @@ import { NextResponse } from "next/server";
 import {
   claimJobs,
   completeJob,
+  ensureInterviewPurgeScheduled,
   failJob,
   reclaimStaleJobs,
   registeredTypes,
@@ -89,6 +90,7 @@ function authorize(request: Request): NextResponse | null {
 async function drain() {
   const startedAt = Date.now();
   const summary = {
+    purgeScheduled: false,
     reclaimed: 0,
     claimed: 0,
     succeeded: 0,
@@ -96,6 +98,17 @@ async function drain() {
     dead: 0,
     timedOut: false,
   };
+
+  /*
+   * Recurring maintenance has no scheduler; this tick IS the scheduler. Runs
+   * before claiming so a purge enqueued here is eligible on this very tick.
+   * Non-fatal: a failure to schedule must not stop the queue draining.
+   */
+  try {
+    summary.purgeScheduled = await ensureInterviewPurgeScheduled();
+  } catch (err) {
+    console.error("[worker] purge scheduling failed (non-fatal):", err);
+  }
 
   // Recover leases orphaned by a crashed invocation before claiming, so those
   // jobs are eligible again on this very tick.

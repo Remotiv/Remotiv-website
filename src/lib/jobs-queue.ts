@@ -1,6 +1,8 @@
 import { randomUUID } from "node:crypto";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
+import { handleInterviewPurge } from "@/lib/interviews/purge";
+import { handleTranscribe } from "@/lib/interviews/transcribe";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -137,6 +139,8 @@ export const JOB_TYPES = {
   AI_SCORECARD: "ai_scorecard",
   /** Step 11 — external calendar synchronisation. */
   CALENDAR_SYNC: "calendar_sync",
+  /** Retention — delete interview media past delete_after, and sweep orphans. */
+  INTERVIEW_PURGE: "interview_purge",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -168,9 +172,10 @@ registerHandler(JOB_TYPES.AI_CV_SCORE, handleAiCvScore);
 registerHandler(JOB_TYPES.SEND_MESSAGE, handleSendMessage);
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, notImplemented); // Step 6
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, notImplemented); // Step 6
-registerHandler(JOB_TYPES.TRANSCRIBE, notImplemented); // Step 7
+registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
 registerHandler(JOB_TYPES.AI_SCORECARD, notImplemented); // Step 8
 registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
+registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -220,6 +225,63 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
     return { ok: false, error: error.message };
   }
   return { ok: true, id: (data as { id: string }).id };
+}
+
+// ── Recurring maintenance ────────────────────────────────────
+
+/** How often the retention purge should run. */
+const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
+
+/**
+ * Keep the retention purge scheduled, from the worker tick.
+ *
+ * There is no scheduler in this product and this does not add one. The worker
+ * is already hit every 5 minutes by cron-job.org, so the cheapest thing that
+ * ACTUALLY RUNS is to check on each tick whether a purge is due and enqueue
+ * one if so.
+ *
+ * Chosen over a self-enqueueing job — where the handler queues its own
+ * successor — for one reason: a self-enqueueing chain has a single point of
+ * failure. If that job ever lands in 'dead', or an enqueue fails, the chain
+ * stops silently and nothing ever deletes anything again. The failure is
+ * invisible and the consequence is retaining recordings we promised to
+ * delete. This is self-healing instead: whatever happened to the last job,
+ * the next tick re-creates one.
+ *
+ * Two cheap indexed reads per tick, and no work at all if one is already
+ * queued or running.
+ */
+export async function ensureInterviewPurgeScheduled(): Promise<boolean> {
+  const service = createServiceClient();
+
+  const { data: live } = await service
+    .from("background_jobs")
+    .select("id")
+    .eq("type", JOB_TYPES.INTERVIEW_PURGE)
+    .in("status", ["queued", "running"])
+    .limit(1);
+  if ((live ?? []).length > 0) return false;
+
+  // created_at, not a completion timestamp: this paces how often a purge is
+  // STARTED, which is the thing being rate-limited. A run that failed still
+  // counts, because the next one is a day away and will redo its work anyway.
+  const { data: last } = await service
+    .from("background_jobs")
+    .select("created_at")
+    .eq("type", JOB_TYPES.INTERVIEW_PURGE)
+    .order("created_at", { ascending: false })
+    .limit(1);
+
+  const lastAt = (last ?? [])[0]
+    ? new Date((last as { created_at: string }[])[0].created_at).getTime()
+    : 0;
+  if (Date.now() - lastAt < PURGE_INTERVAL_MS) return false;
+
+  const result = await enqueue({
+    type: JOB_TYPES.INTERVIEW_PURGE,
+    companyId: null,
+  });
+  return result.ok;
 }
 
 // ── Lease recovery ───────────────────────────────────────────
