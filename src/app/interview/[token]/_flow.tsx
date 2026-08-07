@@ -72,6 +72,7 @@ const PHASE_LABEL = {
   rec: "Recording",
   uploading: "Saving",
   review: "Watch it back",
+  uploadfailed: "Not sent yet",
 } as const;
 
 const PHASE_PILL = {
@@ -79,6 +80,7 @@ const PHASE_PILL = {
   rec: "bg-[var(--red-tint)] text-[var(--red-ink)]",
   uploading: "bg-[var(--mint-tint)] text-[var(--mint-ink)]",
   review: "bg-[var(--lime)] text-[#2F3A00]",
+  uploadfailed: "bg-[var(--amber-tint)] text-[var(--amber-ink)]",
 } as const;
 
 /**
@@ -87,6 +89,17 @@ const PHASE_PILL = {
  * not a failure. The hard ceiling is the backstop.
  */
 const UPLOAD_STALL_MS = 45_000;
+
+/**
+ * Automatic upload retries before the candidate is asked anything.
+ *
+ * Three attempts over ~11 seconds. A brief drop on a mobile network usually
+ * clears inside that, and the candidate never learns it happened. Longer
+ * would leave someone staring at a spinner; shorter would surface a decision
+ * for a blip that was about to resolve itself.
+ */
+const UPLOAD_AUTO_ATTEMPTS = 3;
+const UPLOAD_BACKOFF_MS = [3_000, 8_000];
 
 /**
  * Stop watchdog, in two stages.
@@ -100,17 +113,16 @@ const UPLOAD_STALL_MS = 45_000;
  * SOFT only changes the wording — it never touches state. HARD gives up
  * waiting for onstop and salvages the chunks already in hand, which with
  * start(1000) is everything except the final partial second.
+ *
+ * 15s is an UPPER BOUND, not a measurement: a real 2-minute answer on a phone
+ * finished before the hard stage, so all we know is that the flush is under
+ * 20s. Erring long is deliberately the cheap direction — because the hard
+ * stage now salvages instead of discarding, firing early costs at most the
+ * final partial second of video, while firing late only makes someone wait.
  */
 const STOP_SOFT_MS = 4_000;
-const STOP_HARD_MS = 20_000;
+const STOP_HARD_MS = 15_000;
 
-/** TEMPORARY — separates "slow to stop" from "onstop never fires". */
-const IV_STOP_DEBUG = true;
-function stopLog(label: string, data: Record<string, unknown>): void {
-  if (!IV_STOP_DEBUG || typeof console === "undefined") return;
-  // warn, not log: Chrome's console filter can hide Info entirely.
-  console.warn(`[stop] ${label}`, data);
-}
 const UPLOAD_HARD_TIMEOUT_MS = 10 * 60_000;
 
 /**
@@ -223,13 +235,34 @@ export function InterviewFlow({
   session: CandidateSession;
 }) {
   const [questions, setQuestions] = useState<CandidateQuestion[]>(session.questions);
+  /** Always-current view of `questions` for callbacks that outlive a render. */
+  const questionsRef = useRef(questions);
+  questionsRef.current = questions;
   const [screen, setScreen] = useState<Screen>("welcome");
   const [supported, setSupported] = useState<boolean | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   // -1 is the practice round; 0.. indexes `questions`.
   const [qi, setQi] = useState(-1);
-  const [phase, setPhase] = useState<"prep" | "rec" | "uploading" | "review">("prep");
+  const [phase, setPhase] = useState<
+    "prep" | "rec" | "uploading" | "review" | "uploadfailed"
+  >("prep");
+  const [uploadAttempt, setUploadAttempt] = useState(0);
+  const [uploadError, setUploadError] = useState<string | null>(null);
+  const [retryingIn, setRetryingIn] = useState(0);
+  /**
+   * The recorded answer, held until it is safely stored.
+   *
+   * A ref, not state: this is several megabytes and nothing renders from it —
+   * only from the phase. Cleared the moment commitAnswer runs, and by Start
+   * over, so a finished answer is not pinned in memory.
+   */
+  const pendingRef = useRef<{
+    blob: Blob;
+    position: number;
+    seconds: number;
+    index: number;
+  } | null>(null);
   /**
    * Object URL for the practice clip, and the ONLY thing ever done with that
    * blob. It is never uploaded and never reaches interview_answers — see the
@@ -304,7 +337,6 @@ export function InterviewFlow({
   /** Fires if the recorder never reports a stop, so Done is never silent. */
   const stopWatchdogRef = useRef<number | null>(null);
   const stopHardRef = useRef<number | null>(null);
-  const stopProbeRef = useRef<number | null>(null);
   const stopRequestedAtRef = useRef(0);
   /**
    * Salvage path: rebuilds the blob from the chunks THIS recording has already
@@ -378,6 +410,27 @@ export function InterviewFlow({
   // Belt and braces: revoke on unmount too, so navigating away mid-practice
   // does not leak the blob.
   useEffect(() => clearPracticeClip, [clearPracticeClip]);
+
+  /*
+   * Warn before closing with an answer still unsent.
+   *
+   * The blob lives in a JS variable, so closing the tab loses it — there is no
+   * way to hold it across a reload and no partial upload to resume. The one
+   * thing that CAN be done is to make the loss deliberate rather than
+   * accidental, which is what the browser's own leave-site prompt does.
+   *
+   * Registered only while something is actually pending, so it never nags
+   * someone who has nothing at stake.
+   */
+  useEffect(() => {
+    if (phase !== "uploading" && phase !== "uploadfailed") return;
+    const warn = (e: BeforeUnloadEvent) => {
+      e.preventDefault();
+      e.returnValue = "";
+    };
+    window.addEventListener("beforeunload", warn);
+    return () => window.removeEventListener("beforeunload", warn);
+  }, [phase]);
 
   // Unmount, tab close and bfcache all release. `pagehide` rather than
   // `beforeunload` because iOS Safari does not reliably fire the latter.
@@ -576,10 +629,6 @@ export function InterviewFlow({
       if (ref.current !== null) window.clearTimeout(ref.current);
       ref.current = null;
     }
-    // An interval, not a timeout — cleared with the matching call rather than
-    // relying on the two id spaces happening to be shared.
-    if (stopProbeRef.current !== null) window.clearInterval(stopProbeRef.current);
-    stopProbeRef.current = null;
   }, []);
 
   /**
@@ -610,27 +659,8 @@ export function InterviewFlow({
     clearStopTimers();
     stopRequestedAtRef.current = Date.now();
 
-    stopLog("stop() requested", {
-      state: recorder.state,
-      mime: recorder.mimeType,
-      recordedMs: Date.now() - startedAtRef.current,
-    });
-
-    // Is the recorder alive but slow, or genuinely wedged? This is the fact
-    // that separates the two, so it is sampled rather than inferred.
-    stopProbeRef.current = window.setInterval(() => {
-      stopLog("still waiting", {
-        msSinceStop: Date.now() - stopRequestedAtRef.current,
-        state: recorderRef.current?.state ?? "gone",
-      });
-    }, 1000);
-
     stopWatchdogRef.current = window.setTimeout(() => {
       stopWatchdogRef.current = null;
-      stopLog("SOFT stage — still no onstop", {
-        msSinceStop: Date.now() - stopRequestedAtRef.current,
-        state: recorderRef.current?.state ?? "gone",
-      });
       // Copy only. No latch, no phase change, nothing discarded.
       setStopSlow(true);
     }, STOP_SOFT_MS);
@@ -638,11 +668,6 @@ export function InterviewFlow({
     stopHardRef.current = window.setTimeout(() => {
       stopHardRef.current = null;
       if (finishingRef.current) return;
-      stopLog("HARD stage — salvaging chunks", {
-        msSinceStop: Date.now() - stopRequestedAtRef.current,
-        state: recorderRef.current?.state ?? "gone",
-        canRecover: recoverRef.current !== null,
-      });
       clearStopTimers();
       /*
        * onstop is not coming. Everything start(1000) already delivered is in
@@ -661,8 +686,7 @@ export function InterviewFlow({
 
     try {
       recorder.stop();
-    } catch (err) {
-      stopLog("stop() THREW", { error: String(err) });
+    } catch {
       clearStopTimers();
       setPhase("prep");
       setToast("Couldn't stop that recording. Tap Start over to retry.");
@@ -761,7 +785,7 @@ export function InterviewFlow({
       blob: Blob,
       position: number,
       seconds: number,
-    ): Promise<{ ok: true } | { ok: false; error: string }> => {
+    ): Promise<{ ok: true } | { ok: false; error: string; retryable: boolean }> => {
       const kind = blob.type.includes("mp4") ? "mp4" : "webm";
       const contentType = kind === "mp4" ? "video/mp4" : "video/webm";
 
@@ -773,6 +797,17 @@ export function InterviewFlow({
         }
       };
 
+      /*
+       * Which failures are worth trying again.
+       *
+       * A dropped connection, a 5xx or a 429 will very likely clear on their
+       * own — that is the whole point of the retry. A 4xx from our own routes
+       * will not: 415 means the bytes are not a video, 409 means the session
+       * is closed, 400 means the position is wrong. Retrying those just burns
+       * the candidate's time and battery on a guaranteed failure.
+       */
+      const retryableStatus = (status: number) => status === 429 || status >= 500;
+
       let signed: Response;
       try {
         signed = await fetch("/api/interview/upload-url", {
@@ -781,16 +816,29 @@ export function InterviewFlow({
           body: JSON.stringify({ token, position, kind }),
         });
       } catch {
-        return { ok: false, error: "Your connection dropped before that answer saved." };
+        return {
+          ok: false,
+          retryable: true,
+          error: "Your connection dropped before that answer saved.",
+        };
       }
       if (!signed.ok) {
-        return { ok: false, error: await readError(signed, "Couldn't start that upload.") };
+        return {
+          ok: false,
+          retryable: retryableStatus(signed.status),
+          error: await readError(signed, "Couldn't start that upload."),
+        };
       }
       const { url } = (await signed.json()) as { url?: string };
-      if (!url) return { ok: false, error: "Couldn't start that upload." };
+      if (!url) {
+        return { ok: false, retryable: true, error: "Couldn't start that upload." };
+      }
 
       const put = await putToSignedUrl(url, blob, contentType);
-      if (!put.ok) return put;
+      // Every PUT failure is retryable: a dropped or stalled transfer is the
+      // canonical case, and an expired token is fixed by the fresh signed URL
+      // the next attempt mints above.
+      if (!put.ok) return { ...put, retryable: true };
 
       setUploadPct(97);
 
@@ -804,12 +852,14 @@ export function InterviewFlow({
       } catch {
         return {
           ok: false,
+          retryable: true,
           error: "Your answer uploaded but we couldn't save it.",
         };
       }
       if (!confirmed.ok) {
         return {
           ok: false,
+          retryable: retryableStatus(confirmed.status),
           error: await readError(confirmed, "Your answer uploaded but didn't save."),
         };
       }
@@ -859,16 +909,6 @@ export function InterviewFlow({
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
-      // THE discriminator: a chunk arriving after stop() was requested means
-      // the recorder is alive and merely slow, not wedged.
-      if (stopRequestedAtRef.current > 0) {
-        stopLog("chunk AFTER stop()", {
-          msSinceStop: Date.now() - stopRequestedAtRef.current,
-          size: e.data.size,
-          chunks: chunks.length,
-          state: recorder.state,
-        });
-      }
     };
     const finalMime = () => recorder.mimeType || mime || "video/webm";
 
@@ -878,14 +918,6 @@ export function InterviewFlow({
     };
 
     recorder.onstop = () => {
-      stopLog("onstop ARRIVED", {
-        msSinceStop: stopRequestedAtRef.current
-          ? Date.now() - stopRequestedAtRef.current
-          : null,
-        chunks: chunks.length,
-        totalBytes: chunks.reduce((n, c) => n + c.size, 0),
-        alreadyFinishing: finishingRef.current,
-      });
       clearStopTimers();
       // The chunks travel WITH the callback, so the handler can never read a
       // different recording's buffer.
@@ -901,6 +933,85 @@ export function InterviewFlow({
     setPhase("rec");
     // eslint-disable-next-line react-hooks/exhaustive-deps
   }, [limit, clearStopTimers]);
+
+  /**
+   * Upload with automatic retries, then hand the decision over.
+   *
+   * A network drop does NOT invalidate a recording — the blob is intact in
+   * memory and the only thing that failed was the transfer. Discarding it and
+   * asking for two minutes again is how a real candidate ends up closing the
+   * tab, so it is never discarded here.
+   *
+   * The first few attempts are silent and automatic, because a brief drop on
+   * a mobile network usually clears within seconds and is not something a
+   * candidate should have to think about.
+   */
+  const attemptUpload = useCallback(
+    async (blob: Blob, position: number, seconds: number): Promise<boolean> => {
+      setUploadError(null);
+      for (let attempt = 1; attempt <= UPLOAD_AUTO_ATTEMPTS; attempt += 1) {
+        setUploadAttempt(attempt);
+        const result = await uploadAnswer(blob, position, seconds);
+        if (result.ok) {
+          setUploadAttempt(0);
+          return true;
+        }
+
+        setUploadError(result.error);
+        // A 415 or a 409 will fail identically next time. Stop immediately
+        // rather than making someone wait through a scripted failure.
+        if (!result.retryable) break;
+        if (attempt < UPLOAD_AUTO_ATTEMPTS) {
+          setRetryingIn(Math.round(UPLOAD_BACKOFF_MS[attempt - 1] / 1000));
+          await new Promise((r) => setTimeout(r, UPLOAD_BACKOFF_MS[attempt - 1]));
+          setRetryingIn(0);
+        }
+      }
+      return false;
+    },
+    [uploadAnswer],
+  );
+
+  /**
+   * Everything that happens once an answer is safely stored.
+   *
+   * Shared by the first attempt and the manual retry, so a recovered upload
+   * advances exactly like one that worked first time.
+   */
+  const commitAnswer = useCallback((index: number, seconds: number) => {
+    pendingRef.current = null;
+    setUploadError(null);
+    setUploadAttempt(0);
+
+    /*
+     * Read through the ref, not the closure. This callback is created once,
+     * and the retry path can fire minutes after that render — a captured
+     * `questions` would be the array as it stood before any answer landed.
+     * Same reason stoppedRef exists.
+     */
+    const updated = questionsRef.current.map((q, i) =>
+      i === index ? { ...q, answered: true, recordedSeconds: seconds } : q,
+    );
+    questionsRef.current = updated;
+    setQuestions(updated);
+    setToast(`Answer ${index + 1} saved`);
+    setPhase("prep");
+
+    const next = updated.findIndex((q, i) => i > index && !q.answered);
+    if (next === -1) setScreen("review");
+    else setQi(next);
+  }, []);
+
+  /** The Retry button, and the entry point after the automatic attempts. */
+  const retryUpload = useCallback(async () => {
+    const pending = pendingRef.current;
+    if (!pending) return;
+    setPhase("uploading");
+    setUploadPct(0);
+    const ok = await attemptUpload(pending.blob, pending.position, pending.seconds);
+    if (ok) commitAnswer(pending.index, pending.seconds);
+    else setPhase("uploadfailed");
+  }, [attemptUpload, commitAnswer]);
 
   /** Runs once the recorder has flushed. Practice is discarded here. */
   async function handleStopped(mime: string, parts: Blob[]) {
@@ -953,27 +1064,18 @@ export function InterviewFlow({
 
     setPhase("uploading");
     setUploadPct(0);
-    const result = await uploadAnswer(blob, question.position, seconds);
 
-    if (!result.ok) {
-      setPhase("prep");
-      // Named as one answer, because that is the whole cost — every earlier
-      // answer is already a committed row on the server.
-      setToast(`${result.error} Tap Start over to record this one again.`);
+    // Held BEFORE the first attempt, so the blob survives every failure path
+    // including an unexpected throw.
+    pendingRef.current = { blob, position: question.position, seconds, index: qi };
+
+    const ok = await attemptUpload(blob, question.position, seconds);
+    if (ok) {
+      commitAnswer(qi, seconds);
       return;
     }
-
-    setQuestions((prev) =>
-      prev.map((q, i) =>
-        i === qi ? { ...q, answered: true, recordedSeconds: seconds } : q,
-      ),
-    );
-    setToast(`Answer ${qi + 1} saved`);
-    setPhase("prep");
-
-    const next = questions.findIndex((q, i) => i > qi && !q.answered);
-    if (next === -1) setScreen("review");
-    else setQi(next);
+    // The recording is still in pendingRef. Nothing is lost yet.
+    setPhase("uploadfailed");
   }
 
   // Re-pointed on every render, so onstop always calls today's closure.
@@ -1198,13 +1300,26 @@ export function InterviewFlow({
               recLeft={recLeft}
               limit={limit}
               uploadPct={uploadPct}
+              uploadAttempt={uploadAttempt}
+              uploadError={uploadError}
+              retryingIn={retryingIn}
+              onRetryUpload={() => void retryUpload()}
               stopSlow={stopSlow}
               companyName={session.companyName}
               canSkipPrep={prepFor >= PREP_SKIPPABLE_AT}
               onSkipPrep={beginRecording}
               onStartOver={() => {
-                stopRecorder();
+                // Only stop a recorder that is actually running. From the
+                // upload-failed screen there is nothing to stop, and
+                // stopRecorder would fire its own "already stopped" toast on
+                // top of this one.
+                if (phase === "rec") stopRecorder();
                 finishingRef.current = true;
+                // Discarding the held recording is the explicit cost of this
+                // button, and the only place it is ever thrown away.
+                pendingRef.current = null;
+                setUploadError(null);
+                setUploadAttempt(0);
                 setPhase("prep");
                 setToast("Starting that answer again");
               }}
@@ -1761,6 +1876,10 @@ function Recorder({
   recLeft,
   limit,
   uploadPct,
+  uploadAttempt,
+  uploadError,
+  retryingIn,
+  onRetryUpload,
   stopSlow,
   companyName,
   canSkipPrep,
@@ -1776,11 +1895,15 @@ function Recorder({
   index: number;
   total: number;
   text: string;
-  phase: "prep" | "rec" | "uploading" | "review";
+  phase: "prep" | "rec" | "uploading" | "review" | "uploadfailed";
   prepLeft: number;
   recLeft: number;
   limit: number;
   uploadPct: number;
+  uploadAttempt: number;
+  uploadError: string | null;
+  retryingIn: number;
+  onRetryUpload: () => void;
   stopSlow: boolean;
   companyName: string;
   canSkipPrep: boolean;
@@ -1927,6 +2050,27 @@ function Recorder({
           </div>
         )}
 
+        {phase === "uploadfailed" && (
+          <div className="absolute inset-0 z-[6] flex flex-col items-center justify-center gap-3 bg-[rgba(20,16,32,0.92)] p-6 text-center">
+            <span className="flex size-14 items-center justify-center rounded-2xl bg-[var(--amber-tint)] text-[var(--amber-ink)]">
+              <TriangleAlert className="size-7" strokeWidth={2.2} />
+            </span>
+            {/* The headline leads with what is NOT lost. Someone who has just
+                spoken for two minutes needs that before anything else. */}
+            <p className="iv-q m-0 max-w-[260px] text-[15px] font-bold leading-snug">
+              Your answer is still here — it just hasn&apos;t sent
+            </p>
+            <p className="iv-dim m-0 max-w-[260px] text-[12.5px] leading-relaxed">
+              {uploadError ?? "The connection dropped while sending."} We tried{" "}
+              {UPLOAD_AUTO_ATTEMPTS} times. Tap Retry when you have signal —
+              you don&apos;t need to record it again.
+            </p>
+            <p className="iv-dimmer m-0 max-w-[240px] text-[11px] leading-relaxed">
+              Closing this page is the only thing that loses it.
+            </p>
+          </div>
+        )}
+
         {phase === "uploading" && (
           <div className="absolute inset-0 z-[3] flex flex-col items-center justify-center gap-3 bg-[rgba(20,16,32,0.86)] p-6 text-center backdrop-blur-[3px]">
             <Loader className="size-8 animate-spin text-white/70" strokeWidth={2} />
@@ -1943,8 +2087,20 @@ function Recorder({
                 ? "Still finishing your recording…"
                 : isPractice
                   ? "Getting your clip ready…"
-                  : `Saving your answer… ${uploadPct}%`}
+                  : uploadAttempt > 1
+                    ? "Your connection dropped — trying again…"
+                    : `Saving your answer… ${uploadPct}%`}
             </p>
+            {/* Honest about what is happening, and about the one thing that
+                matters: the recording is safe and re-recording is not needed. */}
+            {uploadAttempt > 1 && !isPractice && (
+              <p className="iv-dim m-0 max-w-[250px] text-[11.5px] leading-relaxed">
+                Your answer is safe on this device. Attempt {uploadAttempt} of{" "}
+                {UPLOAD_AUTO_ATTEMPTS}
+                {retryingIn > 0 ? ` · retrying in ${retryingIn}s` : ""}. Please
+                don&apos;t close this page.
+              </p>
+            )}
             {stopSlow && (
               <p className="iv-dim m-0 max-w-[240px] text-[11.5px] leading-relaxed">
                 This can take a few seconds on a phone. Please don&apos;t close
@@ -1975,7 +2131,18 @@ function Recorder({
           the video would sit below the fold and the candidate would have to
           scroll past their own face to continue. */}
       <div className="iv-brow iv-recbtns">
-        {phase === "review" ? (
+        {phase === "uploadfailed" ? (
+          <>
+            {/* Retry is PRIMARY. Start over throws away a good recording and
+                must never be the only way forward. */}
+            <button type="button" onClick={onStartOver} className="iv-btn iv-ghost">
+              Start over
+            </button>
+            <button type="button" onClick={onRetryUpload} className="iv-btn iv-purple">
+              Retry upload
+            </button>
+          </>
+        ) : phase === "review" ? (
           <>
             <button type="button" onClick={onPracticeAgain} className="iv-btn iv-ghost">
               Record again
