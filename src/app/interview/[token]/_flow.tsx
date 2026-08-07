@@ -87,6 +87,30 @@ const PHASE_PILL = {
  * not a failure. The hard ceiling is the backstop.
  */
 const UPLOAD_STALL_MS = 45_000;
+
+/**
+ * Stop watchdog, in two stages.
+ *
+ * The old single 3s stage declared failure AND set the finishing latch, so a
+ * flush that completed at 3.1s had its chunks discarded by handleStopped's own
+ * guard. On mobile Chrome a 2-minute answer legitimately takes longer than 3s
+ * to finalise, so the watchdog was destroying good recordings and telling the
+ * candidate to record them again.
+ *
+ * SOFT only changes the wording — it never touches state. HARD gives up
+ * waiting for onstop and salvages the chunks already in hand, which with
+ * start(1000) is everything except the final partial second.
+ */
+const STOP_SOFT_MS = 4_000;
+const STOP_HARD_MS = 20_000;
+
+/** TEMPORARY — separates "slow to stop" from "onstop never fires". */
+const IV_STOP_DEBUG = true;
+function stopLog(label: string, data: Record<string, unknown>): void {
+  if (!IV_STOP_DEBUG || typeof console === "undefined") return;
+  // warn, not log: Chrome's console filter can hide Info entirely.
+  console.warn(`[stop] ${label}`, data);
+}
 const UPLOAD_HARD_TIMEOUT_MS = 10 * 60_000;
 
 /**
@@ -279,6 +303,16 @@ export function InterviewFlow({
   );
   /** Fires if the recorder never reports a stop, so Done is never silent. */
   const stopWatchdogRef = useRef<number | null>(null);
+  const stopHardRef = useRef<number | null>(null);
+  const stopProbeRef = useRef<number | null>(null);
+  const stopRequestedAtRef = useRef(0);
+  /**
+   * Salvage path: rebuilds the blob from the chunks THIS recording has already
+   * delivered. Re-pointed by beginRecording so it always closes over the live
+   * recording's own array.
+   */
+  const recoverRef = useRef<(() => void) | null>(null);
+  const [stopSlow, setStopSlow] = useState(false);
 
   useEffect(() => {
     if (!toast) return;
@@ -536,14 +570,29 @@ export function InterviewFlow({
   const limit = current?.answerSeconds ?? PRACTICE.answerSeconds;
   const prepFor = current?.prepSeconds ?? PRACTICE.prepSeconds;
 
+  /** Cancel every stop timer. Called by onstop and by the salvage path. */
+  const clearStopTimers = useCallback(() => {
+    for (const ref of [stopWatchdogRef, stopHardRef]) {
+      if (ref.current !== null) window.clearTimeout(ref.current);
+      ref.current = null;
+    }
+    // An interval, not a timeout — cleared with the matching call rather than
+    // relying on the two id spaces happening to be shared.
+    if (stopProbeRef.current !== null) window.clearInterval(stopProbeRef.current);
+    stopProbeRef.current = null;
+  }, []);
+
   /**
-   * Stop, with a watchdog.
+   * Stop, and wait properly.
    *
-   * MediaRecorder.stop() is fire-and-forget: if the browser never delivers
-   * onstop — a codec stall, a track that ended underneath it — the UI would
-   * sit in "Recording" with a Done button that appears to do nothing. Silence
-   * is the failure mode being eliminated here, so a stop that produces no
-   * result within three seconds surfaces itself.
+   * MediaRecorder.stop() is fire-and-forget, so silence had to be eliminated —
+   * but the first attempt eliminated it by declaring failure at 3 seconds and
+   * discarding the recording, which is worse than the silence. A candidate who
+   * spoke for two minutes and is told to do it again may simply close the tab.
+   *
+   * So nothing is thrown away. The soft stage only changes the wording; the
+   * hard stage salvages the chunks already delivered rather than abandoning
+   * them.
    */
   const stopRecorder = useCallback(() => {
     const recorder = recorderRef.current;
@@ -557,29 +606,68 @@ export function InterviewFlow({
 
     setPhase("uploading");
     setUploadPct(0);
+    setStopSlow(false);
+    clearStopTimers();
+    stopRequestedAtRef.current = Date.now();
 
-    if (stopWatchdogRef.current !== null) {
-      window.clearTimeout(stopWatchdogRef.current);
-    }
+    stopLog("stop() requested", {
+      state: recorder.state,
+      mime: recorder.mimeType,
+      recordedMs: Date.now() - startedAtRef.current,
+    });
+
+    // Is the recorder alive but slow, or genuinely wedged? This is the fact
+    // that separates the two, so it is sampled rather than inferred.
+    stopProbeRef.current = window.setInterval(() => {
+      stopLog("still waiting", {
+        msSinceStop: Date.now() - stopRequestedAtRef.current,
+        state: recorderRef.current?.state ?? "gone",
+      });
+    }, 1000);
+
     stopWatchdogRef.current = window.setTimeout(() => {
       stopWatchdogRef.current = null;
+      stopLog("SOFT stage — still no onstop", {
+        msSinceStop: Date.now() - stopRequestedAtRef.current,
+        state: recorderRef.current?.state ?? "gone",
+      });
+      // Copy only. No latch, no phase change, nothing discarded.
+      setStopSlow(true);
+    }, STOP_SOFT_MS);
+
+    stopHardRef.current = window.setTimeout(() => {
+      stopHardRef.current = null;
       if (finishingRef.current) return;
-      finishingRef.current = true;
-      setPhase("prep");
-      setToast("Your browser didn't finish that recording. Tap Start over to retry.");
-    }, 3000);
+      stopLog("HARD stage — salvaging chunks", {
+        msSinceStop: Date.now() - stopRequestedAtRef.current,
+        state: recorderRef.current?.state ?? "gone",
+        canRecover: recoverRef.current !== null,
+      });
+      clearStopTimers();
+      /*
+       * onstop is not coming. Everything start(1000) already delivered is in
+       * hand — a WebM missing only its final partial second is still a valid
+       * stream with complete clusters, so it uploads and plays. Salvaging is
+       * strictly better than telling someone their two minutes are gone.
+       */
+      if (recoverRef.current) {
+        recoverRef.current();
+      } else {
+        finishingRef.current = true;
+        setPhase("prep");
+        setToast("Your browser didn't finish that recording. Tap Start over to retry.");
+      }
+    }, STOP_HARD_MS);
 
     try {
       recorder.stop();
-    } catch {
-      if (stopWatchdogRef.current !== null) {
-        window.clearTimeout(stopWatchdogRef.current);
-        stopWatchdogRef.current = null;
-      }
+    } catch (err) {
+      stopLog("stop() THREW", { error: String(err) });
+      clearStopTimers();
       setPhase("prep");
       setToast("Couldn't stop that recording. Tap Start over to retry.");
     }
-  }, []);
+  }, [clearStopTimers]);
 
   /**
    * PUT the blob to a signed storage URL, with progress and a stall watchdog.
@@ -736,6 +824,8 @@ export function InterviewFlow({
     if (!streamRef.current) return;
     const mime = pickMimeType();
     finishingRef.current = false;
+    stopRequestedAtRef.current = 0;
+    setStopSlow(false);
 
     /*
      * One array per recording, captured in this closure — NOT a ref shared by
@@ -769,15 +859,37 @@ export function InterviewFlow({
 
     recorder.ondataavailable = (e) => {
       if (e.data.size > 0) chunks.push(e.data);
-    };
-    recorder.onstop = () => {
-      if (stopWatchdogRef.current !== null) {
-        window.clearTimeout(stopWatchdogRef.current);
-        stopWatchdogRef.current = null;
+      // THE discriminator: a chunk arriving after stop() was requested means
+      // the recorder is alive and merely slow, not wedged.
+      if (stopRequestedAtRef.current > 0) {
+        stopLog("chunk AFTER stop()", {
+          msSinceStop: Date.now() - stopRequestedAtRef.current,
+          size: e.data.size,
+          chunks: chunks.length,
+          state: recorder.state,
+        });
       }
+    };
+    const finalMime = () => recorder.mimeType || mime || "video/webm";
+
+    // Salvage entry point for the hard watchdog — same handler, same chunks.
+    recoverRef.current = () => {
+      void stoppedRef.current(finalMime(), chunks);
+    };
+
+    recorder.onstop = () => {
+      stopLog("onstop ARRIVED", {
+        msSinceStop: stopRequestedAtRef.current
+          ? Date.now() - stopRequestedAtRef.current
+          : null,
+        chunks: chunks.length,
+        totalBytes: chunks.reduce((n, c) => n + c.size, 0),
+        alreadyFinishing: finishingRef.current,
+      });
+      clearStopTimers();
       // The chunks travel WITH the callback, so the handler can never read a
       // different recording's buffer.
-      void stoppedRef.current(recorder.mimeType || mime || "video/webm", chunks);
+      void stoppedRef.current(finalMime(), chunks);
     };
 
     recorderRef.current = recorder;
@@ -788,12 +900,16 @@ export function InterviewFlow({
     setRecLeft(limit);
     setPhase("rec");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [limit]);
+  }, [limit, clearStopTimers]);
 
   /** Runs once the recorder has flushed. Practice is discarded here. */
   async function handleStopped(mime: string, parts: Blob[]) {
+    // Whoever gets here first wins — onstop or the salvage path. Both do the
+    // same work with the same chunks, so the loser is a genuine no-op rather
+    // than a discarded recording.
     if (finishingRef.current) return;
     finishingRef.current = true;
+    setStopSlow(false);
 
     const seconds = Math.max(1, Math.round((Date.now() - startedAtRef.current) / 1000));
     const blob = new Blob(parts, { type: mime });
@@ -1082,6 +1198,7 @@ export function InterviewFlow({
               recLeft={recLeft}
               limit={limit}
               uploadPct={uploadPct}
+              stopSlow={stopSlow}
               companyName={session.companyName}
               canSkipPrep={prepFor >= PREP_SKIPPABLE_AT}
               onSkipPrep={beginRecording}
@@ -1644,6 +1761,7 @@ function Recorder({
   recLeft,
   limit,
   uploadPct,
+  stopSlow,
   companyName,
   canSkipPrep,
   onSkipPrep,
@@ -1663,6 +1781,7 @@ function Recorder({
   recLeft: number;
   limit: number;
   uploadPct: number;
+  stopSlow: boolean;
   companyName: string;
   canSkipPrep: boolean;
   onSkipPrep: () => void;
@@ -1815,10 +1934,24 @@ function Recorder({
                 and the clip being ready. Nothing is uploaded then, so it must
                 not say "saving" — a practice round that claims to save would
                 contradict every other line on the screen. */}
+            {/* A slow flush is NOT an error and must not read like one. The
+                phone is still finalising the file; the answer is not at risk,
+                and the previous copy ("your browser didn't finish that
+                recording") sent people to re-record perfectly good answers. */}
             <p className="m-0 text-[13px] font-semibold">
-              {isPractice ? "Getting your clip ready…" : `Saving your answer… ${uploadPct}%`}
+              {stopSlow
+                ? "Still finishing your recording…"
+                : isPractice
+                  ? "Getting your clip ready…"
+                  : `Saving your answer… ${uploadPct}%`}
             </p>
-            {!isPractice && (
+            {stopSlow && (
+              <p className="iv-dim m-0 max-w-[240px] text-[11.5px] leading-relaxed">
+                This can take a few seconds on a phone. Please don&apos;t close
+                this page.
+              </p>
+            )}
+            {!isPractice && !stopSlow && (
               <>
                 <div className="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-white/20">
                   <i
