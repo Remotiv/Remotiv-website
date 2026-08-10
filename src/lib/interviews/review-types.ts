@@ -87,6 +87,9 @@ export type InterviewListResult = {
 };
 
 export type InterviewAnswerView = {
+  /** Null on rows transcribed before segments were stored — no seek buttons. */
+  hasSegments: boolean;
+  score: AnswerScoreView | null;
   id: string;
   position: number;
   questionText: string;
@@ -115,7 +118,45 @@ export type InterviewTab =
   | "expired"
   | "archived";
 
-export type ScoreStatus = "pending" | "scored" | "failed" | "skipped";
+export type ScoreStatus =
+  | "pending"
+  | "scored"
+  | "failed"
+  | "skipped"
+  /** The question carries no rubric, so there was nothing to score against. */
+  | "norubric";
+
+/** One claim with the span that supports it, and where to hear it. */
+export type ScoredEvidence = {
+  claim: string;
+  quote: string;
+  /** Seconds into the recording, or null when the quote could not be located. */
+  startSeconds: number | null;
+};
+
+/** A reviewer's correction, kept ALONGSIDE the AI's number, never replacing it. */
+export type ScoreAdjustment = {
+  by: string;
+  at: string;
+  feedback: string | null;
+  /** The AI's original — the comparison is the point. */
+  aiScore: number | null;
+};
+
+export type AnswerScoreView = {
+  status: ScoreStatus;
+  /** The AI's number. Survives an adjustment. */
+  aiScore: number | null;
+  /** What the UI should display — the human's if there is one. */
+  shownScore: number | null;
+  confidence: string | null;
+  reasoning: string | null;
+  strengths: ScoredEvidence[];
+  concerns: ScoredEvidence[];
+  missing: string[];
+  adjustment: ScoreAdjustment | null;
+  error: string | null;
+};
 
 /**
  * A session's AI score, as the UI reads it.
@@ -135,6 +176,7 @@ export type InterviewScore = {
   confidence: string | null;
   error: string | null;
   scoredAt: string | null;
+  adjustment: ScoreAdjustment | null;
 };
 
 export type InterviewNote = {

@@ -7,6 +7,10 @@
 
 export type InterviewSessionSummary = {
   id: string;
+  /** The interview's own score, shown BESIDE the CV score — never merged with
+   *  it. They measure different things and a blended number would hide that. */
+  score: number | null;
+  scoreStatus: string | null;
   /** invited | started | submitted | expired | cancelled. Expiry is derived. */
   status: string;
   expiresAt: string;

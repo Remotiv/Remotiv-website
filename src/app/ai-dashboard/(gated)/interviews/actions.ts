@@ -447,3 +447,173 @@ export async function deleteInterview(
   revalidatePath("/ai-dashboard/interviews");
   return { ok: true };
 }
+
+// ── Human score adjustment ───────────────────────────────────
+//
+// Mirrors the CV scorer's adjustScore/revertScore exactly: guarded, ownership
+// checked, all five audit columns written or nulled TOGETHER.
+//
+// The AI's own score is never touched. It stays in `score` / `overall_score`
+// and the correction lands in the human_* columns beside it, so the review
+// page can show both — the comparison is the value, and a silent overwrite
+// would destroy the only record of what the model actually said.
+//
+// A re-score cannot clobber a correction either: writeAnswerScore strips the
+// human_* columns from its payload rather than reading and merging them.
+
+/** Whole numbers only — a fractional human judgement is false precision. */
+function validScore(score: number): boolean {
+  return (
+    Number.isFinite(score) && Number.isInteger(score) && score >= 0 && score <= 100
+  );
+}
+
+const SCORE_FEEDBACK_MAX = 2000;
+
+/** Adjust ONE answer's score. */
+export async function adjustAnswerScore(
+  sessionId: string,
+  answerId: string,
+  score: number,
+  feedback?: string,
+): Promise<SessionMutation> {
+  if (!validScore(score)) {
+    return { ok: false, error: "Score must be a whole number from 0 to 100." };
+  }
+
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const { ctx, session } = gate;
+
+  const { data, error } = await createServiceClient()
+    .from("interview_answer_scores")
+    .update({
+      human_adjusted_score: score,
+      human_feedback: (feedback ?? "").trim().slice(0, SCORE_FEEDBACK_MAX) || null,
+      adjusted_by: ctx.user.id,
+      // Cached, not looked up later: audit history must keep saying who made
+      // the call even after they leave the company.
+      adjusted_by_name: ctx.memberName,
+      adjusted_at: new Date().toISOString(),
+    })
+    .eq("answer_id", answerId)
+    .eq("session_id", session.id)
+    .eq("company_id", ctx.companyId)
+    .select("answer_id");
+
+  if (error) {
+    console.error("[interview] answer adjust failed:", error.message);
+    return { ok: false, error: "Couldn't save that adjustment. Try again." };
+  }
+  if ((data ?? []).length === 0) {
+    return { ok: false, error: "That answer hasn't been scored yet." };
+  }
+
+  revalidatePath(`/ai-dashboard/interviews/${session.id}`);
+  return { ok: true };
+}
+
+/**
+ * Drop a correction and fall back to the model's own score.
+ *
+ * Nulls all five columns together — a half-cleared row (a score with no
+ * author, or an author with no score) would read as corrupt.
+ */
+export async function revertAnswerScore(
+  sessionId: string,
+  answerId: string,
+): Promise<SessionMutation> {
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const { ctx, session } = gate;
+
+  const { error } = await createServiceClient()
+    .from("interview_answer_scores")
+    .update({
+      human_adjusted_score: null,
+      human_feedback: null,
+      adjusted_by: null,
+      adjusted_by_name: null,
+      adjusted_at: null,
+    })
+    .eq("answer_id", answerId)
+    .eq("session_id", session.id)
+    .eq("company_id", ctx.companyId);
+
+  if (error) {
+    console.error("[interview] answer revert failed:", error.message);
+    return { ok: false, error: "Couldn't revert that. Try again." };
+  }
+
+  revalidatePath(`/ai-dashboard/interviews/${session.id}`);
+  return { ok: true };
+}
+
+/** Adjust the SESSION's overall score. Same discipline, different table. */
+export async function adjustSessionScore(
+  sessionId: string,
+  score: number,
+  feedback?: string,
+): Promise<SessionMutation> {
+  if (!validScore(score)) {
+    return { ok: false, error: "Score must be a whole number from 0 to 100." };
+  }
+
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const { ctx, session } = gate;
+
+  const { data, error } = await createServiceClient()
+    .from("interview_session_scores")
+    .update({
+      human_adjusted_score: score,
+      human_feedback: (feedback ?? "").trim().slice(0, SCORE_FEEDBACK_MAX) || null,
+      adjusted_by: ctx.user.id,
+      adjusted_by_name: ctx.memberName,
+      adjusted_at: new Date().toISOString(),
+    })
+    .eq("session_id", session.id)
+    .eq("company_id", ctx.companyId)
+    .select("session_id");
+
+  if (error) {
+    console.error("[interview] session adjust failed:", error.message);
+    return { ok: false, error: "Couldn't save that adjustment. Try again." };
+  }
+  if ((data ?? []).length === 0) {
+    return { ok: false, error: "This interview hasn't been scored yet." };
+  }
+
+  revalidatePath(`/ai-dashboard/interviews/${session.id}`);
+  revalidatePath("/ai-dashboard/interviews");
+  return { ok: true };
+}
+
+export async function revertSessionScore(
+  sessionId: string,
+): Promise<SessionMutation> {
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const { ctx, session } = gate;
+
+  const { error } = await createServiceClient()
+    .from("interview_session_scores")
+    .update({
+      human_adjusted_score: null,
+      human_feedback: null,
+      adjusted_by: null,
+      adjusted_by_name: null,
+      adjusted_at: null,
+    })
+    .eq("session_id", session.id)
+    .eq("company_id", ctx.companyId);
+
+  if (error) {
+    console.error("[interview] session revert failed:", error.message);
+    return { ok: false, error: "Couldn't revert that. Try again." };
+  }
+
+  revalidatePath(`/ai-dashboard/interviews/${session.id}`);
+  revalidatePath("/ai-dashboard/interviews");
+  return { ok: true };
+}

@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
+import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import { Check, Clock, Send, Video, XCircle } from "lucide-react";
 import { fetchInterviewSession, sendInterviewInvite } from "./interview-actions";
 import type { InterviewSessionSummary } from "./interview-types";
@@ -141,6 +142,36 @@ export function InterviewPanel({
 
       {/* Straight into the review page. Only offered once something has been
           recorded — a link to an empty review is worse than no link. */}
+      {/* The interview score sits BESIDE the CV score in the drawer, never
+          merged with it: one reads a document, the other reads spoken answers,
+          and a blended number would hide which is which. Absent on either side
+          says so in its own words rather than showing a zero. */}
+      {session && session.answered > 0 && (
+        <div className="flex items-center gap-3 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t3)]">
+            Interview
+          </span>
+          {session.scoreStatus === "scored" && session.score !== null ? (
+            <span
+              className={`font-heading text-2xl font-extrabold leading-none tracking-[-0.04em] ${BAND_TEXT[scoreBand(session.score)]}`}
+            >
+              {session.score}
+            </span>
+          ) : (
+            <span className="text-[12.5px] italic text-[var(--ai-t4)]">
+              {session.scoreStatus === "pending" || session.scoreStatus === null
+                ? "Not scored yet"
+                : session.scoreStatus === "failed"
+                  ? "Scoring failed"
+                  : "Not scored"}
+            </span>
+          )}
+          <span className="ml-auto text-[11.5px] text-[var(--ai-t3)]">
+            {session.answered} of {session.total} answered
+          </span>
+        </div>
+      )}
+
       {session && session.answered > 0 && (
         <Link
           href={`/ai-dashboard/interviews/${session.id}`}

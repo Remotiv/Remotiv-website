@@ -338,6 +338,19 @@ export async function fetchInterviewSession(
   }[])[0];
   if (!row) return null;
 
+  // The interview score, if one exists. Company-gated on its own column.
+  const { data: scoreRow } = await service
+    .from("interview_session_scores")
+    .select("status, overall_score, human_adjusted_score")
+    .eq("session_id", row.id)
+    .eq("company_id", ctx.companyId)
+    .maybeSingle();
+  const sc = scoreRow as {
+    status: string | null;
+    overall_score: number | null;
+    human_adjusted_score: number | null;
+  } | null;
+
   const { count: answered } = await service
     .from("interview_answers")
     .select("id", { count: "exact", head: true })
@@ -380,5 +393,7 @@ export async function fetchInterviewSession(
     sentAt: row.created_at,
     answered: answered ?? 0,
     total: total ?? 0,
+    score: sc ? (sc.human_adjusted_score ?? sc.overall_score) : null,
+    scoreStatus: sc?.status ?? null,
   };
 }

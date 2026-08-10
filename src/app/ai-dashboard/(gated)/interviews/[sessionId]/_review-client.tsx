@@ -9,6 +9,7 @@ import {
   Copy,
   Lock,
   Mic,
+  Pencil,
   Sparkles,
   TriangleAlert,
   Archive,
@@ -20,21 +21,32 @@ import {
 } from "lucide-react";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
+  BAND_PANEL,
+  BAND_TEXT,
+  scoreBand,
+} from "@/app/ai-dashboard/lib/score-bands";
+import {
   PIPELINE_STAGE_LABELS,
   PIPELINE_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/actions";
 import type {
+  AnswerScoreView,
   InterviewAnswerView,
   InterviewNote,
   InterviewScore,
   InterviewSessionDetail,
+  ScoredEvidence,
 } from "@/lib/interviews/review-types";
 import {
   addInterviewNote,
+  adjustAnswerScore,
+  adjustSessionScore,
   deleteInterview,
   deleteInterviewNote,
   getAnswerPlaybackUrl,
+  revertAnswerScore,
+  revertSessionScore,
   setInterviewArchived,
   updateInterviewNote,
 } from "../actions";
@@ -50,6 +62,12 @@ import {
  * has no media at all. Each of those has to read as a deliberate state rather
  * than as a page that failed to load, which is most of what this file is.
  */
+
+/** Seconds → m:ss, for a seek chip. */
+function fmtStamp(seconds: number): string {
+  const t = Math.max(0, Math.floor(seconds));
+  return `${Math.floor(t / 60)}:${String(t % 60).padStart(2, "0")}`;
+}
 
 function mmss(total: number | null): string {
   if (!total || total < 0) return "—";
@@ -85,7 +103,26 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
   const router = useRouter();
+  const videoRef = useRef<HTMLVideoElement | null>(null);
   const answer: InterviewAnswerView | undefined = session.answers[active];
+
+  /**
+   * Jump the player to the moment a quote was said.
+   *
+   * When the recording is gone the button still renders and REPORTS the
+   * timestamp instead of seeking — the evidence is still meaningful, and a
+   * control that vanished would make a purged scorecard look broken.
+   */
+  const seekTo = useCallback((seconds: number) => {
+    const el = videoRef.current;
+    if (!el) {
+      setToast(`Recording unavailable — quote at ${fmtStamp(seconds)}`);
+      return;
+    }
+    el.currentTime = seconds;
+    void el.play().catch(() => {});
+    setToast(`Jumped to ${fmtStamp(seconds)}`);
+  }, []);
 
   useEffect(() => {
     if (!toast) return;
@@ -227,7 +264,14 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
         </Notice>
       )}
 
-      <ScoreCard score={session.score} purged={session.purged} />
+      <VerdictStrip
+        sessionId={session.id}
+        score={session.score}
+        purged={session.purged}
+        status={session.status}
+        onToast={setToast}
+        onChanged={() => router.refresh()}
+      />
 
       <SessionNotice session={session} />
 
@@ -237,7 +281,14 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
         <div className="grid grid-cols-1 items-start gap-3.5 min-[1017px]:grid-cols-[minmax(0,1.62fr)_minmax(0,1fr)]">
           {/* ── Left: player + question + transcript ── */}
           <div className="min-w-0">
-            {answer && <Player key={answer.id} sessionId={session.id} answer={answer} />}
+            {answer && (
+              <Player
+                key={answer.id}
+                sessionId={session.id}
+                answer={answer}
+                videoRef={videoRef}
+              />
+            )}
 
             <div className="overflow-hidden rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
               <div className="px-5 py-[18px]">
@@ -278,6 +329,17 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
                   </div>
                   {answer && <Transcript answer={answer} />}
                 </div>
+
+                {answer && (
+                  <Scorecard
+                    sessionId={session.id}
+                    answer={answer}
+                    index={active}
+                    onSeek={seekTo}
+                    onToast={setToast}
+                    onChanged={() => router.refresh()}
+                  />
+                )}
               </div>
             </div>
           </div>
@@ -485,107 +547,498 @@ function DeleteConfirm({
 }
 
 /**
- * The AI score panel.
+ * The session verdict, on a dark strip.
  *
- * Renders as itself in every state, including the two that are the common case
- * today: nothing has scored yet (no row), and scoring is switched off (a
- * `skipped` row carrying the reason). Neither is an error and neither is blank.
+ * NOT the mint-block hero — that is the metric treatment for a list page. This
+ * is a narrower three-part strip: a band-tinted score block, the verdict and
+ * summary, then confidence.
  *
- * SURVIVES A PURGE. The score is derived from the transcript, and the purge
- * removes video but keeps the answer record — so a scorecard can outlive the
- * recording it came from. When that happens the panel says so, rather than
- * looking like a score attached to nothing.
+ * Hidden entirely when the interview is in progress or never started: there is
+ * nothing to verdict, and an empty strip would imply something is loading.
  */
-function ScoreCard({
+function VerdictStrip({
+  sessionId,
   score,
   purged,
+  status,
+  onToast,
+  onChanged,
 }: {
+  sessionId: string;
   score: InterviewScore | null;
   purged: boolean;
+  status: string;
+  onToast: (message: string) => void;
+  onChanged: () => void;
 }) {
-  if (!score) return null;
+  const [editing, setEditing] = useState(false);
+  if (status !== "submitted" && status !== "cancelled") return null;
 
-  if (score.status === "scored") {
-    const shown = score.humanScore ?? score.overall;
-    const band =
-      shown === null
-        ? "text-[var(--ai-t3)]"
-        : shown >= 80
-          ? "text-[var(--ai-mint-ink)]"
-          : shown >= 60
-            ? "text-[var(--ai-amber-ink)]"
-            : "text-[var(--ai-danger)]";
-    return (
-      <div className="mb-4 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3.5">
-        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
-          <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t3)]">
-            AI score
-          </span>
-          <span className={`font-heading text-[26px] font-extrabold leading-none tracking-[-0.03em] ${band}`}>
-            {shown ?? "—"}
-          </span>
-          {score.humanScore !== null && (
-            <span className="rounded-full bg-[var(--ai-purple-tint)] px-2.5 py-1 text-[10.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
-              Adjusted by a reviewer
-            </span>
+  const shown = score?.humanScore ?? score?.overall ?? null;
+  const scored = score?.status === "scored" && shown !== null;
+  const band = scored ? BAND_PANEL[scoreBand(shown)] : null;
+  const adj = score?.adjustment ?? null;
+
+  return (
+    <div className="mb-4 overflow-hidden rounded-[18px] bg-[var(--ai-sidebar)] shadow-[0_14px_38px_rgba(20,16,32,0.22)]">
+      <div className="grid grid-cols-1 items-stretch min-[720px]:grid-cols-[132px_minmax(0,1fr)_auto]">
+        <div
+          className={`flex flex-col items-center justify-center px-4 py-5 text-center ${
+            band
+              ? band.panel
+              : "border-b border-white/10 bg-white/[0.06] min-[720px]:border-b-0 min-[720px]:border-r"
+          }`}
+        >
+          <p
+            className={`m-0 font-heading font-extrabold leading-none tracking-[-0.05em] ${
+              band ? `text-[42px] ${band.numeral}` : "text-[26px] text-white/50"
+            }`}
+          >
+            {scored ? shown : "—"}
+          </p>
+          <p
+            className={`m-0 mt-1.5 text-[9px] font-extrabold uppercase tracking-[0.14em] ${
+              band ? band.label : "text-white/35"
+            }`}
+          >
+            Overall
+          </p>
+        </div>
+
+        <div className="flex min-w-0 flex-col justify-center px-6 py-5">
+          {/* Explicit colours: the DS's global `p { color:#444 }` beats an
+              inherited white on a dark surface. */}
+          <p className="m-0 mb-1.5 text-[15.5px] font-bold leading-snug tracking-[-0.015em] text-white">
+            {scored
+              ? (score?.verdict ?? "Scored — see the answers below")
+              : "Not scored yet"}
+          </p>
+          <p className="m-0 text-[12.5px] leading-relaxed text-white/[0.58]">
+            {scored
+              ? (score?.summary ??
+                "Every answer has been scored individually — open each one for its reasoning and evidence.")
+              : score?.status === "failed"
+                ? (score.error?.slice(0, 200) ??
+                  "Scoring didn't complete. The recording and transcripts are unaffected.")
+                : score?.status === "skipped"
+                  ? (score.error?.slice(0, 200) ??
+                    "This interview wasn't scored. The recording is unaffected.")
+                  : "Scoring runs on the transcript, so it starts once transcription is switched on for this workspace. The recording is unaffected — watch and judge it yourself in the meantime."}
+          </p>
+          {adj && (
+            <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-remotiv-lime">
+              {adj.by} changed this from{" "}
+              <span className="line-through opacity-70">{adj.aiScore ?? "—"}</span> to{" "}
+              <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
+              {adj.feedback ? ` — “${adj.feedback}”` : ""}
+            </p>
           )}
-          {score.verdict && (
-            <span className="text-[13px] font-bold text-[var(--ai-t1)]">
-              {score.verdict}
-            </span>
+          {purged && scored && (
+            <p className="m-0 mt-2 text-[11.5px] text-white/40">
+              The recording has since been deleted; the score and its evidence remain.
+            </p>
           )}
-          {score.confidence && (
-            <span className="text-[11.5px] text-[var(--ai-t4)]">
+        </div>
+
+        <div className="flex shrink-0 flex-row items-center justify-between gap-2.5 px-6 pb-5 min-[720px]:flex-col min-[720px]:items-end min-[720px]:justify-center min-[720px]:py-5 min-[720px]:pl-0">
+          {score?.confidence && (
+            <span
+              className={`whitespace-nowrap rounded-full px-[11px] py-1 text-[10.5px] font-bold ${
+                score.confidence === "high"
+                  ? "bg-[rgba(73,215,167,0.16)] text-remotiv-green"
+                  : score.confidence === "low"
+                    ? "bg-[rgba(245,165,36,0.18)] text-[#F7C36B]"
+                    : "bg-white/10 text-white/[0.78]"
+              }`}
+            >
               {score.confidence} confidence
             </span>
           )}
+          {scored && (
+            <button
+              type="button"
+              onClick={() => setEditing((v) => !v)}
+              className="whitespace-nowrap border-none bg-transparent p-0 text-[11px] font-bold text-white/60 transition-colors hover:text-white"
+            >
+              {editing ? "Cancel" : "Adjust overall"}
+            </button>
+          )}
         </div>
-        {score.summary && (
-          <p className="m-0 mt-2 text-[13px] leading-relaxed text-[var(--ai-t2)]">
-            {score.summary}
-          </p>
-        )}
-        <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
-          Scored from the transcript only — there is no analysis of the video.
-          {purged ? " The recording has since been deleted; the score remains." : ""}
-        </p>
+      </div>
+
+      {editing && (
+        <div className="border-t border-white/10 bg-white p-3.5">
+          <AdjustForm
+            current={shown ?? 0}
+            canRevert={adj !== null}
+            onCancel={() => setEditing(false)}
+            onSave={(value, note) => adjustSessionScore(sessionId, value, note)}
+            onRevert={() => revertSessionScore(sessionId)}
+            onToast={onToast}
+            onDone={() => {
+              setEditing(false);
+              onChanged();
+            }}
+          />
+        </div>
+      )}
+    </div>
+  );
+}
+
+
+/**
+ * The per-answer AI scorecard. Six states, each rendering as itself.
+ *
+ * `pending` is the common one today — an answer transcribed before scoring
+ * landed has no row at all, which to a reviewer is the same fact.
+ */
+function Scorecard({
+  sessionId,
+  answer,
+  index,
+  onSeek,
+  onToast,
+  onChanged,
+}: {
+  sessionId: string;
+  answer: InterviewAnswerView;
+  index: number;
+  onSeek: (seconds: number) => void;
+  onToast: (message: string) => void;
+  onChanged: () => void;
+}) {
+  const [editing, setEditing] = useState(false);
+  const score: AnswerScoreView | null = answer.score;
+  const status = score?.status ?? "pending";
+
+  if (status !== "scored") {
+    const copy = {
+      pending: {
+        title: "Scoring this answer…",
+        body: "The transcript is being scored against your rubric. The video is ready to watch now.",
+        bad: false,
+      },
+      failed: {
+        title: "Scoring failed",
+        body:
+          score?.error?.slice(0, 220) ??
+          "We couldn't score this answer. Nothing is wrong with the recording itself.",
+        bad: true,
+      },
+      skipped: {
+        title: "Not scored",
+        body:
+          score?.error?.slice(0, 220) ??
+          "This answer wasn't scored, so it's here for context only. Read it yourself and judge.",
+        bad: false,
+      },
+      norubric: {
+        title: "No rubric for this question",
+        body: "This question has no rubric set, so there's nothing to score it against. Add one and scoring runs on future interviews.",
+        bad: false,
+      },
+    }[status];
+
+    return (
+      <div className="mt-4 border-t border-[var(--ai-line-soft)] pt-4">
+        <SectionLabel>AI scorecard</SectionLabel>
+        <div
+          className={`flex gap-3 rounded-[13px] border border-dashed px-4 py-[15px] ${
+            copy.bad
+              ? "border-[rgba(224,82,75,0.24)] bg-[var(--ai-danger-tint)]"
+              : "border-[var(--ai-line)] bg-[var(--ai-inset)]"
+          }`}
+        >
+          <span
+            className={`flex size-8 shrink-0 items-center justify-center rounded-[10px] border bg-[var(--ai-surface)] ${
+              copy.bad
+                ? "border-[rgba(224,82,75,0.24)] text-[var(--ai-danger)]"
+                : "border-[var(--ai-line)] text-[var(--ai-t3)]"
+            }`}
+          >
+            {copy.bad ? (
+              <TriangleAlert className="size-4" strokeWidth={1.9} />
+            ) : (
+              <Mic className="size-4" strokeWidth={1.9} />
+            )}
+          </span>
+          <span className="min-w-0">
+            <p className="m-0 text-[13px] font-bold leading-tight text-[var(--ai-t1)]">
+              {copy.title}
+            </p>
+            <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+              {copy.body}
+            </p>
+          </span>
+        </div>
+        <Disclosure />
       </div>
     );
   }
 
-  const copy =
-    score.status === "pending"
-      ? {
-          title: "Scoring hasn't run yet",
-          body: "This interview is queued. The score appears here once every answer has been assessed.",
-        }
-      : score.status === "failed"
-        ? {
-            title: "Scoring didn't complete",
-            body:
-              score.error?.slice(0, 240) ??
-              "The scorer couldn't finish. The answers and transcripts are unaffected.",
-          }
-        : {
-            title: "Not scored",
-            body:
-              score.error?.slice(0, 240) ??
-              "This interview wasn't scored. The answers and transcripts are unaffected.",
-          };
+  const shown = score?.shownScore ?? 0;
+  const adj = score?.adjustment ?? null;
 
   return (
-    <div className="mb-4 flex gap-3 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
-      <span className="mt-px flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t3)]">
-        <Sparkles className="size-4" strokeWidth={1.9} />
-      </span>
-      <span className="min-w-0">
-        <p className="m-0 text-[13px] font-bold leading-tight text-[var(--ai-t1)]">
-          {copy.title}
+    <div className="mt-4 border-t border-[var(--ai-line-soft)] pt-4">
+      <div className="mb-3.5 flex items-center justify-between gap-3.5 border-b border-[var(--ai-line-soft)] pb-3">
+        <div className="flex min-w-0 items-center gap-3">
+          <span
+            className={`shrink-0 font-heading text-[26px] font-extrabold leading-none tracking-[-0.04em] ${BAND_TEXT[scoreBand(shown)]}`}
+          >
+            {shown}
+          </span>
+          <div className="min-w-0">
+            <p className="m-0 text-[12.5px] font-bold leading-tight text-[var(--ai-t1)]">
+              Question {index + 1}
+              {answer.competency ? ` · ${answer.competency}` : ""}
+            </p>
+            <small className="mt-[3px] flex flex-wrap items-center gap-[7px] text-[11.5px] text-[var(--ai-t3)]">
+              {score?.confidence && (
+                <span className="rounded-full bg-[var(--ai-inset)] px-2 py-0.5 text-[10.5px] font-bold">
+                  {score.confidence} confidence
+                </span>
+              )}
+              {adj ? `Adjusted by ${adj.by}` : "AI scored"}
+            </small>
+          </div>
+        </div>
+        <button
+          type="button"
+          onClick={() => setEditing((v) => !v)}
+          className="shrink-0 border-none bg-transparent p-0 text-xs font-bold text-remotiv-purple transition-colors hover:text-[var(--ai-purple-hover,#6D38F0)]"
+        >
+          {editing ? "Cancel" : "Adjust score"}
+        </button>
+      </div>
+
+      {/* The AI's original is never overwritten — it stays visible, struck
+          through, beside the human's number. The comparison IS the value. */}
+      {adj && (
+        <div className="mb-3.5 flex gap-[11px] rounded-xl border border-[rgba(126,71,255,0.2)] bg-[var(--ai-purple-tint)] px-3.5 py-3">
+          <Pencil className="mt-px size-[15px] shrink-0 text-remotiv-purple" strokeWidth={2} />
+          <p className="m-0 text-xs leading-relaxed text-[var(--ai-purple-ink)]">
+            <b className="font-bold">{adj.by} changed this score</b> from{" "}
+            <span className="line-through opacity-65">{adj.aiScore ?? "—"}</span> to{" "}
+            <b className="font-bold">{shown}</b> · {fmtDate(adj.at)}
+            {adj.feedback ? (
+              <>
+                <br />
+                &ldquo;{adj.feedback}&rdquo;
+              </>
+            ) : null}
+          </p>
+        </div>
+      )}
+
+      {editing && (
+        <AdjustForm
+          current={shown}
+          canRevert={adj !== null}
+          onCancel={() => setEditing(false)}
+          onSave={(value, note) => adjustAnswerScore(sessionId, answer.id, value, note)}
+          onRevert={() => revertAnswerScore(sessionId, answer.id)}
+          onToast={onToast}
+          onDone={() => {
+            setEditing(false);
+            onChanged();
+          }}
+        />
+      )}
+
+      {score?.reasoning && (
+        <p className="m-0 mb-4 text-[13px] leading-[1.68] text-[var(--ai-t2)]">
+          {score.reasoning}
         </p>
-        <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-          {copy.body}
-        </p>
+      )}
+
+      {score && score.strengths.length > 0 && (
+        <>
+          <SectionLabel>Strengths</SectionLabel>
+          <EvidenceList items={score.strengths} tone="good" onSeek={onSeek} />
+        </>
+      )}
+      {score && score.concerns.length > 0 && (
+        <>
+          <SectionLabel>Points to verify</SectionLabel>
+          <EvidenceList items={score.concerns} tone="verify" onSeek={onSeek} />
+        </>
+      )}
+      {score && score.missing.length > 0 && (
+        <>
+          <SectionLabel>Not covered</SectionLabel>
+          <ul className="m-0 mb-4 list-disc pl-[18px] text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+            {score.missing.map((m) => (
+              <li key={m}>{m}</li>
+            ))}
+          </ul>
+        </>
+      )}
+
+      <Disclosure />
+    </div>
+  );
+}
+
+function SectionLabel({ children }: { children: React.ReactNode }) {
+  return (
+    <p className="m-0 mb-2.5 flex items-center gap-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t3)] after:h-px after:flex-1 after:bg-[var(--ai-line-soft)] after:content-['']">
+      {children}
+    </p>
+  );
+}
+
+/** Non-negotiable, on every scorecard including the state panels. */
+function Disclosure() {
+  return (
+    <p className="m-0 flex gap-[9px] border-t border-[var(--ai-line-soft)] pt-3 text-[11px] leading-relaxed text-[var(--ai-t4)]">
+      <Lock className="mt-0.5 size-[13px] shrink-0" strokeWidth={1.9} />
+      <span>
+        Scored from the transcript only. Nothing about face, voice or accent is
+        analysed. A person makes the decision.
       </span>
+    </p>
+  );
+}
+
+/**
+ * A claim, its verbatim quote, and a chip that jumps the player to it.
+ *
+ * The chip is ABSENT when the quote could not be located in the timed
+ * segments. Seeking to 0:00 would look like a working control and land on the
+ * wrong moment, which is worse than no control at all.
+ */
+function EvidenceList({
+  items,
+  tone,
+  onSeek,
+}: {
+  items: ScoredEvidence[];
+  tone: "good" | "verify";
+  onSeek: (seconds: number) => void;
+}) {
+  return (
+    <div className="mb-4 flex flex-col gap-2.5">
+      {items.map((it) => (
+        <div
+          key={it.claim}
+          className={`border-l-[2.5px] pl-3 ${
+            tone === "good" ? "border-remotiv-green" : "border-[#F5A524]"
+          }`}
+        >
+          <p className="m-0 mb-1 text-[12.5px] font-semibold leading-normal text-[var(--ai-t1)]">
+            {it.claim}
+          </p>
+          {it.quote && (
+            <p className="m-0 text-[11.5px] italic leading-relaxed text-[var(--ai-t3)]">
+              &ldquo;{it.quote}&rdquo;
+              {it.startSeconds !== null && (
+                <button
+                  type="button"
+                  onClick={() => onSeek(it.startSeconds as number)}
+                  className="ml-2 inline-flex items-center gap-1 rounded-md border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-1.5 py-0.5 align-middle text-[10.5px] font-bold not-italic text-[var(--ai-t2)] transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white"
+                >
+                  {fmtStamp(it.startSeconds)} ▸
+                </button>
+              )}
+            </p>
+          )}
+        </div>
+      ))}
+    </div>
+  );
+}
+
+/** Shared by the answer and session adjust flows — same fields, same rules. */
+function AdjustForm({
+  current,
+  canRevert,
+  onCancel,
+  onSave,
+  onRevert,
+  onToast,
+  onDone,
+}: {
+  current: number;
+  canRevert: boolean;
+  onCancel: () => void;
+  onSave: (score: number, note: string) => Promise<{ ok: boolean; error?: string }>;
+  onRevert: () => Promise<{ ok: boolean; error?: string }>;
+  onToast: (message: string) => void;
+  onDone: () => void;
+}) {
+  const [value, setValue] = useState(String(current));
+  const [note, setNote] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  async function run(
+    fn: () => Promise<{ ok: boolean; error?: string }>,
+    msg: string,
+  ) {
+    setBusy(true);
+    const res = await fn();
+    setBusy(false);
+    if (!res.ok) {
+      onToast(res.error ?? "That didn't save.");
+      return;
+    }
+    onToast(msg);
+    onDone();
+  }
+
+  return (
+    <div className="mb-3.5 rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-3.5">
+      <div className="flex flex-wrap items-end gap-3">
+        <label className="text-[11.5px] font-bold text-[var(--ai-t2)]">
+          <span className="mb-1.5 block">Your score</span>
+          <input
+            type="number"
+            min={0}
+            max={100}
+            value={value}
+            onChange={(e) => setValue(e.target.value)}
+            className="w-[88px] rounded-lg border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-2.5 py-2 text-sm font-bold text-[var(--ai-t1)] outline-none focus:border-remotiv-purple"
+          />
+        </label>
+        <label className="min-w-0 flex-1 text-[11.5px] font-bold text-[var(--ai-t2)]">
+          <span className="mb-1.5 block">Why (optional, shown to your team)</span>
+          <input
+            value={note}
+            onChange={(e) => setNote(e.target.value)}
+            placeholder="What the model missed…"
+            className="w-full rounded-lg border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-2.5 py-2 text-[13px] font-normal text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t4)] focus:border-remotiv-purple"
+          />
+        </label>
+      </div>
+      <div className="mt-3 flex flex-wrap justify-end gap-2">
+        {canRevert && (
+          <button
+            type="button"
+            disabled={busy}
+            onClick={() => void run(onRevert, "Reverted to the AI score")}
+            className="rounded-full border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-1.5 text-xs font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:opacity-50"
+          >
+            Revert to AI score
+          </button>
+        )}
+        <button
+          type="button"
+          onClick={onCancel}
+          disabled={busy}
+          className="rounded-full border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-1.5 text-xs font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:opacity-50"
+        >
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={busy}
+          onClick={() => void run(() => onSave(Number(value), note), "Score adjusted")}
+          className="rounded-full border border-remotiv-purple bg-remotiv-purple px-3.5 py-1.5 text-xs font-bold text-white transition-colors hover:bg-[var(--ai-purple-hover,#6D38F0)] disabled:opacity-50"
+        >
+          Save
+        </button>
+      </div>
     </div>
   );
 }
@@ -675,9 +1128,11 @@ function Notice({
 function Player({
   sessionId,
   answer,
+  videoRef,
 }: {
   sessionId: string;
   answer: InterviewAnswerView;
+  videoRef: React.RefObject<HTMLVideoElement | null>;
 }) {
   const [url, setUrl] = useState<string | null>(null);
   const [error, setError] = useState<string | null>(null);
@@ -731,6 +1186,7 @@ function Player({
       {url ? (
         // biome-ignore lint/a11y/useMediaCaption: the transcript below IS the caption track
         <video
+          ref={videoRef}
           src={url}
           controls
           playsInline

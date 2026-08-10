@@ -12,6 +12,7 @@ import {
   Video,
 } from "lucide-react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
+import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   INTERVIEW_STATUS_LABELS,
@@ -375,16 +376,10 @@ function ScorePill({ score }: { score: InterviewScore | null }) {
         <span className="text-[12.5px] italic text-[var(--ai-t4)]">—</span>
       );
     }
-    const band =
-      shown >= 80
-        ? "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]"
-        : shown >= 60
-          ? "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
-          : "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]";
     return (
       <span className="inline-flex items-center gap-1.5">
         <span
-          className={`rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${band}`}
+          className={`font-heading text-base font-extrabold tabular-nums tracking-[-0.035em] ${BAND_TEXT[scoreBand(shown)]}`}
         >
           {shown}
         </span>
@@ -402,9 +397,11 @@ function ScorePill({ score }: { score: InterviewScore | null }) {
   const label =
     score.status === "pending"
       ? "Scoring…"
-      : score.status === "skipped"
-        ? "Not scored"
-        : "Scoring failed";
+      : score.status === "norubric"
+        ? "No rubric"
+        : score.status === "skipped"
+          ? "Not scored"
+          : "Scoring failed";
   return (
     <span
       className="text-[12.5px] italic text-[var(--ai-t4)]"

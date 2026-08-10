@@ -7,7 +7,10 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { findQuoteStart } from "./quote-timestamps";
+import type { TranscriptSegment } from "./transcribe";
 import type {
+  AnswerScoreView,
   CandidateLink,
   InterviewAnswerView,
   InterviewNote,
@@ -17,6 +20,9 @@ import type {
   InterviewScore,
   InterviewStatus,
   InterviewTab,
+  ScoreAdjustment,
+  ScoredEvidence,
+  ScoreStatus,
   TranscriptState,
 } from "./review-types";
 
@@ -410,7 +416,7 @@ export async function loadInterviewSession(
   const { data: answerRows } = await service
     .from("interview_answers")
     .select(
-      "id, position, question_text, video_path, duration_seconds, transcript, transcript_status, transcript_error, recorded_at",
+      "id, position, question_text, video_path, duration_seconds, transcript, transcript_segments, transcript_status, transcript_error, recorded_at",
     )
     .eq("session_id", row.id)
     .order("position", { ascending: true })
@@ -424,6 +430,7 @@ export async function loadInterviewSession(
       video_path: string | null;
       duration_seconds: number | null;
       transcript: string | null;
+      transcript_segments: unknown;
       transcript_status: string | null;
       transcript_error: string | null;
       recorded_at: string | null;
@@ -431,6 +438,8 @@ export async function loadInterviewSession(
   ).map((a) => ({
     id: a.id,
     position: a.position,
+    hasSegments: Array.isArray(a.transcript_segments) && a.transcript_segments.length > 0,
+    score: null,
     questionText: (a.question_text ?? "").trim() || `Question ${a.position}`,
     competency: null,
     durationSeconds: a.duration_seconds,
@@ -444,6 +453,31 @@ export async function loadInterviewSession(
     transcriptError: a.transcript_error,
     recordedAt: a.recorded_at,
   }));
+
+  /*
+   * Per-answer scores, with every evidence quote resolved to a timestamp.
+   *
+   * Resolution happens HERE, server-side, because the segments are the raw
+   * material and there is no reason to ship them to the browser — a quote and
+   * a number of seconds is all the seek button needs.
+   */
+  const segmentsById = new Map<string, TranscriptSegment[]>();
+  for (const a of (answerRows ?? []) as {
+    id: string;
+    transcript_segments: unknown;
+  }[]) {
+    if (Array.isArray(a.transcript_segments)) {
+      segmentsById.set(a.id, a.transcript_segments as TranscriptSegment[]);
+    }
+  }
+
+  const answerScores = await fetchAnswerScores(
+    service,
+    ctx.companyId,
+    row.id,
+    segmentsById,
+  );
+  for (const a of answers) a.score = answerScores.get(a.id) ?? null;
 
   // Competency lives on the QUESTION, never on the answer, and is reviewer-only
   // — the candidate payload deliberately withholds it.
@@ -506,6 +540,125 @@ export async function loadInterviewSession(
   };
 }
 
+/** A correction, or null. Null-safe on every column so a half-written row
+ *  (a score with no author) reads as absent rather than as corrupt. */
+function toAdjustment(
+  score: number | null,
+  byName: string | null,
+  at: string | null,
+  feedback: string | null,
+  aiScore: number | null,
+): ScoreAdjustment | null {
+  if (score === null || !at) return null;
+  return {
+    by: (byName ?? "").trim() || "A teammate",
+    at,
+    feedback: (feedback ?? "").trim() || null,
+    aiScore,
+  };
+}
+
+/**
+ * Per-answer scores for one session, quotes already resolved to timestamps.
+ */
+async function fetchAnswerScores(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  sessionId: string,
+  segments: Map<string, TranscriptSegment[]>,
+): Promise<Map<string, AnswerScoreView>> {
+  const out = new Map<string, AnswerScoreView>();
+  const { data } = await service
+    .from("interview_answer_scores")
+    .select(
+      "answer_id, status, score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, confidence, reasoning, evidence, strengths, concerns, missing, error",
+    )
+    .eq("company_id", companyId)
+    .eq("session_id", sessionId)
+    .limit(50);
+
+  for (const r of (data ?? []) as {
+    answer_id: string;
+    status: string | null;
+    score: number | null;
+    human_adjusted_score: number | null;
+    human_feedback: string | null;
+    adjusted_by_name: string | null;
+    adjusted_at: string | null;
+    confidence: string | null;
+    reasoning: string | null;
+    evidence: unknown;
+    strengths: unknown;
+    concerns: unknown;
+    missing: unknown;
+    error: string | null;
+  }[]) {
+    const segs = segments.get(r.answer_id) ?? null;
+
+    /*
+     * The model returns ONE evidence array; strengths and concerns are plain
+     * strings. Pairing is done by matching a strength/concern to the evidence
+     * item whose CLAIM it is — never by array position, which is how the CV
+     * scorer once attached a real quote to the wrong claim.
+     */
+    const evidence = Array.isArray(r.evidence)
+      ? (r.evidence as { claim?: unknown; quote?: unknown }[])
+      : [];
+    const byClaim = new Map<string, string>();
+    for (const e of evidence) {
+      if (typeof e?.claim === "string" && typeof e?.quote === "string") {
+        byClaim.set(e.claim.trim(), e.quote.trim());
+      }
+    }
+
+    const pair = (items: unknown): ScoredEvidence[] => {
+      if (!Array.isArray(items)) return [];
+      return items
+        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
+        .map((claim) => {
+          const quote = byClaim.get(claim.trim()) ?? "";
+          return {
+            claim: claim.trim(),
+            quote,
+            startSeconds: quote ? findQuoteStart(quote, segs) : null,
+          };
+        });
+    };
+
+    const status: ScoreStatus =
+      r.status === "scored" ||
+      r.status === "failed" ||
+      r.status === "skipped" ||
+      r.status === "norubric"
+        ? r.status
+        : "pending";
+
+    out.set(r.answer_id, {
+      status,
+      aiScore: r.score,
+      shownScore: r.human_adjusted_score ?? r.score,
+      confidence: r.confidence,
+      reasoning: r.reasoning,
+      strengths: pair(r.strengths),
+      concerns: pair(r.concerns),
+      missing: Array.isArray(r.missing)
+        ? (r.missing as unknown[]).filter(
+            (x): x is string => typeof x === "string",
+          )
+        : [],
+      adjustment: toAdjustment(
+        r.human_adjusted_score,
+        r.adjusted_by_name,
+        r.adjusted_at,
+        r.human_feedback,
+        r.score,
+      ),
+      error: r.error,
+    });
+  }
+  return out;
+}
+
 /**
  * The AI score per session, when one exists.
  *
@@ -522,7 +675,7 @@ async function fetchSessionScores(
     const { data } = await service
       .from("interview_session_scores")
       .select(
-        "session_id, status, overall_score, human_adjusted_score, verdict, summary, confidence, error, scored_at",
+        "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, error, scored_at",
       )
       .eq("company_id", companyId)
       .in("session_id", sessionIds.slice(i, i + 100));
@@ -532,6 +685,9 @@ async function fetchSessionScores(
       status: string | null;
       overall_score: number | null;
       human_adjusted_score: number | null;
+      human_feedback: string | null;
+      adjusted_by_name: string | null;
+      adjusted_at: string | null;
       verdict: string | null;
       summary: string | null;
       confidence: string | null;
@@ -551,6 +707,13 @@ async function fetchSessionScores(
         confidence: r.confidence,
         error: r.error,
         scoredAt: r.scored_at,
+        adjustment: toAdjustment(
+          r.human_adjusted_score,
+          r.adjusted_by_name,
+          r.adjusted_at,
+          r.human_feedback,
+          r.overall_score,
+        ),
       });
     }
   }
