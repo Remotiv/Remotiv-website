@@ -32,25 +32,22 @@ import {
  * Built: the job handler, the per-answer and session-rollup writes, evidence
  * verification, skip paths, idempotency, human-override protection, metering.
  *
- * NOT built: the prompt. SYSTEM_PROMPT below is a PLACEHOLDER and is marked as
- * such. The CV scorer took nine versions driven by real model output on real
- * CVs; writing this one against imagined transcripts would produce a rubric
- * tuned to nothing. It needs a genuine transcript to iterate against, which
- * needs OPENAI_API_KEY, which is not yet set.
- *
- * Until it is written, scoring is OFF by default — see SCORING_ENABLED. The
- * handler still runs, and records an honest `skipped` with a reason, so the
- * whole path is exercised without storing a scorecard nobody should trust.
+ * The rubric is written (v1) against a real transcript — see the banner above
+ * SYSTEM_PROMPT for what that answer taught. Scoring nonetheless stays OFF
+ * until AI_INTERVIEW_SCORING_ENABLED is set: a rubric validated on one answer
+ * is a starting point, not a calibrated instrument, and turning it on for real
+ * candidates is a product decision.
  */
 
 // ── Configuration ────────────────────────────────────────────
 
 /**
- * PLACEHOLDER version. Bump to `interview-scoring-v1` when the real prompt
- * lands, and thereafter on every prompt change — the value is stored on every
- * row so a score can always be traced to the wording that produced it.
+ * Bump on EVERY prompt change. Stored on every row, so a score can always be
+ * traced back to the wording that produced it — the CV scorer reached v9 this
+ * way and being able to say which version scored a given candidate is what
+ * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v0-placeholder";
+export const PROMPT_VERSION = "interview-scoring-v1";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -58,9 +55,9 @@ export { resolveScoringModel };
 /**
  * Off unless explicitly enabled.
  *
- * Two independent reasons, and either alone is sufficient: the prompt is a
- * placeholder, and no company has agreed to have candidates scored by a model.
- * Turning this on is a product decision, not a deploy.
+ * The rubric exists now, but it has been read against ONE transcript. The CV
+ * scorer needed nine passes over real output before its numbers meant
+ * anything, and this one deserves the same before a candidate is scored by it.
  */
 export function scoringEnabled(): boolean {
   return process.env.AI_INTERVIEW_SCORING_ENABLED?.trim() === "true";
@@ -100,47 +97,134 @@ const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
   "adjusted_at",
 ];
 
-// ══ THE PROMPT — PLACEHOLDER, DO NOT SHIP ENABLED ═════════════
+// ══ THE RUBRIC ════════════════════════════════════════════════
 //
-// Everything below this line until the next banner is scaffolding. It states
-// the output contract the parser expects so the plumbing can be exercised end
-// to end, and it deliberately does NOT attempt a rubric: what "a good answer"
-// means for a competency is exactly the part that needs real output to tune.
+// Written against a real 60-second answer to "Tell me about yourself?"
+// (competency: Communication). What that transcript taught, and what the
+// wording below exists to catch:
 //
-// When writing the real prompt, the CV scorer's hard-won lessons apply:
-//   - every claim carries its OWN verbatim quote (no parallel arrays — the
-//     positional join is how a real quote got attached to the wrong claim);
-//   - say explicitly that an ellipsis-stitched quote will be rejected;
-//   - score against the question asked, never against a general impression;
-//   - the model must be told it is reading a TRANSCRIPT: disfluency, false
-//     starts and grammar are artefacts of speech and must not cost marks.
+//   - EVERY quantity in it is a range: "five to seven years", "more than two
+//     to three years" (twice), "30 to 40" leads, "around $10,000", "around
+//     $5,000". A rubric that rewards "has numbers" reads that as concrete. It
+//     is not — it is approximation throughout, and the bands say so.
+//   - The spans do not reconcile cleanly: five-to-seven total against two-to-
+//     three plus two-to-three. Not a lie, but a reviewer should check it, so
+//     it belongs in concerns rather than in the score.
+//   - It is fluent and well-ordered — role, history, metrics, education,
+//     close. A rubric that rewards fluency over-scores it. Fluency is not in
+//     the bands at all.
+//   - "basically" twice, "I have mostly basically generate the leads": broken
+//     grammar from a second-language speaker talking, not a content weakness.
+//     Rule 5 forbids scoring it and rule 6 forbids mentioning it.
 
-export const SYSTEM_PROMPT = `PLACEHOLDER — not a production prompt.
+const SCORE_BANDS = `85-100 — Answers what was asked, completely, with specifics that could be
+         checked: named things, actual figures, concrete outcomes. Nothing
+         material to the question is left unaddressed in the time available.
+70-84  — Answers the question with real substance and some concrete detail,
+         but one or two claims stay general, unquantified, or asserted
+         without support.
+55-69  — Addresses the question, but largely in general terms. Where figures
+         appear they are ranges or approximations rather than facts, or
+         separate claims do not reconcile with one another.
+40-54  — Partially addresses the question. Substantial drift onto something
+         else, or so little substance that most of it cannot be assessed.
+20-39  — Barely engages with what was asked.
+0-19   — Does not answer the question, or there is nothing assessable here.`;
 
-You are assessing ONE spoken interview answer, supplied as a transcript, against
-ONE question and its rubric.
+export const SYSTEM_PROMPT = `You are an experienced interviewer assessing ONE spoken answer to ONE interview question.
 
-Return ONLY a JSON object:
+You are reading a machine transcript of speech. You have no video and no audio. You know nothing about this person beyond these words.
+
+## What you are scoring
+
+Score WHAT WAS SAID against WHAT WAS ASKED. Nothing else.
+
+Score the substance of the answer: does it address the question, and is what it claims specific enough to be worth anything to a hiring decision.
+
+## Score bands — absolute, not relative
+
+Use these exact bands. A 78 must mean the same thing on every question and every candidate. Do not curve, do not compare to other answers, do not drift toward the middle.
+
+${SCORE_BANDS}
+
+A range or an approximation is NOT a specific. "Around $10,000", "two to three years" and "30 to 40" are estimates. An answer built on estimates belongs in 55-69 however confidently they are delivered, unless the question only called for approximations.
+
+## Six rules about speech — read these before scoring
+
+1. This is a TRANSCRIPT. Punctuation and sentence boundaries were guessed by the transcriber and are not the speaker's. Never treat them as evidence of anything.
+
+2. Filler words ("basically", "so", "like", "you know"), false starts, self-corrections and repeated phrases are how people talk. They are NOT content weaknesses. Do not lower the score for them and do not list them.
+
+3. This candidate may be speaking English as a second or third language. Grammar, article and preposition errors, unusual word order and non-native phrasing MUST NOT affect the score in any way. Score the meaning, never the form.
+
+4. Fluency, polish and confidence are NOT scored. A hesitant answer full of substance beats a smooth answer full of nothing, and the bands must be applied that way.
+
+5. Transcription is imperfect. If a passage is garbled, nonsensical, or contains a word that obviously does not belong, assume the transcriber erred — not the speaker. Never quote a garbled passage as evidence and never score it down. If a garbled passage prevents you assessing something the question actually asked, set confidence to "low" and say so in the reasoning.
+
+6. Answers are short — often sixty seconds. Judge against what the question asked, in the time available. Never mark an answer down for omitting something the question did not ask for.
+
+## Evidence — the rules that matter most
+
+Every claim you make in reasoning, strengths or concerns must be supported by a quote from the transcript.
+
+1. A quote must be ONE CONTIGUOUS SPAN copied verbatim from the transcript. Never join two separate passages. Never use "..." or an ellipsis inside a quote. A stitched quote is treated as fabricated and the claim attached to it is discarded, even when both halves are genuine.
+
+2. A quote must DIRECTLY support the exact claim it is attached to. A quote that is real but says something else is a failure, not partial credit.
+
+3. If you cannot find one contiguous span that directly supports a claim, DROP THE CLAIM. Do not attach the nearest quote. Do not weaken the claim to fit a quote you have. Dropping it is always the correct action and is never penalised — a scorecard with two well-evidenced points is worth more than one with five where three are mispaired.
+
+## Other constraints
+
+- Never recommend rejecting or advancing anyone. Concerns are things a human should VERIFY, phrased as such.
+- Each fact appears ONCE across reasoning, strengths and concerns. Do not restate a strength in the reasoning or repeat a concern under missing.
+- "missing" is only for things THIS QUESTION asked for and did not get. If the question did not ask for it, it is not missing.
+- Set confidence "low" when the transcript is short, garbled, or leaves the question largely unaddressed; "high" only when the answer is substantial and clearly evidenced.
+
+## Output
+
+Return ONLY this JSON object. No prose before or after, no code fence.
+
 {
   "score": 0-100,
   "confidence": "high" | "medium" | "low",
-  "reasoning": "two or three sentences",
-  "evidence": [{ "claim": "...", "quote": "verbatim from the transcript" }],
-  "strengths": ["..."],
-  "concerns": ["..."],
-  "missing": ["..."]
-}
+  "reasoning": "two or three sentences explaining the band you chose",
+  "evidence": [{ "claim": "what this shows", "quote": "one contiguous verbatim span" }],
+  "strengths": ["at most four, each a distinct point"],
+  "concerns": ["at most four, each something a human should verify"],
+  "missing": ["at most four, only what this question asked for"]
+}`;
 
-Rules:
-1. Every quote MUST appear verbatim in the transcript. Do not join separate
-   sentences with an ellipsis — a stitched quote is treated as fabricated and
-   the claim is discarded.
-2. You are reading speech. Filler words, false starts and loose grammar are
-   artefacts of talking and must not affect the score.
-3. Assess only what was said. You have no video, no audio and no information
-   about the person beyond these words.`;
+/**
+ * The session rollup prompt.
+ *
+ * A separate call, because a verdict is a judgement about the whole interview
+ * and cannot be derived arithmetically from per-answer numbers. The overall
+ * SCORE is still computed in code — weighted by question weight, so the
+ * company's own weighting decides it rather than the model's impression.
+ */
+export const SESSION_SYSTEM_PROMPT = `You are summarising a completed interview for the hiring team who will decide.
 
-// ══ END PLACEHOLDER ═══════════════════════════════════════════
+You are given each question, its competency, the score already assigned to that answer, and that answer's strengths and concerns. The overall score has ALREADY been computed from those numbers — you are not being asked to re-score anything.
+
+Write a verdict and a summary.
+
+## Verdict
+At most TWELVE words. A plain description of where this candidate stands on the evidence, not a recommendation. Never advise rejecting or hiring.
+
+## Summary
+Three to five sentences. What the answers showed across the whole interview, where the strongest and weakest evidence sat, and what a human should check next.
+
+## Rules
+- Use only what is given. Do not invent detail and do not quote — you are not looking at the transcripts.
+- Do not repeat the same fact in both verdict and summary.
+- Never recommend a decision. Describe what the evidence supports and what remains unverified.
+- If most answers were skipped or scored poorly for lack of substance, say that plainly rather than writing around it.
+
+Return ONLY this JSON object, no prose, no code fence:
+
+{ "verdict": "at most twelve words", "summary": "three to five sentences", "confidence": "high" | "medium" | "low" }`;
+
+// ══ END RUBRIC ════════════════════════════════════════════════
 
 // ── Shapes ───────────────────────────────────────────────────
 
@@ -179,7 +263,18 @@ function clampScore(v: unknown): number {
   return Math.max(0, Math.min(100, Math.round(n)));
 }
 
-function stringList(v: unknown, max = 12): string[] {
+/**
+ * Caps are ENFORCED here, not requested in the prompt.
+ *
+ * The prompt asks for at most four; a model under-delivers on a constraint it
+ * was merely told about, and a scorecard with nine "strengths" is a wall a
+ * reviewer skims instead of reads. Asking and then truncating means the model
+ * picks which four survive rather than the array order deciding.
+ */
+const MAX_LIST_ITEMS = 4;
+const MAX_EVIDENCE_ITEMS = 6;
+
+function stringList(v: unknown, max = MAX_LIST_ITEMS): string[] {
   if (!Array.isArray(v)) return [];
   return v
     .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
@@ -196,7 +291,30 @@ function evidenceList(v: unknown): EvidenceItem[] {
     if (typeof e.claim !== "string" || typeof e.quote !== "string") continue;
     out.push({ claim: e.claim.trim(), quote: e.quote.trim() });
   }
-  return out.slice(0, 12);
+  return out.slice(0, MAX_EVIDENCE_ITEMS);
+}
+
+/** At most twelve words, enforced rather than trusted. */
+function clampVerdict(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const words = v.trim().split(/\s+/).filter(Boolean);
+  return words.length === 0 ? null : words.slice(0, 12).join(" ");
+}
+
+/**
+ * Three to five sentences, enforced by truncation.
+ *
+ * Only the upper bound can be enforced — a model that returns two sentences
+ * has under-delivered and there is nothing to synthesise from. Truncating the
+ * long case is what stops a "summary" becoming an essay.
+ */
+function clampSummary(v: unknown): string | null {
+  if (typeof v !== "string") return null;
+  const trimmed = v.trim();
+  if (!trimmed) return null;
+  const sentences = trimmed.match(/[^.!?]+[.!?]+(\s|$)/g);
+  if (!sentences || sentences.length <= 5) return trimmed;
+  return sentences.slice(0, 5).join("").trim();
 }
 
 type RawAnswerResponse = {
@@ -299,6 +417,86 @@ export async function scoreAnswer(
     inputTokens: response.usage?.input_tokens ?? 0,
     outputTokens: response.usage?.output_tokens ?? 0,
   };
+}
+
+export type SessionRollup = {
+  verdict: string | null;
+  summary: string | null;
+  confidence: Confidence;
+};
+
+/**
+ * Ask the model for a verdict and summary across the whole interview.
+ *
+ * It is NOT asked to re-score: the overall number is computed in code from the
+ * per-answer scores weighted by each question's weight, so the company's own
+ * weighting decides it rather than the model's impression of the set. This
+ * call exists because a verdict is a judgement about the whole, and one
+ * derived arithmetically from per-answer numbers would be prose dressed up as
+ * a conclusion.
+ *
+ * Returns nulls rather than throwing when the rollup fails — a session with
+ * real per-answer scores and no summary is still useful, and losing the whole
+ * scorecard because the last call failed would be the wrong trade.
+ */
+export async function summariseSession(input: {
+  overall: number;
+  answers: {
+    questionText: string;
+    competency: string | null;
+    score: number;
+    strengths: string[];
+    concerns: string[];
+  }[];
+}): Promise<SessionRollup> {
+  if (input.answers.length === 0) {
+    return { verdict: null, summary: null, confidence: "low" };
+  }
+
+  const body = input.answers
+    .map((a, i) =>
+      [
+        `### Question ${i + 1}${a.competency ? ` — ${a.competency}` : ""}`,
+        a.questionText,
+        `Score: ${a.score}`,
+        a.strengths.length ? `Strengths: ${a.strengths.join("; ")}` : "",
+        a.concerns.length ? `Concerns: ${a.concerns.join("; ")}` : "",
+      ]
+        .filter(Boolean)
+        .join("\n"),
+    )
+    .join("\n\n");
+
+  try {
+    const response = await getAnthropic().messages.create({
+      model: resolveScoringModel(),
+      max_tokens: 700,
+      temperature: SCORING_TEMPERATURE,
+      system: [{ type: "text", text: SESSION_SYSTEM_PROMPT }],
+      messages: [
+        {
+          role: "user",
+          content: `Overall score (already computed, weighted): ${input.overall}\n\n${body}`,
+        },
+      ],
+    });
+
+    const block = response.content[0];
+    const raw = block && block.type === "text" ? block.text : "";
+    const parsed = JSON.parse(stripCodeFences(raw)) as Record<string, unknown>;
+
+    return {
+      verdict: clampVerdict(parsed.verdict),
+      summary: clampSummary(parsed.summary),
+      confidence:
+        parsed.confidence === "high" || parsed.confidence === "low"
+          ? parsed.confidence
+          : "medium",
+    };
+  } catch (err) {
+    console.error("[interview-scoring] session rollup failed:", err);
+    return { verdict: null, summary: null, confidence: "low" };
+  }
 }
 
 function section(label: string, value: string | null | undefined): string {
@@ -546,7 +744,14 @@ export async function handleAiScorecard(job: {
   }[];
 
   // ── Score each answer ──
-  const scored: { score: number; weight: number }[] = [];
+  const scored: {
+    score: number;
+    weight: number;
+    questionText: string;
+    competency: string | null;
+    strengths: string[];
+    concerns: string[];
+  }[] = [];
   let anyFailed = false;
 
   for (const answer of answers) {
@@ -605,7 +810,14 @@ export async function handleAiScorecard(job: {
       });
       if (error) throw new Error(`answer score write failed: ${error}`);
 
-      scored.push({ score: result.score, weight: meta.weight });
+      scored.push({
+        score: result.score,
+        weight: meta.weight,
+        questionText: meta.questionText,
+        competency: meta.competency,
+        strengths: result.strengths,
+        concerns: result.concerns,
+      });
     } catch (err) {
       if (err instanceof ScoringSkipped) {
         await skipAnswer(err.message);
@@ -644,25 +856,38 @@ export async function handleAiScorecard(job: {
     scored.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight,
   );
 
+  const rollup = await summariseSession({
+    overall,
+    answers: scored.map((s) => ({
+      questionText: s.questionText,
+      competency: s.competency,
+      score: s.score,
+      strengths: s.strengths,
+      concerns: s.concerns,
+    })),
+  });
+
+  /*
+   * A partial set is disclosed in the summary rather than hidden. The model
+   * was given only the answers that scored, so without this a summary reads
+   * as a verdict on the whole interview when it covered three of five.
+   */
+  const coverage =
+    scored.length === answers.length
+      ? ""
+      : ` Based on ${scored.length} of ${answers.length} answers — see the individual answers for why the rest were not scored.`;
+
   const { error: rollupErr } = await writeSessionScore({
     session_id: session.id,
     company_id: session.company_id,
     status: "scored",
     error: null,
     overall_score: overall,
-    /*
-     * PLACEHOLDER verdict and summary, alongside the placeholder prompt. The
-     * real version should come from a model that has read every answer
-     * together — a verdict derived arithmetically from per-answer numbers is
-     * not a judgement, and dressing one up as prose would be worse than
-     * leaving it plain.
-     */
-    verdict: null,
-    summary:
-      scored.length === answers.length
-        ? null
-        : `Based on ${scored.length} of ${answers.length} answers — the rest could not be scored.`,
-    confidence: anyFailed ? "low" : "medium",
+    verdict: rollup.verdict,
+    summary: rollup.summary ? `${rollup.summary}${coverage}` : coverage.trim() || null,
+    // The rollup's own confidence, lowered when any answer failed outright —
+    // a set with a hole in it is less trustworthy than the model can know.
+    confidence: anyFailed ? "low" : rollup.confidence,
     ai_model: model,
     prompt_version: PROMPT_VERSION,
     scored_at: new Date().toISOString(),
