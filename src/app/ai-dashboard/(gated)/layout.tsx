@@ -47,9 +47,14 @@ export default async function GatedCompanyLayout({
   const allowedApps = await scopedApplicationIds(ctx, scope);
   const noJobs = scope.scoped && scope.jobIds.length === 0;
 
-  const [{ count: jobCount }, { count: applicantCount }, { count: messageCount }] =
+  const [
+    { count: jobCount },
+    { count: applicantCount },
+    { count: messageCount },
+    { count: interviewCount },
+  ] =
     noJobs
-      ? [{ count: 0 }, { count: 0 }, { count: 0 }]
+      ? [{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }]
       : await Promise.all([
           (() => {
             const q = service
@@ -78,6 +83,15 @@ export default async function GatedCompanyLayout({
               .not("application_id", "is", null);
             return allowedApps === null ? q : q.in("application_id", allowedApps);
           })(),
+          // Scoped on job_id like Jobs, not through applications: an interview
+          // belongs to a job, and the list this badge labels is scoped that way.
+          (() => {
+            const q = service
+              .from("interview_sessions")
+              .select("id", { count: "exact", head: true })
+              .eq("company_id", ctx.companyId);
+            return scope.scoped ? q.in("job_id", scope.jobIds) : q;
+          })(),
         ]);
 
   // Public URL — a logo appears on every public job post, so it is served
@@ -97,6 +111,7 @@ export default async function GatedCompanyLayout({
       jobCount={jobCount ?? 0}
       applicantCount={applicantCount ?? 0}
       messageCount={messageCount ?? 0}
+      interviewCount={interviewCount ?? 0}
     >
       {children}
     </AiShell>

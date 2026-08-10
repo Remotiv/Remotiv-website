@@ -93,6 +93,59 @@ async function listSessionObjects(
   return found;
 }
 
+/**
+ * Remove EVERY object under one session's folder.
+ *
+ * Shared by the retention purge and by an operator deleting a session outright
+ * — both need exactly this, and a second copy would be the place the two
+ * quietly diverged on what "removed" means.
+ *
+ * Returns what was there and what is now gone. `complete` is the only thing a
+ * caller should branch on before touching rows: video_path is the sole record
+ * of where an object lives, so clearing rows while objects survive strands the
+ * files with nothing pointing at them.
+ *
+ * An object that was never there counts as removed — there is nothing left to
+ * delete, and treating absence as failure would make a retry loop forever.
+ *
+ * Throws only when the LISTING fails, which means storage is unreachable and
+ * nothing is known about the folder.
+ */
+export async function removeSessionObjects(
+  service: Service,
+  sessionId: string,
+): Promise<{
+  present: string[];
+  removed: Set<string>;
+  complete: boolean;
+  error: string | null;
+}> {
+  const present = (await listSessionObjects(service, sessionId)).map(
+    (o) => `${sessionId}/${o.name}`,
+  );
+  if (present.length === 0) {
+    return { present, removed: new Set(), complete: true, error: null };
+  }
+
+  const { data: gone, error } = await service.storage
+    .from(INTERVIEW_BUCKET)
+    .remove(present);
+
+  const removed = new Set<string>();
+  for (const o of (gone ?? []) as { name: string }[]) {
+    // remove() echoes back full keys on some versions and bare names on
+    // others; normalise either shape.
+    removed.add(o.name.includes("/") ? o.name : `${sessionId}/${o.name}`);
+  }
+
+  return {
+    present,
+    removed,
+    complete: removed.size === present.length,
+    error: error?.message ?? null,
+  };
+}
+
 export async function handleInterviewPurge(job: {
   id: string;
   payload: Record<string, unknown>;
@@ -118,6 +171,13 @@ export async function handleInterviewPurge(job: {
     const { data, error } = await service
       .from("interview_sessions")
       .select("id")
+      /*
+       * archived_at is deliberately NOT filtered here. Archiving is a list
+       * affordance, not a retention decision — an archived interview still
+       * expires six months after submission, exactly like any other. Adding
+       * `.is("archived_at", null)` would let anyone opt a recording out of the
+       * promise the candidate agreed to by tidying their list.
+       */
       // A null delete_after would never match, so it is never purged. Nothing
       // writes null today (sendInterviewInvite always sets it) — but if that
       // ever changes, the row silently outlives its promise, so it is called
@@ -161,14 +221,14 @@ export async function handleInterviewPurge(job: {
           break;
         }
 
-        let present: Map<string, number>;
+        /*
+         * Removes EVERY object under the folder, not just the referenced ones:
+         * a session past its retention date should keep nothing, including
+         * whatever an abandoned upload left behind.
+         */
+        let sweep: Awaited<ReturnType<typeof removeSessionObjects>>;
         try {
-          present = new Map(
-            (await listSessionObjects(service, sessionId)).map((o) => [
-              `${sessionId}/${o.name}`,
-              o.createdAt,
-            ]),
-          );
+          sweep = await removeSessionObjects(service, sessionId);
         } catch (err) {
           // Storage unreachable for this session. Leave every row intact so
           // the next run retries the whole thing rather than clearing paths
@@ -177,27 +237,12 @@ export async function handleInterviewPurge(job: {
           removalFailures += rows.length;
           continue;
         }
-
-        /*
-         * Remove EVERY object under the folder, not just the referenced ones.
-         * A session past its retention date should keep nothing, including
-         * whatever an abandoned upload left behind.
-         */
-        const toRemove = [...present.keys()];
-        const removed = new Set<string>();
-        if (toRemove.length > 0) {
-          const { data: gone, error: rmErr } = await service.storage
-            .from(INTERVIEW_BUCKET)
-            .remove(toRemove);
-          if (rmErr) {
-            console.error(`[purge] ${sessionId}: remove: ${rmErr.message}`);
-          }
-          for (const o of (gone ?? []) as { name: string }[]) {
-            // remove() echoes back full keys; normalise either shape.
-            removed.add(o.name.includes("/") ? o.name : `${sessionId}/${o.name}`);
-          }
-          objectsRemoved += removed.size;
+        if (sweep.error) {
+          console.error(`[purge] ${sessionId}: remove: ${sweep.error}`);
         }
+        const present = new Set(sweep.present);
+        const removed = sweep.removed;
+        objectsRemoved += removed.size;
 
         /*
          * ── Why the row update is split ──

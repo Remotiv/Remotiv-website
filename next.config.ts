@@ -89,8 +89,20 @@ const nextConfig: NextConfig = {
      * because a Permissions-Policy header replaces the whole value.
      */
     const INTERVIEW_PREFIX = "/interview/:path*";
+    const DASHBOARD_PREFIX = "/ai-dashboard/:path*";
     const SUPABASE_ORIGIN = "https://jlezhdhzuyubhqvxdwvg.supabase.co";
-    const interviewCsp = [
+
+    /*
+     * media-src is needed on BOTH ends of an interview, and only the
+     * candidate's end had it.
+     *
+     * The reviewer's page plays the same objects back from the same private
+     * bucket over the same kind of signed URL, so it failed in exactly the way
+     * the candidate page did — a <video> pointed at *.supabase.co falling back
+     * to default-src 'self'. The dashboard gets the media directive and
+     * NOTHING else: no camera, no microphone, because nobody records here.
+     */
+    const mediaCsp = [
       ...baseDirectives,
       `media-src 'self' blob: ${SUPABASE_ORIGIN}`,
     ].join("; ");
@@ -132,6 +144,12 @@ const nextConfig: NextConfig = {
         ],
       },
       {
+        // The dashboard plays recordings back but never captures — media only,
+        // and camera/microphone stay denied by the block above.
+        source: DASHBOARD_PREFIX,
+        headers: [{ key: "Content-Security-Policy", value: mediaCsp }],
+      },
+      {
         source: INTERVIEW_PREFIX,
         headers: [
           {
@@ -141,7 +159,7 @@ const nextConfig: NextConfig = {
           },
           {
             key: "Content-Security-Policy",
-            value: interviewCsp,
+            value: mediaCsp,
           },
         ],
       },

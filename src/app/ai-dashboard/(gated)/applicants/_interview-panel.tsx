@@ -1,6 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
+import Link from "next/link";
 import { Check, Clock, Send, Video, XCircle } from "lucide-react";
 import { fetchInterviewSession, sendInterviewInvite } from "./interview-actions";
 import type { InterviewSessionSummary } from "./interview-types";
@@ -136,6 +137,20 @@ export function InterviewPanel({
                   : `Sent ${fmt(session.sentAt)}${session.invitedByName ? ` by ${session.invitedByName}` : ""} · link works until ${fmt(session.expiresAt)}.`}
           </p>
         </div>
+      )}
+
+      {/* Straight into the review page. Only offered once something has been
+          recorded — a link to an empty review is worse than no link. */}
+      {session && session.answered > 0 && (
+        <Link
+          href={`/ai-dashboard/interviews/${session.id}`}
+          className="flex w-full items-center justify-center gap-[7px] rounded-xl border border-remotiv-purple bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-remotiv-purple transition-colors hover:bg-remotiv-purple hover:text-white"
+        >
+          <Video className="size-[15px]" strokeWidth={1.9} />
+          {session.status === "submitted"
+            ? "Watch the interview"
+            : "See what's recorded so far"}
+        </Link>
       )}
 
       {!session && (
