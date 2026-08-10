@@ -17,6 +17,7 @@ import {
   INTERVIEW_STATUS_LABELS,
   type InterviewListResult,
   type InterviewRow,
+  type InterviewScore,
   type InterviewStatus,
   type InterviewTab,
 } from "@/lib/interviews/review-types";
@@ -297,11 +298,12 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
               </div>
             </div>
 
-            <div className="hidden grid-cols-[minmax(0,1.7fr)_minmax(0,1.2fr)_132px_118px_minmax(0,0.75fr)_84px] gap-3.5 border-b border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)] min-[1017px]:grid">
+            <div className="hidden grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_128px_96px_92px_minmax(0,0.7fr)_84px] gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)] min-[1017px]:grid">
               <span>Candidate</span>
               <span>Job</span>
               <span>Status</span>
               <span>Answers</span>
+              <span>Score</span>
               <span>Submitted</span>
               <span />
             </div>
@@ -348,6 +350,68 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
         </>
       )}
     </PageContainer>
+  );
+}
+
+
+/**
+ * The AI score, in every state it actually occurs in.
+ *
+ * Absent, pending, skipped and failed are four different facts and each says
+ * which it is. A number is never shown for anything but `scored`, and a
+ * reviewer's correction always wins over the model's — the point of the
+ * override column is that the human is right.
+ */
+function ScorePill({ score }: { score: InterviewScore | null }) {
+  if (!score) {
+    return (
+      <span className="text-[12.5px] italic text-[var(--ai-t4)]">Not scored</span>
+    );
+  }
+  if (score.status === "scored") {
+    const shown = score.humanScore ?? score.overall;
+    if (shown === null) {
+      return (
+        <span className="text-[12.5px] italic text-[var(--ai-t4)]">—</span>
+      );
+    }
+    const band =
+      shown >= 80
+        ? "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]"
+        : shown >= 60
+          ? "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+          : "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]";
+    return (
+      <span className="inline-flex items-center gap-1.5">
+        <span
+          className={`rounded-full px-2.5 py-1 text-xs font-extrabold tabular-nums ${band}`}
+        >
+          {shown}
+        </span>
+        {score.humanScore !== null && (
+          <span
+            className="text-[10.5px] font-bold uppercase tracking-[0.06em] text-[var(--ai-t4)]"
+            title="Adjusted by a reviewer"
+          >
+            adj
+          </span>
+        )}
+      </span>
+    );
+  }
+  const label =
+    score.status === "pending"
+      ? "Scoring…"
+      : score.status === "skipped"
+        ? "Not scored"
+        : "Scoring failed";
+  return (
+    <span
+      className="text-[12.5px] italic text-[var(--ai-t4)]"
+      title={score.error ?? undefined}
+    >
+      {label}
+    </span>
   );
 }
 
@@ -502,6 +566,10 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
         </span>
       )}
 
+      <span className="justify-self-start">
+        <ScorePill score={row.score} />
+      </span>
+
       <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
         {row.status === "submitted"
           ? relative(row.submittedAt)
@@ -542,7 +610,7 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
   );
 
   const grid =
-    "grid grid-cols-1 gap-3 border-b border-[var(--ai-line-soft)] px-5 py-3.5 last:border-b-0 min-[1017px]:grid-cols-[minmax(0,1.7fr)_minmax(0,1.2fr)_132px_118px_minmax(0,0.75fr)_84px] min-[1017px]:items-center min-[1017px]:gap-3.5";
+    "grid grid-cols-1 gap-3 border-b border-[var(--ai-line-soft)] px-5 py-3.5 last:border-b-0 min-[1017px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_128px_96px_92px_minmax(0,0.7fr)_84px] min-[1017px]:items-center min-[1017px]:gap-3";
 
   if (!openable) {
     return (

@@ -9,6 +9,7 @@ import {
   Copy,
   Lock,
   Mic,
+  Sparkles,
   TriangleAlert,
   Archive,
   Trash2,
@@ -26,6 +27,7 @@ import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/ac
 import type {
   InterviewAnswerView,
   InterviewNote,
+  InterviewScore,
   InterviewSessionDetail,
 } from "@/lib/interviews/review-types";
 import {
@@ -224,6 +226,8 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
           cancelling an invitation. Restore puts it back exactly as it was.
         </Notice>
       )}
+
+      <ScoreCard score={session.score} purged={session.purged} />
 
       <SessionNotice session={session} />
 
@@ -476,6 +480,112 @@ function DeleteConfirm({
           </div>
         </div>
       </div>
+    </div>
+  );
+}
+
+/**
+ * The AI score panel.
+ *
+ * Renders as itself in every state, including the two that are the common case
+ * today: nothing has scored yet (no row), and scoring is switched off (a
+ * `skipped` row carrying the reason). Neither is an error and neither is blank.
+ *
+ * SURVIVES A PURGE. The score is derived from the transcript, and the purge
+ * removes video but keeps the answer record — so a scorecard can outlive the
+ * recording it came from. When that happens the panel says so, rather than
+ * looking like a score attached to nothing.
+ */
+function ScoreCard({
+  score,
+  purged,
+}: {
+  score: InterviewScore | null;
+  purged: boolean;
+}) {
+  if (!score) return null;
+
+  if (score.status === "scored") {
+    const shown = score.humanScore ?? score.overall;
+    const band =
+      shown === null
+        ? "text-[var(--ai-t3)]"
+        : shown >= 80
+          ? "text-[var(--ai-mint-ink)]"
+          : shown >= 60
+            ? "text-[var(--ai-amber-ink)]"
+            : "text-[var(--ai-danger)]";
+    return (
+      <div className="mb-4 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3.5">
+        <div className="flex flex-wrap items-center gap-x-4 gap-y-2">
+          <span className="text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t3)]">
+            AI score
+          </span>
+          <span className={`font-heading text-[26px] font-extrabold leading-none tracking-[-0.03em] ${band}`}>
+            {shown ?? "—"}
+          </span>
+          {score.humanScore !== null && (
+            <span className="rounded-full bg-[var(--ai-purple-tint)] px-2.5 py-1 text-[10.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
+              Adjusted by a reviewer
+            </span>
+          )}
+          {score.verdict && (
+            <span className="text-[13px] font-bold text-[var(--ai-t1)]">
+              {score.verdict}
+            </span>
+          )}
+          {score.confidence && (
+            <span className="text-[11.5px] text-[var(--ai-t4)]">
+              {score.confidence} confidence
+            </span>
+          )}
+        </div>
+        {score.summary && (
+          <p className="m-0 mt-2 text-[13px] leading-relaxed text-[var(--ai-t2)]">
+            {score.summary}
+          </p>
+        )}
+        <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+          Scored from the transcript only — there is no analysis of the video.
+          {purged ? " The recording has since been deleted; the score remains." : ""}
+        </p>
+      </div>
+    );
+  }
+
+  const copy =
+    score.status === "pending"
+      ? {
+          title: "Scoring hasn't run yet",
+          body: "This interview is queued. The score appears here once every answer has been assessed.",
+        }
+      : score.status === "failed"
+        ? {
+            title: "Scoring didn't complete",
+            body:
+              score.error?.slice(0, 240) ??
+              "The scorer couldn't finish. The answers and transcripts are unaffected.",
+          }
+        : {
+            title: "Not scored",
+            body:
+              score.error?.slice(0, 240) ??
+              "This interview wasn't scored. The answers and transcripts are unaffected.",
+          };
+
+  return (
+    <div className="mb-4 flex gap-3 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
+      <span className="mt-px flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t3)]">
+        <Sparkles className="size-4" strokeWidth={1.9} />
+      </span>
+      <span className="min-w-0">
+        <p className="m-0 text-[13px] font-bold leading-tight text-[var(--ai-t1)]">
+          {copy.title}
+        </p>
+        <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          {copy.body}
+        </p>
+      </span>
     </div>
   );
 }

@@ -14,6 +14,7 @@ import type {
   InterviewListResult,
   InterviewRow,
   InterviewSessionDetail,
+  InterviewScore,
   InterviewStatus,
   InterviewTab,
   TranscriptState,
@@ -170,10 +171,11 @@ export async function listInterviewSessions(
   const appIds = [...new Set(sessions.map((s) => s.application_id).filter(Boolean))] as string[];
   const jobIds = [...new Set(sessions.map((s) => s.job_id).filter(Boolean))] as string[];
 
-  const [apps, jobs, answers] = await Promise.all([
+  const [apps, jobs, answers, scores] = await Promise.all([
     fetchApplications(service, ctx.companyId, appIds),
     fetchJobs(service, ctx.companyId, jobIds),
     fetchAnswerStats(service, sessions.map((s) => s.id)),
+    fetchSessionScores(service, ctx.companyId, sessions.map((s) => s.id)),
   ]);
 
   const rows: InterviewRow[] = sessions.map((s) => {
@@ -203,6 +205,7 @@ export async function listInterviewSessions(
       expiresAt: s.expires_at,
       sentAt: s.created_at,
       invitedByName: s.invited_by_name,
+      score: scores.get(s.id) ?? null,
       archivedAt: s.archived_at,
     };
   });
@@ -484,6 +487,9 @@ export async function loadInterviewSession(
     deleteAfter: row.delete_after,
     invitedByName: row.invited_by_name,
     archivedAt: row.archived_at,
+    score:
+      (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ??
+      null,
     canDelete: await canAccessJob(ctx, row.job_id ?? ""),
     purged:
       answers.length > 0 && answers.every((a) => a.purged),
@@ -498,6 +504,57 @@ export async function loadInterviewSession(
     // gated segment); an empty string simply matches no note's author.
     viewerMemberId: ctx.memberId ?? "",
   };
+}
+
+/**
+ * The AI score per session, when one exists.
+ *
+ * Company-gated on its own column rather than trusting the session join — the
+ * scores table carries company_id for exactly this reason.
+ */
+async function fetchSessionScores(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  sessionIds: string[],
+): Promise<Map<string, InterviewScore>> {
+  const out = new Map<string, InterviewScore>();
+  for (let i = 0; i < sessionIds.length; i += 100) {
+    const { data } = await service
+      .from("interview_session_scores")
+      .select(
+        "session_id, status, overall_score, human_adjusted_score, verdict, summary, confidence, error, scored_at",
+      )
+      .eq("company_id", companyId)
+      .in("session_id", sessionIds.slice(i, i + 100));
+
+    for (const r of (data ?? []) as {
+      session_id: string;
+      status: string | null;
+      overall_score: number | null;
+      human_adjusted_score: number | null;
+      verdict: string | null;
+      summary: string | null;
+      confidence: string | null;
+      error: string | null;
+      scored_at: string | null;
+    }[]) {
+      const status =
+        r.status === "scored" || r.status === "failed" || r.status === "skipped"
+          ? r.status
+          : "pending";
+      out.set(r.session_id, {
+        status,
+        overall: r.overall_score,
+        humanScore: r.human_adjusted_score,
+        verdict: r.verdict,
+        summary: r.summary,
+        confidence: r.confidence,
+        error: r.error,
+        scoredAt: r.scored_at,
+      });
+    }
+  }
+  return out;
 }
 
 /** The note thread for one session. Oldest first — it reads as a conversation. */

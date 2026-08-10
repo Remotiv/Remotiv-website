@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
+import { handleAiScorecard } from "@/lib/ai/interview-scoring";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -173,7 +174,10 @@ registerHandler(JOB_TYPES.SEND_MESSAGE, handleSendMessage);
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, notImplemented); // Step 6
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, notImplemented); // Step 6
 registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
-registerHandler(JOB_TYPES.AI_SCORECARD, notImplemented); // Step 8
+// Step 8 — interview scoring. The plumbing is real; the PROMPT is a marked
+// placeholder and scoring stays off until AI_INTERVIEW_SCORING_ENABLED is set,
+// so a run today records an honest 'skipped' rather than a scorecard.
+registerHandler(JOB_TYPES.AI_SCORECARD, handleAiScorecard);
 registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 

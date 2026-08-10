@@ -54,6 +54,8 @@ export type InterviewRow = {
   expiresAt: string | null;
   sentAt: string;
   invitedByName: string | null;
+  /** Null when nothing has scored this interview yet. */
+  score: InterviewScore | null;
   /**
    * Set when the interview has been archived out of the working list.
    *
@@ -113,6 +115,28 @@ export type InterviewTab =
   | "expired"
   | "archived";
 
+export type ScoreStatus = "pending" | "scored" | "failed" | "skipped";
+
+/**
+ * A session's AI score, as the UI reads it.
+ *
+ * `status` is never inferred from a null score — a scorecard that failed and
+ * one that was skipped are different facts and render differently, and an
+ * absent row (nothing has run) is a third.
+ */
+export type InterviewScore = {
+  status: ScoreStatus;
+  /** The AI's number, or null unless status is "scored". */
+  overall: number | null;
+  /** A reviewer's correction, which always wins in the UI when present. */
+  humanScore: number | null;
+  verdict: string | null;
+  summary: string | null;
+  confidence: string | null;
+  error: string | null;
+  scoredAt: string | null;
+};
+
 export type InterviewNote = {
   id: string;
   body: string;
@@ -143,6 +167,7 @@ export type InterviewSessionDetail = {
   deleteAfter: string | null;
   invitedByName: string | null;
   archivedAt: string | null;
+  score: InterviewScore | null;
   /** Owner, admin, or a member of this job's hiring team. */
   canDelete: boolean;
   purged: boolean;

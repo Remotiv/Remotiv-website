@@ -108,9 +108,33 @@ export async function handleTranscribe(job: {
     `${answerId}.webm`,
   );
   form.append("model", "whisper-1");
-  // Plain text: the reviewer reads prose, and asking for verbose JSON would
-  // store timing data nothing in the product uses yet.
-  form.append("response_format", "text");
+  /*
+   * verbose_json, for the timings.
+   *
+   * This used to ask for plain text on the grounds that nothing used the
+   * timing data. Something does now: an evidence quote in a scorecard is only
+   * checkable if a reviewer can jump to the moment it was said, and that needs
+   * a start time per span. The plain `transcript` column is still written
+   * exactly as before — every existing reader keeps working — and the timings
+   * land alongside it in transcript_segments.
+   */
+  form.append("response_format", "verbose_json");
+  form.append("timestamp_granularities[]", "segment");
+  /*
+   * Force English rather than letting Whisper auto-detect.
+   *
+   * Auto-detection produced Devanagari on a test recording of English speech
+   * — a Pakistani or Indian accent is close enough to Hindi/Urdu acoustics
+   * that the detector picks the wrong language, and the whole answer comes
+   * back in a script no reviewer here reads. Worse, the transcript then feeds
+   * a scorer whose criteria are written in English, which would score noise.
+   *
+   * Interviews on this platform are conducted in English, so the language is
+   * known ahead of time and there is nothing to detect. See the handover for
+   * what this costs a candidate who genuinely answers in another language,
+   * and what a per-job override would take.
+   */
+  form.append("language", "en");
 
   const res = await fetch("https://api.openai.com/v1/audio/transcriptions", {
     method: "POST",
@@ -125,18 +149,147 @@ export async function handleTranscribe(job: {
     throw new Error(`transcribe: OpenAI ${res.status} — ${detail}`);
   }
 
-  const transcript = (await res.text()).trim();
+  const payload = (await res.json()) as {
+    text?: string;
+    segments?: unknown;
+  };
+  const transcript = (payload.text ?? "").trim();
+  const segments = toStoredSegments(payload.segments);
 
   const { error } = await service
     .from("interview_answers")
     .update({
       transcript,
+      /*
+       * Null rather than [] when there are no usable segments, so "this row
+       * predates timestamps" and "this row has timings" stay distinguishable.
+       * Readers must treat null as "no timings available" and fall back to the
+       * plain transcript — which is what every existing row does.
+       */
+      transcript_segments: segments.length > 0 ? segments : null,
       transcript_status: transcript ? "done" : "failed",
       transcript_error: transcript ? null : "Transcription returned nothing.",
     })
     .eq("id", answerId);
 
   if (error) throw new Error(`transcribe: write failed: ${error.message}`);
+
+  await maybeEnqueueScorecard(service, answer.session_id);
+}
+
+/**
+ * Enqueue session scoring once the LAST transcript has landed.
+ *
+ * ── Why here and not at submit ───────────────────────────────
+ *
+ * Submitting closes the session, but the transcripts arrive minutes later
+ * through this queue. Enqueuing the scorecard at submit would hand the scorer
+ * a set of empty transcripts and produce a confidently meaningless result —
+ * the race is not theoretical, it is the normal ordering.
+ *
+ * So the trigger is the completion of transcription, checked from the row that
+ * just finished: the session must be submitted, and no answer may still be
+ * `pending`. Whichever transcribe job writes last is the one that sees a fully
+ * settled set and enqueues; the others see a pending sibling and do nothing.
+ *
+ * `failed` and `skipped` count as settled on purpose. A permanently failed
+ * transcript — a 30MB recording over Whisper's ceiling — would otherwise block
+ * scoring of the other four answers forever. The scorer skips that one answer
+ * and scores the rest, which is the useful behaviour.
+ */
+async function maybeEnqueueScorecard(
+  service: ReturnType<typeof createServiceClient>,
+  sessionId: string,
+): Promise<void> {
+  try {
+    /*
+     * Imported at CALL time, not module top.
+     *
+     * jobs-queue.ts imports handleTranscribe from this file in order to
+     * register it, so a top-level import back would close an
+     * initialisation cycle: whichever module evaluated first would reach for a
+     * binding the other had not created yet. Deferring to the call keeps the
+     * dependency one-way at load and honest at runtime.
+     */
+    const { enqueue, JOB_TYPES } = await import("@/lib/jobs-queue");
+
+    const { data: sessionRow } = await service
+      .from("interview_sessions")
+      .select("id, status")
+      .eq("id", sessionId)
+      .maybeSingle();
+
+    const session = sessionRow as { status: string } | null;
+    if (!session || session.status !== "submitted") return;
+
+    const { count: stillPending } = await service
+      .from("interview_answers")
+      .select("id", { count: "exact", head: true })
+      .eq("session_id", sessionId)
+      .eq("transcript_status", "pending");
+    if ((stillPending ?? 0) > 0) return;
+
+    /*
+     * The handler upserts on session_id, so a duplicate job is harmless — but
+     * several transcribe jobs can settle within the same second and each would
+     * queue one. Checking for a live job first keeps the queue readable
+     * without pretending this is the safety mechanism; idempotency is.
+     */
+    const { data: live } = await service
+      .from("background_jobs")
+      .select("id")
+      .eq("type", JOB_TYPES.AI_SCORECARD)
+      .in("status", ["queued", "running"])
+      .contains("payload", { sessionId })
+      .limit(1);
+    if ((live ?? []).length > 0) return;
+
+    await enqueue({
+      type: JOB_TYPES.AI_SCORECARD,
+      payload: { sessionId },
+      companyId: null,
+    });
+  } catch (err) {
+    // Non-fatal: the transcript is already stored, and a scorecard that was
+    // never queued is recoverable. Failing here would retry the whole
+    // transcription and spend another Whisper call on audio already done.
+    console.error("[transcribe] scorecard enqueue failed (non-fatal):", err);
+  }
+}
+
+/**
+ * One span of speech with the moment it was said.
+ *
+ * Whisper returns far more per segment — `id`, `seek`, `tokens`,
+ * `avg_logprob`, `compression_ratio`, `no_speech_prob` — all of which is
+ * decoder telemetry that tells a reviewer nothing and costs real bytes on
+ * every answer. Only what a click-to-seek needs is stored.
+ */
+export type TranscriptSegment = {
+  /** Seconds from the start of the recording. */
+  start: number;
+  end: number;
+  text: string;
+};
+
+function toStoredSegments(raw: unknown): TranscriptSegment[] {
+  if (!Array.isArray(raw)) return [];
+  const out: TranscriptSegment[] = [];
+  for (const item of raw) {
+    if (!item || typeof item !== "object") continue;
+    const seg = item as { start?: unknown; end?: unknown; text?: unknown };
+    const start = typeof seg.start === "number" ? seg.start : Number.NaN;
+    const end = typeof seg.end === "number" ? seg.end : Number.NaN;
+    const text = typeof seg.text === "string" ? seg.text.trim() : "";
+    // A segment without a usable start is not seekable, so it is not stored.
+    if (!Number.isFinite(start) || !text) continue;
+    out.push({
+      start: Math.max(0, Math.round(start * 100) / 100),
+      end: Number.isFinite(end) ? Math.round(end * 100) / 100 : start,
+      text,
+    });
+  }
+  return out;
 }
 
 /** Terminal, non-retryable failure. The video is untouched and still plays. */
