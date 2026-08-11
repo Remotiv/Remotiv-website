@@ -4,7 +4,7 @@ import { useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
-  AlertTriangle,
+  TriangleAlert,
   ArrowDown,
   ArrowRight,
   ArrowUp,
@@ -16,7 +16,7 @@ import {
   MapPin,
   Plus,
   Settings2,
-  Trash2,
+  Trash,
   Zap,
 } from "lucide-react";
 import type { ScreeningQuestion } from "@/lib/jobs";
@@ -1324,7 +1324,7 @@ export function WizardClient({
                           aria-label={`Remove question ${i + 1}`}
                           className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-danger-tint)] hover:text-[var(--ai-danger)]"
                         >
-                          <Trash2 className="size-[17px]" strokeWidth={1.8} />
+                          <Trash className="size-[17px]" strokeWidth={1.8} />
                         </button>
                       </div>
 
@@ -1396,7 +1396,7 @@ export function WizardClient({
                           no error styling, nothing disabled, publish unaffected. */}
                       {typeChangeWarning(q) && (
                         <p className="mt-2.5 flex gap-2 rounded-[10px] bg-[var(--ai-amber-tint)] px-3 py-2.5 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
-                          <AlertTriangle
+                          <TriangleAlert
                             className="mt-px size-3.5 shrink-0"
                             strokeWidth={2}
                           />
@@ -1551,7 +1551,7 @@ export function WizardClient({
                           aria-label={`Remove question ${i + 1}`}
                           className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-danger-tint)] hover:text-[var(--ai-danger)]"
                         >
-                          <Trash2 className="size-[17px]" strokeWidth={1.8} />
+                          <Trash className="size-[17px]" strokeWidth={1.8} />
                         </button>
                       </div>
 

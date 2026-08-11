@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useState } from "react";
-import { Eye, Plus, Trash2, UserRound } from "lucide-react";
+import { Eye, Plus, Trash, UserRound } from "lucide-react";
 import {
   TEAM_ROLE_LABELS,
   TEAM_ROLES,
@@ -179,7 +179,7 @@ export function HiringTeamSection({
                 }}
                 className="flex size-8 shrink-0 items-center justify-center rounded-[9px] text-[var(--ai-t4)] transition-colors hover:bg-[var(--ai-danger-tint)] hover:text-[var(--ai-danger)] disabled:opacity-50"
               >
-                <Trash2 className="size-3.5" strokeWidth={2} />
+                <Trash className="size-3.5" strokeWidth={2} />
               </button>
             </>
           ) : (

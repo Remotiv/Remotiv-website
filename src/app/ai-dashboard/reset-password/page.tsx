@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { AlertTriangle } from "lucide-react";
+import { TriangleAlert } from "lucide-react";
 import { ResetPasswordClient } from "./reset-password-client";
 
 export const dynamic = "force-dynamic";
@@ -19,7 +19,7 @@ function InvalidLink({ reason }: { reason: InvalidReason }) {
     <div className="ai-shell flex min-h-[var(--vh-full)] items-center justify-center bg-[var(--ai-page)] px-6 py-16 font-sans">
       <div className="w-full max-w-md rounded-3xl border border-[var(--ai-line)] bg-white p-8 text-center shadow-lg min-[525px]:p-10">
         <div className="mx-auto mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-amber-tint)]">
-          <AlertTriangle
+          <TriangleAlert
             className="size-7 text-[var(--ai-amber-ink)]"
             strokeWidth={2}
           />

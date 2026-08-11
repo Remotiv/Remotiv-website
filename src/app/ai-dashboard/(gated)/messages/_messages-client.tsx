@@ -13,9 +13,9 @@ import {
   Plus,
   Search,
   Send,
-  UserRound,
+  User,
   X,
-  XCircle,
+  CircleX,
 } from "lucide-react";
 import {
   DashboardHero,
@@ -557,7 +557,7 @@ export function MessagesClient({
                           />
                           <div className="my-[5px] h-px bg-[var(--ai-line)]" />
                           <MenuItem
-                            icon={<XCircle className="size-4" strokeWidth={1.7} />}
+                            icon={<CircleX className="size-4" strokeWidth={1.7} />}
                             label="Cancel send"
                             danger
                             onClick={() => {
@@ -587,7 +587,7 @@ export function MessagesClient({
                             }}
                           />
                           <MenuItem
-                            icon={<UserRound className="size-4" strokeWidth={1.7} />}
+                            icon={<User className="size-4" strokeWidth={1.7} />}
                             label="View applicant"
                             onClick={() => {
                               setMenuFor(null);
@@ -874,7 +874,7 @@ function MessageViewer({
               </>
             ) : row.kind === "failed" ? (
               <>
-                <XCircle className="size-3.5 shrink-0 text-[var(--ai-danger)]" strokeWidth={1.9} />
+                <CircleX className="size-3.5 shrink-0 text-[var(--ai-danger)]" strokeWidth={1.9} />
                 Didn&apos;t send
               </>
             ) : (

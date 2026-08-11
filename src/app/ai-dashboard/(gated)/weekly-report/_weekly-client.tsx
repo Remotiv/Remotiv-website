@@ -12,7 +12,8 @@ import {
   Download,
   EyeOff,
   Info,
-  Pencil,
+  PenLine,
+  User,
   Users,
 } from "lucide-react";
 import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
@@ -159,7 +160,7 @@ const ATT_STYLE: Record<AttentionKind, { bg: string; fg: string }> = {
 
 const ATT_ICON: Record<AttentionKind, typeof Users> = {
   stalled: Users,
-  draft: Pencil,
+  draft: PenLine,
   quiet: EyeOff,
 };
 
@@ -312,7 +313,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
           {week.top.length === 0 ? (
             <div className="flex flex-col items-center px-6 pb-[42px] pt-[38px] text-center">
               <div className="mb-[15px] flex size-14 items-center justify-center rounded-[18px] bg-[var(--ai-inset)] text-[var(--ai-t4)]">
-                <Users className="size-6" strokeWidth={2.2} />
+                <User className="size-6" strokeWidth={2.2} />
               </div>
               <h4 className="m-0 mb-1.5 font-heading text-[17px] font-extrabold tracking-[-0.02em] text-[var(--ai-t1)]">
                 Nobody applied this week

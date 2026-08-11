@@ -19,11 +19,11 @@ import {
   Clock,
   Download,
   ExternalLink,
-  FileText,
+  File,
   Mail,
   Minus,
   Search as SearchIcon,
-  Trash2,
+  Trash,
   Users,
   X,
   Zap,
@@ -1027,7 +1027,7 @@ function ApplicantDrawer({
                   : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
               }`}
             >
-              <FileText className="size-[15px]" strokeWidth={1.9} />
+              <File className="size-[15px]" strokeWidth={1.9} />
               {cvLabel(row)}
             </a>
             {/* Opens the composer rather than handing off to the OS mail
@@ -1418,7 +1418,7 @@ function ApplicantDrawer({
               onClick={onDelete}
               className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ai-danger-tint)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-danger)] transition-opacity hover:opacity-80"
             >
-              <Trash2 className="size-3.5" strokeWidth={2} />
+              <Trash className="size-3.5" strokeWidth={2} />
               Delete applicant
             </button>
             <p className="m-0 mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
@@ -2499,7 +2499,7 @@ export function ApplicantsClient({
           >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
-                <Trash2 className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
+                <Trash className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
               </div>
               <h3
                 id="confirm-delete-applicant"

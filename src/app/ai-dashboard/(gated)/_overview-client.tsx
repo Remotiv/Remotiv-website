@@ -4,13 +4,13 @@ import Link from "next/link";
 import {
   ArrowRight,
   FileText,
-  LineChart,
+  ChartLine,
   Mail,
-  Pencil,
+  PenLine,
   Plus,
   Users,
 } from "lucide-react";
-import { categoryVisual } from "@/app/ai-dashboard/lib/category-icons";
+import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
 import {
   PIPELINE_STAGE_LABELS,
   type PipelineStage,
@@ -411,16 +411,17 @@ function ApplicantRow({ row, index }: { row: RecentApplicant; index: number }) {
 }
 
 function RoleCard({ role, index, max }: { role: LiveRole; index: number; max: number }) {
-  const visual = categoryVisual(role.category);
+  const visual = jobVisual(role.title, role.category);
   return (
     <Link
       href="/ai-dashboard/applicants"
       className="block rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[18px] py-[17px] transition-[box-shadow,border-color,transform] hover:-translate-y-0.5 hover:border-[var(--ai-line-strong)] hover:shadow-[0_12px_32px_rgba(20,16,32,0.09)]"
     >
       <div className="mb-[13px] flex items-center gap-2.5">
-        {/* Icon AND tint come from the role's category, not a hash of its id.
-            Every job used to get the same briefcase in a random colour, so the
-            one element carrying category information carried none. */}
+        {/* Glyph comes from the TITLE, tint from the category — so two
+            Engineering roles share a purple tile but not a shape. Neither is a
+            hash of the id, which is what used to make this element carry no
+            information at all. */}
         <span
           className="flex size-[34px] shrink-0 items-center justify-center rounded-[11px]"
           style={{ background: visual.bg, color: visual.fg }}
@@ -518,7 +519,7 @@ export function OverviewClient({
           draftJobs === 1 && soleDraftId
             ? `/ai-dashboard/jobs/${soleDraftId}/edit`
             : "/ai-dashboard/jobs",
-        icon: Pencil,
+        icon: PenLine,
         tintBg: "var(--ai-amber-tint)",
         tintFg: "var(--ai-amber-ink)",
       },
@@ -600,7 +601,7 @@ export function OverviewClient({
             href="/ai-dashboard/weekly-report"
             className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
           >
-            <LineChart className="size-[15px]" strokeWidth={1.9} />
+            <ChartLine className="size-[15px]" strokeWidth={1.9} />
             Weekly report
           </Link>
           {canCreateJob && (

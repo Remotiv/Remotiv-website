@@ -13,16 +13,16 @@ import {
   Eye,
   Lock,
   MoreHorizontal,
-  Pencil,
+  PenLine,
   Plus,
   RotateCcw,
   Search as SearchIcon,
   Sparkles,
-  Trash2,
+  Trash,
   X,
-  XCircle,
+  CircleX,
 } from "lucide-react";
-import { categoryVisual } from "@/app/ai-dashboard/lib/category-icons";
+import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
 import {
   canCreateJobs,
   type CompanyRole,
@@ -301,7 +301,7 @@ function JobCard({
   canManage: boolean;
   onOpen: () => void;
 }) {
-  const visual = categoryVisual(job.category);
+  const visual = jobVisual(job.title, job.category);
   // `tint` is still the id-hashed palette: it drives the progress BAR,
   // which is a per-job accent and deliberately varied, not a category signal.
   const tint = getTint(job.id);
@@ -402,7 +402,7 @@ function JobCard({
 
 type MenuItem = {
   label: string;
-  icon: typeof Pencil;
+  icon: typeof PenLine;
   onSelect: () => void;
   danger?: boolean;
 };
@@ -468,7 +468,7 @@ function JobDrawer({
   actions: ReadonlyArray<MenuItem>;
   dangerActions: ReadonlyArray<MenuItem>;
 }) {
-  const drawerVisual = categoryVisual(job.category);
+  const drawerVisual = jobVisual(job.title, job.category);
   const badge = STATUS_BADGE[job.status];
   const posted = fmtPosted(job.created_at, job.status);
   const publicUrl = job.slug ? `/jobs/${job.slug}` : null;
@@ -907,7 +907,7 @@ export function JobsClient({
 
     const edit: MenuItem = {
       label: job.status === "on_hold" ? "Edit draft" : "Edit job",
-      icon: Pencil,
+      icon: PenLine,
       onSelect: () => router.push(`/ai-dashboard/jobs/${job.id}/edit`),
     };
     const duplicate: MenuItem = {
@@ -943,7 +943,7 @@ export function JobsClient({
         danger: [
           {
             label: "Delete",
-            icon: Trash2,
+            icon: Trash,
             onSelect: () => setConfirm({ job, kind: "delete" }),
             danger: true,
           },
@@ -957,7 +957,7 @@ export function JobsClient({
         danger: [
           {
             label: "Close job",
-            icon: XCircle,
+            icon: CircleX,
             onSelect: () => setConfirm({ job, kind: "close" }),
             danger: true,
           },
@@ -970,7 +970,7 @@ export function JobsClient({
         danger: [
           {
             label: "Delete draft",
-            icon: Trash2,
+            icon: Trash,
             onSelect: () => setConfirm({ job, kind: "delete" }),
             danger: true,
           },
@@ -991,7 +991,7 @@ export function JobsClient({
       danger: [
         {
           label: "Delete",
-          icon: Trash2,
+          icon: Trash,
           onSelect: () => setConfirm({ job, kind: "delete" }),
           danger: true,
         },
@@ -1236,7 +1236,7 @@ export function JobsClient({
             </div>
 
             {paged.map((job) => {
-                const rowVisual = categoryVisual(job.category);
+                const rowVisual = jobVisual(job.title, job.category);
                 const tint = getTint(job.id);
                 const badge = STATUS_BADGE[job.status];
                 const posted = fmtPosted(job.created_at, job.status);
@@ -1437,9 +1437,9 @@ export function JobsClient({
                 ) : confirm.kind === "archive" ? (
                   <Archive className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 ) : confirm.kind === "close" ? (
-                  <XCircle className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
+                  <CircleX className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 ) : (
-                  <Trash2 className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
+                  <Trash className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
                 )}
               </div>
               <h3

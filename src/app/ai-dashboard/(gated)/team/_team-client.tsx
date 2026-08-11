@@ -10,12 +10,12 @@ import {
   Lock,
   MoreHorizontal,
   Plus,
-  RefreshCcw,
+  RotateCw,
   Search as SearchIcon,
   Send,
-  Trash2,
+  Trash,
   X,
-  XCircle,
+  CircleX,
 } from "lucide-react";
 import {
   canCreateJobs,
@@ -626,7 +626,7 @@ function MemberDrawer({
                   onClick={onResend}
                   className="flex w-full items-center gap-2 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
                 >
-                  <RefreshCcw className="size-3.5 text-remotiv-purple" strokeWidth={2} />
+                  <RotateCw className="size-3.5 text-remotiv-purple" strokeWidth={2} />
                   Resend invite
                 </button>
               )}
@@ -641,9 +641,9 @@ function MemberDrawer({
                 className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ai-danger-tint)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-danger)] transition-opacity hover:opacity-80"
               >
                 {pending ? (
-                  <XCircle className="size-3.5" strokeWidth={2} />
+                  <CircleX className="size-3.5" strokeWidth={2} />
                 ) : (
-                  <Trash2 className="size-3.5" strokeWidth={2} />
+                  <Trash className="size-3.5" strokeWidth={2} />
                 )}
                 {pending ? "Revoke invite" : "Remove from team"}
               </button>
@@ -1655,7 +1655,7 @@ export function TeamClient({
           >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
-                <Trash2 className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
+                <Trash className="size-6 text-[var(--ai-danger)]" strokeWidth={2} />
               </div>
               <h3
                 id="remove-member-title"

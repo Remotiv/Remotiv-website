@@ -1,4 +1,4 @@
-import { Check, CheckCheck, Clock, TriangleAlert } from "lucide-react";
+import { Check, SquareCheckBig, Clock, TriangleAlert } from "lucide-react";
 
 /**
  * The page frame and the states that sit outside the flow.
@@ -109,7 +109,7 @@ export function TerminalScreen({
       <div className="iv-card">
         <div className="flex flex-col items-center px-1 pb-2 pt-3.5 text-center">
           <span className="mb-[18px] flex size-[72px] items-center justify-center rounded-3xl bg-[var(--mint-tint)] text-[var(--mint-ink)]">
-            <CheckCheck className="size-[34px]" strokeWidth={2.2} />
+            <SquareCheckBig className="size-[34px]" strokeWidth={2.2} />
           </span>
           <h1 className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
             You&apos;ve already submitted

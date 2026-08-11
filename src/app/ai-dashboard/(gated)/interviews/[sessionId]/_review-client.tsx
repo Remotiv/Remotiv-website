@@ -9,11 +9,10 @@ import {
   Copy,
   Lock,
   Mic,
-  Pencil,
-  Sparkles,
+  PenLine,
   TriangleAlert,
   Archive,
-  Trash2,
+  Trash,
   Users,
   UserX,
   Video,
@@ -233,7 +232,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
               onClick={() => setConfirmingDelete(true)}
               className="inline-flex items-center gap-2 rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-[11px] text-[13px] font-semibold text-[var(--ai-t3)] transition-colors hover:border-[var(--ai-danger)] hover:bg-[var(--ai-danger)] hover:text-white"
             >
-              <Trash2 className="size-[15px]" strokeWidth={1.9} />
+              <Trash className="size-[15px]" strokeWidth={1.9} />
               Delete
             </button>
           )}
@@ -817,7 +816,7 @@ function Scorecard({
           through, beside the human's number. The comparison IS the value. */}
       {adj && (
         <div className="mb-3.5 flex gap-[11px] rounded-xl border border-[rgba(126,71,255,0.2)] bg-[var(--ai-purple-tint)] px-3.5 py-3">
-          <Pencil className="mt-px size-[15px] shrink-0 text-remotiv-purple" strokeWidth={2} />
+          <PenLine className="mt-px size-[15px] shrink-0 text-remotiv-purple" strokeWidth={2} />
           <p className="m-0 text-xs leading-relaxed text-[var(--ai-purple-ink)]">
             <b className="font-bold">{adj.by} changed this score</b> from{" "}
             <span className="line-through opacity-65">{adj.aiScore ?? "—"}</span> to{" "}

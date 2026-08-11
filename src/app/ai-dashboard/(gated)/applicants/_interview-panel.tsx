@@ -3,7 +3,7 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
-import { Check, Clock, Send, Video, XCircle } from "lucide-react";
+import { Check, Clock, Send, Video, CircleX } from "lucide-react";
 import { fetchInterviewPanel, sendInterviewInvite } from "./interview-actions";
 import type { InterviewPanelState } from "./interview-types";
 
@@ -50,7 +50,7 @@ const STATE: Record<
   cancelled: {
     label: "Cancelled",
     cls: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
-    icon: XCircle,
+    icon: CircleX,
   },
 };
 
