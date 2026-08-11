@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { skipJob } from "@/lib/job-skip";
 import { INTERVIEW_BUCKET } from "./session";
 
 /**
@@ -57,7 +58,17 @@ export async function handleTranscribe(job: {
     .maybeSingle();
 
   const answer = data as AnswerRow | null;
-  if (!answer) throw new Error(`transcribe: answer ${answerId} not found`);
+  /*
+   * The answer was deleted — with its interview, or by the retention purge —
+   * between this job being queued and being claimed. There is nothing to
+   * transcribe and there never will be, so this is a skip: retrying a deleted
+   * row three times with backoff only delays the same answer and parks it in
+   * the dead letter for someone to triage by hand.
+   */
+  if (!answer) {
+    skipJob("transcribe", job.id, `answer ${answerId} no longer exists`);
+    return;
+  }
 
   // Already done — a duplicate enqueue (a re-record races its own job) must
   // not spend a second API call on the same audio.

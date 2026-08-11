@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { skipJob } from "@/lib/job-skip";
 import {
   buildCandidateHtml,
   deliverEmail,
@@ -84,7 +85,16 @@ export async function handleSendMessage(job: {
     .maybeSingle();
 
   const app = appData as ApplicationRow | null;
-  if (!app) throw new Error(`send_message: application ${applicationId} not found`);
+  /*
+   * Applicant deleted before the email went out. Skipping is not just cheaper
+   * than retrying — it is the correct outcome: there is no address left to
+   * send to, and a deleted applicant is the clearest possible signal that
+   * nobody wants this message delivered.
+   */
+  if (!app) {
+    skipJob("send_message", job.id, `application ${applicationId} no longer exists`);
+    return;
+  }
 
   const companyId = app.company_id_snapshot;
   if (!companyId) {

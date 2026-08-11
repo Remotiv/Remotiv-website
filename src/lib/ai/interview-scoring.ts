@@ -1,6 +1,7 @@
 import "server-only";
 import { getAnthropic } from "@/lib/anthropic";
 import { createServiceClient } from "@/lib/supabase/server";
+import { skipJob } from "@/lib/job-skip";
 import { recordUsage } from "@/lib/usage";
 import {
   type Confidence,
@@ -735,7 +736,13 @@ export async function handleAiScorecard(job: {
     throw new Error(`ai_scorecard: session lookup failed: ${sessionErr.message}`);
   }
   const session = sessionData as SessionRow | null;
-  if (!session) throw new Error(`ai_scorecard: session ${sessionId} not found`);
+  // Interview deleted before its scorecard ran. interview_answer_scores and
+  // interview_session_scores cascade with it, so there is not even a row left
+  // to write a 'skipped' scorecard into — the job itself is simply done.
+  if (!session) {
+    skipJob("ai_scorecard", job.id, `session ${sessionId} no longer exists`);
+    return;
+  }
 
   /** Session-level skip. Records WHY, so a reviewer never sees a blank panel. */
   const skipSession = async (reason: string) => {

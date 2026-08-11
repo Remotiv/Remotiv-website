@@ -2,6 +2,7 @@ import { SCORING_OFF_REASON } from "@/app/ai-dashboard/lib/applicant-types";
 import { getAnthropic } from "@/lib/anthropic";
 import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
+import { skipJob } from "@/lib/job-skip";
 import { recordUsage } from "@/lib/usage";
 import { notifyCompany } from "@/lib/notifications/company";
 
@@ -997,7 +998,12 @@ export async function handleAiCvScore(job: {
 
   if (appErr) throw new Error(`ai_cv_score: application lookup failed: ${appErr.message}`);
   const app = appData as ApplicationRow | null;
-  if (!app) throw new Error(`ai_cv_score: application ${applicationId} not found`);
+  // Applicant deleted before their CV was scored. Nothing to score and no row
+  // to record a score against, so the job is finished — not failed.
+  if (!app) {
+    skipJob("ai_cv_score", job.id, `application ${applicationId} no longer exists`);
+    return;
+  }
 
   const screeningAnswers = Array.isArray(app.screening_answers)
     ? (app.screening_answers as ScreeningAnswerSnapshot[])
