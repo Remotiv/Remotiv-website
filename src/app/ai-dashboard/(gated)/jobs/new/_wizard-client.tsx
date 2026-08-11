@@ -155,16 +155,25 @@ const STEP_LAB = "text-[13px] font-semibold";
 /*
  * "More options" honesty markers.
  *
- * Four of the five options are stored today but read by nothing until video
- * interviews ship. They stay fully editable — the company IS really saving the
- * setting — so a disabled control would be the lie. Instead every one of them
- * carries the SAME amber pill, and AI CV scoring carries a mint one, so the
- * two states read as a deliberate pair rather than one row missing a label.
+ * The pill states what a toggle DOES today, and it is only worth having while
+ * it is kept true. Async video interviews and re-recording are now both read
+ * by real code — sending an interview refuses when the first is off, and the
+ * candidate's page offers Re-record only when the second is on — so they carry
+ * the live pill alongside AI CV scoring and automated rejections.
+ *
+ * Two remain stored-but-unread: relevancy scoring and the AI avatar. They stay
+ * fully editable, because the company IS really saving the setting and a
+ * disabled control would be the lie; the pill is what says the setting has no
+ * effect yet.
+ *
+ * The amber label no longer says "When interviews launch" — interviews HAVE
+ * launched, which made that wording false for the two rows still wearing it.
+ * "Not yet active" pairs with "Active now" and stays true whatever ships next.
  */
 const PILL = "shrink-0 rounded-full px-[7px] py-0.5 text-[10.5px] font-bold";
 const PILL_SOON = `${PILL} bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]`;
 const PILL_LIVE = `${PILL} bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]`;
-const SOON_LABEL = "When interviews launch";
+const SOON_LABEL = "Not yet active";
 const LIVE_LABEL = "Active now";
 
 const QUESTION_TYPES: ReadonlyArray<{ value: ScreeningQuestion["type"]; label: string }> = [
@@ -430,8 +439,15 @@ function InterviewerNameField({
         maxLength={JOB_INTERVIEWER_NAME_MAX}
         className={INPUT_CLS}
       />
+      {/* NOT "shown to candidates" — neither name is. Both are saved and read
+          back by this form and by nothing else: the invite email, the
+          candidate's interview page and the review page all name the company
+          and the role instead. Said plainly here because the async toggle
+          above it now reads "Active now", and a truthful pill sitting over a
+          false hint is worse than neither. */}
       <p className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
-        Shown to candidates. Up to {JOB_INTERVIEWER_NAME_MAX} characters.
+        Saved with the job. Nothing shows it to candidates yet. Up to{" "}
+        {JOB_INTERVIEWER_NAME_MAX} characters.
       </p>
     </div>
   );
@@ -1868,14 +1884,23 @@ export function WizardClient({
                           <b className="font-bold text-[var(--ai-amber-ink)]">
                             {SOON_LABEL}
                           </b>{" "}
-                          is stored now and starts working when video interviews
-                          ship — it changes nothing about this job today.
+                          is stored now and changes nothing about this job yet;{" "}
+                          <b className="font-bold text-[var(--ai-mint-ink)]">
+                            {LIVE_LABEL}
+                          </b>{" "}
+                          takes effect as soon as you save.
                         </p>
 
                         <div className="grid gap-2.5">
+                          {/* Read at send time and frozen onto the session,
+                              so the candidate's page offers Re-record under
+                              exactly the rule that was in force when they were
+                              invited — a later edit cannot change an interview
+                              already in flight. */}
                           <OptionRow
                             title="Allow re-recording"
                             desc="Candidates can re-record their interview before submitting."
+                            live
                             on={state.allow_rerecord}
                             onToggle={() => set("allow_rerecord", !state.allow_rerecord)}
                           />
@@ -1934,9 +1959,15 @@ export function WizardClient({
                             }
                           />
 
+                          {/* The gate on sending. With this off,
+                              sendInterviewInvite refuses and the applicant
+                              drawer disables its button — so the toggle is now
+                              the thing that decides whether this job uses
+                              interviews at all. */}
                           <OptionRow
                             title="Async video interview"
                             desc="Candidates record answers in their own time, with no live call."
+                            live
                             on={state.async_interview_enabled}
                             onToggle={() =>
                               set(

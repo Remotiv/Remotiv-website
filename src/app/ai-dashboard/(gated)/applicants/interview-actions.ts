@@ -16,7 +16,10 @@ import {
   RETENTION_MONTHS,
   SESSION_EXPIRY_DAYS,
 } from "@/lib/interviews/tokens";
-import type { InterviewSessionSummary } from "./interview-types";
+import type {
+  InterviewPanelState,
+  InterviewSessionSummary,
+} from "./interview-types";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Shapes live in ./interview-types.ts.
@@ -78,6 +81,33 @@ export async function sendInterviewInvite(
     return {
       success: false,
       error: "This application isn't attached to a job, so there's nothing to ask.",
+    };
+  }
+
+  /*
+   * ── The job's own switch ──
+   *
+   * async_interview_enabled is set in the job wizard's More options. Until
+   * now nothing read it: the toggle stored a value and sending checked only
+   * whether questions existed, so a company that had deliberately left async
+   * interviews OFF could still send one from the drawer.
+   *
+   * Re-fetched here, server-side, from the live job row. The client is not
+   * asked and its answer would not be believed. The drawer disables its button
+   * on the same fact, but that is a courtesy to the recruiter — THIS is the
+   * gate, and it is the only one that matters.
+   *
+   * `=== true` and not `!== false`: the column defaults to FALSE, so an
+   * absent or null value must refuse. This is the opposite polarity to
+   * allow_rerecord below, which defaults to true, and getting the two the
+   * same way round would silently invert one of them.
+   */
+  const settings = await readJobInterviewSettings(service, app.job_id);
+  if (!settings.asyncEnabled) {
+    return {
+      success: false,
+      error:
+        "Async video interviews are switched off for this job. Turn them on under More options in the job's settings, then send again.",
     };
   }
 
@@ -178,7 +208,7 @@ export async function sendInterviewInvite(
       status: "invited",
       // Snapshotted from the job so a later toggle can't retroactively let
       // someone re-record an interview they were invited to under other rules.
-      allow_rerecord: await jobAllowsRerecord(service, app.job_id),
+      allow_rerecord: settings.allowRerecord,
       // The question set as it stands right now. Frozen for the same reason
       // as allow_rerecord, and for the stronger one that positions are the
       // key for answers and storage paths.
@@ -280,16 +310,35 @@ export async function sendInterviewInvite(
   return { success: true, data: { expiresAt } };
 }
 
-async function jobAllowsRerecord(
+/**
+ * The two job columns the interview flow actually reads.
+ *
+ * One query, because the send path needs both and they are read at the same
+ * moment — the gate and the value frozen onto the session.
+ *
+ * NOTE the deliberately different defaults. `allow_rerecord` defaults to TRUE
+ * in the database, so a null must permit; `async_interview_enabled` defaults to
+ * FALSE, so a null must refuse. Reading both with the same comparison is the
+ * easy mistake here and it would either lock recruiters out of a feature they
+ * enabled or hand them one they switched off.
+ */
+async function readJobInterviewSettings(
   service: ReturnType<typeof createServiceClient>,
   jobId: string,
-): Promise<boolean> {
+): Promise<{ allowRerecord: boolean; asyncEnabled: boolean }> {
   const { data } = await service
     .from("jobs")
-    .select("allow_rerecord")
+    .select("allow_rerecord, async_interview_enabled")
     .eq("id", jobId)
     .maybeSingle();
-  return (data as { allow_rerecord: boolean | null } | null)?.allow_rerecord !== false;
+  const row = data as {
+    allow_rerecord: boolean | null;
+    async_interview_enabled: boolean | null;
+  } | null;
+  return {
+    allowRerecord: row?.allow_rerecord !== false,
+    asyncEnabled: row?.async_interview_enabled === true,
+  };
 }
 
 /**
@@ -300,11 +349,18 @@ async function jobAllowsRerecord(
  * reversed by a bug. The drawer shows status and dates; re-sending mints a new
  * token rather than resurfacing the old link.
  */
-export async function fetchInterviewSession(
+export async function fetchInterviewPanel(
   applicationId: string,
-): Promise<InterviewSessionSummary | null> {
+): Promise<InterviewPanelState> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
+
+  /** Nothing to show and nothing to offer — the guard cases all land here. */
+  const NOTHING: InterviewPanelState = {
+    session: null,
+    asyncEnabled: false,
+    jobId: null,
+  };
 
   const { data: appData } = await service
     .from("job_applications")
@@ -313,8 +369,19 @@ export async function fetchInterviewSession(
     .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
   const app = appData as { job_id: string | null } | null;
-  if (!app) return null;
-  if (!(await canAccessJob(ctx, app.job_id ?? ""))) return null;
+  if (!app) return NOTHING;
+  if (!(await canAccessJob(ctx, app.job_id ?? ""))) return NOTHING;
+
+  /*
+   * Read the job's switch even when a session already exists. An interview
+   * sent before the toggle was turned off must still be visible and reviewable
+   * — only the SEND is conditional, and hiding the record of one already taken
+   * would lose a candidate's work to a settings change.
+   */
+  const asyncEnabled = app.job_id
+    ? (await readJobInterviewSettings(service, app.job_id)).asyncEnabled
+    : false;
+  const base = { asyncEnabled, jobId: app.job_id };
 
   const { data } = await service
     .from("interview_sessions")
@@ -336,7 +403,7 @@ export async function fetchInterviewSession(
     created_at: string;
     questions_snapshot: unknown;
   }[])[0];
-  if (!row) return null;
+  if (!row) return { ...base, session: null };
 
   // The interview score, if one exists. Company-gated on its own column.
   const { data: scoreRow } = await service
@@ -378,7 +445,7 @@ export async function fetchInterviewSession(
     total = count ?? 0;
   }
 
-  return {
+  const session: InterviewSessionSummary = {
     id: row.id,
     // Expiry is derived, not read: a session nothing has swept is still
     // expired once the deadline passes.
@@ -396,4 +463,6 @@ export async function fetchInterviewSession(
     score: sc ? (sc.human_adjusted_score ?? sc.overall_score) : null,
     scoreStatus: sc?.status ?? null,
   };
+
+  return { ...base, session };
 }
