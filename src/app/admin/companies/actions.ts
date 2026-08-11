@@ -10,6 +10,8 @@ import {
   syncJobsCompanyName,
 } from "@/lib/company-identity";
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
+import type { QueueHealth } from "@/lib/queue-health-types";
+import { QUEUE_TYPES, readQueueHealth } from "@/lib/queue-health";
 
 // ── Types ────────────────────────────────────────────────────
 // NB: a "use server" module may only export async functions — every export is
@@ -490,4 +492,138 @@ export async function deleteCompany(id: string): Promise<MutationResult<undefine
 
   revalidatePath("/admin/companies");
   return { success: true, data: undefined };
+}
+
+// ── Background queue (cross-company, super-admin only) ───────
+
+/*
+ * ── How the cross-company read is made safe ──
+ *
+ * background_jobs carries a company_id but is DELIBERATELY not scoped by it
+ * here: the whole point of this panel is to see one queue across every
+ * company, which is why it exists on /admin/companies and nowhere else.
+ *
+ * The guard is therefore the only thing standing between this data and a
+ * tenant, and it is applied in THREE independent places:
+ *
+ *   1. page.tsx resolves the role and redirects anything that is not
+ *      super_admin away from /admin/companies before rendering.
+ *   2. Every function below calls requireSuperAdmin(), which throws. That is
+ *      the one that actually matters — a server action is a POST endpoint and
+ *      is reachable regardless of which page rendered it, so the page-level
+ *      redirect protects navigation and nothing else.
+ *   3. The reads run through the service client, which is server-only; no
+ *      anon or user-scoped client can reach the table at all (RLS is on with
+ *      no policies).
+ *
+ * A company admin who guesses these action ids gets an exception, not a row.
+ */
+
+export async function fetchQueueHealth(): Promise<QueueHealth> {
+  await requireSuperAdmin();
+  return readQueueHealth();
+}
+
+/**
+ * Put one dead job back on the queue.
+ *
+ * ── Why this cannot re-run work that already succeeded ──
+ *
+ * Two independent reasons, and the first is the one that holds even under a
+ * race:
+ *
+ * 1. The UPDATE is CONDITIONAL — `.eq("status", "dead")` is part of the write,
+ *    not a check performed before it. A job that left 'dead' between this page
+ *    rendering and the button being pressed simply matches no row, and the
+ *    action reports that rather than resurrecting it. Nothing that is queued,
+ *    running or succeeded can be touched by this call, whatever id is passed.
+ *
+ * 2. Every handler is itself idempotent, so even a genuine double-run is a
+ *    no-op rather than duplicated work: handleTranscribe returns early when
+ *    transcript_status is already 'done'; send_message skips when its log row
+ *    is already queued/sent/skipped/cancelled, so nobody is emailed twice;
+ *    ai_cv_score and ai_scorecard upsert on their natural key; both purges are
+ *    driven by a selector that stops matching once the row is cleared.
+ *
+ * attempts resets to 0 so the exponential backoff starts clean rather than
+ * from the hour-long ceiling the job died at, and locked_at/locked_by are
+ * cleared so no stale lease blocks the claim.
+ */
+export async function retryDeadJob(
+  jobId: string,
+): Promise<MutationResult<{ retried: number }>> {
+  await requireSuperAdmin();
+  if (!jobId) return { success: false, error: "No job specified." };
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("background_jobs")
+    .update({
+      status: "queued",
+      attempts: 0,
+      last_error: null,
+      run_after: new Date().toISOString(),
+      locked_at: null,
+      locked_by: null,
+    })
+    .eq("id", jobId)
+    .eq("status", "dead")
+    .select("id");
+
+  if (error) return { success: false, error: error.message };
+  const retried = (data ?? []).length;
+  if (retried === 0) {
+    return {
+      success: false,
+      error: "That job is no longer dead — it may already have been retried.",
+    };
+  }
+
+  revalidatePath("/admin/companies");
+  return { success: true, data: { retried } };
+}
+
+/**
+ * Put every dead job of one type back on the queue.
+ *
+ * Same conditional write as the single retry, so the same guarantee holds for
+ * every row it touches. Scoped to ONE type on purpose: dead jobs cluster by
+ * cause — a missing API key kills every transcribe and nothing else — and a
+ * single "retry everything" button would replay unrelated failures whose cause
+ * is still present, burning attempts and putting them straight back in dead.
+ */
+export async function retryDeadJobsOfType(
+  type: string,
+): Promise<MutationResult<{ retried: number }>> {
+  await requireSuperAdmin();
+  if (!type) return { success: false, error: "No type specified." };
+  // Only types this build knows about. An arbitrary string here would let a
+  // caller reset rows belonging to a handler that no longer exists.
+  if (!QUEUE_TYPES.includes(type)) {
+    return { success: false, error: "Unknown job type." };
+  }
+
+  const supabase = createServiceClient();
+  const { data, error } = await supabase
+    .from("background_jobs")
+    .update({
+      status: "queued",
+      attempts: 0,
+      last_error: null,
+      run_after: new Date().toISOString(),
+      locked_at: null,
+      locked_by: null,
+    })
+    .eq("type", type)
+    .eq("status", "dead")
+    .select("id");
+
+  if (error) return { success: false, error: error.message };
+  const retried = (data ?? []).length;
+  if (retried === 0) {
+    return { success: false, error: "No dead jobs of that type to retry." };
+  }
+
+  revalidatePath("/admin/companies");
+  return { success: true, data: { retried } };
 }
