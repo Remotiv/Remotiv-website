@@ -15,12 +15,17 @@ import type { TranscriptSegment } from "./transcribe";
  * 1. Normalise both sides the same way `verifyEvidence` does — lowercase,
  *    collapse whitespace, unify smart punctuation. Whisper's segment text and
  *    the model's quote will differ in exactly those characters.
- * 2. Try each segment on its own: the common case is a quote lifted from one
- *    span.
- * 3. If no single segment contains it, walk consecutive segments and join
- *    them. A quote that STRADDLES A BOUNDARY resolves to the start of the
- *    FIRST segment it appears in — a reviewer wants the beginning of the
- *    sentence they are checking, not its midpoint.
+ * 2. Join every segment into ONE haystack, remembering the character offset at
+ *    which each segment begins.
+ * 3. Find the quote's offset in that haystack and map it back to the segment
+ *    that offset falls inside — the segment where the quote actually BEGINS.
+ *
+ * Straddling is the normal case, not the exception: Whisper splits on silence,
+ * so most sentences a model quotes cross at least one boundary. Measured on a
+ * real 57-second answer, five of six quotes straddled. An earlier version
+ * searched a sliding window of joined segments and returned the WINDOW's start
+ * — which, since the window began at segment zero, sent almost every quote to
+ * 0:00 while looking entirely correct.
  *
  * ── Failure returns null, never zero ─────────────────────────
  *
@@ -46,9 +51,6 @@ function normalise(text: string): string {
 /** Below this a match proves nothing — a two-word quote appears everywhere. */
 const MIN_MATCH_CHARS = 8;
 
-/** How many consecutive segments a quote may span before we give up. */
-const MAX_SPAN = 6;
-
 export function findQuoteStart(
   quote: string,
   segments: TranscriptSegment[] | null | undefined,
@@ -58,27 +60,37 @@ export function findQuoteStart(
   const needle = normalise(quote.replace(/^["'`]+|["'`]+$/g, ""));
   if (needle.length < MIN_MATCH_CHARS) return null;
 
-  // 1. Whole quote inside one segment — the common case.
+  /*
+   * Build the haystack and the offset index together, so `starts[i]` is the
+   * character position at which segment i begins. A single space joins them —
+   * the same separator `normalise` collapses runs of whitespace to, so the
+   * haystack reads exactly as the concatenated transcript does and a quote
+   * spanning a boundary matches without special handling.
+   */
+  let haystack = "";
+  const starts: number[] = [];
   for (const seg of segments) {
-    if (normalise(seg.text).includes(needle)) {
-      return seg.start;
-    }
+    const text = normalise(seg.text);
+    if (haystack) haystack += " ";
+    starts.push(haystack.length);
+    haystack += text;
   }
+
+  const at = haystack.indexOf(needle);
+  if (at < 0) return null;
 
   /*
-   * 2. Straddling a boundary. Join forward from each segment and stop at the
-   *    first window that contains the quote, returning the START of the window
-   *    — where the reviewer should begin listening.
+   * Map the offset back to the segment CONTAINING it: the last segment whose
+   * start is at or before the match. That is where the reviewer should begin
+   * listening — the moment the quoted words start, whether or not they finish
+   * inside the same segment.
    */
-  for (let i = 0; i < segments.length; i += 1) {
-    let joined = normalise(segments[i].text);
-    for (let j = i + 1; j < Math.min(i + MAX_SPAN, segments.length); j += 1) {
-      joined = `${joined} ${normalise(segments[j].text)}`;
-      if (joined.includes(needle)) return segments[i].start;
-    }
+  let found = 0;
+  for (let i = 0; i < starts.length; i += 1) {
+    if (starts[i] <= at) found = i;
+    else break;
   }
-
-  return null;
+  return segments[found].start;
 }
 
 /** Seconds → `m:ss`, the form the seek chip shows. */

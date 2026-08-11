@@ -571,7 +571,10 @@ async function fetchAnswerScores(
   const { data } = await service
     .from("interview_answer_scores")
     .select(
-      "answer_id, status, score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, confidence, reasoning, evidence, strengths, concerns, missing, error",
+      // `evidence` is deliberately NOT selected: since v2 it is the union of
+      // strengths and concerns, written for audit only. Reading it back would
+      // duplicate every quote the two lists already carry.
+      "answer_id, status, score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, confidence, reasoning, strengths, concerns, missing, error",
     )
     .eq("company_id", companyId)
     .eq("session_id", sessionId)
@@ -587,7 +590,6 @@ async function fetchAnswerScores(
     adjusted_at: string | null;
     confidence: string | null;
     reasoning: string | null;
-    evidence: unknown;
     strengths: unknown;
     concerns: unknown;
     missing: unknown;
@@ -596,33 +598,38 @@ async function fetchAnswerScores(
     const segs = segments.get(r.answer_id) ?? null;
 
     /*
-     * The model returns ONE evidence array; strengths and concerns are plain
-     * strings. Pairing is done by matching a strength/concern to the evidence
-     * item whose CLAIM it is — never by array position, which is how the CV
-     * scorer once attached a real quote to the wrong claim.
+     * A claim and its quote arrive in the SAME object. There is nothing to
+     * join, which is the point: v1 stored them in separate arrays and paired
+     * them by string-matching a strength against an evidence claim, prose the
+     * model was never required to write identically. It never matched once,
+     * so every quote and every seek button silently vanished.
+     *
+     * A bare string is a v1 row. It renders as a claim with no quote and no
+     * button rather than being paired with a neighbouring span — an
+     * unevidenced claim is honest, a mispaired one is not. Re-scoring such a
+     * row under v2 is what restores its evidence.
      */
-    const evidence = Array.isArray(r.evidence)
-      ? (r.evidence as { claim?: unknown; quote?: unknown }[])
-      : [];
-    const byClaim = new Map<string, string>();
-    for (const e of evidence) {
-      if (typeof e?.claim === "string" && typeof e?.quote === "string") {
-        byClaim.set(e.claim.trim(), e.quote.trim());
-      }
-    }
-
     const pair = (items: unknown): ScoredEvidence[] => {
       if (!Array.isArray(items)) return [];
-      return items
-        .filter((x): x is string => typeof x === "string" && x.trim().length > 0)
-        .map((claim) => {
-          const quote = byClaim.get(claim.trim()) ?? "";
-          return {
-            claim: claim.trim(),
-            quote,
-            startSeconds: quote ? findQuoteStart(quote, segs) : null,
-          };
+      const out: ScoredEvidence[] = [];
+      for (const item of items) {
+        if (typeof item === "string") {
+          const claim = item.trim();
+          if (claim) out.push({ claim, quote: "", startSeconds: null });
+          continue;
+        }
+        if (!item || typeof item !== "object") continue;
+        const e = item as { claim?: unknown; quote?: unknown };
+        const claim = typeof e.claim === "string" ? e.claim.trim() : "";
+        if (!claim) continue;
+        const quote = typeof e.quote === "string" ? e.quote.trim() : "";
+        out.push({
+          claim,
+          quote,
+          startSeconds: quote ? findQuoteStart(quote, segs) : null,
         });
+      }
+      return out;
     };
 
     const status: ScoreStatus =

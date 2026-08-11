@@ -47,7 +47,7 @@ import {
  * way and being able to say which version scored a given candidate is what
  * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v1";
+export const PROMPT_VERSION = "interview-scoring-v2";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -165,13 +165,15 @@ A range or an approximation is NOT a specific. "Around $10,000", "two to three y
 
 ## Evidence — the rules that matter most
 
-Every claim you make in reasoning, strengths or concerns must be supported by a quote from the transcript.
+Every strength and every concern MUST carry its own quote, in the SAME object as the claim it supports. There is no separate evidence list: a claim and the words that support it travel together or the claim does not exist.
 
 1. A quote must be ONE CONTIGUOUS SPAN copied verbatim from the transcript. Never join two separate passages. Never use "..." or an ellipsis inside a quote. A stitched quote is treated as fabricated and the claim attached to it is discarded, even when both halves are genuine.
 
 2. A quote must DIRECTLY support the exact claim it is attached to. A quote that is real but says something else is a failure, not partial credit.
 
 3. If you cannot find one contiguous span that directly supports a claim, DROP THE CLAIM. Do not attach the nearest quote. Do not weaken the claim to fit a quote you have. Dropping it is always the correct action and is never penalised — a scorecard with two well-evidenced points is worth more than one with five where three are mispaired.
+
+4. Never return a claim with an empty quote. An unquoted claim is discarded exactly as a fabricated one is, so returning four unquoted points scores you nothing where returning one quoted point scores you something.
 
 ## Other constraints
 
@@ -188,11 +190,12 @@ Return ONLY this JSON object. No prose before or after, no code fence.
   "score": 0-100,
   "confidence": "high" | "medium" | "low",
   "reasoning": "two or three sentences explaining the band you chose",
-  "evidence": [{ "claim": "what this shows", "quote": "one contiguous verbatim span" }],
-  "strengths": ["at most four, each a distinct point"],
-  "concerns": ["at most four, each something a human should verify"],
+  "strengths": [{ "claim": "a distinct point", "quote": "one contiguous verbatim span supporting THIS claim" }],
+  "concerns": [{ "claim": "something a human should verify", "quote": "one contiguous verbatim span supporting THIS claim" }],
   "missing": ["at most four, only what this question asked for"]
-}`;
+}
+
+At most four strengths and at most four concerns. "missing" is the only list of bare strings — it describes what is ABSENT from the answer, so by definition nothing in the transcript can support it.`;
 
 /**
  * The session rollup prompt.
@@ -232,9 +235,17 @@ export type AnswerScore = {
   score: number;
   confidence: Confidence;
   reasoning: string;
+  /**
+   * Every verified quote on this answer — strengths and concerns unioned.
+   *
+   * DERIVED, not returned by the model. It is written to the `evidence` column
+   * so that column keeps meaning "the quotes this score was built on" for
+   * audit, but nothing reads it to render a scorecard: a claim now carries its
+   * own quote in the same object, so there is no join left to get wrong.
+   */
   evidence: EvidenceItem[];
-  strengths: string[];
-  concerns: string[];
+  strengths: EvidenceItem[];
+  concerns: EvidenceItem[];
   missing: string[];
   inputTokens: number;
   outputTokens: number;
@@ -272,7 +283,6 @@ function clampScore(v: unknown): number {
  * picks which four survive rather than the array order deciding.
  */
 const MAX_LIST_ITEMS = 4;
-const MAX_EVIDENCE_ITEMS = 6;
 
 function stringList(v: unknown, max = MAX_LIST_ITEMS): string[] {
   if (!Array.isArray(v)) return [];
@@ -282,16 +292,38 @@ function stringList(v: unknown, max = MAX_LIST_ITEMS): string[] {
     .slice(0, max);
 }
 
-function evidenceList(v: unknown): EvidenceItem[] {
+/**
+ * A claim WITH the span that supports it — the whole point of this file.
+ *
+ * The earlier parser normalised strengths and concerns to bare strings, which
+ * threw the quote away at the door: the reviewer then saw a claim with no
+ * evidence and no seek button, and no amount of work downstream could recover
+ * a span that was discarded here. Nothing may flatten a pair again.
+ *
+ * A bare string is still ACCEPTED, with an empty quote, so that a model which
+ * regresses to the v1 shape produces claims the caller can count and drop
+ * rather than an empty list it cannot explain. The evidence gate in
+ * `scoreAnswer` is what decides an unquoted claim's fate; parsing does not.
+ */
+function pairList(v: unknown, max = MAX_LIST_ITEMS): EvidenceItem[] {
   if (!Array.isArray(v)) return [];
   const out: EvidenceItem[] = [];
   for (const item of v) {
+    if (typeof item === "string") {
+      const claim = item.trim();
+      if (claim) out.push({ claim, quote: "" });
+      continue;
+    }
     if (!item || typeof item !== "object") continue;
     const e = item as { claim?: unknown; quote?: unknown };
-    if (typeof e.claim !== "string" || typeof e.quote !== "string") continue;
-    out.push({ claim: e.claim.trim(), quote: e.quote.trim() });
+    const claim = typeof e.claim === "string" ? e.claim.trim() : "";
+    if (!claim) continue;
+    out.push({
+      claim,
+      quote: typeof e.quote === "string" ? e.quote.trim() : "",
+    });
   }
-  return out.slice(0, MAX_EVIDENCE_ITEMS);
+  return out.slice(0, max);
 }
 
 /** At most twelve words, enforced rather than trusted. */
@@ -321,9 +353,8 @@ type RawAnswerResponse = {
   score: number;
   confidence: Confidence;
   reasoning: string;
-  evidence: EvidenceItem[];
-  strengths: string[];
-  concerns: string[];
+  strengths: EvidenceItem[];
+  concerns: EvidenceItem[];
   missing: string[];
 };
 
@@ -344,9 +375,8 @@ export function parseAnswerJson(raw: string): RawAnswerResponse | null {
     score: clampScore(o.score),
     confidence,
     reasoning: typeof o.reasoning === "string" ? o.reasoning.trim() : "",
-    evidence: evidenceList(o.evidence),
-    strengths: stringList(o.strengths),
-    concerns: stringList(o.concerns),
+    strengths: pairList(o.strengths),
+    concerns: pairList(o.concerns),
     missing: stringList(o.missing),
   };
 }
@@ -395,24 +425,55 @@ export async function scoreAnswer(
    * is genuinely in the transcript. Unverifiable quotes drop their claim and
    * lower confidence; if most fail, the whole response is rejected rather than
    * stored, because a scorecard built on invented quotes is worse than none.
+   *
+   * Verification now runs OVER THE DISPLAYED LISTS rather than beside them.
+   * Under v1 it checked a separate `evidence` array that no surface rendered,
+   * so the quotes a reviewer actually read were the unchecked ones — the gate
+   * was guarding the wrong door.
+   *
+   * Checked one item at a time, not as one batch, because verifyEvidence drops
+   * failures from its output: aligning a filtered result back to two source
+   * lists by position is precisely the class of bug this whole change removes.
+   * It also salvages the longest verified span, so the stored quote is always
+   * a contiguous run that genuinely appears.
    */
-  const { verified, failRate } = verifyEvidence(parsed.evidence, transcript);
+  let droppedClaims = 0;
+  const gate = (items: EvidenceItem[]): EvidenceItem[] => {
+    const kept: EvidenceItem[] = [];
+    for (const item of items) {
+      // An unquoted claim is dropped exactly as a fabricated one is. It counts
+      // toward the fail rate too, so a model that regresses to bare strings
+      // fails loudly here instead of shipping an evidence-free scorecard.
+      const { verified } = item.quote
+        ? verifyEvidence([item], transcript)
+        : { verified: [] as EvidenceItem[] };
+      if (verified.length === 1) kept.push(verified[0]);
+      else droppedClaims += 1;
+    }
+    return kept;
+  };
+
+  const strengths = gate(parsed.strengths);
+  const concerns = gate(parsed.concerns);
+
+  const totalClaims = parsed.strengths.length + parsed.concerns.length;
+  const failRate = totalClaims === 0 ? 0 : droppedClaims / totalClaims;
   if (failRate > MAX_FAIL_RATE) {
     throw new Error(
-      `Evidence verification failed: ${Math.round(failRate * 100)}% of quotes were not found in the transcript.`,
+      `Evidence verification failed: ${Math.round(failRate * 100)}% of claims had no quote found in the transcript.`,
     );
   }
 
   return {
     score: parsed.score,
     confidence:
-      verified.length < parsed.evidence.length
+      droppedClaims > 0
         ? lowerConfidence(parsed.confidence)
         : parsed.confidence,
     reasoning: parsed.reasoning,
-    evidence: verified,
-    strengths: parsed.strengths,
-    concerns: parsed.concerns,
+    evidence: [...strengths, ...concerns],
+    strengths,
+    concerns,
     missing: parsed.missing,
     inputTokens: response.usage?.input_tokens ?? 0,
     outputTokens: response.usage?.output_tokens ?? 0,
@@ -815,8 +876,11 @@ export async function handleAiScorecard(job: {
         weight: meta.weight,
         questionText: meta.questionText,
         competency: meta.competency,
-        strengths: result.strengths,
-        concerns: result.concerns,
+        // CLAIMS ONLY into the rollup. The rollup prompt is explicitly told it
+        // is not looking at transcripts and must not quote, so sending it the
+        // spans would invite it to reuse words it cannot verify.
+        strengths: result.strengths.map((s) => s.claim),
+        concerns: result.concerns.map((c) => c.claim),
       });
     } catch (err) {
       if (err instanceof ScoringSkipped) {
