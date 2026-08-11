@@ -198,3 +198,137 @@ export function recoveryFor(platform: Platform): Recovery {
       };
   }
 }
+
+// ── Why the camera didn't start ──────────────────────────────
+
+/**
+ * getUserMedia fails for reasons with completely different fixes, and only one
+ * of them is a permission.
+ *
+ * `blocked`  — the candidate (or a remembered decision) said no. Fixable here,
+ *              by them, with the platform steps above.
+ * `missing`  — there is no camera attached. NOTHING on this page can fix that
+ *              and no setting is wrong, so sending them to site settings is a
+ *              dead end that costs them their goodwill before they have said a
+ *              word. The only honest route forward is a different device.
+ * `in-use`   — another application holds the camera. Extremely common on a
+ *              laptop with a video call already open, and the fix is one step
+ *              that has nothing to do with the browser.
+ * `unknown`  — everything else, including a driver fault or an AbortError.
+ *              Retry is the only safe advice.
+ */
+export type MediaFault = "blocked" | "missing" | "in-use" | "unknown";
+
+/**
+ * Map a getUserMedia rejection onto the fault it actually represents.
+ *
+ * The legacy aliases matter: Firefox has shipped `TrackStartError` for a busy
+ * device and `DevicesNotFoundError` for a missing one for years, and treating
+ * either as "unknown" would put a Firefox user on the generic path when we know
+ * exactly what happened.
+ *
+ * OverconstrainedError counts as `missing`: the constraints here are all
+ * `ideal` hints except facingMode, so the only way to overconstrain is to have
+ * no camera the request can be satisfied by — which reads to the candidate as
+ * not having one.
+ */
+export function classifyMediaError(err: unknown): MediaFault {
+  const name = err instanceof DOMException ? err.name : "";
+  switch (name) {
+    case "NotAllowedError":
+    case "PermissionDeniedError":
+    case "SecurityError":
+      return "blocked";
+    case "NotFoundError":
+    case "DevicesNotFoundError":
+    case "OverconstrainedError":
+      return "missing";
+    case "NotReadableError":
+    case "TrackStartError":
+      return "in-use";
+    default:
+      return "unknown";
+  }
+}
+
+export type FaultCopy = {
+  /** Headline, stated as a fact rather than an accusation. */
+  title: string;
+  lead: string;
+  steps: string[];
+  /** What the action button should say, given what will actually help. */
+  retryLabel: string;
+  /**
+   * True when the fix is somewhere else entirely — no camera on this machine.
+   * The page then offers the link-on-another-device route instead of pretending
+   * a retry will change anything.
+   */
+  switchDevice: boolean;
+};
+
+/**
+ * What to show for a fault, in the words of the platform they are on.
+ *
+ * `blocked` reuses recoveryFor() unchanged — that copy was written against the
+ * real settings UI of each browser and is still exactly right for a permission.
+ * The other three get their own, because none of them is a permission.
+ */
+export function faultCopy(fault: MediaFault, platform: Platform): FaultCopy {
+  if (fault === "blocked") {
+    const recovery = recoveryFor(platform);
+    return {
+      title: "We can't reach your camera.",
+      lead: recovery.lead,
+      steps: recovery.steps,
+      retryLabel: "Try again",
+      switchDevice: false,
+    };
+  }
+
+  if (fault === "missing") {
+    const mobile = platform === "ios-safari" || platform === "android-chrome";
+    return {
+      title: "We couldn't find a camera on this device.",
+      lead: "Nothing is set wrongly — this device just doesn't have a camera we can use.",
+      steps: mobile
+        ? [
+            "Check nothing is covering the lens, then try again",
+            "If your camera app doesn't work either, the interview link works on any other phone or laptop",
+            "Your progress is saved, so you can pick up where you left off",
+          ]
+        : [
+            "If you have an external webcam, plug it in and press Try again",
+            "Otherwise open this same link on your phone — it works there and takes about the same time",
+            "Your progress is saved, so nothing you have already recorded is lost",
+          ],
+      retryLabel: "Check again",
+      switchDevice: true,
+    };
+  }
+
+  if (fault === "in-use") {
+    return {
+      title: "Your camera is busy in another app.",
+      lead: "Something else has hold of it — most often a video call left open.",
+      steps: [
+        "Close Zoom, Teams, Meet, FaceTime or any other app using your camera",
+        "Close any other browser tab that has the camera on",
+        "Come back here and press Try again",
+      ],
+      retryLabel: "Try again",
+      switchDevice: false,
+    };
+  }
+
+  return {
+    title: "We couldn't start your camera.",
+    lead: "Your browser didn't say why, which usually means a temporary glitch.",
+    steps: [
+      "Press Try again",
+      "If that doesn't work, reload the page",
+      "Still stuck? Open this link in a different browser, or on your phone",
+    ],
+    retryLabel: "Try again",
+    switchDevice: false,
+  };
+}

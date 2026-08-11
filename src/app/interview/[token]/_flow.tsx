@@ -12,6 +12,7 @@ import {
   MicOff,
   Save,
   Send,
+  Smartphone,
   TriangleAlert,
   User,
   Video,
@@ -21,13 +22,16 @@ import {
 import type { CandidateQuestion, CandidateSession } from "@/lib/interviews/types";
 import { InterviewShell, UnsupportedScreen } from "./_terminal";
 import {
+  classifyMediaError,
   detectPlatform,
+  faultCopy,
+  type MediaFault,
   type PermissionState,
   type Platform,
   queryMediaPermissions,
-  recoveryFor,
   watchMediaPermissions,
 } from "./_permissions";
+import { useTabLock } from "./_tab-lock";
 
 /**
  * The candidate flow: Welcome → Consent → Tech check → Recording → Review.
@@ -290,8 +294,25 @@ export function InterviewFlow({
    */
   const [camPerm, setCamPerm] = useState<PermissionState>("unknown");
   const [micPerm, setMicPerm] = useState<PermissionState>("unknown");
-  /** True only after getUserMedia actually rejected with a permission error. */
-  const [requestFailed, setRequestFailed] = useState(false);
+  /**
+   * Why the last getUserMedia attempt failed, or null if it hasn't.
+   *
+   * Was a single `requestFailed` boolean that counted only permission errors.
+   * That correctly kept a missing camera off the "you blocked us" path — and
+   * then dropped it into a generic "Couldn't start your camera" with no route
+   * forward at all. A fault has a cause, and each cause has a different fix.
+   */
+  const [fault, setFault] = useState<MediaFault | null>(null);
+  /**
+   * Set when a recording was ended for the candidate rather than by them.
+   *
+   * Carries the reason so the notice can be specific — "you switched away" and
+   * "your camera was taken" are different events and a candidate deserves to
+   * know which happened to them.
+   */
+  const [interrupted, setInterrupted] = useState<"background" | "device" | null>(
+    null,
+  );
   const [requesting, setRequesting] = useState(false);
   /**
    * Whether the media request has actually been made this session.
@@ -302,6 +323,14 @@ export function InterviewFlow({
    */
   const [hasRequested, setHasRequested] = useState(false);
   const [platform, setPlatform] = useState<Platform>("other");
+
+  /**
+   * One live tab per interview. See _tab-lock.ts for what actually goes wrong
+   * with two — less than it sounds, because the server is already idempotent,
+   * but two MediaRecorders on one camera is a real hardware conflict and a
+   * stale tab is a real way to lose track of which take you kept.
+   */
+  const { role: tabRole, takeOver } = useTabLock(token);
 
   const [watching, setWatching] = useState<{ position: number; url: string } | null>(
     null,
@@ -465,7 +494,7 @@ export function InterviewFlow({
 
   const runTechCheck = useCallback(async () => {
     setHasRequested(true);
-    setRequestFailed(false);
+    setFault(null);
     setCamCheck("pend");
     setMicCheck("pend");
     setNetCheck("pend");
@@ -480,16 +509,13 @@ export function InterviewFlow({
         audio: true,
       });
     } catch (err) {
-      // The real DOMException name, not a generic failure — the fix is always
-      // a permission toggle and the copy has to say which one.
-      const name = err instanceof DOMException ? err.name : "";
+      // Classified, not flattened: blocked / missing / in-use / unknown each
+      // carry their own copy and their own route forward. Telling someone to
+      // change a setting that is already correct sends them in circles;
+      // telling someone with no camera to press Try again sends them nowhere.
       setCamCheck("bad");
       setMicCheck("bad");
-      // Only a real permission rejection counts as blocked. NotFoundError (no
-      // camera attached) and NotReadableError (another app holds it) are
-      // different problems, and telling someone to change a setting that is
-      // already correct sends them in circles.
-      setRequestFailed(name === "NotAllowedError" || name === "SecurityError");
+      setFault(classifyMediaError(err));
       // Re-read: Chrome flips the stored state to "denied" the moment the
       // prompt is dismissed, so this is what turns a first refusal into the
       // recovery instructions on the next render.
@@ -917,6 +943,16 @@ export function InterviewFlow({
       void stoppedRef.current(finalMime(), chunks);
     };
 
+    /*
+     * A recorder can fail without ever calling onstop. Salvaging through the
+     * same path means a hardware hiccup costs the tail of an answer rather
+     * than the whole of it.
+     */
+    recorder.onerror = () => {
+      setInterrupted("device");
+      void stoppedRef.current(finalMime(), chunks);
+    };
+
     recorder.onstop = () => {
       clearStopTimers();
       // The chunks travel WITH the callback, so the handler can never read a
@@ -926,6 +962,9 @@ export function InterviewFlow({
 
     recorderRef.current = recorder;
     startedAtRef.current = Date.now();
+    // A new take answers the old notice; leaving it up would suggest THIS
+    // recording is the interrupted one.
+    setInterrupted(null);
     // A timeslice means partial data survives a crash mid-answer rather than
     // the whole blob being lost with the recorder.
     recorder.start(1000);
@@ -1120,6 +1159,67 @@ export function InterviewFlow({
     return () => window.clearInterval(id);
   }, [phase, stopRecorder]);
 
+  /*
+   * ── Backgrounding mid-recording ──
+   *
+   * What happened before this existed: nothing. There was no visibilitychange
+   * handler, no track.onended and no recorder.onerror, so on a phone that
+   * locked or switched apps the OS took the camera, MediaRecorder stopped
+   * producing data, and the page came back with a countdown still ticking and
+   * a Done button that would upload a truncated file — or nothing at all. The
+   * candidate had no way to know, and kept talking.
+   *
+   * Rather than gamble on what each platform does to a suspended recorder, we
+   * end it ourselves at a known point. stopRecorder() takes the normal salvage
+   * path, so everything already delivered by start(1000) is uploaded, and the
+   * candidate is told plainly on return.
+   */
+  useEffect(() => {
+    if (phase !== "rec") return;
+    const onHidden = () => {
+      if (document.visibilityState !== "hidden") return;
+      setInterrupted("background");
+      stopRecorder();
+    };
+    document.addEventListener("visibilitychange", onHidden);
+    return () => document.removeEventListener("visibilitychange", onHidden);
+  }, [phase, stopRecorder]);
+
+  /*
+   * The camera going away underneath a live recorder.
+   *
+   * Distinct from backgrounding: another app can seize the device, a webcam can
+   * be unplugged, and iOS ends the track outright on a lock. The track fires
+   * `ended` in every one of those cases, and it is the only signal that arrives
+   * while the page is still running and able to react.
+   */
+  useEffect(() => {
+    if (phase !== "rec") return;
+    const tracks = streamRef.current?.getTracks() ?? [];
+    const onEnded = () => {
+      setInterrupted("device");
+      stopRecorder();
+    };
+    for (const track of tracks) track.addEventListener("ended", onEnded);
+    return () => {
+      for (const track of tracks) track.removeEventListener("ended", onEnded);
+    };
+  }, [phase, stopRecorder]);
+
+  /*
+   * Yield the hardware the moment this tab stops being the live one.
+   *
+   * A recording in flight is stopped through the NORMAL path first, so the
+   * take is salvaged and uploaded rather than discarded — being taken over is
+   * not a reason to lose the two minutes someone just spent.
+   */
+  useEffect(() => {
+    if (tabRole === "active") return;
+    if (phase === "rec") stopRecorder();
+    releaseCamera();
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+  }, [tabRole]);
+
   // ── Consent ────────────────────────────────────────────────
 
   async function acceptConsent() {
@@ -1202,6 +1302,47 @@ export function InterviewFlow({
 
   const stepIndex = FLOW.indexOf(screen);
 
+  /*
+   * ── The other tab ──
+   *
+   * Deliberately an overlay over the live page rather than a replacement for
+   * it: the candidate can still see where they were, and either tab can claim
+   * the interview back, so there is no dead end. Someone who reopened the link
+   * from their email — a completely reasonable thing to do — is one button
+   * away from carrying on here.
+   */
+  if (tabRole !== "active") {
+    const taken = tabRole === "superseded";
+    return (
+      <InterviewShell>
+        <div className="iv-card text-center">
+          <div className="mx-auto mb-[18px] flex size-[68px] items-center justify-center rounded-[22px] bg-[var(--inset)] text-[var(--t4)]">
+            <Video className="size-[30px]" strokeWidth={1.8} />
+          </div>
+          <h1 className="iv-sora m-0 mb-2 text-[21px] font-extrabold leading-tight tracking-[-0.03em] text-[var(--t1)]">
+            {taken
+              ? "You carried on in another tab"
+              : "This interview is already open"}
+          </h1>
+          <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
+            {taken
+              ? "Another tab took over, so this one released your camera to avoid two recordings running at once. Nothing you have recorded is lost."
+              : "You already have this interview open in another tab. Two tabs share one camera, so only one can record at a time."}{" "}
+            Carry on there, or move it here.
+          </p>
+          <button type="button" onClick={takeOver} className="iv-btn iv-purple">
+            Continue in this tab
+            <ArrowRight className="size-[17px]" strokeWidth={2.2} />
+          </button>
+          <p className="m-0 mt-[11px] text-[12.5px] leading-relaxed text-[var(--t3)]">
+            Your answers are saved as you go, so you pick up exactly where you
+            left off either way.
+          </p>
+        </div>
+      </InterviewShell>
+    );
+  }
+
   return (
     <div className="iv">
       <div className="iv-wrap">
@@ -1264,11 +1405,13 @@ export function InterviewFlow({
               mic={micCheck}
               net={netCheck}
               micLevel={micLevel}
-              /* Blocked ONLY when the browser says so, or when a real
-                 permission rejection came back. A first-time visitor with no
-                 stored decision is never shown recovery instructions. */
-              blocked={
-                camPerm === "denied" || micPerm === "denied" || requestFailed
+              /* The FAULT, not a boolean. A remembered browser-level block
+                 counts as "blocked" even before a request is made; otherwise
+                 the reason comes from the last rejection. A first-time visitor
+                 with no stored decision has no fault and sees no recovery
+                 instructions at all. */
+              fault={
+                camPerm === "denied" || micPerm === "denied" ? "blocked" : fault
               }
               asked={hasRequested}
               requesting={requesting}
@@ -1305,6 +1448,8 @@ export function InterviewFlow({
               retryingIn={retryingIn}
               onRetryUpload={() => void retryUpload()}
               stopSlow={stopSlow}
+              interrupted={interrupted}
+              onDismissInterrupted={() => setInterrupted(null)}
               companyName={session.companyName}
               canSkipPrep={prepFor >= PREP_SKIPPABLE_AT}
               onSkipPrep={beginRecording}
@@ -1599,7 +1744,7 @@ function TechCheck({
   mic,
   net,
   micLevel,
-  blocked,
+  fault,
   asked,
   requesting,
   platform,
@@ -1614,8 +1759,8 @@ function TechCheck({
   mic: CheckState;
   net: CheckState;
   micLevel: number;
-  /** The browser holds a remembered block, or the request was refused. */
-  blocked: boolean;
+  /** Why the camera didn't start, or null if it did / hasn't been asked. */
+  fault: MediaFault | null;
   /** Whether we have asked yet — separates "not yet" from "said no". */
   asked: boolean;
   requesting: boolean;
@@ -1626,7 +1771,14 @@ function TechCheck({
   onRetry: () => void;
   onContinue: () => void;
 }) {
-  const recovery = recoveryFor(platform);
+  /*
+   * `blocked` is now one fault among four, and only it means "a setting is
+   * wrong". The other three keep the red panel — the camera genuinely didn't
+   * start — but say something the candidate can act on instead of sending them
+   * to site settings that are already correct.
+   */
+  const blocked = fault === "blocked";
+  const copy = fault ? faultCopy(fault, platform) : null;
   return (
     <div className="iv-card">
       <h1 className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
@@ -1709,22 +1861,32 @@ function TechCheck({
         />
       </div>
 
-      {blocked && (
+      {copy && (
         <div className="mb-4 flex gap-[11px] rounded-[14px] border border-[rgba(224,82,75,0.26)] bg-[var(--red-tint)] px-[15px] py-[13px]">
-          <VideoOff
-            className="mt-px size-[17px] shrink-0 text-[var(--red-ink)]"
-            strokeWidth={2}
-          />
-          {/* Only the steps for the browser they are actually in. The previous
-              copy told a desktop Chrome user to "tap" and then explained
-              iPhone Settings, so half of it was wrong wherever it was read. */}
+          {/* A missing camera is not a blocked one, and the icon says so
+              before the words do. */}
+          {copy.switchDevice ? (
+            <Smartphone
+              className="mt-px size-[17px] shrink-0 text-[var(--red-ink)]"
+              strokeWidth={2}
+            />
+          ) : (
+            <VideoOff
+              className="mt-px size-[17px] shrink-0 text-[var(--red-ink)]"
+              strokeWidth={2}
+            />
+          )}
+          {/* Only the steps for the fault they actually hit, on the browser
+              they are actually in. The previous copy told a desktop Chrome user
+              to "tap" and then explained iPhone Settings, so half of it was
+              wrong wherever it was read — and told someone with no camera at
+              all to go and change a permission. */}
           <div className="min-w-0">
             <p className="m-0 text-[12.5px] leading-relaxed text-[var(--red-ink)]">
-              <b className="font-bold">We can&apos;t reach your camera.</b>{" "}
-              {recovery.lead}
+              <b className="font-bold">{copy.title}</b> {copy.lead}
             </p>
             <ol className="m-0 mt-2 list-decimal pl-[18px] text-[12.5px] leading-relaxed text-[var(--red-ink)]">
-              {recovery.steps.map((step) => (
+              {copy.steps.map((step: string) => (
                 <li key={step}>{step}</li>
               ))}
             </ol>
@@ -1756,7 +1918,7 @@ function TechCheck({
         </button>
       )}
 
-      {(asked || blocked) && (
+      {(asked || fault) && (
         <button
           type="button"
           onClick={onContinue}
@@ -1768,27 +1930,29 @@ function TechCheck({
         </button>
       )}
 
-      {(failed || blocked) && (
+      {(failed || fault) && (
         <button
           type="button"
           onClick={onRetry}
           disabled={requesting}
           className="iv-btn iv-ghost mt-2.5"
         >
-          {requesting ? "Checking…" : "Try again"}
+          {requesting ? "Checking…" : (copy?.retryLabel ?? "Try again")}
         </button>
       )}
 
       <p className="m-0 mt-[11px] text-center text-[12.5px] leading-relaxed text-[var(--t3)]">
         {passed
           ? "All set. The practice round is next — it isn't recorded."
-          : blocked
-            ? "Follow the steps above, then tap Try again."
-            : !asked
-              ? "Your browser will ask for permission. Nothing is recorded during this check."
-              : failed
-                ? "Fix the item above, then try again."
-                : "Hold your phone upright. Find a quiet spot with light on your face."}
+          : copy?.switchDevice
+            ? "This link stays open — you can finish on another device whenever suits you."
+            : fault
+              ? "Follow the steps above, then tap the button."
+              : !asked
+                ? "Your browser will ask for permission. Nothing is recorded during this check."
+                : failed
+                  ? "Fix the item above, then try again."
+                  : "Hold your phone upright. Find a quiet spot with light on your face."}
       </p>
     </div>
   );
@@ -1881,6 +2045,8 @@ function Recorder({
   retryingIn,
   onRetryUpload,
   stopSlow,
+  interrupted,
+  onDismissInterrupted,
   companyName,
   canSkipPrep,
   onSkipPrep,
@@ -1905,6 +2071,8 @@ function Recorder({
   retryingIn: number;
   onRetryUpload: () => void;
   stopSlow: boolean;
+  interrupted: "background" | "device" | null;
+  onDismissInterrupted: () => void;
   companyName: string;
   canSkipPrep: boolean;
   onSkipPrep: () => void;
@@ -1917,6 +2085,41 @@ function Recorder({
   const low = recLeft <= 15;
   return (
     <div className="iv-card">
+      {/*
+        The recording ended without the candidate pressing anything.
+        Placed at the very top of the card, above the stage, because the whole
+        point is that they were away and must not have to hunt for the reason
+        their answer is shorter than they remember it being.
+      */}
+      {interrupted && phase !== "rec" && (
+        <div className="mb-3 flex gap-[11px] rounded-[14px] border border-[rgba(224,160,32,0.3)] bg-[var(--amber-tint)] px-[15px] py-[13px]">
+          <TriangleAlert
+            className="mt-px size-[17px] shrink-0 text-[var(--amber-ink)]"
+            strokeWidth={2}
+          />
+          <div className="min-w-0">
+            <p className="m-0 text-[12.5px] leading-relaxed text-[var(--amber-ink)]">
+              <b className="font-bold">
+                {interrupted === "background"
+                  ? "Recording stopped when you left this screen."
+                  : "Recording stopped — your camera was interrupted."}
+              </b>{" "}
+              {interrupted === "background"
+                ? "Phones switch the camera off when you change app or lock the screen, so we saved what you had said up to that point rather than letting it run on with nothing being captured."
+                : "Another app took the camera, or it was disconnected. We saved what you had said up to that point."}{" "}
+              Check it below and record it again if it stopped too early.
+            </p>
+            <button
+              type="button"
+              onClick={onDismissInterrupted}
+              className="mt-1.5 text-[12px] font-bold text-[var(--amber-ink)] underline underline-offset-2"
+            >
+              Got it
+            </button>
+          </div>
+        </div>
+      )}
+
       <div className="mb-[11px] flex items-center justify-between gap-3">
         {/* The number now lives on the stage with the question. This row keeps
             only the phase, so the card header does not repeat itself. */}
