@@ -1,5 +1,6 @@
 import { randomUUID } from "node:crypto";
 import { handleCvPurge } from "@/lib/cv-purge";
+import { handleQueueSweep } from "@/lib/queue-sweep";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
@@ -145,6 +146,8 @@ export const JOB_TYPES = {
   INTERVIEW_PURGE: "interview_purge",
   /** Retention — delete company applicants' CVs past cv_delete_after. */
   CV_PURGE: "cv_purge",
+  /** Retention — delete this table's own long-succeeded rows. */
+  QUEUE_SWEEP: "queue_sweep",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -184,6 +187,7 @@ registerHandler(JOB_TYPES.AI_SCORECARD, handleAiScorecard);
 registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
+registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -243,15 +247,19 @@ const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /**
  * The recurring maintenance jobs, and how often each should start.
  *
- * Both are retention purges and both are paced identically, but they are
- * scheduled INDEPENDENTLY rather than sharing one job. They read different
- * tables, honour different promises, and can fail separately — folding them
- * together would mean a storage outage on interview video stopped CVs expiring
- * too, and one `last_error` would have to describe both.
+ * All three are retention sweeps, paced identically, and scheduled
+ * INDEPENDENTLY rather than sharing one job. They read different tables,
+ * honour different promises, and can fail separately — folding them together
+ * would mean a storage outage on interview video stopped CVs expiring too, and
+ * one `last_error` would have to describe all three.
  */
 const RECURRING: readonly { type: string; intervalMs: number }[] = [
   { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
   { type: JOB_TYPES.CV_PURGE, intervalMs: PURGE_INTERVAL_MS },
+  // Row retention for this table itself, paced identically and scheduled by
+  // the same check — a second mechanism would be a second thing to notice had
+  // stopped.
+  { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
 ];
 
 /**

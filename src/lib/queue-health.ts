@@ -48,8 +48,18 @@ import { createServiceClient } from "@/lib/supabase/server";
 /** Nothing here ever returns more than this many rows. */
 const ROW_CAP = 200;
 
-/** Types whose presence means the worker's own scheduler is alive. */
-const MAINTENANCE_TYPES = [JOB_TYPES.INTERVIEW_PURGE, JOB_TYPES.CV_PURGE];
+/**
+ * Types whose presence means the worker's own scheduler is alive.
+ *
+ * All three are self-scheduled on the same 24h cadence, so any one of them
+ * appearing proves the tick ran. Reading the newest across all three rather
+ * than one makes the signal survive a single sweep being paused or failing.
+ */
+const MAINTENANCE_TYPES = [
+  JOB_TYPES.INTERVIEW_PURGE,
+  JOB_TYPES.CV_PURGE,
+  JOB_TYPES.QUEUE_SWEEP,
+];
 
 /** The known types, in the order they run in a candidate's lifecycle. */
 export const QUEUE_TYPES: readonly string[] = [
@@ -62,6 +72,7 @@ export const QUEUE_TYPES: readonly string[] = [
   JOB_TYPES.CALENDAR_SYNC,
   JOB_TYPES.INTERVIEW_PURGE,
   JOB_TYPES.CV_PURGE,
+  JOB_TYPES.QUEUE_SWEEP,
 ];
 
 /**
