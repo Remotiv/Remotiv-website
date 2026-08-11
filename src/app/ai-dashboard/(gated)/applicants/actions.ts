@@ -41,10 +41,11 @@ const CV_BUCKET = "cvs";
 /**
  * `cv_path` is deliberately absent from what we return, but IS selected so we
  * can derive `has_cv`. `cv_url` is the legacy public-URL column kept for rows
- * that predate the private bucket.
+ * that predate the private bucket. `cv_delete_after` is selected for the same
+ * reason — it is what separates an expired CV from one never supplied.
  */
 const APPLICANT_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, cv_path, cv_url, jobs(title)";
+  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, cv_path, cv_url, cv_delete_after, jobs(title)";
 
 type ApplicantQueryRow = {
   id: string;
@@ -65,6 +66,7 @@ type ApplicantQueryRow = {
   pipeline_stage: string | null;
   cv_path: string | null;
   cv_url: string | null;
+  cv_delete_after: string | null;
   jobs: { title: string | null } | null;
 };
 
@@ -204,6 +206,13 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
     pipeline_stage: ((r.pipeline_stage as PipelineStage) ?? "applied"),
     score: toScore(score),
     has_cv: Boolean(r.cv_path || r.cv_url),
+    // A retention date that has PASSED, with nothing left to open. A future
+    // date on a row that never had a CV is not expiry, so it stays false.
+    cv_expired:
+      !r.cv_path &&
+      !r.cv_url &&
+      Boolean(r.cv_delete_after) &&
+      new Date(r.cv_delete_after as string).getTime() <= Date.now(),
   };
 }
 

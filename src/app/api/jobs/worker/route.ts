@@ -3,7 +3,7 @@ import { NextResponse } from "next/server";
 import {
   claimJobs,
   completeJob,
-  ensureInterviewPurgeScheduled,
+  ensureMaintenanceScheduled,
   failJob,
   reclaimStaleJobs,
   registeredTypes,
@@ -90,7 +90,7 @@ function authorize(request: Request): NextResponse | null {
 async function drain() {
   const startedAt = Date.now();
   const summary = {
-    purgeScheduled: false,
+    purgesScheduled: [] as string[],
     reclaimed: 0,
     claimed: 0,
     succeeded: 0,
@@ -105,7 +105,7 @@ async function drain() {
    * Non-fatal: a failure to schedule must not stop the queue draining.
    */
   try {
-    summary.purgeScheduled = await ensureInterviewPurgeScheduled();
+    summary.purgesScheduled = await ensureMaintenanceScheduled();
   } catch (err) {
     console.error("[worker] purge scheduling failed (non-fatal):", err);
   }

@@ -73,7 +73,7 @@ export async function GET(
   //    same reason the list is: it survives job deletion.
   const { data: appRow } = await service
     .from("job_applications")
-    .select("id, cv_path, cv_url, company_id_snapshot")
+    .select("id, cv_path, cv_url, cv_delete_after, company_id_snapshot")
     .eq("id", id)
     .maybeSingle();
 
@@ -81,6 +81,7 @@ export async function GET(
     id: string;
     cv_path: string | null;
     cv_url: string | null;
+    cv_delete_after: string | null;
     company_id_snapshot: string | null;
   } | null;
 
@@ -98,11 +99,30 @@ export async function GET(
   //    cv_url for rows that predate the private bucket).
   const cvPath = application.cv_path ?? deriveCvPathFromUrl(application.cv_url);
   if (!cvPath) {
-    return htmlError(
-      404,
-      "CV not found",
-      "This application doesn't have a CV file attached.",
+    /*
+     * Expired and never-supplied are different facts and must not share a
+     * message. "No CV attached" on a purged application reads as a broken
+     * button — or worse, as an applicant who never sent one.
+     *
+     * Told apart with no new column, exactly as the interview drawer does it:
+     * a retention date that has PASSED, with no path left, is a document this
+     * job deleted. A future date with no path never had one.
+     */
+    const deleteAfter = application.cv_delete_after;
+    const expired = Boolean(
+      deleteAfter && new Date(deleteAfter).getTime() <= Date.now(),
     );
+    return expired
+      ? htmlError(
+          410,
+          "CV expired",
+          "CVs are removed 24 months after the application. The applicant's details and your hiring notes are unaffected.",
+        )
+      : htmlError(
+          404,
+          "CV not found",
+          "This application doesn't have a CV file attached.",
+        );
   }
 
   // 4. ?download=1 forces Content-Disposition: attachment.

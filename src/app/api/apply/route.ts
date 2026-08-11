@@ -584,6 +584,20 @@ export async function POST(request: NextRequest) {
       skills:      row.skills.map(stripInvalidPgChars),
     }));
 
+    // CV retention. Set ONLY for company applications — a null
+    // company_id_snapshot is a Remotiv-owned row (talent pool, or an applicant
+    // to Remotiv's own listing) whose CV is the marketplace itself, and a null
+    // date means keep forever. This is the only place the 24 months is
+    // computed; the purge reads the stored column and never derives a date, so
+    // changing this constant affects future applications and nothing already
+    // written. Pure arithmetic on a value already in hand — it cannot throw.
+    const CV_RETENTION_MONTHS = 24;
+    const cvDeleteAfter = companyIdSnapshot
+      ? new Date(
+          new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS),
+        ).toISOString()
+      : null;
+
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it
     //    via talent_claim_tokens.candidate_id.
@@ -620,6 +634,7 @@ export async function POST(request: NextRequest) {
         employment_history:  cleanEmpHistory,
         screening_answers:   screeningSnapshot,
         company_id_snapshot: companyIdSnapshot,
+        cv_delete_after:     cvDeleteAfter,
       })
       .select("id")
       .single();

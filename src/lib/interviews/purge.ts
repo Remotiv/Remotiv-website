@@ -1,4 +1,5 @@
 import "server-only";
+import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
 import { INTERVIEW_BUCKET } from "./session";
 
@@ -110,6 +111,11 @@ async function listSessionObjects(
  *
  * Throws only when the LISTING fails, which means storage is unreachable and
  * nothing is known about the folder.
+ *
+ * The deletion itself is `removeObjects` — shared with the CV purge, which
+ * needs the identical "which of these are confirmed gone" answer for a
+ * different bucket. What stays here is the part that IS interview-specific:
+ * discovering the folder's contents so the sweep covers abandoned uploads too.
  */
 export async function removeSessionObjects(
   service: Service,
@@ -123,26 +129,12 @@ export async function removeSessionObjects(
   const present = (await listSessionObjects(service, sessionId)).map(
     (o) => `${sessionId}/${o.name}`,
   );
-  if (present.length === 0) {
-    return { present, removed: new Set(), complete: true, error: null };
-  }
-
-  const { data: gone, error } = await service.storage
-    .from(INTERVIEW_BUCKET)
-    .remove(present);
-
-  const removed = new Set<string>();
-  for (const o of (gone ?? []) as { name: string }[]) {
-    // remove() echoes back full keys on some versions and bare names on
-    // others; normalise either shape.
-    removed.add(o.name.includes("/") ? o.name : `${sessionId}/${o.name}`);
-  }
-
+  const outcome = await removeObjects(service, INTERVIEW_BUCKET, present);
   return {
     present,
-    removed,
-    complete: removed.size === present.length,
-    error: error?.message ?? null,
+    removed: outcome.removed,
+    complete: outcome.complete,
+    error: outcome.error,
   };
 }
 

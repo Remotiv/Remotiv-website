@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { handleCvPurge } from "@/lib/cv-purge";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
@@ -142,6 +143,8 @@ export const JOB_TYPES = {
   CALENDAR_SYNC: "calendar_sync",
   /** Retention — delete interview media past delete_after, and sweep orphans. */
   INTERVIEW_PURGE: "interview_purge",
+  /** Retention — delete company applicants' CVs past cv_delete_after. */
+  CV_PURGE: "cv_purge",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -180,6 +183,7 @@ registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
 registerHandler(JOB_TYPES.AI_SCORECARD, handleAiScorecard);
 registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
+registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -233,11 +237,25 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
 
 // ── Recurring maintenance ────────────────────────────────────
 
-/** How often the retention purge should run. */
+/** How often each retention purge should run. */
 const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 
 /**
- * Keep the retention purge scheduled, from the worker tick.
+ * The recurring maintenance jobs, and how often each should start.
+ *
+ * Both are retention purges and both are paced identically, but they are
+ * scheduled INDEPENDENTLY rather than sharing one job. They read different
+ * tables, honour different promises, and can fail separately — folding them
+ * together would mean a storage outage on interview video stopped CVs expiring
+ * too, and one `last_error` would have to describe both.
+ */
+const RECURRING: readonly { type: string; intervalMs: number }[] = [
+  { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
+  { type: JOB_TYPES.CV_PURGE, intervalMs: PURGE_INTERVAL_MS },
+];
+
+/**
+ * Keep the retention purges scheduled, from the worker tick.
  *
  * There is no scheduler in this product and this does not add one. The worker
  * is already hit every 5 minutes by cron-job.org, so the cheapest thing that
@@ -248,44 +266,48 @@ const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
  * successor — for one reason: a self-enqueueing chain has a single point of
  * failure. If that job ever lands in 'dead', or an enqueue fails, the chain
  * stops silently and nothing ever deletes anything again. The failure is
- * invisible and the consequence is retaining recordings we promised to
+ * invisible and the consequence is retaining personal data we promised to
  * delete. This is self-healing instead: whatever happened to the last job,
  * the next tick re-creates one.
  *
- * Two cheap indexed reads per tick, and no work at all if one is already
- * queued or running.
+ * Two cheap indexed reads per type per tick, and no work at all if one is
+ * already queued or running.
+ *
+ * Returns the types it enqueued, so the worker's response says which.
  */
-export async function ensureInterviewPurgeScheduled(): Promise<boolean> {
+export async function ensureMaintenanceScheduled(): Promise<string[]> {
   const service = createServiceClient();
+  const scheduled: string[] = [];
 
-  const { data: live } = await service
-    .from("background_jobs")
-    .select("id")
-    .eq("type", JOB_TYPES.INTERVIEW_PURGE)
-    .in("status", ["queued", "running"])
-    .limit(1);
-  if ((live ?? []).length > 0) return false;
+  for (const { type, intervalMs } of RECURRING) {
+    const { data: live } = await service
+      .from("background_jobs")
+      .select("id")
+      .eq("type", type)
+      .in("status", ["queued", "running"])
+      .limit(1);
+    if ((live ?? []).length > 0) continue;
 
-  // created_at, not a completion timestamp: this paces how often a purge is
-  // STARTED, which is the thing being rate-limited. A run that failed still
-  // counts, because the next one is a day away and will redo its work anyway.
-  const { data: last } = await service
-    .from("background_jobs")
-    .select("created_at")
-    .eq("type", JOB_TYPES.INTERVIEW_PURGE)
-    .order("created_at", { ascending: false })
-    .limit(1);
+    // created_at, not a completion timestamp: this paces how often a purge is
+    // STARTED, which is the thing being rate-limited. A run that failed still
+    // counts, because the next one is a day away and will redo its work anyway.
+    const { data: last } = await service
+      .from("background_jobs")
+      .select("created_at")
+      .eq("type", type)
+      .order("created_at", { ascending: false })
+      .limit(1);
 
-  const lastAt = (last ?? [])[0]
-    ? new Date((last as { created_at: string }[])[0].created_at).getTime()
-    : 0;
-  if (Date.now() - lastAt < PURGE_INTERVAL_MS) return false;
+    const lastAt = (last ?? [])[0]
+      ? new Date((last as { created_at: string }[])[0].created_at).getTime()
+      : 0;
+    if (Date.now() - lastAt < intervalMs) continue;
 
-  const result = await enqueue({
-    type: JOB_TYPES.INTERVIEW_PURGE,
-    companyId: null,
-  });
-  return result.ok;
+    const result = await enqueue({ type, companyId: null });
+    if (result.ok) scheduled.push(type);
+  }
+
+  return scheduled;
 }
 
 // ── Lease recovery ───────────────────────────────────────────

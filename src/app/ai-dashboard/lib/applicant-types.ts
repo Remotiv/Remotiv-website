@@ -69,6 +69,17 @@ export type CompanyApplicantRow = {
    * open CVs through /api/cv/company-application/[id] instead.
    */
   has_cv: boolean;
+  /**
+   * The CV existed and was deleted at the end of its retention, rather than
+   * never having been supplied.
+   *
+   * Two different facts that both leave has_cv false, and they must not share
+   * a label: "No CV" on an expired application reads as a broken button, or as
+   * an applicant who never sent one. Derived from cv_delete_after having
+   * passed with no path left — no new column, same trick the interview drawer
+   * uses to tell a purged answer from an unanswered question.
+   */
+  cv_expired: boolean;
 };
 
 /**

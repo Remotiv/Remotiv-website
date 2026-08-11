@@ -207,6 +207,16 @@ function stageOf(row: CompanyApplicantRow): PipelineStage {
 }
 
 /**
+ * Three states, not two. An expired CV is not a missing one — it was here, it
+ * was read, and it reached the end of its retention. Labelling that "No CV"
+ * blames the applicant for a deletion we performed on schedule.
+ */
+function cvLabel(row: CompanyApplicantRow): string {
+  if (row.has_cv) return "Open CV";
+  return row.cv_expired ? "CV expired" : "No CV";
+}
+
+/**
  * The design system's lime highlight sticker — one keyword per page.
  *
  * Faithful to the mock's `.hl` / `.hl::before`: the sticker is a pseudo-element
@@ -1018,7 +1028,7 @@ function ApplicantDrawer({
               }`}
             >
               <FileText className="size-[15px]" strokeWidth={1.9} />
-              {row.has_cv ? "Open CV" : "No CV"}
+              {cvLabel(row)}
             </a>
             {/* Opens the composer rather than handing off to the OS mail
                 client. A mailto: sends from the recruiter's own address, which
@@ -1033,6 +1043,15 @@ function ApplicantDrawer({
               Email
             </button>
           </div>
+
+          {/* Says WHY the button is dead, rather than leaving a greyed control
+              to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
+          {row.cv_expired && (
+            <p className="mb-[22px] -mt-[14px] text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+              CVs are deleted 24 months after the application. Everything else
+              on this applicant is unaffected.
+            </p>
+          )}
 
           <DrawerLabel>Pipeline stage</DrawerLabel>
           {/* `value` is driven by the optimistic row, so the select shows the
