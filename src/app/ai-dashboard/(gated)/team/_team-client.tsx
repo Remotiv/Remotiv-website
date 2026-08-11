@@ -1,7 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   ChevronDown,
@@ -1153,7 +1153,10 @@ export function TeamClient({
   const [members, setMembers] = useState<TeamMemberRow[]>(initialMembers);
   const [segment, setSegment] = useState<Segment>("all");
   const [roleFilter, setRoleFilter] = useState<"all" | CompanyRole>("all");
-  const [search, setSearch] = useState("");
+  // Seeded from ?q= so a topbar search result lands on this list already
+  // filtered, rather than on an unfiltered page the reader has to search again.
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [showInvite, setShowInvite] = useState(false);
   const [showRoles, setShowRoles] = useState(false);
   const [openId, setOpenId] = useState<string | null>(null);

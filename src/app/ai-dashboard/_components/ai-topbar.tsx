@@ -2,8 +2,9 @@
 
 import { useEffect, useRef, useState } from "react";
 import { usePathname } from "next/navigation";
-import { LogOut, Menu, Search } from "lucide-react";
+import { LogOut, Menu } from "lucide-react";
 import { NotificationBell } from "./notification-bell";
+import { TopbarSearch } from "./topbar-search";
 
 // Breadcrumb tail per route. Keys are exact pathnames; the /ai-dashboard root
 // is the Overview page.
@@ -76,16 +77,7 @@ export function AiTopbar({
         )}
       </span>
 
-      <div className="ml-auto hidden items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] min-[630px]:flex min-[630px]:w-[220px]">
-        <Search className="size-[15px] shrink-0" strokeWidth={1.8} />
-        <input
-          type="search"
-          aria-label="Search people"
-          placeholder="Search people…"
-          disabled
-          className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)] disabled:cursor-not-allowed"
-        />
-      </div>
+      <TopbarSearch />
 
       <NotificationBell />
 

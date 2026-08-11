@@ -11,7 +11,7 @@ import type {
   ManualTemplate,
   MessageRow as CandidateMessage,
 } from "@/app/ai-dashboard/(gated)/messages/types";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   ChevronLeft,
@@ -1565,7 +1565,10 @@ export function ApplicantsClient({
 
   const [tab, setTab] = useState<"all" | PipelineStage>("all");
   const [jobFilter, setJobFilter] = useState("all");
-  const [search, setSearch] = useState("");
+  // Seeded from ?q= so a topbar search result lands on this list already
+  // filtered, rather than on an unfiltered page the reader has to search again.
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [openId, setOpenId] = useState<string | null>(null);
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);

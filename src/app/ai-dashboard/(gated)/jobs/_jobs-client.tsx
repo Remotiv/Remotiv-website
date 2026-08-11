@@ -2,7 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
-import { useRouter } from "next/navigation";
+import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
   Briefcase,
@@ -651,7 +651,10 @@ export function JobsClient({
 
   const [jobs, setJobs] = useState<CompanyJobRow[]>(initialJobs);
   const [tab, setTab] = useState<Tab>("all");
-  const [search, setSearch] = useState("");
+  // Seeded from ?q= so a topbar search result lands on this list already
+  // filtered, rather than on an unfiltered page the reader has to search again.
+  const searchParams = useSearchParams();
+  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   const [page, setPage] = useState(1);
   /** Job whose action drawer is open. Replaces the old per-row dropdown, which
    *  clipped inside the table's horizontal-scroll container. */

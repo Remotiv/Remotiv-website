@@ -8,6 +8,7 @@ import {
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
 import { notifyCompany } from "@/lib/notifications/company";
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { enqueue } from "@/lib/jobs-queue";
@@ -297,7 +298,7 @@ export async function fetchCompanyApplicants(
     // nothing rather than that job's applicants.
     if (query.jobId) q = q.eq("job_id", query.jobId);
     if (search) {
-      const safe = search.replace(/[%,()]/g, " ");
+      const safe = sanitiseSearchTerm(search);
       q = q.or(
         `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`,
       );
