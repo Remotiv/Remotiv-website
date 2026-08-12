@@ -1,6 +1,7 @@
 import { randomUUID } from "node:crypto";
 import { handleCvPurge } from "@/lib/cv-purge";
 import { handleQueueSweep } from "@/lib/queue-sweep";
+import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
@@ -176,7 +177,25 @@ async function notImplemented(job: BackgroundJob): Promise<never> {
 // Step 4 — the first real handler. Loads the application and its job
 // server-side; the payload carries only an applicationId.
 registerHandler(JOB_TYPES.AI_CV_SCORE, handleAiCvScore);
-registerHandler(JOB_TYPES.SEND_MESSAGE, handleSendMessage);
+/*
+ * ── send_message fans out by channel ──
+ *
+ * One job type, two channels. The payload carries `channel`, and this is the
+ * only place that reads it — the two handlers stay independent, neither
+ * knowing the other exists, so an email failure cannot affect a WhatsApp send
+ * for the same candidate or vice versa.
+ *
+ * Absent channel means email: every job enqueued before WhatsApp existed omits
+ * the field, and those must keep working unchanged.
+ */
+registerHandler(JOB_TYPES.SEND_MESSAGE, async (job) => {
+  const channel = (job.payload as { channel?: unknown })?.channel;
+  if (channel === "whatsapp") {
+    await handleWhatsAppMessage(job);
+    return;
+  }
+  await handleSendMessage(job);
+});
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, notImplemented); // Step 6
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, notImplemented); // Step 6
 registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);

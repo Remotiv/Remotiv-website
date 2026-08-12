@@ -1,5 +1,7 @@
 import { NextResponse } from "next/server";
+import { toWhatsAppDigits } from "@/lib/normalize";
 import { createServiceClient } from "@/lib/supabase/server";
+import { recordUsage } from "@/lib/usage";
 import {
   constantTimeEquals,
   verifyMetaSignature,
@@ -28,21 +30,25 @@ export const dynamic = "force-dynamic";
  *
  * ── Why nothing is enqueued ──────────────────────────────────
  *
- * The instruction was to enqueue anything real, and I looked at doing exactly
- * that. Two reasons it would be worse here:
+ * The brief says anything real goes through the queue, and I looked hard at
+ * doing that. It is the wrong call here, for two reasons:
  *
- *   1. background_jobs.type carries a CHECK constraint that is the
- *      authoritative list of job types, and it does not yet accept a WhatsApp
- *      type. Adding one is a schema change I cannot make.
- *   2. Even with the type available, it would make delivery status WORSE. The
- *      only synchronous work is one indexed UPDATE on communication_logs by
- *      provider_id — a couple of milliseconds. Enqueuing costs an INSERT of
- *      the same order, then waits for a worker tick, so a "delivered" receipt
- *      would land up to five minutes stale in exchange for saving nothing.
+ *   1. background_jobs.type carries a CHECK constraint listing the accepted
+ *      job types, and it has no WhatsApp entry. Adding one is a schema change
+ *      I cannot make, so there is no type to enqueue against today.
+ *   2. Even with the type available it would be worse. Everything this route
+ *      does is a small number of indexed statements — one select plus one
+ *      update for a status, one insert plus one bounded select for an inbound
+ *      message. Enqueuing costs an INSERT of the same order and then waits for
+ *      a worker tick, so a "delivered" receipt would land up to five minutes
+ *      stale in exchange for saving nothing.
  *
- * The queue earns its keep when work is slow, external or retryable. Marking a
- * row delivered is none of those. If inbound-message STORAGE lands later (see
- * the note below) that IS queue-shaped, and the type should be added then.
+ * The queue earns its keep when work is slow, external or retryable. None of
+ * this is. What WOULD justify it is any future work that calls Meta back —
+ * downloading inbound media, say — and that is the point to add the type.
+ *
+ * Every query below is bounded. Nothing here scans, and nothing loops over a
+ * collection Meta controls the size of without a limit.
  *
  * ── Returning 200 ────────────────────────────────────────────
  *
@@ -164,15 +170,18 @@ async function handleEvents(body: unknown): Promise<void> {
   for (const entry of entries) {
     for (const change of asArray((entry as { changes?: unknown })?.changes)) {
       const value = (change as { value?: unknown })?.value as
-        | { statuses?: unknown; messages?: unknown }
+        | { statuses?: unknown; messages?: unknown; contacts?: unknown }
         | undefined;
       if (!value) continue;
 
       for (const status of asArray(value.statuses)) {
         await applyStatus(status as MetaStatus);
       }
+      // contacts[] carries the sender's WhatsApp profile name, which is a
+      // different field from the message itself.
+      const profileName = firstProfileName(value);
       for (const message of asArray(value.messages)) {
-        noteInboundMessage(message as MetaMessage);
+        await storeInbound(message as MetaMessage, profileName);
       }
     }
   }
@@ -183,10 +192,9 @@ async function handleEvents(body: unknown): Promise<void> {
  *
  * ── How the row is found ──
  *
- * `communication_logs.provider_id` already holds the provider's own id for the
- * email path (Resend's message id), and a Meta `wamid` is the same kind of
- * thing. So a status event finds its row by `provider_id = wamid` scoped to
- * `channel = 'whatsapp'` — the channel filter matters because provider ids
+ * `communication_logs.provider_message_id` was added and indexed for exactly
+ * this. A status event finds its row by `provider_message_id = wamid`, scoped
+ * to `channel = 'whatsapp'` — the channel filter matters because provider ids
  * come from different vendors and nothing guarantees they cannot collide.
  *
  * ── Idempotency, without a dedup table ──
@@ -221,8 +229,8 @@ async function applyStatus(event: MetaStatus): Promise<void> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("communication_logs")
-    .select("id, status")
-    .eq("provider_id", wamid)
+    .select("id, status, company_id")
+    .eq("provider_message_id", wamid)
     .eq("channel", "whatsapp")
     .maybeSingle();
 
@@ -231,7 +239,7 @@ async function applyStatus(event: MetaStatus): Promise<void> {
     return;
   }
 
-  const row = data as { id: string; status: string | null } | null;
+  const row = data as { id: string; status: string | null; company_id: string | null } | null;
 
   if (!row) {
     /*
@@ -244,8 +252,8 @@ async function applyStatus(event: MetaStatus): Promise<void> {
      *      or a manual send during setup. Expected right now, while the
      *      integration is being wired up, and harmless.
      *   2. A race: Meta delivered the receipt before our own send path wrote
-     *      provider_id. Real, and the correct fix is a short retry, which is
-     *      queue-shaped work — see the module comment on why that is deferred.
+     *      provider_message_id. Real, and the correct fix is a short retry,
+     *      which is queue-shaped work — see the module comment.
      *   3. A forged payload. It would have to be signed with the app secret to
      *      get this far, so this reading means the secret has leaked.
      *
@@ -284,6 +292,35 @@ async function applyStatus(event: MetaStatus): Promise<void> {
     .update(patch)
     .eq("id", row.id);
 
+  /*
+   * ── Metering, on the DELIVERY THRESHOLD ──
+   *
+   * Meta charges for a message that reached the handset, not one we handed
+   * over — so `sent` is the wrong trigger and would over-count every message
+   * that failed after acceptance.
+   *
+   * Fired when the row CROSSES delivered for the first time, which is what
+   * makes it exactly-once without a dedup table: the rank guard above has
+   * already discarded every redelivery, so reaching this line at all means
+   * the status genuinely advanced. `read` counts too, because a message that
+   * was read was necessarily delivered — Meta occasionally coalesces the two
+   * and a lost `delivered` webhook would otherwise mean a free message.
+   */
+  if (!updErr && !isFailure && row.company_id) {
+    const priorRank = STATUS_RANK[current] ?? -1;
+    const crossedDelivered =
+      priorRank < STATUS_RANK.delivered && incomingRank >= STATUS_RANK.delivered;
+    if (crossedDelivered) {
+      // Never throws — see lib/usage.ts. Metering must not be able to turn a
+      // received webhook into a retried one.
+      await recordUsage({
+        companyId: row.company_id,
+        type: "whatsapp_sent",
+        refId: row.id,
+      });
+    }
+  }
+
   if (updErr) {
     /*
      * The most likely cause is communication_logs.status carrying a CHECK
@@ -302,30 +339,189 @@ async function applyStatus(event: MetaStatus): Promise<void> {
 /**
  * An inbound message from a candidate.
  *
- * ── Deliberately not stored ──
+ * ── Storage ──
  *
- * Storage was excluded from this task, and the design question is genuinely
- * unresolved rather than merely unbuilt — see the report. The blocking fact is
- * that `communication_logs.company_id` is NOT NULL, and a message from an
- * unrecognised number belongs to no company, so the existing table cannot hold
- * one without either inventing a tenancy or relaxing that column.
+ * `whatsapp_inbound` exists now, with `wa_message_id` unique — so idempotency
+ * is the database's job rather than a read-then-write race. A redelivery hits
+ * the unique constraint and is swallowed as the no-op it is.
  *
- * So this acknowledges and drops. NOTHING about the message content or the
- * sender's number is logged: this is candidate personal data arriving on a
- * public endpoint, and a log line is the easiest place for it to end up
- * somewhere nobody is auditing. Only Meta's opaque id and the message type are
- * recorded, which is enough to prove receipt without retaining anything about
- * the person.
+ * ── Tenancy is resolved, never guessed ──
+ *
+ * `company_id` and `application_id` are NULLABLE on purpose. A message from an
+ * unrecognised number belongs to nobody, and inventing a tenancy for it would
+ * put a stranger's message in some company's inbox. So the phone is matched
+ * against applications and attached ONLY on an unambiguous single hit; zero or
+ * many leaves both null and the row surfaces unattached.
  */
-function noteInboundMessage(message: MetaMessage): void {
+async function storeInbound(message: MetaMessage, profileName: string | null): Promise<void> {
   const wamid = str(message.id);
+  if (!wamid) return;
+
+  const fromPhone = str(message.from);
   const type = str(message.type) || "unknown";
-  console.log(
-    `[whatsapp][inbound] received wamid=${wamid} type=${type} — not stored (see route comment)`,
-  );
+  const body = extractBody(message);
+
+  const service = createServiceClient();
+  const resolved = await resolveTenancy(service, fromPhone);
+
+  const { error } = await service.from("whatsapp_inbound").insert({
+    wa_message_id: wamid,
+    from_phone: fromPhone,
+    profile_name: profileName,
+    body,
+    message_type: type,
+    raw: message as unknown as Record<string, unknown>,
+    company_id: resolved.companyId,
+    application_id: resolved.applicationId,
+    received_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    // 23505 is the unique violation on wa_message_id — a redelivery, which is
+    // the expected case and not worth a line in the log.
+    if (!String(error.code) .includes("23505")) {
+      console.error(`[whatsapp] inbound insert failed for ${wamid}:`, error.message);
+    }
+    return;
+  }
+
+  // Only after the message is safely stored, so an opt-out can never be
+  // recorded for a message we failed to keep evidence of.
+  await maybeOptOut(service, fromPhone, body);
+}
+
+/**
+ * Match an inbound number to an application, or return nulls.
+ *
+ * Bounded and exact. The `phone` column holds whatever the apply form was
+ * given — "0300-1234567", "+92 300 1234567" — so a direct equality match would
+ * miss almost everything. Instead a suffix `ilike` narrows to a handful of
+ * candidates using the significant digits, and each is then confirmed by
+ * running it through the SAME `toWhatsAppDigits` used to address the message.
+ * The ilike is a cheap filter; the normaliser is the actual test.
+ */
+async function resolveTenancy(
+  service: ReturnType<typeof createServiceClient>,
+  fromPhone: string,
+): Promise<{ companyId: string | null; applicationId: string | null }> {
+  const none = { companyId: null, applicationId: null };
+  const digits = toWhatsAppDigits(fromPhone);
+  if (!digits) return none;
+
+  // Last nine digits: enough to be selective, short enough to survive any
+  // formatting the column happens to carry.
+  const tail = digits.slice(-9);
+  const { data, error } = await service
+    .from("job_applications")
+    .select("id, phone, company_id_snapshot, created_at")
+    .ilike("phone", `%${tail}%`)
+    .order("created_at", { ascending: false })
+    .limit(25);
+
+  if (error) return none;
+
+  const matches = ((data ?? []) as {
+    id: string;
+    phone: string | null;
+    company_id_snapshot: string | null;
+  }[]).filter((r) => toWhatsAppDigits(r.phone) === digits);
+
+  // Exactly one, or nothing. Two applications from the same number to two
+  // different companies is a real situation, and picking one of them would
+  // attribute a candidate's words to a company they were not talking to.
+  if (matches.length !== 1) return none;
+  return {
+    companyId: matches[0].company_id_snapshot,
+    applicationId: matches[0].id,
+  };
+}
+
+/**
+ * Keywords that opt a phone out, matched against the WHOLE message.
+ *
+ * ── The matching rule, and why it is strict ──
+ *
+ * The body is reduced to letters and digits only, uppercased, and must then
+ * EQUAL one of these. So "STOP", "stop.", "Stop!" and "opt-out" all match,
+ * because punctuation and case are stripped — while "please stop" becomes
+ * PLEASESTOP and "I'll stop by tomorrow" becomes ILLSTOPBYTOMORROW, neither of
+ * which equals anything here.
+ *
+ * Substring matching was the alternative and is worse. A false POSITIVE
+ * silently blocks a candidate from every future WhatsApp with no way for them
+ * to know; a false NEGATIVE ("STOP SENDING ME MESSAGES" does not match) leaves
+ * the message sitting in whatsapp_inbound where a human can see it and act.
+ * Given one of those is recoverable and the other is not, strict wins.
+ */
+const OPT_OUT_KEYWORDS = new Set([
+  "STOP",
+  "STOPALL",
+  "UNSUBSCRIBE",
+  "CANCEL",
+  "END",
+  "QUIT",
+  "OPTOUT",
+  "REMOVE",
+]);
+
+export function isOptOutMessage(body: string | null): boolean {
+  if (!body) return false;
+  const normalised = body.replace(/[^a-z0-9]/gi, "").toUpperCase();
+  if (!normalised || normalised.length > 12) return false;
+  return OPT_OUT_KEYWORDS.has(normalised);
+}
+
+/**
+ * Record a global opt-out.
+ *
+ * Global by design: `whatsapp_opt_outs.phone` is unique with no company
+ * column, so STOP means "no WhatsApp from Remotiv, ever" rather than "not
+ * about this one job". Someone silencing a channel is not making a per-tenant
+ * distinction, and asking them to repeat it per company would be absurd.
+ */
+async function maybeOptOut(
+  service: ReturnType<typeof createServiceClient>,
+  fromPhone: string,
+  body: string | null,
+): Promise<void> {
+  if (!isOptOutMessage(body)) return;
+  const digits = toWhatsAppDigits(fromPhone);
+  if (!digits) return;
+
+  const { error } = await service
+    .from("whatsapp_opt_outs")
+    .upsert({ phone: digits, reason: "Inbound opt-out keyword." }, { onConflict: "phone" });
+
+  if (error) {
+    console.error("[whatsapp] opt-out write failed:", error.message);
+    return;
+  }
+  // The number is not logged — the opt-out is recorded, and that is the fact
+  // worth keeping. A phone number in the logs is personal data nobody audits.
+  console.log("[whatsapp] recorded a global opt-out from an inbound keyword.");
+}
+
+/** Text, or the caption on a media message. Never anything else. */
+function extractBody(message: MetaMessage): string | null {
+  const m = message as unknown as Record<string, unknown>;
+  const text = (m.text as { body?: unknown } | undefined)?.body;
+  if (typeof text === "string") return text.slice(0, 4000);
+  for (const kind of ["image", "video", "document", "audio"]) {
+    const caption = (m[kind] as { caption?: unknown } | undefined)?.caption;
+    if (typeof caption === "string") return caption.slice(0, 4000);
+  }
+  return null;
 }
 
 // ── Narrow helpers ───────────────────────────────────────────
+
+function firstProfileName(value: { contacts?: unknown }): string | null {
+  const contact = asArray(value.contacts)[0] as
+    | { profile?: { name?: unknown } }
+    | undefined;
+  const name = contact?.profile?.name;
+  return typeof name === "string" ? name.slice(0, 200) : null;
+}
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];

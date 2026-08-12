@@ -62,6 +62,12 @@ export async function handleSendMessage(job: {
     .select("id, status")
     .eq("application_id", applicationId)
     .eq("event", event)
+    // REQUIRED once a second channel exists. Without it this matches the
+    // WhatsApp row for the same (application, event) too, `.maybeSingle()`
+    // returns null on multiplicity rather than erroring, and the guard fails
+    // OPEN — sending a duplicate email. The filter is what keeps the two
+    // channels' idempotency independent.
+    .eq("channel", "email")
     .in("status", ALREADY_HANDLED)
     .maybeSingle();
 
