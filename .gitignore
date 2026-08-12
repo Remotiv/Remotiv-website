@@ -44,3 +44,5 @@ next-env.d.ts
 .cursor
 .vscode
 !.env.example
+.env.local.production-backup
+schema.sql
