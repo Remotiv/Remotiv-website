@@ -46,6 +46,7 @@ const TYPE_LABEL: Record<string, string> = {
   calendar_sync: "Calendar sync",
   interview_purge: "Interview retention",
   cv_purge: "CV retention",
+  queue_sweep: "Queue row retention",
 };
 
 function label(type: string): string {

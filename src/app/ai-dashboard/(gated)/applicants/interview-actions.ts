@@ -10,6 +10,7 @@ import {
   escapeHtml,
   renderCopy,
 } from "@/lib/email/candidate/render";
+import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import {
   interviewUrl,
   mintSessionToken,
@@ -303,6 +304,41 @@ export async function sendInterviewInvite(
       .update({ status: "cancelled" })
       .eq("id", (created as { id: string }).id);
     return { success: false, error: outcome.message };
+  }
+
+  /*
+   * ── WhatsApp, alongside the email ──
+   *
+   * ENQUEUED, never sent inline. This action already did the slow work
+   * (session insert, question snapshot, email) and a recruiter is waiting on
+   * the response; a second network call to Meta would add latency to a click
+   * for a channel that is supplementary. The queue also gives it retries and a
+   * dead letter for free.
+   *
+   * Deliberately non-fatal, on the same contract as the CV-scoring enqueue in
+   * /api/apply: the interview HAS been created and the email HAS gone out, so
+   * a queue outage costs a second notification, never the invitation itself.
+   * Returning an error here would tell a recruiter the invite failed when it
+   * did not.
+   */
+  try {
+    const queued = await enqueue({
+      type: JOB_TYPES.SEND_MESSAGE,
+      payload: {
+        applicationId,
+        event: "interview",
+        channel: "whatsapp",
+        // The deadline the email already quoted, rendered identically so the
+        // two channels cannot disagree about the date.
+        deadline,
+      },
+      companyId: ctx.companyId,
+    });
+    if (!queued.ok) {
+      console.error("[interview] whatsapp enqueue failed (non-fatal):", queued.error);
+    }
+  } catch (err) {
+    console.error("[interview] whatsapp enqueue threw (non-fatal):", err);
   }
 
   revalidatePath("/ai-dashboard/applicants");
