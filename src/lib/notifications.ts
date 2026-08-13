@@ -1,5 +1,5 @@
 import { createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 
 export type NotificationEvent =
   | "client_decision"
@@ -49,7 +49,7 @@ export async function notifyAllAdmins(input: NotificationInput): Promise<void> {
     try {
       const { data } = await supabase.auth.admin.listUsers({ perPage: 200 });
       const superAdminUser = data?.users?.find(
-        (u) => u.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase(),
+        (u) => isSuperAdminEmail(u.email),
       );
       if (superAdminUser?.id) recipientIds.add(superAdminUser.id);
     } catch {

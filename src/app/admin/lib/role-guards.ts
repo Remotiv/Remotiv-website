@@ -1,5 +1,5 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "./roles";
+import { isSuperAdminEmail, type UserRole } from "./roles";
 
 /**
  * Shared auth gates for admin server actions.
@@ -41,7 +41,7 @@ export async function getAdminContext(): Promise<AdminContext> {
     throw new Error("Not authenticated");
   }
 
-  if (user.email === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(user.email)) {
     return {
       user: { id: user.id, email: user.email },
       role: "super_admin",

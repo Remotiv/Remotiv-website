@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import AccountClient from "./account-client";
 
 export const dynamic = "force-dynamic";
@@ -16,7 +16,7 @@ export default async function AccountPage() {
 
   // Determine admin status
   let isAdmin = false;
-  if (user.email === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(user.email)) {
     isAdmin = true;
   } else {
     const { data: adminRow } = await service

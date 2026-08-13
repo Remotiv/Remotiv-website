@@ -1,7 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TeamDashboard } from "../_components/team-dashboard";
 import { fetchTeamMembersWithAuthStatus } from "./actions";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
+import { type UserRole, isSuperAdminEmail } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function AdminTeamPage() {
   ]);
 
   let resolvedRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     resolvedRole = "super_admin";
   } else if (roleRow?.role) {
     resolvedRole = roleRow.role as UserRole;

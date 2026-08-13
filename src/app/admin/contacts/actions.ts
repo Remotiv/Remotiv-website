@@ -2,7 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
 
 export type InquiryStatus = "new" | "in_progress" | "closed" | "archived";
 export type InquiryType = "inquiry" | "booking";
@@ -39,7 +39,7 @@ async function getAdminRole(): Promise<UserRole | null> {
   const auth = await createAuthClient();
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return null;
-  if (user.email === SUPER_ADMIN_EMAIL) return "super_admin";
+  if (isSuperAdminEmail(user.email)) return "super_admin";
 
   const supabase = createServiceClient();
   const { data: roleRow } = await supabase

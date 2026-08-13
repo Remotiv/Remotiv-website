@@ -1,7 +1,7 @@
 import type { SupabaseClient } from "@supabase/supabase-js";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { OverviewDashboard } from "./_components/overview-dashboard";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "./lib/roles";
+import { type UserRole, isSuperAdminEmail } from "./lib/roles";
 import { adminApplicationScope } from "@/lib/admin-scope";
 
 export const dynamic = "force-dynamic";
@@ -602,7 +602,7 @@ export default async function AdminOverviewPage() {
   ]);
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else if (roleRow?.role) {
     userRole = roleRow.role as UserRole;

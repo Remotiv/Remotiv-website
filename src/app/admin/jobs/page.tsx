@@ -1,7 +1,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { JobsDashboard } from "../_components/jobs-dashboard";
 import type { Job } from "./actions";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "../lib/roles";
+import { type UserRole, isSuperAdminEmail } from "../lib/roles";
 
 export const dynamic = "force-dynamic";
 
@@ -22,7 +22,7 @@ export default async function AdminJobsPage() {
   ]);
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else if (roleRow?.role) {
     userRole = roleRow.role as UserRole;

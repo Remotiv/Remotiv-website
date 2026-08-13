@@ -1,6 +1,6 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { TalentDashboard } from "@/app/admin/_components/talent-dashboard";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { fetchTalentProfiles } from "./actions";
 
 export const dynamic = "force-dynamic";
@@ -25,7 +25,7 @@ export default async function AdminTalentPage({
   ]);
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else if (roleRow?.role) {
     userRole = roleRow.role as UserRole;

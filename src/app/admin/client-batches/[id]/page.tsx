@@ -1,7 +1,7 @@
 import { notFound, redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { BatchDetailDashboard } from "@/app/admin/_components/batch-detail-dashboard";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { fetchBatchById } from "../actions";
 
 export const dynamic = "force-dynamic";
@@ -23,7 +23,7 @@ export default async function BatchDetailPage({
   const userEmail = user.email ?? "";
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else {
     const { data: roleRow } = await service

@@ -1,7 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 
 export const metadata = { title: "Admin — Remotiv" };
 
@@ -28,7 +28,7 @@ export default async function AdminLayout({
   // Everyone else must have an admin_users row with status='active' on every
   // request — this is what catches deleted users with stale JWTs and paused
   // team members.
-  if (user.email !== SUPER_ADMIN_EMAIL) {
+  if (!isSuperAdminEmail(user.email)) {
     const service = createServiceClient();
     const { data: adminRow } = await service
       .from("admin_users")

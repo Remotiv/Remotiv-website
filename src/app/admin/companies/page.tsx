@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { CompaniesDashboard } from "@/app/admin/_components/companies-dashboard";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { fetchCompanies, fetchQueueHealth } from "./actions";
 import { QueuePanel } from "./_queue-panel";
 
@@ -18,7 +18,7 @@ export default async function AdminCompaniesPage() {
   const userEmail = user.email ?? "";
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else {
     const { data: roleRow } = await service

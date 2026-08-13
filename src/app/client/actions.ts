@@ -3,7 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { BATCH_STAGES } from "@/app/admin/_components/batch-stages";
-import { SUPER_ADMIN_EMAIL, type UserRole } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
 import { getClientContext } from "./lib/client-guards";
 import { notifyAllAdmins } from "@/lib/notifications";
 
@@ -103,7 +103,7 @@ export async function isAdminUser(): Promise<boolean> {
   const { data: { user } } = await auth.auth.getUser();
   if (!user) return false;
 
-  if (user.email === SUPER_ADMIN_EMAIL) return true;
+  if (isSuperAdminEmail(user.email)) return true;
 
   const service = createServiceClient();
   const { data: roleRow } = await service

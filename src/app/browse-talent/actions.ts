@@ -1,7 +1,7 @@
 "use server";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 
 // Hoisted from getCvSignedUrl so the shared signing helper (Phase 4 E2)
@@ -338,7 +338,7 @@ export async function getCvSignedUrl(candidateId: string): Promise<CvSignedUrlRe
 
   // Determine admin status (super-admin email shortcut OR admin_users.role)
   let isAdmin = false;
-  if (user.email && user.email.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) {
+  if (user.email && isSuperAdminEmail(user.email)) {
     isAdmin = true;
   } else {
     const { data: roleRow } = await service
@@ -517,7 +517,7 @@ export async function fetchProfileDetail(
   const isUnlocked = !!unlockResult.data;
   const adminRow = adminResult.data as { role?: string; status?: string } | null;
   const isAdmin =
-    (user?.email?.toLowerCase() === SUPER_ADMIN_EMAIL.toLowerCase()) ||
+    (isSuperAdminEmail(user?.email)) ||
     (adminRow?.status === "active" &&
       (adminRow.role === "admin" || adminRow.role === "super_admin"));
 

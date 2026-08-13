@@ -1,7 +1,7 @@
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { ApplicationsDashboard } from "@/app/admin/_components/applications-dashboard";
-import { type UserRole, SUPER_ADMIN_EMAIL } from "@/app/admin/lib/roles";
+import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
 import type { ApplicationTag, JobApplication, OpenJob } from "./actions";
 import { adminApplicationScope } from "@/lib/admin-scope";
 
@@ -83,7 +83,7 @@ export default async function ApplicationsPage({
   }
 
   let userRole: UserRole = "viewer";
-  if (userEmail === SUPER_ADMIN_EMAIL) {
+  if (isSuperAdminEmail(userEmail)) {
     userRole = "super_admin";
   } else if (roleRow?.role) {
     userRole = roleRow.role as UserRole;
