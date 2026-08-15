@@ -270,19 +270,50 @@ const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
 /**
  * The recurring maintenance jobs, and how often each should start.
  *
- * All three are retention sweeps, paced identically, and scheduled
- * INDEPENDENTLY rather than sharing one job. They read different tables,
- * honour different promises, and can fail separately — folding them together
- * would mean a storage outage on interview video stopped CVs expiring too, and
- * one `last_error` would have to describe all three.
+ * Paced identically and scheduled INDEPENDENTLY rather than sharing one job.
+ * They read different tables, honour different promises, and can fail
+ * separately — folding them together would mean a storage outage on interview
+ * video stopped CVs expiring too, and one `last_error` would have to describe
+ * all of them.
  */
-const RECURRING: readonly { type: string; intervalMs: number }[] = [
+const RECURRING: readonly {
+  type: string;
+  intervalMs: number;
+  /**
+   * Payload for the enqueued job, AND the discriminator for both checks below.
+   *
+   * Only needed where a type is shared with non-recurring work. Absent means
+   * every job of that type is this recurring job.
+   */
+  payload?: Record<string, unknown>;
+  /** Distinguishes two entries that share a type, in the worker's response. */
+  label?: string;
+}[] = [
   { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
   { type: JOB_TYPES.CV_PURGE, intervalMs: PURGE_INTERVAL_MS },
   // Row retention for this table itself, paced identically and scheduled by
   // the same check — a second mechanism would be a second thing to notice had
   // stopped.
   { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
+  /*
+   * ── The interview-expiry safety net ──
+   *
+   * Shares the `interview_expiry` TYPE with the per-session jobs, because
+   * background_jobs_type_check would reject a new value and this needs no
+   * migration. `payload` is what separates them, and it is not cosmetic:
+   *
+   * Per-session expiry jobs sit 'queued' for days by design. Without the
+   * payload filter on the live-check below, one of them would be found on every
+   * tick, the sweep would be judged already-scheduled, and it would NEVER be
+   * enqueued — a safety net that silently never runs, which is worse than not
+   * having built one.
+   */
+  {
+    type: JOB_TYPES.INTERVIEW_EXPIRY,
+    intervalMs: PURGE_INTERVAL_MS,
+    payload: { sweep: true },
+    label: "interview_expiry_sweep",
+  },
 ];
 
 /**
@@ -310,22 +341,29 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
   const service = createServiceClient();
   const scheduled: string[] = [];
 
-  for (const { type, intervalMs } of RECURRING) {
-    const { data: live } = await service
+  for (const { type, intervalMs, payload, label } of RECURRING) {
+    let liveQuery = service
       .from("background_jobs")
       .select("id")
       .eq("type", type)
-      .in("status", ["queued", "running"])
-      .limit(1);
+      .in("status", ["queued", "running"]);
+    // Narrow to THIS recurring job where the type is shared — see the comment
+    // on the interview_expiry entry for what goes wrong without it.
+    if (payload) liveQuery = liveQuery.contains("payload", payload);
+
+    const { data: live } = await liveQuery.limit(1);
     if ((live ?? []).length > 0) continue;
 
     // created_at, not a completion timestamp: this paces how often a purge is
     // STARTED, which is the thing being rate-limited. A run that failed still
     // counts, because the next one is a day away and will redo its work anyway.
-    const { data: last } = await service
+    let lastQuery = service
       .from("background_jobs")
       .select("created_at")
-      .eq("type", type)
+      .eq("type", type);
+    if (payload) lastQuery = lastQuery.contains("payload", payload);
+
+    const { data: last } = await lastQuery
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -334,8 +372,8 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
       : 0;
     if (Date.now() - lastAt < intervalMs) continue;
 
-    const result = await enqueue({ type, companyId: null });
-    if (result.ok) scheduled.push(type);
+    const result = await enqueue({ type, companyId: null, payload });
+    if (result.ok) scheduled.push(label ?? type);
   }
 
   return scheduled;

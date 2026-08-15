@@ -53,7 +53,21 @@ const SETTLED_STATUSES = new Set(["submitted", "cancelled", "expired"]);
 /** The two this job is allowed to close. Also the race guard on the UPDATE. */
 const EXPIRABLE_STATUSES = ["invited", "started"];
 
-export type InterviewExpiryPayload = { sessionId: string };
+/**
+ * One job type, two ways of finding work.
+ *
+ * `{ sessionId }`  the per-session job, armed at send for one deadline.
+ * `{ sweep: true }` the periodic pass, which finds everything overdue.
+ *
+ * Deliberately NOT a second job type: background_jobs.type carries a CHECK
+ * constraint, and a new value needs a migration before a single job can be
+ * enqueued. Discriminating on the payload keeps this shippable today and is
+ * honest about what the two are — the same work, found two ways.
+ */
+export type InterviewExpiryPayload = {
+  sessionId?: string;
+  sweep?: boolean;
+};
 
 type SessionRow = {
   id: string;
@@ -65,28 +79,66 @@ type SessionRow = {
   submitted_at: string | null;
 };
 
+const SESSION_COLUMNS =
+  "id, company_id, application_id, job_id, status, expires_at, submitted_at";
+
+/** Sessions read per sweep batch. */
+const SWEEP_BATCH = 200;
+
+/**
+ * Hard ceiling on one sweep run, so a pathological backlog cannot hold a worker
+ * slot indefinitely. Hitting it is LOGGED rather than passed over in silence —
+ * a truncated sweep that looks like a complete one is how "everything is fine"
+ * gets reported about a table that is still full of overdue rows. The next tick
+ * resumes from the front.
+ */
+const SWEEP_MAX_SESSIONS = 5000;
+
 export async function handleInterviewExpiry(job: {
   id: string;
   payload: Record<string, unknown>;
 }): Promise<void> {
   const payload = job.payload as unknown as InterviewExpiryPayload;
   const sessionId = payload?.sessionId;
-
-  if (typeof sessionId !== "string" || !sessionId) {
-    throw new Error(`interview_expiry: payload has no sessionId (job ${job.id})`);
-  }
-
   const service = createServiceClient();
 
+  if (typeof sessionId === "string" && sessionId) {
+    await expireOneSessionById(service, sessionId, job.id);
+    return;
+  }
+
+  /*
+   * No session named. A `{ sweep: true }` payload means it, and an EMPTY
+   * payload is treated the same so a hand-enqueued recovery job works without
+   * anyone having to know the marker. Anything else — a sessionId that is not a
+   * string, say — is malformed and throws rather than quietly sweeping the
+   * whole table when the caller meant one row.
+   */
+  if (payload?.sweep === true || sessionId === undefined) {
+    await sweepOverdueSessions(service, job.id);
+    return;
+  }
+
+  throw new Error(
+    `interview_expiry: payload names neither a session nor a sweep (job ${job.id})`,
+  );
+}
+
+/** The per-session path: one known id, armed at send time. */
+async function expireOneSessionById(
+  service: ReturnType<typeof createServiceClient>,
+  sessionId: string,
+  jobId: string,
+): Promise<void> {
   const { data: sessionData } = await service
     .from("interview_sessions")
-    .select("id, company_id, application_id, job_id, status, expires_at, submitted_at")
+    .select(SESSION_COLUMNS)
     .eq("id", sessionId)
     .maybeSingle();
 
   const session = sessionData as SessionRow | null;
   if (!session) {
-    skipJob("interview_expiry", job.id, `session ${sessionId} no longer exists`);
+    skipJob("interview_expiry", jobId, `session ${sessionId} no longer exists`);
     return;
   }
 
@@ -106,7 +158,7 @@ export async function handleInterviewExpiry(job: {
   if (SETTLED_STATUSES.has(session.status) || session.submitted_at) {
     skipJob(
       "interview_expiry",
-      job.id,
+      jobId,
       `session ${sessionId} is already ${session.status} — nothing to expire`,
     );
     return;
@@ -127,46 +179,176 @@ export async function handleInterviewExpiry(job: {
    * and one enters it, aimed at the current date.
    */
   if (new Date(session.expires_at).getTime() > Date.now()) {
-    await rescheduleExpiry(service, session, job.id);
+    await rescheduleExpiry(service, session, jobId);
     return;
   }
 
+  await expireSession(service, session, jobId);
+}
+
+/**
+ * The periodic pass: every overdue session, whether or not a job exists for it.
+ *
+ * ── Why this cannot be lost ──────────────────────────────────
+ *
+ * The per-session job is a single point of failure — a failed enqueue, a bug, a
+ * dead letter, and that one session is open forever with nobody told. This pass
+ * derives its work from the SESSIONS themselves, so nothing about the queue's
+ * history can hide a row from it. Whatever happened last time, the next tick
+ * looks again.
+ *
+ * ── Drained from the front, not offset-paged ─────────────────
+ *
+ * `.range(from, from + N)` would be WRONG here, and quietly so. This loop
+ * mutates the very predicate it is paging over: every session it expires stops
+ * matching `status IN ('invited','started')`. With an advancing offset, the
+ * rows behind each expired one shift down into the window already read, and the
+ * sweep would skip roughly half of them on every page boundary — the exact
+ * failure the range-paging was meant to prevent.
+ *
+ * Re-reading the FIRST batch each time is correct precisely because the work
+ * removes itself from the result set. It terminates on an empty batch, and the
+ * no-progress guard below is the backstop for a row that somehow matches the
+ * filter but refuses to update.
+ */
+async function sweepOverdueSessions(
+  service: ReturnType<typeof createServiceClient>,
+  jobId: string,
+): Promise<void> {
+  let seen = 0;
+  let expired = 0;
+  let failed = 0;
+
+  for (;;) {
+    if (seen >= SWEEP_MAX_SESSIONS) {
+      console.warn(
+        `[interview_expiry][sweep] stopped at the ${SWEEP_MAX_SESSIONS}-session ceiling — more remain overdue and the next run will continue`,
+      );
+      break;
+    }
+
+    const { data, error } = await service
+      .from("interview_sessions")
+      .select(SESSION_COLUMNS)
+      .in("status", EXPIRABLE_STATUSES)
+      .lte("expires_at", new Date().toISOString())
+      .order("expires_at", { ascending: true })
+      .limit(SWEEP_BATCH);
+
+    if (error) {
+      throw new Error(`interview_expiry: sweep read failed: ${error.message}`);
+    }
+
+    const batch = (data ?? []) as SessionRow[];
+    if (batch.length === 0) break;
+
+    let progressed = 0;
+    for (const session of batch) {
+      seen++;
+      try {
+        if (await expireSession(service, session, jobId)) {
+          expired++;
+          progressed++;
+        } else {
+          // Settled by someone else between the read and the write. It no
+          // longer matches the filter either, so it counts as progress.
+          progressed++;
+        }
+      } catch (err) {
+        failed++;
+        console.error(
+          `[interview_expiry][sweep] session ${session.id} could not be expired:`,
+          err,
+        );
+      }
+    }
+
+    /*
+     * Every row in that batch matched the filter and none left it. Continuing
+     * would re-read the same rows forever, so the loop stops and the throw
+     * below routes it through the queue's retry path with the count in
+     * last_error.
+     */
+    if (progressed === 0) {
+      console.error(
+        `[interview_expiry][sweep] no progress on a batch of ${batch.length} — stopping`,
+      );
+      break;
+    }
+  }
+
+  console.log(
+    `[interview_expiry][sweep] examined ${seen}, expired ${expired}, failed ${failed}`,
+  );
+
   /*
-   * ── The write, and the only idempotency that matters ──
-   *
-   * ONE conditional UPDATE, guarded on the status it expects to find. Two
-   * workers running this concurrently — a reclaimed lease, a duplicated enqueue
-   * — both issue it; the second blocks on the row lock, re-evaluates
-   * `status IN ('invited','started')` against the committed row, finds
-   * 'expired', and gets an EMPTY returning set. Only the winner notifies.
-   *
-   * The same predicate closes the read-then-write gap above: a candidate who
-   * submits between the SELECT and this UPDATE keeps their submission, because
-   * 'submitted' is not in the allowed set.
+   * A partial sweep must not report success. Retrying is safe because
+   * expireSession is idempotent — an already-expired session updates zero rows
+   * and notifies nobody — so the retry costs a re-read and fixes the rest.
    */
+  if (failed > 0) {
+    throw new Error(
+      `interview_expiry: sweep could not expire ${failed} of ${seen} overdue sessions`,
+    );
+  }
+}
+
+/**
+ * Expire one session and notify, or report that somebody else got there first.
+ *
+ * ── THE single implementation, and the single notification gate ──
+ *
+ * Both discovery paths land here, so "what expiring means" exists once. More
+ * importantly, so does the decision to notify — and that decision is one
+ * conditional UPDATE, not a coordination protocol between the two paths:
+ *
+ *   UPDATE interview_sessions SET status='expired'
+ *    WHERE id=$1 AND company_id=$2 AND status IN ('invited','started')
+ *   RETURNING id;
+ *
+ * Postgres serialises concurrent writers on the row lock and re-evaluates the
+ * predicate against the committed version, so EXACTLY ONE caller can ever see a
+ * non-empty result — the one that performed the transition. Everyone else gets
+ * zero rows and returns false without notifying.
+ *
+ * That is what makes double-notification impossible rather than unlikely. A
+ * sweep and a late per-session job racing on the same session, two workers on a
+ * reclaimed lease, a duplicated enqueue: same gate, same outcome. Neither path
+ * needs to know the other exists.
+ *
+ * Returns true if THIS call performed the transition.
+ */
+async function expireSession(
+  service: ReturnType<typeof createServiceClient>,
+  session: SessionRow,
+  jobId: string,
+): Promise<boolean> {
   const { data: updated, error } = await service
     .from("interview_sessions")
     .update({ status: "expired" })
-    .eq("id", sessionId)
+    .eq("id", session.id)
     .eq("company_id", session.company_id)
     .in("status", EXPIRABLE_STATUSES)
     .select("id");
 
   if (error) {
     // A write failure IS worth retrying — the row is real and still open.
-    throw new Error(`interview_expiry: could not expire ${sessionId}: ${error.message}`);
+    throw new Error(
+      `interview_expiry: could not expire ${session.id}: ${error.message}`,
+    );
   }
 
   if ((updated ?? []).length === 0) {
     skipJob(
       "interview_expiry",
-      job.id,
-      `session ${sessionId} was settled by another writer first`,
+      jobId,
+      `session ${session.id} was settled by another writer first`,
     );
-    return;
+    return false;
   }
 
   await notifyRecruiters(service, session);
+  return true;
 }
 
 /**
