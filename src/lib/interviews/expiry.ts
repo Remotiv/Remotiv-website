@@ -27,6 +27,13 @@ import { createServiceClient } from "@/lib/supabase/server";
  * session and watch what was recorded. Media leaves on the retention schedule
  * (delete_after, six months) exactly as it would have, not on expiry.
  *
+ * ── A job that arrives early re-arms itself ──────────────────
+ *
+ * `run_after` is frozen when the job is created, but `expires_at` is not — a
+ * deadline that moves leaves the two disagreeing. A job that finds the window
+ * still open therefore schedules a successor for the current deadline rather
+ * than reporting done; see rescheduleExpiry for why that terminates.
+ *
  * ── Who hears about it ───────────────────────────────────────
  *
  * The hiring team for that job, plus every owner and admin — notifyCompany's
@@ -106,22 +113,21 @@ export async function handleInterviewExpiry(job: {
   }
 
   /*
-   * The deadline is still in the future.
+   * ── The deadline is still in the future: RESCHEDULE, never succeed ──
    *
-   * Nothing produces this today — expires_at is written once at send and there
-   * is no extension feature — so it means either an early tick or a deadline
-   * that moved. Either way, expiring a session whose window is open would lock
-   * a candidate out mid-interview, so it refuses. If an extension feature is
-   * ever built, THIS is the guard that keeps a stale job from closing an
-   * extended interview, and the enqueue side would need to schedule a fresh job
-   * for the new date; see the report.
+   * Expiring a session whose window is open would lock a candidate out
+   * mid-interview, so this must not write. But returning done was worse: the
+   * job is consumed, `run_after` on a succeeded row is never re-examined, and
+   * nothing else in the system ever looks at this session again. It could then
+   * never expire — permanently stuck 'invited', with no notification, for the
+   * rest of its life. Two sessions reached that state.
+   *
+   * So it re-arms instead, against the deadline as the row states it NOW rather
+   * than whatever was true when this job was created. One job leaves the queue
+   * and one enters it, aimed at the current date.
    */
   if (new Date(session.expires_at).getTime() > Date.now()) {
-    skipJob(
-      "interview_expiry",
-      job.id,
-      `session ${sessionId} does not close until ${session.expires_at}`,
-    );
+    await rescheduleExpiry(service, session, job.id);
     return;
   }
 
@@ -161,6 +167,89 @@ export async function handleInterviewExpiry(job: {
   }
 
   await notifyRecruiters(service, session);
+}
+
+/**
+ * Re-arm this session's expiry against the deadline the row states now.
+ *
+ * ── Why this cannot become an infinite chain ─────────────────
+ *
+ * Three independent reasons, and the first alone is sufficient:
+ *
+ * 1. IT ONLY EVER MOVES FORWARD. This path is reached only when
+ *    `expires_at > now()`, and `run_after` is set to that same future instant.
+ *    claimJobs takes `run_after <= now()`, so the replacement is not claimable
+ *    until the deadline actually arrives. A chain of N reschedules therefore
+ *    spans at least as much wall-clock as the extensions themselves — it can
+ *    never spin inside a tick, and it burns one job per extension, not per
+ *    poll. A session past its deadline expires instead, which is the base case.
+ *
+ * 2. IT CANNOT FAN OUT. Without the duplicate check below, two expiry jobs for
+ *    one session that both fired early would each enqueue a replacement: two
+ *    become four, four become eight. The check makes the count converge to one
+ *    regardless of how many are live when it runs.
+ *
+ * 3. EXTENSIONS ARE HUMAN ACTIONS. Chain length is bounded by how many times a
+ *    person moves a deadline, not by anything the queue does on its own.
+ *
+ * ── Excluding THIS job from the duplicate check is load-bearing ──
+ *
+ * This job is 'running' right now and its payload carries the same sessionId,
+ * so an unqualified "is one already live?" query matches ITSELF, concludes a
+ * replacement exists, and re-arms nothing — reintroducing the exact orphan this
+ * function was written to prevent. Hence `.neq("id", currentJobId)`.
+ */
+async function rescheduleExpiry(
+  service: ReturnType<typeof createServiceClient>,
+  session: SessionRow,
+  currentJobId: string,
+): Promise<void> {
+  const { enqueue, JOB_TYPES } = await import("@/lib/jobs-queue");
+
+  const { data: live } = await service
+    .from("background_jobs")
+    .select("id")
+    .eq("type", JOB_TYPES.INTERVIEW_EXPIRY)
+    .in("status", ["queued", "running"])
+    .contains("payload", { sessionId: session.id })
+    .neq("id", currentJobId)
+    .limit(1);
+
+  if ((live ?? []).length > 0) {
+    skipJob(
+      "interview_expiry",
+      currentJobId,
+      `session ${session.id} closes at ${session.expires_at} and another expiry job is already queued for it`,
+    );
+    return;
+  }
+
+  const queued = await enqueue({
+    type: JOB_TYPES.INTERVIEW_EXPIRY,
+    payload: { sessionId: session.id },
+    companyId: session.company_id,
+    runAfter: new Date(session.expires_at),
+  });
+
+  /*
+   * THROWS if the re-arm fails, rather than logging and returning.
+   *
+   * Everywhere else in the interview flow a failed enqueue is non-fatal,
+   * because the thing that mattered had already happened. Here the enqueue IS
+   * the thing that matters: swallowing the failure consumes this job and leaves
+   * the session with nothing scheduled — precisely the orphan state. Throwing
+   * takes the normal retry-with-backoff path, and a job that exhausts its
+   * attempts lands in 'dead' where it is visible instead of silent.
+   */
+  if (!queued.ok) {
+    throw new Error(
+      `interview_expiry: could not re-arm session ${session.id} for ${session.expires_at}: ${queued.error}`,
+    );
+  }
+
+  console.log(
+    `[interview_expiry] session ${session.id} rescheduled for ${session.expires_at} (job ${queued.id})`,
+  );
 }
 
 /**
