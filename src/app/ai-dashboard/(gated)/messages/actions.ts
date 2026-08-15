@@ -10,7 +10,12 @@ import {
 } from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { MANUAL_DEFAULTS } from "@/lib/email/candidate/templates";
-import { MESSAGE_EVENTS, type MessageEvent } from "@/lib/email/candidate/types";
+import {
+  LOG_ONLY_EVENTS,
+  type LoggedEvent,
+  MESSAGE_EVENTS,
+  type MessageEvent,
+} from "@/lib/email/candidate/types";
 import {
   buildPlaceholders,
   escapeHtml,
@@ -175,11 +180,20 @@ async function canSeeApplication(
   return canAccessJob(ctx, row.job_id ?? "");
 }
 
-/** Narrow a stored event string back to the union, defaulting to 'manual'. */
-function asEvent(value: string | null): MessageEvent {
-  return (MESSAGE_EVENTS as readonly string[]).includes(value ?? "")
-    ? (value as MessageEvent)
-    : "manual";
+/**
+ * Narrow a stored event string back to the union, defaulting to 'manual'.
+ *
+ * LOG_ONLY_EVENTS is checked alongside MESSAGE_EVENTS because
+ * communication_logs.event is a wider vocabulary than message_templates.event —
+ * `interview_reminder` is written by the reminder handler and has no template
+ * row. Without it, re-sending a scheduled reminder from the Messages page would
+ * relabel it 'manual' on the way back out, filing an automatic message under
+ * Written and writing the replacement row against the wrong event.
+ */
+function asEvent(value: string | null): LoggedEvent {
+  const candidate = value ?? "";
+  const known: readonly string[] = [...MESSAGE_EVENTS, ...LOG_ONLY_EVENTS];
+  return known.includes(candidate) ? (candidate as LoggedEvent) : "manual";
 }
 
 function fullName(first: string | null, last: string | null, fallback: string): string {
