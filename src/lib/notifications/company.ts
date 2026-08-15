@@ -32,6 +32,16 @@ export const COMPANY_NOTIFICATION_TYPES = [
   "score_ready",
   "stage_change",
   "applicant_deleted",
+  /*
+   * An interview window closed with nothing submitted. The only entry here with
+   * no human behind it, which is exactly why it needs a notification — every
+   * other type is something a member did and already knows about.
+   *
+   * notifications_company.type is plain `text` with NO check constraint
+   * (verified in schema.sql), so this needs no migration; the union is a
+   * codebase convention rather than a mirror of the database.
+   */
+  "interview_expired",
   "job_published",
   "job_closed",
   "job_archived",

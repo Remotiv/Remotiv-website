@@ -5,7 +5,9 @@ import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
+import { handleInterviewExpiry } from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
+import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -196,8 +198,10 @@ registerHandler(JOB_TYPES.SEND_MESSAGE, async (job) => {
   }
   await handleSendMessage(job);
 });
-registerHandler(JOB_TYPES.INTERVIEW_REMINDER, notImplemented); // Step 6
-registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, notImplemented); // Step 6
+// Step 6 — both scheduled by sendInterviewInvite against the session's own
+// expires_at, so neither needs a scheduler and neither scans the table.
+registerHandler(JOB_TYPES.INTERVIEW_REMINDER, handleInterviewReminder);
+registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, handleInterviewExpiry);
 registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
 // Step 8 — interview scoring. The plumbing is real; the PROMPT is a marked
 // placeholder and scoring stays off until AI_INTERVIEW_SCORING_ENABLED is set,

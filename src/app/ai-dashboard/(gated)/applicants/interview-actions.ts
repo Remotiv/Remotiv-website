@@ -11,6 +11,7 @@ import {
   renderCopy,
 } from "@/lib/email/candidate/render";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
+import { REMINDER_LEAD_MS } from "@/lib/interviews/reminder";
 import {
   interviewUrl,
   mintSessionToken,
@@ -341,9 +342,99 @@ export async function sendInterviewInvite(
     console.error("[interview] whatsapp enqueue threw (non-fatal):", err);
   }
 
+  /*
+   * ── The reminder and the expiry, scheduled off this session's own deadline ──
+   *
+   * Both are queued HERE, at send, with run_after set from expires_at — so
+   * nothing polls interview_sessions looking for work that has come due, and
+   * the queue's existing `run_after <= now()` claim is the entire scheduler.
+   *
+   * Non-fatal, like the WhatsApp enqueue above and for the same reason: the
+   * interview exists and the invitation has been delivered. A queue outage
+   * costs a nudge and a status label, never the invitation. Expiry is derived
+   * on read in both places that matter (resolveSessionByToken for the
+   * candidate, deriveStatus for the recruiter's list), so a lost expiry job
+   * leaves a stale stored status and a missing notification — not a session
+   * anyone can still record against.
+   */
+  const sessionId = (created as { id: string }).id;
+  await scheduleInterviewJobs({
+    sessionId,
+    companyId: ctx.companyId,
+    expiresAt,
+    expiresAtMs: now + SESSION_EXPIRY_DAYS * DAY_MS,
+    deadline,
+  });
+
   revalidatePath("/ai-dashboard/applicants");
   revalidatePath("/ai-dashboard/messages");
   return { success: true, data: { expiresAt } };
+}
+
+/**
+ * Queue the reminder and the expiry for one freshly sent session.
+ *
+ * Not exported — a "use server" module compiles every export into a server
+ * action, and scheduling background work is not something a browser may ask
+ * for. Callable only from sendInterviewInvite, which has already done the
+ * company and hiring-team checks.
+ *
+ * ── When the reminder is skipped entirely ──
+ *
+ * If the window is 24 hours or less, `run_after` would land at or before now
+ * and the reminder would fire within one worker tick of the invitation — "your
+ * interview closes tomorrow" arriving minutes after "here is your interview".
+ * That is worse than no reminder, so none is queued and the reason is logged.
+ *
+ * Unreachable today: SESSION_EXPIRY_DAYS is 5, so the lead is always four days.
+ * It is a guard against the value being lowered, or being made per-job, without
+ * anyone re-deriving what that does to the reminder.
+ */
+async function scheduleInterviewJobs(input: {
+  sessionId: string;
+  companyId: string;
+  expiresAt: string;
+  expiresAtMs: number;
+  deadline: string;
+}): Promise<void> {
+  const { sessionId, companyId, expiresAt, expiresAtMs, deadline } = input;
+
+  try {
+    const reminderAtMs = expiresAtMs - REMINDER_LEAD_MS;
+    if (reminderAtMs <= Date.now()) {
+      console.log(
+        `[interview] no reminder for session ${sessionId} — the window is shorter than the ${
+          REMINDER_LEAD_MS / (60 * 60 * 1000)
+        }h reminder lead`,
+      );
+    } else {
+      const queued = await enqueue({
+        type: JOB_TYPES.INTERVIEW_REMINDER,
+        // `deadline` is the invitation email's exact wording, so the reminder
+        // cannot quote a different date to the same candidate; `expiresAt` is
+        // the instant it was derived from, which is what lets the handler
+        // notice that the deadline has since moved.
+        payload: { sessionId, deadline, expiresAt },
+        companyId,
+        runAfter: new Date(reminderAtMs),
+      });
+      if (!queued.ok) {
+        console.error("[interview] reminder enqueue failed (non-fatal):", queued.error);
+      }
+    }
+
+    const expired = await enqueue({
+      type: JOB_TYPES.INTERVIEW_EXPIRY,
+      payload: { sessionId },
+      companyId,
+      runAfter: new Date(expiresAtMs),
+    });
+    if (!expired.ok) {
+      console.error("[interview] expiry enqueue failed (non-fatal):", expired.error);
+    }
+  } catch (err) {
+    console.error("[interview] scheduling enqueue threw (non-fatal):", err);
+  }
 }
 
 /**

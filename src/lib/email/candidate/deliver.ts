@@ -2,7 +2,7 @@ import "server-only";
 import { Resend } from "resend";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { EMAIL_SHELL } from "./templates";
-import type { MessageEvent, MessageStatus } from "./types";
+import type { LoggedEvent, MessageStatus } from "./types";
 import { unsubscribeUrl } from "./unsubscribe";
 
 /**
@@ -97,7 +97,12 @@ export async function writeCommunicationLog(
   row: {
     companyId: string;
     applicationId: string;
-    event: MessageEvent;
+    /**
+     * Widened past MessageEvent for the interview reminder, which is logged but
+     * has no template. Safe because communication_logs.event carries no CHECK —
+     * see LOG_ONLY_EVENTS.
+     */
+    event: LoggedEvent;
     to: string;
     subject: string;
     body: string;
@@ -177,7 +182,7 @@ export async function deliverEmail(
   input: {
     companyId: string;
     applicationId: string;
-    event: MessageEvent;
+    event: LoggedEvent;
     to: string;
     /** Plain text. */
     subject: string;

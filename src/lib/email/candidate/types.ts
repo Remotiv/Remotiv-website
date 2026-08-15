@@ -6,7 +6,15 @@
  * unless it lives outside the server-action boundary.
  */
 
-/** Matches the `event` CHECK on message_templates and communication_logs. */
+/**
+ * Matches message_templates_event_check exactly.
+ *
+ * NOT communication_logs, despite what this comment used to claim. That table's
+ * `event` is plain `text` with no CHECK at all, so it accepts values this union
+ * does not — see LOG_ONLY_EVENTS. The distinction matters in one direction:
+ * adding a value HERE without the matching ALTER on message_templates_event_check
+ * breaks template saving the first time a company edits it.
+ */
 export const MESSAGE_EVENTS = [
   "application_received",
   "screening",
@@ -18,6 +26,23 @@ export const MESSAGE_EVENTS = [
   "manual",
 ] as const;
 export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
+
+/**
+ * Events written to communication_logs that have no template row.
+ *
+ * `interview_reminder` is composed in code (src/lib/interviews/reminder.ts)
+ * rather than from message_templates, so it must NOT join MESSAGE_EVENTS: that
+ * union drives the Settings editor and message_templates_event_check would
+ * reject the row the moment a company tried to override the wording.
+ *
+ * It needs no migration to LOG, because communication_logs.event is
+ * unconstrained. Verified against schema.sql, not assumed.
+ */
+export const LOG_ONLY_EVENTS = ["interview_reminder"] as const;
+export type LogOnlyEvent = (typeof LOG_ONLY_EVENTS)[number];
+
+/** Anything that may legally appear in communication_logs.event. */
+export type LoggedEvent = MessageEvent | LogOnlyEvent;
 
 /** Matches the `status` CHECK on communication_logs. */
 export type MessageStatus = "queued" | "sent" | "failed" | "cancelled" | "skipped";
