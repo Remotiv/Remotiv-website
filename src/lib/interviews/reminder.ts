@@ -178,7 +178,22 @@ export async function handleInterviewReminder(job: {
    * replacement pair, not of discovering afterwards why a candidate was told
    * the wrong date.
    */
-  if (payload.expiresAt && payload.expiresAt !== session.expires_at) {
+  /*
+   * Compared as INSTANTS, never as strings. The two sides are serialised
+   * differently and always were: `payload.expiresAt` is written by JS
+   * `toISOString()` and ends in `Z`, while `session.expires_at` comes back from
+   * PostgREST as a Postgres timestamptz rendered `+00:00`. The same moment,
+   * spelled two ways — so a string `!==` was true on every single job and every
+   * reminder cancelled itself as stale before writing anything.
+   */
+  const scheduledForMs = payload.expiresAt
+    ? new Date(payload.expiresAt).getTime()
+    : null;
+  if (
+    scheduledForMs !== null &&
+    Number.isFinite(scheduledForMs) &&
+    scheduledForMs !== expiresAtMs
+  ) {
     skipJob(
       "interview_reminder",
       job.id,
