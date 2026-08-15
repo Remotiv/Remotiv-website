@@ -286,7 +286,15 @@ const RECURRING: readonly {
    * every job of that type is this recurring job.
    */
   payload?: Record<string, unknown>;
-  /** Distinguishes two entries that share a type, in the worker's response. */
+  /**
+   * Distinguishes two entries that share a type, in the worker's response.
+   *
+   * MUST NOT look like a job type. This field is echoed in the worker's JSON
+   * (`purgesScheduled`), and a bare `interview_expiry_sweep` there was read as
+   * a queued job whose handler was missing — it is not a type, no code enqueues
+   * one, and background_jobs_type_check would reject it. The parenthesised form
+   * cannot be mistaken for a constraint value.
+   */
   label?: string;
 }[] = [
   { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
@@ -312,7 +320,7 @@ const RECURRING: readonly {
     type: JOB_TYPES.INTERVIEW_EXPIRY,
     intervalMs: PURGE_INTERVAL_MS,
     payload: { sweep: true },
-    label: "interview_expiry_sweep",
+    label: "interview_expiry (sweep)",
   },
 ];
 
