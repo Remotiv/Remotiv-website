@@ -349,6 +349,17 @@ export type EffectiveContact = {
   github: string | null;
 };
 
+// Stable references for the decorative blurred-preview cards — inline
+// literals here would defeat CardItem's memo on every parent render.
+const noop = () => {};
+const EMPTY_CONTACT: EffectiveContact = {
+  email: null,
+  phone: null,
+  linkedin: null,
+  cvUrl: null,
+  github: null,
+};
+
 // Phase 4 D1: memoized. With useCallback'd handlers + stable c/saved/flag props
 // per candidate, typing in the search input no longer re-renders every card —
 // only cards whose isUnlocking/isSaving actually flip will repaint.
@@ -368,13 +379,16 @@ const CardItem = memo(function CardItem({
 }: {
   c: Card;
   saved: boolean;
-  onView: () => void;
-  onSave: () => void;
+  // Phase 9 INP: parent passes ONE stable reference for all cards; CardItem
+  // supplies the per-card argument. Inline per-card arrows at the call site
+  // defeated the memo() wrapper on every parent render.
+  onView: (c: Card) => void;
+  onSave: (id: string) => void;
   onLocked: () => void;
   index: number;
   isUnlocked: boolean;
   canUnlock: boolean;
-  onUnlock: () => void;
+  onUnlock: (id: string, name: string) => void;
   effectiveContact: EffectiveContact;
   isUnlocking?: boolean;
   isSaving?: boolean;
@@ -383,15 +397,16 @@ const CardItem = memo(function CardItem({
   return (
     <div
       className="bt-cand-card"
-      onClick={onView}
+      onClick={() => onView(c)}
       onKeyDown={(e) => {
         if (e.key === "Enter" || e.key === " ") {
           e.preventDefault();
-          onView();
+          onView(c);
         }
       }}
       onMouseEnter={preloadProfileModal}
       onFocus={preloadProfileModal}
+      onTouchStart={preloadProfileModal}
       role="button"
       tabIndex={0}
       aria-label={`Open profile for ${c.name || "candidate"}`}
@@ -465,7 +480,7 @@ const CardItem = memo(function CardItem({
               <button
                 type="button"
                 className="bt-clink"
-                onClick={onUnlock}
+                onClick={() => onUnlock(c.id, c.name)}
                 title="Use 1 credit to unlock all contact details"
               >
                 <GhSvg />
@@ -493,7 +508,7 @@ const CardItem = memo(function CardItem({
             <button
               type="button"
               className="bt-clink"
-              onClick={onUnlock}
+              onClick={() => onUnlock(c.id, c.name)}
               title="Use 1 credit to unlock all contact details"
             >
               <LiSvg />
@@ -520,7 +535,7 @@ const CardItem = memo(function CardItem({
             <button
               type="button"
               className="bt-clink"
-              onClick={onUnlock}
+              onClick={() => onUnlock(c.id, c.name)}
               title="Use 1 credit to unlock all contact details"
               disabled={isUnlocking}
               style={{ minWidth: 120 }}
@@ -544,14 +559,14 @@ const CardItem = memo(function CardItem({
         <button
           type="button"
           className="bt-view-btn"
-          onClick={(e) => { e.stopPropagation(); onView(); }}
+          onClick={(e) => { e.stopPropagation(); onView(c); }}
         >
           View Profile
         </button>
         <button
           type="button"
           className={cn("bt-save-btn", saved && "saved")}
-          onClick={(e) => { e.stopPropagation(); onSave(); }}
+          onClick={(e) => { e.stopPropagation(); onSave(c.id); }}
           disabled={isSaving}
           style={{ minWidth: 88 }}
           aria-pressed={saved}
@@ -603,7 +618,10 @@ const MOSAIC_TILE = 80;
 const MOSAIC_GAP = 6;
 const MOSAIC_ROWS = 7;
 
-function Hero() {
+// Phase 9 INP: memo — Hero takes no props, so it renders exactly once and
+// never repaints with the parent (its ~168 mosaic divs made every parent
+// re-render expensive).
+const Hero = memo(function Hero() {
   // Compute the number of mosaic columns based on the rendered width so the
   // pattern stretches edge-to-edge regardless of viewport. Mirrors the HTML
   // <script> at line 4129 — runs once on mount + on resize.
@@ -686,7 +704,95 @@ function Hero() {
       </div>
     </section>
   );
-}
+});
+
+// ── Search bar (Phase 9 INP: owns searchInput so keystrokes re-render
+//    only this subtree, not the Hero + card grid) ─────────────
+
+const SearchBar = memo(function SearchBar({
+  activeQuery,
+  onSearchChange,
+}: {
+  activeQuery: string;
+  onSearchChange: (value: string) => void;
+}) {
+  const [searchInput, setSearchInput] = useState(activeQuery);
+
+  // Tracks the last ?q= value we ourselves pushed to the URL (via the
+  // debounced effect or the clear-X handler). The sync-from-prop effect uses
+  // it to ignore echoes of our own push — the RSC round-trip re-delivers
+  // activeQuery matching what we just pushed, and syncing that back into
+  // searchInput would clobber characters the user typed during the round-trip.
+  const lastPushedQRef = useRef(activeQuery);
+
+  // Sync the search input value when the activeQuery prop changes (back/
+  // forward nav, external URL edit, programmatic clear). Skips echoes of our
+  // own debounced push so mid-typing keystrokes aren't overwritten.
+  useEffect(() => {
+    if (activeQuery === lastPushedQRef.current) return;
+    setSearchInput(activeQuery);
+    lastPushedQRef.current = activeQuery;
+  }, [activeQuery]);
+
+  // Phase 5C follow-up: 500ms debounce (was 300) — tested sweet spot; below
+  // ~400 feels jumpy while typing fast, above ~700 feels laggy. The parent's
+  // onSearchChange keeps using `replace: true` so the back-button history
+  // isn't littered with one entry per keystroke.
+  useEffect(() => {
+    if (searchInput === activeQuery) return;
+    const handle = setTimeout(() => {
+      lastPushedQRef.current = searchInput;
+      onSearchChange(searchInput);
+    }, 500);
+    return () => clearTimeout(handle);
+  }, [searchInput, activeQuery, onSearchChange]);
+
+  return (
+    <div className="bt-search-wrap" style={{ position: "relative" }}>
+      <span className="bt-search-icon">⌕</span>
+      <input
+        className="bt-search-input"
+        type="search"
+        value={searchInput}
+        onChange={(e) => setSearchInput(e.target.value)}
+        placeholder="Search by name, role, or skill (e.g. React, Salesforce, Gainsight)..."
+        aria-label="Search candidates"
+      />
+      {/* Phase 5 C2: explicit clear-X button. type="search" sometimes
+          renders a native X on desktop Chrome but is inconsistent across
+          browsers/mobile — this guarantees the affordance everywhere. */}
+      {searchInput && (
+        <button
+          type="button"
+          onClick={() => {
+            setSearchInput("");
+            lastPushedQRef.current = "";
+            onSearchChange("");
+          }}
+          aria-label="Clear search"
+          style={{
+            position: "absolute",
+            right: 12,
+            top: "50%",
+            transform: "translateY(-50%)",
+            background: "transparent",
+            border: "none",
+            cursor: "pointer",
+            padding: 4,
+            display: "flex",
+            alignItems: "center",
+            justifyContent: "center",
+            color: "#888",
+            minHeight: 32,
+            minWidth: 32,
+          }}
+        >
+          <X style={{ width: 16, height: 16 }} aria-hidden="true" />
+        </button>
+      )}
+    </div>
+  );
+});
 
 // ── Main client component ────────────────────────────────────
 
@@ -740,7 +846,6 @@ export function BrowseClient({
     [deepLinkedCard],
   );
 
-  const [searchInput, setSearchInput] = useState(activeQuery);
   const [localSavedIds, setLocalSavedIds] = useState<Set<string>>(() => new Set(savedIds));
 
   // Sync localSavedIds when the savedIds prop changes (page navigation, route refresh)
@@ -863,33 +968,16 @@ export function BrowseClient({
     return () => clearTimeout(t);
   }, [toast]);
 
-  // Tracks the last ?q= value we ourselves pushed to the URL (via the
-  // debounced effect or the clear-X handler). The sync-from-prop effect uses
-  // it to ignore echoes of our own push — the RSC round-trip re-delivers
-  // activeQuery matching what we just pushed, and syncing that back into
-  // searchInput would clobber characters the user typed during the round-trip.
-  const lastPushedQRef = useRef(activeQuery);
-
-  // Sync the search input value when the activeQuery prop changes (back/
-  // forward nav, external URL edit, programmatic clear). Skips echoes of our
-  // own debounced push so mid-typing keystrokes aren't overwritten.
-  useEffect(() => {
-    if (activeQuery === lastPushedQRef.current) return;
-    setSearchInput(activeQuery);
-    lastPushedQRef.current = activeQuery;
-  }, [activeQuery]);
-
-  // Phase 5C follow-up: 500ms debounce (was 300) — tested sweet spot; below
-  // ~400 feels jumpy while typing fast, above ~700 feels laggy. `replace: true`
-  // avoids littering the back-button history with one entry per keystroke.
-  useEffect(() => {
-    if (searchInput === activeQuery) return;
-    const handle = setTimeout(() => {
-      lastPushedQRef.current = searchInput;
-      updateUrl({ q: searchInput || null }, { replace: true });
-    }, 500);
-    return () => clearTimeout(handle);
-  }, [searchInput, activeQuery, updateUrl]);
+  // Phase 9 INP: searchInput state (and the d2744d3 echo guard + debounce)
+  // moved into the extracted SearchBar component above. This stable callback
+  // receives the debounced value and does exactly what the old effect did:
+  // router.replace so keystrokes don't litter back-button history.
+  const handleSearchChange = useCallback(
+    (value: string) => {
+      updateUrl({ q: value || null }, { replace: true });
+    },
+    [updateUrl],
+  );
 
   // Phase 4 Lean Projection: lazy-load the full profile detail. Idempotent —
   // cache hit / in-flight short-circuit. Called from handleOpenCard below.
@@ -1048,14 +1136,15 @@ export function BrowseClient({
   // Phase B-4: open pricing modal instead of toast for free/anonymous locked actions.
   // Subscribers should never hit this (their flow is handleUnlock). Free users
   // and admins-without-subscription land here and see the pricing modal.
-  const handleLockedAction = () => {
+  // Phase 9 INP: useCallback so it doesn't defeat CardItem's memo.
+  const handleLockedAction = useCallback(() => {
     if (tier === "free") {
       setIsPricingModalOpen(true);
     } else {
       // A2: Subscriber out-of-credits → amber persistent toast with Upgrade link.
       setOutOfCreditsToast(true);
     }
-  };
+  }, [tier]);
 
   const handleGetStartedFromModal = () => {
     setIsPricingModalOpen(false);
@@ -1126,6 +1215,15 @@ export function BrowseClient({
     }
   }, [unlockingIds, tier]);
 
+  // Phase 9 INP: stable void-returning wrapper for CardItem's onUnlock —
+  // preserves the old per-card call site's fire-and-forget `void`.
+  const handleUnlockCard = useCallback(
+    (candidateId: string, candidateName: string) => {
+      void handleUnlock(candidateId, candidateName);
+    },
+    [handleUnlock],
+  );
+
   // B3/J2: on window focus, re-read tier server-side. If it disagrees with
   // the prop the page was rendered with, the user's subscription changed in
   // another tab/session — show the session-stale toast.
@@ -1141,31 +1239,42 @@ export function BrowseClient({
     return () => window.removeEventListener("focus", handler);
   }, [tier]);
 
-  function getEffectiveContact(c: Card): {
-    email: string | null;
-    phone: string | null;
-    linkedin: string | null;
-    cvUrl: string | null;
-    github: string | null;
-  } {
-    const local = unlockedContactData.get(c.id);
-    if (local) {
+  // Phase 9 INP: useCallback (same body as the old plain function) so the
+  // contactMap memo below can depend on it honestly.
+  const getEffectiveContact = useCallback(
+    (c: Card): EffectiveContact => {
+      const local = unlockedContactData.get(c.id);
+      if (local) {
+        return {
+          email: local.email,
+          phone: local.phone,
+          linkedin: local.linkedinUrl,
+          cvUrl: local.cvUrl,
+          github: c.github,
+        };
+      }
       return {
-        email: local.email,
-        phone: local.phone,
-        linkedin: local.linkedinUrl,
-        cvUrl: local.cvUrl,
+        email: c.email ?? null,
+        phone: c.phone ?? null,
+        linkedin: c.linkedin ?? null,
+        cvUrl: c.cvUrl ?? null,
         github: c.github,
       };
+    },
+    [unlockedContactData],
+  );
+
+  // Phase 9 INP: per-card contact objects with stable identity. A fresh
+  // object per card per parent render defeated CardItem's memo comparison.
+  // Recomputes only when the page's cards change or an unlock lands new
+  // contact data (unlockedContactData, via getEffectiveContact's identity).
+  const contactMap = useMemo(() => {
+    const map = new Map<string, EffectiveContact>();
+    for (const c of cards) {
+      map.set(c.id, getEffectiveContact(c));
     }
-    return {
-      email: c.email ?? null,
-      phone: c.phone ?? null,
-      linkedin: c.linkedin ?? null,
-      cvUrl: c.cvUrl ?? null,
-      github: c.github,
-    };
-  }
+    return map;
+  }, [cards, getEffectiveContact]);
 
   const renderSidebarContent = (onSelect?: () => void) => (
     <>
@@ -1303,49 +1412,7 @@ export function BrowseClient({
               </button>
             </div>
             <div className="bt-search-bar">
-              <div className="bt-search-wrap" style={{ position: "relative" }}>
-                <span className="bt-search-icon">⌕</span>
-                <input
-                  className="bt-search-input"
-                  type="search"
-                  value={searchInput}
-                  onChange={(e) => setSearchInput(e.target.value)}
-                  placeholder="Search by name, role, or skill (e.g. React, Salesforce, Gainsight)..."
-                  aria-label="Search candidates"
-                />
-                {/* Phase 5 C2: explicit clear-X button. type="search" sometimes
-                    renders a native X on desktop Chrome but is inconsistent across
-                    browsers/mobile — this guarantees the affordance everywhere. */}
-                {searchInput && (
-                  <button
-                    type="button"
-                    onClick={() => {
-                      setSearchInput("");
-                      lastPushedQRef.current = "";
-                      updateUrl({ q: null }, { replace: true });
-                    }}
-                    aria-label="Clear search"
-                    style={{
-                      position: "absolute",
-                      right: 12,
-                      top: "50%",
-                      transform: "translateY(-50%)",
-                      background: "transparent",
-                      border: "none",
-                      cursor: "pointer",
-                      padding: 4,
-                      display: "flex",
-                      alignItems: "center",
-                      justifyContent: "center",
-                      color: "#888",
-                      minHeight: 32,
-                      minWidth: 32,
-                    }}
-                  >
-                    <X style={{ width: 16, height: 16 }} aria-hidden="true" />
-                  </button>
-                )}
-              </div>
+              <SearchBar activeQuery={activeQuery} onSearchChange={handleSearchChange} />
               <select
                 className="bt-sort-select"
                 value={activeSort}
@@ -1446,14 +1513,14 @@ export function BrowseClient({
                       key={c.id}
                       c={c}
                       saved={localSavedIds.has(c.id)}
-                      onView={() => handleOpenCard(c)}
-                      onSave={() => handleToggleSave(c.id)}
+                      onView={handleOpenCard}
+                      onSave={handleToggleSave}
                       onLocked={handleLockedAction}
                       index={i}
                       isUnlocked={unlockedSet.has(c.id)}
                       canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(c.id)}
-                      onUnlock={() => { void handleUnlock(c.id, c.name); }}
-                      effectiveContact={getEffectiveContact(c)}
+                      onUnlock={handleUnlockCard}
+                      effectiveContact={contactMap.get(c.id) ?? getEffectiveContact(c)}
                       isUnlocking={unlockingIds.has(c.id)}
                       isSaving={savingIds.has(c.id)}
                     />
@@ -1498,14 +1565,14 @@ export function BrowseClient({
                             key={`blur-${c.id}`}
                             c={c}
                             saved={false}
-                            onView={() => {}}
-                            onSave={() => {}}
-                            onLocked={() => {}}
+                            onView={noop}
+                            onSave={noop}
+                            onLocked={noop}
                             index={i + 15}
                             isUnlocked={false}
                             canUnlock={false}
-                            onUnlock={() => {}}
-                            effectiveContact={{ email: null, phone: null, linkedin: null, cvUrl: null, github: null }}
+                            onUnlock={noop}
+                            effectiveContact={EMPTY_CONTACT}
                             isUnlocking={false}
                             isSaving={false}
                           />
@@ -1594,7 +1661,7 @@ export function BrowseClient({
           isUnlocked={unlockedSet.has(openCard.id)}
           canUnlock={tier === "subscriber" && credits > 0 && !unlockedSet.has(openCard.id)}
           onUnlock={() => { void handleUnlock(openCard.id, openCard.name); }}
-          effectiveContact={getEffectiveContact(openCard)}
+          effectiveContact={contactMap.get(openCard.id) ?? getEffectiveContact(openCard)}
           onSave={() => {
             const candidateId = openCard.id;
             setOpenCard(null);
