@@ -8,7 +8,12 @@ import {
   getCompanyContext,
   requireCompanyRole,
 } from "@/app/ai-dashboard/lib/company-guards";
-import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import {
+  canAccessJob,
+  getJobScope,
+  isEmptyScope,
+  scopeJobIds,
+} from "@/app/ai-dashboard/lib/job-scope";
 import { notifyCompany } from "@/lib/notifications/company";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import {
@@ -461,6 +466,19 @@ function cvWeightsChanged(
   );
 }
 
+/** The estimate's window. Matches the handoff's "last 30 days". */
+const ESTIMATE_WINDOW_MS = 30 * 24 * 60 * 60 * 1000;
+
+/**
+ * Ceiling on ids pulled for the union in estimateAutoshortlistReach.
+ *
+ * The number is explicitly an estimate shown while someone drags a mark, so a
+ * bounded approximation on a very large workspace is the right trade — but the
+ * bound is stated here rather than left to PostgREST's implicit 1000, which
+ * would truncate silently at a number nobody chose.
+ */
+const ESTIMATE_ID_CAP = 2000;
+
 function clampThreshold(value: unknown): number | null {
   if (typeof value !== "number" || !Number.isFinite(value)) return null;
   const rounded = Math.round(value);
@@ -872,6 +890,146 @@ export async function updateCompanyJob(
     data: undefined,
     ...(questionWarning ? { warning: questionWarning } : {}),
   };
+}
+
+/**
+ * Step 9's live estimate: how many current applicants these marks would flag.
+ *
+ * ── Counted on the server, never in the client ───────────────
+ *
+ * The wizard has a page of rows at most; the answer is about the whole
+ * workspace. Counting client-side would mean shipping every score to the
+ * browser and would disagree with the Flagged badge, which is also a server
+ * count. `count: "exact", head: true` returns the number in Content-Range
+ * without transferring a single row.
+ *
+ * ── Scoping is the security-critical part ────────────────────
+ *
+ * Company first, then the caller's job scope through the SAME resolver the
+ * applicants list uses — getJobScope / scopeJobIds. A hiring manager restricted
+ * to two jobs must not learn how many applicants sit on the other forty. An
+ * empty scope returns zero rather than falling through to an unfiltered count.
+ *
+ * ── Bounded ──────────────────────────────────────────────────
+ *
+ * Last 30 days, matching what the handoff specifies, so the number stays
+ * meaningful on a long-lived workspace and the query stays on the created_at
+ * index. Debouncing is the caller's job — this is one round trip per call.
+ *
+ * ── A job with no applicants yet ─────────────────────────────
+ *
+ * Returns `{ matched: 0, total: 0 }`. The count is over the WORKSPACE, not the
+ * job being edited, which is deliberate: a brand-new job has no applicants by
+ * definition, so scoping the estimate to it would always read "0 of 0" and
+ * teach the recruiter nothing about where their marks sit. Reading the
+ * workspace answers the question they are actually asking — "is this mark
+ * strict or loose for the kind of people we see?" The UI should say "in this
+ * workspace" rather than implying the number is about this job.
+ *
+ * A workspace with no applicants at all also returns zeroes, and the caller
+ * should render the neutral "no applicants yet to estimate against" state
+ * rather than a misleading "0 of 0 would be flagged".
+ */
+export async function estimateAutoshortlistReach(input: {
+  source: string;
+  cvThreshold: number | null;
+  interviewThreshold: number | null;
+}): Promise<{ matched: number; total: number }> {
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  const EMPTY = { matched: 0, total: 0 };
+  if (isEmptyScope(scope)) return EMPTY;
+
+  const source = (AUTOSHORTLIST_SOURCES as readonly string[]).includes(input.source)
+    ? input.source
+    : null;
+  if (!source) return EMPTY;
+
+  const service = createServiceClient();
+  const allowedJobIds = scopeJobIds(scope);
+  const since = new Date(Date.now() - ESTIMATE_WINDOW_MS).toISOString();
+
+  /*
+   * The denominator: applicants in scope, in the window. Counted separately
+   * from the numerator rather than derived, so "N of M" is two honest counts
+   * over the same predicate rather than one count and an assumption.
+   */
+  let totalQuery = service
+    .from("job_applications")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id_snapshot", ctx.companyId)
+    .gte("created_at", since);
+  if (allowedJobIds) totalQuery = totalQuery.in("job_id", allowedJobIds);
+
+  const { count: total } = await totalQuery;
+  if (!total) return EMPTY;
+
+  /*
+   * The numerator, one query per enabled source.
+   *
+   * `both` means EITHER mark flags, so the two sets can overlap and their
+   * counts cannot simply be added. The ids are fetched and unioned in a Set
+   * instead — bounded by ESTIMATE_ID_CAP so a huge workspace cannot pull an
+   * unbounded list into memory for a number that is explicitly an estimate.
+   */
+  const matched = new Set<string>();
+
+  if ((source === "cv" || source === "both") && typeof input.cvThreshold === "number") {
+    let q = service
+      .from("application_scores")
+      .select("application_id")
+      .eq("company_id", ctx.companyId)
+      .eq("status", "scored")
+      .gte("overall_score", input.cvThreshold)
+      .gte("created_at", since)
+      .limit(ESTIMATE_ID_CAP);
+    if (allowedJobIds) q = q.in("job_id", allowedJobIds);
+    const { data } = await q;
+    for (const r of (data ?? []) as { application_id: string | null }[]) {
+      if (r.application_id) matched.add(r.application_id);
+    }
+  }
+
+  if (
+    (source === "interview" || source === "both") &&
+    typeof input.interviewThreshold === "number"
+  ) {
+    /*
+     * Interview scores hang off the SESSION, which carries the application.
+     * Two hops rather than a join: PostgREST embeds need a declared FK and
+     * would silently drop rows whose session no longer exists.
+     */
+    let sessionQuery = service
+      .from("interview_session_scores")
+      .select("session_id")
+      .eq("company_id", ctx.companyId)
+      .eq("status", "scored")
+      .gte("overall_score", input.interviewThreshold)
+      .limit(ESTIMATE_ID_CAP);
+    const { data: scoreRows } = await sessionQuery;
+    const sessionIds = ((scoreRows ?? []) as { session_id: string | null }[])
+      .map((r) => r.session_id)
+      .filter((id): id is string => Boolean(id));
+
+    if (sessionIds.length > 0) {
+      // Chunked: the .in() list travels in the URL, which has a practical
+      // ceiling well below ESTIMATE_ID_CAP.
+      for (let i = 0; i < sessionIds.length; i += 200) {
+        let sq = service
+          .from("interview_sessions")
+          .select("application_id")
+          .eq("company_id", ctx.companyId)
+          .in("id", sessionIds.slice(i, i + 200));
+        if (allowedJobIds) sq = sq.in("job_id", allowedJobIds);
+        const { data } = await sq;
+        for (const r of (data ?? []) as { application_id: string | null }[]) {
+          if (r.application_id) matched.add(r.application_id);
+        }
+      }
+    }
+  }
+
+  return { matched: matched.size, total };
 }
 
 /** A job's interview questions, for the wizard's edit-mode prefill. */
