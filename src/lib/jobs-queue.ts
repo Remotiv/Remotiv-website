@@ -5,7 +5,10 @@ import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
-import { handleInterviewExpiry } from "@/lib/interviews/expiry";
+import {
+  handleInterviewExpiry,
+  handleInterviewExpirySweep,
+} from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
@@ -139,6 +142,15 @@ export const JOB_TYPES = {
   INTERVIEW_REMINDER: "interview_reminder",
   /** Step 6 — close out an interview whose window has passed. */
   INTERVIEW_EXPIRY: "interview_expiry",
+  /**
+   * Step 6 — the periodic safety net for the above.
+   *
+   * NOT YET IN background_jobs_type_check. Enqueuing one fails with a CHECK
+   * violation until the ALTER is applied; see the report. Listed here because
+   * this object is the authoritative mirror of the constraint and the two are
+   * kept in step by hand.
+   */
+  INTERVIEW_EXPIRY_SWEEP: "interview_expiry_sweep",
   /** Step 7 — interview transcription. */
   TRANSCRIBE: "transcribe",
   /** Step 8 — AI scorecard from the transcript. */
@@ -202,6 +214,7 @@ registerHandler(JOB_TYPES.SEND_MESSAGE, async (job) => {
 // expires_at, so neither needs a scheduler and neither scans the table.
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, handleInterviewReminder);
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, handleInterviewExpiry);
+registerHandler(JOB_TYPES.INTERVIEW_EXPIRY_SWEEP, handleInterviewExpirySweep);
 registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
 // Step 8 — interview scoring. The plumbing is real; the PROMPT is a marked
 // placeholder and scoring stays off until AI_INTERVIEW_SCORING_ENABLED is set,
@@ -276,27 +289,7 @@ const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
  * video stopped CVs expiring too, and one `last_error` would have to describe
  * all of them.
  */
-const RECURRING: readonly {
-  type: string;
-  intervalMs: number;
-  /**
-   * Payload for the enqueued job, AND the discriminator for both checks below.
-   *
-   * Only needed where a type is shared with non-recurring work. Absent means
-   * every job of that type is this recurring job.
-   */
-  payload?: Record<string, unknown>;
-  /**
-   * Distinguishes two entries that share a type, in the worker's response.
-   *
-   * MUST NOT look like a job type. This field is echoed in the worker's JSON
-   * (`purgesScheduled`), and a bare `interview_expiry_sweep` there was read as
-   * a queued job whose handler was missing — it is not a type, no code enqueues
-   * one, and background_jobs_type_check would reject it. The parenthesised form
-   * cannot be mistaken for a constraint value.
-   */
-  label?: string;
-}[] = [
+const RECURRING: readonly { type: string; intervalMs: number }[] = [
   { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
   { type: JOB_TYPES.CV_PURGE, intervalMs: PURGE_INTERVAL_MS },
   // Row retention for this table itself, paced identically and scheduled by
@@ -304,24 +297,17 @@ const RECURRING: readonly {
   // stopped.
   { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
   /*
-   * ── The interview-expiry safety net ──
+   * The interview-expiry safety net: every overdue session expires even if its
+   * per-session job was lost, dead-lettered or never enqueued.
    *
-   * Shares the `interview_expiry` TYPE with the per-session jobs, because
-   * background_jobs_type_check would reject a new value and this needs no
-   * migration. `payload` is what separates them, and it is not cosmetic:
-   *
-   * Per-session expiry jobs sit 'queued' for days by design. Without the
-   * payload filter on the live-check below, one of them would be found on every
-   * tick, the sweep would be judged already-scheduled, and it would NEVER be
-   * enqueued — a safety net that silently never runs, which is worse than not
-   * having built one.
+   * A type of its OWN, which is what lets this entry be a plain one-liner like
+   * the three above. The previous version shared `interview_expiry` and
+   * discriminated on a payload flag, which forced both checks below to carry a
+   * payload filter — because per-session expiry jobs sit 'queued' for days, and
+   * an unfiltered live-check would find one every tick and conclude the sweep
+   * was already scheduled. A distinct type removes that trap entirely.
    */
-  {
-    type: JOB_TYPES.INTERVIEW_EXPIRY,
-    intervalMs: PURGE_INTERVAL_MS,
-    payload: { sweep: true },
-    label: "interview_expiry (sweep)",
-  },
+  { type: JOB_TYPES.INTERVIEW_EXPIRY_SWEEP, intervalMs: PURGE_INTERVAL_MS },
 ];
 
 /**
@@ -349,29 +335,22 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
   const service = createServiceClient();
   const scheduled: string[] = [];
 
-  for (const { type, intervalMs, payload, label } of RECURRING) {
-    let liveQuery = service
+  for (const { type, intervalMs } of RECURRING) {
+    const { data: live } = await service
       .from("background_jobs")
       .select("id")
       .eq("type", type)
-      .in("status", ["queued", "running"]);
-    // Narrow to THIS recurring job where the type is shared — see the comment
-    // on the interview_expiry entry for what goes wrong without it.
-    if (payload) liveQuery = liveQuery.contains("payload", payload);
-
-    const { data: live } = await liveQuery.limit(1);
+      .in("status", ["queued", "running"])
+      .limit(1);
     if ((live ?? []).length > 0) continue;
 
     // created_at, not a completion timestamp: this paces how often a purge is
     // STARTED, which is the thing being rate-limited. A run that failed still
     // counts, because the next one is a day away and will redo its work anyway.
-    let lastQuery = service
+    const { data: last } = await service
       .from("background_jobs")
       .select("created_at")
-      .eq("type", type);
-    if (payload) lastQuery = lastQuery.contains("payload", payload);
-
-    const { data: last } = await lastQuery
+      .eq("type", type)
       .order("created_at", { ascending: false })
       .limit(1);
 
@@ -380,8 +359,8 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
       : 0;
     if (Date.now() - lastAt < intervalMs) continue;
 
-    const result = await enqueue({ type, companyId: null, payload });
-    if (result.ok) scheduled.push(label ?? type);
+    const result = await enqueue({ type, companyId: null });
+    if (result.ok) scheduled.push(type);
   }
 
   return scheduled;

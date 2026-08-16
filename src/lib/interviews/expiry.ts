@@ -124,6 +124,33 @@ export async function handleInterviewExpiry(job: {
   );
 }
 
+/**
+ * The `interview_expiry_sweep` handler — the periodic safety net, as its own
+ * job type.
+ *
+ * Wired exactly like interview_purge: a JOB_TYPES entry, a registerHandler
+ * call, a RECURRING entry, and the worker's existing call to
+ * ensureMaintenanceScheduled. Its own type rather than a payload flag on
+ * `interview_expiry`, so it is visible as itself in the queue, in the dead
+ * letter and in the admin queue panel — a sweep and a single-session expiry are
+ * different work and should not have to be told apart by reading a payload.
+ *
+ * ── REQUIRES A CONSTRAINT CHANGE BEFORE IT CAN RUN ───────────
+ *
+ * background_jobs_type_check does not list 'interview_expiry_sweep'. Until the
+ * ALTER in the report is applied, enqueue() returns a CHECK violation, the job
+ * row is never created, and this handler is never reached. The registration is
+ * correct and inert until then — see the report.
+ *
+ * Takes no payload. The work is defined entirely by the sessions table.
+ */
+export async function handleInterviewExpirySweep(job: {
+  id: string;
+  payload: Record<string, unknown>;
+}): Promise<void> {
+  await sweepOverdueSessions(createServiceClient(), job.id);
+}
+
 /** The per-session path: one known id, armed at send time. */
 async function expireOneSessionById(
   service: ReturnType<typeof createServiceClient>,
