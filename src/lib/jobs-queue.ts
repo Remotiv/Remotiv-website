@@ -2,6 +2,7 @@ import { randomUUID } from "node:crypto";
 import { handleCvPurge } from "@/lib/cv-purge";
 import { handleQueueSweep } from "@/lib/queue-sweep";
 import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
+import { handleCvRecompute } from "@/lib/ai/cv-recompute";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
@@ -151,6 +152,16 @@ export const JOB_TYPES = {
    * kept in step by hand.
    */
   INTERVIEW_EXPIRY_SWEEP: "interview_expiry_sweep",
+  /**
+   * Step 8 — recompute stored CV overalls after a job's weights change.
+   *
+   * The constant name and the string are deliberately the same word. An earlier
+   * pass called the constant CV_SCORE_REWEIGHT while the constraint said
+   * `cv_score_recompute`, and nothing catches that until the first enqueue
+   * fails a CHECK at runtime — TypeScript is perfectly happy with a constant
+   * whose value the database rejects.
+   */
+  CV_SCORE_RECOMPUTE: "cv_score_recompute",
   /** Step 7 — interview transcription. */
   TRANSCRIBE: "transcribe",
   /** Step 8 — AI scorecard from the transcript. */
@@ -215,6 +226,7 @@ registerHandler(JOB_TYPES.SEND_MESSAGE, async (job) => {
 registerHandler(JOB_TYPES.INTERVIEW_REMINDER, handleInterviewReminder);
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY, handleInterviewExpiry);
 registerHandler(JOB_TYPES.INTERVIEW_EXPIRY_SWEEP, handleInterviewExpirySweep);
+registerHandler(JOB_TYPES.CV_SCORE_RECOMPUTE, handleCvRecompute);
 registerHandler(JOB_TYPES.TRANSCRIBE, handleTranscribe);
 // Step 8 — interview scoring. The plumbing is real; the PROMPT is a marked
 // placeholder and scoring stays off until AI_INTERVIEW_SCORING_ENABLED is set,

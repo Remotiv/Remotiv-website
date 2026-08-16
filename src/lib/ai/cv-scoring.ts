@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { skipJob } from "@/lib/job-skip";
 import { recordUsage } from "@/lib/usage";
 import { notifyCompany } from "@/lib/notifications/company";
+import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 
 /**
  * AI CV scoring (Step 4).
@@ -218,8 +219,101 @@ export type ScoreInput = {
     experienceLevel: string | null;
     category: string | null;
     screeningQuestions: ScreeningQuestion[];
+    /**
+     * Per-dimension weights from the job, or all-null for equal weighting.
+     *
+     * Read AFTER the response and never sent to the model — see applyCvWeights.
+     * The prompt is byte-identical whether or not a job carries weights, which
+     * is exactly why PROMPT_VERSION does not move for this feature.
+     */
+    cvWeights?: CvWeights | null;
   };
 };
+
+/** The four weights as stored on `jobs`. Null means "not set". */
+export type CvWeights = {
+  cv_weight_requirements: number | null;
+  cv_weight_experience: number | null;
+  cv_weight_domain: number | null;
+  cv_weight_responsibilities: number | null;
+};
+
+/**
+ * Which stored weight column governs which dimension the model returns.
+ *
+ * The two vocabularies genuinely differ (cv_weight_experience ↔
+ * experience_depth). Pairing them in one place is what stops a weighting from
+ * matching nothing and silently degrading to "unweighted" — the failure mode
+ * that would look exactly like the feature working.
+ */
+const WEIGHT_BY_DIMENSION: Record<string, keyof CvWeights> = {
+  requirements_match: "cv_weight_requirements",
+  experience_depth: "cv_weight_experience",
+  domain_relevance: "cv_weight_domain",
+  responsibilities_fit: "cv_weight_responsibilities",
+};
+
+/**
+ * Replace the model's holistic overall with the company's weighted one.
+ *
+ * ── This OVERRIDES the model, and that is the point ──────────
+ *
+ * The prompt asks for `overall_score` as "your holistic judgement anchored to
+ * the bands — not a mechanical average of the dimensions". When a company has
+ * expressed a weighting, that judgement is the wrong answer to a question they
+ * have explicitly re-asked: they have said domain relevance decides this role,
+ * and a holistic number cannot honour that.
+ *
+ * The interview scorer already works exactly this way — its rollup is
+ * "weighted by each question's weight, so the company's own weighting decides
+ * it rather than the model's impression". This makes the CV side consistent
+ * with a decision the codebase already took rather than inventing a new one.
+ *
+ * ── Equal weighting means DO NOTHING ─────────────────────────
+ *
+ * All four null → the model's number is returned untouched. Not a flat mean:
+ * a flat mean is a different number from a holistic judgement, so computing one
+ * would silently re-score every existing job the next time it ran. "No weights"
+ * has to mean "no intervention" for the no-backfill promise to hold.
+ *
+ * A partially-filled set treats the unset dimensions as CV_WEIGHT_DEFAULT — a
+ * recruiter who raises one dimension means it relative to the others, not that
+ * the others stop counting.
+ */
+export function applyCvWeights(
+  modelOverall: number,
+  dimensions: { dimension: string; score: number }[],
+  weights: CvWeights | null | undefined,
+): number {
+  if (!weights) return modelOverall;
+
+  const values = Object.values(weights);
+  const anySet = values.some((v) => typeof v === "number" && v > 0);
+  if (!anySet) return modelOverall;
+
+  let weightedTotal = 0;
+  let weightSum = 0;
+  for (const d of dimensions) {
+    const column = WEIGHT_BY_DIMENSION[d.dimension];
+    if (!column) continue; // A dimension we do not weight leaves the mean alone.
+    const raw = weights[column];
+    const weight = typeof raw === "number" && raw > 0 ? raw : CV_WEIGHT_FALLBACK;
+    weightedTotal += d.score * weight;
+    weightSum += weight;
+  }
+
+  // No recognised dimension came back. Refusing to divide by zero here is not
+  // paranoia: it degrades to the model's own number rather than to 0, which a
+  // threshold would then read as a terrible candidate.
+  if (weightSum === 0) return modelOverall;
+
+  return clampScore(Math.round(weightedTotal / weightSum));
+}
+
+/** Weight assumed for a dimension the recruiter left unset. Mirrors
+ *  CV_WEIGHT_DEFAULT in job-types.ts, duplicated so this module stays free of
+ *  a UI import. */
+const CV_WEIGHT_FALLBACK = 3;
 
 // ── Screening score ──────────────────────────────────────────
 
@@ -851,7 +945,16 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
 
   return {
     verdict: parsed.verdict,
-    overall_score: parsed.overall_score,
+    /*
+     * The company's weighting wins where one exists; otherwise this is exactly
+     * `parsed.overall_score` as before. See applyCvWeights for why equal
+     * weighting is implemented as "leave it alone" rather than as a flat mean.
+     */
+    overall_score: applyCvWeights(
+      parsed.overall_score,
+      dimensionScores,
+      input.job.cvWeights,
+    ),
     dimension_scores: dimensionScores,
     evidence: verified,
     strengths,
@@ -906,6 +1009,16 @@ type JobRow = {
   criteria_version: number | null;
   /** Null only on a row written before the column existed — treated as ON. */
   ai_cv_scoring_enabled: boolean | null;
+  company_id: string | null;
+  /** Step 8. All null → equal weighting → the model's overall stands. */
+  cv_weight_requirements: number | null;
+  cv_weight_experience: number | null;
+  cv_weight_domain: number | null;
+  cv_weight_responsibilities: number | null;
+  /** Step 9. Null source → auto-shortlist is off for this job. */
+  autoshortlist_source: string | null;
+  autoshortlist_cv_threshold: number | null;
+  autoshortlist_interview_threshold: number | null;
 };
 
 /**
@@ -1032,7 +1145,7 @@ export async function handleAiCvScore(job: {
   const { data: jobData, error: jobErr } = await service
     .from("jobs")
     .select(
-      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version, ai_cv_scoring_enabled",
+      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version, ai_cv_scoring_enabled, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, company_id",
     )
     .eq("id", app.job_id)
     .maybeSingle();
@@ -1089,6 +1202,12 @@ export async function handleAiCvScore(job: {
         screeningQuestions: Array.isArray(jobRow.screening_questions)
           ? (jobRow.screening_questions as ScreeningQuestion[])
           : [],
+        cvWeights: {
+          cv_weight_requirements: jobRow.cv_weight_requirements,
+          cv_weight_experience: jobRow.cv_weight_experience,
+          cv_weight_domain: jobRow.cv_weight_domain,
+          cv_weight_responsibilities: jobRow.cv_weight_responsibilities,
+        },
       },
     });
   } catch (err) {
@@ -1138,6 +1257,24 @@ export async function handleAiCvScore(job: {
   });
 
   if (writeErr) throw new Error(`ai_cv_score: score write failed: ${writeErr}`);
+
+  /*
+   * Auto-shortlist, AFTER the score row is safely stored.
+   *
+   * Order matters: the flag is a pointer at a scorecard, so a flag that existed
+   * without one would send a recruiter to an empty drawer. maybeFlagForShortlist
+   * never throws — a failed flag must not discard a scorecard that is already
+   * written.
+   */
+  if (app.company_id_snapshot) {
+    await maybeFlagForShortlist({
+      applicationId: app.id,
+      companyId: app.company_id_snapshot,
+      job: jobRow,
+      source: "cv",
+      score: card.overall_score,
+    });
+  }
 
   /*
    * Tell the job's hiring team the card is ready, WITH the number — a bell

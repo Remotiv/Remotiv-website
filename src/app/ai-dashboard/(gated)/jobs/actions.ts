@@ -10,6 +10,7 @@ import {
 } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { notifyCompany } from "@/lib/notifications/company";
+import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -23,6 +24,10 @@ import {
 } from "@/lib/interviews/types";
 import {
   JOB_CATEGORIES,
+  AUTOSHORTLIST_SOURCES,
+  CV_WEIGHT_DIMENSIONS,
+  CV_WEIGHT_MAX,
+  CV_WEIGHT_MIN,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
   JOB_EXPERIENCE_LEVELS,
@@ -231,6 +236,27 @@ function interviewerName(value: string | undefined, enabled: boolean): string | 
  * Deliberately EXCLUDED — the scorer never reads them, so they cannot make a
  * scorecard stale: location, work_type, contract_type, positions, salary_*,
  * show_salary, status, and the five interview/scoring option columns.
+ *
+ * ── The four cv_weight_* columns are ALSO excluded, deliberately ──
+ *
+ * They ARE read by the scorer, so this is the one exception to the rule above
+ * and it needs justifying. criteria_version marks a scorecard stale because the
+ * MODEL WAS ASKED A DIFFERENT QUESTION — new requirements, a new seniority, new
+ * screening questions — so its judgement no longer applies and only a re-run
+ * can fix it. Re-weighting asks the model nothing new. The dimension scores,
+ * the evidence, the quotes and the reasoning are all still exactly right; only
+ * the arithmetic that combines them into one number has changed.
+ *
+ * Marking every score stale would therefore invite a full re-score — real money
+ * and real latency — to recompute something derivable from data already stored.
+ * Worse, it would read as "your scorecards are wrong" when they are not.
+ *
+ * The honest consequence, and it is a real one: after a weight change, stored
+ * overalls were computed under the OLD weighting until each application is
+ * re-scored. If that divergence starts to matter, the fix is to recompute the
+ * overall from the stored dimension_scores — no model call needed — not to
+ * bump criteria_version. See applyCvWeights, which is already a pure function
+ * over (overall, dimensions, weights) precisely so it can be reused that way.
  */
 const SCORING_RELEVANT_COLUMNS = [
   "title",
@@ -341,8 +367,105 @@ function buildPatch(input: CompanyJobInput):
       async_interview_enabled: asyncOn,
       async_interview_name: interviewerName(input.async_interview_name, asyncOn),
       send_rejection_email: input.send_rejection_email === true,
+      ...cvWeightPatch(input),
+      ...autoshortlistPatch(input),
     },
   };
+}
+
+/**
+ * The four CV weights, clamped, with null preserved as null.
+ *
+ * `null` is a VALUE here, not an absence: it means equal weighting, which the
+ * scorer implements as "leave the model's overall alone". Coercing it to a
+ * number would silently switch weighting on for every job that never asked for
+ * it, so anything that is not a finite number in range lands as null.
+ */
+function cvWeightPatch(input: CompanyJobInput): Record<string, number | null> {
+  const patch: Record<string, number | null> = {};
+  for (const { key } of CV_WEIGHT_DIMENSIONS) {
+    patch[key] = clampWeight(input[key]);
+  }
+  return patch;
+}
+
+function clampWeight(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded < CV_WEIGHT_MIN || rounded > CV_WEIGHT_MAX) return null;
+  return rounded;
+}
+
+/**
+ * Auto-shortlist source and thresholds.
+ *
+ * Switching the feature OFF nulls both thresholds rather than leaving them
+ * behind. A stored threshold with no source is invisible in the UI and would
+ * reappear the moment someone switched the feature back on months later,
+ * flagging candidates against a number nobody remembers choosing.
+ *
+ * A source that is on but whose threshold is out of range lands as null, and
+ * the scorer treats a missing threshold as "do not flag" — never as a default.
+ * The safe direction for an unreadable bar is to flag nobody.
+ */
+function autoshortlistPatch(
+  input: CompanyJobInput,
+): Record<string, string | number | null> {
+  const source = (AUTOSHORTLIST_SOURCES as readonly string[]).includes(
+    input.autoshortlist_source ?? "",
+  )
+    ? (input.autoshortlist_source as string)
+    : null;
+
+  if (!source) {
+    return {
+      autoshortlist_source: null,
+      autoshortlist_cv_threshold: null,
+      autoshortlist_interview_threshold: null,
+    };
+  }
+
+  return {
+    autoshortlist_source: source,
+    // Written only for the sources that can actually use them, so the stored
+    // row cannot imply a bar that is never consulted.
+    autoshortlist_cv_threshold:
+      source === "cv" || source === "both"
+        ? clampThreshold(input.autoshortlist_cv_threshold)
+        : null,
+    autoshortlist_interview_threshold:
+      source === "interview" || source === "both"
+        ? clampThreshold(input.autoshortlist_interview_threshold)
+        : null,
+  };
+}
+
+/**
+ * Did the CV weighting actually move?
+ *
+ * Compared against the STORED row, not the form's initial state, for the same
+ * reason scoringInputsChanged is: opening the wizard and saving without
+ * touching anything must not queue a recompute over every scorecard, and a
+ * colleague's concurrent edit must not be missed.
+ *
+ * `?? null` on both sides so undefined-vs-null cannot read as a change — the
+ * patch always carries all four keys, but a row written before the columns
+ * existed does not.
+ */
+function cvWeightsChanged(
+  before: Record<string, unknown>,
+  after: Record<string, unknown>,
+): boolean {
+  return CV_WEIGHT_DIMENSIONS.some(
+    ({ key }) => (before[key] ?? null) !== (after[key] ?? null),
+  );
+}
+
+function clampThreshold(value: unknown): number | null {
+  if (typeof value !== "number" || !Number.isFinite(value)) return null;
+  const rounded = Math.round(value);
+  if (rounded < 0 || rounded > 100) return null;
+  return rounded;
 }
 
 /**
@@ -643,7 +766,10 @@ async function assertOwned(
   const { data } = await supabase
     .from("jobs")
     .select(
-      `id, company_id, criteria_version, ${SCORING_RELEVANT_COLUMNS.join(", ")}`,
+      // The weight columns ride along so updateCompanyJob can tell whether the
+      // weighting actually moved. They are NOT in SCORING_RELEVANT_COLUMNS on
+      // purpose — they trigger a recompute, never a staleness bump.
+      `id, company_id, criteria_version, ${SCORING_RELEVANT_COLUMNS.join(", ")}, ${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}`,
     )
     .eq("id", jobId)
     .maybeSingle();
@@ -706,6 +832,32 @@ export async function updateCompanyJob(
     .eq("company_id", ctx.companyId);
 
   if (error) return { success: false, error: error.message };
+
+  /*
+   * ── Weights moved: recompute, don't re-score ──
+   *
+   * Enqueued only when a weight actually CHANGED, compared against what was
+   * stored rather than against the form's initial state — a no-op save must not
+   * queue a sweep over every scorecard the job has.
+   *
+   * Non-fatal: the job HAS been saved, and a failed enqueue must not report the
+   * save as failed. The stored overalls stay on the previous weighting until a
+   * recompute runs, which is stale arithmetic rather than a wrong scorecard.
+   */
+  if (cvWeightsChanged(owned.current, patch)) {
+    try {
+      const queued = await enqueue({
+        type: JOB_TYPES.CV_SCORE_RECOMPUTE,
+        payload: { jobId },
+        companyId: ctx.companyId,
+      });
+      if (!queued.ok) {
+        console.error("[jobs] reweight enqueue failed (non-fatal):", queued.error);
+      }
+    } catch (err) {
+      console.error("[jobs] reweight enqueue threw (non-fatal):", err);
+    }
+  }
 
   const questionWarning = await syncInterviewQuestions(
     supabase,

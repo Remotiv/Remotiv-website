@@ -169,6 +169,34 @@ export type CompanyJobInput = {
   send_rejection_email: boolean;
 
   /**
+   * Per-dimension CV weighting — wizard step 8.
+   *
+   * NULL MEANS EQUAL WEIGHTING, which is defined as *today's behaviour*: the
+   * model's own holistic overall_score is kept untouched. That is deliberately
+   * NOT the same as "compute a flat mean of the four dimensions" — the prompt
+   * tells the model its overall is a holistic judgement anchored to bands and
+   * explicitly not an average, so a flat mean would come out different and every
+   * existing job's next score would shift. Equal weighting therefore means
+   * "don't intervene", which is what makes a backfill unnecessary.
+   *
+   * A weight is only applied when at least one of the four is set.
+   */
+  cv_weight_requirements: number | null;
+  cv_weight_experience: number | null;
+  cv_weight_domain: number | null;
+  cv_weight_responsibilities: number | null;
+
+  /**
+   * Auto-shortlist — wizard step 9.
+   *
+   * `null` source means the feature is off for this job, which is the default
+   * and what every existing job has.
+   */
+  autoshortlist_source: AutoshortlistSource | null;
+  autoshortlist_cv_threshold: number | null;
+  autoshortlist_interview_threshold: number | null;
+
+  /**
    * Interview questions for the video round.
    *
    * NOT a jobs column — these live in their own `interview_questions` table,
@@ -207,5 +235,93 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   // Off by default. An automated rejection carrying a company's name is
   // switched on deliberately, never inherited by accident.
   send_rejection_email: false,
+  // Null across the board: equal weighting, i.e. the model's overall stands.
+  cv_weight_requirements: null,
+  cv_weight_experience: null,
+  cv_weight_domain: null,
+  cv_weight_responsibilities: null,
+  // Off. Auto-shortlist flags candidates for a human to look at, and that is
+  // switched on deliberately rather than inherited.
+  autoshortlist_source: null,
+  autoshortlist_cv_threshold: null,
+  autoshortlist_interview_threshold: null,
   interview_questions: [],
+};
+
+/**
+ * Which score can flag a candidate for shortlisting.
+ *
+ * `both` means EITHER clearing its own threshold flags — not both together. A
+ * strong CV should surface before an interview exists, and requiring both would
+ * make the CV threshold unreachable for every candidate who has not recorded
+ * one yet.
+ */
+export const AUTOSHORTLIST_SOURCES = ["cv", "interview", "both"] as const;
+export type AutoshortlistSource = (typeof AUTOSHORTLIST_SOURCES)[number];
+
+export const AUTOSHORTLIST_SOURCE_LABELS: Record<AutoshortlistSource, string> = {
+  cv: "CV score only",
+  interview: "Interview score only",
+  both: "Either score",
+};
+
+/** Sensible starting point when a recruiter switches auto-shortlist on. */
+export const AUTOSHORTLIST_DEFAULT_THRESHOLD = 80;
+
+/**
+ * The four CV dimensions a company can weight, and the label each one carries
+ * in the wizard.
+ *
+ * `key` is the `jobs` column; `dimension` is the name the scorer uses in
+ * dimension_scores. The two differ (cv_weight_experience ↔ experience_depth)
+ * and pairing them here is what stops the weighting from silently matching
+ * nothing — see applyCvWeights, which looks dimensions up through this table.
+ */
+export const CV_WEIGHT_DIMENSIONS = [
+  {
+    key: "cv_weight_requirements",
+    dimension: "requirements_match",
+    label: "Requirements match",
+    hint: "Against the job's stated requirements.",
+  },
+  {
+    key: "cv_weight_experience",
+    dimension: "experience_depth",
+    label: "Experience depth",
+    hint: "Seniority and depth against the level sought.",
+  },
+  {
+    key: "cv_weight_domain",
+    dimension: "domain_relevance",
+    label: "Domain relevance",
+    hint: "Same industry or technical area as this role.",
+  },
+  {
+    key: "cv_weight_responsibilities",
+    dimension: "responsibilities_fit",
+    label: "Responsibilities fit",
+    hint: "Have they demonstrably done these things?",
+  },
+] as const;
+
+export type CvWeightKey = (typeof CV_WEIGHT_DIMENSIONS)[number]["key"];
+
+/**
+ * Weight range offered in the wizard.
+ *
+ * 1–5 rather than a percentage: percentages have to sum to 100, so every edit
+ * forces the recruiter to rebalance the other three, and a UI that silently
+ * rebalances them is worse. Relative weights normalise themselves — see
+ * applyCvWeights, which divides by the total.
+ */
+export const CV_WEIGHT_MIN = 1;
+export const CV_WEIGHT_MAX = 5;
+export const CV_WEIGHT_DEFAULT = 3;
+
+export const CV_WEIGHT_LABELS: Record<number, string> = {
+  1: "Minor",
+  2: "Light",
+  3: "Normal",
+  4: "High",
+  5: "Critical",
 };

@@ -10,6 +10,7 @@ import {
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
 import { notifyCompany } from "@/lib/notifications/company";
+import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { enqueue } from "@/lib/jobs-queue";
 import {
@@ -714,6 +715,64 @@ export async function clearScoreAdjustment(
     .eq("company_id", ctx.companyId);
 
   if (error) return { success: false, error: error.message };
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Dismiss an auto-shortlist flag: mark it seen, not permanently silenced.
+ *
+ * ── What this does and does not decide ───────────────────────
+ *
+ * It clears the flag and records WHAT was turned down — the source and score
+ * parsed out of the stored reason — so a later flag can tell whether it is
+ * telling the recruiter something new. A dismissed CV flag never suppresses a
+ * subsequent interview flag, and the same source re-surfaces only on a
+ * materially higher score. The policy lives in lib/interviews/shortlist.ts;
+ * this action is the guarded entry point to it.
+ *
+ * It does NOT touch pipeline_stage, the score, or anything the candidate sees.
+ * Dismissing is "I have looked at this", not a hiring decision.
+ *
+ * ── Scoping ──────────────────────────────────────────────────
+ *
+ * Same gate as every other applicant mutation: a company role, then the
+ * application re-fetched server-side and checked against the caller's company
+ * AND the hiring team for its job. The id from the client proves nothing.
+ * hiring_manager is included because dismissing a suggestion is exactly the
+ * kind of triage that role exists to do.
+ */
+export async function dismissShortlistFlagAction(
+  applicationId: string,
+): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole(
+    "owner",
+    "admin",
+    "recruiter",
+    "hiring_manager",
+  );
+
+  const service = createServiceClient();
+
+  const { data } = await service
+    .from("job_applications")
+    .select("id, job_id")
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId)
+    .maybeSingle();
+
+  const target = data as { id: string; job_id: string | null } | null;
+  // Missing and not-yours are deliberately the same message.
+  if (!target || !(await canAccessJob(ctx, target.job_id ?? ""))) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+
+  const outcome = await dismissShortlistFlag({
+    applicationId,
+    companyId: ctx.companyId,
+  });
+  if (!outcome.ok) return { success: false, error: outcome.error };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };

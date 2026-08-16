@@ -3,6 +3,7 @@ import { getAnthropic } from "@/lib/anthropic";
 import { createServiceClient } from "@/lib/supabase/server";
 import { skipJob } from "@/lib/job-skip";
 import { recordUsage } from "@/lib/usage";
+import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import {
   type Confidence,
   type EvidenceItem,
@@ -967,10 +968,77 @@ export async function handleAiScorecard(job: {
     throw new Error(`ai_scorecard: rollup write failed: ${rollupErr}`);
   }
 
+  /*
+   * Auto-shortlist, AFTER the rollup is stored, for the same reason as the CV
+   * path: the flag points at a scorecard, so the scorecard has to exist first.
+   *
+   * `overall` here is ALREADY the weighted rollup — per-answer scores weighted
+   * by each question's weight — so the threshold is compared against the number
+   * the recruiter sees, not against the model's raw impression.
+   */
+  await flagFromInterviewScore(service, session, overall);
+
   // Metering. Never throws — see src/lib/usage.ts.
   await recordUsage({
     companyId: session.company_id,
     type: "interview_scored",
     refId: session.id,
   });
+}
+
+/**
+ * Resolve the session's application and job, then offer the score for flagging.
+ *
+ * A session carries a job_id but not the auto-shortlist settings, and it points
+ * at an application only indirectly, so both are read here rather than widened
+ * into the scoring query — this runs once per completed interview, and keeping
+ * it out of the hot path means the scorer's own SELECT stays about scoring.
+ *
+ * Never throws. The rollup is already stored by the time this runs.
+ */
+async function flagFromInterviewScore(
+  service: ReturnType<typeof createServiceClient>,
+  session: { id: string; company_id: string; job_id: string | null },
+  overall: number,
+): Promise<void> {
+  try {
+    if (!session.job_id) return;
+
+    const [{ data: jobData }, { data: sessionRow }] = await Promise.all([
+      service
+        .from("jobs")
+        .select(
+          "autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold",
+        )
+        .eq("id", session.job_id)
+        .eq("company_id", session.company_id)
+        .maybeSingle(),
+      service
+        .from("interview_sessions")
+        .select("application_id")
+        .eq("id", session.id)
+        .eq("company_id", session.company_id)
+        .maybeSingle(),
+    ]);
+
+    const job = jobData as {
+      autoshortlist_source: string | null;
+      autoshortlist_cv_threshold: number | null;
+      autoshortlist_interview_threshold: number | null;
+    } | null;
+    const applicationId = (sessionRow as { application_id: string | null } | null)
+      ?.application_id;
+
+    if (!job || !applicationId) return;
+
+    await maybeFlagForShortlist({
+      applicationId,
+      companyId: session.company_id,
+      job,
+      source: "interview",
+      score: overall,
+    });
+  } catch (err) {
+    console.error("[ai_scorecard] shortlist flag failed (non-fatal):", err);
+  }
 }

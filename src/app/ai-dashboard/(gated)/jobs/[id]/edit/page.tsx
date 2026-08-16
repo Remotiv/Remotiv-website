@@ -6,6 +6,7 @@ import { canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import { fetchInterviewQuestions } from "../../actions";
 import {
+  type AutoshortlistSource,
   EMPTY_JOB_INPUT,
   type CompanyJobInput,
   type JobStatus,
@@ -41,6 +42,15 @@ type JobRow = {
   async_interview_enabled: boolean | null;
   async_interview_name: string | null;
   send_rejection_email: boolean | null;
+  /** Step 8. Null is meaningful — equal weighting, not a missing value. */
+  cv_weight_requirements: number | null;
+  cv_weight_experience: number | null;
+  cv_weight_domain: number | null;
+  cv_weight_responsibilities: number | null;
+  /** Step 9. Null source means auto-shortlist is off for this job. */
+  autoshortlist_source: AutoshortlistSource | null;
+  autoshortlist_cv_threshold: number | null;
+  autoshortlist_interview_threshold: number | null;
 };
 
 export default async function EditJobPage({
@@ -61,7 +71,7 @@ export default async function EditJobPage({
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold",
     )
     .eq("id", id)
     .maybeSingle();
@@ -148,6 +158,18 @@ export default async function EditJobPage({
       job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
     send_rejection_email: job.send_rejection_email ?? false,
+    /*
+     * Nullable by design, so `??` would be WRONG here — null is a meaningful
+     * value (equal weighting / feature off), not a missing one to be defaulted.
+     * These pass through exactly as stored.
+     */
+    cv_weight_requirements: job.cv_weight_requirements,
+    cv_weight_experience: job.cv_weight_experience,
+    cv_weight_domain: job.cv_weight_domain,
+    cv_weight_responsibilities: job.cv_weight_responsibilities,
+    autoshortlist_source: job.autoshortlist_source,
+    autoshortlist_cv_threshold: job.autoshortlist_cv_threshold,
+    autoshortlist_interview_threshold: job.autoshortlist_interview_threshold,
     interview_questions: interviewQuestions,
   };
 
