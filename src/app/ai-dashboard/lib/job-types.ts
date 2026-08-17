@@ -1,5 +1,5 @@
-import type { ScreeningQuestion } from "@/lib/jobs";
 import type { InterviewQuestionInput } from "@/lib/interviews/types";
+import type { ScreeningQuestion } from "@/lib/jobs";
 
 /**
  * Company-facing job types.
@@ -197,6 +197,35 @@ export type CompanyJobInput = {
   autoshortlist_interview_threshold: number | null;
 
   /**
+   * Named must-haves the scorer reports on explicitly — wizard step 7.
+   *
+   * A LIST, deliberately, and never a free-text box. Nine prompt versions went
+   * into removing hard rules, auto-rejection and keyword gates from the scorer;
+   * a textarea handed to the prompt lets a company reinstate all three in one
+   * sentence ("reject anyone under five years"). Named items give them the
+   * control they actually want — "say whether this person has done X" — without
+   * a channel for rewriting the rubric.
+   *
+   * Empty is valid and is the default: a job with no must-haves scores exactly
+   * as it did before this existed.
+   */
+  scoring_must_haves: string[];
+
+  /**
+   * Behavioural traits checked against the interview TRANSCRIPT — step 7.
+   *
+   * A separate list from scoring_must_haves on purpose, and the two never fall
+   * back to one another. "Comfortable picking up the phone without being told"
+   * is a real thing an employer wants, and no CV on earth states it — checked
+   * against a CV it returns not-found for every candidate, which is noise on
+   * every scorecard and makes the feature look broken. Checked against what
+   * someone actually said in an interview, it is answerable.
+   *
+   * Meaningful only when the job has interview questions. Empty is the default.
+   */
+  interview_criteria: string[];
+
+  /**
    * Interview questions for the video round.
    *
    * NOT a jobs column — these live in their own `interview_questions` table,
@@ -245,8 +274,164 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   autoshortlist_source: null,
   autoshortlist_cv_threshold: null,
   autoshortlist_interview_threshold: null,
+  scoring_must_haves: [],
+  interview_criteria: [],
   interview_questions: [],
 };
+
+/**
+ * How many must-haves a job may carry.
+ *
+ * THREE. Not five: a cap of five invites listing everything that came to mind,
+ * and everything being essential is indistinguishable from nothing being. Three
+ * forces the choice the step exists to ask for.
+ *
+ * It is also a prompt-safety measure — a long list is how a set of named
+ * requirements drifts back into free-form guidance, which is the thing this
+ * whole design avoids.
+ *
+ * Read by BOTH the wizard's cap and the server-side clamp in jobs/actions.ts,
+ * so the two cannot disagree about the limit.
+ */
+export const MUST_HAVE_MAX = 3;
+
+/** Longest single must-have. Past this it stops being a named thing. */
+export const MUST_HAVE_MAX_LENGTH = 90;
+
+/**
+ * Behavioural criteria per job. Three, for the same reason must-haves are three.
+ */
+export const INTERVIEW_CRITERIA_MAX = 3;
+
+/**
+ * Markers that a line describes a PERSON rather than a record.
+ *
+ * ── Why this list and not a classifier ───────────────────────
+ *
+ * The distinction that matters is narrow and lexical: job descriptions signal
+ * "attitude" with a small, stable vocabulary — second person, comfort verbs,
+ * working-style adverbs, communication nouns. Nothing here needs to understand
+ * the sentence, only to notice that it is describing how somebody IS rather
+ * than what they have done.
+ *
+ * Worked example, the one that shipped and produced not-found on every
+ * candidate: "you're comfortable picking up the phone and following up without
+ * being told to". Three independent hits — `you're`, `comfortable`, and
+ * `without being told` — so it lands in the interview list and never reaches
+ * the CV miner. That is the behaviour to preserve if this list is ever edited.
+ */
+const TRAIT_MARKERS: readonly RegExp[] = [
+  // Second person — a job description addressing the candidate is describing
+  // them, not listing a record: "you're comfortable…", "you thrive…".
+  /\byou(?:'|\u2019)?(?:re|ll|ve|d)?\b/i,
+  /\byour\b/i,
+  // Comfort, appetite and disposition.
+  /\b(?:comfortable|confident|willing|eager|keen|happy to|enjoy|enjoys|thrive|thrives|passionate|motivated|self[- ]?starter|self[- ]?motivated|proactive|driven|hungry|curious|resilient|adaptable|flexible|positive|friendly|personable|approachable|patient|empathetic|humble)\b/i,
+  // Working style, and the phrase that gave this its name.
+  /\b(?:without being told|under pressure|independently|autonomously|on your own|take initiative|takes initiative|ownership mindset|work ethic|attitude|mindset|team player|can[- ]do)\b/i,
+  // Communication and interpersonal work — real, and a transcript evidences it.
+  /\b(?:communicat\w*|collaborat\w*|interpersonal|rapport|articulate|listens?|listening|storytell\w*|stakeholder management)\b/i,
+];
+
+/**
+ * Signals that a line names something a CV can actually carry.
+ *
+ * Used for ORDERING, never for filtering — a genuine requirement written
+ * plainly ("Manage the regional sales pipeline") has none of these and must
+ * still be offered. It only decides what gets pre-filled first, which matters
+ * because the top three are seeded automatically.
+ */
+const CHECKABLE_SIGNALS: readonly RegExp[] = [
+  /\d/, // "5+ years", "team of 8"
+  /\b[A-Z][A-Za-z]*(?:\.[a-z]+|\+\+|#)\b/, // Node.js, C++, C#
+  /\b[A-Z]{2,}\b/, // SQL, AWS, CRM, B2B
+  /\b(?:years?|degree|bsc|msc|mba|certified|certification|licen[cs]ed)\b/i,
+  /\b(?:built|build|shipped|ship|led|lead|managed|manage|delivered|deliver|designed|design|implemented|implement|migrated|launched|scaled|owned)\b/i,
+];
+
+function checkabilityScore(line: string): number {
+  return CHECKABLE_SIGNALS.reduce((n, re) => n + (re.test(line) ? 1 : 0), 0);
+}
+
+/** Which list a candidate line belongs in. Never both. */
+export function classifyCriterion(line: string): "cv" | "interview" {
+  return TRAIT_MARKERS.some((re) => re.test(line)) ? "interview" : "cv";
+}
+
+/**
+ * Candidate must-haves mined from what the company already wrote.
+ *
+ * ── How the text is split ────────────────────────────────────
+ *
+ * Requirements first, then responsibilities — requirements are what a scorer
+ * judges against, so they make the better suggestions and should appear first.
+ * Both are split on NEWLINES and on common bullet markers, never on sentence
+ * punctuation: "5+ years in Node.js, React, and Postgres" is one requirement,
+ * and splitting on commas would produce three meaningless fragments.
+ *
+ * Then each line is stripped of its bullet or numbering, trimmed, and filtered:
+ *   · shorter than 12 chars — "Nice to have", a heading, a stray word
+ *   · longer than MUST_HAVE_MAX_LENGTH — a paragraph, not a named thing
+ *   · duplicates, compared case-insensitively
+ *   · anything already added
+ *
+ * ── A description with nothing to offer ──────────────────────
+ *
+ * Returns an empty array, and the UI says so rather than rendering an empty
+ * row: suggestions are a convenience, and a job written as one prose paragraph
+ * is entitled to have none. Typing a must-have by hand is always available and
+ * is the primary path — these chips only save keystrokes.
+ */
+export function suggestCriteria(input: {
+  requirements: string;
+  responsibilities: string;
+  /** Already on either list — neither is offered twice, nor offered across. */
+  existing: string[];
+}): { cv: string[]; interview: string[] } {
+  const taken = new Set(input.existing.map((v) => v.trim().toLowerCase()).filter(Boolean));
+  const cv: { line: string; score: number }[] = [];
+  const interview: string[] = [];
+
+  for (const source of [input.requirements, input.responsibilities]) {
+    for (const rawLine of (source ?? "").split(/\r?\n|[•·▪]|(?:^|\s)[-*]\s/)) {
+      const line = rawLine
+        // Leading numbering ("1.", "2)") and stray bullet glyphs.
+        .replace(/^\s*(?:\d+[.)]|[-*•·▪])\s*/, "")
+        .replace(/\s+/g, " ")
+        .trim()
+        // A trailing full stop reads wrong on a chip.
+        .replace(/[.;,]$/, "");
+
+      if (line.length < 12 || line.length > MUST_HAVE_MAX_LENGTH) continue;
+      const key = line.toLowerCase();
+      if (taken.has(key)) continue;
+      taken.add(key);
+
+      if (classifyCriterion(line) === "interview") {
+        if (interview.length < 6) interview.push(line);
+      } else {
+        cv.push({ line, score: checkabilityScore(line) });
+      }
+    }
+  }
+
+  /*
+   * Most-checkable first, stably.
+   *
+   * The top three are PRE-FILLED, so ordering is not cosmetic — it decides what
+   * a recruiter is handed without asking. A line carrying a number, a named
+   * tool or a concrete verb is the one most likely to produce a real quote from
+   * a CV, so it goes first. Ties keep source order, which puts requirements
+   * ahead of responsibilities.
+   */
+  const ordered = cv
+    .map((entry, i) => ({ ...entry, i }))
+    .sort((a, b) => b.score - a.score || a.i - b.i)
+    .map((entry) => entry.line)
+    .slice(0, 6);
+
+  return { cv: ordered, interview };
+}
 
 /**
  * Which score can flag a candidate for shortlisting.

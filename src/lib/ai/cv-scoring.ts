@@ -1,11 +1,11 @@
 import { SCORING_OFF_REASON } from "@/app/ai-dashboard/lib/applicant-types";
 import { getAnthropic } from "@/lib/anthropic";
-import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
-import { createServiceClient } from "@/lib/supabase/server";
-import { skipJob } from "@/lib/job-skip";
-import { recordUsage } from "@/lib/usage";
-import { notifyCompany } from "@/lib/notifications/company";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
+import { skipJob } from "@/lib/job-skip";
+import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
+import { notifyCompany } from "@/lib/notifications/company";
+import { createServiceClient } from "@/lib/supabase/server";
+import { recordUsage } from "@/lib/usage";
 
 /**
  * AI CV scoring (Step 4).
@@ -40,7 +40,7 @@ import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
  * buckets costs sample size and is recoverable in analysis; pooling two
  * sampling regimes is not recoverable at all.
  */
-export const PROMPT_VERSION = "cv-scoring-v9";
+export const PROMPT_VERSION = "cv-scoring-v10";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -107,12 +107,14 @@ const CACHE_TTL = "5m" as const;
  * is not comparable to the pre-cache figure on its own — the three numbers have
  * to be read together.
  */
-function logCacheUsage(usage: {
-  input_tokens?: number | null;
-  output_tokens?: number | null;
-  cache_creation_input_tokens?: number | null;
-  cache_read_input_tokens?: number | null;
-} | null): void {
+function logCacheUsage(
+  usage: {
+    input_tokens?: number | null;
+    output_tokens?: number | null;
+    cache_creation_input_tokens?: number | null;
+    cache_read_input_tokens?: number | null;
+  } | null,
+): void {
   if (!usage) return;
   const written = usage.cache_creation_input_tokens ?? 0;
   const read = usage.cache_read_input_tokens ?? 0;
@@ -194,6 +196,8 @@ export type Scorecard = {
   concerns: string[];
   confidence: Confidence;
   summary: string;
+  /** One entry per employer must-have, in the order named. [] when none. */
+  must_haves: MustHaveResult[];
   screening_score: number | null;
   ai_model: string;
   prompt_version: string;
@@ -227,6 +231,8 @@ export type ScoreInput = {
      * is exactly why PROMPT_VERSION does not move for this feature.
      */
     cvWeights?: CvWeights | null;
+    /** Step 7. Empty or absent means the prompt carries no must-have block. */
+    mustHaves?: string[] | null;
   };
 };
 
@@ -336,9 +342,7 @@ const CV_WEIGHT_FALLBACK = 3;
  * NOT a rubric change. This is deterministic arithmetic over a frozen snapshot;
  * it touches no prompt text, so PROMPT_VERSION does not move.
  */
-export function computeScreeningScore(
-  answers: ScreeningAnswerSnapshot[],
-): number | null {
+export function computeScreeningScore(answers: ScreeningAnswerSnapshot[]): number | null {
   if (answers.length === 0) return null;
 
   let earned = 0;
@@ -440,6 +444,19 @@ Job descriptions mix the things the role actually exists to do with administrati
 This is not permission to be generous. Missing evidence for a core requirement is still missing, and still scores low. You are being told which absences matter, not told to overlook absences.
 If the job description is thin, vague, or mostly generic boilerplate, say so in the reasoning — "the description lists few concrete requirements, so this is judged on domain fit alone" — rather than scoring the candidate down for failing to evidence trivia the employer happened to write. A weak job description is the employer's gap, not the candidate's.
 
+MUST-HAVES — present only when the employer named some, under "Must-haves" in the job block. These are the specific things this employer cares most about for this role.
+
+Report on EVERY one, in the order given, in the "must_haves" array. For each, exactly one of:
+  · "evidenced" — the CV shows it. Give the verbatim contiguous span that shows it, under the same quoting rules as everything else: from the CV TEXT only, never from the job description, and never stitched together from separate places.
+  · "not_found" — the CV does not show it. Quote must be an empty string.
+
+THESE ARE NOT PASS/FAIL GATES, AND THEY DO NOT OVERRIDE THE BANDS.
+A must-have that is not found is one missing piece of evidence among everything else you have read. It does NOT cap the score, it does NOT set a floor or a ceiling, it does NOT make the candidate unqualified, and it is NEVER grounds for recommending rejection. Score the CV exactly as you would have without this list — the bands above are still the only thing that decides the number. What the list changes is what you REPORT, not what you conclude: the employer wants to know, item by item, what the CV does and does not evidence, and to make the decision themselves.
+
+Do not treat the list as exhaustive either. A candidate can be strong on things the employer did not think to name, and that strength counts normally.
+
+A must-have you marked "not_found" SHOULD also appear in missing_requirements if it is one of the three most decision-changing gaps — but say it once, in the words the employer used, not twice in two phrasings.
+
 MISSING REQUIREMENTS — the most useful thing you produce. MAXIMUM 3. List the job's stated requirements for which the CV shows no supporting evidence. Be specific and concrete: "No Kubernetes or container orchestration experience mentioned" — never "lacks some technical skills". Return only gaps that would change a hiring decision; if every stated requirement has evidence, return an empty array.
 
 CONCERNS — MAXIMUM 3. These are shown to the recruiter under the heading "Risks / points to verify": they are things to CHECK in an interview, not reasons to reject. Neutral factual observations only — an unexplained multi-year gap, a run of very short tenures, a career change mid-CV. NEVER recommend rejecting, advancing, or interviewing anyone. You do not make hiring decisions; you surface what the CV does and does not show. If there is nothing genuinely worth verifying, return an empty array.
@@ -511,6 +528,9 @@ OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no cod
   "strengths": [
     {"point": "<specific strength>", "quote": "<exact CV span that directly proves THIS strength>"}
   ],
+  "must_haves": [
+    {"item": "<the employer's must-have, verbatim>", "status": "evidenced" | "not_found", "quote": "<exact CV span, or empty string when not_found>"}
+  ],
   "missing_requirements": ["<specific stated requirement with no CV evidence>"],
   "concerns": ["<neutral observation to verify>"],
   "confidence": "high" | "medium" | "low",
@@ -521,11 +541,29 @@ CAPS — these are MAXIMUMS, not targets. Fewer is better every time. Return onl
   strengths            max 4
   missing_requirements max 3
   concerns             max 3
+  must_haves           one entry per must-have the employer named, no more, no
+                       fewer. Omit the key entirely when they named none.
 Four weak strengths are worse than two strong ones. An empty array is a valid, useful answer.
 
 Each quote belongs to the object it sits in. Before you emit each one, re-read it and ask: does this span, on its own, show that this specific claim is true? If not, find the right span or drop the claim.
 
 overall_score is your holistic judgement anchored to the bands — not a mechanical average of the dimensions — but it must be defensible given them. For any dimension you score above 40, the quote must be a real span; if you cannot find one, score it lower and say why in the reasoning.`;
+
+/**
+ * The employer's named must-haves, or nothing at all.
+ *
+ * Absent — not "Must-haves: (not specified)" — when the list is empty. A job
+ * with no must-haves must produce a prompt byte-identical to the pre-v10 one
+ * apart from the rubric, so the model is never invited to invent a list or to
+ * read an empty section as a signal.
+ */
+function mustHaveSection(items: string[] | null | undefined): string {
+  const list = (items ?? []).map((s) => s.trim()).filter(Boolean);
+  if (list.length === 0) return "";
+  return `Must-haves (report on each by name; see the MUST-HAVES rules):\n${list
+    .map((item, i) => `${i + 1}. ${item}`)
+    .join("\n")}`;
+}
 
 function section(label: string, value: string | null | undefined): string {
   const v = (value ?? "").trim();
@@ -583,6 +621,8 @@ ${section("Description", job.description)}
 ${section("Responsibilities", job.responsibilities)}
 
 ${section("Requirements", job.requirements)}
+
+${mustHaveSection(job.mustHaves)}
 
 === SCREENING ANSWERS (already scored — do not re-judge these. Context for your judgement only: NOT a source of strengths, because there is no CV span to quote for them) ===
 ${screening}
@@ -670,10 +710,7 @@ export type VerificationOutcome = {
  * Salvaging the segment rather than the join is what keeps this from being a
  * loosening: nothing is stored now that could not have been stored before.
  */
-export function verifyEvidence(
-  evidence: EvidenceItem[],
-  cvText: string,
-): VerificationOutcome {
+export function verifyEvidence(evidence: EvidenceItem[], cvText: string): VerificationOutcome {
   const haystack = normalise(cvText);
   const verified: EvidenceItem[] = [];
   const dropped: EvidenceItem[] = [];
@@ -684,8 +721,7 @@ export function verifyEvidence(
 
     // Fabrication test: EVERY segment must appear in the CV.
     const allFound =
-      segments.length > 0 &&
-      segments.every((segment) => haystack.includes(normalise(segment)));
+      segments.length > 0 && segments.every((segment) => haystack.includes(normalise(segment)));
     if (!allFound) {
       dropped.push(item);
       continue;
@@ -753,7 +789,89 @@ type RawResponse = {
   concerns: string[];
   confidence: Confidence;
   summary: string;
+  /**
+   * Carried RAW and resolved later, in scoreCv.
+   *
+   * Deciding a must-have's fate needs two things parseScoreJson does not have:
+   * the CV text to verify a quote against, and the list the employer actually
+   * named to reconcile against. Shaping it here would mean either a second,
+   * weaker verification or throwing away the item before it can be judged —
+   * the same reasoning that keeps parsing out of the strengths decision.
+   */
+  must_haves: unknown;
 };
+
+/** One employer must-have, as stored on application_scores.must_haves. */
+export type MustHaveResult = {
+  /** The employer's wording, echoed so the row reads on its own. */
+  item: string;
+  status: "evidenced" | "not_found";
+  /** Verified contiguous CV span. Empty for not_found. */
+  quote: string;
+};
+
+/**
+ * Resolve the model's must_haves against what was asked and what the CV says.
+ *
+ * Deliberately identical in shape to parseCriteria in interview-scoring.ts —
+ * the two answer the same question about different sources, and the failure
+ * modes are the same three:
+ *
+ *   · An UNVERIFIABLE quote demotes the item to not_found with an empty quote,
+ *     rather than dropping it. The employer named this item and is owed an
+ *     answer for it; "we could not evidence this" is that answer, and a silent
+ *     omission reads as a bug.
+ *   · An OMITTED item is appended as not_found. The stored list must have one
+ *     entry per must-have or a reader cannot tell "the CV did not show it" from
+ *     "the model forgot".
+ *   · An INVENTED item is discarded. Echoing back something nobody asked for is
+ *     the one case where saying nothing is right.
+ *
+ * Returns [] when the employer named none, which is the column default.
+ */
+export function parseMustHaves(raw: unknown, asked: string[], cvText: string): MustHaveResult[] {
+  if (asked.length === 0) return [];
+
+  const byKey = new Map(asked.map((a) => [a.trim().toLowerCase(), a]));
+  const seen = new Set<string>();
+  const out: MustHaveResult[] = [];
+
+  if (Array.isArray(raw)) {
+    for (const entry of raw) {
+      const e = entry as { item?: unknown; status?: unknown; quote?: unknown };
+      if (typeof e?.item !== "string") continue;
+      const key = e.item.trim().toLowerCase();
+      const original = byKey.get(key);
+      if (!original || seen.has(key)) continue;
+      seen.add(key);
+
+      const quote = typeof e.quote === "string" ? e.quote : "";
+      const claimed = e.status === "evidenced" && quote.trim().length > 0;
+      const verified =
+        claimed && verifyEvidence([{ claim: original, quote }], cvText).verified.length > 0;
+
+      out.push(
+        verified
+          ? { item: original, status: "evidenced", quote }
+          : { item: original, status: "not_found", quote: "" },
+      );
+    }
+  }
+
+  for (const item of asked) {
+    if (!seen.has(item.trim().toLowerCase())) {
+      out.push({ item, status: "not_found", quote: "" });
+    }
+  }
+
+  // Restore the employer's order — reconciliation appends, so a model that
+  // answered out of order or skipped one would otherwise reshuffle the list.
+  const order = new Map(asked.map((a, i) => [a.trim().toLowerCase(), i]));
+  return out.sort(
+    (a, b) =>
+      (order.get(a.item.trim().toLowerCase()) ?? 0) - (order.get(b.item.trim().toLowerCase()) ?? 0),
+  );
+}
 
 /** Defensive parse — the model is instructed to return bare JSON, but a
  *  malformed reply must fail cleanly rather than store garbage. */
@@ -773,8 +891,7 @@ export function parseScoreJson(raw: string): RawResponse | null {
           .map((d) => ({
             dimension: d.dimension as ScoreDimension,
             score: clampScore(d.score),
-            reasoning:
-              typeof d.reasoning === "string" ? d.reasoning.slice(0, 400) : "",
+            reasoning: typeof d.reasoning === "string" ? d.reasoning.slice(0, 400) : "",
             quote: typeof d.quote === "string" ? d.quote.slice(0, 1000) : "",
           }))
       : [];
@@ -801,17 +918,15 @@ export function parseScoreJson(raw: string): RawResponse | null {
 
     return {
       verdict:
-        typeof parsed.verdict === "string"
-          ? parsed.verdict.trim().slice(0, MAX_VERDICT_CHARS)
-          : "",
+        typeof parsed.verdict === "string" ? parsed.verdict.trim().slice(0, MAX_VERDICT_CHARS) : "",
       overall_score: clampScore(parsed.overall_score),
       dimension_scores: dims,
       strengths,
       missing_requirements: stringList(parsed.missing_requirements, MAX_MISSING),
       concerns: stringList(parsed.concerns, MAX_CONCERNS),
       confidence,
-      summary:
-        typeof parsed.summary === "string" ? parsed.summary.slice(0, 1500) : "",
+      summary: typeof parsed.summary === "string" ? parsed.summary.slice(0, 1500) : "",
+      must_haves: parsed.must_haves,
     };
   } catch {
     return null;
@@ -871,9 +986,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   const text = block && block.type === "text" ? block.text : "";
   const parsed = parseScoreJson(text);
   if (!parsed) {
-    throw new Error(
-      `Model returned unparseable JSON (${text.length} chars, model ${model}).`,
-    );
+    throw new Error(`Model returned unparseable JSON (${text.length} chars, model ${model}).`);
   }
 
   // ── Evidence gate ──
@@ -884,8 +997,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   // told to maintain, which is how a real quote ended up attached to the wrong
   // strength. There is no longer any pairing step to get wrong.
   const dimensionScores: DimensionScore[] = parsed.dimension_scores.map((d) => {
-    const [ok] = verifyEvidence([{ claim: d.dimension, quote: d.quote }], cvText)
-      .verified;
+    const [ok] = verifyEvidence([{ claim: d.dimension, quote: d.quote }], cvText).verified;
     return ok
       ? { ...d, quote: ok.quote }
       : {
@@ -898,8 +1010,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   // A strength IS a claim about the CV, so an unverifiable one is dropped
   // outright rather than shown without its proof.
   const strengths: Strength[] = parsed.strengths.flatMap((st) => {
-    const [ok] = verifyEvidence([{ claim: "strength", quote: st.quote }], cvText)
-      .verified;
+    const [ok] = verifyEvidence([{ claim: "strength", quote: st.quote }], cvText).verified;
     return ok ? [{ point: st.point, quote: ok.quote }] : [];
   });
 
@@ -918,9 +1029,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   ];
 
   const failRate =
-    allQuotes.length === 0
-      ? 0
-      : (allQuotes.length - verified.length) / allQuotes.length;
+    allQuotes.length === 0 ? 0 : (allQuotes.length - verified.length) / allQuotes.length;
 
   if (failRate > MAX_FAIL_RATE) {
     throw new Error(
@@ -930,8 +1039,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     );
   }
 
-  const confidence =
-    failRate > 0 ? lowerConfidence(parsed.confidence) : parsed.confidence;
+  const confidence = failRate > 0 ? lowerConfidence(parsed.confidence) : parsed.confidence;
 
   const screeningScore = computeScreeningScore(input.screeningAnswers);
 
@@ -950,11 +1058,7 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
      * `parsed.overall_score` as before. See applyCvWeights for why equal
      * weighting is implemented as "leave it alone" rather than as a flat mean.
      */
-    overall_score: applyCvWeights(
-      parsed.overall_score,
-      dimensionScores,
-      input.job.cvWeights,
-    ),
+    overall_score: applyCvWeights(parsed.overall_score, dimensionScores, input.job.cvWeights),
     dimension_scores: dimensionScores,
     evidence: verified,
     strengths,
@@ -962,6 +1066,9 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     concerns: parsed.concerns,
     confidence,
     summary: parsed.summary,
+    // Verified against the SAME cvText the rest of the card was checked
+    // against, and reconciled against what the employer actually named.
+    must_haves: parseMustHaves(parsed.must_haves, input.job.mustHaves ?? [], cvText),
     screening_score: screeningScore,
     ai_model: model,
     prompt_version: PROMPT_VERSION,
@@ -1019,6 +1126,8 @@ type JobRow = {
   autoshortlist_source: string | null;
   autoshortlist_cv_threshold: number | null;
   autoshortlist_interview_threshold: number | null;
+  /** Step 7. jsonb array; [] when the employer named none. */
+  scoring_must_haves: unknown;
 };
 
 /**
@@ -1056,9 +1165,7 @@ const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
  * The strip is defensive, not decorative: it means a future caller that adds
  * one of these keys to its payload gets a loud log instead of quiet data loss.
  */
-async function writeScoreRow(
-  row: Record<string, unknown>,
-): Promise<{ error: string | null }> {
+async function writeScoreRow(row: Record<string, unknown>): Promise<{ error: string | null }> {
   const service = createServiceClient();
 
   const payload: Record<string, unknown> = {};
@@ -1145,7 +1252,7 @@ export async function handleAiCvScore(job: {
   const { data: jobData, error: jobErr } = await service
     .from("jobs")
     .select(
-      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version, ai_cv_scoring_enabled, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, company_id",
+      "id, title, description, responsibilities, requirements, experience_level, category, screening_questions, criteria_version, ai_cv_scoring_enabled, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, company_id, scoring_must_haves",
     )
     .eq("id", app.job_id)
     .maybeSingle();
@@ -1202,6 +1309,11 @@ export async function handleAiCvScore(job: {
         screeningQuestions: Array.isArray(jobRow.screening_questions)
           ? (jobRow.screening_questions as ScreeningQuestion[])
           : [],
+        // Shape-checked rather than null-checked: the column is NOT NULL with a
+        // '[]' default, but a row written before it existed still reads null.
+        mustHaves: Array.isArray(jobRow.scoring_must_haves)
+          ? (jobRow.scoring_must_haves as string[])
+          : [],
         cvWeights: {
           cv_weight_requirements: jobRow.cv_weight_requirements,
           cv_weight_experience: jobRow.cv_weight_experience,
@@ -1245,6 +1357,9 @@ export async function handleAiCvScore(job: {
     strengths: card.strengths,
     confidence: card.confidence,
     summary: card.summary,
+    // Stored even when empty: [] is the column default and is exactly what
+    // "the employer named no must-haves" means.
+    must_haves: card.must_haves,
     screening_score: card.screening_score,
     ai_model: card.ai_model,
     prompt_version: card.prompt_version,
@@ -1286,9 +1401,7 @@ export async function handleAiCvScore(job: {
    * call to fix a missing notification.
    */
   if (app.company_id_snapshot) {
-    const who =
-      [app.first_name, app.last_name].filter(Boolean).join(" ").trim() ||
-      "An applicant";
+    const who = [app.first_name, app.last_name].filter(Boolean).join(" ").trim() || "An applicant";
     await notifyCompany({
       companyId: app.company_id_snapshot,
       type: "score_ready",

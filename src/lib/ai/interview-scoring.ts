@@ -1,9 +1,9 @@
 import "server-only";
 import { getAnthropic } from "@/lib/anthropic";
-import { createServiceClient } from "@/lib/supabase/server";
-import { skipJob } from "@/lib/job-skip";
-import { recordUsage } from "@/lib/usage";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
+import { skipJob } from "@/lib/job-skip";
+import { createServiceClient } from "@/lib/supabase/server";
+import { recordUsage } from "@/lib/usage";
 import {
   type Confidence,
   type EvidenceItem,
@@ -49,7 +49,7 @@ import {
  * way and being able to say which version scored a given candidate is what
  * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v2";
+export const PROMPT_VERSION = "interview-scoring-v3";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -225,9 +225,24 @@ Three to five sentences. What the answers showed across the whole interview, whe
 - Never recommend a decision. Describe what the evidence supports and what remains unverified.
 - If most answers were skipped or scored poorly for lack of substance, say that plainly rather than writing around it.
 
+## Interview criteria — ONLY when the employer named some
+
+They appear under "Interview criteria" below, with the full transcript of each answer. These are behavioural and communication traits the employer cares about — the things a CV cannot show and a conversation can.
+
+Report on EVERY one, in the order given, in the "criteria" array. For each, exactly one of:
+  · "evidenced" — the transcript shows it. Give ONE CONTIGUOUS SPAN copied verbatim from the transcript. Never join two passages, never use an ellipsis, never quote the QUESTION or the job description back — the question is what was asked, not what the candidate showed. A stitched or misattributed quote is treated as fabricated and the item is discarded.
+  · "not_found" — the transcript does not show it. Quote must be an empty string.
+
+THESE ARE NOT PASS/FAIL GATES.
+A criterion that is not found is one missing piece of evidence. It does NOT cap the score, it does NOT set a floor or a ceiling, it does NOT make the candidate unsuitable, and it is NEVER grounds for recommending rejection. The overall score is already computed and you are not re-scoring anything — this changes what you REPORT, never what you conclude.
+
+The speech rules above apply here unchanged. Filler, hesitation, self-correction and non-native grammar are NOT evidence against a trait — judge what was communicated, not how fluently. An unintelligible or inaudible passage is MISSING EVIDENCE, not a failed criterion: if you cannot make out what was said, the item is "not_found", never "evidenced" against a guess.
+
 Return ONLY this JSON object, no prose, no code fence:
 
-{ "verdict": "at most twelve words", "summary": "three to five sentences", "confidence": "high" | "medium" | "low" }`;
+{ "verdict": "at most twelve words", "summary": "three to five sentences", "confidence": "high" | "medium" | "low", "criteria": [{ "item": "the employer's criterion, verbatim", "status": "evidenced" | "not_found", "quote": "one contiguous verbatim transcript span, or empty string" }] }
+
+Omit "criteria" entirely when the employer named none.`;
 
 // ══ END RUBRIC ════════════════════════════════════════════════
 
@@ -392,9 +407,7 @@ export function parseAnswerJson(raw: string): RawAnswerResponse | null {
  * Throws ScoringSkipped when there is nothing worth scoring — the handler
  * turns that into a `skipped` row with the reason, never a retry.
  */
-export async function scoreAnswer(
-  input: AnswerScoreInput,
-): Promise<AnswerScore> {
+export async function scoreAnswer(input: AnswerScoreInput): Promise<AnswerScore> {
   const transcript = input.transcript.trim();
   if (transcript.length < MIN_TRANSCRIPT_CHARS) {
     throw new ScoringSkipped(
@@ -415,9 +428,7 @@ export async function scoreAnswer(
   const text = block && block.type === "text" ? block.text : "";
   const parsed = parseAnswerJson(text);
   if (!parsed) {
-    throw new Error(
-      `Model returned unparseable JSON (${text.length} chars, model ${model}).`,
-    );
+    throw new Error(`Model returned unparseable JSON (${text.length} chars, model ${model}).`);
   }
 
   /*
@@ -468,10 +479,7 @@ export async function scoreAnswer(
 
   return {
     score: parsed.score,
-    confidence:
-      droppedClaims > 0
-        ? lowerConfidence(parsed.confidence)
-        : parsed.confidence,
+    confidence: droppedClaims > 0 ? lowerConfidence(parsed.confidence) : parsed.confidence,
     reasoning: parsed.reasoning,
     evidence: [...strengths, ...concerns],
     strengths,
@@ -486,7 +494,78 @@ export type SessionRollup = {
   verdict: string | null;
   summary: string | null;
   confidence: Confidence;
+  /**
+   * One entry per criterion the employer named, in the order they named them.
+   * Empty when the job named none — which is also what a job that predates the
+   * feature stores, so the column and "no criteria" are the same value.
+   */
+  criteria: CriterionResult[];
 };
+
+export type CriterionResult = {
+  /** The employer's wording, echoed back so the row is readable alone. */
+  item: string;
+  status: "evidenced" | "not_found";
+  /** Verified contiguous transcript span. Empty for not_found. */
+  quote: string;
+};
+
+/**
+ * Parse and VERIFY the criteria block.
+ *
+ * ── An unverifiable quote demotes the item, never invents one ──
+ *
+ * Every quote is checked against the transcripts with the same verifyEvidence
+ * the per-answer scorer uses, so a fabricated or stitched span cannot reach the
+ * column. A quote that fails becomes `not_found` with an empty quote rather
+ * than being dropped: the employer asked about this criterion by name and is
+ * owed an answer for it, and "we could not evidence this" is the honest one.
+ * Silently omitting the item would leave a gap the reader would read as a bug.
+ *
+ * An item whose `item` text does not match one the employer actually named is
+ * DISCARDED — the model echoing back something invented is the one case where
+ * saying nothing is right.
+ */
+function parseCriteria(raw: unknown, asked: string[], transcripts: string): CriterionResult[] {
+  if (!Array.isArray(raw) || asked.length === 0) return [];
+
+  const byKey = new Map(asked.map((a) => [a.trim().toLowerCase(), a]));
+  const seen = new Set<string>();
+  const out: CriterionResult[] = [];
+
+  for (const entry of raw) {
+    const e = entry as { item?: unknown; status?: unknown; quote?: unknown };
+    if (typeof e?.item !== "string") continue;
+    const key = e.item.trim().toLowerCase();
+    const original = byKey.get(key);
+    if (!original || seen.has(key)) continue;
+    seen.add(key);
+
+    const quote = typeof e.quote === "string" ? e.quote : "";
+    const claimed = e.status === "evidenced" && quote.trim().length > 0;
+    const verified =
+      claimed && verifyEvidence([{ claim: original, quote }], transcripts).verified.length > 0;
+
+    out.push(
+      verified
+        ? { item: original, status: "evidenced", quote }
+        : { item: original, status: "not_found", quote: "" },
+    );
+  }
+
+  /*
+   * Anything the model failed to mention is reported as not_found rather than
+   * omitted. The list length must equal what was asked, or the reader cannot
+   * tell "the CV did not show it" from "the model forgot".
+   */
+  for (const item of asked) {
+    if (!seen.has(item.trim().toLowerCase())) {
+      out.push({ item, status: "not_found", quote: "" });
+    }
+  }
+
+  return out;
+}
 
 /**
  * Ask the model for a verdict and summary across the whole interview.
@@ -510,11 +589,25 @@ export async function summariseSession(input: {
     score: number;
     strengths: string[];
     concerns: string[];
+    /**
+     * Sent ONLY when the job named interview criteria.
+     *
+     * The rollup has always worked from per-answer summaries and told the model
+     * plainly that it is not looking at transcripts. A criterion has to be
+     * quoted verbatim from what the candidate SAID, so a job with criteria has
+     * to send the real text — and a job without stays byte-identical to before,
+     * same payload and same cost.
+     */
+    transcript?: string;
   }[];
+  criteria?: string[];
 }): Promise<SessionRollup> {
   if (input.answers.length === 0) {
-    return { verdict: null, summary: null, confidence: "low" };
+    return { verdict: null, summary: null, confidence: "low", criteria: [] };
   }
+
+  const criteria = (input.criteria ?? []).map((c) => c.trim()).filter(Boolean);
+  const wantsTranscripts = criteria.length > 0;
 
   const body = input.answers
     .map((a, i) =>
@@ -524,11 +617,26 @@ export async function summariseSession(input: {
         `Score: ${a.score}`,
         a.strengths.length ? `Strengths: ${a.strengths.join("; ")}` : "",
         a.concerns.length ? `Concerns: ${a.concerns.join("; ")}` : "",
+        // Only when there is something to quote it for. The prompt tells the
+        // model it is not looking at transcripts otherwise, and sending them
+        // anyway would contradict its own instructions.
+        wantsTranscripts && a.transcript?.trim() ? `Transcript:\n${a.transcript.trim()}` : "",
       ]
         .filter(Boolean)
         .join("\n"),
     )
     .join("\n\n");
+
+  /*
+   * No criteria ⇒ no block at all, not an empty heading. A job that named none
+   * must produce the payload it produced before this existed, so the model is
+   * never invited to invent criteria or read an empty section as a signal.
+   */
+  const criteriaBlock = wantsTranscripts
+    ? `\n\nInterview criteria (report on each by name; see the rules):\n${criteria
+        .map((c, i) => `${i + 1}. ${c}`)
+        .join("\n")}`
+    : "";
 
   try {
     const response = await getAnthropic().messages.create({
@@ -539,7 +647,7 @@ export async function summariseSession(input: {
       messages: [
         {
           role: "user",
-          content: `Overall score (already computed, weighted): ${input.overall}\n\n${body}`,
+          content: `Overall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
         },
       ],
     });
@@ -552,13 +660,18 @@ export async function summariseSession(input: {
       verdict: clampVerdict(parsed.verdict),
       summary: clampSummary(parsed.summary),
       confidence:
-        parsed.confidence === "high" || parsed.confidence === "low"
-          ? parsed.confidence
-          : "medium",
+        parsed.confidence === "high" || parsed.confidence === "low" ? parsed.confidence : "medium",
+      // Verified against the SAME transcripts that were sent, joined — a span
+      // may legitimately come from any answer, so the haystack is all of them.
+      criteria: parseCriteria(
+        parsed.criteria,
+        criteria,
+        input.answers.map((a) => a.transcript ?? "").join("\n\n"),
+      ),
     };
   } catch (err) {
     console.error("[interview-scoring] session rollup failed:", err);
-    return { verdict: null, summary: null, confidence: "low" };
+    return { verdict: null, summary: null, confidence: "low", criteria: [] };
   }
 }
 
@@ -580,9 +693,7 @@ export function buildUserMessage(input: AnswerScoreInput): string {
 
 // ── Persistence ──────────────────────────────────────────────
 
-async function writeAnswerScore(
-  row: Record<string, unknown>,
-): Promise<{ error: string | null }> {
+async function writeAnswerScore(row: Record<string, unknown>): Promise<{ error: string | null }> {
   const service = createServiceClient();
 
   const payload: Record<string, unknown> = {};
@@ -607,9 +718,7 @@ async function writeAnswerScore(
   return { error: error?.message ?? null };
 }
 
-async function writeSessionScore(
-  row: Record<string, unknown>,
-): Promise<{ error: string | null }> {
+async function writeSessionScore(row: Record<string, unknown>): Promise<{ error: string | null }> {
   const service = createServiceClient();
 
   const payload: Record<string, unknown> = {};
@@ -759,9 +868,7 @@ export async function handleAiScorecard(job: {
   };
 
   if (session.status !== "submitted") {
-    await skipSession(
-      "The interview hasn't been submitted, so the answers may still change.",
-    );
+    await skipSession("The interview hasn't been submitted, so the answers may still change.");
     return;
   }
   if (!scoringEnabled()) {
@@ -773,9 +880,7 @@ export async function handleAiScorecard(job: {
 
   const { data: answerData } = await service
     .from("interview_answers")
-    .select(
-      "id, position, question_text, transcript, transcript_status, video_path, recorded_at",
-    )
+    .select("id, position, question_text, transcript, transcript_status, video_path, recorded_at")
     .eq("session_id", session.id)
     .order("position", { ascending: true })
     .limit(50);
@@ -785,6 +890,30 @@ export async function handleAiScorecard(job: {
     await skipSession("This interview has no recorded answers.");
     return;
   }
+
+  /*
+   * The job's behavioural criteria, read once per session.
+   *
+   * Company-scoped like every other job read here. A missing job, a missing
+   * column or a non-array value all degrade to [] — which is the "no criteria"
+   * path, so a scorecard is never blocked by this lookup and the prompt simply
+   * carries no criteria block.
+   */
+  const { data: criteriaRow } = session.job_id
+    ? await service
+        .from("jobs")
+        .select("interview_criteria")
+        .eq("id", session.job_id)
+        .eq("company_id", session.company_id)
+        .maybeSingle()
+    : { data: null };
+
+  const rawCriteria = (criteriaRow as { interview_criteria?: unknown } | null)?.interview_criteria;
+  const jobCriteria = Array.isArray(rawCriteria)
+    ? (rawCriteria as unknown[]).filter(
+        (c): c is string => typeof c === "string" && c.trim().length > 0,
+      )
+    : [];
 
   const snapshot = Array.isArray(session.questions_snapshot)
     ? (session.questions_snapshot as {
@@ -820,6 +949,8 @@ export async function handleAiScorecard(job: {
     competency: string | null;
     strengths: string[];
     concerns: string[];
+    /** Carried for the criteria pass only — see summariseSession. */
+    transcript: string;
   }[] = [];
   let anyFailed = false;
 
@@ -889,6 +1020,10 @@ export async function handleAiScorecard(job: {
         // spans would invite it to reuse words it cannot verify.
         strengths: result.strengths.map((s) => s.claim),
         concerns: result.concerns.map((c) => c.claim),
+        // The exception, and only when the job named criteria: those must be
+        // quoted verbatim from what was said. summariseSession decides whether
+        // it actually travels — a job with no criteria sends nothing extra.
+        transcript,
       });
     } catch (err) {
       if (err instanceof ScoringSkipped) {
@@ -924,9 +1059,7 @@ export async function handleAiScorecard(job: {
    * interview_questions row (see resolveQuestionMeta) and defaults to 1.
    */
   const totalWeight = scored.reduce((sum, s) => sum + s.weight, 0);
-  const overall = Math.round(
-    scored.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight,
-  );
+  const overall = Math.round(scored.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
 
   const rollup = await summariseSession({
     overall,
@@ -936,7 +1069,9 @@ export async function handleAiScorecard(job: {
       score: s.score,
       strengths: s.strengths,
       concerns: s.concerns,
+      transcript: s.transcript,
     })),
+    criteria: jobCriteria,
   });
 
   /*
@@ -955,6 +1090,9 @@ export async function handleAiScorecard(job: {
     status: "scored",
     error: null,
     overall_score: overall,
+    // Stored even when empty: [] is the column default and means "the employer
+    // named none", which is exactly what an empty rollup result means too.
+    criteria: rollup.criteria,
     verdict: rollup.verdict,
     summary: rollup.summary ? `${rollup.summary}${coverage}` : coverage.trim() || null,
     // The rollup's own confidence, lowered when any answer failed outright —
@@ -1026,8 +1164,7 @@ async function flagFromInterviewScore(
       autoshortlist_cv_threshold: number | null;
       autoshortlist_interview_threshold: number | null;
     } | null;
-    const applicationId = (sessionRow as { application_id: string | null } | null)
-      ?.application_id;
+    const applicationId = (sessionRow as { application_id: string | null } | null)?.application_id;
 
     if (!job || !applicationId) return;
 

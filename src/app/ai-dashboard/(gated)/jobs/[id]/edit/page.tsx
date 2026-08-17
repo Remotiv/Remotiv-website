@@ -1,16 +1,16 @@
 import { redirect } from "next/navigation";
-import { createServiceClient } from "@/lib/supabase/server";
-import type { ScreeningQuestion } from "@/lib/jobs";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
-import { fetchInterviewQuestions } from "../../actions";
 import {
   type AutoshortlistSource,
-  EMPTY_JOB_INPUT,
   type CompanyJobInput,
+  EMPTY_JOB_INPUT,
   type JobStatus,
 } from "@/app/ai-dashboard/lib/job-types";
+import type { ScreeningQuestion } from "@/lib/jobs";
+import { createServiceClient } from "@/lib/supabase/server";
+import { fetchInterviewQuestions } from "../../actions";
 import { WizardClient } from "../../new/_wizard-client";
 
 export const dynamic = "force-dynamic";
@@ -51,13 +51,13 @@ type JobRow = {
   autoshortlist_source: AutoshortlistSource | null;
   autoshortlist_cv_threshold: number | null;
   autoshortlist_interview_threshold: number | null;
+  /** Step 7. jsonb array of named must-haves; [] when none. */
+  scoring_must_haves: unknown;
+  /** Step 7. jsonb array of behavioural traits; [] when none. */
+  interview_criteria: unknown;
 };
 
-export default async function EditJobPage({
-  params,
-}: {
-  params: Promise<{ id: string }>;
-}) {
+export default async function EditJobPage({ params }: { params: Promise<{ id: string }> }) {
   const { id } = await params;
   const ctx = await getCompanyContext();
 
@@ -71,7 +71,7 @@ export default async function EditJobPage({
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria",
     )
     .eq("id", id)
     .maybeSingle();
@@ -148,14 +148,12 @@ export default async function EditJobPage({
     // defaults, so null only appears on a row written before they existed —
     // and that row behaved as the default, so the form must open on it.
     allow_rerecord: job.allow_rerecord ?? EMPTY_JOB_INPUT.allow_rerecord,
-    ai_cv_scoring_enabled:
-      job.ai_cv_scoring_enabled ?? EMPTY_JOB_INPUT.ai_cv_scoring_enabled,
+    ai_cv_scoring_enabled: job.ai_cv_scoring_enabled ?? EMPTY_JOB_INPUT.ai_cv_scoring_enabled,
     measure_relevancy: job.measure_relevancy ?? EMPTY_JOB_INPUT.measure_relevancy,
     avatar_interview_enabled:
       job.avatar_interview_enabled ?? EMPTY_JOB_INPUT.avatar_interview_enabled,
     avatar_interviewer_name: job.avatar_interviewer_name ?? "",
-    async_interview_enabled:
-      job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
+    async_interview_enabled: job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
     send_rejection_email: job.send_rejection_email ?? false,
     /*
@@ -170,6 +168,14 @@ export default async function EditJobPage({
     autoshortlist_source: job.autoshortlist_source,
     autoshortlist_cv_threshold: job.autoshortlist_cv_threshold,
     autoshortlist_interview_threshold: job.autoshortlist_interview_threshold,
+    // jsonb column, NOT NULL default '[]' — but a row written before the column
+    // existed still reads null, so the guard is a shape check, not a null check.
+    scoring_must_haves: Array.isArray(job.scoring_must_haves)
+      ? (job.scoring_must_haves as string[])
+      : [],
+    interview_criteria: Array.isArray(job.interview_criteria)
+      ? (job.interview_criteria as string[])
+      : [],
     interview_questions: interviewQuestions,
   };
 

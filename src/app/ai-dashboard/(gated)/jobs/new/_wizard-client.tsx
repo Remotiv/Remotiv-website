@@ -1,10 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
-  TriangleAlert,
   ArrowDown,
   ArrowRight,
   ArrowUp,
@@ -12,35 +8,29 @@ import {
   ChevronDown,
   ChevronLeft,
   Lightbulb,
-  Lock,
   MapPin,
   Plus,
   Settings2,
   ShieldCheck,
   Trash,
+  TriangleAlert,
+  X,
   Zap,
 } from "lucide-react";
-import type { ScreeningQuestion } from "@/lib/jobs";
-// Value import MUST come from lib/screening, not lib/jobs: this is a client
-// component and lib/jobs pulls in next/headers via getInitialJobs.
-import { resolveNumericMode, type NumericMode } from "@/lib/screening";
-import {
-  ANSWER_SECONDS_MAX,
-  ANSWER_SECONDS_MIN,
-  EMPTY_QUESTION_INPUT,
-  MAX_QUESTIONS,
-  MIN_QUESTIONS,
-  PREP_SECONDS_MAX,
-  PREP_SECONDS_MIN,
-  QUESTION_TEXT_MAX,
-  type InterviewQuestionInput,
-} from "@/lib/interviews/types";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   AUTOSHORTLIST_DEFAULT_THRESHOLD,
   AUTOSHORTLIST_SOURCE_LABELS,
+  type AutoshortlistSource,
+  type CompanyJobInput,
   CV_WEIGHT_DEFAULT,
   CV_WEIGHT_DIMENSIONS,
+  type CvWeightKey,
   EMPTY_JOB_INPUT,
+  INTERVIEW_CRITERIA_MAX,
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
@@ -49,30 +39,55 @@ import {
   JOB_TEXT_COUNTER_FROM,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
-  WEIGHT_STOPS,
+  type JobCurrency,
+  MUST_HAVE_MAX,
+  MUST_HAVE_MAX_LENGTH,
   stopForStored,
+  suggestCriteria,
+  WEIGHT_STOPS,
   weightShares,
   weightsAreEqual,
-  type AutoshortlistSource,
-  type CompanyJobInput,
-  type CvWeightKey,
-  type JobCurrency,
 } from "@/app/ai-dashboard/lib/job-types";
-import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
-  createCompanyJob,
-  estimateAutoshortlistReach,
-  updateCompanyJob,
-} from "../actions";
+  ANSWER_SECONDS_MAX,
+  ANSWER_SECONDS_MIN,
+  EMPTY_QUESTION_INPUT,
+  type InterviewQuestionInput,
+  MAX_QUESTIONS,
+  MIN_QUESTIONS,
+  PREP_SECONDS_MAX,
+  PREP_SECONDS_MIN,
+  QUESTION_TEXT_MAX,
+} from "@/lib/interviews/types";
+import type { ScreeningQuestion } from "@/lib/jobs";
+// Value import MUST come from lib/screening, not lib/jobs: this is a client
+// component and lib/jobs pulls in next/headers via getInitialJobs.
+import { type NumericMode, resolveNumericMode } from "@/lib/screening";
 import { HiringTeamSection } from "../_hiring-team";
+import { createCompanyJob, estimateAutoshortlistReach, updateCompanyJob } from "../actions";
 
 // ── Constants ────────────────────────────────────────────────
 
 const STEPS = [
   { n: 1, label: "Basics", title: "Basics", desc: "This is what candidates see first on Remotiv." },
-  { n: 2, label: "Description", title: "Description", desc: "Tell candidates what the role is and who it's for." },
-  { n: 3, label: "Compensation", title: "Compensation", desc: "Transparent pay attracts stronger applicants." },
-  { n: 4, label: "Screening", title: "Screening", desc: "Questions your AI recruiter asks every applicant." },
+  {
+    n: 2,
+    label: "Description",
+    title: "Description",
+    desc: "Tell candidates what the role is and who it's for.",
+  },
+  {
+    n: 3,
+    label: "Compensation",
+    title: "Compensation",
+    desc: "Transparent pay attracts stronger applicants.",
+  },
+  {
+    n: 4,
+    label: "Screening",
+    title: "Screening",
+    desc: "Questions your AI recruiter asks every applicant.",
+  },
   {
     n: 5,
     label: "Interview",
@@ -88,8 +103,6 @@ const STEPS = [
  * of the flow, so it becomes step 5 and Review moves to 6. The three that stay
  * locked keep their order and renumber behind it.
  */
-const LOCKED_STEPS = [{ n: 7, label: "AI scoring" }] as const;
-
 /**
  * Steps 8 and 9, which sit AFTER the locked step 7 in the rail.
  *
@@ -98,6 +111,12 @@ const LOCKED_STEPS = [{ n: 7, label: "AI scoring" }] as const;
  * product's step identity, not their position in the flow.
  */
 const LATE_STEPS = [
+  {
+    n: 7,
+    label: "AI scoring",
+    title: "AI scoring criteria",
+    desc: "Name the things that matter most. The scorer reports on each one.",
+  },
   {
     n: 8,
     label: "Answer weighting",
@@ -113,20 +132,18 @@ const LATE_STEPS = [
 ] as const;
 
 /**
- * The order a person actually moves through, skipping what is locked.
+ * The order a person moves through. Now 1–9 with nothing skipped.
  *
- * NOT `1..9`: step 7 is locked, so Continue from 6 goes to 8 and Back from 8
- * returns to 6. Two numbers therefore exist for every position and both are
- * shown, deliberately — the badge reads "Step 8 of 9" (the step's identity, and
- * what the rail shows) while the footer reads "Step 7 of 8" (progress through
- * what is actually unlocked). Collapsing them to one number would either
- * renumber the product's steps or claim there are nine to complete when there
- * are eight.
+ * Kept as an explicit list rather than collapsing back to `step + 1`: the
+ * sequence and the step number agreeing is a property of today's rail, not a
+ * rule, and the last two times a step was unlocked or moved it was this
+ * indirection that made it a one-line change. positionOf and stepAt stay, so
+ * the footer's "Step N of 9" and the Continue/Back walk keep working whatever
+ * order the rail ends up in.
  *
- * Review stays mid-flow at 6, matching the mock, and Publish moves to the last
- * position — step 9.
+ * Review stays mid-flow at 6 and Publish is on the last position, step 9.
  */
-const SEQUENCE = [1, 2, 3, 4, 5, 6, 8, 9] as const;
+const SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
 
 /** 1-based position of a step in the working sequence. 0 when not in it. */
 function positionOf(step: number): number {
@@ -185,8 +202,7 @@ function isSuggestedCompetency(value: string): boolean {
 
 const INPUT_CLS =
   "w-full rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-[11px] text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
-const INPUT_ERR_CLS =
-  "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
+const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
 const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
 
@@ -199,13 +215,11 @@ const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
  *   .step        -> STEP_ROW        (+ STEP_ROW_IDLE for the hover-only default)
  *   .step.active -> STEP_ROW_ACTIVE (raised translucent surface + purple numeral)
  *   .step.done   -> STEP_NUM_DONE   (mint circle, KEEPING its number)
- *   .step.locked -> STEP_ROW_LOCKED (dimmed, no hover surface)
  */
 const STEP_ROW =
   "mb-0.5 flex w-full items-center gap-[11px] rounded-[11px] border border-transparent px-2.5 py-[9px] text-left transition-colors";
 const STEP_ROW_IDLE = "hover:bg-white/[0.06]";
 const STEP_ROW_ACTIVE = "border-white/[0.14] bg-white/[0.11]";
-const STEP_ROW_LOCKED = "cursor-not-allowed opacity-40";
 
 const STEP_NUM =
   "flex size-[23px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[11.5px] font-bold transition-colors";
@@ -284,10 +298,7 @@ const IDEAL_HINT: Record<ScreeningQuestion["type"], string> = {
 /** Per-question validation errors share a prefix so they can be cleared as a set. */
 const QUESTION_ERR_PREFIX = "question_";
 
-const QUESTION_IDEAL_ERROR: Record<
-  ScreeningQuestion["type"],
-  (n: number) => string
-> = {
+const QUESTION_IDEAL_ERROR: Record<ScreeningQuestion["type"], (n: number) => string> = {
   numeric: (n) =>
     `Question ${n} needs a threshold above 0 — or set it to collect the number without one.`,
   multiple: (n) => `Question ${n} needs its ideal option chosen.`,
@@ -376,9 +387,7 @@ function CharCount({ value, hint }: { value: string; hint?: string }) {
         </span>
       ) : (
         hint && (
-          <span className="shrink-0 text-[var(--ai-t4)]">
-            Max {JOB_TEXT_MAX.toLocaleString()}
-          </span>
+          <span className="shrink-0 text-[var(--ai-t4)]">Max {JOB_TEXT_MAX.toLocaleString()}</span>
         )
       )}
     </p>
@@ -387,20 +396,10 @@ function CharCount({ value, hint }: { value: string; hint?: string }) {
 
 /** Small explanatory line under a screening-question control. */
 function FieldHint({ text }: { text: string }) {
-  return (
-    <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--ai-t3)]">{text}</p>
-  );
+  return <p className="mt-1.5 text-[11px] leading-relaxed text-[var(--ai-t3)]">{text}</p>;
 }
 
-function Toggle({
-  on,
-  onClick,
-  label,
-}: {
-  on: boolean;
-  onClick: () => void;
-  label: string;
-}) {
+function Toggle({ on, onClick, label }: { on: boolean; onClick: () => void; label: string }) {
   return (
     <button
       type="button"
@@ -451,12 +450,8 @@ function OptionRow({
       <div className="flex items-start gap-3">
         <div className="min-w-0">
           <div className="flex flex-wrap items-center gap-x-2 gap-y-1">
-            <span className="text-[13.5px] font-semibold text-[var(--ai-t1)]">
-              {title}
-            </span>
-            <span className={live ? PILL_LIVE : PILL_SOON}>
-              {live ? LIVE_LABEL : SOON_LABEL}
-            </span>
+            <span className="text-[13.5px] font-semibold text-[var(--ai-t1)]">{title}</span>
+            <span className={live ? PILL_LIVE : PILL_SOON}>{live ? LIVE_LABEL : SOON_LABEL}</span>
           </div>
           <p className="mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">{desc}</p>
         </div>
@@ -509,8 +504,8 @@ function InterviewerNameField({
           above it now reads "Active now", and a truthful pill sitting over a
           false hint is worse than neither. */}
       <p className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
-        Saved with the job. Nothing shows it to candidates yet. Up to{" "}
-        {JOB_INTERVIEWER_NAME_MAX} characters.
+        Saved with the job. Nothing shows it to candidates yet. Up to {JOB_INTERVIEWER_NAME_MAX}{" "}
+        characters.
       </p>
     </div>
   );
@@ -550,9 +545,7 @@ export function WizardClient({
   const router = useRouter();
   const isEdit = mode === "edit";
 
-  const [state, setState] = useState<CompanyJobInput>(
-    initialState ?? EMPTY_JOB_INPUT,
-  );
+  const [state, setState] = useState<CompanyJobInput>(initialState ?? EMPTY_JOB_INPUT);
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
   const [toast, setToast] = useState<string | null>(null);
@@ -572,10 +565,17 @@ export function WizardClient({
    * the user edits, or changing a type would immediately update the baseline
    * and the warning would vanish the moment it became true.
    */
+  /**
+   * Whether step 7 has already offered its pre-fill this session.
+   *
+   * In WizardClient, not in the step: the step unmounts whenever you navigate
+   * away, so a ref inside it would reset and re-seed must-haves a recruiter had
+   * deliberately cleared. Seeded at most once, ever.
+   */
+  const mustHavesSeededRef = useRef(false);
+
   const originalTypesRef = useRef<Record<string, ScreeningQuestion["type"]>>(
-    Object.fromEntries(
-      (initialState?.screening_questions ?? []).map((q) => [q.id, q.type]),
-    ),
+    Object.fromEntries((initialState?.screening_questions ?? []).map((q) => [q.id, q.type])),
   );
 
   /**
@@ -762,7 +762,10 @@ export function WizardClient({
     const previous = idealOptionLabel(q);
     const options = raw.split("\n");
     const nextIdx = previous
-      ? options.map((o) => o.trim()).filter(Boolean).indexOf(previous)
+      ? options
+          .map((o) => o.trim())
+          .filter(Boolean)
+          .indexOf(previous)
       : -1;
     patchQuestion(index, {
       options,
@@ -772,9 +775,7 @@ export function WizardClient({
 
   /** Red ring on an ideal field the publish gate flagged. */
   function idealCls(q: ScreeningQuestion): string {
-    return errors[`${QUESTION_ERR_PREFIX}${q.id}`]
-      ? `${INPUT_CLS} ${INPUT_ERR_CLS}`
-      : INPUT_CLS;
+    return errors[`${QUESTION_ERR_PREFIX}${q.id}`] ? `${INPUT_CLS} ${INPUT_ERR_CLS}` : INPUT_CLS;
   }
 
   function removeQuestion(index: number) {
@@ -878,9 +879,7 @@ export function WizardClient({
     try {
       const payload = { ...state, status };
       const result =
-        isEdit && jobId
-          ? await updateCompanyJob(jobId, payload)
-          : await createCompanyJob(payload);
+        isEdit && jobId ? await updateCompanyJob(jobId, payload) : await createCompanyJob(payload);
 
       if (!result.success) {
         showToast(result.error);
@@ -938,8 +937,7 @@ export function WizardClient({
 
   // Steps 8 and 9 live in LATE_STEPS, so the lookup spans both tables rather
   // than indexing STEPS by position — which would silently return Basics.
-  const meta =
-    STEPS.find((x) => x.n === step) ?? LATE_STEPS.find((x) => x.n === step) ?? STEPS[0];
+  const meta = STEPS.find((x) => x.n === step) ?? LATE_STEPS.find((x) => x.n === step) ?? STEPS[0];
 
   return (
     <div className="flex min-h-full flex-col">
@@ -1008,7 +1006,6 @@ export function WizardClient({
               near-invisible on #141020. */}
           <div className="min-[705px]:sticky min-[705px]:top-[150px]">
             <div className="rounded-[20px] bg-[var(--ai-sidebar)] px-[18px] py-5 shadow-[0_18px_46px_rgba(20,16,32,0.24)]">
-
               <h1 className="mb-1 font-heading text-xl font-extrabold tracking-[-0.03em] text-white">
                 {isEdit ? "Edit job" : "Post a job"}
               </h1>
@@ -1027,71 +1024,40 @@ export function WizardClient({
               </div>
 
               <div>
-              {STEPS.map((s) => {
-                const active = s.n === step;
-                const done = positionOf(s.n) < positionOf(step);
-                return (
-                  <button
-                    key={s.n}
-                    type="button"
-                    onClick={() => goTo(s.n)}
-                    /* `.step` + `.step.active` only. A completed step gets NO
+                {STEPS.map((s) => {
+                  const active = s.n === step;
+                  const done = positionOf(s.n) < positionOf(step);
+                  return (
+                    <button
+                      key={s.n}
+                      type="button"
+                      onClick={() => goTo(s.n)}
+                      /* `.step` + `.step.active` only. A completed step gets NO
                        row treatment — no background, border or shadow — which
                        is what stops it looking like a second active card. */
-                    className={`${STEP_ROW} ${
-                      active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE
-                    }`}
-                  >
-                    <span
-                      /* `.step.done` styles the CIRCLE ONLY. */
-                      className={`${STEP_NUM} ${
-                        active
-                          ? STEP_NUM_ACTIVE
-                          : done
-                            ? STEP_NUM_DONE
-                            : STEP_NUM_IDLE
-                      }`}
+                      className={`${STEP_ROW} ${active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE}`}
                     >
-                      {/* Completing a step recolours the badge — the digit stays. */}
-                      {s.n}
-                    </span>
-                    <span
-                      /* `.step.active .lab` and `.step.done .lab` are the only
+                      <span
+                        /* `.step.done` styles the CIRCLE ONLY. */
+                        className={`${STEP_NUM} ${
+                          active ? STEP_NUM_ACTIVE : done ? STEP_NUM_DONE : STEP_NUM_IDLE
+                        }`}
+                      >
+                        {/* Completing a step recolours the badge — the digit stays. */}
+                        {s.n}
+                      </span>
+                      <span
+                        /* `.step.active .lab` and `.step.done .lab` are the only
                          label overrides; an untouched label stays at 62%. */
-                      className={`${STEP_LAB} ${
-                        active
-                          ? "text-white"
-                          : done
-                            ? "text-white/70"
-                            : "text-white/[0.62]"
-                      }`}
-                    >
-                      {s.label}
-                    </span>
-                  </button>
-                );
-              })}
-              </div>
-
-              {/* Locked step 7 sits BETWEEN 6 and 8, as the rail is numbered —
-                  not in a group at the bottom. A locked row in its true position
-                  is what makes "Continue skips it" legible rather than looking
-                  like the rail lost a step. */}
-              <div>
-                {LOCKED_STEPS.map((s) => (
-                  <button
-                    key={s.n}
-                    type="button"
-                    onClick={() => showToast(`${s.label} unlocks in a later release`)}
-                    /* `.step.locked` — dimmed, no hover surface. */
-                    className={`${STEP_ROW} ${STEP_ROW_LOCKED}`}
-                  >
-                    <span className={`${STEP_NUM} ${STEP_NUM_IDLE}`}>{s.n}</span>
-                    <span className={`${STEP_LAB} text-white/[0.62]`}>
-                      {s.label}
-                    </span>
-                  </button>
-                ))}
+                        className={`${STEP_LAB} ${
+                          active ? "text-white" : done ? "text-white/70" : "text-white/[0.62]"
+                        }`}
+                      >
+                        {s.label}
+                      </span>
+                    </button>
+                  );
+                })}
               </div>
 
               <div>
@@ -1103,28 +1069,18 @@ export function WizardClient({
                       key={s.n}
                       type="button"
                       onClick={() => goTo(s.n)}
-                      className={`${STEP_ROW} ${
-                        active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE
-                      }`}
+                      className={`${STEP_ROW} ${active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE}`}
                     >
                       <span
                         className={`${STEP_NUM} ${
-                          active
-                            ? STEP_NUM_ACTIVE
-                            : done
-                              ? STEP_NUM_DONE
-                              : STEP_NUM_IDLE
+                          active ? STEP_NUM_ACTIVE : done ? STEP_NUM_DONE : STEP_NUM_IDLE
                         }`}
                       >
                         {s.n}
                       </span>
                       <span
                         className={`${STEP_LAB} ${
-                          active
-                            ? "text-white"
-                            : done
-                              ? "text-white/70"
-                              : "text-white/[0.62]"
+                          active ? "text-white" : done ? "text-white/70" : "text-white/[0.62]"
                         }`}
                       >
                         {s.label}
@@ -1133,10 +1089,6 @@ export function WizardClient({
                   );
                 })}
               </div>
-
-              <p className="mx-2.5 mt-3 text-[11px] leading-relaxed text-white/40">
-                Step 7 (AI scoring) unlocks in a later release.
-              </p>
             </div>
           </div>
 
@@ -1147,9 +1099,7 @@ export function WizardClient({
                 <h2 className="mb-[5px] font-heading text-[21px] font-extrabold tracking-[-0.025em]">
                   {meta.title}
                 </h2>
-                <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">
-                  {meta.desc}
-                </p>
+                <p className="text-[13px] leading-relaxed text-[var(--ai-t3)]">{meta.desc}</p>
               </div>
               <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--ai-purple-tint)] px-[11px] py-[5px] text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-[var(--ai-purple-ink)]">
                 Step {step} of {HIGHEST_STEP}
@@ -1187,7 +1137,9 @@ export function WizardClient({
                         className={INPUT_CLS}
                       >
                         {JOB_CATEGORIES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1202,7 +1154,9 @@ export function WizardClient({
                         className={INPUT_CLS}
                       >
                         {JOB_EXPERIENCE_LEVELS.map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1220,7 +1174,9 @@ export function WizardClient({
                         className={INPUT_CLS}
                       >
                         {JOB_WORK_TYPES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1235,7 +1191,9 @@ export function WizardClient({
                         className={INPUT_CLS}
                       >
                         {JOB_CONTRACT_TYPES.map((c) => (
-                          <option key={c} value={c}>{c}</option>
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
                         ))}
                       </select>
                     </div>
@@ -1291,10 +1249,15 @@ export function WizardClient({
                     {errors.description && (
                       <p className="mt-1.5 text-xs text-[#C4362F]">{errors.description}</p>
                     )}
-                    <CharCount value={state.description} hint="Markdown isn't supported — plain text only." />
+                    <CharCount
+                      value={state.description}
+                      hint="Markdown isn't supported — plain text only."
+                    />
                   </div>
                   <div className="mb-4">
-                    <label htmlFor="w-resp" className={LABEL_CLS}>Responsibilities</label>
+                    <label htmlFor="w-resp" className={LABEL_CLS}>
+                      Responsibilities
+                    </label>
                     <textarea
                       id="w-resp"
                       value={state.responsibilities}
@@ -1309,7 +1272,9 @@ export function WizardClient({
                     />
                   </div>
                   <div>
-                    <label htmlFor="w-reqs" className={LABEL_CLS}>Requirements</label>
+                    <label htmlFor="w-reqs" className={LABEL_CLS}>
+                      Requirements
+                    </label>
                     <textarea
                       id="w-reqs"
                       value={state.requirements}
@@ -1458,7 +1423,9 @@ export function WizardClient({
                             className={INPUT_CLS}
                           >
                             {QUESTION_TYPES.map((t) => (
-                              <option key={t.value} value={t.value}>{t.label}</option>
+                              <option key={t.value} value={t.value}>
+                                {t.label}
+                              </option>
                             ))}
                           </select>
                         </div>
@@ -1477,7 +1444,9 @@ export function WizardClient({
                               className={INPUT_CLS}
                             >
                               {NUMERIC_MODES.map((m) => (
-                                <option key={m.value} value={m.value}>{m.label}</option>
+                                <option key={m.value} value={m.value}>
+                                  {m.label}
+                                </option>
                               ))}
                             </select>
                           )}
@@ -1512,10 +1481,7 @@ export function WizardClient({
                           no error styling, nothing disabled, publish unaffected. */}
                       {typeChangeWarning(q) && (
                         <p className="mt-2.5 flex gap-2 rounded-[10px] bg-[var(--ai-amber-tint)] px-3 py-2.5 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
-                          <TriangleAlert
-                            className="mt-px size-3.5 shrink-0"
-                            strokeWidth={2}
-                          />
+                          <TriangleAlert className="mt-px size-3.5 shrink-0" strokeWidth={2} />
                           <span>{typeChangeWarning(q)}</span>
                         </p>
                       )}
@@ -1622,9 +1588,9 @@ export function WizardClient({
                         No interview questions yet
                       </p>
                       <p className="m-0 mt-1.5 text-xs leading-relaxed text-[var(--ai-t3)]">
-                        Add {MIN_QUESTIONS}–{MAX_QUESTIONS}. Candidates answer each one
-                        on camera in their own time — there&apos;s no call to schedule.
-                        Leave this empty to skip the video round for this job.
+                        Add {MIN_QUESTIONS}–{MAX_QUESTIONS}. Candidates answer each one on camera in
+                        their own time — there&apos;s no call to schedule. Leave this empty to skip
+                        the video round for this job.
                       </p>
                     </div>
                   )}
@@ -1695,11 +1661,7 @@ export function WizardClient({
                               full-screen picker, which is the better control
                               at 375px anyway. */}
                           <select
-                            value={
-                              usesOtherCompetency(q)
-                                ? COMPETENCY_OTHER
-                                : q.competency
-                            }
+                            value={usesOtherCompetency(q) ? COMPETENCY_OTHER : q.competency}
                             onChange={(e) => {
                               const value = e.target.value;
                               if (value === COMPETENCY_OTHER) {
@@ -1727,9 +1689,7 @@ export function WizardClient({
                           {usesOtherCompetency(q) && (
                             <input
                               value={q.competency}
-                              onChange={(e) =>
-                                patchInterviewQ(i, { competency: e.target.value })
-                              }
+                              onChange={(e) => patchInterviewQ(i, { competency: e.target.value })}
                               placeholder="Name the competency"
                               aria-label={`Custom competency for question ${i + 1}`}
                               className={`${INPUT_CLS} mt-2`}
@@ -1786,9 +1746,7 @@ export function WizardClient({
                               min={PREP_SECONDS_MIN}
                               max={PREP_SECONDS_MAX}
                               value={q.prepSeconds}
-                              onChange={(e) =>
-                                patchInterviewQ(i, { prepSeconds: e.target.value })
-                              }
+                              onChange={(e) => patchInterviewQ(i, { prepSeconds: e.target.value })}
                               aria-label={`Thinking time for question ${i + 1}, seconds`}
                               className={`${INPUT_CLS} flex-1`}
                             />
@@ -1821,9 +1779,7 @@ export function WizardClient({
                         <input
                           type="checkbox"
                           checked={q.required}
-                          onChange={(e) =>
-                            patchInterviewQ(i, { required: e.target.checked })
-                          }
+                          onChange={(e) => patchInterviewQ(i, { required: e.target.checked })}
                           className="size-4 shrink-0 accent-[var(--remotiv-purple,#7E47FF)]"
                         />
                         <span className="text-[12.5px] text-[var(--ai-t2)]">
@@ -1846,9 +1802,9 @@ export function WizardClient({
                   </button>
 
                   <p className="mt-3 text-xs leading-relaxed text-[var(--ai-t3)]">
-                    {MIN_QUESTIONS}–{MAX_QUESTIONS} questions works best — long enough
-                    to judge, short enough that people finish. Candidates get a practice
-                    round first, which is never recorded or shared.
+                    {MIN_QUESTIONS}–{MAX_QUESTIONS} questions works best — long enough to judge,
+                    short enough that people finish. Candidates get a practice round first, which is
+                    never recorded or shared.
                   </p>
                 </>
               )}
@@ -1865,8 +1821,8 @@ export function WizardClient({
                     <ReviewCard label="Location & type" onEdit={() => setStep(1)}>
                       {state.location || "—"}{" "}
                       <span className="text-[var(--ai-t4)]">
-                        · {state.work_type} · {state.contract_type} · {state.positions}{" "}
-                        opening{state.positions === "1" ? "" : "s"}
+                        · {state.work_type} · {state.contract_type} · {state.positions} opening
+                        {state.positions === "1" ? "" : "s"}
                       </span>
                     </ReviewCard>
                   </div>
@@ -1875,8 +1831,7 @@ export function WizardClient({
                     <ReviewCard label="Compensation" onEdit={() => setStep(3)}>
                       {compensation ? (
                         <>
-                          {compensation}{" "}
-                          <small className="text-[var(--ai-t3)]">/mo</small>
+                          {compensation} <small className="text-[var(--ai-t3)]">/mo</small>
                         </>
                       ) : (
                         <span className="text-[var(--ai-t4)]">Not shown publicly</span>
@@ -1887,9 +1842,7 @@ export function WizardClient({
                   <div className="mb-3">
                     <ReviewCard label="Description" onEdit={() => setStep(2)}>
                       {state.description.trim() || (
-                        <span className="text-[var(--ai-t4)]">
-                          No description added yet.
-                        </span>
+                        <span className="text-[var(--ai-t4)]">No description added yet.</span>
                       )}
                     </ReviewCard>
                   </div>
@@ -1904,19 +1857,13 @@ export function WizardClient({
                             key={q.id}
                             className="flex items-baseline gap-2 border-b border-[var(--ai-line-soft)] py-[7px] text-[13px] text-[var(--ai-t2)] last:border-b-0"
                           >
-                            <span className="shrink-0 font-bold text-remotiv-purple">
-                              {i + 1}
-                            </span>
+                            <span className="shrink-0 font-bold text-remotiv-purple">{i + 1}</span>
                             <span>
                               {q.question || (
-                                <span className="text-[var(--ai-t4)]">
-                                  Untitled question
-                                </span>
+                                <span className="text-[var(--ai-t4)]">Untitled question</span>
                               )}
                               {q.essential && (
-                                <span className="font-bold text-remotiv-purple">
-                                  {" "}· essential
-                                </span>
+                                <span className="font-bold text-remotiv-purple"> · essential</span>
                               )}
                             </span>
                             {/* Surfaced here too — Review is the last place a
@@ -1957,10 +1904,9 @@ export function WizardClient({
                       <HiringTeamSection jobId={jobId} onToast={setToast} />
                     ) : (
                       <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
-                        You&apos;ll be added to this job&apos;s hiring team when you
-                        publish it. Owners and admins see every job; recruiters and
-                        hiring managers see only the ones they&apos;re on. Add them
-                        from the job&apos;s drawer once it exists.
+                        You&apos;ll be added to this job&apos;s hiring team when you publish it.
+                        Owners and admins see every job; recruiters and hiring managers see only the
+                        ones they&apos;re on. Add them from the job&apos;s drawer once it exists.
                       </p>
                     )}
                   </div>
@@ -1995,16 +1941,11 @@ export function WizardClient({
                     {moreOpen && (
                       <div className="border-t border-[var(--ai-line)] bg-[var(--ai-surface)] p-4">
                         <p className="mb-3 text-xs leading-relaxed text-[var(--ai-t3)]">
-                          Saved with the job and editable at any time. Anything
-                          marked{" "}
-                          <b className="font-bold text-[var(--ai-amber-ink)]">
-                            {SOON_LABEL}
-                          </b>{" "}
-                          is stored now and changes nothing about this job yet;{" "}
-                          <b className="font-bold text-[var(--ai-mint-ink)]">
-                            {LIVE_LABEL}
-                          </b>{" "}
-                          takes effect as soon as you save.
+                          Saved with the job and editable at any time. Anything marked{" "}
+                          <b className="font-bold text-[var(--ai-amber-ink)]">{SOON_LABEL}</b> is
+                          stored now and changes nothing about this job yet;{" "}
+                          <b className="font-bold text-[var(--ai-mint-ink)]">{LIVE_LABEL}</b> takes
+                          effect as soon as you save.
                         </p>
 
                         <div className="grid gap-2.5">
@@ -2035,9 +1976,7 @@ export function WizardClient({
                             title="Measure response relevancy"
                             desc="Score how closely interview answers address the question."
                             on={state.measure_relevancy}
-                            onToggle={() =>
-                              set("measure_relevancy", !state.measure_relevancy)
-                            }
+                            onToggle={() => set("measure_relevancy", !state.measure_relevancy)}
                           />
 
                           <OptionRow
@@ -2045,10 +1984,7 @@ export function WizardClient({
                             desc="An AI avatar runs the first interview and records the answers."
                             on={state.avatar_interview_enabled}
                             onToggle={() =>
-                              set(
-                                "avatar_interview_enabled",
-                                !state.avatar_interview_enabled,
-                              )
+                              set("avatar_interview_enabled", !state.avatar_interview_enabled)
                             }
                           >
                             <InterviewerNameField
@@ -2086,10 +2022,7 @@ export function WizardClient({
                             live
                             on={state.async_interview_enabled}
                             onToggle={() =>
-                              set(
-                                "async_interview_enabled",
-                                !state.async_interview_enabled,
-                              )
+                              set("async_interview_enabled", !state.async_interview_enabled)
                             }
                           >
                             <InterviewerNameField
@@ -2120,16 +2053,16 @@ export function WizardClient({
                             <b className="font-bold text-white">
                               Changes go live on remotiv.work/jobs immediately.
                             </b>{" "}
-                            Anyone viewing the post sees the updated version, and new
-                            applicants are screened against these questions.
+                            Anyone viewing the post sees the updated version, and new applicants are
+                            screened against these questions.
                           </>
                         ) : (
                           <>
                             <b className="font-bold text-white">
                               This job is a draft — it isn&apos;t public yet.
                             </b>{" "}
-                            Saving keeps it private. Set the status to Published to put
-                            it live on remotiv.work/jobs.
+                            Saving keeps it private. Set the status to Published to put it live on
+                            remotiv.work/jobs.
                           </>
                         )
                       ) : (
@@ -2137,8 +2070,8 @@ export function WizardClient({
                           <b className="font-bold text-white">
                             This publishes to remotiv.work/jobs immediately.
                           </b>{" "}
-                          Applicants can apply right away and your AI recruiter starts
-                          screening them against these questions.
+                          Applicants can apply right away and your AI recruiter starts screening
+                          them against these questions.
                         </>
                       )}
                     </p>
@@ -2146,12 +2079,25 @@ export function WizardClient({
                 </>
               )}
 
+              {step === 7 && (
+                <ScoringCriteriaStep
+                  state={state}
+                  onChange={(next) => set("scoring_must_haves", next)}
+                  onChangeCriteria={(next) => set("interview_criteria", next)}
+                  /*
+                   * Create only. An existing job reopens with exactly what was
+                   * saved — including a deliberately empty list, which is a
+                   * choice and not an absence to be helpfully filled in.
+                   */
+                  canPrefill={!isEdit}
+                  seededRef={mustHavesSeededRef}
+                />
+              )}
+
               {step === 8 && (
                 <WeightingStep
                   state={state}
-                  onCvWeight={(key, stored) =>
-                    setState((prev) => ({ ...prev, [key]: stored }))
-                  }
+                  onCvWeight={(key, stored) => setState((prev) => ({ ...prev, [key]: stored }))}
                   onQuestionWeight={(id, stored) =>
                     set(
                       "interview_questions",
@@ -2186,8 +2132,7 @@ export function WizardClient({
 
             <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-[26px] py-4">
               <span className="text-[12.5px] font-semibold text-[var(--ai-t3)]">
-                Step <b className="text-[var(--ai-t1)]">{positionOf(step)}</b> of{" "}
-                {SEQUENCE.length}
+                Step <b className="text-[var(--ai-t1)]">{positionOf(step)}</b> of {SEQUENCE.length}
               </span>
               <div className="flex gap-2.5">
                 {positionOf(step) > 1 && (
@@ -2319,8 +2264,7 @@ export function WizardClient({
                 Write once, screen forever
               </p>
               <small className="block text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-                Your screening questions power the AI recruiter on every applicant
-                automatically.
+                Your screening questions power the AI recruiter on every applicant automatically.
               </small>
             </div>
           </div>
@@ -2338,15 +2282,12 @@ export function WizardClient({
             <div className="mx-auto mb-4 flex size-[62px] items-center justify-center rounded-full bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]">
               <Check className="size-[30px]" strokeWidth={2.4} />
             </div>
-            <h2
-              id="published-title"
-              className="mb-[7px] font-heading text-[22px] font-extrabold"
-            >
+            <h2 id="published-title" className="mb-[7px] font-heading text-[22px] font-extrabold">
               Your job is live
             </h2>
             <p className="mb-[22px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-              “{published.title}” is now on remotiv.work/jobs. We&apos;ll notify you as
-              applicants come in.
+              “{published.title}” is now on remotiv.work/jobs. We&apos;ll notify you as applicants
+              come in.
             </p>
             <div className="flex justify-center gap-2.5">
               <button
@@ -2436,10 +2377,9 @@ function WeightSegment({
   label: string;
 }) {
   return (
-    <div
-      role="group"
+    <fieldset
       aria-label={label}
-      className="inline-flex shrink-0 overflow-hidden rounded-[9px] border border-[var(--ai-line-strong)]"
+      className="inline-flex shrink-0 overflow-hidden rounded-[9px] border border-[var(--ai-line-strong)] p-0"
     >
       {WEIGHT_STOPS.map((stop) => {
         const active = stopForStored(value).stored === stop.stored;
@@ -2459,7 +2399,7 @@ function WeightSegment({
           </button>
         );
       })}
-    </div>
+    </fieldset>
   );
 }
 
@@ -2474,13 +2414,7 @@ const SHARE_COLOURS = ["#7E47FF", "#49D7A7", "#5BA8E8", "#F5C842"];
  * takes share from the others, which is the fact that matters and the one a
  * number alone does not convey.
  */
-function ShareBar({
-  shares,
-  labels,
-}: {
-  shares: number[];
-  labels: string[];
-}) {
+function ShareBar({ shares, labels }: { shares: number[]; labels: string[] }) {
   return (
     <>
       <div className="flex h-[9px] w-full overflow-hidden rounded-full bg-[var(--ai-inset)]">
@@ -2536,10 +2470,7 @@ function WeightingStep({
   const questionsEqual = weightsAreEqual(questionStored);
 
   /** "X carries the most weight, at N% of the score." */
-  const leadIndex = cvShares.reduce(
-    (best, share, i) => (share > cvShares[best] ? i : best),
-    0,
-  );
+  const leadIndex = cvShares.reduce((best, share, i) => (share > cvShares[best] ? i : best), 0);
 
   return (
     <>
@@ -2548,8 +2479,8 @@ function WeightingStep({
           CV score
         </h3>
         <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-          A dimension set to <b>Most</b> counts three times as much as a{" "}
-          <b>Normal</b> one; <b>Less</b> counts half.
+          A dimension set to <b>Most</b> counts three times as much as a <b>Normal</b> one;{" "}
+          <b>Less</b> counts half.
         </p>
 
         <div className="mb-5 flex flex-col gap-2.5">
@@ -2567,9 +2498,7 @@ function WeightingStep({
                   <span className="block text-[13px] font-semibold text-[var(--ai-t1)]">
                     {d.label}
                   </span>
-                  <span className="block text-[11.5px] text-[var(--ai-t3)]">
-                    {d.hint}
-                  </span>
+                  <span className="block text-[11.5px] text-[var(--ai-t3)]">{d.hint}</span>
                 </span>
               </span>
               <WeightSegment
@@ -2582,10 +2511,7 @@ function WeightingStep({
         </div>
 
         <div className="rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3.5">
-          <ShareBar
-            shares={cvShares}
-            labels={CV_WEIGHT_DIMENSIONS.map((d) => d.label)}
-          />
+          <ShareBar shares={cvShares} labels={CV_WEIGHT_DIMENSIONS.map((d) => d.label)} />
           <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
             <p className="text-[12px] text-[var(--ai-t2)]">
               {cvEqual
@@ -2609,15 +2535,14 @@ function WeightingStep({
           Interview questions
         </h3>
         <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-          A question set to <b>Most</b> counts three times as much as a{" "}
-          <b>Normal</b> one; <b>Less</b> counts half. Questions are edited in
-          step 5 — this only changes what they are worth.
+          A question set to <b>Most</b> counts three times as much as a <b>Normal</b> one;{" "}
+          <b>Less</b> counts half. Questions are edited in step 5 — this only changes what they are
+          worth.
         </p>
 
         {questions.length === 0 ? (
           <p className="rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-5 text-center text-[12.5px] text-[var(--ai-t3)]">
-            No interview questions yet. Add them in step 5 and they will appear
-            here to weight.
+            No interview questions yet. Add them in step 5 and they will appear here to weight.
           </p>
         ) : (
           <>
@@ -2680,18 +2605,14 @@ function PromiseBox() {
   return (
     <div className="mb-6 rounded-[16px] bg-[var(--ai-sidebar)] px-[18px] py-[17px]">
       <div className="flex items-start gap-3">
-        <ShieldCheck
-          className="mt-px size-[19px] shrink-0 text-remotiv-lime"
-          strokeWidth={1.9}
-        />
+        <ShieldCheck className="mt-px size-[19px] shrink-0 text-remotiv-lime" strokeWidth={1.9} />
         <div className="min-w-0">
           <p className="mb-1 font-heading text-[14.5px] font-extrabold tracking-[-0.02em] text-white">
             Flagging only. Nothing moves on its own.
           </p>
           <p className="mb-3 text-[12.5px] leading-relaxed text-white/[0.72]">
-            Auto-shortlist marks strong applicants so they are easy to find. It
-            never changes anyone&apos;s stage, never messages a candidate and
-            never rejects.
+            Auto-shortlist marks strong applicants so they are easy to find. It never changes
+            anyone&apos;s stage, never messages a candidate and never rejects.
           </p>
           <div className="flex flex-wrap gap-1.5">
             {["Flags only", "Never moves a stage", "Never rejects"].map((c) => (
@@ -2845,10 +2766,7 @@ function AutoshortlistStep({
             }
             set("autoshortlist_source", "both");
             set("autoshortlist_cv_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
-            set(
-              "autoshortlist_interview_threshold",
-              AUTOSHORTLIST_DEFAULT_THRESHOLD,
-            );
+            set("autoshortlist_interview_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
           }}
           className={`relative h-[24px] w-[42px] shrink-0 rounded-full transition-colors ${
             enabled ? "bg-remotiv-purple" : "bg-[var(--ai-line-strong)]"
@@ -2865,9 +2783,7 @@ function AutoshortlistStep({
       {/* Everything below dims and stops responding until the toggle is on. */}
       <div
         className={
-          enabled
-            ? ""
-            : "pointer-events-none select-none opacity-40 [&_*]:cursor-not-allowed"
+          enabled ? "" : "pointer-events-none select-none opacity-40 [&_*]:cursor-not-allowed"
         }
         aria-hidden={!enabled}
       >
@@ -2890,21 +2806,14 @@ function AutoshortlistStep({
                 set("autoshortlist_cv_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
               }
               if (next !== "cv" && interviewMark === null) {
-                set(
-                  "autoshortlist_interview_threshold",
-                  AUTOSHORTLIST_DEFAULT_THRESHOLD,
-                );
+                set("autoshortlist_interview_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
               }
             }}
             className={INPUT_CLS}
           >
-            <option value="both">
-              {AUTOSHORTLIST_SOURCE_LABELS.both} — CV or interview
-            </option>
+            <option value="both">{AUTOSHORTLIST_SOURCE_LABELS.both} — CV or interview</option>
             <option value="cv">{AUTOSHORTLIST_SOURCE_LABELS.cv}</option>
-            <option value="interview">
-              {AUTOSHORTLIST_SOURCE_LABELS.interview}
-            </option>
+            <option value="interview">{AUTOSHORTLIST_SOURCE_LABELS.interview}</option>
           </select>
           <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
             {SOURCE_HINTS[source]}
@@ -2915,9 +2824,7 @@ function AutoshortlistStep({
             column would imply a mark that is not being used. */}
         <div
           className={`mb-5 grid gap-4 ${
-            showCv && showInterview
-              ? "grid-cols-1 min-[560px]:grid-cols-2"
-              : "grid-cols-1"
+            showCv && showInterview ? "grid-cols-1 min-[560px]:grid-cols-2" : "grid-cols-1"
           }`}
         >
           {showCv && (
@@ -2947,11 +2854,7 @@ function AutoshortlistStep({
         <div>
           <p className={LABEL_CLS}>How they will look</p>
           <div className="flex flex-col gap-2">
-            <PreviewRow
-              kind="top"
-              name="Ayesha Khan"
-              sub="Scored 94 — the AI's own ranking"
-            />
+            <PreviewRow kind="top" name="Ayesha Khan" sub="Scored 94 — the AI's own ranking" />
             <PreviewRow
               kind="look"
               name="Bilal Ahmed"
@@ -2990,7 +2893,8 @@ function estimateCopy(
   }
   return (
     <>
-      At these marks, <b className="text-[var(--ai-t1)]">
+      At these marks,{" "}
+      <b className="text-[var(--ai-t1)]">
         {estimate.matched} of {estimate.total}
       </b>{" "}
       applicants in this workspace would carry the flag today.
@@ -3005,15 +2909,7 @@ function estimateCopy(
  * lime sticker; Worth a look is the company's rule, a purple OUTLINE chip on a
  * faint purple row with a left accent. Same shape, different voice.
  */
-function PreviewRow({
-  kind,
-  name,
-  sub,
-}: {
-  kind: "top" | "look";
-  name: string;
-  sub: string;
-}) {
+function PreviewRow({ kind, name, sub }: { kind: "top" | "look"; name: string; sub: string }) {
   const isLook = kind === "look";
   return (
     <div
@@ -3036,9 +2932,7 @@ function PreviewRow({
         <span className="block truncate text-[12.5px] font-semibold text-[var(--ai-t1)]">
           {name}
         </span>
-        <span className="block truncate text-[11.5px] text-[var(--ai-t3)]">
-          {sub}
-        </span>
+        <span className="block truncate text-[11.5px] text-[var(--ai-t3)]">{sub}</span>
       </span>
       {isLook ? (
         <span className="shrink-0 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] px-2.5 py-[3px] text-[10.5px] font-bold text-remotiv-purple">
@@ -3050,5 +2944,359 @@ function PreviewRow({
         </span>
       )}
     </div>
+  );
+}
+
+// ── Step 7 — AI scoring criteria ─────────────────────────────
+
+/**
+ * Named must-haves, and deliberately NOT a free-text box.
+ *
+ * A textarea here would be handed to the scoring prompt, and free-form guidance
+ * is exactly how "reject anyone under five years" gets back in. Nine prompt
+ * versions went into removing hard rules, auto-rejection and keyword gates; a
+ * list of named items gives a company the control they actually want — "tell me
+ * whether this person has done X" — without a channel for rewriting the rubric.
+ *
+ * Empty stays valid and is the default. A job with no must-haves produces a
+ * prompt with no must-have block at all, so it scores exactly as it did before
+ * this step existed.
+ */
+function ScoringCriteriaStep({
+  state,
+  onChange,
+  onChangeCriteria,
+  canPrefill,
+  seededRef,
+}: {
+  state: CompanyJobInput;
+  onChange: (next: string[]) => void;
+  onChangeCriteria: (next: string[]) => void;
+  /** False in edit mode — a saved job opens on what was saved, full stop. */
+  canPrefill: boolean;
+  /** Owned by WizardClient so it survives leaving the step and coming back. */
+  seededRef: React.RefObject<boolean>;
+}) {
+  const items = state.scoring_must_haves;
+  const criteria = state.interview_criteria;
+  const [draft, setDraft] = useState("");
+  const [criteriaDraft, setCriteriaDraft] = useState("");
+  const full = items.length >= MUST_HAVE_MAX;
+  const criteriaFull = criteria.length >= INTERVIEW_CRITERIA_MAX;
+  const hasInterview = state.interview_questions.length > 0;
+
+  /*
+   * ONE split feeds BOTH lists.
+   *
+   * The same lines from step 2 are classified once — trait-shaped to the
+   * interview list, everything else to the CV list — so a line can never be
+   * offered twice, and neither list falls back to the other. `existing` spans
+   * both for the same reason.
+   */
+  const suggestions = useMemo(
+    () =>
+      suggestCriteria({
+        requirements: state.requirements,
+        responsibilities: state.responsibilities,
+        existing: [...items, ...criteria],
+      }),
+    [state.requirements, state.responsibilities, items, criteria],
+  );
+
+  /*
+   * ── Open with the work already done ──
+   *
+   * The step used to open empty, which made it read as a task rather than a
+   * setting: a recruiter with nothing to add still had to decide what to type.
+   * It now opens with the top MUST_HAVE_MAX suggestions from step 2 already
+   * ADDED, so the job is to edit or delete — and Continue without touching
+   * anything is a complete, sensible answer.
+   *
+   * Three guards, and all three matter:
+   *   · `canPrefill` is false in edit mode, so a saved list — including a
+   *     deliberately empty one — is never re-derived over.
+   *   · `items.length === 0` means a partially-filled list is left alone.
+   *   · `seededRef` fires once per session, so clearing all three and stepping
+   *     away does not bring them back on return.
+   */
+  useEffect(() => {
+    if (seededRef.current) return;
+    if (!canPrefill || items.length > 0 || criteria.length > 0) return;
+    seededRef.current = true;
+    const seedCv = suggestions.cv.slice(0, MUST_HAVE_MAX);
+    if (seedCv.length > 0) onChange(seedCv);
+    // Behavioural criteria only pre-fill when there is an interview to check
+    // them against — otherwise the job carries a list nothing will ever read.
+    if (hasInterview) {
+      const seedCriteria = suggestions.interview.slice(0, INTERVIEW_CRITERIA_MAX);
+      if (seedCriteria.length > 0) onChangeCriteria(seedCriteria);
+    }
+  }, [
+    canPrefill,
+    items.length,
+    criteria.length,
+    hasInterview,
+    suggestions,
+    onChange,
+    onChangeCriteria,
+    seededRef,
+  ]);
+
+  function addCriterion(value: string) {
+    const item = value.replace(/\s+/g, " ").trim().slice(0, MUST_HAVE_MAX_LENGTH);
+    if (!item || criteriaFull) return;
+    if (criteria.some((v) => v.toLowerCase() === item.toLowerCase())) return;
+    onChangeCriteria([...criteria, item]);
+    setCriteriaDraft("");
+  }
+
+  function add(value: string) {
+    const item = value.replace(/\s+/g, " ").trim().slice(0, MUST_HAVE_MAX_LENGTH);
+    if (!item || full) return;
+    // Case-insensitive, so "React" cannot sit beside "react".
+    if (items.some((v) => v.toLowerCase() === item.toLowerCase())) return;
+    onChange([...items, item]);
+    setDraft("");
+  }
+
+  return (
+    <>
+      {/* Shows rather than tells. The abstract version of this sentence tested
+          as "work": a recruiter could not picture what a must-have produced, so
+          the step read as another form to fill in. Two sample lines answer it
+          in the shape they will actually see on a scorecard. */}
+      <div className="mb-5 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3.5">
+        <p className="m-0 mb-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+          Every scorecard for this role will say whether the CV evidences each of these, and quote
+          the line that proves it.
+        </p>
+
+        <div className="rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-2.5">
+          <p className="m-0 mb-2 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t4)]">
+            On the scorecard
+          </p>
+          <div className="flex items-start gap-2">
+            <Check className="mt-px size-[13px] shrink-0 text-remotiv-green" strokeWidth={2.6} />
+            <p className="m-0 min-w-0 text-[12px] leading-relaxed text-[var(--ai-t2)]">
+              Has shipped a production React app
+              <span className="mt-0.5 block border-l-2 border-[var(--ai-line-strong)] pl-2 text-[11.5px] italic text-[var(--ai-t3)]">
+                “Led the rebuild of the customer dashboard in React and TypeScript”
+              </span>
+            </p>
+          </div>
+          <div className="mt-2 flex items-start gap-2">
+            <X className="mt-px size-[13px] shrink-0 text-[var(--ai-t4)]" strokeWidth={2.6} />
+            <p className="m-0 min-w-0 text-[12px] leading-relaxed text-[var(--ai-t2)]">
+              Has managed a team
+              <span className="mt-0.5 block text-[11.5px] text-[var(--ai-t3)]">
+                Not found in this CV
+              </span>
+            </p>
+          </div>
+        </div>
+
+        <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+          A missing one is reported, never punished — it does not reject anyone, filter anyone out,
+          or lower a score.
+        </p>
+      </div>
+
+      <label htmlFor="must-have-input" className={LABEL_CLS}>
+        Must-haves{" "}
+        <span className="font-normal text-[var(--ai-t3)]">
+          — {items.length} of {MUST_HAVE_MAX}. Edit or remove any you don&apos;t want.
+        </span>
+      </label>
+      <div className="flex gap-2">
+        <input
+          id="must-have-input"
+          value={draft}
+          disabled={full}
+          maxLength={MUST_HAVE_MAX_LENGTH}
+          placeholder={
+            full
+              ? `That's ${MUST_HAVE_MAX} — remove one to add another`
+              : "A skill, tool or experience a strong candidate shows"
+          }
+          onChange={(e) => setDraft(e.target.value)}
+          onKeyDown={(e) => {
+            if (e.key !== "Enter") return;
+            // The wizard's footer button is not a submit, but a stray Enter
+            // inside a form still triggers navigation on some browsers.
+            e.preventDefault();
+            add(draft);
+          }}
+          className={INPUT_CLS}
+        />
+        <button
+          type="button"
+          onClick={() => add(draft)}
+          disabled={full || !draft.trim()}
+          className="shrink-0 rounded-[11px] bg-[var(--ai-sidebar)] px-4 py-[9px] text-[13.5px] font-semibold text-white transition-colors hover:bg-[#241d38] disabled:opacity-40"
+        >
+          Add
+        </button>
+      </div>
+
+      {items.length > 0 && (
+        <ul className="mt-3 flex list-none flex-col gap-2 p-0">
+          {items.map((item, i) => (
+            <li
+              key={item}
+              className="flex items-center justify-between gap-3 rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-2.5"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span className="flex size-[21px] shrink-0 items-center justify-center rounded-full bg-[var(--ai-inset)] text-[11px] font-bold text-[var(--ai-t2)]">
+                  {i + 1}
+                </span>
+                <span className="min-w-0 break-words text-[13px] text-[var(--ai-t1)]">{item}</span>
+              </span>
+              <button
+                type="button"
+                aria-label={`Remove ${item}`}
+                onClick={() => onChange(items.filter((v) => v !== item))}
+                className="shrink-0 rounded-lg p-1.5 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-danger)]"
+              >
+                <Trash className="size-[15px]" strokeWidth={2} />
+              </button>
+            </li>
+          ))}
+        </ul>
+      )}
+
+      <div className="mt-6">
+        <p className={LABEL_CLS}>From what you wrote in step 2</p>
+        {suggestions.cv.length === 0 ? (
+          <p className="m-0 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+            {state.requirements.trim() || state.responsibilities.trim()
+              ? "Nothing here reads as a separate requirement — add must-haves above in your own words."
+              : "Add requirements or responsibilities in step 2 and they'll show up here as suggestions."}
+          </p>
+        ) : (
+          <div className="flex flex-wrap gap-2">
+            {suggestions.cv.map((sug: string) => (
+              <button
+                key={sug}
+                type="button"
+                disabled={full}
+                onClick={() => add(sug)}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] text-[var(--ai-t2)] transition-colors hover:border-remotiv-purple/50 hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus className="size-[13px] shrink-0" strokeWidth={2.2} />
+                <span className="min-w-0 truncate">{sug}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+
+      {items.length === 0 && (
+        <p className="mt-6 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-4 text-center text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          No must-haves is a perfectly good answer — this job will score exactly as it does today.
+        </p>
+      )}
+
+      {/* ── Second list, same step ──
+          Same step rather than a tenth, because both come from ONE split of the
+          same step-2 text and separating them would hide that. Step 8 already
+          reads "CV score" then "Interview questions", so this is the shape the
+          wizard already uses for exactly this pair of sources. */}
+      <div className="mt-8 border-t border-[var(--ai-line)] pt-6">
+        <p className={LABEL_CLS}>
+          Behavioural criteria — checked against the interview{" "}
+          <span className="font-normal text-[var(--ai-t3)]">
+            — {criteria.length} of {INTERVIEW_CRITERIA_MAX}
+          </span>
+        </p>
+        <p className="m-0 mb-3 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+          Things a conversation shows and a CV cannot — how someone follows up, handles pressure,
+          explains their thinking. Checked against what they actually said, and reported the same
+          way: quoted, or not found.
+        </p>
+
+        {!hasInterview && (
+          <p className="mb-3 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+            This job has no interview questions yet, so there is no transcript to check these
+            against. Add questions in step 5 and this section becomes live — anything saved here is
+            kept either way.
+          </p>
+        )}
+
+        {criteria.length > 0 && (
+          <ul className="mb-3 flex list-none flex-col gap-2 p-0">
+            {criteria.map((item, i) => (
+              <li
+                key={item}
+                className="flex items-center justify-between gap-3 rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-2.5"
+              >
+                <span className="flex min-w-0 items-center gap-2.5">
+                  <span className="flex size-[21px] shrink-0 items-center justify-center rounded-full bg-[var(--ai-inset)] text-[11px] font-bold text-[var(--ai-t2)]">
+                    {i + 1}
+                  </span>
+                  <span className="min-w-0 break-words text-[13px] text-[var(--ai-t1)]">
+                    {item}
+                  </span>
+                </span>
+                <button
+                  type="button"
+                  aria-label={`Remove ${item}`}
+                  onClick={() => onChangeCriteria(criteria.filter((v) => v !== item))}
+                  className="shrink-0 rounded-lg p-1.5 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-danger)]"
+                >
+                  <Trash className="size-[15px]" strokeWidth={2} />
+                </button>
+              </li>
+            ))}
+          </ul>
+        )}
+
+        <div className="flex gap-2">
+          <input
+            id="criterion-input"
+            aria-label="Add a behavioural criterion"
+            value={criteriaDraft}
+            disabled={!hasInterview || criteriaFull}
+            maxLength={MUST_HAVE_MAX_LENGTH}
+            placeholder={
+              criteriaFull
+                ? `That's ${INTERVIEW_CRITERIA_MAX} — remove one to add another`
+                : "A behaviour an interview would reveal"
+            }
+            onChange={(e) => setCriteriaDraft(e.target.value)}
+            onKeyDown={(e) => {
+              if (e.key !== "Enter") return;
+              e.preventDefault();
+              addCriterion(criteriaDraft);
+            }}
+            className={INPUT_CLS}
+          />
+          <button
+            type="button"
+            onClick={() => addCriterion(criteriaDraft)}
+            disabled={!hasInterview || criteriaFull || !criteriaDraft.trim()}
+            className="shrink-0 rounded-[11px] bg-[var(--ai-sidebar)] px-4 py-[9px] text-[13.5px] font-semibold text-white transition-colors hover:bg-[#241d38] disabled:opacity-40"
+          >
+            Add
+          </button>
+        </div>
+
+        {hasInterview && suggestions.interview.length > 0 && (
+          <div className="mt-3 flex flex-wrap gap-2">
+            {suggestions.interview.map((sug: string) => (
+              <button
+                key={sug}
+                type="button"
+                disabled={criteriaFull}
+                onClick={() => addCriterion(sug)}
+                className="inline-flex max-w-full items-center gap-1.5 rounded-full border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] text-[var(--ai-t2)] transition-colors hover:border-remotiv-purple/50 hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                <Plus className="size-[13px] shrink-0" strokeWidth={2.2} />
+                <span className="min-w-0 truncate">{sug}</span>
+              </button>
+            ))}
+          </div>
+        )}
+      </div>
+    </>
   );
 }

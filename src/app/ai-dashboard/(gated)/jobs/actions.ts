@@ -1,38 +1,22 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createServiceClient } from "@/lib/supabase/server";
-import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
-import { slugify, uniqueSlug } from "@/lib/slug";
-import {
-  getCompanyContext,
-  requireCompanyRole,
-} from "@/app/ai-dashboard/lib/company-guards";
+import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import {
   canAccessJob,
   getJobScope,
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
-import { notifyCompany } from "@/lib/notifications/company";
-import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import {
-  ANSWER_SECONDS_MAX,
-  ANSWER_SECONDS_MIN,
-  COMPETENCY_MAX,
-  MAX_QUESTIONS,
-  PREP_SECONDS_MAX,
-  PREP_SECONDS_MIN,
-  QUESTION_TEXT_MAX,
-  RUBRIC_MAX,
-  type InterviewQuestionInput,
-} from "@/lib/interviews/types";
-import {
-  JOB_CATEGORIES,
   AUTOSHORTLIST_SOURCES,
+  type CompanyJobInput,
+  type CompanyJobRow,
   CV_WEIGHT_DIMENSIONS,
   CV_WEIGHT_MAX,
   CV_WEIGHT_MIN,
+  INTERVIEW_CRITERIA_MAX,
+  JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
   JOB_EXPERIENCE_LEVELS,
@@ -40,10 +24,26 @@ import {
   JOB_STATUSES,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
-  type CompanyJobInput,
-  type CompanyJobRow,
   type JobStatus,
+  MUST_HAVE_MAX,
+  MUST_HAVE_MAX_LENGTH,
 } from "@/app/ai-dashboard/lib/job-types";
+import {
+  ANSWER_SECONDS_MAX,
+  ANSWER_SECONDS_MIN,
+  COMPETENCY_MAX,
+  type InterviewQuestionInput,
+  MAX_QUESTIONS,
+  PREP_SECONDS_MAX,
+  PREP_SECONDS_MIN,
+  QUESTION_TEXT_MAX,
+  RUBRIC_MAX,
+} from "@/lib/interviews/types";
+import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
+import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
+import { notifyCompany } from "@/lib/notifications/company";
+import { slugify, uniqueSlug } from "@/lib/slug";
+import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/input types live in lib/job-types.ts.
@@ -54,8 +54,7 @@ type MutationResult<T = undefined> =
    * question sync, which must not fail a job save but must not be silent
    * either. Optional, so every existing caller is unaffected.
    */
-  | { success: true; data: T; warning?: string }
-  | { success: false; error: string };
+  { success: true; data: T; warning?: string } | { success: false; error: string };
 
 const JOB_COLUMNS =
   "id, title, location, category, experience_level, contract_type, work_type, status, slug, salary_min, salary_max, salary_currency, positions, created_at, archived_at";
@@ -66,11 +65,7 @@ const COMPANY_JOB_RATING = 4.5;
 
 // ── Validation ───────────────────────────────────────────────
 
-function oneOf<T extends string>(
-  value: string,
-  allowed: readonly T[],
-  fallback: T,
-): T {
+function oneOf<T extends string>(value: string, allowed: readonly T[], fallback: T): T {
   return (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
 }
 
@@ -101,9 +96,7 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
     if (!raw || typeof raw !== "object") continue;
     const q = raw as Partial<ScreeningQuestion>;
 
-    const question = (typeof q.question === "string" ? q.question : "")
-      .trim()
-      .slice(0, 200);
+    const question = (typeof q.question === "string" ? q.question : "").trim().slice(0, 200);
     if (!question) continue;
 
     const type = q.type;
@@ -163,8 +156,7 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
       // No fallback to index 0 either: "the first option" was never a choice
       // the company made, just what an unset field happened to mean.
       const idx = Number.parseInt(String(q.ideal ?? ""), 10);
-      const ideal =
-        Number.isInteger(idx) && idx >= 0 && idx < options.length ? String(idx) : "";
+      const ideal = Number.isInteger(idx) && idx >= 0 && idx < options.length ? String(idx) : "";
       cleaned.push({ id, question, type, ideal, options, essential });
     }
   }
@@ -180,16 +172,12 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
  * Only enforced for status 'open'. Drafts are allowed to be half-built —
  * that is what a draft is — and 'closed' jobs take no new applications.
  */
-function assertPublishableQuestions(
-  questions: ScreeningQuestion[],
-): string | null {
+function assertPublishableQuestions(questions: ScreeningQuestion[]): string | null {
   // A numeric_mode 'none' question has an empty `ideal` BY DESIGN — there is no
   // threshold to set — so it is the one legitimate empty and must not be caught
   // by the unset check below.
   const unset = questions.find(
-    (q) =>
-      q.ideal === "" &&
-      !(q.type === "numeric" && resolveNumericMode(q) === "none"),
+    (q) => q.ideal === "" && !(q.type === "numeric" && resolveNumericMode(q) === "none"),
   );
   if (!unset) return null;
 
@@ -271,6 +259,14 @@ const SCORING_RELEVANT_COLUMNS = [
   "experience_level",
   "category",
   "screening_questions",
+  // Step 7. The scorer reports on each of these by name, so editing the list
+  // genuinely changes what a scorecard was judged against — same contract as
+  // editing the requirements text.
+  "scoring_must_haves",
+  // Same argument as scoring_must_haves: the interview scorer reports on each
+  // of these by name, so editing the list changes what a scorecard was judged
+  // against.
+  "interview_criteria",
 ] as const;
 
 /** Deep-equal enough for these columns: scalars and the questions jsonb. */
@@ -289,9 +285,9 @@ function scoringInputsChanged(
  * columns — ownership/identity columns are stamped by the caller so no client
  * value can ever reach them.
  */
-function buildPatch(input: CompanyJobInput):
-  | { ok: true; patch: Record<string, unknown> }
-  | { ok: false; error: string } {
+function buildPatch(
+  input: CompanyJobInput,
+): { ok: true; patch: Record<string, unknown> } | { ok: false; error: string } {
   const title = (input.title ?? "").trim();
   if (!title) return { ok: false, error: "Job title is required." };
   const location = (input.location ?? "").trim();
@@ -304,12 +300,8 @@ function buildPatch(input: CompanyJobInput):
 
   // Salary hidden → both columns null, so the public card shows no pay.
   const showSalary = input.show_salary !== false;
-  const min = showSalary && input.salary_min
-    ? Number.parseInt(input.salary_min, 10)
-    : null;
-  const max = showSalary && input.salary_max
-    ? Number.parseInt(input.salary_max, 10)
-    : null;
+  const min = showSalary && input.salary_min ? Number.parseInt(input.salary_min, 10) : null;
+  const max = showSalary && input.salary_max ? Number.parseInt(input.salary_max, 10) : null;
   if (min !== null && max !== null && Number.isFinite(min) && Number.isFinite(max) && max < min) {
     return { ok: false, error: "Maximum salary must be at or above the minimum." };
   }
@@ -372,6 +364,8 @@ function buildPatch(input: CompanyJobInput):
       async_interview_enabled: asyncOn,
       async_interview_name: interviewerName(input.async_interview_name, asyncOn),
       send_rejection_email: input.send_rejection_email === true,
+      scoring_must_haves: namedList(input.scoring_must_haves, MUST_HAVE_MAX),
+      interview_criteria: namedList(input.interview_criteria, INTERVIEW_CRITERIA_MAX),
       ...cvWeightPatch(input),
       ...autoshortlistPatch(input),
     },
@@ -413,9 +407,7 @@ function clampWeight(value: unknown): number | null {
  * the scorer treats a missing threshold as "do not flag" — never as a default.
  * The safe direction for an unreadable bar is to flag nobody.
  */
-function autoshortlistPatch(
-  input: CompanyJobInput,
-): Record<string, string | number | null> {
+function autoshortlistPatch(input: CompanyJobInput): Record<string, string | number | null> {
   const source = (AUTOSHORTLIST_SOURCES as readonly string[]).includes(
     input.autoshortlist_source ?? "",
   )
@@ -461,9 +453,38 @@ function cvWeightsChanged(
   before: Record<string, unknown>,
   after: Record<string, unknown>,
 ): boolean {
-  return CV_WEIGHT_DIMENSIONS.some(
-    ({ key }) => (before[key] ?? null) !== (after[key] ?? null),
-  );
+  return CV_WEIGHT_DIMENSIONS.some(({ key }) => (before[key] ?? null) !== (after[key] ?? null));
+}
+
+/**
+ * Clean the must-have list on its way to the column.
+ *
+ * Trimmed, empties dropped, de-duplicated case-insensitively, each capped at
+ * MUST_HAVE_MAX_LENGTH and the list capped at `max`. Shared by both step-7
+ * lists so the two cannot drift apart. Enforced HERE and
+ * not only in the wizard: the client cap is a courtesy, and this is the one a
+ * direct server-action call cannot skip. Over-long input is TRUNCATED rather
+ * than rejected — it is a label, and failing an otherwise valid publish over
+ * one long line helps nobody.
+ *
+ * Returns [] for anything unrecognisable, which is the column default and the
+ * behaviour every job had before step 7 existed.
+ */
+function namedList(value: unknown, max: number): string[] {
+  if (!Array.isArray(value)) return [];
+  const seen = new Set<string>();
+  const out: string[] = [];
+  for (const raw of value) {
+    if (typeof raw !== "string") continue;
+    const item = raw.replace(/\s+/g, " ").trim().slice(0, MUST_HAVE_MAX_LENGTH);
+    if (!item) continue;
+    const key = item.toLowerCase();
+    if (seen.has(key)) continue;
+    seen.add(key);
+    out.push(item);
+    if (out.length >= max) break;
+  }
+  return out;
 }
 
 /** The estimate's window. Matches the handoff's "last 30 days". */
@@ -527,10 +548,7 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
   const PAGE = 1000;
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += PAGE) {
-    let q = service
-      .from("jobs")
-      .select(JOB_COLUMNS)
-      .eq("company_id", ctx.companyId);
+    let q = service.from("jobs").select(JOB_COLUMNS).eq("company_id", ctx.companyId);
     if (scope.scoped) q = q.in("id", scope.jobIds);
     const { data, error } = await q
       .order("created_at", { ascending: false })
@@ -571,7 +589,7 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
     experience_level: (r.experience_level as string) ?? "",
     contract_type: (r.contract_type as string) ?? "",
     work_type: (r.work_type as string) ?? "",
-    status: ((r.status as JobStatus) ?? "open"),
+    status: (r.status as JobStatus) ?? "open",
     slug: (r.slug as string | null) ?? null,
     salary_min: (r.salary_min as number | null) ?? null,
     salary_max: (r.salary_max as number | null) ?? null,
@@ -584,7 +602,6 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
 }
 
 // ── Mutations ────────────────────────────────────────────────
-
 
 /**
  * Put the creator on the job's hiring team.
@@ -778,8 +795,7 @@ async function assertOwned(
   jobId: string,
   companyId: string,
 ): Promise<
-  | { ok: true; title: string; current: Record<string, unknown> }
-  | { ok: false; error: string }
+  { ok: true; title: string; current: Record<string, unknown> } | { ok: false; error: string }
 > {
   const { data } = await supabase
     .from("jobs")
@@ -999,7 +1015,7 @@ export async function estimateAutoshortlistReach(input: {
      * Two hops rather than a join: PostgREST embeds need a declared FK and
      * would silently drop rows whose session no longer exists.
      */
-    let sessionQuery = service
+    const sessionQuery = service
       .from("interview_session_scores")
       .select("session_id")
       .eq("company_id", ctx.companyId)
@@ -1033,30 +1049,32 @@ export async function estimateAutoshortlistReach(input: {
 }
 
 /** A job's interview questions, for the wizard's edit-mode prefill. */
-export async function fetchInterviewQuestions(
-  jobId: string,
-): Promise<InterviewQuestionInput[]> {
+export async function fetchInterviewQuestions(jobId: string): Promise<InterviewQuestionInput[]> {
   const ctx = await getCompanyContext();
   if (!jobId || !(await canAccessJob(ctx, jobId))) return [];
 
   const { data } = await createServiceClient()
     .from("interview_questions")
-    .select("id, position, question, competency, rubric, prep_seconds, answer_seconds, weight, required")
+    .select(
+      "id, position, question, competency, rubric, prep_seconds, answer_seconds, weight, required",
+    )
     .eq("job_id", jobId)
     .eq("company_id", ctx.companyId)
     .order("position", { ascending: true })
     .limit(MAX_QUESTIONS);
 
-  return ((data ?? []) as {
-    id: string;
-    question: string | null;
-    competency: string | null;
-    rubric: string | null;
-    prep_seconds: number | null;
-    answer_seconds: number | null;
-    weight: number | null;
-    required: boolean | null;
-  }[]).map((q) => ({
+  return (
+    (data ?? []) as {
+      id: string;
+      question: string | null;
+      competency: string | null;
+      rubric: string | null;
+      prep_seconds: number | null;
+      answer_seconds: number | null;
+      weight: number | null;
+      required: boolean | null;
+    }[]
+  ).map((q) => ({
     id: q.id,
     question: q.question ?? "",
     competency: q.competency ?? "",
@@ -1098,8 +1116,7 @@ export async function updateCompanyJobStatus(
       .eq("id", jobId)
       .maybeSingle();
     const unpublishable = assertPublishableQuestions(
-      sanitizeQuestions((stored as { screening_questions?: unknown } | null)
-        ?.screening_questions),
+      sanitizeQuestions((stored as { screening_questions?: unknown } | null)?.screening_questions),
     );
     if (unpublishable) {
       return { success: false, error: `${unpublishable} Open the job to fix it.` };
@@ -1120,10 +1137,7 @@ export async function updateCompanyJobStatus(
     await notifyCompany({
       companyId: ctx.companyId,
       type: status === "open" ? "job_published" : "job_closed",
-      title:
-        status === "open"
-          ? `“${owned.title}” is live`
-          : `“${owned.title}” was closed`,
+      title: status === "open" ? `“${owned.title}” is live` : `“${owned.title}” was closed`,
       body:
         status === "open"
           ? `${ctx.memberName} published it — it's on remotiv.work now.`
@@ -1200,9 +1214,7 @@ export async function setCompanyJobArchived(
   return { success: true, data: undefined };
 }
 
-export async function deleteCompanyJob(
-  jobId: string,
-): Promise<MutationResult<undefined>> {
+export async function deleteCompanyJob(jobId: string): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
   const supabase = createServiceClient();
@@ -1238,9 +1250,7 @@ export async function deleteCompanyJob(
 }
 
 /** Copy an existing job into a fresh Draft. Ownership-checked like the rest. */
-export async function duplicateCompanyJob(
-  jobId: string,
-): Promise<MutationResult<{ id: string }>> {
+export async function duplicateCompanyJob(jobId: string): Promise<MutationResult<{ id: string }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
   const supabase = createServiceClient();
@@ -1252,7 +1262,7 @@ export async function duplicateCompanyJob(
       // step 8/9 columns copy for exactly the same reason: a copy that dropped
       // the weighting would score its applicants differently from the original
       // with nothing on screen to explain why.
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold",
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria",
     )
     .eq("id", jobId)
     .maybeSingle();
