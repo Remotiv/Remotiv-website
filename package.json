@@ -33,6 +33,7 @@
     "unpdf": "^1.6.2"
   },
   "devDependencies": {
+    "@biomejs/biome": "2.5.8",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
