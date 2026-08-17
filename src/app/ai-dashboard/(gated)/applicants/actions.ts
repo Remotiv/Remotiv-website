@@ -32,6 +32,7 @@ import {
   type ScoreEvidenceRow,
   type ScoreStrengthRow,
   type StageHistoryRow,
+  WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -47,7 +48,7 @@ const CV_BUCKET = "cvs";
  * reason — it is what separates an expired CV from one never supplied.
  */
 const APPLICANT_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, cv_path, cv_url, cv_delete_after, jobs(title)";
+  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, cv_path, cv_url, cv_delete_after, shortlist_flagged_at, shortlist_flag_reason, jobs(title)";
 
 type ApplicantQueryRow = {
   id: string;
@@ -69,6 +70,8 @@ type ApplicantQueryRow = {
   cv_path: string | null;
   cv_url: string | null;
   cv_delete_after: string | null;
+  shortlist_flagged_at: string | null;
+  shortlist_flag_reason: string | null;
   jobs: { title: string | null } | null;
 };
 
@@ -215,7 +218,55 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
       !r.cv_url &&
       Boolean(r.cv_delete_after) &&
       new Date(r.cv_delete_after as string).getTime() <= Date.now(),
+    // Passed through exactly as stored. Nothing here decides whether someone is
+    // flagged — that is settled when a score lands, server-side.
+    shortlist: {
+      flaggedAt: r.shortlist_flagged_at,
+      reason: r.shortlist_flag_reason,
+    },
   };
+}
+
+/**
+ * How many applicants currently carry the auto-shortlist flag.
+ *
+ * ── A real aggregate, not a count of what was rendered ───────
+ *
+ * The Flagged chip's badge has to be right about the whole workspace, and the
+ * table shows a page. `count: "exact", head: true` returns the number in
+ * Content-Range without transferring a row, so the badge cannot drift from the
+ * list the way a client-side `rows.filter(...).length` would once the list is
+ * genuinely paged.
+ *
+ * Scoped identically to the list: company first, then the caller's job scope,
+ * then the same optional job filter. The stage predicate matches
+ * WORTH_A_LOOK_STAGES exactly — a badge counting flags the list refuses to draw
+ * is worse than no badge.
+ */
+export async function countFlaggedApplicants(
+  query: CompanyApplicantQuery = {},
+): Promise<number> {
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return 0;
+
+  const service = createServiceClient();
+  let q = service
+    .from("job_applications")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id_snapshot", ctx.companyId)
+    .not("shortlist_flagged_at", "is", null)
+    .in("pipeline_stage", WORTH_A_LOOK_STAGES as unknown as string[]);
+
+  if (scope.scoped) q = q.in("job_id", scope.jobIds);
+  if (query.jobId) q = q.eq("job_id", query.jobId);
+
+  const { count, error } = await q;
+  if (error) {
+    console.error("[applicants] countFlaggedApplicants failed:", error.message);
+    return 0;
+  }
+  return count ?? 0;
 }
 
 /**

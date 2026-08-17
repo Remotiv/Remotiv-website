@@ -80,7 +80,44 @@ export type CompanyApplicantRow = {
    * uses to tell a purged answer from an unanswered question.
    */
   cv_expired: boolean;
+  /**
+   * The auto-shortlist flag, computed and stored server-side when a score
+   * lands. Never derived here — the list and the Flagged count would disagree.
+   */
+  shortlist: ApplicantShortlist;
 };
+
+export type ApplicantShortlist = {
+  /** Null when never flagged, or when a recruiter dismissed it. */
+  flaggedAt: string | null;
+  /** "CV score 94 met the auto-shortlist threshold of 80." */
+  reason: string | null;
+};
+
+/**
+ * Stages on which "Worth a look" is shown.
+ *
+ * Applied and Screening only. Past that the recruiter has already acted on this
+ * person, and a flag urging them to look at someone they have already
+ * shortlisted or interviewed is noise — which is what would make the flag stop
+ * meaning anything. Top match is NOT gated this way: it is a statement about
+ * the score, not a prompt to do something.
+ */
+export const WORTH_A_LOOK_STAGES: readonly PipelineStage[] = [
+  "applied",
+  "screening",
+];
+
+/** Does this row wear the "Worth a look" mark right now? */
+export function showsWorthALook(row: {
+  pipeline_stage: PipelineStage;
+  shortlist: ApplicantShortlist;
+}): boolean {
+  return (
+    row.shortlist.flaggedAt !== null &&
+    WORTH_A_LOOK_STAGES.includes(row.pipeline_stage)
+  );
+}
 
 /**
  * AI scoring state, from application_scores.

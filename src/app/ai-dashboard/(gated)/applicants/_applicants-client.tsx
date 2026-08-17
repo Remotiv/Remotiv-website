@@ -38,6 +38,7 @@ import {
   type CompanyApplicantRow,
   type PipelineStage,
   type StageHistoryRow,
+  showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import {
   DashboardHero,
@@ -48,7 +49,9 @@ import { canCreateJobs, type CompanyRole } from "@/app/ai-dashboard/lib/company-
 import {
   adjustScore,
   clearScoreAdjustment,
+  countFlaggedApplicants,
   deleteApplication,
+  dismissShortlistFlagAction,
   rescoreApplication,
   fetchCompanyApplicant,
   updateApplicationStage,
@@ -518,6 +521,62 @@ function Pagination({
  * the desktop row — rank + identity, job, score, stage, applied — just laid
  * out vertically so nothing needs horizontal scrolling. Opens the same drawer.
  */
+/**
+ * "Worth a look" — the COMPANY's rule, deliberately unlike "Top match".
+ *
+ * Top match is the model's own opinion (score >= 90) and wears a FILLED lime
+ * sticker. This is a threshold somebody chose, so it wears a purple OUTLINE
+ * chip on a faint purple wash. Filled vs outline, lime vs purple: the two must
+ * never be mistakable, because one is "the AI rates this person highly" and the
+ * other is "this cleared a bar you set" — different claims, different recourse.
+ *
+ * The × is the first of three dismiss entry points and appears on row hover so
+ * it is not a permanent invitation to clear the thing you just asked for.
+ */
+function WorthALookChip({
+  onDismiss,
+  busy,
+}: {
+  onDismiss?: () => void;
+  busy?: boolean;
+}) {
+  return (
+    <span className="group/chip inline-flex shrink-0 items-center gap-1 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] py-0.5 pl-[7px] pr-[7px] text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-remotiv-purple">
+      Worth a look
+      {onDismiss && (
+        <button
+          type="button"
+          aria-label="Dismiss this flag"
+          disabled={busy}
+          onClick={(e) => {
+            // The row itself opens the drawer — dismissing must not also open it.
+            e.stopPropagation();
+            onDismiss();
+          }}
+          className="-mr-0.5 rounded-full p-0.5 opacity-0 transition-opacity hover:bg-remotiv-purple/15 focus-visible:opacity-100 disabled:opacity-40 group-hover/row:opacity-70 group-hover/chip:opacity-100"
+        >
+          <X className="size-[11px]" strokeWidth={2.6} />
+        </button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * The reason, which replaces the email sub-line on a flagged row.
+ *
+ * A flag without its reason is just a badge — the recruiter cannot tell whether
+ * it fired on a CV at 82 or an interview at 95, and those warrant different
+ * next moves. The stored sentence names the score and the mark it cleared.
+ */
+function FlagReasonLine({ reason }: { reason: string | null }) {
+  return (
+    <p className="m-0 mt-0.5 truncate text-[12.5px] font-medium text-remotiv-purple">
+      {reason?.trim() || "Met your auto-shortlist mark."}
+    </p>
+  );
+}
+
 function ApplicantCard({
   row,
   index,
@@ -536,19 +595,26 @@ function ApplicantCard({
   const applied = fmtApplied(row.created_at);
   const stage = stageOf(row);
   const pill = STAGE_PILL[stage];
+  const worthALook = showsWorthALook(row);
 
   return (
     <button
       type="button"
       onClick={onOpen}
       className={`relative w-full border-b border-[var(--ai-line-soft)] px-4 py-4 text-left transition-colors last:border-b-0 active:bg-[#FCFBFA] ${
-        selected ? "bg-[var(--ai-purple-tint)]" : "bg-[var(--ai-surface)]"
+        selected
+          ? "bg-[var(--ai-purple-tint)]"
+          : worthALook
+            ? "bg-remotiv-purple/[0.035]"
+            : "bg-[var(--ai-surface)]"
       }`}
     >
+      {/* The accent stays on for a flagged row, not only when selected — it is
+          what makes the flag findable while scrolling. Selection still wins. */}
       <span
         aria-hidden
         className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-          selected ? "opacity-100" : "opacity-0"
+          selected || worthALook ? "opacity-100" : "opacity-0"
         }`}
       />
 
@@ -583,10 +649,15 @@ function ApplicantCard({
                 Top match
               </span>
             )}
+            {worthALook && <WorthALookChip />}
           </p>
-          <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-            {row.email}
-          </p>
+          {worthALook ? (
+            <FlagReasonLine reason={row.shortlist.reason} />
+          ) : (
+            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+              {row.email}
+            </p>
+          )}
         </div>
       </div>
 
@@ -796,6 +867,8 @@ function ApplicantDrawer({
   onAdjustScore,
   onClearAdjustment,
   onDelete,
+  onDismissFlag,
+  dismissing,
 }: {
   row: CompanyApplicantRow;
   history: StageHistoryRow[];
@@ -815,6 +888,10 @@ function ApplicantDrawer({
   onAdjustScore: (score: number, feedback: string) => void;
   onClearAdjustment: () => void;
   onDelete: () => void;
+  /** The third dismiss entry point — chip, row menu, and this banner. */
+  onDismissFlag: (id: string) => void;
+  /** The id currently being dismissed, or null. */
+  dismissing: string | null;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
@@ -1004,6 +1081,34 @@ function ApplicantDrawer({
 
         {/* Light body */}
         <div className="min-h-0 flex-1 overflow-y-auto px-[22px] pb-7 pt-[18px]">
+          {/* The banner sits ABOVE "Applied to…" — it is the reason this drawer
+              was opened, so it cannot be below the metadata. */}
+          {showsWorthALook(row) && (
+            <div className="mb-3.5 rounded-[13px] border border-remotiv-purple/25 border-l-[3px] border-l-remotiv-purple bg-remotiv-purple/[0.05] px-3.5 py-3">
+              <p className="m-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-remotiv-purple">
+                Worth a look
+              </p>
+              <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+                {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
+              </p>
+              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
+                <button
+                  type="button"
+                  disabled={dismissing === row.id}
+                  onClick={() => onDismissFlag(row.id)}
+                  className="rounded-[9px] border border-remotiv-purple/40 bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/[0.08] disabled:opacity-40"
+                >
+                  {dismissing === row.id ? "Dismissing…" : "Dismiss"}
+                </button>
+                {/* Says what dismissal MEANS. Without this a recruiter has to
+                    guess whether they are silencing this person permanently. */}
+                <span className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+                  Clears the flag. A materially better score later flags them
+                  again.
+                </span>
+              </div>
+            </div>
+          )}
           <p className="mb-3.5 text-[13px] leading-relaxed text-[var(--ai-t3)]">
             Applied to{" "}
             <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
@@ -1565,6 +1670,56 @@ export function ApplicantsClient({
 
   const [tab, setTab] = useState<"all" | PipelineStage>("all");
   const [jobFilter, setJobFilter] = useState("all");
+  /** The Flagged chip: a filter alongside the stage tabs, not one of them. */
+  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  /** Server aggregate over the workspace — never a count of rendered rows. */
+  const [flaggedCount, setFlaggedCount] = useState<number | null>(null);
+  /** The id mid-dismiss, so one chip disables without freezing the list. */
+  const [dismissing, setDismissing] = useState<string | null>(null);
+
+  /*
+   * The Flagged badge, from a server aggregate.
+   *
+   * Deliberately NOT `rows.filter(showsWorthALook).length`: the badge is a claim
+   * about the workspace and the table shows a page, so a client count would
+   * quietly become wrong the moment the list is genuinely paged. Re-fetched
+   * whenever the job filter moves, because the count is scoped the same way.
+   */
+  useEffect(() => {
+    let cancelled = false;
+    countFlaggedApplicants(jobFilter === "all" ? {} : { jobId: jobFilter })
+      .then((n) => {
+        if (!cancelled) setFlaggedCount(n);
+      })
+      .catch(() => {
+        if (!cancelled) setFlaggedCount(null);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [jobFilter]);
+
+  /**
+   * Dismiss a flag optimistically, reverting if the server refuses.
+   *
+   * The row is re-rendered without its chip immediately — a dismiss that waits
+   * on a round trip feels broken — and `router.refresh()` reconciles with the
+   * server afterwards. On failure the toast says so and the refresh puts the
+   * chip back, so the UI never keeps a lie.
+   */
+  async function dismissFlag(id: string) {
+    if (dismissing) return;
+    setDismissing(id);
+    setFlaggedCount((n) => (typeof n === "number" ? Math.max(0, n - 1) : n));
+    const result = await dismissShortlistFlagAction(id);
+    setDismissing(null);
+    if (!result.success) {
+      setToast(result.error);
+    }
+    // Either way: success needs the row's stored flag cleared, failure needs the
+    // optimistic change undone. One refresh covers both.
+    router.refresh();
+  }
   // Seeded from ?q= so a topbar search result lands on this list already
   // filtered, rather than on an unfiltered page the reader has to search again.
   const searchParams = useSearchParams();
@@ -1646,6 +1801,7 @@ export function ApplicantsClient({
       .filter((r) => {
         if (tab !== "all" && stageOf(r) !== tab) return false;
         if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
+        if (flaggedOnly && !showsWorthALook(r)) return false;
         if (q) {
           const blob = `${fullName(r)} ${r.email}`.toLowerCase();
           if (!blob.includes(q)) return false;
@@ -1664,7 +1820,7 @@ export function ApplicantsClient({
           new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
         );
       });
-  }, [rows, tab, jobFilter, search]);
+  }, [rows, tab, jobFilter, search, flaggedOnly]);
 
   /**
    * The ids wearing a "Top match" chip: scored >= 90, best first, capped.
@@ -1703,7 +1859,7 @@ export function ApplicantsClient({
   // biome-ignore lint/correctness/useExhaustiveDependencies: resets on filter change, not on page change
   useEffect(() => {
     setPage(1);
-  }, [tab, jobFilter, search, topOnly]);
+  }, [tab, jobFilter, search, topOnly, flaggedOnly]);
 
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
 
@@ -2208,6 +2364,33 @@ export function ApplicantsClient({
                 {PIPELINE_STAGE_LABELS[s]}
               </TabButton>
             ))}
+
+            {/* A FILTER, not a stage — it composes with whichever tab is on,
+                because "flagged, in Screening" is a question worth asking. Its
+                badge is the server aggregate, not filtered.length. */}
+            <button
+              type="button"
+              aria-pressed={flaggedOnly}
+              onClick={() => setFlaggedOnly((v) => !v)}
+              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-[6px] text-[12.5px] font-semibold transition-colors ${
+                flaggedOnly
+                  ? "border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white"
+                  : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:text-[var(--ai-t1)]"
+              }`}
+            >
+              Flagged
+              {typeof flaggedCount === "number" && flaggedCount > 0 && (
+                <span
+                  className={`rounded-full px-[6px] py-px text-[10.5px] font-bold tabular-nums ${
+                    flaggedOnly
+                      ? "bg-white/20 text-white"
+                      : "bg-remotiv-purple/10 text-remotiv-purple"
+                  }`}
+                >
+                  {flaggedCount}
+                </span>
+              )}
+            </button>
           </div>
 
           {/* Full-width on phones so the select + search stack under the tabs
@@ -2319,14 +2502,23 @@ export function ApplicantsClient({
                     key={r.id}
                     type="button"
                     onClick={() => setOpenId(r.id)}
-                    className={`${GRID} group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] bg-[var(--ai-surface)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                      openId === r.id ? "bg-[var(--ai-purple-tint)]" : ""
+                    className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                      openId === r.id
+                        ? "bg-[var(--ai-purple-tint)]"
+                        : showsWorthALook(r)
+                          ? "bg-remotiv-purple/[0.035]"
+                          : "bg-[var(--ai-surface)]"
                     }`}
                   >
+                    {/* Always on for a flagged row — the accent is what makes a
+                        flag findable while scrolling, so it does not wait for a
+                        hover the way the default row's does. */}
                     <span
                       aria-hidden
                       className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                        openId === r.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
+                        openId === r.id || showsWorthALook(r)
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100"
                       }`}
                     />
                     <span
@@ -2360,10 +2552,20 @@ export function ApplicantsClient({
                               Top match
                             </span>
                           )}
+                          {showsWorthALook(r) && (
+                            <WorthALookChip
+                              busy={dismissing === r.id}
+                              onDismiss={() => dismissFlag(r.id)}
+                            />
+                          )}
                         </p>
-                        <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                          {r.email}
-                        </p>
+                        {showsWorthALook(r) ? (
+                          <FlagReasonLine reason={r.shortlist.reason} />
+                        ) : (
+                          <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                            {r.email}
+                          </p>
+                        )}
                       </div>
                     </div>
 
@@ -2456,6 +2658,10 @@ export function ApplicantsClient({
             void handleClearAdjustment(openRow.id);
           }}
           onDelete={() => setDeleteTarget(openRow)}
+            onDismissFlag={(id) => {
+              void dismissFlag(id);
+            }}
+            dismissing={dismissing}
         />
       )}
 
