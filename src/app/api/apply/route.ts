@@ -331,6 +331,52 @@ export async function POST(request: NextRequest) {
 
     const supabase = createServiceClient();
 
+    // JOB-002 — visibility gate. A candidate must only be able to apply to a
+    // job the public pages would actually show; a closed, archived, or
+    // placeholder job must not accept direct POSTs. The predicate duplicates
+    // getJobById/getJobBySlug in src/lib/jobs.ts (status === "open" &&
+    // archived_at IS NULL) — deliberately NOT hoisted: JOB-009 is the
+    // follow-up that unifies all 8 sites, and editing lib/jobs.ts here would
+    // ripple into the other 7.
+    //
+    // Scoped exactly like the dedup check below: manual_upload is exempt
+    // (admins backfill candidates onto withdrawn roles, and the manual-title
+    // branch creates its placeholder as status "closed" — gating it would
+    // break bulk upload outright). `source` is client-supplied, so this gate
+    // is spoofable until JOB-005 auth-gates manual_upload. Placed BEFORE the
+    // CV storage upload so a rejection can't strand an orphan PDF.
+    if (source !== "manual_upload" && jobId !== null) {
+      const { data: visRow, error: visError } = await supabase
+        .from("jobs")
+        .select("status, archived_at")
+        .eq("id", jobId)
+        .maybeSingle();
+
+      if (visError) {
+        // Fail closed — an unverifiable job must not accept applications.
+        console.error(
+          `[/api/apply][${errorId}] job visibility lookup failed:`,
+          visError,
+        );
+        return NextResponse.json(
+          { error: GENERIC_ERROR_MESSAGE, errorId },
+          { status: 500 },
+        );
+      }
+
+      if (!visRow) {
+        return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      }
+
+      const vis = visRow as { status: string | null; archived_at: string | null };
+      if (vis.status !== "open" || vis.archived_at !== null) {
+        return NextResponse.json(
+          { error: "This role is no longer accepting applications." },
+          { status: 410 },
+        );
+      }
+    }
+
     // 0. Same-job duplicate check — only for public job applications. The admin
     //    "Manual Upload" flow already shows a soft warning panel and lets the
     //    admin opt in, so we don't want to block submissions there.
