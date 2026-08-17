@@ -60,6 +60,18 @@ function redactContact(text: string): string {
     .replace(/(\+?\d[\d\s()-]{7,}\d)/g, "[contact via Remotiv]");
 }
 
+// JSON.stringify does not escape "<", and this JSON-LD embeds candidate-authored
+// values (fullName, bio, skills, location). A bio containing "</script>" would
+// terminate the inline script element and execute what follows. Unicode escapes
+// keep the output valid JSON — JSON.parse and Google's structured-data parser
+// read it unchanged — while making it inert inside <script>.
+function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+}
+
 function normalisePakistan(row: Record<string, unknown>): UnifiedProfile {
   const firstName = (row.first_name as string | null) ?? "";
   const lastName = (row.last_name as string | null) ?? null;
@@ -613,12 +625,12 @@ export default async function TalentProfilePage({ params }: PageProps) {
       <script
         type="application/ld+json"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD requires raw string
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(personLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(personLd) }}
       />
       <script
         type="application/ld+json"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD requires raw string
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(breadcrumbLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(breadcrumbLd) }}
       />
     </>
   );
