@@ -221,18 +221,24 @@ export async function POST(request: NextRequest) {
     const cvFieldValue = form.get("cv");
     const cvFile = cvFieldValue instanceof File ? cvFieldValue : null;
 
-    // JOB-005 — manual_upload is an admin-only claim. The flag skips the
-    // duplicate check and the JOB-002 visibility gate below, so an anonymous
-    // caller must not be able to assert it. Same pattern as
-    // /api/check-duplicate: requireAdmin throws on no session / no active
-    // admin_users row / bad role, and the bare catch fails CLOSED on every
-    // failure mode, auth outages included. Deliberately a 403 rather than a
-    // silent downgrade to job_application — a downgrade would hide the
-    // spoof attempt and give the caller confusing half-candidate behaviour.
+    // JOB-005 — two admin-only claims share this one gate:
+    //   · source=manual_upload skips the duplicate check and the JOB-002
+    //     visibility gate below;
+    //   · job_title_manual makes the route INSERT a placeholder row into the
+    //     jobs table, and that insert is keyed on the field alone — it fires
+    //     whatever `source` says, so it needs its own trigger here.
+    // The only sender of either is the admin applications dashboard; the
+    // public apply modal sends job_id + source-less job_application only.
+    // Same pattern as /api/check-duplicate: requireAdmin throws on no
+    // session / no active admin_users row / bad role, and the bare catch
+    // fails CLOSED on every failure mode, auth outages included.
+    // Deliberately a 403 rather than a silent downgrade — a downgrade would
+    // hide the spoof attempt and give confusing half-candidate behaviour.
     // Placed before any CV processing, storage upload, or jobs-table insert
-    // so a rejected request writes nothing anywhere. The candidate path
-    // never enters this branch and gains no auth requirement.
-    if (source === "manual_upload") {
+    // so a rejected request writes nothing anywhere. The plain candidate
+    // path (job_id + job_application) never enters this branch and makes
+    // zero auth calls.
+    if (source === "manual_upload" || jobTitle !== null) {
       try {
         await requireAdmin();
       } catch {
