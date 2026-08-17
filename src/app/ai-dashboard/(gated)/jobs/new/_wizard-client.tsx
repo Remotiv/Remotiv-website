@@ -1,6 +1,6 @@
 "use client";
 
-import { useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import {
@@ -16,6 +16,7 @@ import {
   MapPin,
   Plus,
   Settings2,
+  ShieldCheck,
   Trash,
   Zap,
 } from "lucide-react";
@@ -35,6 +36,10 @@ import {
   type InterviewQuestionInput,
 } from "@/lib/interviews/types";
 import {
+  AUTOSHORTLIST_DEFAULT_THRESHOLD,
+  AUTOSHORTLIST_SOURCE_LABELS,
+  CV_WEIGHT_DEFAULT,
+  CV_WEIGHT_DIMENSIONS,
   EMPTY_JOB_INPUT,
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
@@ -44,11 +49,21 @@ import {
   JOB_TEXT_COUNTER_FROM,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
+  WEIGHT_STOPS,
+  stopForStored,
+  weightShares,
+  weightsAreEqual,
+  type AutoshortlistSource,
   type CompanyJobInput,
+  type CvWeightKey,
   type JobCurrency,
 } from "@/app/ai-dashboard/lib/job-types";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
-import { createCompanyJob, updateCompanyJob } from "../actions";
+import {
+  createCompanyJob,
+  estimateAutoshortlistReach,
+  updateCompanyJob,
+} from "../actions";
 import { HiringTeamSection } from "../_hiring-team";
 
 // ── Constants ────────────────────────────────────────────────
@@ -73,13 +88,61 @@ const STEPS = [
  * of the flow, so it becomes step 5 and Review moves to 6. The three that stay
  * locked keep their order and renumber behind it.
  */
-const LOCKED_STEPS = [
-  { n: 7, label: "AI scoring" },
-  { n: 8, label: "Answer weighting" },
-  { n: 9, label: "Auto-shortlist" },
+const LOCKED_STEPS = [{ n: 7, label: "AI scoring" }] as const;
+
+/**
+ * Steps 8 and 9, which sit AFTER the locked step 7 in the rail.
+ *
+ * Separate from STEPS so the rail can render 1–6, then the locked 7, then these
+ * — the mock's order. Their panels are numbered 8 and 9 because that is the
+ * product's step identity, not their position in the flow.
+ */
+const LATE_STEPS = [
+  {
+    n: 8,
+    label: "Answer weighting",
+    title: "Answer weighting",
+    desc: "Decide what counts most when the AI scores someone.",
+  },
+  {
+    n: 9,
+    label: "Auto-shortlist",
+    title: "Auto-shortlist",
+    desc: "Flag the strongest applicants automatically. You still decide.",
+  },
 ] as const;
 
-const LAST_STEP = 6;
+/**
+ * The order a person actually moves through, skipping what is locked.
+ *
+ * NOT `1..9`: step 7 is locked, so Continue from 6 goes to 8 and Back from 8
+ * returns to 6. Two numbers therefore exist for every position and both are
+ * shown, deliberately — the badge reads "Step 8 of 9" (the step's identity, and
+ * what the rail shows) while the footer reads "Step 7 of 8" (progress through
+ * what is actually unlocked). Collapsing them to one number would either
+ * renumber the product's steps or claim there are nine to complete when there
+ * are eight.
+ *
+ * Review stays mid-flow at 6, matching the mock, and Publish moves to the last
+ * position — step 9.
+ */
+const SEQUENCE = [1, 2, 3, 4, 5, 6, 8, 9] as const;
+
+/** 1-based position of a step in the working sequence. 0 when not in it. */
+function positionOf(step: number): number {
+  return SEQUENCE.indexOf(step as (typeof SEQUENCE)[number]) + 1;
+}
+
+/** The step the Continue/Back buttons should move to, or null at either end. */
+function stepAt(position: number): number | null {
+  return SEQUENCE[position - 1] ?? null;
+}
+
+/** The step Publish lives on — the last unlocked one. */
+const FINAL_STEP = SEQUENCE[SEQUENCE.length - 1];
+
+/** Highest step number in the rail, for the "Step N of 9" badge. */
+const HIGHEST_STEP = 9;
 
 /**
  * Competency suggestions for the interview builder.
@@ -612,8 +675,15 @@ export function WizardClient({
       setStep(target);
       return;
     }
-    for (let k = step; k < target; k++) {
-      if (!validate(k)) {
+    /*
+     * Walk the SEQUENCE, not the raw numbers: step 7 is locked, so counting
+     * upward would validate a step the user can never reach or fix.
+     */
+    const from = positionOf(step);
+    const to = positionOf(target);
+    for (let pos = from; pos < to; pos++) {
+      const k = stepAt(pos);
+      if (k !== null && !validate(k)) {
         setStep(k);
         return;
       }
@@ -866,7 +936,10 @@ export function WizardClient({
     return `${currencySymbol(state.salary_currency)} ${min || "—"} – ${max || "—"}`;
   }, [state.show_salary, state.salary_min, state.salary_max, state.salary_currency]);
 
-  const meta = STEPS[step - 1];
+  // Steps 8 and 9 live in LATE_STEPS, so the lookup spans both tables rather
+  // than indexing STEPS by position — which would silently return Basics.
+  const meta =
+    STEPS.find((x) => x.n === step) ?? LATE_STEPS.find((x) => x.n === step) ?? STEPS[0];
 
   return (
     <div className="flex min-h-full flex-col">
@@ -947,14 +1020,16 @@ export function WizardClient({
               <div className="mb-[18px] h-1 overflow-hidden rounded-[3px] bg-white/[0.12]">
                 <div
                   className="h-full rounded-[3px] bg-remotiv-lime transition-[width] duration-300 ease-out"
-                  style={{ width: `${(step / LAST_STEP) * 100}%` }}
+                  style={{
+                    width: `${(positionOf(step) / SEQUENCE.length) * 100}%`,
+                  }}
                 />
               </div>
 
               <div>
               {STEPS.map((s) => {
                 const active = s.n === step;
-                const done = s.n < step;
+                const done = positionOf(s.n) < positionOf(step);
                 return (
                   <button
                     key={s.n}
@@ -998,8 +1073,10 @@ export function WizardClient({
               })}
               </div>
 
-              <div className="mx-1 my-2.5 h-px bg-white/10" />
-
+              {/* Locked step 7 sits BETWEEN 6 and 8, as the rail is numbered —
+                  not in a group at the bottom. A locked row in its true position
+                  is what makes "Continue skips it" legible rather than looking
+                  like the rail lost a step. */}
               <div>
                 {LOCKED_STEPS.map((s) => (
                   <button
@@ -1017,9 +1094,48 @@ export function WizardClient({
                 ))}
               </div>
 
+              <div>
+                {LATE_STEPS.map((s) => {
+                  const active = s.n === step;
+                  const done = positionOf(s.n) < positionOf(step);
+                  return (
+                    <button
+                      key={s.n}
+                      type="button"
+                      onClick={() => goTo(s.n)}
+                      className={`${STEP_ROW} ${
+                        active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE
+                      }`}
+                    >
+                      <span
+                        className={`${STEP_NUM} ${
+                          active
+                            ? STEP_NUM_ACTIVE
+                            : done
+                              ? STEP_NUM_DONE
+                              : STEP_NUM_IDLE
+                        }`}
+                      >
+                        {s.n}
+                      </span>
+                      <span
+                        className={`${STEP_LAB} ${
+                          active
+                            ? "text-white"
+                            : done
+                              ? "text-white/70"
+                              : "text-white/[0.62]"
+                        }`}
+                      >
+                        {s.label}
+                      </span>
+                    </button>
+                  );
+                })}
+              </div>
+
               <p className="mx-2.5 mt-3 text-[11px] leading-relaxed text-white/40">
-                Steps 6–9 (AI scoring, interview questions &amp; weighting) unlock
-                in a later release.
+                Step 7 (AI scoring) unlocks in a later release.
               </p>
             </div>
           </div>
@@ -1036,7 +1152,7 @@ export function WizardClient({
                 </p>
               </div>
               <span className="shrink-0 whitespace-nowrap rounded-full bg-[var(--ai-purple-tint)] px-[11px] py-[5px] text-[10.5px] font-extrabold uppercase tracking-[0.08em] text-[var(--ai-purple-ink)]">
-                Step {step} of {LAST_STEP}
+                Step {step} of {HIGHEST_STEP}
               </span>
             </div>
 
@@ -2029,17 +2145,58 @@ export function WizardClient({
                   </div>
                 </>
               )}
+
+              {step === 8 && (
+                <WeightingStep
+                  state={state}
+                  onCvWeight={(key, stored) =>
+                    setState((prev) => ({ ...prev, [key]: stored }))
+                  }
+                  onQuestionWeight={(id, stored) =>
+                    set(
+                      "interview_questions",
+                      state.interview_questions.map((q) =>
+                        q.id === id ? { ...q, weight: String(stored) } : q,
+                      ),
+                    )
+                  }
+                  onResetCv={() =>
+                    setState((prev) => ({
+                      ...prev,
+                      cv_weight_requirements: CV_WEIGHT_DEFAULT,
+                      cv_weight_experience: CV_WEIGHT_DEFAULT,
+                      cv_weight_domain: CV_WEIGHT_DEFAULT,
+                      cv_weight_responsibilities: CV_WEIGHT_DEFAULT,
+                    }))
+                  }
+                  onResetQuestions={() =>
+                    set(
+                      "interview_questions",
+                      state.interview_questions.map((q) => ({
+                        ...q,
+                        weight: String(CV_WEIGHT_DEFAULT),
+                      })),
+                    )
+                  }
+                />
+              )}
+
+              {step === 9 && <AutoshortlistStep state={state} set={set} />}
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-[26px] py-4">
               <span className="text-[12.5px] font-semibold text-[var(--ai-t3)]">
-                Step <b className="text-[var(--ai-t1)]">{step}</b> of {LAST_STEP}
+                Step <b className="text-[var(--ai-t1)]">{positionOf(step)}</b> of{" "}
+                {SEQUENCE.length}
               </span>
               <div className="flex gap-2.5">
-                {step > 1 && (
+                {positionOf(step) > 1 && (
                   <button
                     type="button"
-                    onClick={() => setStep(step - 1)}
+                    onClick={() => {
+                      const prev = stepAt(positionOf(step) - 1);
+                      if (prev !== null) setStep(prev);
+                    }}
                     className="rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[9px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
                   >
                     Back
@@ -2049,21 +2206,22 @@ export function WizardClient({
                   type="button"
                   disabled={submitting}
                   onClick={() => {
-                    if (step === LAST_STEP) {
+                    if (step === FINAL_STEP) {
                       // Edit keeps whatever status the job already has; only
                       // create implies "publish now".
                       submit(isEdit ? state.status : "open");
                       return;
                     }
-                    if (validate(step)) setStep(step + 1);
+                    const next = stepAt(positionOf(step) + 1);
+                    if (next !== null && validate(step)) setStep(next);
                   }}
                   className={`inline-flex items-center gap-2 rounded-[11px] px-5 py-2.5 text-[13.5px] font-semibold text-white transition-colors disabled:opacity-60 ${
-                    step === LAST_STEP
+                    step === FINAL_STEP
                       ? "bg-remotiv-purple shadow-[0_4px_16px_rgba(126,71,255,0.28)] hover:bg-[var(--ai-purple-hover)]"
                       : "bg-[var(--ai-sidebar)] hover:bg-[#241d38]"
                   }`}
                 >
-                  {step === LAST_STEP ? (
+                  {step === FINAL_STEP ? (
                     <>
                       <ArrowRight className="size-[15px]" strokeWidth={2} />
                       {submitting
@@ -2255,6 +2413,642 @@ function ReviewCard({
         </button>
       </div>
       <div className="text-sm leading-relaxed text-[var(--ai-t1)]">{children}</div>
+    </div>
+  );
+}
+
+// ── Step 8 — Answer weighting ────────────────────────────────
+
+/**
+ * Four named stops, not a slider.
+ *
+ * The whole point of Less/Normal/More/Most is that a company which does not
+ * care never has to make a fine-grained decision — a slider would demand one.
+ * Active is solid ink, matching every other segmented control in the app.
+ */
+function WeightSegment({
+  value,
+  onChange,
+  label,
+}: {
+  value: number;
+  onChange: (stored: number) => void;
+  label: string;
+}) {
+  return (
+    <div
+      role="group"
+      aria-label={label}
+      className="inline-flex shrink-0 overflow-hidden rounded-[9px] border border-[var(--ai-line-strong)]"
+    >
+      {WEIGHT_STOPS.map((stop) => {
+        const active = stopForStored(value).stored === stop.stored;
+        return (
+          <button
+            key={stop.stored}
+            type="button"
+            aria-pressed={active}
+            onClick={() => onChange(stop.stored)}
+            className={`px-[11px] py-[6px] text-[11.5px] font-semibold transition-colors ${
+              active
+                ? "bg-[var(--ai-sidebar)] text-white"
+                : "bg-[var(--ai-surface)] text-[var(--ai-t3)] hover:bg-[var(--ai-inset)]"
+            }`}
+          >
+            {stop.label}
+          </button>
+        );
+      })}
+    </div>
+  );
+}
+
+/** The colour each CV dimension carries in the share bar and its row dot. */
+const SHARE_COLOURS = ["#7E47FF", "#49D7A7", "#5BA8E8", "#F5C842"];
+
+/**
+ * The stacked share bar — the step's explanation, not decoration.
+ *
+ * Prose about what a weight "does" is far less legible than showing the score
+ * being divided up. The bar animates on change so moving one segment visibly
+ * takes share from the others, which is the fact that matters and the one a
+ * number alone does not convey.
+ */
+function ShareBar({
+  shares,
+  labels,
+}: {
+  shares: number[];
+  labels: string[];
+}) {
+  return (
+    <>
+      <div className="flex h-[9px] w-full overflow-hidden rounded-full bg-[var(--ai-inset)]">
+        {shares.map((share, i) => (
+          <div
+            key={labels[i]}
+            className="h-full transition-[width] duration-300 ease-out"
+            style={{
+              width: `${share}%`,
+              background: SHARE_COLOURS[i % SHARE_COLOURS.length],
+            }}
+          />
+        ))}
+      </div>
+      <div className="mt-2.5 flex flex-wrap gap-x-4 gap-y-1.5">
+        {labels.map((label, i) => (
+          <span
+            key={label}
+            className="inline-flex items-center gap-1.5 text-[11.5px] text-[var(--ai-t3)]"
+          >
+            <span
+              className="size-[7px] shrink-0 rounded-full"
+              style={{ background: SHARE_COLOURS[i % SHARE_COLOURS.length] }}
+            />
+            {label}
+            <b className="font-semibold text-[var(--ai-t1)]">{shares[i]}%</b>
+          </span>
+        ))}
+      </div>
+    </>
+  );
+}
+
+function WeightingStep({
+  state,
+  onCvWeight,
+  onQuestionWeight,
+  onResetCv,
+  onResetQuestions,
+}: {
+  state: CompanyJobInput;
+  onCvWeight: (key: CvWeightKey, stored: number) => void;
+  onQuestionWeight: (id: string, stored: number) => void;
+  onResetCv: () => void;
+  onResetQuestions: () => void;
+}) {
+  const cvStored = CV_WEIGHT_DIMENSIONS.map((d) => state[d.key]);
+  const cvShares = weightShares(cvStored);
+  const cvEqual = weightsAreEqual(cvStored);
+
+  const questions = state.interview_questions;
+  const questionStored = questions.map((q) => Number(q.weight));
+  const questionsEqual = weightsAreEqual(questionStored);
+
+  /** "X carries the most weight, at N% of the score." */
+  const leadIndex = cvShares.reduce(
+    (best, share, i) => (share > cvShares[best] ? i : best),
+    0,
+  );
+
+  return (
+    <>
+      <section className="mb-7">
+        <h3 className="mb-1 font-heading text-[15px] font-extrabold tracking-[-0.02em]">
+          CV score
+        </h3>
+        <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          A dimension set to <b>Most</b> counts three times as much as a{" "}
+          <b>Normal</b> one; <b>Less</b> counts half.
+        </p>
+
+        <div className="mb-5 flex flex-col gap-2.5">
+          {CV_WEIGHT_DIMENSIONS.map((d, i) => (
+            <div
+              key={d.key}
+              className="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3.5 py-3"
+            >
+              <span className="flex min-w-0 items-center gap-2.5">
+                <span
+                  className="size-[9px] shrink-0 rounded-full"
+                  style={{ background: SHARE_COLOURS[i] }}
+                />
+                <span className="min-w-0">
+                  <span className="block text-[13px] font-semibold text-[var(--ai-t1)]">
+                    {d.label}
+                  </span>
+                  <span className="block text-[11.5px] text-[var(--ai-t3)]">
+                    {d.hint}
+                  </span>
+                </span>
+              </span>
+              <WeightSegment
+                label={d.label}
+                value={Number(state[d.key] ?? CV_WEIGHT_DEFAULT)}
+                onChange={(stored) => onCvWeight(d.key, stored)}
+              />
+            </div>
+          ))}
+        </div>
+
+        <div className="rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3.5">
+          <ShareBar
+            shares={cvShares}
+            labels={CV_WEIGHT_DIMENSIONS.map((d) => d.label)}
+          />
+          <div className="mt-3 flex flex-wrap items-center justify-between gap-2">
+            <p className="text-[12px] text-[var(--ai-t2)]">
+              {cvEqual
+                ? "All four count equally."
+                : `${CV_WEIGHT_DIMENSIONS[leadIndex].label} carries the most weight, at ${cvShares[leadIndex]}% of the score.`}
+            </p>
+            <button
+              type="button"
+              onClick={onResetCv}
+              disabled={cvEqual}
+              className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[6px] text-[11.5px] font-semibold text-[var(--ai-t2)] transition-colors enabled:hover:bg-[var(--ai-surface)] enabled:hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40"
+            >
+              Reset
+            </button>
+          </div>
+        </div>
+      </section>
+
+      <section>
+        <h3 className="mb-1 font-heading text-[15px] font-extrabold tracking-[-0.02em]">
+          Interview questions
+        </h3>
+        <p className="mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          A question set to <b>Most</b> counts three times as much as a{" "}
+          <b>Normal</b> one; <b>Less</b> counts half. Questions are edited in
+          step 5 — this only changes what they are worth.
+        </p>
+
+        {questions.length === 0 ? (
+          <p className="rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-5 text-center text-[12.5px] text-[var(--ai-t3)]">
+            No interview questions yet. Add them in step 5 and they will appear
+            here to weight.
+          </p>
+        ) : (
+          <>
+            <div className="mb-4 flex flex-col gap-2">
+              {questions.map((q, i) => (
+                <div
+                  key={q.id || `new-${i}`}
+                  className="flex flex-wrap items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3.5 py-2.5"
+                >
+                  <span className="flex min-w-0 flex-1 items-center gap-2.5">
+                    <span className="flex size-[21px] shrink-0 items-center justify-center rounded-full bg-[var(--ai-inset)] text-[11px] font-bold text-[var(--ai-t2)]">
+                      {i + 1}
+                    </span>
+                    <span className="min-w-0 truncate text-[12.5px] text-[var(--ai-t1)]">
+                      {q.question.trim() || "Untitled question"}
+                    </span>
+                  </span>
+                  <WeightSegment
+                    label={`Question ${i + 1} weight`}
+                    value={Number(q.weight) || CV_WEIGHT_DEFAULT}
+                    onChange={(stored) => onQuestionWeight(q.id, stored)}
+                  />
+                </div>
+              ))}
+            </div>
+
+            <div className="flex flex-wrap items-center justify-between gap-2">
+              <p className="text-[12px] text-[var(--ai-t2)]">
+                {questionsEqual
+                  ? "Every question counts equally."
+                  : "Some questions count more than others."}
+              </p>
+              <button
+                type="button"
+                onClick={onResetQuestions}
+                disabled={questionsEqual}
+                className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[6px] text-[11.5px] font-semibold text-[var(--ai-t2)] transition-colors disabled:cursor-not-allowed disabled:opacity-40"
+              >
+                Reset
+              </button>
+            </div>
+          </>
+        )}
+      </section>
+    </>
+  );
+}
+
+// ── Step 9 — Auto-shortlist ──────────────────────────────────
+
+/**
+ * The promise box leads the step at full size.
+ *
+ * Not a hint under the toggle and not a tooltip: the entire feature rests on
+ * "this never acts on its own", and a claim that carries that much weight has
+ * to be the first thing read, before the switch that turns it on. Flat ink
+ * card, no purple glow — the glow reads as marketing and this is a guarantee.
+ */
+function PromiseBox() {
+  return (
+    <div className="mb-6 rounded-[16px] bg-[var(--ai-sidebar)] px-[18px] py-[17px]">
+      <div className="flex items-start gap-3">
+        <ShieldCheck
+          className="mt-px size-[19px] shrink-0 text-remotiv-lime"
+          strokeWidth={1.9}
+        />
+        <div className="min-w-0">
+          <p className="mb-1 font-heading text-[14.5px] font-extrabold tracking-[-0.02em] text-white">
+            Flagging only. Nothing moves on its own.
+          </p>
+          <p className="mb-3 text-[12.5px] leading-relaxed text-white/[0.72]">
+            Auto-shortlist marks strong applicants so they are easy to find. It
+            never changes anyone&apos;s stage, never messages a candidate and
+            never rejects.
+          </p>
+          <div className="flex flex-wrap gap-1.5">
+            {["Flags only", "Never moves a stage", "Never rejects"].map((c) => (
+              <span
+                key={c}
+                className="rounded-full border border-remotiv-green/50 px-2.5 py-[3px] text-[11px] font-semibold text-remotiv-green"
+              >
+                {c}
+              </span>
+            ))}
+          </div>
+        </div>
+      </div>
+    </div>
+  );
+}
+
+/** Hint under "Flag based on", rewritten per choice. */
+const SOURCE_HINTS: Record<AutoshortlistSource, string> = {
+  both: "Either score reaching its mark flags the candidate, so a strong CV shows up before they have interviewed.",
+  cv: "Only the CV score flags. Interview scores are ignored for this job.",
+  interview:
+    "Only the interview score flags. Candidates who have not recorded one yet are never flagged.",
+};
+
+function ThresholdField({
+  id,
+  label,
+  value,
+  onChange,
+}: {
+  id: string;
+  label: string;
+  value: number | null;
+  onChange: (v: number | null) => void;
+}) {
+  return (
+    <div>
+      <label htmlFor={id} className={LABEL_CLS}>
+        {label}
+      </label>
+      <div className="flex items-center gap-2">
+        <input
+          id={id}
+          type="number"
+          min={0}
+          max={100}
+          value={value ?? ""}
+          placeholder={String(AUTOSHORTLIST_DEFAULT_THRESHOLD)}
+          onChange={(e) => {
+            const raw = e.target.value.trim();
+            if (!raw) {
+              onChange(null);
+              return;
+            }
+            const n = Number.parseInt(raw, 10);
+            onChange(Number.isFinite(n) ? Math.min(100, Math.max(0, n)) : null);
+          }}
+          className={`${INPUT_CLS} max-w-[120px]`}
+        />
+        <span className="text-[12px] text-[var(--ai-t3)]">out of 100</span>
+      </div>
+    </div>
+  );
+}
+
+function AutoshortlistStep({
+  state,
+  set,
+}: {
+  state: CompanyJobInput;
+  set: <K extends keyof CompanyJobInput>(key: K, value: CompanyJobInput[K]) => void;
+}) {
+  const enabled = state.autoshortlist_source !== null;
+  const source: AutoshortlistSource = state.autoshortlist_source ?? "both";
+  const showCv = source === "cv" || source === "both";
+  const showInterview = source === "interview" || source === "both";
+
+  const [estimate, setEstimate] = useState<{
+    matched: number;
+    total: number;
+  } | null>(null);
+  const [estimating, setEstimating] = useState(false);
+
+  const cvMark = state.autoshortlist_cv_threshold;
+  const interviewMark = state.autoshortlist_interview_threshold;
+
+  /*
+   * ── Debounced, and the LAST answer wins ──
+   *
+   * One round trip per settled edit rather than one per keystroke. `cancelled`
+   * matters as much as the timer: a slow earlier request must not overwrite the
+   * result of a later one, which is exactly how a dragged mark ends up showing
+   * a count from two values ago.
+   */
+  useEffect(() => {
+    if (!enabled) {
+      setEstimate(null);
+      return;
+    }
+    let cancelled = false;
+    setEstimating(true);
+    const timer = setTimeout(() => {
+      estimateAutoshortlistReach({
+        source,
+        cvThreshold: showCv ? cvMark : null,
+        interviewThreshold: showInterview ? interviewMark : null,
+      })
+        .then((r) => {
+          if (!cancelled) setEstimate(r);
+        })
+        .catch(() => {
+          if (!cancelled) setEstimate(null);
+        })
+        .finally(() => {
+          if (!cancelled) setEstimating(false);
+        });
+    }, 400);
+    return () => {
+      cancelled = true;
+      clearTimeout(timer);
+    };
+  }, [enabled, source, showCv, showInterview, cvMark, interviewMark]);
+
+  return (
+    <>
+      <PromiseBox />
+
+      <div className="mb-5 flex items-start justify-between gap-4 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3.5 py-3">
+        <div className="min-w-0">
+          <p className="text-[13px] font-semibold text-[var(--ai-t1)]">
+            Flag strong applicants automatically
+          </p>
+          <p className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+            Off by default. Nothing is flagged until you turn this on.
+          </p>
+        </div>
+        <button
+          type="button"
+          role="switch"
+          aria-checked={enabled}
+          aria-label="Flag strong applicants automatically"
+          onClick={() => {
+            if (enabled) {
+              // Switching off clears the marks too — a stored threshold with no
+              // source is invisible in the UI and would reappear months later.
+              set("autoshortlist_source", null);
+              set("autoshortlist_cv_threshold", null);
+              set("autoshortlist_interview_threshold", null);
+              return;
+            }
+            set("autoshortlist_source", "both");
+            set("autoshortlist_cv_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
+            set(
+              "autoshortlist_interview_threshold",
+              AUTOSHORTLIST_DEFAULT_THRESHOLD,
+            );
+          }}
+          className={`relative h-[24px] w-[42px] shrink-0 rounded-full transition-colors ${
+            enabled ? "bg-remotiv-purple" : "bg-[var(--ai-line-strong)]"
+          }`}
+        >
+          <span
+            className={`absolute top-[3px] size-[18px] rounded-full bg-white transition-[left] ${
+              enabled ? "left-[21px]" : "left-[3px]"
+            }`}
+          />
+        </button>
+      </div>
+
+      {/* Everything below dims and stops responding until the toggle is on. */}
+      <div
+        className={
+          enabled
+            ? ""
+            : "pointer-events-none select-none opacity-40 [&_*]:cursor-not-allowed"
+        }
+        aria-hidden={!enabled}
+      >
+        <div className="mb-5">
+          <label htmlFor="as-source" className={LABEL_CLS}>
+            Flag based on
+          </label>
+          <select
+            id="as-source"
+            value={source}
+            disabled={!enabled}
+            onChange={(e) => {
+              const next = e.target.value as AutoshortlistSource;
+              set("autoshortlist_source", next);
+              // A hidden input's mark is cleared rather than left behind, so the
+              // stored row can never imply a bar that is never consulted.
+              if (next === "cv") set("autoshortlist_interview_threshold", null);
+              if (next === "interview") set("autoshortlist_cv_threshold", null);
+              if (next !== "interview" && cvMark === null) {
+                set("autoshortlist_cv_threshold", AUTOSHORTLIST_DEFAULT_THRESHOLD);
+              }
+              if (next !== "cv" && interviewMark === null) {
+                set(
+                  "autoshortlist_interview_threshold",
+                  AUTOSHORTLIST_DEFAULT_THRESHOLD,
+                );
+              }
+            }}
+            className={INPUT_CLS}
+          >
+            <option value="both">
+              {AUTOSHORTLIST_SOURCE_LABELS.both} — CV or interview
+            </option>
+            <option value="cv">{AUTOSHORTLIST_SOURCE_LABELS.cv}</option>
+            <option value="interview">
+              {AUTOSHORTLIST_SOURCE_LABELS.interview}
+            </option>
+          </select>
+          <p className="mt-1.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+            {SOURCE_HINTS[source]}
+          </p>
+        </div>
+
+        {/* One column when a single source is selected — an empty second
+            column would imply a mark that is not being used. */}
+        <div
+          className={`mb-5 grid gap-4 ${
+            showCv && showInterview
+              ? "grid-cols-1 min-[560px]:grid-cols-2"
+              : "grid-cols-1"
+          }`}
+        >
+          {showCv && (
+            <ThresholdField
+              id="as-cv-mark"
+              label="CV score mark"
+              value={cvMark}
+              onChange={(v) => set("autoshortlist_cv_threshold", v)}
+            />
+          )}
+          {showInterview && (
+            <ThresholdField
+              id="as-interview-mark"
+              label="Interview score mark"
+              value={interviewMark}
+              onChange={(v) => set("autoshortlist_interview_threshold", v)}
+            />
+          )}
+        </div>
+
+        <div className="mb-5 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
+          <p className="text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+            {estimateCopy(estimate, estimating)}
+          </p>
+        </div>
+
+        <div>
+          <p className={LABEL_CLS}>How they will look</p>
+          <div className="flex flex-col gap-2">
+            <PreviewRow
+              kind="top"
+              name="Ayesha Khan"
+              sub="Scored 94 — the AI's own ranking"
+            />
+            <PreviewRow
+              kind="look"
+              name="Bilal Ahmed"
+              sub={
+                showInterview && typeof interviewMark === "number"
+                  ? `Interview scored ${Math.min(100, interviewMark + 9)} — above your mark of ${interviewMark}`
+                  : typeof cvMark === "number"
+                    ? `CV scored ${Math.min(100, cvMark + 9)} — above your mark of ${cvMark}`
+                    : "Set a mark to see this"
+              }
+            />
+          </div>
+        </div>
+      </div>
+    </>
+  );
+}
+
+/**
+ * The estimate's copy, including the state that matters most.
+ *
+ * A workspace with no applicants must NOT read "0 of 0 would be flagged" — that
+ * says the marks are wrong when the truth is there is nothing to measure yet.
+ * It also says "in this workspace" explicitly, because the count is workspace-
+ * wide rather than scoped to the job being edited, and a reader would otherwise
+ * reasonably assume it was about this job.
+ */
+function estimateCopy(
+  estimate: { matched: number; total: number } | null,
+  estimating: boolean,
+): React.ReactNode {
+  if (estimating && !estimate) return "Counting…";
+  if (!estimate) return "Set a mark to see how many applicants it would flag.";
+  if (estimate.total === 0) {
+    return "No applicants yet to estimate against — this will fill in once people apply.";
+  }
+  return (
+    <>
+      At these marks, <b className="text-[var(--ai-t1)]">
+        {estimate.matched} of {estimate.total}
+      </b>{" "}
+      applicants in this workspace would carry the flag today.
+    </>
+  );
+}
+
+/**
+ * A row showing what each flag looks like.
+ *
+ * The two must never be mistakable: Top match is the AI's own ranking, a filled
+ * lime sticker; Worth a look is the company's rule, a purple OUTLINE chip on a
+ * faint purple row with a left accent. Same shape, different voice.
+ */
+function PreviewRow({
+  kind,
+  name,
+  sub,
+}: {
+  kind: "top" | "look";
+  name: string;
+  sub: string;
+}) {
+  const isLook = kind === "look";
+  return (
+    <div
+      className={`flex items-center gap-3 rounded-[11px] border px-3 py-2.5 ${
+        isLook
+          ? "border-remotiv-purple/25 bg-remotiv-purple/[0.035] border-l-[3px] border-l-remotiv-purple"
+          : "border-[var(--ai-line)] bg-[var(--ai-surface)]"
+      }`}
+    >
+      <span
+        className={`flex size-[30px] shrink-0 items-center justify-center rounded-full text-[11.5px] font-bold ${
+          isLook
+            ? "bg-[var(--ai-inset)] text-[var(--ai-t2)]"
+            : "bg-[var(--ai-inset)] text-[var(--ai-t2)] ring-2 ring-remotiv-green"
+        }`}
+      >
+        {name.slice(0, 1)}
+      </span>
+      <span className="min-w-0 flex-1">
+        <span className="block truncate text-[12.5px] font-semibold text-[var(--ai-t1)]">
+          {name}
+        </span>
+        <span className="block truncate text-[11.5px] text-[var(--ai-t3)]">
+          {sub}
+        </span>
+      </span>
+      {isLook ? (
+        <span className="shrink-0 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] px-2.5 py-[3px] text-[10.5px] font-bold text-remotiv-purple">
+          Worth a look
+        </span>
+      ) : (
+        <span className="shrink-0 rounded-[6px] bg-remotiv-lime px-2.5 py-[3px] text-[10.5px] font-extrabold text-[var(--ai-t1)]">
+          Top match
+        </span>
+      )}
     </div>
   );
 }

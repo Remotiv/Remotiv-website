@@ -1248,8 +1248,11 @@ export async function duplicateCompanyJob(
     .from("jobs")
     .select(
       // The "More options" columns copy across too — a duplicate that silently
-      // reverted to scoring-on would contradict the original's setting.
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name",
+      // reverted to scoring-on would contradict the original's setting. The
+      // step 8/9 columns copy for exactly the same reason: a copy that dropped
+      // the weighting would score its applicants differently from the original
+      // with nothing on screen to explain why.
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold",
     )
     .eq("id", jobId)
     .maybeSingle();
