@@ -79,6 +79,18 @@ function splitLines(text: string | null | undefined): string[] {
     .filter(Boolean);
 }
 
+// JSON.stringify does not escape "<", and this JSON-LD embeds database-authored
+// values (description, title, company). A description containing "</script>"
+// would terminate the inline script element and execute what follows. Unicode
+// escapes keep the output valid JSON — JSON.parse and Google's structured-data
+// parser read it unchanged — while making it inert inside <script>.
+function serializeJsonLd(value: unknown): string {
+  return JSON.stringify(value)
+    .replaceAll("<", "\\u003c")
+    .replaceAll(">", "\\u003e")
+    .replaceAll("&", "\\u0026");
+}
+
 // Brand chrome — the perks marquee is the same regardless of the job (per the
 // design handoff). Verbatim 12 perks + their Tabler icons.
 const PERKS = [
@@ -552,7 +564,7 @@ export default async function JobDetailPage({ params }: PageProps) {
       <script
         type="application/ld+json"
         // biome-ignore lint/security/noDangerouslySetInnerHtml: JSON-LD requires raw JSON injection
-        dangerouslySetInnerHTML={{ __html: JSON.stringify(jobPostingLd) }}
+        dangerouslySetInnerHTML={{ __html: serializeJsonLd(jobPostingLd) }}
       />
     </div>
   );
