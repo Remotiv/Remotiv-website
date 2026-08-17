@@ -1,4 +1,5 @@
 import { NextRequest, NextResponse } from "next/server";
+import { requireAdmin } from "@/app/admin/lib/role-guards";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { resolveNumericMode, type NumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -220,6 +221,25 @@ export async function POST(request: NextRequest) {
     const cvFieldValue = form.get("cv");
     const cvFile = cvFieldValue instanceof File ? cvFieldValue : null;
 
+    // JOB-005 — manual_upload is an admin-only claim. The flag skips the
+    // duplicate check and the JOB-002 visibility gate below, so an anonymous
+    // caller must not be able to assert it. Same pattern as
+    // /api/check-duplicate: requireAdmin throws on no session / no active
+    // admin_users row / bad role, and the bare catch fails CLOSED on every
+    // failure mode, auth outages included. Deliberately a 403 rather than a
+    // silent downgrade to job_application — a downgrade would hide the
+    // spoof attempt and give the caller confusing half-candidate behaviour.
+    // Placed before any CV processing, storage upload, or jobs-table insert
+    // so a rejected request writes nothing anywhere. The candidate path
+    // never enters this branch and gains no auth requirement.
+    if (source === "manual_upload") {
+      try {
+        await requireAdmin();
+      } catch {
+        return NextResponse.json({ error: "Forbidden" }, { status: 403 });
+      }
+    }
+
     if (!firstName || !cvFile) {
       return NextResponse.json(
         { error: "First name and CV are required." },
@@ -342,8 +362,9 @@ export async function POST(request: NextRequest) {
     // Scoped exactly like the dedup check below: manual_upload is exempt
     // (admins backfill candidates onto withdrawn roles, and the manual-title
     // branch creates its placeholder as status "closed" — gating it would
-    // break bulk upload outright). `source` is client-supplied, so this gate
-    // is spoofable until JOB-005 auth-gates manual_upload. Placed BEFORE the
+    // break bulk upload outright). `source` is client-supplied, but the
+    // JOB-005 admin gate above 403s any manual_upload claim from a
+    // non-admin, so the exemption is no longer spoofable. Placed BEFORE the
     // CV storage upload so a rejection can't strand an orphan PDF.
     if (source !== "manual_upload" && jobId !== null) {
       const { data: visRow, error: visError } = await supabase
