@@ -27,7 +27,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import type { CSSProperties } from "react";
 import { Navbar } from "@/components/navbar";
-import { type Job, getJobBySlug } from "@/lib/jobs";
+import { type Job, type ScreeningQuestion, getJobBySlug } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
 import { createServiceClient } from "@/lib/supabase/server";
 import ApplyButton from "./_apply-button";
@@ -36,6 +36,42 @@ import "./job-detail.css";
 export const dynamic = "force-dynamic";
 
 type PageProps = { params: Promise<{ slug: string }> };
+
+// JOB-001 — the public-safe projection handed to client components. The full
+// job row includes screening_questions[].ideal (the employer's pass answers)
+// plus created_by / client_id / company_id; anything passed as a client-
+// component prop is serialized into the RSC payload and readable in devtools,
+// so those fields must never cross the boundary. The keep-list below is the
+// verified consumer inventory of ApplyModal (the only client consumer):
+//   job:      id, title, company, work_type, screening_questions
+//   question: id, question, type, options, essential
+// `essential` is retained deliberately — the modal renders its "Essential"
+// badge, and it reveals weighting, not answers. numeric_mode is dropped: no
+// client code reads it, and it hints at the scoring direction.
+type PublicScreeningQuestion = Pick<
+  ScreeningQuestion,
+  "id" | "question" | "type" | "options" | "essential"
+>;
+
+type PublicJob = Pick<Job, "id" | "title" | "company" | "work_type"> & {
+  screening_questions: PublicScreeningQuestion[];
+};
+
+function toPublicJob(job: Job): PublicJob {
+  return {
+    id: job.id,
+    title: job.title,
+    company: job.company,
+    work_type: job.work_type,
+    screening_questions: (job.screening_questions ?? []).map((q) => ({
+      id: q.id,
+      question: q.question,
+      type: q.type,
+      options: q.options,
+      essential: q.essential,
+    })),
+  };
+}
 
 // ── Local formatting helpers (own copies — the list-client versions are
 //    unexported + USD-only, so we don't import them) ──────────────
@@ -229,6 +265,12 @@ export default async function JobDetailPage({ params }: PageProps) {
   const salary = fmtSalary(job.salary_min, job.salary_max, job.salary_currency);
   const companyInitial = job.company.charAt(0).toUpperCase();
   const shareUrl = canonicalUrl(`/jobs/${slug}`);
+  // ApplyButton's prop is typed as the full Job, but it and the ApplyModal it
+  // mounts only ever read the PublicJob fields (see the projection's inventory
+  // above). The cast keeps this fix inside this file — widening or narrowing
+  // ApplyButton's own prop type belongs to the jobs-list surface, which is out
+  // of scope for JOB-001.
+  const applyJob = toPublicJob(job) as Job;
 
   const flipCards = [
     {
@@ -348,7 +390,7 @@ export default async function JobDetailPage({ params }: PageProps) {
 
             {/* CTA + salary */}
             <div className="mt-6 flex flex-wrap items-center gap-5">
-              <ApplyButton job={job} variant="hero" />
+              <ApplyButton job={applyJob} variant="hero" />
               <div>
                 <span className="font-heading text-[1.45rem] font-bold text-white">{salary}</span>
                 <span className="text-[13px] text-[#d6c8ff]"> / month</span>
@@ -525,7 +567,7 @@ export default async function JobDetailPage({ params }: PageProps) {
             </div>
 
             <div className="px-[22px] pb-[22px] pt-5">
-              <ApplyButton job={job} variant="ticket" />
+              <ApplyButton job={applyJob} variant="ticket" />
               <p className="mt-3 flex items-center justify-center gap-2 text-xs text-[#9a9488]">
                 <IconClock size={14} style={{ color: "#49D7A7" }} /> Avg. response in 24 hours
               </p>
