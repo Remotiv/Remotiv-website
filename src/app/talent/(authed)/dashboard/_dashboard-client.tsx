@@ -13,15 +13,24 @@ import { TalentNotificationsBell } from "./_notifications-bell";
 //   shortlisted: query client_batch_candidates by candidate_id
 //   activity: aggregate profile_views + shortlistings + searches (table needed)
 //   salaryMedian: aggregate query on talent_profiles by role_category
-// Latest jobs tile is REAL (queries jobs table, status=open).
+// Latest jobs tile is REAL (queries jobs table via publiclyVisible —
+// status=open AND archived_at IS NULL).
 
-function formatJobSalary(min: number | null, max: number | null): string {
+// Output matches fmtSalary on the public /jobs list exactly, including the
+// en-dash and the USD default: a candidate must not see one number here and a
+// different one after clicking through. en-US is pinned rather than left to
+// the ambient locale so the server prerender and the client agree on the
+// thousands separator.
+function formatJobSalary(min: number | null, max: number | null, currency: string | null): string {
+  const cur = (currency ?? "").trim().toUpperCase() || "USD";
+  const fmt = (n: number) => n.toLocaleString("en-US");
   if (min && max) {
-    return `$${min.toLocaleString()} – $${max.toLocaleString()}`;
+    if (min === max) return `${cur} ${fmt(min)}/mo`;
+    return `${cur} ${fmt(min)} – ${fmt(max)}/mo`;
   }
-  if (min) return `$${min.toLocaleString()}+`;
-  if (max) return `up to $${max.toLocaleString()}`;
-  return "Salary not listed";
+  if (min) return `From ${cur} ${fmt(min)}/mo`;
+  if (max) return `Up to ${cur} ${fmt(max)}/mo`;
+  return "Salary not disclosed";
 }
 
 function formatRelativeDate(iso: string): string {
@@ -546,7 +555,11 @@ export function DashboardClient({
                           </span>
                         </div>
                         <p className="mt-2 text-xs text-white/85">
-                          {formatJobSalary(job.salary_min, job.salary_max)}
+                          {formatJobSalary(
+                            job.salary_min,
+                            job.salary_max,
+                            job.salary_currency,
+                          )}
                         </p>
                       </div>
                       <div className="flex flex-col items-end gap-2">
