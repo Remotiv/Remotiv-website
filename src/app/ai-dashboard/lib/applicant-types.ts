@@ -103,20 +103,14 @@ export type ApplicantShortlist = {
  * meaning anything. Top match is NOT gated this way: it is a statement about
  * the score, not a prompt to do something.
  */
-export const WORTH_A_LOOK_STAGES: readonly PipelineStage[] = [
-  "applied",
-  "screening",
-];
+export const WORTH_A_LOOK_STAGES: readonly PipelineStage[] = ["applied", "screening"];
 
 /** Does this row wear the "Worth a look" mark right now? */
 export function showsWorthALook(row: {
   pipeline_stage: PipelineStage;
   shortlist: ApplicantShortlist;
 }): boolean {
-  return (
-    row.shortlist.flaggedAt !== null &&
-    WORTH_A_LOOK_STAGES.includes(row.pipeline_stage)
-  );
+  return row.shortlist.flaggedAt !== null && WORTH_A_LOOK_STAGES.includes(row.pipeline_stage);
 }
 
 /**
@@ -209,6 +203,14 @@ export type ScoreEvidenceRow = {
 };
 
 /** The full breakdown, loaded only for the drawer. */
+export type ScoreMustHaveRow = {
+  /** The employer's own wording. */
+  item: string;
+  status: "evidenced" | "not_found";
+  /** Verified CV span. Empty when not_found. */
+  quote: string;
+};
+
 export type ApplicantScoreDetail = ApplicantScore & {
   /**
    * One-line headline. Empty string for v1-v3 scorecards, which predate it —
@@ -219,6 +221,12 @@ export type ApplicantScoreDetail = ApplicantScore & {
   evidence: ScoreEvidenceRow[];
   strengths: ScoreStrengthRow[];
   missing_requirements: string[];
+  /**
+   * The job's named must-haves, one entry each, in the order the employer named
+   * them. EMPTY both for a job that named none and for a scorecard produced
+   * before v10 — indistinguishable, and treated the same: nothing is rendered.
+   */
+  must_haves: ScoreMustHaveRow[];
   concerns: string[];
   summary: string | null;
   /** Deterministic screening result, 0-100. Null when the job asked nothing. */

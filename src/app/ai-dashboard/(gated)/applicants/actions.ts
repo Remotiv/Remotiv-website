@@ -1,39 +1,34 @@
 "use server";
 
-import { createServiceClient } from "@/lib/supabase/server";
-import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { revalidatePath } from "next/cache";
 import {
-  getCompanyContext,
-  requireCompanyRole,
-} from "@/app/ai-dashboard/lib/company-guards";
-import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
-import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
-import { notifyCompany } from "@/lib/notifications/company";
-import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
-import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
-import { enqueue } from "@/lib/jobs-queue";
-import {
-  cancelPendingRejection,
-  queueStageChange,
-} from "@/lib/email/candidate/triggers";
-import {
-  PIPELINE_STAGES,
-  PIPELINE_STAGE_LABELS,
-  SCORE_FEEDBACK_MAX,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type CompanyApplicantDetail,
   type CompanyApplicantQuery,
   type CompanyApplicantRow,
+  PIPELINE_STAGE_LABELS,
+  PIPELINE_STAGES,
   type PipelineStage,
+  SCORE_FEEDBACK_MAX,
   type ScoreConfidence,
-  type ScoreStatus,
   type ScoreEvidenceRow,
+  type ScoreMustHaveRow,
+  type ScoreStatus,
   type ScoreStrengthRow,
   type StageHistoryRow,
   WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
+import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
+import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
+import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
+import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
+import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
+import { enqueue } from "@/lib/jobs-queue";
+import { notifyCompany } from "@/lib/notifications/company";
+import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/query types live in lib/applicant-types.ts.
@@ -107,8 +102,7 @@ function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
   if (!r) return NO_SCORE;
   const status = (r.status ?? "pending") as ScoreStatus;
   const adjusted = r.human_adjusted_score != null;
-  const overall =
-    status === "scored" ? (r.human_adjusted_score ?? r.overall_score) : null;
+  const overall = status === "scored" ? (r.human_adjusted_score ?? r.overall_score) : null;
   return {
     status,
     overall,
@@ -119,6 +113,30 @@ function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
     confidence: (r.confidence as ScoreConfidence | null) ?? null,
     error: r.error,
   };
+}
+
+/**
+ * Shape the stored must_haves jsonb.
+ *
+ * A non-array, a missing key or a scorecard produced before v10 all collapse to
+ * [] — the same value a job that named no must-haves stores. The two are
+ * indistinguishable here and that is fine: both mean "nothing to show", and the
+ * drawer renders nothing for either rather than inventing a distinction.
+ */
+function normaliseMustHaves(v: unknown): ScoreMustHaveRow[] {
+  if (!Array.isArray(v)) return [];
+  const out: ScoreMustHaveRow[] = [];
+  for (const entry of v) {
+    const e = entry as { item?: unknown; status?: unknown; quote?: unknown };
+    const item = typeof e?.item === "string" ? e.item.trim() : "";
+    if (!item) continue;
+    out.push({
+      item,
+      status: e.status === "evidenced" ? "evidenced" : "not_found",
+      quote: typeof e.quote === "string" ? e.quote.trim() : "",
+    });
+  }
+  return out;
 }
 
 function jsonArray<T>(v: unknown): T[] {
@@ -208,7 +226,7 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
     created_at: r.created_at ?? "",
     // DB default is 'applied'; the coalesce covers rows written before the
     // column existed.
-    pipeline_stage: ((r.pipeline_stage as PipelineStage) ?? "applied"),
+    pipeline_stage: (r.pipeline_stage as PipelineStage) ?? "applied",
     score: toScore(score),
     has_cv: Boolean(r.cv_path || r.cv_url),
     // A retention date that has PASSED, with nothing left to open. A future
@@ -243,9 +261,7 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
  * WORTH_A_LOOK_STAGES exactly — a badge counting flags the list refuses to draw
  * is worse than no badge.
  */
-export async function countFlaggedApplicants(
-  query: CompanyApplicantQuery = {},
-): Promise<number> {
+export async function countFlaggedApplicants(query: CompanyApplicantQuery = {}): Promise<number> {
   const ctx = await getCompanyContext();
   const scope = await getJobScope(ctx);
   if (scope.scoped && scope.jobIds.length === 0) return 0;
@@ -351,9 +367,7 @@ export async function fetchCompanyApplicants(
     if (query.jobId) q = q.eq("job_id", query.jobId);
     if (search) {
       const safe = sanitiseSearchTerm(search);
-      q = q.or(
-        `first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`,
-      );
+      q = q.or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`);
     }
 
     const { data, error } = await q
@@ -426,7 +440,7 @@ export async function fetchCompanyApplicant(
   const { data: scoreData, error: scoreErr } = await service
     .from("application_scores")
     .select(
-      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
+      `${SCORE_SUMMARY_COLUMNS}, verdict, dimension_scores, evidence, strengths, missing_requirements, must_haves, concerns, summary, screening_score, ai_model, scored_at, human_feedback, adjusted_by_name, adjusted_at, job_criteria_version`,
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -458,9 +472,7 @@ export async function fetchCompanyApplicant(
   // money-costing button is worse than no warning.
   const scoredUnder = Number(sRow?.job_criteria_version ?? Number.NaN);
   const stale =
-    Number.isFinite(scoredUnder) &&
-    jobCriteriaVersion !== null &&
-    scoredUnder < jobCriteriaVersion;
+    Number.isFinite(scoredUnder) && jobCriteriaVersion !== null && scoredUnder < jobCriteriaVersion;
   const scoreDetail: ApplicantScoreDetail | null = sRow
     ? {
         ...toScore(sRow),
@@ -469,6 +481,7 @@ export async function fetchCompanyApplicant(
         evidence: evidenceItems(sRow.evidence),
         strengths: normaliseStrengths(sRow.strengths),
         missing_requirements: jsonArray(sRow.missing_requirements),
+        must_haves: normaliseMustHaves(sRow.must_haves),
         concerns: jsonArray(sRow.concerns),
         summary: (sRow.summary as string | null) ?? null,
         screening_score: (sRow.screening_score as number | null) ?? null,
@@ -490,9 +503,7 @@ export async function fetchCompanyApplicant(
 
 // ── Mutations ────────────────────────────────────────────────
 
-type MutationResult<T = undefined> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+type MutationResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
 /**
  * Move an applicant through the hiring pipeline.
@@ -510,12 +521,7 @@ export async function updateApplicationStage(
   toStage: string,
   note?: string,
 ): Promise<MutationResult<undefined>> {
-  const ctx = await requireCompanyRole(
-    "owner",
-    "admin",
-    "recruiter",
-    "hiring_manager",
-  );
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter", "hiring_manager");
 
   // Validate against the union server-side — never trust a client string.
   if (!(PIPELINE_STAGES as readonly string[]).includes(toStage)) {
@@ -553,8 +559,7 @@ export async function updateApplicationStage(
   if (fromStage === toStage) return { success: true, data: undefined };
 
   const applicantLabel =
-    [target.first_name, target.last_name].filter(Boolean).join(" ").trim() ||
-    "An applicant";
+    [target.first_name, target.last_name].filter(Boolean).join(" ").trim() || "An applicant";
 
   const { error: updateErr } = await service
     .from("job_applications")
@@ -569,24 +574,18 @@ export async function updateApplicationStage(
   // committed, so surfacing an error would imply the change was rejected when
   // it wasn't — and a retry would then no-op on the unchanged-stage guard,
   // leaving them stuck. The cost is a gap in the trail, not wrong state.
-  const { error: histErr } = await service
-    .from("application_stage_history")
-    .insert({
-      application_id: applicationId,
-      company_id: ctx.companyId,
-      from_stage: fromStage,
-      to_stage: toStage,
-      changed_by: ctx.user.id,
-      changed_by_name: ctx.memberName,
-      note: note?.trim() || null,
-    });
+  const { error: histErr } = await service.from("application_stage_history").insert({
+    application_id: applicationId,
+    company_id: ctx.companyId,
+    from_stage: fromStage,
+    to_stage: toStage,
+    changed_by: ctx.user.id,
+    changed_by_name: ctx.memberName,
+    note: note?.trim() || null,
+  });
 
   if (histErr) {
-    console.error(
-      "[applicants] stage history insert failed for",
-      applicationId,
-      histErr,
-    );
+    console.error("[applicants] stage history insert failed for", applicationId, histErr);
   }
 
   // Candidate email. Same non-fatal contract as the audit row above: both
@@ -694,12 +693,7 @@ export async function adjustScore(
   score: number,
   feedback?: string,
 ): Promise<MutationResult<undefined>> {
-  const ctx = await requireCompanyRole(
-    "owner",
-    "admin",
-    "recruiter",
-    "hiring_manager",
-  );
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter", "hiring_manager");
 
   // Validated server-side against a forged payload, not just by the input's
   // min/max. Integer, because a fractional human judgement is false precision.
@@ -742,12 +736,7 @@ export async function adjustScore(
 export async function clearScoreAdjustment(
   applicationId: string,
 ): Promise<MutationResult<undefined>> {
-  const ctx = await requireCompanyRole(
-    "owner",
-    "admin",
-    "recruiter",
-    "hiring_manager",
-  );
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter", "hiring_manager");
 
   const service = createServiceClient();
   const allowed = await assertAdjustableScore(service, applicationId, ctx);
@@ -797,12 +786,7 @@ export async function clearScoreAdjustment(
 export async function dismissShortlistFlagAction(
   applicationId: string,
 ): Promise<MutationResult<undefined>> {
-  const ctx = await requireCompanyRole(
-    "owner",
-    "admin",
-    "recruiter",
-    "hiring_manager",
-  );
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter", "hiring_manager");
 
   const service = createServiceClient();
 
@@ -886,9 +870,7 @@ export async function rescoreApplication(
  * BOTH job_id and company_id_snapshot, so a mismatched snapshot can never be
  * swept in. Range-paged for the same reason the list is.
  */
-export async function rescoreJob(
-  jobId: string,
-): Promise<MutationResult<{ queued: number }>> {
+export async function rescoreJob(jobId: string): Promise<MutationResult<{ queued: number }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
 
@@ -969,9 +951,7 @@ export async function rescoreJob(
  * no-op). Row-first would leave the PDF — the single largest piece of PII —
  * orphaned in the bucket with no record of its path outside the logs.
  */
-export async function deleteApplication(
-  applicationId: string,
-): Promise<MutationResult<undefined>> {
+export async function deleteApplication(applicationId: string): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
 
@@ -1004,9 +984,7 @@ export async function deleteApplication(
   //    orphaned object can be found and cleaned up.
   if (target.cv_path) {
     try {
-      const { error: storageErr } = await service.storage
-        .from(CV_BUCKET)
-        .remove([target.cv_path]);
+      const { error: storageErr } = await service.storage.from(CV_BUCKET).remove([target.cv_path]);
       if (storageErr) {
         console.error("[CV_ORPHAN][applicants] CV delete failed", {
           applicationId,

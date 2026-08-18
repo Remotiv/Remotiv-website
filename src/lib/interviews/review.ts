@@ -1,5 +1,4 @@
 import "server-only";
-import { createServiceClient } from "@/lib/supabase/server";
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import {
   canAccessJob,
@@ -7,24 +6,26 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { createServiceClient } from "@/lib/supabase/server";
 import { findQuoteStart } from "./quote-timestamps";
-import type { TranscriptSegment } from "./transcribe";
 import type {
   AnswerScoreView,
   CandidateLink,
   InterviewAnswerView,
-  InterviewNote,
   InterviewListResult,
+  InterviewNote,
   InterviewRow,
-  InterviewSessionDetail,
   InterviewScore,
+  InterviewSessionDetail,
   InterviewStatus,
   InterviewTab,
   ScoreAdjustment,
   ScoredEvidence,
   ScoreStatus,
+  SessionCriterion,
   TranscriptState,
 } from "./review-types";
+import type { TranscriptSegment } from "./transcribe";
 
 /**
  * Reviewer-side reads for interviews.
@@ -47,10 +48,7 @@ import type {
 const PAGE_SIZE = 20;
 
 /** The statuses the UI groups by, derived rather than trusted from the row. */
-function deriveStatus(
-  stored: string,
-  expiresAt: string | null,
-): InterviewStatus {
+function deriveStatus(stored: string, expiresAt: string | null): InterviewStatus {
   if (stored === "cancelled") return "cancelled";
   if (stored === "submitted") return "submitted";
   if (stored === "expired") return "expired";
@@ -180,8 +178,15 @@ export async function listInterviewSessions(
   const [apps, jobs, answers, scores] = await Promise.all([
     fetchApplications(service, ctx.companyId, appIds),
     fetchJobs(service, ctx.companyId, jobIds),
-    fetchAnswerStats(service, sessions.map((s) => s.id)),
-    fetchSessionScores(service, ctx.companyId, sessions.map((s) => s.id)),
+    fetchAnswerStats(
+      service,
+      sessions.map((s) => s.id),
+    ),
+    fetchSessionScores(
+      service,
+      ctx.companyId,
+      sessions.map((s) => s.id),
+    ),
   ]);
 
   const rows: InterviewRow[] = sessions.map((s) => {
@@ -189,8 +194,7 @@ export async function listInterviewSessions(
     const who = resolveCandidate(s.application_id, app);
     const stats = answers.get(s.id);
     const status = deriveStatus(s.status, s.expires_at);
-    const total =
-      snapshotLength(s.questions_snapshot) ?? stats?.total ?? 0;
+    const total = snapshotLength(s.questions_snapshot) ?? stats?.total ?? 0;
     return {
       id: s.id,
       applicationId: s.application_id,
@@ -235,9 +239,7 @@ export async function listInterviewSessions(
   };
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const sentThisWeek = live.filter(
-    (r) => new Date(r.sentAt).getTime() >= weekAgo,
-  ).length;
+  const sentThisWeek = live.filter((r) => new Date(r.sentAt).getTime() >= weekAgo).length;
 
   const jobList = [...jobs.entries()]
     .map(([id, title]) => ({ id, title }))
@@ -259,12 +261,7 @@ export async function listInterviewSessions(
       return false;
     }
     if (opts.jobId && r.jobId !== opts.jobId) return false;
-    if (
-      q &&
-      !`${r.candidateName} ${r.candidateEmail} ${r.jobTitle}`
-        .toLowerCase()
-        .includes(q)
-    ) {
+    if (q && !`${r.candidateName} ${r.candidateEmail} ${r.jobTitle}`.toLowerCase().includes(q)) {
       return false;
     }
     return true;
@@ -338,10 +335,7 @@ async function fetchAnswerStats(
   service: ReturnType<typeof createServiceClient>,
   sessionIds: string[],
 ) {
-  const out = new Map<
-    string,
-    { answered: number; total: number; withVideo: number }
-  >();
+  const out = new Map<string, { answered: number; total: number; withVideo: number }>();
   for (let i = 0; i < sessionIds.length; i += 100) {
     const { data } = await service
       .from("interview_answers")
@@ -393,11 +387,7 @@ export async function loadInterviewSession(
   if (allowed && (!row.job_id || !allowed.includes(row.job_id))) return null;
 
   const [apps, jobs] = await Promise.all([
-    fetchApplications(
-      service,
-      ctx.companyId,
-      row.application_id ? [row.application_id] : [],
-    ),
+    fetchApplications(service, ctx.companyId, row.application_id ? [row.application_id] : []),
     fetchJobs(service, ctx.companyId, row.job_id ? [row.job_id] : []),
   ]);
   const app = row.application_id ? apps.get(row.application_id) : undefined;
@@ -471,12 +461,7 @@ export async function loadInterviewSession(
     }
   }
 
-  const answerScores = await fetchAnswerScores(
-    service,
-    ctx.companyId,
-    row.id,
-    segmentsById,
-  );
+  const answerScores = await fetchAnswerScores(service, ctx.companyId, row.id, segmentsById);
   for (const a of answers) a.score = answerScores.get(a.id) ?? null;
 
   // Competency lives on the QUESTION, never on the answer, and is reviewer-only
@@ -489,16 +474,16 @@ export async function loadInterviewSession(
       .eq("company_id", ctx.companyId)
       .limit(50);
     const byPosition = new Map(
-      ((qRows ?? []) as { position: number; competency: string | null }[]).map(
-        (q) => [q.position, (q.competency ?? "").trim() || null],
-      ),
+      ((qRows ?? []) as { position: number; competency: string | null }[]).map((q) => [
+        q.position,
+        (q.competency ?? "").trim() || null,
+      ]),
     );
     for (const a of answers) a.competency = byPosition.get(a.position) ?? null;
   }
 
   const status = deriveStatus(row.status, row.expires_at);
-  const totalQuestions =
-    snapshotLength(row.questions_snapshot) ?? answers.length;
+  const totalQuestions = snapshotLength(row.questions_snapshot) ?? answers.length;
 
   return {
     id: row.id,
@@ -508,9 +493,7 @@ export async function loadInterviewSession(
     candidateEmail: who.email,
     candidateLink: who.link,
     jobTitle: (row.job_id ? jobs.get(row.job_id) : null) ?? "This role",
-    stage:
-      ((appRow as { pipeline_stage: string | null } | null)?.pipeline_stage ??
-        "applied"),
+    stage: (appRow as { pipeline_stage: string | null } | null)?.pipeline_stage ?? "applied",
     status,
     answers,
     totalQuestions,
@@ -521,12 +504,20 @@ export async function loadInterviewSession(
     deleteAfter: row.delete_after,
     invitedByName: row.invited_by_name,
     archivedAt: row.archived_at,
-    score:
-      (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ??
-      null,
+    /*
+     * Criteria quotes are PLACED here, not in fetchSessionScores.
+     *
+     * Placement needs the answers' segments, which only this detail path loads
+     * — the list would have to fetch them for a seek button it never renders.
+     * So the score arrives with nulls and gets its offsets filled in against
+     * the segments already in hand.
+     */
+    score: withPlacedCriteria(
+      (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ?? null,
+      answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
+    ),
     canDelete: await canAccessJob(ctx, row.job_id ?? ""),
-    purged:
-      answers.length > 0 && answers.every((a) => a.purged),
+    purged: answers.length > 0 && answers.every((a) => a.purged),
     /*
      * Notes SURVIVE the purge. They are a reviewer's own words about a
      * candidate, not the candidate's media — the six-month promise covers the
@@ -649,9 +640,7 @@ async function fetchAnswerScores(
       strengths: pair(r.strengths),
       concerns: pair(r.concerns),
       missing: Array.isArray(r.missing)
-        ? (r.missing as unknown[]).filter(
-            (x): x is string => typeof x === "string",
-          )
+        ? (r.missing as unknown[]).filter((x): x is string => typeof x === "string")
         : [],
       adjustment: toAdjustment(
         r.human_adjusted_score,
@@ -682,7 +671,7 @@ async function fetchSessionScores(
     const { data } = await service
       .from("interview_session_scores")
       .select(
-        "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, error, scored_at",
+        "session_id, status, overall_score, human_adjusted_score, human_feedback, adjusted_by_name, adjusted_at, verdict, summary, confidence, criteria, error, scored_at",
       )
       .eq("company_id", companyId)
       .in("session_id", sessionIds.slice(i, i + 100));
@@ -698,6 +687,7 @@ async function fetchSessionScores(
       verdict: string | null;
       summary: string | null;
       confidence: string | null;
+      criteria: unknown;
       error: string | null;
       scored_at: string | null;
     }[]) {
@@ -712,6 +702,7 @@ async function fetchSessionScores(
         verdict: r.verdict,
         summary: r.summary,
         confidence: r.confidence,
+        criteria: normaliseCriteria(r.criteria),
         error: r.error,
         scoredAt: r.scored_at,
         adjustment: toAdjustment(
@@ -728,6 +719,87 @@ async function fetchSessionScores(
 }
 
 /** The note thread for one session. Oldest first — it reads as a conversation. */
+/**
+ * Shape the stored criteria jsonb, without placing the quotes yet.
+ *
+ * Placement needs the answers' transcript segments, which the LIST does not
+ * load — so a row starts with `answerId`/`startSeconds` null and the detail
+ * view fills them in via placeCriterionQuote. The list only ever shows the
+ * item and its status, so it never pays for segments it will not use.
+ *
+ * A non-array, a missing column or a row scored under an older prompt version
+ * all collapse to []. That is deliberate and is the same value a job with no
+ * criteria stores: both mean "nothing to show", and the UI renders nothing for
+ * either. There is no distinction here worth inventing.
+ */
+function normaliseCriteria(raw: unknown): SessionCriterion[] {
+  if (!Array.isArray(raw)) return [];
+  const out: SessionCriterion[] = [];
+  for (const entry of raw) {
+    const e = entry as { item?: unknown; status?: unknown; quote?: unknown };
+    const item = typeof e?.item === "string" ? e.item.trim() : "";
+    if (!item) continue;
+    out.push({
+      item,
+      status: e.status === "evidenced" ? "evidenced" : "not_found",
+      quote: typeof e.quote === "string" ? e.quote.trim() : "",
+      answerId: null,
+      startSeconds: null,
+    });
+  }
+  return out;
+}
+
+/**
+ * Locate a criterion's quote inside one of the answers, so it can seek.
+ *
+ * ── Why this has to probe ────────────────────────────────────
+ *
+ * Per-answer evidence knows which recording it belongs to, so it calls
+ * findQuoteStart once. A criterion does not: it was verified against every
+ * transcript JOINED, so nothing in the stored row says which answer the span
+ * came from. The span itself is contiguous, though, so in practice it lies
+ * inside exactly one answer — probing each answer's segments in turn and taking
+ * the first hit recovers both the answer and the offset.
+ *
+ * Returns nulls when no answer matches, which is a real outcome rather than a
+ * bug: a quote that genuinely straddles the join between two answers belongs to
+ * neither segment list, and a segment-less answer (transcribed before segments
+ * were stored) cannot place anything. The UI then shows the quote without a
+ * seek button — the same thing it already does for a v1 answer.
+ */
+function placeCriterionQuote(
+  quote: string,
+  answers: { id: string; segments: TranscriptSegment[] | null }[],
+): { answerId: string | null; startSeconds: number | null } {
+  if (!quote.trim()) return { answerId: null, startSeconds: null };
+  for (const answer of answers) {
+    const at = findQuoteStart(quote, answer.segments);
+    if (at !== null) return { answerId: answer.id, startSeconds: at };
+  }
+  return { answerId: null, startSeconds: null };
+}
+
+/**
+ * Fill in each criterion's answer and offset, leaving everything else alone.
+ *
+ * Returns the score object unchanged when there is nothing to place — no score,
+ * no criteria, or criteria with no quotes — so the common case allocates
+ * nothing and the empty-list path stays exactly as it was.
+ */
+function withPlacedCriteria(
+  score: InterviewScore | null,
+  answers: { id: string; segments: TranscriptSegment[] | null }[],
+): InterviewScore | null {
+  if (!score || score.criteria.length === 0) return score;
+  return {
+    ...score,
+    criteria: score.criteria.map((c) =>
+      c.quote ? { ...c, ...placeCriterionQuote(c.quote, answers) } : c,
+    ),
+  };
+}
+
 export async function readNotes(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
@@ -743,14 +815,16 @@ export async function readNotes(
     .order("created_at", { ascending: true })
     .limit(200);
 
-  return ((data ?? []) as {
-    id: string;
-    body: string;
-    author_name: string | null;
-    member_id: string;
-    created_at: string;
-    updated_at: string | null;
-  }[]).map((n) => ({
+  return (
+    (data ?? []) as {
+      id: string;
+      body: string;
+      author_name: string | null;
+      member_id: string;
+      created_at: string;
+      updated_at: string | null;
+    }[]
+  ).map((n) => ({
     id: n.id,
     body: n.body,
     authorName: (n.author_name ?? "").trim() || "A teammate",
@@ -766,10 +840,7 @@ export async function readNotes(
  * mapped rather than ignored so it renders as a state instead of falling
  * through to "pending" and implying work still queued.
  */
-function normaliseTranscript(
-  status: string | null,
-  transcript: string | null,
-): TranscriptState {
+function normaliseTranscript(status: string | null, transcript: string | null): TranscriptState {
   if (status === "done") return transcript?.trim() ? "done" : "empty";
   if (status === "failed") return "failed";
   if (status === "skipped") return "skipped";

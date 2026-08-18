@@ -1,17 +1,5 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import {
-  Composer,
-  initialsOf as msgInitials,
-} from "@/app/ai-dashboard/(gated)/messages/_composer";
-import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
-import { InterviewPanel } from "./_interview-panel";
-import type {
-  ManualTemplate,
-  MessageRow as CandidateMessage,
-} from "@/app/ai-dashboard/(gated)/messages/types";
-import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
   ChevronLeft,
@@ -28,32 +16,38 @@ import {
   X,
   Zap,
 } from "lucide-react";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
+import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
+import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
+import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
+import type {
+  MessageRow as CandidateMessage,
+  ManualTemplate,
+} from "@/app/ai-dashboard/(gated)/messages/types";
 import {
-  PIPELINE_STAGES,
-  PIPELINE_STAGE_LABELS,
-  SCORE_FEEDBACK_MAX,
-  SCORING_OFF_REASON,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type CompanyApplicantRow,
+  PIPELINE_STAGE_LABELS,
+  PIPELINE_STAGES,
   type PipelineStage,
+  SCORE_FEEDBACK_MAX,
+  SCORING_OFF_REASON,
   type StageHistoryRow,
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
-import {
-  DashboardHero,
-  HeroDelta,
-} from "@/app/ai-dashboard/_components/dashboard-hero";
-import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
-import { canCreateJobs, type CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
+import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
+import { InterviewPanel } from "./_interview-panel";
 import {
   adjustScore,
   clearScoreAdjustment,
   countFlaggedApplicants,
   deleteApplication,
   dismissShortlistFlagAction,
-  rescoreApplication,
   fetchCompanyApplicant,
+  rescoreApplication,
   updateApplicationStage,
 } from "./actions";
 
@@ -80,12 +74,7 @@ const FUNNEL_STEPS: ReadonlyArray<{
   { stage: "hired", dot: "#D9F972", bar: "#D9F972" },
 ];
 
-const TAB_STAGES: ReadonlyArray<PipelineStage> = [
-  "applied",
-  "shortlisted",
-  "interview",
-  "hired",
-];
+const TAB_STAGES: ReadonlyArray<PipelineStage> = ["applied", "shortlisted", "interview", "hired"];
 
 const STAGE_PILL: Record<PipelineStage, { cls: string; dot: string }> = {
   applied: {
@@ -314,9 +303,7 @@ function PendingScore({ score }: { score?: ApplicantScore }) {
           <Clock className="size-4" strokeWidth={1.8} />
         )}
       </span>
-      <span className="text-xs font-semibold text-[var(--ai-t4)]">
-        {pendingLabel(score)}
-      </span>
+      <span className="text-xs font-semibold text-[var(--ai-t4)]">{pendingLabel(score)}</span>
     </div>
   );
 }
@@ -396,7 +383,14 @@ function DrawerScoreRing({ score }: { score: number }) {
   return (
     <span className="relative flex size-[74px] shrink-0 items-center justify-center">
       <svg className="size-[74px] -rotate-90" viewBox="0 0 74 74" aria-hidden>
-        <circle cx="37" cy="37" r="32" fill="none" stroke="rgba(255,255,255,0.14)" strokeWidth="6" />
+        <circle
+          cx="37"
+          cy="37"
+          r="32"
+          fill="none"
+          stroke="rgba(255,255,255,0.14)"
+          strokeWidth="6"
+        />
         <circle
           cx="37"
           cy="37"
@@ -533,13 +527,72 @@ function Pagination({
  * The × is the first of three dismiss entry points and appears on row hover so
  * it is not a permanent invitation to clear the thing you just asked for.
  */
-function WorthALookChip({
-  onDismiss,
-  busy,
+/**
+ * One employer criterion: what was asked, whether the source showed it, and the
+ * words that prove it.
+ *
+ * ── Why "not found" cannot read as a failure ─────────────────
+ *
+ * The prompt is explicit that a not-found item caps nothing, floors nothing and
+ * is never grounds for rejection. The UI has to agree, so four things are
+ * deliberately absent and one is deliberately present:
+ *
+ *   · NO RED, and no amber. Both statuses sit on the same neutral surface; the
+ *     only colour on the row is the mint check on an evidenced item. Red is the
+ *     drawer's danger colour — it appears on delete — and borrowing it here
+ *     would tell a recruiter this is a problem to act on.
+ *   · NO WARNING ICON. A triangle or an ✗ reads as "wrong". The absent mark is
+ *     a hollow ring — the same glyph an unfilled checkbox uses, which says
+ *     "nothing here" rather than "this failed".
+ *   · NO "MISSING", "FAILS", "LACKS". The copy is "Not found in this CV" /
+ *     "…in the interview" — a statement about the DOCUMENT, not the person. A
+ *     CV that does not mention something is a fact about the CV.
+ *   · NO COUNT. There is no "1 of 3 met" line anywhere, because a ratio is a
+ *     score, and the moment it exists someone compares two candidates on it.
+ *
+ * And present: the item is rendered in the employer's own words, at full
+ * weight, whichever status it has — an item is not demoted for being unproven.
+ */
+function CriterionRow({
+  item,
+  status,
+  quote,
+  absentLabel,
+  children,
 }: {
-  onDismiss?: () => void;
-  busy?: boolean;
+  item: string;
+  status: "evidenced" | "not_found";
+  quote: string;
+  /** "Not found in this CV" or "Not found in the interview". */
+  absentLabel: string;
+  /** Optional trailing control — the interview side puts its seek button here. */
+  children?: React.ReactNode;
 }) {
+  const evidenced = status === "evidenced";
+  return (
+    <div className="flex gap-2.5">
+      {evidenced ? (
+        <Check className="mt-[3px] size-[14px] shrink-0 text-remotiv-green" strokeWidth={2.6} />
+      ) : (
+        <span
+          aria-hidden
+          className="mt-[4px] size-[12px] shrink-0 rounded-full border-[1.5px] border-[var(--ai-t4)]"
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="m-0 text-[13px] leading-snug text-[var(--ai-t1)]">{item}</p>
+        {evidenced && quote ? (
+          <EvidenceQuote quote={quote} />
+        ) : (
+          <p className="m-0 mt-0.5 text-[12px] leading-snug text-[var(--ai-t3)]">{absentLabel}</p>
+        )}
+        {children}
+      </div>
+    </div>
+  );
+}
+
+function WorthALookChip({ onDismiss, busy }: { onDismiss?: () => void; busy?: boolean }) {
   return (
     <span className="group/chip inline-flex shrink-0 items-center gap-1 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] py-0.5 pl-[7px] pr-[7px] text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-remotiv-purple">
       Worth a look
@@ -654,9 +707,7 @@ function ApplicantCard({
           {worthALook ? (
             <FlagReasonLine reason={row.shortlist.reason} />
           ) : (
-            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-              {row.email}
-            </p>
+            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">{row.email}</p>
           )}
         </div>
       </div>
@@ -742,11 +793,8 @@ function ScoreAdjuster({
         {detail.adjusted ? (
           <>
             <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
-              Adjusted to {detail.overall} from the AI&apos;s{" "}
-              {detail.ai_overall ?? "—"}
-              <span className="font-normal text-[var(--ai-t3)]">
-                {adjustmentByline(detail)}
-              </span>
+              Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "—"}
+              <span className="font-normal text-[var(--ai-t3)]">{adjustmentByline(detail)}</span>
             </p>
             {detail.human_feedback && (
               <p className="m-0 mt-2 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[13px] italic leading-relaxed text-[var(--ai-t2)]">
@@ -768,8 +816,8 @@ function ScoreAdjuster({
               Disagree with this score?
             </p>
             <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
-              Corrections are how we find out where the AI reads candidates too
-              high or too low. The AI&apos;s own score is always kept.
+              Corrections are how we find out where the AI reads candidates too high or too low. The
+              AI&apos;s own score is always kept.
             </p>
             <button
               type="button"
@@ -811,9 +859,7 @@ function ScoreAdjuster({
         />
       </div>
       {detail.ai_overall != null && (
-        <p className="m-0 mt-1.5 text-xs text-[var(--ai-t3)]">
-          The AI scored {detail.ai_overall}.
-        </p>
+        <p className="m-0 mt-1.5 text-xs text-[var(--ai-t3)]">The AI scored {detail.ai_overall}.</p>
       )}
 
       <div className="mt-3">
@@ -990,9 +1036,7 @@ function ApplicantDrawer({
                 <p className="m-0 truncate font-heading text-[19px] font-extrabold leading-[1.15] tracking-[-0.028em] text-white">
                   {name}
                 </p>
-                <p className="mt-1 truncate text-[12.5px] text-white/55">
-                  {row.email}
-                </p>
+                <p className="mt-1 truncate text-[12.5px] text-white/55">{row.email}</p>
               </div>
             </div>
             <button
@@ -1023,8 +1067,7 @@ function ApplicantDrawer({
                       self-reported like the answers themselves. */}
                   {scoreDetail?.screening_score != null && (
                     <span className="ml-2 font-normal text-white/55">
-                      Self-reported thresholds met:{" "}
-                      {scoreDetail.screening_score}%
+                      Self-reported thresholds met: {scoreDetail.screening_score}%
                     </span>
                   )}
                 </p>
@@ -1063,17 +1106,14 @@ function ApplicantDrawer({
                nothing is in progress on a job with scoring turned off. */
             <div
               className={`rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
-                isScoringOff(headerScore)
-                  ? "border-white/[0.14]"
-                  : "border-dashed border-white/20"
+                isScoringOff(headerScore) ? "border-white/[0.14]" : "border-dashed border-white/20"
               }`}
             >
               <b className="mb-[3px] block text-[13px] text-white">
                 {drawerScoreHeading(headerScore)}
               </b>
               <span className="text-xs leading-relaxed text-white/50">
-                {headerScore.error ??
-                  "The breakdown appears here once this CV has been scored."}
+                {headerScore.error ?? "The breakdown appears here once this CV has been scored."}
               </span>
             </div>
           )}
@@ -1103,15 +1143,13 @@ function ApplicantDrawer({
                 {/* Says what dismissal MEANS. Without this a recruiter has to
                     guess whether they are silencing this person permanently. */}
                 <span className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-                  Clears the flag. A materially better score later flags them
-                  again.
+                  Clears the flag. A materially better score later flags them again.
                 </span>
               </div>
             </div>
           )}
           <p className="mb-3.5 text-[13px] leading-relaxed text-[var(--ai-t3)]">
-            Applied to{" "}
-            <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
+            Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
             {applied.main}
           </p>
 
@@ -1153,8 +1191,8 @@ function ApplicantDrawer({
               to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
           {row.cv_expired && (
             <p className="mb-[22px] -mt-[14px] text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
-              CVs are deleted 24 months after the application. Everything else
-              on this applicant is unaffected.
+              CVs are deleted 24 months after the application. Everything else on this applicant is
+              unaffected.
             </p>
           )}
 
@@ -1183,8 +1221,8 @@ function ApplicantDrawer({
                   the answer, and this line can say the thing a pill never
                   could — that nobody verified any of it. */}
               <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
-                Answered by the candidate at apply time and checked against the
-                thresholds you set. Self-reported — not verified by Remotiv.
+                Answered by the candidate at apply time and checked against the thresholds you set.
+                Self-reported — not verified by Remotiv.
               </p>
               <div className="mb-[22px] flex flex-col gap-[9px]">
                 {row.screening_answers.map((a) => (
@@ -1192,9 +1230,7 @@ function ApplicantDrawer({
                     key={a.question_id}
                     className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
                   >
-                    <p className="mb-1.5 text-xs leading-snug text-[var(--ai-t3)]">
-                      {a.question}
-                    </p>
+                    <p className="mb-1.5 text-xs leading-snug text-[var(--ai-t3)]">{a.question}</p>
                     <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
                       {a.answer_label || a.answer || "—"}
                       {/* The snapshot's own `matched` flag, scored at apply
@@ -1306,6 +1342,27 @@ function ApplicantDrawer({
                 </>
               )}
 
+              {/* Sits ABOVE missing requirements: it is the employer's own
+                  checklist, and reading "here is what you asked about" before
+                  "here is what the CV did not cover" is the order a recruiter
+                  thinks in. Renders nothing at all when the list is empty. */}
+              {scoreDetail.must_haves.length > 0 && (
+                <>
+                  <DrawerLabel>Your must-haves</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col gap-2.5">
+                    {scoreDetail.must_haves.map((mh) => (
+                      <CriterionRow
+                        key={mh.item}
+                        item={mh.item}
+                        status={mh.status}
+                        quote={mh.quote}
+                        absentLabel="Not found in this CV"
+                      />
+                    ))}
+                  </div>
+                </>
+              )}
+
               {scoreDetail.missing_requirements.length > 0 && (
                 <>
                   <DrawerLabel>Missing requirements</DrawerLabel>
@@ -1331,10 +1388,7 @@ function ApplicantDrawer({
                   <DrawerLabel>Risks / points to verify</DrawerLabel>
                   <div className="mb-[22px] flex flex-col gap-2">
                     {scoreDetail.concerns.map((c) => (
-                      <p
-                        key={c}
-                        className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]"
-                      >
+                      <p key={c} className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]">
                         {c}
                       </p>
                     ))}
@@ -1355,9 +1409,8 @@ function ApplicantDrawer({
                 Scored against older criteria
               </p>
               <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
-                This job&apos;s requirements or screening questions have changed
-                since this CV was scored, so the numbers below were judged
-                against a different brief.
+                This job&apos;s requirements or screening questions have changed since this CV was
+                scored, so the numbers below were judged against a different brief.
               </p>
               {canRescore && (
                 <button
@@ -1411,15 +1464,9 @@ function ApplicantDrawer({
               <DrawerLabel>Details</DrawerLabel>
               <div className="mb-[22px] flex flex-col">
                 {location && <DetailRow label="Location" value={location} />}
-                {experienceText && (
-                  <DetailRow label="Experience" value={experienceText} />
-                )}
-                {row.notice_period && (
-                  <DetailRow label="Notice period" value={row.notice_period} />
-                )}
-                {row.availability && (
-                  <DetailRow label="Availability" value={row.availability} />
-                )}
+                {experienceText && <DetailRow label="Experience" value={experienceText} />}
+                {row.notice_period && <DetailRow label="Notice period" value={row.notice_period} />}
+                {row.availability && <DetailRow label="Availability" value={row.availability} />}
                 {row.phone && <DetailRow label="Phone" value={row.phone} />}
                 {row.linkedin_url && (
                   <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
@@ -1445,9 +1492,7 @@ function ApplicantDrawer({
               <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
             )}
             {!messagesLoading && messages.length === 0 && (
-              <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">
-                No messages sent yet.
-              </p>
+              <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No messages sent yet.</p>
             )}
             {messages.map((m) => (
               <MessageEntry key={m.id} message={m} />
@@ -1465,9 +1510,7 @@ function ApplicantDrawer({
               const when = fmtApplied(h.created_at);
               // The seeded first entry has no from_stage — it reads as plain
               // "Applied" rather than an arrow from nowhere.
-              const meta = [h.changed_by_name, when.main]
-                .filter(Boolean)
-                .join(" · ");
+              const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
               return (
                 <div key={h.id} className="relative flex items-start gap-3">
                   <span
@@ -1527,8 +1570,8 @@ function ApplicantDrawer({
               Delete applicant
             </button>
             <p className="m-0 mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
-              Permanently removes this applicant, their CV file, their AI
-              scorecard and their pipeline history. This cannot be undone.
+              Permanently removes this applicant, their CV file, their AI scorecard and their
+              pipeline history. This cannot be undone.
             </p>
           </div>
         </div>
@@ -1662,8 +1705,7 @@ export function ApplicantsClient({
 
   // Local copy so a delete can drop the row immediately. Re-synced whenever
   // the server sends a fresh list, the same pattern the jobs list uses.
-  const [applicants, setApplicants] =
-    useState<CompanyApplicantRow[]>(initialApplicants);
+  const [applicants, setApplicants] = useState<CompanyApplicantRow[]>(initialApplicants);
   useEffect(() => {
     setApplicants(initialApplicants);
   }, [initialApplicants]);
@@ -1728,9 +1770,7 @@ export function ApplicantsClient({
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);
   const [page, setPage] = useState(1);
-  const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(
-    null,
-  );
+  const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -1746,18 +1786,14 @@ export function ApplicantsClient({
    * and reverting is just deleting the key. Entries are harmless once the
    * revalidated server data catches up: they then hold the same value.
    */
-  const [stageOverrides, setStageOverrides] = useState<
-    Record<string, PipelineStage>
-  >({});
+  const [stageOverrides, setStageOverrides] = useState<Record<string, PipelineStage>>({});
   const [savingId, setSavingId] = useState<string | null>(null);
   const [history, setHistory] = useState<StageHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
   const [scoreSaving, setScoreSaving] = useState(false);
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
-  const [scoreOverrides, setScoreOverrides] = useState<
-    Record<string, ApplicantScore>
-  >({});
+  const [scoreOverrides, setScoreOverrides] = useState<Record<string, ApplicantScore>>({});
 
   useEffect(() => {
     if (!toast) return;
@@ -1797,29 +1833,29 @@ export function ApplicantsClient({
 
   const filtered = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return rows
-      .filter((r) => {
-        if (tab !== "all" && stageOf(r) !== tab) return false;
-        if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
-        if (flaggedOnly && !showsWorthALook(r)) return false;
-        if (q) {
-          const blob = `${fullName(r)} ${r.email}`.toLowerCase();
-          if (!blob.includes(q)) return false;
-        }
-        return true;
-      })
-      // Ranking IS the feature: score desc, unscored last, then newest first
-      // among equals. `overall` is the human override when one exists.
-      .sort((a, b) => {
-        const sa = a.score.status === "scored" ? a.score.overall : null;
-        const sb = b.score.status === "scored" ? b.score.overall : null;
-        if (sa !== null && sb !== null) return sb - sa;
-        if (sa !== null) return -1;
-        if (sb !== null) return 1;
-        return (
-          new Date(b.created_at).getTime() - new Date(a.created_at).getTime()
-        );
-      });
+    return (
+      rows
+        .filter((r) => {
+          if (tab !== "all" && stageOf(r) !== tab) return false;
+          if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
+          if (flaggedOnly && !showsWorthALook(r)) return false;
+          if (q) {
+            const blob = `${fullName(r)} ${r.email}`.toLowerCase();
+            if (!blob.includes(q)) return false;
+          }
+          return true;
+        })
+        // Ranking IS the feature: score desc, unscored last, then newest first
+        // among equals. `overall` is the human override when one exists.
+        .sort((a, b) => {
+          const sa = a.score.status === "scored" ? a.score.overall : null;
+          const sb = b.score.status === "scored" ? b.score.overall : null;
+          if (sa !== null && sb !== null) return sb - sa;
+          if (sa !== null) return -1;
+          if (sb !== null) return 1;
+          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+        })
+    );
   }, [rows, tab, jobFilter, search, flaggedOnly]);
 
   /**
@@ -2175,9 +2211,7 @@ export function ApplicantsClient({
           r.email,
           r.job_title,
           PIPELINE_STAGE_LABELS[stageOf(r)],
-          r.score.status === "scored" && r.score.overall != null
-            ? String(r.score.overall)
-            : "",
+          r.score.status === "scored" && r.score.overall != null ? String(r.score.overall) : "",
           r.score.adjusted ? "Adjusted" : r.score.status,
           r.score.confidence ?? "",
           screeningCell(r),
@@ -2248,8 +2282,8 @@ export function ApplicantsClient({
             {applicants.length === 0
               ? "No one has applied yet. "
               : `${applicants.length} ${applicants.length === 1 ? "person has" : "people have"} applied across your open roles. `}
-            Your AI recruiter will <LimeHighlight>read every CV</LimeHighlight>{" "}
-            and put the best ones first.
+            Your AI recruiter will <LimeHighlight>read every CV</LimeHighlight> and put the best
+            ones first.
           </p>
         </div>
 
@@ -2293,18 +2327,13 @@ export function ApplicantsClient({
       <DashboardHero
         eyebrow="Total applicants"
         value={applicants.length}
-        delta={
-          newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null
-        }
+        delta={newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null}
         subline={`Across ${openRoles} open ${openRoles === 1 ? "role" : "roles"}`}
       >
         <div className="flex flex-wrap items-stretch min-[840px]:flex-nowrap">
           {FUNNEL_STEPS.map((step, i) => {
             const value = stageCounts[step.stage] ?? 0;
-            const pct =
-              applicants.length > 0
-                ? Math.round((value / applicants.length) * 100)
-                : 0;
+            const pct = applicants.length > 0 ? Math.round((value / applicants.length) * 100) : 0;
             return (
               <div
                 key={step.stage}
@@ -2332,9 +2361,7 @@ export function ApplicantsClient({
                     style={{ background: step.bar, width: `${pct}%` }}
                   />
                 </div>
-                <p className="m-0 mt-2 text-[11px] text-white/[0.38]">
-                  {pct}% of total
-                </p>
+                <p className="m-0 mt-2 text-[11px] text-white/[0.38]">{pct}% of total</p>
               </div>
             );
           })}
@@ -2347,11 +2374,7 @@ export function ApplicantsClient({
           {/* The 5-tab strip is wider than a phone. It scrolls WITHIN itself
               (max-w-full + overflow-x-auto) so it can never widen the page. */}
           <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
-            <TabButton
-              on={tab === "all"}
-              count={applicants.length}
-              onClick={() => setTab("all")}
-            >
+            <TabButton on={tab === "all"} count={applicants.length} onClick={() => setTab("all")}>
               All
             </TabButton>
             {TAB_STAGES.map((s) => (
@@ -2490,108 +2513,108 @@ export function ApplicantsClient({
             </div>
 
             {paged.map((r, i) => {
-                const tint = getTint(r.id);
-                const applied = fmtApplied(r.created_at);
-                const stage = stageOf(r);
-                const pill = STAGE_PILL[stage];
-                const isTop = topMatchIds.has(r.id);
-                const rank = pageStart + i;
+              const tint = getTint(r.id);
+              const applied = fmtApplied(r.created_at);
+              const stage = stageOf(r);
+              const pill = STAGE_PILL[stage];
+              const isTop = topMatchIds.has(r.id);
+              const rank = pageStart + i;
 
-                return (
-                  <button
-                    key={r.id}
-                    type="button"
-                    onClick={() => setOpenId(r.id)}
-                    className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                      openId === r.id
-                        ? "bg-[var(--ai-purple-tint)]"
-                        : showsWorthALook(r)
-                          ? "bg-remotiv-purple/[0.035]"
-                          : "bg-[var(--ai-surface)]"
-                    }`}
-                  >
-                    {/* Always on for a flagged row — the accent is what makes a
+              return (
+                <button
+                  key={r.id}
+                  type="button"
+                  onClick={() => setOpenId(r.id)}
+                  className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                    openId === r.id
+                      ? "bg-[var(--ai-purple-tint)]"
+                      : showsWorthALook(r)
+                        ? "bg-remotiv-purple/[0.035]"
+                        : "bg-[var(--ai-surface)]"
+                  }`}
+                >
+                  {/* Always on for a flagged row — the accent is what makes a
                         flag findable while scrolling, so it does not wait for a
                         hover the way the default row's does. */}
-                    <span
-                      aria-hidden
-                      className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                        openId === r.id || showsWorthALook(r)
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100"
-                      }`}
-                    />
-                    <span
-                      className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                        isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-                      }`}
-                    >
-                      {String(rank + 1).padStart(2, "0")}
-                    </span>
+                  <span
+                    aria-hidden
+                    className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
+                      openId === r.id || showsWorthALook(r)
+                        ? "opacity-100"
+                        : "opacity-0 group-hover:opacity-100"
+                    }`}
+                  />
+                  <span
+                    className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
+                      isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                    }`}
+                  >
+                    {String(rank + 1).padStart(2, "0")}
+                  </span>
 
-                    <div className="flex min-w-0 items-center gap-3">
-                      <span
-                        className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                        style={{
-                          background: tint.bg,
-                          color: tint.fg,
-                          boxShadow: isTop
-                            ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                            : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                        }}
-                      >
-                        {initials(r.first_name, r.last_name, r.email)}
-                      </span>
-                      <div className="min-w-0">
-                        {/* .nm is a flex container, so truncation lives on the
+                  <div className="flex min-w-0 items-center gap-3">
+                    <span
+                      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                      style={{
+                        background: tint.bg,
+                        color: tint.fg,
+                        boxShadow: isTop
+                          ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
+                          : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
+                      }}
+                    >
+                      {initials(r.first_name, r.last_name, r.email)}
+                    </span>
+                    <div className="min-w-0">
+                      {/* .nm is a flex container, so truncation lives on the
                             INNER span — otherwise the Top-match flag clips. */}
-                        <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                          <span className="min-w-0 truncate">{fullName(r)}</span>
-                          {isTop && (
-                            <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                              Top match
-                            </span>
-                          )}
-                          {showsWorthALook(r) && (
-                            <WorthALookChip
-                              busy={dismissing === r.id}
-                              onDismiss={() => dismissFlag(r.id)}
-                            />
-                          )}
-                        </p>
-                        {showsWorthALook(r) ? (
-                          <FlagReasonLine reason={r.shortlist.reason} />
-                        ) : (
-                          <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                            {r.email}
-                          </p>
+                      <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                        <span className="min-w-0 truncate">{fullName(r)}</span>
+                        {isTop && (
+                          <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
+                            Top match
+                          </span>
                         )}
-                      </div>
+                        {showsWorthALook(r) && (
+                          <WorthALookChip
+                            busy={dismissing === r.id}
+                            onDismiss={() => dismissFlag(r.id)}
+                          />
+                        )}
+                      </p>
+                      {showsWorthALook(r) ? (
+                        <FlagReasonLine reason={r.shortlist.reason} />
+                      ) : (
+                        <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                          {r.email}
+                        </p>
+                      )}
                     </div>
+                  </div>
 
-                    <span className="justify-self-start max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                      {r.job_title}
-                    </span>
+                  <span className="justify-self-start max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                    {r.job_title}
+                  </span>
 
-                    <ScoreRing score={r.score} />
+                  <ScoreRing score={r.score} />
 
-                    <span
-                      className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                    >
-                      <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                      {PIPELINE_STAGE_LABELS[stage]}
-                    </span>
+                  <span
+                    className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
+                  >
+                    <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
+                    {PIPELINE_STAGE_LABELS[stage]}
+                  </span>
 
-                    <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                      {applied.main}
-                      <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                        {applied.sub}
-                      </small>
-                    </span>
+                  <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                    {applied.main}
+                    <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                      {applied.sub}
+                    </small>
+                  </span>
 
-                    <span />
-                  </button>
-                );
+                  <span />
+                </button>
+              );
             })}
           </div>
         </div>
@@ -2658,10 +2681,10 @@ export function ApplicantsClient({
             void handleClearAdjustment(openRow.id);
           }}
           onDelete={() => setDeleteTarget(openRow)}
-            onDismissFlag={(id) => {
-              void dismissFlag(id);
-            }}
-            dismissing={dismissing}
+          onDismissFlag={(id) => {
+            void dismissFlag(id);
+          }}
+          dismissing={dismissing}
         />
       )}
 
@@ -2717,9 +2740,9 @@ export function ApplicantsClient({
                 Delete this applicant?
               </h3>
               <p className="m-0 mt-2 text-sm text-[var(--ai-t2)]">
-                <span className="font-semibold">{fullName(deleteTarget)}</span>{" "}
-                will be permanently removed, along with their CV file, AI
-                scorecard and pipeline history. This cannot be undone.
+                <span className="font-semibold">{fullName(deleteTarget)}</span> will be permanently
+                removed, along with their CV file, AI scorecard and pipeline history. This cannot be
+                undone.
               </p>
             </div>
             <div className="flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">

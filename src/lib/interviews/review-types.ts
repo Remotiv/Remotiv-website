@@ -10,12 +10,7 @@
  * what stops a path reaching the client by accident rather than by review.
  */
 
-export type InterviewStatus =
-  | "invited"
-  | "started"
-  | "submitted"
-  | "expired"
-  | "cancelled";
+export type InterviewStatus = "invited" | "started" | "submitted" | "expired" | "cancelled";
 
 export type TranscriptState =
   | "pending"
@@ -110,13 +105,7 @@ export type InterviewAnswerView = {
  * invite is noise in a reviewer's list) and `archived` is not a status at all
  * — it cuts across every status.
  */
-export type InterviewTab =
-  | "all"
-  | "submitted"
-  | "started"
-  | "invited"
-  | "expired"
-  | "archived";
+export type InterviewTab = "all" | "submitted" | "started" | "invited" | "expired" | "archived";
 
 export type ScoreStatus =
   | "pending"
@@ -177,6 +166,31 @@ export type InterviewScore = {
   error: string | null;
   scoredAt: string | null;
   adjustment: ScoreAdjustment | null;
+  /**
+   * The job's behavioural criteria, one entry each, in the order the employer
+   * named them. EMPTY for a job that named none AND for a session scored under
+   * an older prompt version — the two are indistinguishable here and the UI
+   * treats them the same: it renders nothing. There is no distinction worth
+   * inventing, since both mean "there is nothing to show".
+   */
+  criteria: SessionCriterion[];
+};
+
+export type SessionCriterion = {
+  /** The employer's own wording. */
+  item: string;
+  status: "evidenced" | "not_found";
+  /** Verified transcript span. Empty when not_found. */
+  quote: string;
+  /**
+   * Where the quote sits in the recording, and in which answer.
+   *
+   * Null when it could not be placed: the quote is verified against the JOINED
+   * transcripts, so it is not owned by one answer up front — see
+   * placeCriterionQuote for how it is resolved, and for when it cannot be.
+   */
+  answerId: string | null;
+  startSeconds: number | null;
 };
 
 export type InterviewNote = {

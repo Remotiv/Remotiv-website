@@ -1,34 +1,28 @@
 "use client";
 
-import { useCallback, useEffect, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter } from "next/navigation";
 import {
+  Archive,
+  Check,
   ChevronLeft,
   Clock,
   Copy,
   Lock,
   Mic,
   PenLine,
-  TriangleAlert,
-  Archive,
   Trash,
+  TriangleAlert,
   Users,
   UserX,
   Video,
   VideoOff,
 } from "lucide-react";
+import Link from "next/link";
+import { useRouter } from "next/navigation";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
-import {
-  BAND_PANEL,
-  BAND_TEXT,
-  scoreBand,
-} from "@/app/ai-dashboard/lib/score-bands";
-import {
-  PIPELINE_STAGE_LABELS,
-  PIPELINE_STAGES,
-} from "@/app/ai-dashboard/lib/applicant-types";
 import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/actions";
+import { PIPELINE_STAGE_LABELS, PIPELINE_STAGES } from "@/app/ai-dashboard/lib/applicant-types";
+import { BAND_PANEL, BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import type {
   AnswerScoreView,
   InterviewAnswerView,
@@ -36,6 +30,7 @@ import type {
   InterviewScore,
   InterviewSessionDetail,
   ScoredEvidence,
+  SessionCriterion,
 } from "@/lib/interviews/review-types";
 import {
   addInterviewNote,
@@ -88,14 +83,17 @@ function fmtDate(iso: string | null): string {
 }
 
 function initials(name: string): string {
-  return name.split(" ").map((w) => w[0]).join("").slice(0, 2).toUpperCase();
+  return name
+    .split(" ")
+    .map((w) => w[0])
+    .join("")
+    .slice(0, 2)
+    .toUpperCase();
 }
 
 export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
   const firstPlayable = session.answers.findIndex((a) => a.hasVideo);
-  const [active, setActive] = useState(
-    firstPlayable >= 0 ? firstPlayable : 0,
-  );
+  const [active, setActive] = useState(firstPlayable >= 0 ? firstPlayable : 0);
   const [stage, setStage] = useState(session.stage);
   const [toast, setToast] = useState<string | null>(null);
   const [archivedAt, setArchivedAt] = useState(session.archivedAt);
@@ -122,6 +120,33 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
     void el.play().catch(() => {});
     setToast(`Jumped to ${fmtStamp(seconds)}`);
   }, []);
+
+  /**
+   * Seek to a criterion's quote, switching answers first when it belongs to
+   * another one.
+   *
+   * A criterion is checked across every transcript, so its quote is very often
+   * NOT in the answer currently on screen. Selecting the owning answer first is
+   * the whole difference between a button that works and one that jumps the
+   * wrong recording to an offset that means nothing there.
+   *
+   * The seek is deferred a tick because switching `active` remounts the player
+   * and mints a fresh signed URL — setting currentTime on the outgoing element
+   * would be discarded. When the placement failed (answerId null) the caller
+   * does not render a button at all, so this is only ever reached with one.
+   */
+  const onSeekCriterion = useCallback(
+    (answerId: string | null, seconds: number) => {
+      const index = session.answers.findIndex((a) => a.id === answerId);
+      if (index >= 0 && index !== active) {
+        setActive(index);
+        window.setTimeout(() => seekTo(seconds), 400);
+        return;
+      }
+      seekTo(seconds);
+    },
+    [active, session.answers, seekTo],
+  );
 
   useEffect(() => {
     if (!toast) return;
@@ -207,18 +232,16 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
             disabled={busy}
             onClick={() => {
               setBusy(true);
-              void setInterviewArchived(session.id, archivedAt === null).then(
-                (r) => {
-                  setBusy(false);
-                  if (!r.ok) {
-                    setToast(r.error);
-                    return;
-                  }
-                  const next = archivedAt === null ? new Date().toISOString() : null;
-                  setArchivedAt(next);
-                  setToast(next ? "Archived" : "Restored to the list");
-                },
-              );
+              void setInterviewArchived(session.id, archivedAt === null).then((r) => {
+                setBusy(false);
+                if (!r.ok) {
+                  setToast(r.error);
+                  return;
+                }
+                const next = archivedAt === null ? new Date().toISOString() : null;
+                setArchivedAt(next);
+                setToast(next ? "Archived" : "Restored to the list");
+              });
             }}
             className="inline-flex items-center gap-2 rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-[11px] text-[13px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:opacity-50"
           >
@@ -256,16 +279,17 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
 
       {archivedAt !== null && (
         <Notice tone="slate" icon={<Archive className="size-[17px]" strokeWidth={2} />}>
-          <b className="font-bold">Archived.</b> Hidden from the interviews list
-          and its counts. The recording, transcripts and notes are untouched,
-          and the candidate is unaffected — archiving is not the same as
-          cancelling an invitation. Restore puts it back exactly as it was.
+          <b className="font-bold">Archived.</b> Hidden from the interviews list and its counts. The
+          recording, transcripts and notes are untouched, and the candidate is unaffected —
+          archiving is not the same as cancelling an invitation. Restore puts it back exactly as it
+          was.
         </Notice>
       )}
 
       <VerdictStrip
         sessionId={session.id}
         score={session.score}
+        onSeekCriterion={onSeekCriterion}
         purged={session.purged}
         status={session.status}
         onToast={setToast}
@@ -281,12 +305,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
           {/* ── Left: player + question + transcript ── */}
           <div className="min-w-0">
             {answer && (
-              <Player
-                key={answer.id}
-                sessionId={session.id}
-                answer={answer}
-                videoRef={videoRef}
-              />
+              <Player key={answer.id} sessionId={session.id} answer={answer} videoRef={videoRef} />
             )}
 
             <div className="overflow-hidden rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
@@ -395,9 +414,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
                   </span>
                   <span
                     className={`shrink-0 text-xs font-semibold tabular-nums ${
-                      i === active
-                        ? "font-bold text-[var(--ai-purple-ink)]"
-                        : "text-[var(--ai-t3)]"
+                      i === active ? "font-bold text-[var(--ai-purple-ink)]" : "text-[var(--ai-t3)]"
                     }`}
                   >
                     {mmss(a.durationSeconds)}
@@ -497,17 +514,15 @@ function DeleteConfirm({
             {withVideo > 0 ? (
               <>
                 <b className="font-bold text-[var(--ai-t1)]">
-                  {withVideo} recording{withVideo === 1 ? "" : "s"} will be
-                  permanently destroyed
+                  {withVideo} recording{withVideo === 1 ? "" : "s"} will be permanently destroyed
                 </b>
-                , along with the transcripts, this interview&apos;s answers and
-                every reviewer note on it.
+                , along with the transcripts, this interview&apos;s answers and every reviewer note
+                on it.
               </>
             ) : (
               <>
                 <b className="font-bold text-[var(--ai-t1)]">
-                  This interview and every reviewer note on it will be
-                  permanently deleted.
+                  This interview and every reviewer note on it will be permanently deleted.
                 </b>{" "}
                 There are no recordings left to remove.
               </>
@@ -518,8 +533,8 @@ function DeleteConfirm({
           </p>
           <p className="m-0 mt-3 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
             If you only want it out of your list, cancel and use{" "}
-            <b className="font-bold text-[var(--ai-t2)]">Archive</b> instead —
-            that hides it and keeps everything.
+            <b className="font-bold text-[var(--ai-t2)]">Archive</b> instead — that hides it and
+            keeps everything.
           </p>
           <div className="mt-6 flex justify-end gap-2.5">
             <button
@@ -562,6 +577,7 @@ function VerdictStrip({
   status,
   onToast,
   onChanged,
+  onSeekCriterion,
 }: {
   sessionId: string;
   score: InterviewScore | null;
@@ -569,6 +585,8 @@ function VerdictStrip({
   status: string;
   onToast: (message: string) => void;
   onChanged: () => void;
+  /** Selects the owning answer, then seeks it. See onSeekCriterion. */
+  onSeekCriterion: (answerId: string | null, seconds: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
   if (status !== "submitted" && status !== "cancelled") return null;
@@ -608,9 +626,7 @@ function VerdictStrip({
           {/* Explicit colours: the DS's global `p { color:#444 }` beats an
               inherited white on a dark surface. */}
           <p className="m-0 mb-1.5 text-[15.5px] font-bold leading-snug tracking-[-0.015em] text-white">
-            {scored
-              ? (score?.verdict ?? "Scored — see the answers below")
-              : "Not scored yet"}
+            {scored ? (score?.verdict ?? "Scored — see the answers below") : "Not scored yet"}
           </p>
           <p className="m-0 text-[12.5px] leading-relaxed text-white/[0.58]">
             {scored
@@ -681,10 +697,90 @@ function VerdictStrip({
           />
         </div>
       )}
+
+      {/* Sits WITH the session verdict, not with any one answer: a criterion is
+          checked across every transcript, so hanging it off one question would
+          claim it was answered there. On a light strip below the dark one —
+          quotes need room to read and the dark surface is a summary band. */}
+      {(score?.criteria.length ?? 0) > 0 && (
+        <div className="border-t border-[var(--ai-line)] bg-[var(--ai-surface)] px-6 py-5">
+          <p className="m-0 mb-3 text-[10px] font-extrabold uppercase tracking-[0.14em] text-[var(--ai-t4)]">
+            Your behavioural criteria
+          </p>
+          <div className="flex flex-col gap-3">
+            {score?.criteria.map((c) => (
+              <InterviewCriterionRow key={c.item} criterion={c} onSeek={onSeekCriterion} />
+            ))}
+          </div>
+        </div>
+      )}
     </div>
   );
 }
 
+/**
+ * One behavioural criterion on the session strip.
+ *
+ * ── The not-found treatment, and why it cannot read as failure ──
+ *
+ * Deliberately mirrors CriterionRow in the applicants drawer — the two answer
+ * the same question about different sources and must not diverge in tone. No
+ * red, no amber, no warning glyph: an unproven item gets a hollow ring, the
+ * same shape an unfilled checkbox uses, which says "nothing here" rather than
+ * "this failed". The copy names the SOURCE ("Not found in the interview"), not
+ * the person, and there is no count anywhere — a ratio is a score, and a score
+ * invites comparing two candidates on something the prompt says caps nothing.
+ *
+ * Kept as its own small component rather than imported from the applicants
+ * client: that module is ~2,700 lines and importing one row from it would pull
+ * the whole applicants bundle into this route.
+ */
+function InterviewCriterionRow({
+  criterion,
+  onSeek,
+}: {
+  criterion: SessionCriterion;
+  onSeek: (answerId: string | null, seconds: number) => void;
+}) {
+  const evidenced = criterion.status === "evidenced";
+  const canSeek = criterion.startSeconds !== null && criterion.answerId !== null;
+
+  return (
+    <div className="flex gap-2.5">
+      {evidenced ? (
+        <Check className="mt-[3px] size-[14px] shrink-0 text-remotiv-green" strokeWidth={2.6} />
+      ) : (
+        <span
+          aria-hidden
+          className="mt-[4px] size-[12px] shrink-0 rounded-full border-[1.5px] border-[var(--ai-t4)]"
+        />
+      )}
+      <div className="min-w-0 flex-1">
+        <p className="m-0 text-[13px] leading-snug text-[var(--ai-t1)]">{criterion.item}</p>
+        {evidenced && criterion.quote ? (
+          <>
+            <p className="m-0 mt-1 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[12.5px] italic leading-relaxed text-[var(--ai-t2)]">
+              “{criterion.quote}”
+            </p>
+            {canSeek && (
+              <button
+                type="button"
+                onClick={() => onSeek(criterion.answerId, criterion.startSeconds as number)}
+                className="mt-1 border-none bg-transparent p-0 text-[11px] font-bold text-remotiv-purple transition-opacity hover:opacity-70"
+              >
+                {fmtStamp(criterion.startSeconds as number)} ▸
+              </button>
+            )}
+          </>
+        ) : (
+          <p className="m-0 mt-0.5 text-[12px] leading-snug text-[var(--ai-t3)]">
+            Not found in the interview
+          </p>
+        )}
+      </div>
+    </div>
+  );
+}
 
 /**
  * The per-answer AI scorecard. Six states, each rendering as itself.
@@ -847,9 +943,7 @@ function Scorecard({
       )}
 
       {score?.reasoning && (
-        <p className="m-0 mb-4 text-[13px] leading-[1.68] text-[var(--ai-t2)]">
-          {score.reasoning}
-        </p>
+        <p className="m-0 mb-4 text-[13px] leading-[1.68] text-[var(--ai-t2)]">{score.reasoning}</p>
       )}
 
       {score && score.strengths.length > 0 && (
@@ -894,8 +988,8 @@ function Disclosure() {
     <p className="m-0 flex gap-[9px] border-t border-[var(--ai-line-soft)] pt-3 text-[11px] leading-relaxed text-[var(--ai-t4)]">
       <Lock className="mt-0.5 size-[13px] shrink-0" strokeWidth={1.9} />
       <span>
-        Scored from the transcript only. Nothing about face, voice or accent is
-        analysed. A person makes the decision.
+        Scored from the transcript only. Nothing about face, voice or accent is analysed. A person
+        makes the decision.
       </span>
     </p>
   );
@@ -971,10 +1065,7 @@ function AdjustForm({
   const [note, setNote] = useState("");
   const [busy, setBusy] = useState(false);
 
-  async function run(
-    fn: () => Promise<{ ok: boolean; error?: string }>,
-    msg: string,
-  ) {
+  async function run(fn: () => Promise<{ ok: boolean; error?: string }>, msg: string) {
     setBusy(true);
     const res = await fn();
     setBusy(false);
@@ -1067,29 +1158,27 @@ function SessionNotice({ session }: { session: InterviewSessionDetail }) {
   if (session.purged) {
     return (
       <Notice tone="slate" icon={<Lock className="size-[17px]" strokeWidth={2} />}>
-        <b className="font-bold">Recordings removed after six months.</b> Deleted
-        on schedule under the retention policy the candidate agreed to.
-        Questions, durations and the answer record remain below.
+        <b className="font-bold">Recordings removed after six months.</b> Deleted on schedule under
+        the retention policy the candidate agreed to. Questions, durations and the answer record
+        remain below.
       </Notice>
     );
   }
   if (session.status === "started") {
     return (
       <Notice tone="sky" icon={<Clock className="size-[17px]" strokeWidth={2} />}>
-        <b className="font-bold">Still in progress.</b>{" "}
-        {session.candidateName.split(" ")[0]} has recorded{" "}
-        {session.answers.length} of {session.totalQuestions} answers and can
-        still re-record before submitting. Watch what's here if you like, but
-        hold off deciding until it's complete.
+        <b className="font-bold">Still in progress.</b> {session.candidateName.split(" ")[0]} has
+        recorded {session.answers.length} of {session.totalQuestions} answers and can still
+        re-record before submitting. Watch what's here if you like, but hold off deciding until it's
+        complete.
       </Notice>
     );
   }
   if (session.status === "cancelled") {
     return (
       <Notice tone="slate" icon={<TriangleAlert className="size-[17px]" strokeWidth={2} />}>
-        <b className="font-bold">This invitation was cancelled.</b> It was
-        replaced by a newer one, or withdrawn. Anything recorded before that is
-        still below.
+        <b className="font-bold">This invitation was cancelled.</b> It was replaced by a newer one,
+        or withdrawn. Anything recorded before that is still below.
       </Notice>
     );
   }
@@ -1202,15 +1291,7 @@ function Player({
 }
 
 /** A deliberate panel, not a broken player: dashed border, icon, explanation. */
-function FlatPlayer({
-  icon,
-  title,
-  body,
-}: {
-  icon: React.ReactNode;
-  title: string;
-  body: string;
-}) {
+function FlatPlayer({ icon, title, body }: { icon: React.ReactNode; title: string; body: string }) {
   return (
     <div className="mb-3.5 flex aspect-video flex-col items-center justify-center gap-3 rounded-[18px] border border-dashed border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-7 text-center">
       <span className="flex size-14 items-center justify-center rounded-[18px] border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t4)]">
@@ -1219,9 +1300,7 @@ function FlatPlayer({
       <h4 className="m-0 font-heading text-base font-extrabold tracking-[-0.02em] text-[var(--ai-t1)]">
         {title}
       </h4>
-      <p className="m-0 max-w-[360px] text-[13px] leading-relaxed text-[var(--ai-t3)]">
-        {body}
-      </p>
+      <p className="m-0 max-w-[360px] text-[13px] leading-relaxed text-[var(--ai-t3)]">{body}</p>
     </div>
   );
 }
@@ -1237,9 +1316,7 @@ function FlatPlayer({
 function Transcript({ answer }: { answer: InterviewAnswerView }) {
   if (answer.transcriptState === "done") {
     return (
-      <p className="m-0 text-[13.5px] leading-[1.78] text-[var(--ai-t2)]">
-        {answer.transcript}
-      </p>
+      <p className="m-0 text-[13.5px] leading-[1.78] text-[var(--ai-t2)]">{answer.transcript}</p>
     );
   }
 
@@ -1275,9 +1352,7 @@ function Transcript({ answer }: { answer: InterviewAnswerView }) {
           <p className="m-0 text-[13px] font-bold leading-tight text-[var(--ai-t1)]">
             {copy.title}
           </p>
-          <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-            {copy.body}
-          </p>
+          <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">{copy.body}</p>
         </span>
       </div>
       {answer.transcriptState === "pending" && (
@@ -1355,9 +1430,7 @@ function NotesCard({
   const [busy, setBusy] = useState(false);
 
   async function run(
-    fn: () => Promise<
-      { ok: true; notes: InterviewNote[] } | { ok: false; error: string }
-    >,
+    fn: () => Promise<{ ok: true; notes: InterviewNote[] } | { ok: false; error: string }>,
     success?: string,
   ) {
     setBusy(true);
@@ -1379,9 +1452,7 @@ function NotesCard({
           Reviewer notes
         </p>
         {notes.length > 0 && (
-          <span className="text-[11.5px] font-bold text-[var(--ai-t3)]">
-            {notes.length}
-          </span>
+          <span className="text-[11.5px] font-bold text-[var(--ai-t3)]">{notes.length}</span>
         )}
       </div>
 
@@ -1419,9 +1490,8 @@ function NotesCard({
              there is nothing to hover and their absence looks like a missing
              feature. Saying it once here costs a line and answers it. */
           <p className="m-0 mt-3 border-t border-[var(--ai-line-soft)] pt-3 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
-            No notes yet. Notes are attributed and timestamped, and you can edit
-            or delete your own afterwards — your teammates&apos; stay as they
-            wrote them.
+            No notes yet. Notes are attributed and timestamped, and you can edit or delete your own
+            afterwards — your teammates&apos; stay as they wrote them.
           </p>
         )}
 
@@ -1429,8 +1499,7 @@ function NotesCard({
           <div className="mt-3.5 flex flex-col gap-3 border-t border-[var(--ai-line-soft)] pt-3.5">
             {notes.map((n) => {
               const mine = n.memberId === viewerMemberId && viewerMemberId !== "";
-              const edited =
-                n.updatedAt !== null && n.updatedAt !== n.createdAt;
+              const edited = n.updatedAt !== null && n.updatedAt !== n.createdAt;
 
               if (editingId === n.id) {
                 return (
@@ -1500,10 +1569,7 @@ function NotesCard({
                             type="button"
                             disabled={busy}
                             onClick={() => {
-                              void run(
-                                () => deleteInterviewNote(sessionId, n.id),
-                                "Note deleted",
-                              );
+                              void run(() => deleteInterviewNote(sessionId, n.id), "Note deleted");
                             }}
                             className="border-none bg-transparent p-0 text-[11px] font-bold text-[var(--ai-t3)] transition-colors hover:text-[var(--ai-danger)] disabled:opacity-40"
                           >

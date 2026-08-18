@@ -353,6 +353,35 @@ function checkabilityScore(line: string): number {
   return CHECKABLE_SIGNALS.reduce((n, re) => n + (re.test(line) ? 1 : 0), 0);
 }
 
+/**
+ * Openers that make a line read as the tail of a sentence rather than a claim.
+ *
+ * Secondary to the split fix above, not a substitute for it: the fragments this
+ * catches are ones an employer actually typed that way ("and ideally some
+ * Kubernetes"), which is different from one the miner manufactured. Kept to
+ * coordinating conjunctions and continuation prepositions — words that cannot
+ * open a standalone requirement — so a gerund ("Handling escalations…") or a
+ * lowercase-styled description is still offered.
+ *
+ * Deliberately NOT "starts with a lowercase letter". Plenty of job descriptions
+ * are written in sentence case throughout, and the real trait example —
+ * "you're comfortable picking up the phone and following up without being told
+ * to" — is a whole line that happens to start lowercase. Rejecting on case
+ * would throw away good suggestions to catch a class the split fix already
+ * eliminated.
+ */
+const CONTINUATION_OPENERS =
+  /^(?:and|or|but|nor|plus|with|without|including|excluding|such as|as well as|which|that|who|whom|whose|then|also|e\.g\.|i\.e\.)\b/i;
+
+/** Does this line stand on its own as a claim about a candidate? */
+function readsAsStandalone(line: string): boolean {
+  if (CONTINUATION_OPENERS.test(line)) return false;
+  // A trailing conjunction is the other half of the same problem: the line was
+  // cut before its object.
+  if (/\b(?:and|or|with|including)$/i.test(line)) return false;
+  return true;
+}
+
 /** Which list a candidate line belongs in. Never both. */
 export function classifyCriterion(line: string): "cv" | "interview" {
   return TRAIT_MARKERS.some((re) => re.test(line)) ? "interview" : "cv";
@@ -393,7 +422,25 @@ export function suggestCriteria(input: {
   const interview: string[] = [];
 
   for (const source of [input.requirements, input.responsibilities]) {
-    for (const rawLine of (source ?? "").split(/\r?\n|[•·▪]|(?:^|\s)[-*]\s/)) {
+    /*
+     * Newlines and GLYPH bullets only.
+     *
+     * `(?:^|\s)[-*]\s` used to be in this set and had to go: a hyphen is a
+     * bullet at the start of a line and a DASH in the middle of one, and the
+     * pattern could not tell them apart. "Build integrations with third-party
+     * APIs - handling authentication, data mapping, and error conditions" was
+     * cut in two, and the second half — "handling authentication, data mapping,
+     * and error conditions" — was offered as a must-have. It evidenced
+     * correctly and still read as broken, which is worse than not suggesting
+     * it: a fragment in the employer's own list looks like the product mangled
+     * their words.
+     *
+     * Nothing is lost by dropping it. A leading "- " or "* " is stripped from
+     * each line below, so real bullet lists still work; only a mid-sentence
+     * dash stops being a boundary. •, · and ▪ stay because they are never
+     * punctuation — a line containing one is unambiguously a list.
+     */
+    for (const rawLine of (source ?? "").split(/\r?\n|[•·▪]/)) {
       const line = rawLine
         // Leading numbering ("1.", "2)") and stray bullet glyphs.
         .replace(/^\s*(?:\d+[.)]|[-*•·▪])\s*/, "")
@@ -403,6 +450,7 @@ export function suggestCriteria(input: {
         .replace(/[.;,]$/, "");
 
       if (line.length < 12 || line.length > MUST_HAVE_MAX_LENGTH) continue;
+      if (!readsAsStandalone(line)) continue;
       const key = line.toLowerCase();
       if (taken.has(key)) continue;
       taken.add(key);
