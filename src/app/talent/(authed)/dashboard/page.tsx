@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { type Job, LIST_SELECT } from "@/lib/jobs";
+import { type Job, LIST_SELECT, publiclyVisible } from "@/lib/jobs";
 import { DashboardClient, type DashboardProfile } from "./_dashboard-client";
 import {
   computeCompleteness,
@@ -69,11 +69,10 @@ export default async function TalentDashboardPage({
         .select(REMOTE_COLUMNS)
         .eq("email", normalisedEmail)
         .maybeSingle(),
-      service
-        .from("jobs")
-        .select(LIST_SELECT)
-        .eq("status", "open")
-        .order("created_at", { ascending: false }),
+      publiclyVisible(service.from("jobs").select(LIST_SELECT)).order(
+        "created_at",
+        { ascending: false },
+      ),
     ]);
 
   const jobs = (liveJobs ?? []) as unknown as Job[];
