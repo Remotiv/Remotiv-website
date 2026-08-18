@@ -1,14 +1,14 @@
-import { NextRequest, NextResponse } from "next/server";
+import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
-import type { ScreeningQuestion } from "@/lib/jobs";
-import { resolveNumericMode, type NumericMode } from "@/lib/screening";
-import { createServiceClient } from "@/lib/supabase/server";
-import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
-import { isValidEmail } from "@/lib/validators";
-import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
-import { enqueue } from "@/lib/jobs-queue";
 import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
+import type { ScreeningQuestion } from "@/lib/jobs";
+import { enqueue } from "@/lib/jobs-queue";
+import { normalizeEmail, normalizePhone } from "@/lib/normalize";
+import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
+import { type NumericMode, resolveNumericMode } from "@/lib/screening";
+import { createServiceClient } from "@/lib/supabase/server";
+import { isValidEmail } from "@/lib/validators";
 
 // LinkedIn URL gate — applied to every submission regardless of `source`.
 // Defense in depth: the bulk-upload UI already blocks invalid rows, but a
@@ -100,7 +100,12 @@ function safeJson<T>(raw: FormDataEntryValue | null, fallback: T): T {
 }
 
 function slug(value: string): string {
-  return value.toLowerCase().replace(/[^a-z0-9]+/g, "-").replace(/(^-|-$)/g, "") || "applicant";
+  return (
+    value
+      .toLowerCase()
+      .replace(/[^a-z0-9]+/g, "-")
+      .replace(/(^-|-$)/g, "") || "applicant"
+  );
 }
 
 // Rich, frozen-at-apply-time snapshot of the candidate's screening answers.
@@ -156,8 +161,7 @@ function buildScreeningSnapshot(
       } else {
         const a = Number(answer);
         const ideal = Number(q.ideal);
-        const comparable =
-          answer !== "" && Number.isFinite(a) && Number.isFinite(ideal);
+        const comparable = answer !== "" && Number.isFinite(a) && Number.isFinite(ideal);
         matched = comparable && (mode === "min" ? a >= ideal : a <= ideal);
       }
     } else if (q.type === "multiple") {
@@ -202,16 +206,16 @@ export async function POST(request: NextRequest) {
   try {
     const form = await request.formData();
 
-    const jobId     = nullable(form.get("job_id"));
-    const jobTitle  = nullable(form.get("job_title_manual"));
+    const jobId = nullable(form.get("job_id"));
+    const jobTitle = nullable(form.get("job_title_manual"));
     const firstName = nullable(form.get("first_name"));
-    const lastName  = nullable(form.get("last_name"));
-    const rawEmail  = nullable(form.get("email"));
-    const email     = rawEmail ? normalizeEmail(rawEmail) : null;
-    const phone     = nullable(form.get("phone"));
-    const linkedin  = nullable(form.get("linkedin_url"));
-    const notes     = nullable(form.get("notes"));
-    const cvText    = nullable(form.get("cv_text"));
+    const lastName = nullable(form.get("last_name"));
+    const rawEmail = nullable(form.get("email"));
+    const email = rawEmail ? normalizeEmail(rawEmail) : null;
+    const phone = nullable(form.get("phone"));
+    const linkedin = nullable(form.get("linkedin_url"));
+    const notes = nullable(form.get("notes"));
+    const cvText = nullable(form.get("cv_text"));
     /*
      * Attribution — where this applicant came from. Every field OPTIONAL.
      *
@@ -225,10 +229,10 @@ export async function POST(request: NextRequest) {
      * job_application|manual_upload on this route and its column carries a
      * CHECK for exactly those two values. See the report.
      */
-    const attrSource   = nullable(form.get("attribution_source"));
-    const attrDetail   = nullable(form.get("attribution_detail"));
+    const attrSource = nullable(form.get("attribution_source"));
+    const attrDetail = nullable(form.get("attribution_detail"));
     const attrReferrer = nullable(form.get("attribution_referrer"));
-    const attrLanding  = nullable(form.get("attribution_landing_path"));
+    const attrLanding = nullable(form.get("attribution_landing_path"));
     // Guard the `source` field: only accept the two known string values.
     const sourceRaw = form.get("source");
     const source: "job_application" | "manual_upload" =
@@ -264,10 +268,7 @@ export async function POST(request: NextRequest) {
     }
 
     if (!firstName || !cvFile) {
-      return NextResponse.json(
-        { error: "First name and CV are required." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "First name and CV are required." }, { status: 400 });
     }
 
     // Length caps on every user-supplied text field. Reject early — before
@@ -281,35 +282,23 @@ export async function POST(request: NextRequest) {
       (phone !== null && phone.length > MAX_PHONE_LENGTH) ||
       (notes !== null && notes.length > MAX_NOTES_LENGTH)
     ) {
-      return NextResponse.json(
-        { error: GENERIC_INVALID_MESSAGE },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 });
     }
 
     // jobId, when present, MUST be a real UUID — see UUID_REGEX comment.
     if (jobId !== null && !UUID_REGEX.test(jobId)) {
-      return NextResponse.json(
-        { error: GENERIC_INVALID_MESSAGE },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: GENERIC_INVALID_MESSAGE }, { status: 400 });
     }
 
     // Email is optional on /apply (job application can be anonymised), but if
     // provided it must be a real-looking address — we use it for duplicate
     // detection and downstream contact.
     if (email !== null && !isValidEmail(email)) {
-      return NextResponse.json(
-        { error: "Please enter a valid email address." },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
     }
 
     if (cvFile.size > MAX_CV_FILE_BYTES) {
-      return NextResponse.json(
-        { error: "CV file is too large (max 5 MB)." },
-        { status: 413 },
-      );
+      return NextResponse.json({ error: "CV file is too large (max 5 MB)." }, { status: 413 });
     }
 
     // Magic-byte check: PDF files start with "%PDF" (0x25 0x50 0x44 0x46).
@@ -366,10 +355,7 @@ export async function POST(request: NextRequest) {
         : resolvedCvText;
 
     if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
-      return NextResponse.json(
-        { error: "Valid LinkedIn URL required" },
-        { status: 400 },
-      );
+      return NextResponse.json({ error: "Valid LinkedIn URL required" }, { status: 400 });
     }
 
     const supabase = createServiceClient();
@@ -399,14 +385,8 @@ export async function POST(request: NextRequest) {
 
       if (visError) {
         // Fail closed — an unverifiable job must not accept applications.
-        console.error(
-          `[/api/apply][${errorId}] job visibility lookup failed:`,
-          visError,
-        );
-        return NextResponse.json(
-          { error: GENERIC_ERROR_MESSAGE, errorId },
-          { status: 500 },
-        );
+        console.error(`[/api/apply][${errorId}] job visibility lookup failed:`, visError);
+        return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
       }
 
       if (!visRow) {
@@ -445,8 +425,7 @@ export async function POST(request: NextRequest) {
           .ilike("email", email.trim())
           .eq("job_id", jobId)
           .maybeSingle();
-        emailMatch =
-          (data as { id: string; created_at: string | null } | null) ?? null;
+        emailMatch = (data as { id: string; created_at: string | null } | null) ?? null;
       }
 
       // Phone match — fetch a slice of recent rows for this job and
@@ -467,12 +446,8 @@ export async function POST(request: NextRequest) {
           phone: string | null;
           created_at: string | null;
         }>;
-        const found = records.find(
-          (r) => normalizePhone(r.phone ?? "") === normalizedPhone,
-        );
-        phoneMatch = found
-          ? { id: found.id, created_at: found.created_at }
-          : null;
+        const found = records.find((r) => normalizePhone(r.phone ?? "") === normalizedPhone);
+        phoneMatch = found ? { id: found.id, created_at: found.created_at } : null;
       }
 
       const dupMatch = emailMatch ?? phoneMatch;
@@ -499,14 +474,8 @@ export async function POST(request: NextRequest) {
       .upload(path, cvBuffer, { contentType: "application/pdf", upsert: false });
 
     if (uploadError) {
-      console.error(
-        `[/api/apply][${errorId}] storage upload failed:`,
-        uploadError,
-      );
-      return NextResponse.json(
-        { error: GENERIC_ERROR_MESSAGE, errorId },
-        { status: 500 },
-      );
+      console.error(`[/api/apply][${errorId}] storage upload failed:`, uploadError);
+      return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
     }
 
     // 3. If a manual job title was typed, create a placeholder job and link it.
@@ -548,8 +517,7 @@ export async function POST(request: NextRequest) {
         .maybeSingle();
       const raw = (jobQ as { screening_questions?: unknown } | null)?.screening_questions;
       serverScreeningQuestions = Array.isArray(raw) ? (raw as ScreeningQuestion[]) : [];
-      companyIdSnapshot =
-        (jobQ as { company_id?: string | null } | null)?.company_id ?? null;
+      companyIdSnapshot = (jobQ as { company_id?: string | null } | null)?.company_id ?? null;
     }
 
     // Phase 2b — parse the wizard's new fields just before the INSERT. Placed
@@ -558,40 +526,48 @@ export async function POST(request: NextRequest) {
     // dedup-by-email gate. None of these branches reject: empties stay NULL,
     // garbage enum values coerce to the safe default, JSON parse failures
     // fall back to []. This is intentional — the wizard's UI is the gate.
-    const cap = (s: string | null, n: number): string | null =>
-      s === null ? null : s.slice(0, n);
+    const cap = (s: string | null, n: number): string | null => (s === null ? null : s.slice(0, n));
 
-    const applicantJobTitle = cap(nullable(form.get("applicant_job_title")), APPLY_FIELD_MAX.jobTitle);
-    const roleCategory      = cap(nullable(form.get("role_category")),       APPLY_FIELD_MAX.roleCategory);
-    const degree            = cap(nullable(form.get("degree")),              APPLY_FIELD_MAX.degree);
-    const institution       = cap(nullable(form.get("institution")),         APPLY_FIELD_MAX.institution);
-    const city              = cap(nullable(form.get("city")),                APPLY_FIELD_MAX.city);
-    const country           = cap(nullable(form.get("country")),             APPLY_FIELD_MAX.country);
-    const summary           = cap(nullable(form.get("summary")),             APPLY_FIELD_MAX.summary);
+    const applicantJobTitle = cap(
+      nullable(form.get("applicant_job_title")),
+      APPLY_FIELD_MAX.jobTitle,
+    );
+    const roleCategory = cap(nullable(form.get("role_category")), APPLY_FIELD_MAX.roleCategory);
+    const degree = cap(nullable(form.get("degree")), APPLY_FIELD_MAX.degree);
+    const institution = cap(nullable(form.get("institution")), APPLY_FIELD_MAX.institution);
+    const city = cap(nullable(form.get("city")), APPLY_FIELD_MAX.city);
+    const country = cap(nullable(form.get("country")), APPLY_FIELD_MAX.country);
+    const summary = cap(nullable(form.get("summary")), APPLY_FIELD_MAX.summary);
 
     const yearsParsed = intOrNull(form.get("years_experience"));
-    const yearsExperience = yearsParsed == null
-      ? null
-      : Math.max(0, Math.min(70, yearsParsed));
+    const yearsExperience = yearsParsed == null ? null : Math.max(0, Math.min(70, yearsParsed));
 
     const rawAvailability = nullable(form.get("availability"));
     const availability = rawAvailability
-      ? (VALID_AVAILABILITY.includes(rawAvailability) ? rawAvailability : DEFAULT_AVAILABILITY)
+      ? VALID_AVAILABILITY.includes(rawAvailability)
+        ? rawAvailability
+        : DEFAULT_AVAILABILITY
       : null;
 
     const rawWorkType = nullable(form.get("work_type"));
     const workType = rawWorkType
-      ? (VALID_WORK_TYPE.includes(rawWorkType) ? rawWorkType : DEFAULT_WORK_TYPE)
+      ? VALID_WORK_TYPE.includes(rawWorkType)
+        ? rawWorkType
+        : DEFAULT_WORK_TYPE
       : null;
 
     const rawNoticePeriod = nullable(form.get("notice_period"));
     const noticePeriod = rawNoticePeriod
-      ? (VALID_NOTICE_PERIOD.includes(rawNoticePeriod) ? rawNoticePeriod : DEFAULT_NOTICE_PERIOD)
+      ? VALID_NOTICE_PERIOD.includes(rawNoticePeriod)
+        ? rawNoticePeriod
+        : DEFAULT_NOTICE_PERIOD
       : null;
 
     const rawWorkLocation = nullable(form.get("work_location"));
     const workLocation = rawWorkLocation
-      ? (VALID_WORK_LOCATION.includes(rawWorkLocation) ? rawWorkLocation : DEFAULT_WORK_LOCATION)
+      ? VALID_WORK_LOCATION.includes(rawWorkLocation)
+        ? rawWorkLocation
+        : DEFAULT_WORK_LOCATION
       : null;
 
     const skillsRaw = safeJson<unknown>(form.get("skills"), []);
@@ -615,11 +591,24 @@ export async function POST(request: NextRequest) {
       ? (empRaw as unknown[])
           .filter((e): e is Record<string, unknown> => !!e && typeof e === "object")
           .map((e) => ({
-            title:       typeof e.title       === "string" ? (e.title as string).slice(0,       APPLY_FIELD_MAX.expField)              : "",
-            company:     typeof e.company     === "string" ? (e.company as string).slice(0,     APPLY_FIELD_MAX.expField)              : "",
-            start:       typeof e.start       === "string" ? (e.start as string).slice(0,       APPLY_FIELD_MAX.expField)              : "",
-            end:         typeof e.end         === "string" ? (e.end as string).slice(0,         APPLY_FIELD_MAX.expField)              : "",
-            description: typeof e.description === "string" ? (e.description as string).slice(0, APPLY_FIELD_MAX.experienceDescription) : "",
+            title:
+              typeof e.title === "string"
+                ? (e.title as string).slice(0, APPLY_FIELD_MAX.expField)
+                : "",
+            company:
+              typeof e.company === "string"
+                ? (e.company as string).slice(0, APPLY_FIELD_MAX.expField)
+                : "",
+            start:
+              typeof e.start === "string"
+                ? (e.start as string).slice(0, APPLY_FIELD_MAX.expField)
+                : "",
+            end:
+              typeof e.end === "string" ? (e.end as string).slice(0, APPLY_FIELD_MAX.expField) : "",
+            description:
+              typeof e.description === "string"
+                ? (e.description as string).slice(0, APPLY_FIELD_MAX.experienceDescription)
+                : "",
             skills: Array.isArray(e.skills)
               ? (e.skills as unknown[])
                   .filter((s): s is string => typeof s === "string")
@@ -651,10 +640,7 @@ export async function POST(request: NextRequest) {
         }
       }
     }
-    const screeningSnapshot = buildScreeningSnapshot(
-      serverScreeningQuestions,
-      screeningAnswerMap,
-    );
+    const screeningSnapshot = buildScreeningSnapshot(serverScreeningQuestions, screeningAnswerMap);
 
     // Sanitize every user-derived string that reaches Postgres. Applied
     // HERE — after all validation, length caps, and enum coercion — so a
@@ -663,17 +649,15 @@ export async function POST(request: NextRequest) {
     // this covers the client-sent cv_text branch and every wizard/basic
     // field. Length-neutral for well-formed input; only strips NUL and
     // C0 controls that Postgres rejects (SQLSTATE 22P05).
-    const strip = (v: string | null): string | null =>
-      v === null ? null : stripInvalidPgChars(v);
-
+    const strip = (v: string | null): string | null => (v === null ? null : stripInvalidPgChars(v));
 
     const cleanEmpHistory = employmentHistory.map((row) => ({
-      title:       stripInvalidPgChars(row.title),
-      company:     stripInvalidPgChars(row.company),
-      start:       stripInvalidPgChars(row.start),
-      end:         stripInvalidPgChars(row.end),
+      title: stripInvalidPgChars(row.title),
+      company: stripInvalidPgChars(row.company),
+      start: stripInvalidPgChars(row.start),
+      end: stripInvalidPgChars(row.end),
       description: stripInvalidPgChars(row.description),
-      skills:      row.skills.map(stripInvalidPgChars),
+      skills: row.skills.map(stripInvalidPgChars),
     }));
 
     // CV retention. Set ONLY for company applications — a null
@@ -685,9 +669,7 @@ export async function POST(request: NextRequest) {
     // written. Pure arithmetic on a value already in hand — it cannot throw.
     const CV_RETENTION_MONTHS = 24;
     const cvDeleteAfter = companyIdSnapshot
-      ? new Date(
-          new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS),
-        ).toISOString()
+      ? new Date(new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS)).toISOString()
       : null;
 
     // 4. Insert application (service role bypasses RLS). We capture the
@@ -711,29 +693,29 @@ export async function POST(request: NextRequest) {
         source,
         notes: strip(notes),
         applicant_job_title: strip(applicantJobTitle),
-        role_category:       strip(roleCategory),
-        years_experience:    yearsExperience,
-        degree:              strip(degree),
-        institution:         strip(institution),
-        city:                strip(city),
-        country:             strip(country),
+        role_category: strip(roleCategory),
+        years_experience: yearsExperience,
+        degree: strip(degree),
+        institution: strip(institution),
+        city: strip(city),
+        country: strip(country),
         availability,
-        work_type:           workType,
-        notice_period:       noticePeriod,
-        work_location:       workLocation,
-        summary:             strip(summary),
-        skills:              skills.map(stripInvalidPgChars),
-        employment_history:  cleanEmpHistory,
-        screening_answers:   screeningSnapshot,
+        work_type: workType,
+        notice_period: noticePeriod,
+        work_location: workLocation,
+        summary: strip(summary),
+        skills: skills.map(stripInvalidPgChars),
+        employment_history: cleanEmpHistory,
+        screening_answers: screeningSnapshot,
         company_id_snapshot: companyIdSnapshot,
-        cv_delete_after:     cvDeleteAfter,
+        cv_delete_after: cvDeleteAfter,
         // Attribution. `strip` is the same NUL/control-char guard every other
         // text column here uses, and `cap` is the existing length helper — both
         // reused rather than reintroduced. All three are nullable, and a missing
         // value writes NULL exactly as before this existed.
-        source_detail:       cap(strip(attrDetail ?? attrSource), 120),
-        referrer:            cap(strip(attrReferrer), 120),
-        landing_path:        cap(strip(attrLanding), 200),
+        source_detail: cap(strip(attrDetail ?? attrSource), 120),
+        referrer: cap(strip(attrReferrer), 120),
+        landing_path: cap(strip(attrLanding), 200),
       })
       .select("id")
       .single();
@@ -751,15 +733,13 @@ export async function POST(request: NextRequest) {
       } catch (cleanupErr) {
         // [CV_ORPHAN] is the production grep tag — search logs for this
         // marker to surface every storage object whose rollback failed.
-        console.error(
-          `[CV_ORPHAN][/api/apply][${errorId}] rollback delete failed`,
-          { path, bucket: CV_BUCKET, error: cleanupErr },
-        );
+        console.error(`[CV_ORPHAN][/api/apply][${errorId}] rollback delete failed`, {
+          path,
+          bucket: CV_BUCKET,
+          error: cleanupErr,
+        });
       }
-      return NextResponse.json(
-        { error: GENERIC_ERROR_MESSAGE, errorId },
-        { status: 500 },
-      );
+      return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
     }
 
     const applicationId = (insertedRow as { id: string }).id;
@@ -777,16 +757,10 @@ export async function POST(request: NextRequest) {
           companyId: companyIdSnapshot,
         });
         if (!queued.ok) {
-          console.error(
-            "[/api/apply] cv scoring enqueue failed (non-fatal):",
-            queued.error,
-          );
+          console.error("[/api/apply] cv scoring enqueue failed (non-fatal):", queued.error);
         }
       } catch (queueErr) {
-        console.error(
-          "[/api/apply] cv scoring enqueue threw (non-fatal):",
-          queueErr,
-        );
+        console.error("[/api/apply] cv scoring enqueue threw (non-fatal):", queueErr);
       }
     }
 
@@ -808,33 +782,22 @@ export async function POST(request: NextRequest) {
     //    gracefully to the original 3-second auto-close.
     let bridgeToken: string | null = null;
     try {
-      const token =
-        (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
-      const expiresAt = new Date(
-        Date.now() + 7 * 24 * 60 * 60 * 1000,
-      ).toISOString();
-      const { error: tokenErr } = await supabase
-        .from("talent_claim_tokens")
-        .insert({
-          token_hash: token,
-          candidate_id: applicationId,
-          source_table: "job_applications",
-          status: "pending",
-          expires_at: expiresAt,
-        });
+      const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+      const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
+      const { error: tokenErr } = await supabase.from("talent_claim_tokens").insert({
+        token_hash: token,
+        candidate_id: applicationId,
+        source_table: "job_applications",
+        status: "pending",
+        expires_at: expiresAt,
+      });
       if (tokenErr) {
-        console.error(
-          "[/api/apply] bridge token insert failed (non-fatal):",
-          tokenErr,
-        );
+        console.error("[/api/apply] bridge token insert failed (non-fatal):", tokenErr);
       } else {
         bridgeToken = token;
       }
     } catch (tokenThrow) {
-      console.error(
-        "[/api/apply] bridge token threw (non-fatal):",
-        tokenThrow,
-      );
+      console.error("[/api/apply] bridge token threw (non-fatal):", tokenThrow);
     }
 
     return NextResponse.json({
@@ -844,9 +807,6 @@ export async function POST(request: NextRequest) {
     });
   } catch (err) {
     console.error(`[/api/apply][${errorId}] unexpected error:`, err);
-    return NextResponse.json(
-      { error: GENERIC_ERROR_MESSAGE, errorId },
-      { status: 500 },
-    );
+    return NextResponse.json({ error: GENERIC_ERROR_MESSAGE, errorId }, { status: 500 });
   }
 }

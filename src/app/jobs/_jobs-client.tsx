@@ -3,6 +3,7 @@
 import { ArrowLeft, Bookmark, Briefcase, Globe, MapPin, Search, Star } from "lucide-react";
 import Link from "next/link";
 import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
+import { captureAttribution } from "@/app/jobs/_attribution";
 import { Navbar } from "@/components/navbar";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job } from "@/lib/jobs";
@@ -18,14 +19,7 @@ type ContractType = "Full time" | "Part time" | "Contract";
 const EXPERIENCE_LEVELS: ExperienceLevel[] = ["Entry", "Intermediate", "Expert"];
 const CONTRACT_TYPES: ContractType[] = ["Full time", "Part time", "Contract"];
 
-const CATEGORIES = [
-  "Engineering",
-  "Design",
-  "Sales",
-  "Marketing",
-  "Data",
-  "Support",
-];
+const CATEGORIES = ["Engineering", "Design", "Sales", "Marketing", "Data", "Support"];
 
 const LANGUAGES = ["English", "Urdu", "Arabic"];
 
@@ -114,6 +108,16 @@ export function JobsClient({
   // drawer), so both agree.
   const drawerRef = useRef<HTMLElement>(null);
   useFocusTrap(drawerRef, filtersDrawerOpen);
+
+  /*
+   * A tagged link can land here as well as on a job detail page — recruiters
+   * share /jobs?utm_source=linkedin at least as often as a single role. Runs
+   * once on mount; captureAttribution never throws and never downgrades an
+   * existing record.
+   */
+  useEffect(() => {
+    captureAttribution();
+  }, []);
 
   // Restore favorites + saved search from localStorage on mount
   useEffect(() => {
@@ -212,8 +216,7 @@ export function JobsClient({
       if (category) params.set("category", category);
       if (experienceLevels.size > 0)
         params.set("experience_level", [...experienceLevels].join(","));
-      if (contractTypes.size > 0)
-        params.set("contract_type", [...contractTypes].join(","));
+      if (contractTypes.size > 0) params.set("contract_type", [...contractTypes].join(","));
       if (language) params.set("language", language);
 
       try {
@@ -285,9 +288,7 @@ export function JobsClient({
     if (searchQuery.trim()) {
       const q = searchQuery.toLowerCase();
       result = result.filter(
-        (j) =>
-          j.title.toLowerCase().includes(q) ||
-          j.company.toLowerCase().includes(q),
+        (j) => j.title.toLowerCase().includes(q) || j.company.toLowerCase().includes(q),
       );
     }
     if (locationFilter.trim()) {
@@ -378,8 +379,8 @@ export function JobsClient({
               {company ? (
                 <div className="mt-5">
                   <p className="text-[0.82rem] leading-[1.7] text-white/45">
-                    You&apos;re seeing only the open roles at {company.name}. Filters
-                    and search below apply to these roles.
+                    You&apos;re seeing only the open roles at {company.name}. Filters and search
+                    below apply to these roles.
                   </p>
                   <Link
                     href="/jobs"
@@ -391,9 +392,8 @@ export function JobsClient({
                 </div>
               ) : (
                 <p className="mt-5 text-[0.82rem] leading-[1.7] text-white/45">
-                  Explore our diverse range of job openings across various departments
-                  and locations, designed to match your skills, experience, and career
-                  aspirations.
+                  Explore our diverse range of job openings across various departments and
+                  locations, designed to match your skills, experience, and career aspirations.
                 </p>
               )}
             </div>
@@ -401,7 +401,9 @@ export function JobsClient({
             <div className="flex min-h-[160px] max-h-[320px] flex-col items-center justify-center gap-3 overflow-hidden rounded-[20px] bg-[linear-gradient(135deg,#0e0e0e_0%,#1a1a2e_50%,#0e0e0e_100%)] md:min-h-[280px]">
               <Briefcase className="size-16 text-remotiv-green/40" strokeWidth={1.5} />
               <span className="text-xs uppercase tracking-[0.1em] text-white/30">
-                {loading ? "Loading…" : `${filteredJobs.length} Open Position${filteredJobs.length !== 1 ? "s" : ""}`}
+                {loading
+                  ? "Loading…"
+                  : `${filteredJobs.length} Open Position${filteredJobs.length !== 1 ? "s" : ""}`}
               </span>
             </div>
           </section>
@@ -460,13 +462,12 @@ export function JobsClient({
         <div className="grid grid-cols-1 items-start gap-6 px-5 pb-16 pt-4 sm:px-6 xl:grid-cols-[280px_1fr]">
           <aside className="jobs-desktop-sidebar xl:sticky xl:top-20 rounded-[20px] border border-black/[0.08] bg-white p-7">
             <FilterGroup label="Category">
-              <FilterSelect
-                value={pendingCategory}
-                onChange={setPendingCategory}
-              >
+              <FilterSelect value={pendingCategory} onChange={setPendingCategory}>
                 <option value="">Select category</option>
                 {CATEGORIES.map((c) => (
-                  <option key={c} value={c}>{c}</option>
+                  <option key={c} value={c}>
+                    {c}
+                  </option>
                 ))}
               </FilterSelect>
             </FilterGroup>
@@ -500,13 +501,12 @@ export function JobsClient({
             <Divider />
 
             <FilterGroup label="Language">
-              <FilterSelect
-                value={pendingLanguage}
-                onChange={setPendingLanguage}
-              >
+              <FilterSelect value={pendingLanguage} onChange={setPendingLanguage}>
                 <option value="">Select language</option>
                 {LANGUAGES.map((l) => (
-                  <option key={l} value={l}>{l}</option>
+                  <option key={l} value={l}>
+                    {l}
+                  </option>
                 ))}
               </FilterSelect>
             </FilterGroup>
@@ -546,10 +546,14 @@ export function JobsClient({
                 />
                 Favorites
                 {favorites.size > 0 && (
-                  <span className={cn(
-                    "flex size-4 items-center justify-center rounded-full text-[10px] font-bold",
-                    showFavorites ? "bg-remotiv-green text-remotiv-text-dark" : "bg-gray-100 text-gray-500",
-                  )}>
+                  <span
+                    className={cn(
+                      "flex size-4 items-center justify-center rounded-full text-[10px] font-bold",
+                      showFavorites
+                        ? "bg-remotiv-green text-remotiv-text-dark"
+                        : "bg-gray-100 text-gray-500",
+                    )}
+                  >
                     {favorites.size}
                   </span>
                 )}
@@ -641,7 +645,9 @@ export function JobsClient({
             aria-labelledby="jobs-drawer-title"
           >
             <div className="jobs-drawer-header">
-              <span id="jobs-drawer-title" className="jobs-drawer-title">Filters</span>
+              <span id="jobs-drawer-title" className="jobs-drawer-title">
+                Filters
+              </span>
               <button
                 ref={drawerCloseBtnRef}
                 type="button"
@@ -655,13 +661,12 @@ export function JobsClient({
             <div className="jobs-drawer-body">
               <div className="p-7">
                 <FilterGroup label="Category">
-                  <FilterSelect
-                    value={pendingCategory}
-                    onChange={setPendingCategory}
-                  >
+                  <FilterSelect value={pendingCategory} onChange={setPendingCategory}>
                     <option value="">Select category</option>
                     {CATEGORIES.map((c) => (
-                      <option key={c} value={c}>{c}</option>
+                      <option key={c} value={c}>
+                        {c}
+                      </option>
                     ))}
                   </FilterSelect>
                 </FilterGroup>
@@ -695,17 +700,15 @@ export function JobsClient({
                 <Divider />
 
                 <FilterGroup label="Language">
-                  <FilterSelect
-                    value={pendingLanguage}
-                    onChange={setPendingLanguage}
-                  >
+                  <FilterSelect value={pendingLanguage} onChange={setPendingLanguage}>
                     <option value="">Select language</option>
                     {LANGUAGES.map((l) => (
-                      <option key={l} value={l}>{l}</option>
+                      <option key={l} value={l}>
+                        {l}
+                      </option>
                     ))}
                   </FilterSelect>
                 </FilterGroup>
-
               </div>
             </div>
             <div className="jobs-drawer-footer flex gap-2.5">
@@ -741,7 +744,16 @@ export function JobsClient({
           className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-2xl border border-remotiv-green/30 bg-white px-4 py-3 shadow-xl"
         >
           <span className="flex size-6 shrink-0 items-center justify-center rounded-full bg-remotiv-green/15 text-remotiv-green">
-            <svg viewBox="0 0 12 12" aria-hidden="true" className="size-3.5" fill="none" stroke="currentColor" strokeWidth={2.5} strokeLinecap="round" strokeLinejoin="round">
+            <svg
+              viewBox="0 0 12 12"
+              aria-hidden="true"
+              className="size-3.5"
+              fill="none"
+              stroke="currentColor"
+              strokeWidth={2.5}
+              strokeLinecap="round"
+              strokeLinejoin="round"
+            >
               <polyline points="1.5 6.5 4.5 9.5 10.5 2.5" />
             </svg>
           </span>
@@ -752,14 +764,7 @@ export function JobsClient({
   );
 }
 
-
-function FilterGroup({
-  label,
-  children,
-}: {
-  label: string;
-  children: React.ReactNode;
-}) {
+function FilterGroup({ label, children }: { label: string; children: React.ReactNode }) {
   return (
     <div className="mb-6">
       <span className="mb-3 block text-[0.82rem] font-bold text-remotiv-text-dark">{label}</span>
@@ -820,9 +825,7 @@ function CheckItem({
       <span
         className={cn(
           "flex size-[18px] shrink-0 items-center justify-center rounded border-[1.5px] transition-all",
-          checked
-            ? "border-remotiv-green bg-remotiv-green"
-            : "border-black/20 bg-white",
+          checked ? "border-remotiv-green bg-remotiv-green" : "border-black/20 bg-white",
         )}
       >
         {checked ? (
@@ -972,9 +975,7 @@ const JobCard = memo(function JobCard({
       </div>
 
       <div className="pointer-events-none relative z-0">
-        <div className="mb-3 text-[0.78rem] text-[#666]">
-          Posted {timeAgo(job.created_at)}
-        </div>
+        <div className="mb-3 text-[0.78rem] text-[#666]">Posted {timeAgo(job.created_at)}</div>
         <h3 className="mb-1.5 pr-24 font-heading text-[1.2rem] font-bold text-remotiv-text-dark">
           {job.title}
         </h3>

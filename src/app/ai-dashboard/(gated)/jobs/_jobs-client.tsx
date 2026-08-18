@@ -1,14 +1,12 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
-import Link from "next/link";
-import { useRouter, useSearchParams } from "next/navigation";
 import {
   Archive,
   Briefcase,
   Check,
   ChevronLeft,
   ChevronRight,
+  CircleX,
   Copy,
   Eye,
   Lock,
@@ -20,30 +18,29 @@ import {
   Sparkles,
   Trash,
   X,
-  CircleX,
 } from "lucide-react";
-import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
-import {
-  canCreateJobs,
-  type CompanyRole,
-} from "@/app/ai-dashboard/lib/company-roles";
-import {
-  JOB_STATUS_LABELS,
-  type CompanyJobRow,
-  type JobStatus,
-} from "@/app/ai-dashboard/lib/job-types";
+import Link from "next/link";
+import { useRouter, useSearchParams } from "next/navigation";
+import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
+import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import {
-  deleteCompanyJob,
-  duplicateCompanyJob,
-  updateCompanyJobStatus,
-  setCompanyJobArchived,
-} from "./actions";
-import { HiringTeamSection } from "./_hiring-team";
+  type CompanyJobRow,
+  JOB_STATUS_LABELS,
+  type JobStatus,
+} from "@/app/ai-dashboard/lib/job-types";
 // Lives with the applicants actions, not the jobs ones — it operates on
 // application_scores and re-checks ownership through company_id_snapshot.
 import { rescoreJob } from "../applicants/actions";
+import { HiringTeamSection } from "./_hiring-team";
+import {
+  deleteCompanyJob,
+  duplicateCompanyJob,
+  setCompanyJobArchived,
+  updateCompanyJobStatus,
+} from "./actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -91,8 +88,7 @@ const ICON_TINTS = [
 ];
 
 /** Mock's `.gridrow`: Job / Status / Applicants / Posted / ⋯ */
-const ROW_GRID =
-  "grid grid-cols-[minmax(0,2.5fr)_1fr_1.15fr_0.9fr_40px] items-center gap-4 px-5";
+const ROW_GRID = "grid grid-cols-[minmax(0,2.5fr)_1fr_1.15fr_0.9fr_40px] items-center gap-4 px-5";
 
 /** Roles shown in the hero breakdown, matching the mock's four bars. */
 const HERO_ROLE_LIMIT = 4;
@@ -165,53 +161,51 @@ function RoleBreakdown({
 }) {
   return (
     <div className="min-w-0">
-        <p className="m-0 mb-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
-          Applicants by role
+      <p className="m-0 mb-3 text-[10.5px] font-bold uppercase tracking-[0.14em] text-white/40">
+        Applicants by role
+      </p>
+
+      {bars.length === 0 ? (
+        <p className="m-0 text-[12.5px] leading-relaxed text-white/50">
+          No applications yet. Every published role appears here as soon as its first candidate
+          applies.
         </p>
+      ) : (
+        <div className="flex flex-col gap-2">
+          {bars.map((b) => (
+            <div
+              key={b.id}
+              className="grid grid-cols-[minmax(0,110px)_1fr_34px] items-center gap-3 min-[630px]:grid-cols-[minmax(0,150px)_1fr_34px]"
+            >
+              <span className="truncate text-[12.5px] text-white/70">{b.title}</span>
+              <span className="h-[6px] overflow-hidden rounded-[4px] bg-white/10">
+                <span
+                  className="block h-full origin-left rounded-[4px]"
+                  style={{
+                    // Scaled to the top role, so the longest bar is always
+                    // full width and the rest read as a proportion of it.
+                    width: `${top > 0 ? Math.round((b.count / top) * 100) : 0}%`,
+                    background: b.bar,
+                  }}
+                />
+              </span>
+              <span className="text-right text-[12.5px] font-bold tabular-nums text-white">
+                {b.count}
+              </span>
+            </div>
+          ))}
 
-        {bars.length === 0 ? (
-          <p className="m-0 text-[12.5px] leading-relaxed text-white/50">
-            No applications yet. Every published role appears here as soon as
-            its first candidate applies.
-          </p>
-        ) : (
-          <div className="flex flex-col gap-2">
-            {bars.map((b) => (
-              <div
-                key={b.id}
-                className="grid grid-cols-[minmax(0,110px)_1fr_34px] items-center gap-3 min-[630px]:grid-cols-[minmax(0,150px)_1fr_34px]"
-              >
-                <span className="truncate text-[12.5px] text-white/70">
-                  {b.title}
-                </span>
-                <span className="h-[6px] overflow-hidden rounded-[4px] bg-white/10">
-                  <span
-                    className="block h-full origin-left rounded-[4px]"
-                    style={{
-                      // Scaled to the top role, so the longest bar is always
-                      // full width and the rest read as a proportion of it.
-                      width: `${top > 0 ? Math.round((b.count / top) * 100) : 0}%`,
-                      background: b.bar,
-                    }}
-                  />
-                </span>
-                <span className="text-right text-[12.5px] font-bold tabular-nums text-white">
-                  {b.count}
-                </span>
-              </div>
-            ))}
-
-            {hiddenRoles > 0 && (
-              <button
-                type="button"
-                onClick={onShowAll}
-                className="mt-1 self-start text-[11.5px] font-semibold text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
-              >
-                +{hiddenRoles} more role{hiddenRoles === 1 ? "" : "s"}
-              </button>
-            )}
-          </div>
-        )}
+          {hiddenRoles > 0 && (
+            <button
+              type="button"
+              onClick={onShowAll}
+              className="mt-1 self-start text-[11.5px] font-semibold text-white/40 underline-offset-2 transition-colors hover:text-white/70 hover:underline"
+            >
+              +{hiddenRoles} more role{hiddenRoles === 1 ? "" : "s"}
+            </button>
+          )}
+        </div>
+      )}
     </div>
   );
 }
@@ -253,18 +247,9 @@ function JobsHero({
   })();
 
   return (
-    <DashboardHero
-      eyebrow="Applicants in play"
-      value={totalApplicants}
-      subline={subline}
-    >
+    <DashboardHero eyebrow="Applicants in play" value={totalApplicants} subline={subline}>
       {hasBreakdown ? (
-        <RoleBreakdown
-          bars={bars}
-          top={top}
-          hiddenRoles={hiddenRoles}
-          onShowAll={onShowAll}
-        />
+        <RoleBreakdown bars={bars} top={top} hiddenRoles={hiddenRoles} onShowAll={onShowAll} />
       ) : (
         /* The block still carries the number; the ink side says why there is
            no breakdown rather than rendering an empty panel. */
@@ -341,9 +326,7 @@ function JobCard({
         </span>
 
         {notPosted ? (
-          <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">
-            Not posted
-          </span>
+          <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">Not posted</span>
         ) : (
           <span className="flex min-w-0 items-center gap-2">
             <span className="font-heading text-[15px] font-extrabold tabular-nums tracking-[-0.03em] text-[var(--ai-t1)]">
@@ -354,9 +337,7 @@ function JobCard({
                 className="block h-full origin-left rounded-[3px]"
                 style={{
                   width: `${
-                    maxApplicants > 0
-                      ? Math.round((job.applicant_count / maxApplicants) * 100)
-                      : 0
+                    maxApplicants > 0 ? Math.round((job.applicant_count / maxApplicants) * 100) : 0
                   }%`,
                   background: job.status === "open" ? tint.bar : "var(--ai-t4)",
                 }}
@@ -410,13 +391,7 @@ type MenuItem = {
 const DRAWER_ACTION =
   "flex w-full items-center gap-2 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-2.5 text-xs font-semibold transition-colors";
 
-function DrawerSection({
-  title,
-  children,
-}: {
-  title: string;
-  children: React.ReactNode;
-}) {
+function DrawerSection({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <section className="mb-6 last:mb-2">
       <p className="mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--ai-t3)]">
@@ -522,9 +497,7 @@ function JobDrawer({
               <drawerVisual.icon className="size-[19px]" strokeWidth={1.8} />
             </span>
             <div className="min-w-0 flex-1">
-              <p className="font-heading text-lg font-bold text-[var(--ai-t1)]">
-                {job.title}
-              </p>
+              <p className="font-heading text-lg font-bold text-[var(--ai-t1)]">{job.title}</p>
               <p className="mt-0.5 flex flex-wrap items-center gap-[7px] text-[12.5px] text-[var(--ai-t3)]">
                 <span className="truncate">{job.location}</span>
                 <span className="size-[3px] rounded-full bg-[var(--ai-t4)]" />
@@ -572,6 +545,12 @@ function JobDrawer({
               </div>
             )}
           </DrawerSection>
+
+          {job.slug && job.status === "open" && (
+            <DrawerSection title="Share this job">
+              <ShareLinks slug={job.slug} onToast={onToast} />
+            </DrawerSection>
+          )}
 
           <DrawerSection title="Hiring team">
             <HiringTeamSection jobId={job.id} onToast={onToast} />
@@ -626,8 +605,8 @@ function JobDrawer({
                 Re-score all applicants
               </button>
               <p className="mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
-                Re-runs the AI against this job&apos;s current requirements and
-                screening questions. Costs roughly two cents per CV.
+                Re-runs the AI against this job&apos;s current requirements and screening questions.
+                Costs roughly two cents per CV.
               </p>
             </DrawerSection>
           )}
@@ -659,9 +638,10 @@ export function JobsClient({
   /** Job whose action drawer is open. Replaces the old per-row dropdown, which
    *  clipped inside the table's horizontal-scroll container. */
   const [openId, setOpenId] = useState<string | null>(null);
-  const [confirm, setConfirm] = useState<
-    { job: CompanyJobRow; kind: "close" | "delete" | "rescore" | "archive" } | null
-  >(null);
+  const [confirm, setConfirm] = useState<{
+    job: CompanyJobRow;
+    kind: "close" | "delete" | "rescore" | "archive";
+  } | null>(null);
   const [busy, setBusy] = useState(false);
   const [toast, setToast] = useState<string | null>(null);
 
@@ -721,8 +701,7 @@ export function JobsClient({
           if (b.applicant_count !== a.applicant_count) {
             return b.applicant_count - a.applicant_count;
           }
-          const byDate =
-            new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+          const byDate = new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
           return byDate !== 0 ? byDate : a.id.localeCompare(b.id);
         }),
     [liveJobs],
@@ -743,10 +722,7 @@ export function JobsClient({
   const hiddenRoles = Math.max(0, rankedRoles.length - HERO_ROLE_LIMIT);
 
   /** Longest row bar. Every other bar is drawn as a fraction of this. */
-  const maxApplicants = liveJobs.reduce(
-    (max, j) => Math.max(max, j.applicant_count),
-    0,
-  );
+  const maxApplicants = liveJobs.reduce((max, j) => Math.max(max, j.applicant_count), 0);
 
   /**
    * The job carrying the lime flag. Only meaningful once at least two roles
@@ -810,17 +786,13 @@ export function JobsClient({
    */
   async function handleArchive(job: CompanyJobRow, archived: boolean) {
     const stamp = archived ? new Date().toISOString() : null;
-    setJobs((prev) =>
-      prev.map((j) => (j.id === job.id ? { ...j, archived_at: stamp } : j)),
-    );
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, archived_at: stamp } : j)));
     setOpenId(null);
 
     const result = await setCompanyJobArchived(job.id, archived);
     if (!result.success) {
       setJobs((prev) =>
-        prev.map((j) =>
-          j.id === job.id ? { ...j, archived_at: job.archived_at } : j,
-        ),
+        prev.map((j) => (j.id === job.id ? { ...j, archived_at: job.archived_at } : j)),
       );
       setToast(result.error ?? "Something went wrong. Please try again.");
       return;
@@ -871,15 +843,11 @@ export function JobsClient({
     if (result.success) {
       // A re-score changes no row in this list — only the scorecards behind it.
       if (kind === "close") {
-        setJobs((prev) =>
-          prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j)),
-        );
+        setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: "closed" } : j)));
       } else if (kind === "archive") {
         // Stays in `jobs` — it moves to the Archived tab rather than leaving.
         setJobs((prev) =>
-          prev.map((j) =>
-            j.id === job.id ? { ...j, archived_at: new Date().toISOString() } : j,
-          ),
+          prev.map((j) => (j.id === job.id ? { ...j, archived_at: new Date().toISOString() } : j)),
         );
       } else if (kind === "delete") {
         setJobs((prev) => prev.filter((j) => j.id !== job.id));
@@ -1005,9 +973,7 @@ export function JobsClient({
   async function handleCopyUrl(job: CompanyJobRow) {
     if (!job.slug) return;
     try {
-      await navigator.clipboard.writeText(
-        `${window.location.origin}/jobs/${job.slug}`,
-      );
+      await navigator.clipboard.writeText(`${window.location.origin}/jobs/${job.slug}`);
       setToast("Public URL copied");
     } catch {
       // Clipboard blocked — the URL is on screen for manual copying.
@@ -1078,8 +1044,7 @@ export function JobsClient({
           </h1>
           <p className="mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
             {ledeCount} Every published job goes live on remotiv.work{" "}
-            <LimeHighlight>instantly</LimeHighlight> and starts collecting
-            applicants.
+            <LimeHighlight>instantly</LimeHighlight> and starts collecting applicants.
           </p>
         </div>
         <div className="flex shrink-0 gap-2.5">
@@ -1153,9 +1118,7 @@ export function JobsClient({
                 {t.label}
                 <span
                   className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
-                    tab === t.key
-                      ? "bg-white/20 text-white"
-                      : "bg-[rgba(20,16,32,0.07)]"
+                    tab === t.key ? "bg-white/20 text-white" : "bg-[rgba(20,16,32,0.07)]"
                   }`}
                 >
                   {counts[t.key]}
@@ -1239,131 +1202,123 @@ export function JobsClient({
             </div>
 
             {paged.map((job) => {
-                const rowVisual = jobVisual(job.title, job.category);
-                const tint = getTint(job.id);
-                const badge = STATUS_BADGE[job.status];
-                const posted = fmtPosted(job.created_at, job.status);
+              const rowVisual = jobVisual(job.title, job.category);
+              const tint = getTint(job.id);
+              const badge = STATUS_BADGE[job.status];
+              const posted = fmtPosted(job.created_at, job.status);
 
-                return (
-                  <div
-                    key={job.id}
-                    // `group` drives both the ⋯ reveal and the icon lift.
-                    // `hover:z-[2]` lets the lift shadow sit over the rows
-                    // either side of it instead of being clipped by them.
-                    className={`${ROW_GRID} group relative border-b border-[var(--ai-line-soft)] py-[15px] transition-[background-color,box-shadow] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-remotiv-purple before:opacity-0 before:transition-opacity before:content-[''] last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] hover:before:opacity-100 ${
-                      job.status === "closed" ? "opacity-[0.66]" : ""
-                    }`}
-                  >
-                    <div className="flex min-w-0 items-center gap-3.5">
-                      <span
-                        className="flex size-[42px] shrink-0 items-center justify-center rounded-[13px] transition-transform group-hover:scale-105"
-                        style={{ background: rowVisual.bg, color: rowVisual.fg }}
-                      >
-                        <rowVisual.icon className="size-[19px]" strokeWidth={1.8} />
-                      </span>
-                      <div className="min-w-0">
-                        <p className="truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                          {job.title}
-                        </p>
-                        <p className="mt-[3px] flex flex-wrap items-center gap-[7px] text-[12.5px] text-[var(--ai-t3)]">
-                          <span className="truncate">{job.location}</span>
-                          <span className="size-[3px] rounded-full bg-[var(--ai-t4)]" />
-                          {job.contract_type}
-                          <span className="size-[3px] rounded-full bg-[var(--ai-t4)]" />
-                          {job.experience_level}
-                        </p>
-                      </div>
-                    </div>
-
+              return (
+                <div
+                  key={job.id}
+                  // `group` drives both the ⋯ reveal and the icon lift.
+                  // `hover:z-[2]` lets the lift shadow sit over the rows
+                  // either side of it instead of being clipped by them.
+                  className={`${ROW_GRID} group relative border-b border-[var(--ai-line-soft)] py-[15px] transition-[background-color,box-shadow] before:absolute before:inset-y-0 before:left-0 before:w-[3px] before:bg-remotiv-purple before:opacity-0 before:transition-opacity before:content-[''] last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] hover:before:opacity-100 ${
+                    job.status === "closed" ? "opacity-[0.66]" : ""
+                  }`}
+                >
+                  <div className="flex min-w-0 items-center gap-3.5">
                     <span
-                      className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${badge.badge}`}
+                      className="flex size-[42px] shrink-0 items-center justify-center rounded-[13px] transition-transform group-hover:scale-105"
+                      style={{ background: rowVisual.bg, color: rowVisual.fg }}
                     >
-                      <span className={`size-[5px] rounded-full ${badge.dot}`} />
-                      {JOB_STATUS_LABELS[job.status]}
+                      <rowVisual.icon className="size-[19px]" strokeWidth={1.8} />
                     </span>
-
-                    {/* Volume, drawn as a share of the busiest role so the
-                        column reads as a ranking at a glance. */}
-                    <span className="flex min-w-0 items-center gap-[11px]">
-                      {job.status === "on_hold" && job.applicant_count === 0 ? (
-                        <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">
-                          Not posted
-                        </span>
-                      ) : (
-                        <>
-                          <span className="w-7 shrink-0 font-heading text-[17px] font-extrabold tracking-[-0.03em] tabular-nums text-[var(--ai-t1)]">
-                            {job.applicant_count}
-                          </span>
-                          <span className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
-                            <span
-                              className="block h-full origin-left rounded-[3px]"
-                              style={{
-                                width: `${
-                                  maxApplicants > 0
-                                    ? Math.round(
-                                        (job.applicant_count / maxApplicants) * 100,
-                                      )
-                                    : 0
-                                }%`,
-                                background:
-                                  job.status === "open" ? tint.bar : "var(--ai-t4)",
-                              }}
-                            />
-                          </span>
-                          {job.id === topJobId && (
-                            <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-[2px] text-[10px] font-extrabold uppercase tracking-[0.04em] text-[#2F3A00]">
-                              Top role
-                            </span>
-                          )}
-                        </>
-                      )}
-                    </span>
-
-                    <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                      {posted.main}
-                      <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                        {posted.sub}
-                      </small>
-                    </span>
-
-                    {canManage ? (
-                      <button
-                        type="button"
-                        onClick={() => setOpenId(job.id)}
-                        aria-label={`Actions for ${job.title}`}
-                        aria-haspopup="dialog"
-                        // Hidden until the row is hovered, per the mock — but
-                        // focus-visible brings it back so it stays reachable
-                        // by keyboard.
-                        className="flex size-8 items-center justify-center justify-self-end rounded-[9px] text-[var(--ai-t4)] opacity-0 transition-[opacity,background-color,color] hover:bg-[var(--ai-sidebar)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
-                      >
-                        <MoreHorizontal className="size-[18px]" strokeWidth={2} />
-                      </button>
-                    ) : (
-                      <span />
-                    )}
+                    <div className="min-w-0">
+                      <p className="truncate text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                        {job.title}
+                      </p>
+                      <p className="mt-[3px] flex flex-wrap items-center gap-[7px] text-[12.5px] text-[var(--ai-t3)]">
+                        <span className="truncate">{job.location}</span>
+                        <span className="size-[3px] rounded-full bg-[var(--ai-t4)]" />
+                        {job.contract_type}
+                        <span className="size-[3px] rounded-full bg-[var(--ai-t4)]" />
+                        {job.experience_level}
+                      </p>
+                    </div>
                   </div>
-                );
+
+                  <span
+                    className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${badge.badge}`}
+                  >
+                    <span className={`size-[5px] rounded-full ${badge.dot}`} />
+                    {JOB_STATUS_LABELS[job.status]}
+                  </span>
+
+                  {/* Volume, drawn as a share of the busiest role so the
+                        column reads as a ranking at a glance. */}
+                  <span className="flex min-w-0 items-center gap-[11px]">
+                    {job.status === "on_hold" && job.applicant_count === 0 ? (
+                      <span className="text-[12.5px] font-semibold italic text-[var(--ai-t4)]">
+                        Not posted
+                      </span>
+                    ) : (
+                      <>
+                        <span className="w-7 shrink-0 font-heading text-[17px] font-extrabold tracking-[-0.03em] tabular-nums text-[var(--ai-t1)]">
+                          {job.applicant_count}
+                        </span>
+                        <span className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
+                          <span
+                            className="block h-full origin-left rounded-[3px]"
+                            style={{
+                              width: `${
+                                maxApplicants > 0
+                                  ? Math.round((job.applicant_count / maxApplicants) * 100)
+                                  : 0
+                              }%`,
+                              background: job.status === "open" ? tint.bar : "var(--ai-t4)",
+                            }}
+                          />
+                        </span>
+                        {job.id === topJobId && (
+                          <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-[2px] text-[10px] font-extrabold uppercase tracking-[0.04em] text-[#2F3A00]">
+                            Top role
+                          </span>
+                        )}
+                      </>
+                    )}
+                  </span>
+
+                  <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                    {posted.main}
+                    <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                      {posted.sub}
+                    </small>
+                  </span>
+
+                  {canManage ? (
+                    <button
+                      type="button"
+                      onClick={() => setOpenId(job.id)}
+                      aria-label={`Actions for ${job.title}`}
+                      aria-haspopup="dialog"
+                      // Hidden until the row is hovered, per the mock — but
+                      // focus-visible brings it back so it stays reachable
+                      // by keyboard.
+                      className="flex size-8 items-center justify-center justify-self-end rounded-[9px] text-[var(--ai-t4)] opacity-0 transition-[opacity,background-color,color] hover:bg-[var(--ai-sidebar)] hover:text-white focus-visible:opacity-100 group-hover:opacity-100"
+                    >
+                      <MoreHorizontal className="size-[18px]" strokeWidth={2} />
+                    </button>
+                  ) : (
+                    <span />
+                  )}
+                </div>
+              );
             })}
           </div>
         </div>
 
         <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
           <p className="text-[12.5px] text-[var(--ai-t3)]">
-            Published jobs appear on your public careers page at
-            remotiv.work/jobs.
+            Published jobs appear on your public careers page at remotiv.work/jobs.
           </p>
           <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">
             <b className="text-remotiv-purple">
-              {filtered.length === 0 ? 0 : pageStart + 1}–
-              {pageStart + paged.length}
+              {filtered.length === 0 ? 0 : pageStart + 1}–{pageStart + paged.length}
             </b>{" "}
             of {filtered.length}
             {filtered.length !== jobs.length && (
-              <span className="text-[var(--ai-t3)]">
-                {" "}
-                (filtered from {jobs.length})
-              </span>
+              <span className="text-[var(--ai-t3)]"> (filtered from {jobs.length})</span>
             )}
           </span>
           {pageCount > 1 && (
@@ -1465,8 +1420,8 @@ export function JobsClient({
                       {confirm.job.applicant_count} applicant
                       {confirm.job.applicant_count === 1 ? "" : "s"}
                     </span>{" "}
-                    for <span className="font-semibold">{confirm.job.title}</span> will be
-                    re-scored against the job&apos;s current requirements — about{" "}
+                    for <span className="font-semibold">{confirm.job.title}</span> will be re-scored
+                    against the job&apos;s current requirements — about{" "}
                     <span className="font-semibold">
                       ${(confirm.job.applicant_count * 0.02).toFixed(2)}
                     </span>{" "}
@@ -1474,8 +1429,8 @@ export function JobsClient({
                   </>
                 ) : confirm.kind === "archive" ? (
                   <>
-                    <span className="font-semibold">{confirm.job.title}</span> moves to
-                    your Archived tab and{" "}
+                    <span className="font-semibold">{confirm.job.title}</span> moves to your
+                    Archived tab and{" "}
                     {confirm.job.status === "open" ? (
                       <>
                         <span className="font-semibold">
@@ -1494,15 +1449,14 @@ export function JobsClient({
                   </>
                 ) : confirm.kind === "close" ? (
                   <>
-                    <span className="font-semibold">{confirm.job.title}</span> will be
-                    removed from remotiv.work and stop accepting applications. Existing
-                    applicants stay in your workspace.
+                    <span className="font-semibold">{confirm.job.title}</span> will be removed from
+                    remotiv.work and stop accepting applications. Existing applicants stay in your
+                    workspace.
                   </>
                 ) : (
                   <>
-                    <span className="font-semibold">{confirm.job.title}</span> will be
-                    permanently deleted. Applicants are kept, with the job title recorded
-                    against them.
+                    <span className="font-semibold">{confirm.job.title}</span> will be permanently
+                    deleted. Applicants are kept, with the job title recorded against them.
                   </>
                 )}
               </p>
@@ -1522,9 +1476,7 @@ export function JobsClient({
                 disabled={busy}
                 aria-busy={busy}
                 className={`flex-1 rounded-xl py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50 ${
-                  confirm.kind === "rescore"
-                    ? "bg-remotiv-purple"
-                    : "bg-[var(--ai-danger)]"
+                  confirm.kind === "rescore" ? "bg-remotiv-purple" : "bg-[var(--ai-danger)]"
                 }`}
               >
                 {busy
@@ -1554,5 +1506,105 @@ export function JobsClient({
         </div>
       )}
     </PageContainer>
+  );
+}
+
+/**
+ * Tagged share links, one per channel.
+ *
+ * ── Why this exists ──────────────────────────────────────────
+ *
+ * Attribution capture is worthless without it. A recruiter who pastes the plain
+ * job URL into LinkedIn produces a visit whose only signal is a referrer, and a
+ * referrer is absent on most mobile apps and stripped by many link wrappers —
+ * so the chart fills with Direct and says nothing. Handing them a pre-tagged
+ * URL per channel is what makes the data real, and it has to be easier than
+ * constructing one by hand or nobody will use it.
+ *
+ * Every URL carries the SAME three parameters, differing only in utm_source:
+ *   utm_source   the channel — matched by normaliseChannel's UTM_ALIASES
+ *   utm_medium   "social" | "chat" | "email" | "referral"
+ *   utm_campaign "job_share", so campaign traffic is separable from any future
+ *                paid or newsletter campaign that reuses the same sources
+ *
+ * Nothing identifying is in the URL: no member id, no company id, no token. A
+ * shared link is public and must stay as public as the job page it points at.
+ */
+const SHARE_CHANNELS: readonly {
+  key: string;
+  label: string;
+  utmSource: string;
+  utmMedium: string;
+}[] = [
+  { key: "linkedin", label: "LinkedIn", utmSource: "linkedin", utmMedium: "social" },
+  { key: "facebook", label: "Facebook", utmSource: "facebook", utmMedium: "social" },
+  { key: "whatsapp", label: "WhatsApp", utmSource: "whatsapp", utmMedium: "chat" },
+  { key: "email", label: "Email", utmSource: "email", utmMedium: "email" },
+  { key: "copy", label: "Copy link", utmSource: "direct_share", utmMedium: "referral" },
+];
+
+export function shareUrl(
+  origin: string,
+  slug: string,
+  channel: { utmSource: string; utmMedium: string },
+): string {
+  const url = new URL(`/jobs/${slug}`, origin);
+  url.searchParams.set("utm_source", channel.utmSource);
+  url.searchParams.set("utm_medium", channel.utmMedium);
+  url.searchParams.set("utm_campaign", "job_share");
+  return url.toString();
+}
+
+function ShareLinks({ slug, onToast }: { slug: string; onToast: (m: string) => void }) {
+  const [copied, setCopied] = useState<string | null>(null);
+
+  async function copy(key: string, label: string) {
+    // Built at click time: window.location.origin differs between localhost,
+    // preview and production, and a link tagged with the wrong host is worse
+    // than none.
+    const url = shareUrl(
+      window.location.origin,
+      slug,
+      SHARE_CHANNELS.find((c) => c.key === key) ?? SHARE_CHANNELS[4],
+    );
+    try {
+      await navigator.clipboard.writeText(url);
+      setCopied(key);
+      onToast(`${label} link copied`);
+      window.setTimeout(() => setCopied((k) => (k === key ? null : k)), 1600);
+    } catch {
+      // Clipboard blocked. The toast carries the URL so it can still be used.
+      onToast(url);
+    }
+  }
+
+  return (
+    <>
+      <p className="m-0 mb-2.5 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+        Each link is tagged, so applicants who arrive through it show up under that channel instead
+        of Direct.
+      </p>
+      <div className="flex flex-wrap gap-2">
+        {SHARE_CHANNELS.map((c) => (
+          <button
+            key={c.key}
+            type="button"
+            onClick={() => copy(c.key, c.label)}
+            className={`inline-flex items-center gap-1.5 rounded-[10px] border px-3 py-[7px] text-[12.5px] font-semibold transition-colors ${
+              copied === c.key
+                ? "border-remotiv-green bg-remotiv-green/10 text-[var(--ai-t1)]"
+                : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:text-[var(--ai-t1)]"
+            }`}
+          >
+            {copied === c.key ? (
+              <Check className="size-[13px] shrink-0" strokeWidth={2.6} />
+            ) : (
+              <Copy className="size-[13px] shrink-0" strokeWidth={2} />
+            )}
+            {c.label}
+          </button>
+        ))}
+      </div>
+    </>
   );
 }

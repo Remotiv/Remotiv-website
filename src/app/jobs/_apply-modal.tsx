@@ -11,6 +11,7 @@ import {
 import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
+import { attributionFields } from "@/app/jobs/_attribution";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
 import "./apply-modal.css";
@@ -42,12 +43,7 @@ const BASIC_KEYS = ["firstName", "lastName", "email", "phone", "linkedin"] as co
  * wrong answer for every applicant. Empty stays null, which is what makes both
  * fields optional end to end. Keep these two lists in step with the route.
  */
-const NOTICE_PERIOD_OPTIONS = [
-  "Immediate",
-  "2 Weeks",
-  "1 Month",
-  "Negotiable",
-] as const;
+const NOTICE_PERIOD_OPTIONS = ["Immediate", "2 Weeks", "1 Month", "Negotiable"] as const;
 const AVAILABILITY_OPTIONS = ["Available Now", "Not Available"] as const;
 
 // Abort the submit fetch if the network stalls for this long. Keeps the
@@ -196,18 +192,18 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
 
     try {
       const fd = new FormData();
-      fd.append("job_id",       job.id);
-      fd.append("first_name",   form.firstName);
-      fd.append("last_name",    form.lastName);
-      fd.append("email",        form.email);
-      fd.append("phone",        form.phone);
+      fd.append("job_id", job.id);
+      fd.append("first_name", form.firstName);
+      fd.append("last_name", form.lastName);
+      fd.append("email", form.email);
+      fd.append("phone", form.phone);
       fd.append("linkedin_url", form.linkedin);
       // Optional — appended only when chosen. An empty string would also be
       // stored as null by the route's nullable(), but omitting the key keeps
       // the payload honest about what the candidate actually answered.
       if (form.noticePeriod) fd.append("notice_period", form.noticePeriod);
-      if (form.availability) fd.append("availability",  form.availability);
-      fd.append("cv",           cvFile as File);
+      if (form.availability) fd.append("availability", form.availability);
+      fd.append("cv", cvFile as File);
       // New: screening answers, normalized to strings and keyed by question id.
       // Ignored by /api/apply until its own step reads this key.
       const screeningAnswers = questions.map((q) => ({
@@ -215,6 +211,18 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
         answer: String(answers[q.id] ?? ""),
       }));
       fd.append("screening_answers", JSON.stringify(screeningAnswers));
+
+      /*
+       * Where they came from, read back from the landing visit.
+       *
+       * Appended last and guarded by Object.entries so an empty record adds
+       * nothing — a browser that refused localStorage posts exactly the form it
+       * posted before this existed, and /api/apply treats every field as
+       * optional. Attribution must never be able to fail an application.
+       */
+      for (const [key, value] of Object.entries(attributionFields())) {
+        fd.append(key, value);
+      }
 
       let res: Response;
       try {
@@ -250,9 +258,7 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
       setSuccess(true);
     } catch (err) {
       if (err instanceof Error && err.name === "AbortError") {
-        setSubmitError(
-          "Submission timed out. Please check your connection and try again.",
-        );
+        setSubmitError("Submission timed out. Please check your connection and try again.");
       } else {
         setSubmitError(err instanceof Error ? err.message : "Something went wrong.");
       }
@@ -318,22 +324,17 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
             {bridgeToken ? (
               <>
                 <p className="ap-success-sub">
-                  Take 2 minutes to complete your talent profile and be visible to
-                  every Remotiv employer.
+                  Take 2 minutes to complete your talent profile and be visible to every Remotiv
+                  employer.
                 </p>
-                <Link
-                  href={`/join-as-talent?token=${bridgeToken}`}
-                  className="ap-cta font-heading"
-                >
+                <Link href={`/join-as-talent?token=${bridgeToken}`} className="ap-cta font-heading">
                   Complete your profile for more opportunities →
                 </Link>
                 <div className="ap-follow">
-                  <h3 className="ap-follow-title font-heading">
-                    Don&apos;t miss the next role
-                  </h3>
+                  <h3 className="ap-follow-title font-heading">Don&apos;t miss the next role</h3>
                   <p className="ap-follow-sub">
-                    New roles get posted to our LinkedIn first. Follow to see them
-                    before anyone else.
+                    New roles get posted to our LinkedIn first. Follow to see them before anyone
+                    else.
                   </p>
                   <a
                     href="https://www.linkedin.com/company/remotiv-inc/"
@@ -361,8 +362,8 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               </>
             ) : (
               <p className="ap-success-sub">
-                Thanks, {form.firstName || "there"}! The {job.company} team will
-                review your application. Average response time is 24 hours.
+                Thanks, {form.firstName || "there"}! The {job.company} team will review your
+                application. Average response time is 24 hours.
               </p>
             )}
           </div>
@@ -484,7 +485,8 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
               <div className="ap-rowpair">
                 <div>
                   <label htmlFor="apply-notice" className="ap-label">
-                    Notice period <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
+                    Notice period{" "}
+                    <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
                   </label>
                   <select
                     id="apply-notice"
@@ -502,7 +504,8 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                 </div>
                 <div>
                   <label htmlFor="apply-availability" className="ap-label">
-                    Availability <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
+                    Availability{" "}
+                    <span style={{ color: "#8a8496", fontWeight: 400 }}>(optional)</span>
                   </label>
                   <select
                     id="apply-availability"
@@ -629,7 +632,9 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
                             </div>
                           )}
 
-                          {showErr && <div className="ap-fielderr">Please answer this question.</div>}
+                          {showErr && (
+                            <div className="ap-fielderr">Please answer this question.</div>
+                          )}
                         </div>
                       </div>
                     );
