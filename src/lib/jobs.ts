@@ -196,17 +196,41 @@ export async function attachCompanyLogos<T extends { company_id: string | null }
   }));
 }
 
+/**
+ * The single source of truth for "is this job publicly visible":
+ *
+ *   status = 'open' AND archived_at IS NULL
+ *
+ * Archived is a separate axis from status on purpose: archived jobs are kept
+ * for the company's records and are never public — a role withdrawn from the
+ * site entirely, whatever its status. Admin, ai-dashboard, and other
+ * company-facing surfaces deliberately do NOT use this helper: they
+ * legitimately list closed and archived jobs.
+ *
+ * `T` is deliberately UNCONSTRAINED. Any structural constraint naming the
+ * builder's `eq`/`is` methods (generic `T extends { eq(...): T }` or a
+ * non-generic recursive interface) makes tsc instantiate supabase-js's
+ * conditional builder types against the parsed LIST_SELECT projection and
+ * fail with TS2589 "excessively deep". So the narrowing happens inside the
+ * body via a minimal interface instead — safe because both methods return
+ * `this` at runtime, so the output really is the caller's builder.
+ */
+type VisibilityFilterable = {
+  eq(column: string, value: string): VisibilityFilterable;
+  is(column: string, value: null): VisibilityFilterable;
+};
+
+export function publiclyVisible<T>(query: T): T {
+  const filterable = query as VisibilityFilterable;
+  return filterable.eq("status", "open").is("archived_at", null) as T;
+}
+
 export async function getInitialJobs(): Promise<Job[]> {
   const supabase = createServiceClient();
 
-  const { data, error } = await supabase
-    .from("jobs")
-    .select(LIST_SELECT)
-    .eq("status", "open")
-    // Archived jobs are kept for the company's records and are never public.
-    // Separate from status on purpose: 'closed' is a finished role that still
-    // has a public page, archived is a role withdrawn from the site entirely.
-    .is("archived_at", null)
+  const { data, error } = await publiclyVisible(
+    supabase.from("jobs").select(LIST_SELECT),
+  )
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);
@@ -226,13 +250,9 @@ export async function getJobById(id: string): Promise<Job | null> {
 
   const supabase = createServiceClient();
 
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("*")
-    .eq("id", id)
-    .eq("status", "open")
-    .is("archived_at", null)
-    .maybeSingle();
+  const { data, error } = await publiclyVisible(
+    supabase.from("jobs").select("*").eq("id", id),
+  ).maybeSingle();
 
   if (error || !data) return null;
   const [job] = await attachCompanyLogos([data as Job]);
@@ -246,13 +266,9 @@ export async function getJobBySlug(slug: string): Promise<Job | null> {
 
   const supabase = createServiceClient();
 
-  const { data, error } = await supabase
-    .from("jobs")
-    .select("*")
-    .eq("slug", slug)
-    .eq("status", "open")
-    .is("archived_at", null)
-    .maybeSingle();
+  const { data, error } = await publiclyVisible(
+    supabase.from("jobs").select("*").eq("slug", slug),
+  ).maybeSingle();
 
   if (error || !data) return null;
   const [job] = await attachCompanyLogos([data as Job]);

@@ -5,6 +5,7 @@ import {
   attachCompanyLogos,
   LIST_SELECT,
   getJobById,
+  publiclyVisible,
   type Job,
   type ScreeningQuestion,
 } from "@/lib/jobs";
@@ -79,14 +80,10 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceClient();
 
-  let query = supabase
-    .from("jobs")
-    .select(LIST_SELECT)
-    .eq("status", "open")
-    // Mirrors getInitialJobs. The client refetches through here on every
-    // filter change, so an archived job omitted from the SSR list would walk
-    // straight back in on the first keystroke without this.
-    .is("archived_at", null)
+  // Mirrors getInitialJobs. The client refetches through here on every
+  // filter change, so an archived job omitted from the SSR list would walk
+  // straight back in on the first keystroke without the shared predicate.
+  let query = publiclyVisible(supabase.from("jobs").select(LIST_SELECT))
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);

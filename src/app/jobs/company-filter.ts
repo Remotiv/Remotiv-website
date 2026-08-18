@@ -1,6 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
-import { attachCompanyLogos, LIST_SELECT, type Job } from "@/lib/jobs";
+import { attachCompanyLogos, LIST_SELECT, publiclyVisible, type Job } from "@/lib/jobs";
 
 /**
  * The company behind `/jobs?company=<slug>`.
@@ -55,23 +55,19 @@ export async function resolveCompanySlug(
 /**
  * That company's published jobs.
  *
- * `status = 'open'` is repeated here rather than inherited from anywhere: it is
- * the only thing standing between a shareable slug and a company's drafts.
- * 'on_hold' is the product's Draft and 'closed' is a retired role — neither may
- * ever be reachable through this URL.
+ * publiclyVisible (status = 'open' AND archived_at IS NULL) is the only thing
+ * standing between a shareable slug and a company's drafts. 'on_hold' is the
+ * product's Draft and 'closed' is a retired role — neither may ever be
+ * reachable through this URL, and archived roles are records, not listings.
  *
  * Ordering matches getInitialJobs so a filtered list and the full list present
  * the same job in the same relative position.
  */
 export async function fetchCompanyJobs(companyId: string): Promise<Job[]> {
   const supabase = createServiceClient();
-  const { data, error } = await supabase
-    .from("jobs")
-    .select(LIST_SELECT)
-    .eq("company_id", companyId)
-    .eq("status", "open")
-    // Same rule as the full list: archived roles are records, not listings.
-    .is("archived_at", null)
+  const { data, error } = await publiclyVisible(
+    supabase.from("jobs").select(LIST_SELECT).eq("company_id", companyId),
+  )
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);

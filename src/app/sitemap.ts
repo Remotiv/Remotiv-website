@@ -1,4 +1,5 @@
 import type { MetadataRoute } from "next";
+import { publiclyVisible } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 
 const BASE_URL = "https://remotiv.work";
@@ -53,13 +54,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   let jobEntries: MetadataRoute.Sitemap = [];
   try {
-    const { data } = await supabase
-      .from("jobs")
-      .select("id, slug, created_at")
-      .eq("status", "open")
-      // An archived job 404s on /jobs/[slug], so leaving it in the sitemap
-      // would submit a dead URL to every crawler that reads this file.
-      .is("archived_at", null);
+    // A non-visible job 404s on /jobs/[slug], so leaving it in the sitemap
+    // would submit a dead URL to every crawler that reads this file.
+    const { data } = await publiclyVisible(supabase.from("jobs").select("id, slug, created_at"));
     const rows = (data ?? []) as Array<{
       id: string;
       slug: string | null;

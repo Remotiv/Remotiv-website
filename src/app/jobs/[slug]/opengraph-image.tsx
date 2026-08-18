@@ -10,6 +10,7 @@
 
 import { ImageResponse } from "next/og";
 import type { ReactNode } from "react";
+import { publiclyVisible } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const runtime = "edge";
@@ -216,18 +217,17 @@ export default async function Image({ params }: Props) {
   if (slug && slug.trim().length > 0) {
     try {
       const supabase = createServiceClient();
-      const { data } = await supabase
-        .from("jobs")
-        .select(
-          "title, company, location, salary_min, salary_max, salary_currency, work_type, status",
-        )
-        .eq("slug", slug)
-        .eq("status", "open")
-        // Without this the card renders a real title and salary for a job
-        // whose page 404s — the preview would leak an archived role into any
-        // chat or social unfurl that still has the link.
-        .is("archived_at", null)
-        .maybeSingle();
+      // Without the visibility gate the card renders a real title and salary
+      // for a job whose page 404s — the preview would leak an archived role
+      // into any chat or social unfurl that still has the link.
+      const { data } = await publiclyVisible(
+        supabase
+          .from("jobs")
+          .select(
+            "title, company, location, salary_min, salary_max, salary_currency, work_type, status",
+          )
+          .eq("slug", slug),
+      ).maybeSingle();
       if (data) row = data as MinimalRow;
     } catch {
       row = null;

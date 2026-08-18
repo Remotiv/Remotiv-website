@@ -212,6 +212,23 @@ export async function POST(request: NextRequest) {
     const linkedin  = nullable(form.get("linkedin_url"));
     const notes     = nullable(form.get("notes"));
     const cvText    = nullable(form.get("cv_text"));
+    /*
+     * Attribution — where this applicant came from. Every field OPTIONAL.
+     *
+     * `nullable` already yields null for a missing, non-string or blank value,
+     * so a form omitting all four behaves exactly as it did before this
+     * existed. Nothing here validates or throws: a malformed value is stored as
+     * a short string or not at all, because an application must never fail
+     * because a browser refused localStorage.
+     *
+     * Read under `attribution_*`, NOT `source`: that field already means
+     * job_application|manual_upload on this route and its column carries a
+     * CHECK for exactly those two values. See the report.
+     */
+    const attrSource   = nullable(form.get("attribution_source"));
+    const attrDetail   = nullable(form.get("attribution_detail"));
+    const attrReferrer = nullable(form.get("attribution_referrer"));
+    const attrLanding  = nullable(form.get("attribution_landing_path"));
     // Guard the `source` field: only accept the two known string values.
     const sourceRaw = form.get("source");
     const source: "job_application" | "manual_upload" =
@@ -359,11 +376,12 @@ export async function POST(request: NextRequest) {
 
     // JOB-002 — visibility gate. A candidate must only be able to apply to a
     // job the public pages would actually show; a closed, archived, or
-    // placeholder job must not accept direct POSTs. The predicate duplicates
-    // getJobById/getJobBySlug in src/lib/jobs.ts (status === "open" &&
-    // archived_at IS NULL) — deliberately NOT hoisted: JOB-009 is the
-    // follow-up that unifies all 8 sites, and editing lib/jobs.ts here would
-    // ripple into the other 7.
+    // placeholder job must not accept direct POSTs. The rule matches
+    // publiclyVisible in src/lib/jobs.ts (status === "open" && archived_at
+    // IS NULL) but deliberately stays a ROW check rather than the query
+    // helper: the row is fetched unconditionally so a missing job can 404
+    // while an existing-but-hidden job 410s — filtering in the query would
+    // collapse both into "no row".
     //
     // Scoped exactly like the dedup check below: manual_upload is exempt
     // (admins backfill candidates onto withdrawn roles, and the manual-title
@@ -648,6 +666,7 @@ export async function POST(request: NextRequest) {
     const strip = (v: string | null): string | null =>
       v === null ? null : stripInvalidPgChars(v);
 
+
     const cleanEmpHistory = employmentHistory.map((row) => ({
       title:       stripInvalidPgChars(row.title),
       company:     stripInvalidPgChars(row.company),
@@ -708,6 +727,13 @@ export async function POST(request: NextRequest) {
         screening_answers:   screeningSnapshot,
         company_id_snapshot: companyIdSnapshot,
         cv_delete_after:     cvDeleteAfter,
+        // Attribution. `strip` is the same NUL/control-char guard every other
+        // text column here uses, and `cap` is the existing length helper — both
+        // reused rather than reintroduced. All three are nullable, and a missing
+        // value writes NULL exactly as before this existed.
+        source_detail:       cap(strip(attrDetail ?? attrSource), 120),
+        referrer:            cap(strip(attrReferrer), 120),
+        landing_path:        cap(strip(attrLanding), 200),
       })
       .select("id")
       .single();
