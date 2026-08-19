@@ -1,19 +1,16 @@
 import { randomUUID } from "node:crypto";
-import { handleCvPurge } from "@/lib/cv-purge";
-import { handleQueueSweep } from "@/lib/queue-sweep";
-import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 import { handleCvRecompute } from "@/lib/ai/cv-recompute";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
-import { handleSendMessage } from "@/lib/email/candidate/dispatch";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
-import {
-  handleInterviewExpiry,
-  handleInterviewExpirySweep,
-} from "@/lib/interviews/expiry";
+import { handleCvPurge } from "@/lib/cv-purge";
+import { handleSendMessage } from "@/lib/email/candidate/dispatch";
+import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
+import { handleQueueSweep } from "@/lib/queue-sweep";
 import { createServiceClient } from "@/lib/supabase/server";
+import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 
 /**
  * Background job queue.
@@ -39,13 +36,7 @@ import { createServiceClient } from "@/lib/supabase/server";
  */
 
 /** The status vocabulary, confirmed against background_jobs_status_check. */
-export const JOB_STATUSES = [
-  "queued",
-  "running",
-  "succeeded",
-  "failed",
-  "dead",
-] as const;
+export const JOB_STATUSES = ["queued", "running", "succeeded", "failed", "dead"] as const;
 export type JobStatus = (typeof JOB_STATUSES)[number];
 
 export type BackgroundJob = {
@@ -71,11 +62,29 @@ export type JobHandler = (job: BackgroundJob) => Promise<void>;
 /**
  * How long a lease may be held before another worker may steal it.
  *
- * Must be comfortably LONGER than the worker's own hard time bound
- * (WORKER_BUDGET_MS in the route, 25s) — otherwise a job that is merely slow
- * would be reclaimed and run twice concurrently. Five minutes leaves a wide
- * margin while still recovering from a crashed or OOM-killed invocation
- * within one or two cron ticks.
+ * Must be comfortably LONGER than the longest a live invocation can possibly
+ * hold one — otherwise a job that is merely slow gets reclaimed while it is
+ * still running and does its work twice.
+ *
+ * ── Why five minutes is still right after the concurrency change ──
+ *
+ * The bound is NOT the worker's budget. It is the platform's function timeout,
+ * because that is the hard limit on how long any invocation can exist:
+ *
+ *   maxDuration (vercel.json, /api/jobs/worker) ....... 60s
+ *   WORKER_BUDGET_MS gates STARTING new work at ....... 30s
+ *   so the last job can start at 30s and is killed by . 60s
+ *   LEASE_TIMEOUT_MS .................................. 300s  (5× that)
+ *
+ * Running the batch concurrently does not lengthen this. Concurrency changes
+ * how MANY jobs are in flight, not how long one may live — every one of them
+ * still dies with the invocation at 60s. So the margin is unchanged at 5×, and
+ * raising the window would only slow recovery from a crashed invocation for no
+ * gain.
+ *
+ * What concurrency DOES change is the blast radius: an invocation killed
+ * mid-pool strands up to WORKER_CONCURRENCY leases instead of one. They are
+ * all recovered by the same reclaim, one tick after this window elapses.
  */
 export const LEASE_TIMEOUT_MS = 5 * 60_000;
 
@@ -92,10 +101,7 @@ const BACKOFF_MAX_MS = 60 * 60_000;
  * hammer the recovering dependency in lockstep.
  */
 export function backoffMs(attempts: number): number {
-  const exp = Math.min(
-    BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1),
-    BACKOFF_MAX_MS,
-  );
+  const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1), BACKOFF_MAX_MS);
   const jitter = exp * 0.2 * (Math.random() * 2 - 1);
   return Math.round(exp + jitter);
 }
@@ -194,9 +200,7 @@ export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
  * handler in the corresponding registerHandler call.
  */
 async function notImplemented(job: BackgroundJob): Promise<never> {
-  throw new Error(
-    `Handler for "${job.type}" is not implemented yet (job ${job.id}).`,
-  );
+  throw new Error(`Handler for "${job.type}" is not implemented yet (job ${job.id}).`);
 }
 
 // Step 4 — the first real handler. Loads the application and its job
@@ -250,9 +254,7 @@ export type EnqueueInput = {
   maxAttempts?: number;
 };
 
-export type EnqueueResult =
-  | { ok: true; id: string }
-  | { ok: false; error: string };
+export type EnqueueResult = { ok: true; id: string } | { ok: false; error: string };
 
 /**
  * Insert a queued job.
@@ -274,11 +276,7 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
   if (input.runAfter) row.run_after = input.runAfter.toISOString();
   if (input.maxAttempts !== undefined) row.max_attempts = input.maxAttempts;
 
-  const { data, error } = await service
-    .from("background_jobs")
-    .insert(row)
-    .select("id")
-    .single();
+  const { data, error } = await service.from("background_jobs").insert(row).select("id").single();
 
   if (error) {
     console.error("[jobs-queue] enqueue failed:", error);
@@ -507,6 +505,50 @@ export async function completeJob(jobId: string): Promise<void> {
 }
 
 /**
+ * Hand a lease back WITHOUT burning an attempt.
+ *
+ * ── Why this is not failJob ──────────────────────────────────
+ *
+ * The worker claims a batch and may run out of wall clock before it starts
+ * some of them. Those jobs did nothing, consumed nothing and failed at
+ * nothing — routing them through failJob was wrong twice over:
+ *
+ *   1. It incremented `attempts`. With max_attempts defaulting to 3, a job
+ *      unlucky enough to sit at the back of the batch three ticks running was
+ *      buried in 'dead' having never once been executed. That is silent data
+ *      loss dressed as a retry policy.
+ *   2. It applied exponential backoff, pushing run_after out 30s, then 60s,
+ *      then 2m. So the queue got SLOWER precisely when it was most backed up —
+ *      the jobs the worker had no time for were the ones it then refused to
+ *      look at again soon.
+ *
+ * A release restores `status = 'queued'` and clears the lock, leaving
+ * `attempts` and `run_after` exactly as they were. The job is eligible again
+ * on the very next tick, which is the correct semantics for "not started".
+ *
+ * Conditional on still holding the lease: `locked_by` must match the token
+ * this worker claimed with. Without that, a release racing a stale-lease
+ * reclaim could unlock a row another invocation had legitimately re-claimed
+ * and is actively running.
+ */
+export async function releaseJob(job: BackgroundJob): Promise<void> {
+  const service = createServiceClient();
+  const { error } = await service
+    .from("background_jobs")
+    .update({
+      status: "queued" satisfies JobStatus,
+      locked_by: null,
+      locked_at: null,
+      updated_at: new Date().toISOString(),
+    })
+    .eq("id", job.id)
+    .eq("status", "running")
+    .eq("locked_by", job.locked_by ?? "");
+
+  if (error) console.error("[jobs-queue] releaseJob failed:", error);
+}
+
+/**
  * Record a failed attempt: requeue with backoff, or bury the job.
  *
  * `attempts` is taken from the leased row rather than re-read, so two
@@ -514,10 +556,7 @@ export async function completeJob(jobId: string): Promise<void> {
  * incremented value. The lease already guarantees a single owner, so this is
  * belt-and-braces.
  */
-export async function failJob(
-  job: BackgroundJob,
-  err: unknown,
-): Promise<"queued" | "dead"> {
+export async function failJob(job: BackgroundJob, err: unknown): Promise<"queued" | "dead"> {
   const service = createServiceClient();
   const attempts = job.attempts + 1;
   const isDead = attempts >= job.max_attempts;
@@ -540,10 +579,7 @@ export async function failJob(
     patch.run_after = new Date(Date.now() + backoffMs(attempts)).toISOString();
   }
 
-  const { error } = await service
-    .from("background_jobs")
-    .update(patch)
-    .eq("id", job.id);
+  const { error } = await service.from("background_jobs").update(patch).eq("id", job.id);
 
   if (error) console.error("[jobs-queue] failJob failed:", error);
   return isDead ? "dead" : "queued";
