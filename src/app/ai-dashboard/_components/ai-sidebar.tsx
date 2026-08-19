@@ -1,9 +1,8 @@
 "use client";
 
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   Briefcase,
+  ChartNoAxesColumn,
   LayoutGrid,
   type LucideIcon,
   Mail,
@@ -13,10 +12,9 @@ import {
   Video,
   X,
 } from "lucide-react";
-import {
-  COMPANY_ROLE_LABELS,
-  type CompanyRole,
-} from "@/app/ai-dashboard/lib/company-roles";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { COMPANY_ROLE_LABELS, type CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 
 type NavItem = {
   label: string;
@@ -35,16 +33,19 @@ function primaryNav(
   interviewCount: number,
 ): ReadonlyArray<NavItem> {
   return [
-    { label: "Overview",   href: "/ai-dashboard",            icon: LayoutGrid },
-    { label: "Jobs",       href: "/ai-dashboard/jobs",       icon: Briefcase, count: jobCount },
-    { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users,     count: applicantCount },
-    { label: "Messages",   href: "/ai-dashboard/messages",   icon: Mail,      count: messageCount },
-    { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video,     count: interviewCount },
+    { label: "Overview", href: "/ai-dashboard", icon: LayoutGrid },
+    { label: "Jobs", href: "/ai-dashboard/jobs", icon: Briefcase, count: jobCount },
+    { label: "Applicants", href: "/ai-dashboard/applicants", icon: Users, count: applicantCount },
+    { label: "Messages", href: "/ai-dashboard/messages", icon: Mail, count: messageCount },
+    { label: "Interviews", href: "/ai-dashboard/interviews", icon: Video, count: interviewCount },
+    // No count: analytics is not a queue of things to work through, and a
+    // number here would read as unread items.
+    { label: "Analytics", href: "/ai-dashboard/analytics", icon: ChartNoAxesColumn },
   ];
 }
 
 const WORKSPACE_NAV: ReadonlyArray<NavItem> = [
-  { label: "Team",     href: "/ai-dashboard/team",     icon: UserRound },
+  { label: "Team", href: "/ai-dashboard/team", icon: UserRound },
   { label: "Settings", href: "/ai-dashboard/settings", icon: Settings },
 ];
 
@@ -170,11 +171,9 @@ function SidebarBody({
       </div>
 
       <nav className="mb-1.5 flex flex-col gap-0.5">
-        {primaryNav(jobCount, applicantCount, messageCount, interviewCount).map(
-          (item) => (
+        {primaryNav(jobCount, applicantCount, messageCount, interviewCount).map((item) => (
           <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
-          ),
-        )}
+        ))}
       </nav>
 
       <nav className="flex flex-col gap-0.5">

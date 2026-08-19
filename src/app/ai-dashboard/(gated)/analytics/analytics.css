@@ -1,0 +1,45 @@
+/*
+ * Bar reveals for the analytics page.
+ *
+ * clip-path, NOT scaleX. Two reasons, both learned the hard way: scaleX
+ * distorts a corner radius while it animates, and in testing the bars latched
+ * at scaleX(0) and never became visible at all. inset() leaves geometry alone
+ * and simply uncovers it.
+ *
+ * Scoped to this page by class name rather than added to ai-dashboard.css —
+ * nothing else needs them.
+ */
+@keyframes analytics-reveal {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+@keyframes analytics-grow {
+  from {
+    clip-path: inset(0 100% 0 0);
+  }
+  to {
+    clip-path: inset(0 0 0 0);
+  }
+}
+
+.analytics-reveal {
+  animation: analytics-reveal 0.85s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+.analytics-grow {
+  animation: analytics-grow 0.85s cubic-bezier(0.4, 0, 0.2, 1) both;
+}
+
+/* Respect a reduced-motion preference: the bars are information, the reveal
+   is decoration, so the information stays and the motion goes. */
+@media (prefers-reduced-motion: reduce) {
+  .analytics-reveal,
+  .analytics-grow {
+    animation: none;
+  }
+}
