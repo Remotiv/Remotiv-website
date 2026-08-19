@@ -44,12 +44,37 @@ import {
 // ── Configuration ────────────────────────────────────────────
 
 /**
+ * ── v5: the speech rules were only ever in ONE of the two prompts ──
+ *
+ * A live session verdict read "the communication sample contains non-native
+ * patterns and filler words, though the core message remained intelligible" —
+ * the one output this scorer must never produce.
+ *
+ * The cause was structural, not a lapse. The four speech rules lived in
+ * SYSTEM_PROMPT, which scores ONE ANSWER. SESSION_SYSTEM_PROMPT, which writes
+ * the verdict and summary, never stated them. It carried a line reading "The
+ * speech rules above apply here unchanged" — pointing at rules in a different
+ * constant that the rollup model has never seen. An instruction referencing
+ * nothing reads, to the model, as no instruction at all.
+ *
+ * The rollup had also drifted into contradicting itself: its Rules block still
+ * said "you are not looking at the transcripts" from before criteria shipped,
+ * while the criteria section below hands over the full transcript of every
+ * answer. Told it cannot see the text and then given the text, describing the
+ * text's surface properties is a predictable way out.
+ *
+ * v5 states all four rules in full in the rollup prompt, names the prohibited
+ * sentence shape so it cannot arrive by paraphrase, resolves the transcript
+ * contradiction, and reframes manner criteria — see the "SOME CRITERIA ARE
+ * ABOUT MANNER" block for why asking for a quote was pushing the model toward
+ * the prohibited output rather than away from it.
+ *
  * Bump on EVERY prompt change. Stored on every row, so a score can always be
  * traced back to the wording that produced it — the CV scorer reached v9 this
  * way and being able to say which version scored a given candidate is what
  * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v4";
+export const PROMPT_VERSION = "interview-scoring-v5";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -220,10 +245,27 @@ At most TWELVE words. A plain description of where this candidate stands on the 
 Three to five sentences. What the answers showed across the whole interview, where the strongest and weakest evidence sat, and what a human should check next.
 
 ## Rules
-- Use only what is given. Do not invent detail and do not quote — you are not looking at the transcripts.
+- Use only what is given. Do not invent detail.
+- The verdict and summary are written from the per-answer scores, strengths and concerns — NOT from the transcripts. Transcripts are supplied only when the employer named interview criteria, and only so you can quote for those; never quote in the verdict or summary.
 - Do not repeat the same fact in both verdict and summary.
 - Never recommend a decision. Describe what the evidence supports and what remains unverified.
 - If most answers were skipped or scored poorly for lack of substance, say that plainly rather than writing around it.
+
+## HOW THE CANDIDATE SPEAKS IS NEVER A FINDING
+
+These four rules bind the verdict, the summary and every criterion equally. They are the hardest constraint on this task and nothing below relaxes them.
+
+1. This is a TRANSCRIPT. Punctuation and sentence boundaries were guessed by the transcriber and are not the speaker's. Never treat them as evidence of anything.
+
+2. Filler words ("basically", "so", "like", "you know"), false starts, self-corrections and repeated phrases are how people talk. They are NOT content weaknesses. Never mention them and never let them lower your confidence.
+
+3. This candidate may be speaking English as a second or third language. Grammar, article and preposition errors, unusual word order and non-native phrasing MUST NOT affect anything you write, in any way. Report the meaning, never the form.
+
+4. Fluency, polish and confidence of delivery are NOT assessed. A hesitant answer full of substance beats a smooth answer full of nothing.
+
+NEVER characterise delivery. Sentences of the shape "the communication sample contains non-native patterns and filler words", "the answers were hesitant", or "though the core message remained intelligible" are prohibited outputs — writing one is a failure of this task regardless of how the rest reads. A candidate who says the right thing badly has said the right thing, and grading polish is grading accent.
+
+If you cannot evidence a criterion, say only that it was not evidenced. Do NOT explain the absence by describing how the candidate spoke — that is the prohibited finding arriving through a side door.
 
 ## Interview criteria — ONLY when the employer named some
 
@@ -231,13 +273,14 @@ They appear under "Interview criteria" below, with the full transcript of each a
 
 Report on EVERY one, in the order given, in the "criteria" array. For each, exactly one of:
   · "evidenced" — the transcript shows it. Give ONE CONTIGUOUS SPAN copied verbatim from the transcript. Never join two passages, never use an ellipsis, never quote the QUESTION or the job description back — the question is what was asked, not what the candidate showed. A stitched or misattributed quote is treated as fabricated and the item is discarded.
+    SOME CRITERIA ARE ABOUT MANNER, NOT EVENTS. "Communicates clearly", "structures their thinking", "explains technical work to non-specialists" are not things a candidate SAYS happened — they are things the answer either exhibits or does not. There is no sentence reading "I communicate clearly", so do not hunt for one. Quote instead the span that best EXHIBITS the trait: one representative sentence where the candidate does the thing. A clear sentence is the evidence that they are clear. If no single span exhibits it, the answer is "not_found" — never a description of how they spoke, which is the prohibited finding above.
     QUOTE THE SHORTEST SPAN THAT SUPPORTS THE CLAIM — normally one sentence, and no more than 40 words. Pasting the whole answer is not evidence, it is the transcript: a quote that long shows you did not locate the moment demonstrating the trait, only that the trait was discussed somewhere. If no span of about 40 words or fewer supports the criterion on its own, the honest answer is "not_found" — never a longer quote. Anything past 60 words is rejected outright and the item is reported as not evidenced, so a long quote loses the candidate the credit a short one would have earned.
   · "not_found" — the transcript does not show it. Quote must be an empty string.
 
 THESE ARE NOT PASS/FAIL GATES.
 A criterion that is not found is one missing piece of evidence. It does NOT cap the score, it does NOT set a floor or a ceiling, it does NOT make the candidate unsuitable, and it is NEVER grounds for recommending rejection. The overall score is already computed and you are not re-scoring anything — this changes what you REPORT, never what you conclude.
 
-The speech rules above apply here unchanged. Filler, hesitation, self-correction and non-native grammar are NOT evidence against a trait — judge what was communicated, not how fluently. An unintelligible or inaudible passage is MISSING EVIDENCE, not a failed criterion: if you cannot make out what was said, the item is "not_found", never "evidenced" against a guess.
+The speech rules in "HOW THE CANDIDATE SPEAKS IS NEVER A FINDING" bind this section too. Filler, hesitation, self-correction and non-native grammar are NOT evidence against a trait — judge what was communicated, not how fluently. An unintelligible or inaudible passage is MISSING EVIDENCE, not a failed criterion: if you cannot make out what was said, the item is "not_found", never "evidenced" against a guess.
 
 Return ONLY this JSON object, no prose, no code fence:
 
