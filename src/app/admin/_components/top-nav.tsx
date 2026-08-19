@@ -4,6 +4,7 @@ import {
   Briefcase,
   Building2,
   CalendarDays,
+  ChartLine,
   FileText,
   Handshake,
   KeyRound,
@@ -94,6 +95,15 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
       { label: "Companies", href: "/admin/companies", icon: Sparkles, superAdminOnly: true },
       { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
       { label: "Applications", href: "/admin/applications", icon: FileText },
+      // Cross-company by design, so the route enforces super_admin server-side
+      // in BOTH the page and the action. This flag only stops it being
+      // advertised to admins who would be redirected away from it.
+      {
+        label: "Platform analytics",
+        href: "/admin/analytics",
+        icon: ChartLine,
+        superAdminOnly: true,
+      },
     ],
   },
   {
