@@ -1,15 +1,11 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperAdminEmail } from "@/app/admin/lib/roles";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
 
 export const metadata = { title: "Admin — Remotiv" };
 
-export default async function AdminLayout({
-  children,
-}: {
-  children: React.ReactNode;
-}) {
+export default async function AdminLayout({ children }: { children: React.ReactNode }) {
   const supabase = await createClient();
   const {
     data: { user },
@@ -62,9 +58,12 @@ export default async function AdminLayout({
     }
   }
 
-  // The mobile drawer + hamburger now live in TopNav (rendered by each
-  // dashboard component). The layout is just a scrollable main pane.
-  return (
-    <main className="min-h-screen bg-remotiv-bg font-sans">{children}</main>
-  );
+  /*
+   * TopNav is rendered by each dashboard component, not here — so the rail it
+   * draws is FIXED, and the space it occupies has to be reserved somewhere
+   * that wraps every admin page. This is that place.
+   *
+   * lg: only. Below it the rail becomes a drawer and takes no layout space.
+   */
+  return <main className="min-h-screen bg-remotiv-bg font-sans lg:pl-[236px]">{children}</main>;
 }

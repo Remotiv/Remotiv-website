@@ -1,12 +1,9 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
-import Image from "next/image";
-import Link from "next/link";
-import { usePathname } from "next/navigation";
 import {
   Briefcase,
   Building2,
+  CalendarDays,
   FileText,
   Handshake,
   KeyRound,
@@ -22,43 +19,138 @@ import {
   Users,
   X,
 } from "lucide-react";
-import { NotificationsBell } from "./notifications-bell";
-import {
-  type UserRole,
-  ROLE_LABELS,
-  ROLE_BADGE_STYLES,
-} from "@/app/admin/lib/roles";
+import Image from "next/image";
+import Link from "next/link";
+import { usePathname } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
+import { ROLE_BADGE_STYLES, ROLE_LABELS, type UserRole } from "@/app/admin/lib/roles";
 import { getAvatarUrl } from "@/lib/avatars";
+import { NotificationsBell } from "./notifications-bell";
 
 type NavItem = {
   label: string;
   href: string;
-  /** Lucide icon — only rendered in the mobile drawer. */
   icon: LucideIcon;
-  /** When true, only super_admin sees this link. */
+  /** When true, only super_admin sees this link. DISPLAY ONLY — see below. */
   superAdminOnly?: boolean;
 };
 
-const TOP_NAV: ReadonlyArray<NavItem> = [
-  { label: "Dashboard",      href: "/admin",                icon: LayoutDashboard },
-  { label: "Talent",         href: "/admin/talent",         icon: Users },
-  { label: "Remote Talent",  href: "/admin/remote-talent",  icon: UserPlus },
-  { label: "Clients",        href: "/admin/clients",        icon: Building2,    superAdminOnly: true },
-  { label: "Companies",      href: "/admin/companies",      icon: Sparkles,     superAdminOnly: true },
-  { label: "Client Batches", href: "/admin/client-batches", icon: Layers },
-  { label: "Jobs",           href: "/admin/jobs",           icon: Briefcase },
-  { label: "Applications",   href: "/admin/applications",   icon: FileText },
-  { label: "Search",         href: "/admin/search",         icon: Search },
-  { label: "Contacts",       href: "/admin/contacts",       icon: MessageSquare },
-  { label: "Hire Requests",  href: "/admin/hire-requests",  icon: Handshake },
-  { label: "Team",           href: "/admin/team",           icon: Users },
+type NavGroup = {
+  /** null renders the items with no heading, at the top of the rail. */
+  heading: string | null;
+  items: ReadonlyArray<NavItem>;
+};
+
+/**
+ * The rail, grouped by PRODUCT.
+ *
+ * ── Why grouped ─────────────────────────────────────────────
+ *
+ * The flat bar this replaces held twelve items spanning four products in an
+ * order that scrambled them: the marketplace's three sat at positions 2, 4 and
+ * 6 with other products interleaved. Worse, "Clients" (marketplace customers)
+ * and "Companies" (AI-dashboard tenants) sat ADJACENT and read as a pair —
+ * they belong to different products entirely, and that adjacency is the
+ * specific confusion this grouping exists to remove.
+ *
+ * Dashboard and Search stay ungrouped at the top because they genuinely span
+ * every product; putting them under a heading would claim an ownership they
+ * do not have.
+ *
+ * ── superAdminOnly is NOT access control ────────────────────
+ *
+ * It decides what is DRAWN, nothing else. Every page enforces its own guard —
+ * /admin/layout.tsx checks the admin_users row on every request, and each page
+ * re-checks its own permissions. Hiding a link stops it being advertised; it
+ * does not stop anyone reaching the route by typing it, and this file must
+ * never be mistaken for the thing that does.
+ */
+const NAV_GROUPS: ReadonlyArray<NavGroup> = [
+  {
+    heading: null,
+    items: [
+      { label: "Dashboard", href: "/admin", icon: LayoutDashboard },
+      { label: "Search", href: "/admin/search", icon: Search },
+    ],
+  },
+  {
+    heading: "Marketplace",
+    items: [
+      { label: "Talent", href: "/admin/talent", icon: Users },
+      { label: "Clients", href: "/admin/clients", icon: Building2, superAdminOnly: true },
+      { label: "Client Batches", href: "/admin/client-batches", icon: Layers },
+    ],
+  },
+  {
+    heading: "Hire Remote",
+    items: [
+      { label: "Remote Talent", href: "/admin/remote-talent", icon: UserPlus },
+      { label: "Hire Requests", href: "/admin/hire-requests", icon: Handshake },
+    ],
+  },
+  {
+    heading: "Companies",
+    items: [
+      { label: "Companies", href: "/admin/companies", icon: Sparkles, superAdminOnly: true },
+      { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
+      { label: "Applications", href: "/admin/applications", icon: FileText },
+    ],
+  },
+  {
+    heading: "Platform",
+    items: [
+      { label: "Contacts", href: "/admin/contacts", icon: MessageSquare },
+      // /admin/bookings is a real, working page that the old flat bar never
+      // linked — reachable only from a dead sidebar component.
+      { label: "Bookings", href: "/admin/bookings", icon: CalendarDays },
+      { label: "Team", href: "/admin/team", icon: Users },
+    ],
+  },
 ];
+
+/**
+ * Visual constants, mirroring the company dashboard's sidebar by VALUE.
+ *
+ * Deliberately re-declared here rather than imported from ai-dashboard/**:
+ * the two halves should look like one product, but coupling admin's chrome to
+ * the dashboard's would mean a change intended for one silently reshaping the
+ * other. The dashboard's own values live behind `--ai-sidebar`, a variable
+ * scoped to `.ai-shell` and therefore not in scope here anyway.
+ *
+ * Kept in step by hand. If the dashboard's rail changes, these four constants
+ * are the whole surface to update.
+ */
+const RAIL_SURFACE = "#141020";
+const RAIL_LINK =
+  "flex items-center gap-[11px] rounded-[10px] px-2.5 py-2.5 text-[13.5px] font-medium transition-colors";
+const RAIL_LINK_ACTIVE = "bg-remotiv-purple font-semibold text-white";
+const RAIL_LINK_IDLE = "text-white/60 hover:bg-white/[0.06] hover:text-white";
+const RAIL_HEADING =
+  "px-2.5 pb-1.5 pt-3 text-[10px] font-semibold uppercase tracking-[0.14em] text-white/35";
+
+/**
+ * Is this the route the rail should highlight?
+ *
+ * A prefix match on every item EXCEPT /admin, so /admin/jobs/123 highlights
+ * Jobs. Dashboard is exact-matched because "/admin" prefixes every other
+ * route and would otherwise stay lit on every page.
+ */
+function isActive(pathname: string, href: string): boolean {
+  if (href === "/admin") return pathname === "/admin";
+  return pathname === href || pathname.startsWith(`${href}/`);
+}
 
 const WALEED_EMAIL = "waleednzm@gmail.com";
 
 const INITIALS_COLORS = [
-  "#7E47FF", "#49D7A7", "#F59E0B", "#EF4444",
-  "#3B82F6", "#EC4899", "#10B981", "#F97316",
+  "#7E47FF",
+  "#49D7A7",
+  "#F59E0B",
+  "#EF4444",
+  "#3B82F6",
+  "#EC4899",
+  "#10B981",
+  "#F97316",
 ];
 
 function getInitials(email: string): string {
@@ -78,13 +170,7 @@ function getInitialsColor(email: string): string {
   return INITIALS_COLORS[hash % INITIALS_COLORS.length];
 }
 
-export function TopNav({
-  email,
-  userRole = "viewer",
-}: {
-  email: string;
-  userRole?: UserRole;
-}) {
+export function TopNav({ email, userRole = "viewer" }: { email: string; userRole?: UserRole }) {
   const pathname = usePathname();
 
   const [avatarOpen, setAvatarOpen] = useState(false);
@@ -95,9 +181,14 @@ export function TopNav({
   const initials = isWaleed ? "" : getInitials(email);
   const initialsColor = isWaleed ? "" : getInitialsColor(email);
 
-  const visibleNav = TOP_NAV.filter(
-    (item) => !item.superAdminOnly || userRole === "super_admin",
-  );
+  /*
+   * Filter items first, then drop any group left empty — a heading with no
+   * rows under it reads as a broken section rather than an absent one.
+   */
+  const visibleGroups = NAV_GROUPS.map((group) => ({
+    heading: group.heading,
+    items: group.items.filter((item) => !item.superAdminOnly || userRole === "super_admin"),
+  })).filter((group) => group.items.length > 0);
 
   // Click-outside for desktop avatar dropdown
   useEffect(() => {
@@ -130,89 +221,116 @@ export function TopNav({
     setMobileOpen(false);
   }, [pathname]);
 
-  return (
-    <>
-      {/* ── Desktop bar (lg+) — unchanged from original ── */}
-      <header className="sticky top-0 z-20 hidden h-16 items-center justify-between border-b border-gray-100 bg-white px-8 lg:flex">
-        <span className="font-heading text-xl font-bold tracking-tight text-remotiv-purple">
-          Remotiv.
-        </span>
-
-        <nav className="flex items-center gap-1">
-          {visibleNav.map(({ label, href }) => {
-            const active = pathname === href;
+  const railNav = (onNavigate?: () => void) => (
+    <nav className="flex flex-col gap-0.5">
+      {visibleGroups.map((group) => (
+        <div key={group.heading ?? "top"} className="flex flex-col gap-0.5">
+          {group.heading && <div className={RAIL_HEADING}>{group.heading}</div>}
+          {group.items.map(({ label, href, icon: Icon }) => {
+            const active = isActive(pathname, href);
             return (
               <Link
                 key={href}
                 href={href}
-                className={`rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
-                  active
-                    ? "bg-remotiv-purple text-white"
-                    : "text-gray-500 hover:bg-gray-50 hover:text-gray-800"
-                }`}
+                onClick={onNavigate}
+                aria-current={active ? "page" : undefined}
+                className={`${RAIL_LINK} ${active ? RAIL_LINK_ACTIVE : RAIL_LINK_IDLE}`}
               >
+                <Icon className="size-[18px] shrink-0" strokeWidth={1.7} />
                 {label}
               </Link>
             );
           })}
-        </nav>
+        </div>
+      ))}
+    </nav>
+  );
 
-        <div className="flex items-center gap-3">
-          <Link
-            href="/admin/search"
-            className="flex items-center gap-2 rounded-xl bg-gray-50 px-3.5 py-2 text-sm text-gray-600 transition-colors hover:bg-gray-100"
-          >
-            <Search className="size-4 text-gray-400" strokeWidth={2} />
-            <span className="text-gray-400">Search</span>
-          </Link>
-          <NotificationsBell />
+  const accountMenu = (
+    <div className="overflow-hidden rounded-xl border border-white/10 bg-[#1D1830] shadow-lg">
+      <div className="px-4 py-3">
+        <p className="truncate text-xs text-white/50">{email}</p>
+        <span
+          className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${ROLE_BADGE_STYLES[userRole]}`}
+        >
+          {ROLE_LABELS[userRole]}
+        </span>
+      </div>
+      <div className="border-t border-white/10" />
+      <Link
+        href="/admin/change-password"
+        onClick={() => setAvatarOpen(false)}
+        className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-white/70 transition-colors hover:bg-white/[0.06] hover:text-white"
+      >
+        <KeyRound className="size-4" strokeWidth={2} />
+        Change Password
+      </Link>
+      <div className="border-t border-white/10" />
+      <form action="/admin/logout" method="post">
+        <button
+          type="submit"
+          className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-white/70 transition-colors hover:bg-red-500/15 hover:text-red-300"
+        >
+          <LogOut className="size-4" strokeWidth={2} />
+          Sign Out
+        </button>
+      </form>
+    </div>
+  );
 
+  return (
+    <>
+      {/* ── Desktop rail (lg+) ──
+          FIXED, not sticky-in-flow: TopNav is rendered by each dashboard
+          component above its own <main>, so a rail in normal flow would stack
+          above the content instead of beside it. The matching left offset is
+          applied once in admin/layout.tsx, which is the only place that wraps
+          every admin page. */}
+      <aside
+        className="fixed inset-y-0 left-0 z-30 hidden w-[236px] flex-col px-4 pb-[18px] pt-[22px] lg:flex"
+        style={{ background: RAIL_SURFACE }}
+      >
+        <Link href="/admin" className="flex items-center gap-2.5 px-2 pb-[22px] pt-1">
+          <span className="font-heading text-[21px] font-extrabold tracking-[-0.02em] text-white">
+            Remotiv<span className="text-remotiv-green">.</span>
+          </span>
+        </Link>
+
+        <div className="min-h-0 flex-1 overflow-y-auto">{railNav()}</div>
+
+        {/* The bell stays OUTSIDE the nav list, as it was in the old bar —
+            it is a notification surface, not a destination. */}
+        <div className="mt-3 shrink-0 border-t border-white/10 pt-3">
           <div ref={avatarRef} className="relative">
-            <button
-              type="button"
-              onClick={() => setAvatarOpen((p) => !p)}
-              aria-label={`Account menu for ${email}`}
-              aria-expanded={avatarOpen}
-              aria-haspopup="menu"
-              className="relative flex size-9 shrink-0 items-center justify-center overflow-hidden rounded-full ring-2 ring-transparent transition-all hover:ring-remotiv-purple/40"
-            >
-              <UserAvatar email={email} isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
-            </button>
-
             {avatarOpen && (
-              <div className="absolute right-0 top-11 z-30 w-52 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
-                <div className="px-4 py-3">
-                  <p className="truncate text-xs text-gray-400">{email}</p>
-                  <span
-                    className={`mt-1.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${ROLE_BADGE_STYLES[userRole]}`}
-                  >
-                    {ROLE_LABELS[userRole]}
-                  </span>
-                </div>
-                <div className="border-t border-gray-100" />
-                <Link
-                  href="/admin/change-password"
-                  onClick={() => setAvatarOpen(false)}
-                  className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-800"
-                >
-                  <KeyRound className="size-4" strokeWidth={2} />
-                  Change Password
-                </Link>
-                <div className="border-t border-gray-100" />
-                <form action="/admin/logout" method="post">
-                  <button
-                    type="submit"
-                    className="flex w-full items-center gap-2.5 px-4 py-3 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
-                  >
-                    <LogOut className="size-4" strokeWidth={2} />
-                    Sign Out
-                  </button>
-                </form>
-              </div>
+              <div className="absolute bottom-full left-0 z-40 mb-2 w-[204px]">{accountMenu}</div>
             )}
+            <div className="flex items-center gap-2">
+              <button
+                type="button"
+                onClick={() => setAvatarOpen((p) => !p)}
+                aria-label={`Account menu for ${email}`}
+                aria-expanded={avatarOpen}
+                aria-haspopup="menu"
+                className="flex min-w-0 flex-1 items-center gap-2.5 rounded-[10px] px-2 py-2 transition-colors hover:bg-white/[0.06]"
+              >
+                <span className="relative flex size-8 shrink-0 items-center justify-center overflow-hidden rounded-full">
+                  <UserAvatar
+                    email={email}
+                    isWaleed={isWaleed}
+                    initials={initials}
+                    initialsColor={initialsColor}
+                  />
+                </span>
+                <span className="min-w-0 flex-1 truncate text-left text-[12.5px] text-white/70">
+                  {email}
+                </span>
+              </button>
+              <NotificationsBell />
+            </div>
           </div>
         </div>
-      </header>
+      </aside>
 
       {/* ── Mobile bar (<lg) — logo + bell + hamburger ── */}
       <header className="sticky top-0 z-20 flex h-16 items-center justify-between border-b border-gray-100 bg-white px-4 lg:hidden">
@@ -235,45 +353,46 @@ export function TopNav({
         </div>
       </header>
 
-      {/* ── Mobile drawer + overlay ── */}
+      {/* ── Mobile drawer + overlay — same groups, same treatment ── */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
-          mobileOpen
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0"
+          mobileOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={() => setMobileOpen(false)}
         aria-hidden="true"
       />
       <aside
-        className={`fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col bg-white shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
+        className={`fixed inset-y-0 right-0 z-50 flex w-72 max-w-[85vw] flex-col overflow-y-auto px-4 pb-[18px] pt-[22px] shadow-2xl transition-transform duration-300 ease-out lg:hidden ${
           mobileOpen ? "translate-x-0" : "translate-x-full"
         }`}
+        style={{ background: RAIL_SURFACE }}
         aria-hidden={!mobileOpen}
       >
-        <div className="flex h-16 shrink-0 items-center justify-between border-b border-gray-100 px-4">
-          <span className="font-heading text-xl font-bold tracking-tight text-remotiv-purple">
-            Remotiv.
+        <div className="flex shrink-0 items-center justify-between pb-[18px]">
+          <span className="font-heading text-[21px] font-extrabold tracking-[-0.02em] text-white">
+            Remotiv<span className="text-remotiv-green">.</span>
           </span>
           <button
             type="button"
             onClick={() => setMobileOpen(false)}
             aria-label="Close menu"
-            className="flex size-11 items-center justify-center rounded-xl text-gray-500 transition-colors hover:bg-gray-50 hover:text-gray-800"
+            className="flex size-11 items-center justify-center rounded-[10px] text-white/50 transition-colors hover:bg-white/10 hover:text-white"
           >
             <X className="size-5" strokeWidth={2} />
           </button>
         </div>
 
-        {/* User identity strip */}
-        <div className="flex items-center gap-3 border-b border-gray-100 px-4 py-4">
-          <span className="relative flex size-10 shrink-0 items-center justify-center overflow-hidden rounded-full">
-            <UserAvatar email={email} isWaleed={isWaleed} initials={initials} initialsColor={initialsColor} />
+        <div className="mb-[18px] flex shrink-0 items-center gap-3 rounded-xl border border-white/[0.09] bg-white/[0.06] px-[11px] py-[9px]">
+          <span className="relative flex size-[30px] shrink-0 items-center justify-center overflow-hidden rounded-full">
+            <UserAvatar
+              email={email}
+              isWaleed={isWaleed}
+              initials={initials}
+              initialsColor={initialsColor}
+            />
           </span>
           <div className="min-w-0 flex-1">
-            <p className="truncate text-sm font-semibold text-gray-800">
-              {email}
-            </p>
+            <p className="truncate text-[13px] font-semibold leading-tight text-white">{email}</p>
             <span
               className={`mt-0.5 inline-block rounded-full px-2 py-0.5 text-[10px] font-semibold ${ROLE_BADGE_STYLES[userRole]}`}
             >
@@ -282,50 +401,23 @@ export function TopNav({
           </div>
         </div>
 
-        {/* Nav links */}
-        <nav className="flex-1 overflow-y-auto px-3 py-3">
-          <ul className="flex flex-col gap-0.5">
-            {visibleNav.map(({ label, href, icon: Icon }) => {
-              const active = pathname === href;
-              return (
-                <li key={href}>
-                  <Link
-                    href={href}
-                    onClick={() => setMobileOpen(false)}
-                    className={`flex min-h-11 items-center gap-3 rounded-xl px-3 py-2.5 text-sm font-medium transition-colors ${
-                      active
-                        ? "bg-remotiv-purple/10 font-semibold text-remotiv-purple"
-                        : "text-gray-600 hover:bg-gray-50 hover:text-gray-900"
-                    }`}
-                  >
-                    <Icon
-                      className={`size-4 shrink-0 ${active ? "text-remotiv-purple" : "text-gray-400"}`}
-                      strokeWidth={2}
-                    />
-                    {label}
-                  </Link>
-                </li>
-              );
-            })}
-          </ul>
-        </nav>
+        <div className="min-h-0 flex-1">{railNav(() => setMobileOpen(false))}</div>
 
-        {/* Footer actions */}
-        <div className="shrink-0 border-t border-gray-100 px-3 py-3">
+        <div className="mt-3 shrink-0 border-t border-white/10 pt-3">
           <Link
             href="/admin/change-password"
             onClick={() => setMobileOpen(false)}
-            className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-600 transition-colors hover:bg-gray-50 hover:text-gray-900"
+            className={`${RAIL_LINK} ${RAIL_LINK_IDLE} min-h-11`}
           >
-            <KeyRound className="size-4 text-gray-400" strokeWidth={2} />
+            <KeyRound className="size-[18px] shrink-0" strokeWidth={1.7} />
             Change Password
           </Link>
           <form action="/admin/logout" method="post">
             <button
               type="submit"
-              className="flex min-h-11 w-full items-center gap-3 rounded-xl px-3 py-2.5 text-sm text-gray-600 transition-colors hover:bg-red-50 hover:text-red-500"
+              className={`${RAIL_LINK} min-h-11 w-full text-white/60 hover:bg-red-500/15 hover:text-red-300`}
             >
-              <LogOut className="size-4 text-gray-400" strokeWidth={2} />
+              <LogOut className="size-[18px] shrink-0" strokeWidth={1.7} />
               Sign Out
             </button>
           </form>

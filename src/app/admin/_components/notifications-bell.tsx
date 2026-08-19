@@ -1,6 +1,5 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
   ArrowRight,
   Bell,
@@ -11,11 +10,12 @@ import {
   X,
 } from "lucide-react";
 import { useRouter } from "next/navigation";
+import { useEffect, useRef, useState } from "react";
 import {
+  type AdminNotification,
   fetchNotifications,
   markAllAsRead,
   markNotificationAsRead,
-  type AdminNotification,
 } from "@/app/admin/notifications/actions";
 
 const POLL_INTERVAL_MS = 30_000;
@@ -30,10 +30,10 @@ function formatTime(iso: string): string {
 }
 
 const EVENT_ICON: Record<string, { Icon: LucideIcon; color: string; bg: string }> = {
-  client_decision: { Icon: CheckCircle,   color: "text-emerald-600", bg: "bg-emerald-50" },
-  client_note:     { Icon: MessageSquare, color: "text-blue-600",    bg: "bg-blue-50"    },
-  stage_change:    { Icon: ArrowRight,    color: "text-remotiv-purple",   bg: "bg-remotiv-purple/10" },
-  candidate_added: { Icon: UserPlus,      color: "text-orange-600",  bg: "bg-orange-50"  },
+  client_decision: { Icon: CheckCircle, color: "text-emerald-600", bg: "bg-emerald-50" },
+  client_note: { Icon: MessageSquare, color: "text-blue-600", bg: "bg-blue-50" },
+  stage_change: { Icon: ArrowRight, color: "text-remotiv-purple", bg: "bg-remotiv-purple/10" },
+  candidate_added: { Icon: UserPlus, color: "text-orange-600", bg: "bg-orange-50" },
 };
 const EVENT_ICON_DEFAULT = { Icon: Bell, color: "text-gray-500", bg: "bg-gray-100" };
 
@@ -85,9 +85,7 @@ export function NotificationsBell() {
       const stamped = new Date().toISOString();
       // Optimistic: update local state, then call the server.
       setUnreadCount((c) => Math.max(0, c - 1));
-      setNotifications((prev) =>
-        prev.map((x) => (x.id === n.id ? { ...x, read_at: stamped } : x)),
-      );
+      setNotifications((prev) => prev.map((x) => (x.id === n.id ? { ...x, read_at: stamped } : x)));
       await markNotificationAsRead(n.id);
     }
     if (n.link) {
@@ -100,9 +98,7 @@ export function NotificationsBell() {
     setMarking(true);
     markingRef.current = true;
     const stamped = new Date().toISOString();
-    setNotifications((prev) =>
-      prev.map((n) => ({ ...n, read_at: n.read_at ?? stamped })),
-    );
+    setNotifications((prev) => prev.map((n) => ({ ...n, read_at: n.read_at ?? stamped })));
     setUnreadCount(0);
     try {
       await markAllAsRead();
@@ -129,7 +125,32 @@ export function NotificationsBell() {
       </button>
 
       {open && (
-        <div className="absolute right-0 top-11 z-40 flex max-h-[80vh] w-96 max-w-[90vw] flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl">
+        /*
+         * ── Where this panel opens, and why ──
+         *
+         * The bell now lives in the FOOTER of the vertical rail, at the bottom
+         * of the viewport. Dropping downward from there (the old `top-11`) put
+         * the panel below the fold and cut it off.
+         *
+         * Upward was the obvious fix and is what the account menu does — but
+         * this panel is far taller (a scrolling list at max-h-80vh against a
+         * ~200px menu), so upward only moves the clipping to the top edge on a
+         * short viewport.
+         *
+         * So on desktop it opens to the RIGHT, over the page content, which is
+         * where the room actually is: the rail is 236px of a ≥1024px viewport,
+         * leaving ~780px for a 384px panel. It is `fixed` rather than
+         * `absolute` so its position is relative to the VIEWPORT, not to the
+         * bell — which means it lands correctly wherever in the rail the bell
+         * ends up, not just at the bottom. Anchored `bottom-4` with a 80vh
+         * ceiling, its top can never go above 20vh, so it cannot clip at either
+         * edge at any viewport height.
+         *
+         * Below lg the rail becomes a drawer and the bell sits in the sticky
+         * top header, so the original downward drop is correct there and is
+         * what these classes fall back to.
+         */
+        <div className="absolute right-0 top-11 z-40 flex max-h-[80vh] w-96 max-w-[90vw] flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white shadow-xl lg:fixed lg:bottom-4 lg:left-[244px] lg:right-auto lg:top-auto">
           <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-3">
             <p className="font-heading text-sm font-bold text-gray-900">Notifications</p>
             <div className="flex items-center gap-2">
@@ -159,45 +180,41 @@ export function NotificationsBell() {
               <div className="px-4 py-12 text-center">
                 <Bell className="mx-auto mb-2 size-8 text-gray-300" strokeWidth={1.5} />
                 <p className="text-sm font-medium text-gray-600">No notifications yet</p>
-                <p className="mt-1 text-xs text-gray-400">
-                  You&apos;ll see client activity here.
-                </p>
+                <p className="mt-1 text-xs text-gray-400">You&apos;ll see client activity here.</p>
               </div>
             ) : (
               notifications.map((n) => {
                 const meta = EVENT_ICON[n.event_type] ?? EVENT_ICON_DEFAULT;
                 const { Icon, color, bg } = meta;
                 return (
-                <button
-                  type="button"
-                  key={n.id}
-                  onClick={() => handleClick(n)}
-                  className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors hover:bg-gray-50 ${
-                    !n.read_at ? "bg-remotiv-purple/[0.04]" : ""
-                  }`}
-                >
-                  <span
-                    className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}
+                  <button
+                    type="button"
+                    key={n.id}
+                    onClick={() => handleClick(n)}
+                    className={`flex w-full gap-3 border-b border-gray-100 px-4 py-3 text-left transition-colors hover:bg-gray-50 ${
+                      !n.read_at ? "bg-remotiv-purple/[0.04]" : ""
+                    }`}
                   >
-                    <Icon className={`size-4 ${color}`} strokeWidth={2} />
-                  </span>
-                  <div className="min-w-0 flex-1">
-                    <p
-                      className={`truncate text-sm text-gray-900 ${
-                        !n.read_at ? "font-bold" : "font-medium"
-                      }`}
+                    <span
+                      className={`flex size-8 shrink-0 items-center justify-center rounded-full ${bg}`}
                     >
-                      {n.title}
-                    </p>
-                    <p className="mt-0.5 truncate text-xs text-gray-600">{n.message}</p>
-                    <p className="mt-1 text-[10px] text-gray-400">
-                      {formatTime(n.created_at)}
-                    </p>
-                  </div>
-                  {!n.read_at && (
-                    <span className="mt-2 size-2 shrink-0 rounded-full bg-remotiv-purple" />
-                  )}
-                </button>
+                      <Icon className={`size-4 ${color}`} strokeWidth={2} />
+                    </span>
+                    <div className="min-w-0 flex-1">
+                      <p
+                        className={`truncate text-sm text-gray-900 ${
+                          !n.read_at ? "font-bold" : "font-medium"
+                        }`}
+                      >
+                        {n.title}
+                      </p>
+                      <p className="mt-0.5 truncate text-xs text-gray-600">{n.message}</p>
+                      <p className="mt-1 text-[10px] text-gray-400">{formatTime(n.created_at)}</p>
+                    </div>
+                    {!n.read_at && (
+                      <span className="mt-2 size-2 shrink-0 rounded-full bg-remotiv-purple" />
+                    )}
+                  </button>
                 );
               })
             )}
