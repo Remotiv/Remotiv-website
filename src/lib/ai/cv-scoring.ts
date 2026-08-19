@@ -688,6 +688,37 @@ function ellipsisSegments(quote: string): string[] {
 /** Below this a quote proves nothing — "React" appears in half of all CVs. */
 const MIN_QUOTE_CHARS = 8;
 
+/**
+ * Must-have quote length, in words. The upper bound to MIN_QUOTE_CHARS' lower
+ * one — length is a quality signal at both ends.
+ *
+ * ── Why the numbers differ from the interview scorer's ───────
+ *
+ * The interview scorer caps at 40/60 (see CRITERION_QUOTE_TARGET_WORDS). The
+ * target here is TIGHTER because written CV prose is denser than unrehearsed
+ * speech: "Led migration of 40 microservices from ECS to EKS, cutting deploy
+ * time 70%" is a complete, dense claim in 13 words, where the same point spoken
+ * aloud runs 40 with hedging and self-correction. A must-have is also the
+ * shortest evidence span in the product by nature — a requirement is met by a
+ * line, a date range or a certification name, not by a paragraph.
+ *
+ * The CEILING stays at 60, matching the interview scorer, and deliberately does
+ * NOT tighten to match the target. The rubric here says nothing about length —
+ * see the note in parseMustHaves on why it cannot without moving
+ * PROMPT_VERSION — so the model has not been told this rule and every demotion
+ * is unannounced. An unwarned gate should be generous: 60 words is roughly a
+ * whole role block with its bullets, the point at which the quote is the
+ * document rather than a span, and that argument holds whether or not the model
+ * was warned.
+ */
+const MUST_HAVE_QUOTE_TARGET_WORDS = 30;
+const MUST_HAVE_QUOTE_MAX_WORDS = 60;
+
+/** Whitespace-separated tokens, the same unit the interview scorer counts in. */
+function quoteWordCount(quote: string): number {
+  return quote.trim().split(/\s+/).filter(Boolean).length;
+}
+
 export type VerificationOutcome = {
   verified: EvidenceItem[];
   dropped: EvidenceItem[];
@@ -828,6 +859,27 @@ export type MustHaveResult = {
  *     the one case where saying nothing is right.
  *
  * Returns [] when the employer named none, which is the column default.
+ *
+ * ── A quote past the ceiling demotes the same way ─────────────
+ *
+ * See MUST_HAVE_QUOTE_MAX_WORDS. An over-long quote takes the identical path a
+ * fabricated one takes — not_found, empty quote — because at that length the
+ * model has not located evidence, it has handed back the document, and "we
+ * could not evidence this" is the true statement.
+ *
+ * ── Why the rubric above says nothing about length ────────────
+ *
+ * Because saying it there would be a PROMPT change, and PROMPT_VERSION tracks
+ * the prompt. Adding a length rule to the must-have rubric would oblige a bump
+ * to v11, and a bump would retroactively imply every existing v10 scorecard was
+ * produced under different instructions — which would be false, and would
+ * corrupt the one thing the version column exists to answer.
+ *
+ * So the gate ships as a parser-side backstop under v10 and the model is not
+ * told about it. That is deliberate and it is why the ceiling is generous
+ * rather than matched to the target. If the log shows CV quotes actually run
+ * long, the rubric line and the v11 bump go together, in one change, as they
+ * should.
  */
 export function parseMustHaves(raw: unknown, asked: string[], cvText: string): MustHaveResult[] {
   if (asked.length === 0) return [];
@@ -847,12 +899,54 @@ export function parseMustHaves(raw: unknown, asked: string[], cvText: string): M
 
       const quote = typeof e.quote === "string" ? e.quote : "";
       const claimed = e.status === "evidenced" && quote.trim().length > 0;
-      const verified =
-        claimed && verifyEvidence([{ claim: original, quote }], cvText).verified.length > 0;
+
+      /*
+       * Store the span verifyEvidence BLESSED, not the string the model sent.
+       *
+       * They differ when the model used an ellipsis: verification splits on it,
+       * requires every segment to appear in the CV, then returns the longest
+       * single segment. Storing the raw quote instead put the stitched join
+       * into the column — a string no check ever passed as a whole, and exactly
+       * what the rubric two hundred lines above calls fabrication. The
+       * dimension-score path at the bottom of this file always did this
+       * correctly; this parser and its interview twin did not.
+       *
+       * It also has to be this span the length gate measures, or the gate would
+       * be sizing a string that is not what gets stored.
+       */
+      const [blessed] = claimed
+        ? verifyEvidence([{ claim: original, quote }], cvText).verified
+        : [];
+      const span = blessed?.quote ?? "";
+      const words = span ? quoteWordCount(span) : 0;
+      const tooLong = words > MUST_HAVE_QUOTE_MAX_WORDS;
+
+      if (span && words > MUST_HAVE_QUOTE_TARGET_WORDS) {
+        /*
+         * Logs the EMPLOYER's must-have and a word count — never the quote,
+         * which is candidate CV text. This is the whole point of shipping the
+         * gate without the rubric line: nobody has yet seen a CV quote run
+         * long, unlike the interview criterion that prompted this, so the log
+         * is what will say whether the problem exists here at all and whether
+         * the rubric needs the rule.
+         */
+        console.warn(
+          tooLong
+            ? "[cv-scoring] must-have quote past the ceiling — demoted to not_found"
+            : "[cv-scoring] must-have quote over target — stored anyway",
+          {
+            mustHave: original,
+            words,
+            target: MUST_HAVE_QUOTE_TARGET_WORDS,
+            ceiling: MUST_HAVE_QUOTE_MAX_WORDS,
+            promptVersion: PROMPT_VERSION,
+          },
+        );
+      }
 
       out.push(
-        verified
-          ? { item: original, status: "evidenced", quote }
+        span && !tooLong
+          ? { item: original, status: "evidenced", quote: span }
           : { item: original, status: "not_found", quote: "" },
       );
     }

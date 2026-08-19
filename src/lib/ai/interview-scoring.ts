@@ -49,7 +49,7 @@ import {
  * way and being able to say which version scored a given candidate is what
  * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v3";
+export const PROMPT_VERSION = "interview-scoring-v4";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -231,6 +231,7 @@ They appear under "Interview criteria" below, with the full transcript of each a
 
 Report on EVERY one, in the order given, in the "criteria" array. For each, exactly one of:
   · "evidenced" — the transcript shows it. Give ONE CONTIGUOUS SPAN copied verbatim from the transcript. Never join two passages, never use an ellipsis, never quote the QUESTION or the job description back — the question is what was asked, not what the candidate showed. A stitched or misattributed quote is treated as fabricated and the item is discarded.
+    QUOTE THE SHORTEST SPAN THAT SUPPORTS THE CLAIM — normally one sentence, and no more than 40 words. Pasting the whole answer is not evidence, it is the transcript: a quote that long shows you did not locate the moment demonstrating the trait, only that the trait was discussed somewhere. If no span of about 40 words or fewer supports the criterion on its own, the honest answer is "not_found" — never a longer quote. Anything past 60 words is rejected outright and the item is reported as not evidenced, so a long quote loses the candidate the credit a short one would have earned.
   · "not_found" — the transcript does not show it. Quote must be an empty string.
 
 THESE ARE NOT PASS/FAIL GATES.
@@ -511,6 +512,44 @@ export type CriterionResult = {
 };
 
 /**
+ * Quote length, in words.
+ *
+ * ── Why there is an upper bound at all ───────────────────────
+ *
+ * verifyEvidence already enforces a LOWER bound (MIN_QUOTE_CHARS): below it a
+ * span proves nothing because it appears in every transcript. The same argument
+ * runs in the other direction and was missing. A criterion about communication
+ * came back with a 100-word quote — the entire answer. It was contiguous and
+ * verbatim, so verification passed, but it evidenced nothing: quoting the whole
+ * answer says the trait was discussed somewhere in it, not that the model found
+ * the moment demonstrating it. Length is a quality signal at both ends.
+ *
+ * ── Why two thresholds and not one ───────────────────────────
+ *
+ * Because the two failure modes cost different amounts.
+ *
+ * Between TARGET and MAX the quote is verbose but the evidence is real, so it
+ * is STORED and logged. Demoting here would tell the recruiter "not evidenced"
+ * about a trait the candidate demonstrably showed — a false negative in the
+ * one list a recruiter scans to see what a candidate proved. That is a worse
+ * defect than the verbosity it would be fixing.
+ *
+ * Past MAX the claim changes. A 60-word-plus "span" is not a span; at that
+ * length the model has not located evidence, it has handed back the answer. So
+ * "we could not evidence this" becomes the TRUE statement, and demotion is
+ * honest rather than punitive. That is the line the live 100-word example
+ * falls on the wrong side of.
+ */
+const CRITERION_QUOTE_TARGET_WORDS = 40;
+const CRITERION_QUOTE_MAX_WORDS = 60;
+
+/** Whitespace-separated tokens. The same unit the rubric states, so the prompt
+ *  and the gate cannot disagree about what "40 words" means. */
+function quoteWordCount(quote: string): number {
+  return quote.trim().split(/\s+/).filter(Boolean).length;
+}
+
+/**
  * Parse and VERIFY the criteria block.
  *
  * ── An unverifiable quote demotes the item, never invents one ──
@@ -525,6 +564,19 @@ export type CriterionResult = {
  * An item whose `item` text does not match one the employer actually named is
  * DISCARDED — the model echoing back something invented is the one case where
  * saying nothing is right.
+ *
+ * ── A quote past the ceiling demotes the same way ─────────────
+ *
+ * See CRITERION_QUOTE_MAX_WORDS. An over-long quote takes the identical path a
+ * fabricated one takes — not_found, empty quote — because at that length the
+ * model has not found evidence, and "we could not evidence this" is true.
+ *
+ * The reason is written to the server log, not to the row. `criteria` is jsonb
+ * so an extra field would store without a migration, but review.ts's
+ * normaliseCriteria whitelists item/status/quote and would drop it on read:
+ * that is a field with no reader behind it, which is the same defect as a field
+ * with no column behind it. Surfacing the distinction to recruiters means
+ * changing the read path and the UI, and is a separate piece of work.
  */
 function parseCriteria(raw: unknown, asked: string[], transcripts: string): CriterionResult[] {
   if (!Array.isArray(raw) || asked.length === 0) return [];
@@ -543,12 +595,48 @@ function parseCriteria(raw: unknown, asked: string[], transcripts: string): Crit
 
     const quote = typeof e.quote === "string" ? e.quote : "";
     const claimed = e.status === "evidenced" && quote.trim().length > 0;
-    const verified =
-      claimed && verifyEvidence([{ claim: original, quote }], transcripts).verified.length > 0;
+
+    /*
+     * Take the span verifyEvidence actually blessed, not the string the model
+     * sent. They differ when the model used an ellipsis: verification splits on
+     * it, requires every segment to appear, and returns the longest one. Storing
+     * the raw quote instead would put a stitched join into the column that no
+     * check ever passed as a whole — the exact thing the rubric calls
+     * fabrication. It also has to be this span that the length gate measures,
+     * or the gate would be sizing a string that is not what gets stored.
+     */
+    const [blessed] = claimed
+      ? verifyEvidence([{ claim: original, quote }], transcripts).verified
+      : [];
+    const span = blessed?.quote ?? "";
+    const words = span ? quoteWordCount(span) : 0;
+    const tooLong = words > CRITERION_QUOTE_MAX_WORDS;
+
+    if (span && words > CRITERION_QUOTE_TARGET_WORDS) {
+      /*
+       * Never logs the quote or any transcript text — the criterion is the
+       * EMPLOYER's wording, the count is a number, and neither is candidate
+       * personal data. This is what makes rubric compliance measurable: a rule
+       * that only lives in a prompt is one the model follows on most calls and
+       * not all, and without this line nobody would know which.
+       */
+      console.warn(
+        tooLong
+          ? "[interview-scoring] criterion quote past the ceiling — demoted to not_found"
+          : "[interview-scoring] criterion quote over target — stored anyway",
+        {
+          criterion: original,
+          words,
+          target: CRITERION_QUOTE_TARGET_WORDS,
+          ceiling: CRITERION_QUOTE_MAX_WORDS,
+          promptVersion: PROMPT_VERSION,
+        },
+      );
+    }
 
     out.push(
-      verified
-        ? { item: original, status: "evidenced", quote }
+      span && !tooLong
+        ? { item: original, status: "evidenced", quote: span }
         : { item: original, status: "not_found", quote: "" },
     );
   }
