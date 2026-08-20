@@ -35,10 +35,14 @@ export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
  * union drives the Settings editor and message_templates_event_check would
  * reject the row the moment a company tried to override the wording.
  *
- * It needs no migration to LOG, because communication_logs.event is
+ * `booking_confirmed` joins it for the same reason: it is composed in
+ * src/lib/calendar/notify.ts, has no template row, and must not reach
+ * message_templates_event_check.
+ *
+ * Neither needs a migration to LOG, because communication_logs.event is
  * unconstrained. Verified against schema.sql, not assumed.
  */
-export const LOG_ONLY_EVENTS = ["interview_reminder"] as const;
+export const LOG_ONLY_EVENTS = ["interview_reminder", "booking_confirmed"] as const;
 export type LogOnlyEvent = (typeof LOG_ONLY_EVENTS)[number];
 
 /** Anything that may legally appear in communication_logs.event. */

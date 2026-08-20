@@ -6,7 +6,9 @@ import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
 import { isValidEmail } from "@/lib/validators";
 import type { CalendarConnectionView } from "@/lib/calendar/connections";
+import type { WorkingRule } from "@/lib/calendar/availability";
 import { CalendarCard } from "./_calendar-card";
+import { HoursCard } from "./_hours-card";
 import { TemplatesCard } from "./_templates-card";
 import type { TemplateRow } from "./template-types";
 import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
@@ -85,6 +87,7 @@ export function SettingsClient({
   sendRejectionDefault,
   templateRows,
   calendarConnections,
+  workingHours,
   stats,
 }: {
   role: CompanyRole;
@@ -94,6 +97,7 @@ export function SettingsClient({
   templateRows: TemplateRow[];
   /** View-only shapes — no tokens. See lib/calendar/connections.ts. */
   calendarConnections: CalendarConnectionView[];
+  workingHours: WorkingRule[];
   stats: { liveRoles: number; applicants: number; seatsUsed: number };
 }) {
   const router = useRouter();
@@ -921,6 +925,12 @@ export function SettingsClient({
 
         {/* ── Card 4: Your calendar ── */}
         <CalendarCard initial={calendarConnections} />
+
+        {/* ── Card 5: Interview hours ── */}
+        <HoursCard
+          initial={workingHours}
+          timezone={calendarConnections[0]?.timezone ?? null}
+        />
 
         <TemplatesCard
           rows={templateRows}

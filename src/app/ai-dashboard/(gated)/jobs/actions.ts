@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { parseRules } from "@/lib/calendar/availability";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import {
   canAccessJob,
@@ -366,6 +367,7 @@ function buildPatch(
       send_rejection_email: input.send_rejection_email === true,
       scoring_must_haves: namedList(input.scoring_must_haves, MUST_HAVE_MAX),
       interview_criteria: namedList(input.interview_criteria, INTERVIEW_CRITERIA_MAX),
+      ...bookingPatch(input),
       ...cvWeightPatch(input),
       ...autoshortlistPatch(input),
     },
@@ -380,6 +382,40 @@ function buildPatch(
  * number would silently switch weighting on for every job that never asked for
  * it, so anything that is not a finite number in range lands as null.
  */
+/**
+ * Interview duration and per-job booking hours.
+ *
+ * ── Why both columns are nullable, and stay nullable ─────────
+ *
+ * Null means "not decided for this job", which is a different fact from any
+ * value. A null duration inherits the 30-minute default; a null hours override
+ * inherits the recruiter's own Settings hours. Writing a concrete value on
+ * every save would freeze today's default onto every job, so a later change to
+ * either default would silently not apply to anything already created.
+ *
+ * The duration is narrowed to exactly 30 or 60 rather than passed through: the
+ * column is CHECK-constrained to those two, and a stray 45 from a client would
+ * be rejected at insert time with a constraint error nobody could read.
+ */
+function bookingPatch(input: Record<string, unknown>): Record<string, unknown> {
+  const patch: Record<string, unknown> = {};
+
+  if ("interview_duration_minutes" in input) {
+    const raw = Number(input.interview_duration_minutes);
+    patch.interview_duration_minutes = raw === 30 || raw === 60 ? raw : null;
+  }
+
+  if ("booking_hours_override" in input) {
+    // Validated through the SAME parser availability reads with, so a
+    // malformed range cannot be stored here and silently dropped there — the
+    // two would disagree about what the recruiter saved.
+    const rules = parseRules(input.booking_hours_override);
+    patch.booking_hours_override = rules.length > 0 ? rules : null;
+  }
+
+  return patch;
+}
+
 function cvWeightPatch(input: CompanyJobInput): Record<string, number | null> {
   const patch: Record<string, number | null> = {};
   for (const { key } of CV_WEIGHT_DIMENSIONS) {

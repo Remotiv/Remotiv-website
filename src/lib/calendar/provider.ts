@@ -59,6 +59,55 @@ export type ProviderAccount = {
   timezone: string | null;
 };
 
+/** A block of time the host is not free. Instants, never wall clocks. */
+export type BusyInterval = { start: number; end: number };
+
+/**
+ * A meeting to place on the host's calendar.
+ *
+ * `timeZone` accompanies the instants deliberately. The instants alone fully
+ * determine WHEN, but a calendar entry also has to render sensibly for a human
+ * and survive the organiser later dragging it — providers use the attached
+ * zone for that, and omitting it makes a recurring or moved event resolve
+ * against the provider's default rather than the host's.
+ */
+export type EventDraft = {
+  calendarId: string;
+  summary: string;
+  description: string;
+  startMs: number;
+  endMs: number;
+  timeZone: string;
+  attendeeEmails: string[];
+  /**
+   * Ask the provider to mint a conferencing link. False when the recruiter
+   * supplied a manual URL, which is then put in the location instead.
+   */
+  requestConferencing: boolean;
+  /** Used instead of provider conferencing when requestConferencing is false. */
+  manualUrl: string | null;
+};
+
+export type CreatedEvent = {
+  /** Stored as interview_bookings.provider_event_id, for session 3. */
+  eventId: string;
+  /**
+   * The meeting URL, whatever its origin.
+   *
+   * May be null even on success: a Google Calendar account can exist without
+   * Meet, so a calendar provider does NOT imply a meeting provider. Which one
+   * actually produced the link is reported separately.
+   */
+  meetingUrl: string | null;
+  /**
+   * The MEETING provider, which is not the calendar provider. "google_meet",
+   * "manual", or null when there is no link at all. Stored separately so a
+   * later change of calendar provider does not silently reinterpret every
+   * historical meeting link.
+   */
+  meetingProvider: string | null;
+};
+
 export interface CalendarProvider {
   readonly id: CalendarProviderId;
   /** Shown in the UI. */
@@ -75,6 +124,19 @@ export interface CalendarProvider {
 
   /** Identify the account and its primary calendar. Throws on a provider error. */
   describeAccount(accessToken: string): Promise<ProviderAccount>;
+
+  /**
+   * Busy intervals in a window. Optional so a provider can be added for
+   * connection only before its scheduling surface is written.
+   */
+  freeBusy?(
+    accessToken: string,
+    args: { calendarId: string; startMs: number; endMs: number },
+  ): Promise<BusyInterval[]>;
+
+  /** Place the meeting. Throws on a provider error — the caller must not
+   *  record a booking whose event never landed. */
+  createEvent?(accessToken: string, draft: EventDraft): Promise<CreatedEvent>;
 
   /**
    * Invalidate the grant at the provider.

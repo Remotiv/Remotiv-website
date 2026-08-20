@@ -1,6 +1,9 @@
 import "server-only";
 import {
+  type BusyInterval,
   type CalendarProvider,
+  type CreatedEvent,
+  type EventDraft,
   type ProviderAccount,
   registerProvider,
   type TokenSet,
@@ -201,6 +204,136 @@ const google: CalendarProvider = {
       // a wrong zone silently shifts every future booking by hours.
       timezone: cal.timeZone ?? null,
     };
+  },
+
+  /**
+   * Busy intervals from the freeBusy endpoint.
+   *
+   * freeBusy rather than listing events: it returns opaque busy blocks with no
+   * titles, attendees or descriptions, which is all availability needs and the
+   * least the scope has to expose. Reading full event bodies to compute
+   * availability would put a recruiter's meeting subjects through this server
+   * for no benefit.
+   *
+   * `timeMin`/`timeMax` are sent as UTC instants and the response is parsed
+   * back to instants. No wall-clock time crosses this boundary in either
+   * direction.
+   */
+  async freeBusy(accessToken, { calendarId, startMs, endMs }): Promise<BusyInterval[]> {
+    const res = await fetch(`${CALENDAR_API}/freeBusy`, {
+      method: "POST",
+      headers: {
+        authorization: `Bearer ${accessToken}`,
+        "content-type": "application/json",
+      },
+      body: JSON.stringify({
+        timeMin: new Date(startMs).toISOString(),
+        timeMax: new Date(endMs).toISOString(),
+        items: [{ id: calendarId }],
+      }),
+      cache: "no-store",
+    });
+    if (!res.ok) throw await providerError(res, "Google free/busy");
+
+    const body = (await res.json()) as {
+      calendars?: Record<string, { busy?: { start?: string; end?: string }[]; errors?: unknown[] }>;
+    };
+    const entry = body.calendars?.[calendarId] ?? Object.values(body.calendars ?? {})[0];
+
+    /*
+     * Google reports per-calendar errors INSIDE a 200 response. Treating that
+     * as "no busy blocks" would offer every working hour against a calendar we
+     * failed to read — the exact confident double-booking this feature must
+     * not produce. Throw, so the caller returns "unreadable".
+     */
+    if (entry?.errors?.length) {
+      throw new Error("Google could not read this calendar's free/busy");
+    }
+
+    return (entry?.busy ?? [])
+      .map((b) => ({ start: Date.parse(b.start ?? ""), end: Date.parse(b.end ?? "") }))
+      .filter((b) => Number.isFinite(b.start) && Number.isFinite(b.end) && b.end > b.start);
+  },
+
+  /**
+   * Create the event, and a Meet link when asked for one.
+   *
+   * ── Calendar provider is not meeting provider ────────────────
+   *
+   * A Google Calendar account does not guarantee Meet — Workspace policy can
+   * disable conferencing, and a plain consumer account behaves differently
+   * again. So conferencing is REQUESTED, the response is inspected for what
+   * actually came back, and the meeting provider is reported separately from
+   * the calendar provider rather than inferred from it.
+   *
+   * When no link materialises, the event is still created. A meeting with a
+   * time and no link is a booking someone can fix; a failed booking is not.
+   */
+  async createEvent(accessToken, draft: EventDraft): Promise<CreatedEvent> {
+    const conferenceRequest = draft.requestConferencing
+      ? {
+          conferenceData: {
+            createRequest: {
+              // Idempotency key: a retried create must not mint a second
+              // conference for the same meeting.
+              requestId: `remotiv-${draft.startMs}-${draft.calendarId}`.slice(0, 64),
+              conferenceSolutionKey: { type: "hangoutsMeet" },
+            },
+          },
+        }
+      : {};
+
+    const params = new URLSearchParams({
+      sendUpdates: "all",
+      ...(draft.requestConferencing ? { conferenceDataVersion: "1" } : {}),
+    });
+
+    const res = await fetch(
+      `${CALENDAR_API}/calendars/${encodeURIComponent(draft.calendarId)}/events?${params}`,
+      {
+        method: "POST",
+        headers: {
+          authorization: `Bearer ${accessToken}`,
+          "content-type": "application/json",
+        },
+        body: JSON.stringify({
+          summary: draft.summary,
+          description: draft.description,
+          // dateTime is a UTC instant; timeZone travels alongside it so the
+          // provider renders and re-resolves it in the host's zone.
+          start: { dateTime: new Date(draft.startMs).toISOString(), timeZone: draft.timeZone },
+          end: { dateTime: new Date(draft.endMs).toISOString(), timeZone: draft.timeZone },
+          attendees: draft.attendeeEmails.filter(Boolean).map((email) => ({ email })),
+          ...(draft.manualUrl ? { location: draft.manualUrl } : {}),
+          ...conferenceRequest,
+        }),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) throw await providerError(res, "Google event create");
+
+    const body = (await res.json()) as {
+      id?: string;
+      hangoutLink?: string;
+      conferenceData?: { entryPoints?: { entryPointType?: string; uri?: string }[] };
+    };
+
+    const meetUrl =
+      body.hangoutLink ??
+      body.conferenceData?.entryPoints?.find((e) => e.entryPointType === "video")?.uri ??
+      null;
+
+    // Manual URL wins when supplied — the recruiter chose it explicitly.
+    const meetingUrl = draft.manualUrl ?? meetUrl;
+    const meetingProvider = draft.manualUrl ? "manual" : meetUrl ? "google_meet" : null;
+
+    if (draft.requestConferencing && !meetUrl && !draft.manualUrl) {
+      console.error(
+        "[calendar] Google created the event but issued no Meet link — conferencing may be disabled for this account.",
+      );
+    }
+
+    return { eventId: body.id ?? "", meetingUrl, meetingProvider };
   },
 
   /**

@@ -1,0 +1,124 @@
+import "server-only";
+import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
+import { escapeHtml } from "@/lib/email/candidate/render";
+import { sendEmail } from "@/lib/email/send";
+import { createServiceClient } from "@/lib/supabase/server";
+import type { BookingRow } from "./bookings";
+import { formatInZone, zoneAbbreviation } from "./timezone";
+
+/**
+ * Booking confirmations, both directions.
+ *
+ * ── Each side is shown the time in THEIR OWN zone ────────────
+ *
+ * The same instant, rendered twice. The candidate's email says 3pm London and
+ * the host's says 8pm Karachi, and both are correct because both name the zone
+ * they are quoting. Sending one rendering to both is how somebody joins an
+ * hour late while holding an email that "clearly" says otherwise.
+ *
+ * Both emails also state the OTHER side's local time. It costs a line and it
+ * removes the most common pre-interview message.
+ *
+ * ── Why the candidate path is the existing one ───────────────
+ *
+ * `deliverEmail` carries the daily cap, the unsubscribe footer, the reply-to
+ * identity and the communication_logs row. Bypassing it for a "quick" send
+ * would put candidate mail outside every one of those. The host is internal
+ * and takes the plain sender instead — a recruiter must not be able to
+ * unsubscribe from their own bookings.
+ */
+
+/**
+ * `booking_confirmed` is a LOG-ONLY event.
+ *
+ * `communication_logs.event` is plain text with no CHECK — verified in
+ * src/lib/email/candidate/types.ts against schema.sql — so this needs no
+ * migration. It deliberately does NOT join MESSAGE_EVENTS: that union drives
+ * the Settings template editor and is constrained by
+ * message_templates_event_check, which WOULD reject it.
+ */
+const BOOKING_EVENT = "booking_confirmed" as const;
+
+function timeBlock(ms: number, zone: string): string {
+  return `${formatInZone(ms, zone)} (${zoneAbbreviation(ms, zone)})`;
+}
+
+export async function sendBookingConfirmations(args: {
+  row: BookingRow;
+  startMs: number;
+  endMs: number;
+  hostTimezone: string;
+  candidateTimezone: string;
+  candidateEmail: string | null;
+  candidateName: string;
+  hostEmail: string | null;
+  hostName: string;
+  jobTitle: string;
+  companyName: string;
+  meetingUrl: string | null;
+}): Promise<void> {
+  const service = createServiceClient();
+
+  const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
+  const hostTime = timeBlock(args.startMs, args.hostTimezone);
+  const duration = args.row.duration_minutes;
+
+  const joinLine = args.meetingUrl
+    ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p>`
+    : `<p style="margin:16px 0;color:#4A4550;">Your interviewer will send joining details separately.</p>`;
+
+  /* ── Candidate ───────────────────────────────────────────── */
+  if (args.candidateEmail) {
+    const body = `
+      <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
+      <p style="margin:0 0 12px;color:#4A4550;">
+        Your ${escapeHtml(args.jobTitle)} interview is confirmed.
+      </p>
+      <p style="margin:0 0 4px;color:#17131F;font-weight:700;">${escapeHtml(candidateTime)}</p>
+      <p style="margin:0 0 12px;color:#847E8C;font-size:13px;">
+        ${duration} minutes · that's ${escapeHtml(hostTime)} for ${escapeHtml(args.hostName || "your interviewer")}
+      </p>
+      ${joinLine}
+      <p style="margin:16px 0 0;color:#847E8C;font-size:13px;">
+        Times are shown in ${escapeHtml(args.candidateTimezone)}. If that isn't your timezone, reply to this email.
+      </p>`;
+
+    try {
+      await deliverEmail(service, {
+        companyId: args.row.company_id,
+        applicationId: args.row.application_id,
+        event: BOOKING_EVENT,
+        to: args.candidateEmail,
+        subject: `Interview confirmed — ${args.jobTitle}`,
+        html: buildCandidateHtml(body, args.companyName, args.row.company_id, args.candidateEmail),
+        companyName: args.companyName,
+        replyTo: null,
+      });
+    } catch (err) {
+      // The booking is real and on the calendar. A failed notification must
+      // not unwind it — it makes a confirmed meeting look unconfirmed.
+      console.error("[booking] candidate confirmation failed to send:", err);
+    }
+  }
+
+  /* ── Host ────────────────────────────────────────────────── */
+  if (args.hostEmail) {
+    const body = `
+      <p>Hi ${escapeHtml(args.hostName || "there")},</p>
+      <p><strong>${escapeHtml(args.candidateName)}</strong> booked their ${escapeHtml(args.jobTitle)} interview.</p>
+      <p><strong>${escapeHtml(hostTime)}</strong><br>
+      <span style="color:#847E8C;font-size:13px;">${duration} minutes · ${escapeHtml(candidateTime)} for them</span></p>
+      ${joinLine}
+      <p style="color:#847E8C;font-size:13px;">It's on your calendar already.</p>`;
+
+    try {
+      await sendEmail({
+        to: args.hostEmail,
+        subject: `${args.candidateName} booked — ${args.jobTitle}`,
+        html: body,
+      });
+    } catch (err) {
+      console.error("[booking] host confirmation failed to send:", err);
+    }
+  }
+}

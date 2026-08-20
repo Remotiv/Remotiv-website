@@ -3,7 +3,8 @@
 import { useCallback, useEffect, useState } from "react";
 import Link from "next/link";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
-import { Check, Clock, Send, Video, CircleX } from "lucide-react";
+import { CalendarClock, Check, Clock, Send, Video, CircleX } from "lucide-react";
+import { sendBookingLink } from "./booking-actions";
 import { fetchInterviewPanel, sendInterviewInvite } from "./interview-actions";
 import type { InterviewPanelState } from "./interview-types";
 
@@ -99,6 +100,35 @@ export function InterviewPanel({
       return;
     }
     onToast("Interview sent");
+    await load();
+  }
+
+  /**
+   * Send a LIVE booking link — a different thing from the async video
+   * interview above, deliberately sitting next to it rather than replacing it.
+   *
+   * The async interview is the candidate recording answers alone; this is a
+   * meeting in the recruiter's diary. A team may use either, both in sequence,
+   * or neither, so one must not be presented as the other's replacement.
+   */
+  async function handleSendBooking() {
+    setBusy(true);
+    setError(null);
+    let result: Awaited<ReturnType<typeof sendBookingLink>>;
+    try {
+      result = await sendBookingLink(applicationId);
+    } catch {
+      result = { success: false, error: "Couldn't send — please try again." };
+    }
+    setBusy(false);
+
+    if (!result.success) {
+      // In place, not a toast: "connect your calendar in Settings" is an
+      // instruction, and an instruction that fades is no instruction.
+      setError(result.error);
+      return;
+    }
+    onToast("Booking link sent");
     await load();
   }
 
@@ -214,6 +244,18 @@ export function InterviewPanel({
           {busy ? "Sending…" : session ? "Send a new link" : "Send video interview"}
         </button>
       )}
+
+      <button
+        type="button"
+        onClick={() => {
+          void handleSendBooking();
+        }}
+        disabled={busy}
+        className="flex w-full items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+      >
+        <CalendarClock className="size-[15px]" strokeWidth={1.9} />
+        {busy ? "Sending…" : "Send booking link"}
+      </button>
 
       {/*
         DISABLED WITH A REASON, not hidden.
