@@ -1,6 +1,7 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { seedRejectionDefault } from "@/lib/email/candidate/triggers";
+import { fetchCalendarConnections } from "./calendar-actions";
 import { fetchTemplateRows } from "./template-actions";
 import { SettingsClient } from "./_settings-client";
 import { COMPANY_LOGO_BUCKET } from "./constants";
@@ -38,6 +39,10 @@ export default async function SettingsPage() {
   const sendRejectionDefault = await seedRejectionDefault(ctx.companyId);
   const templateRows = await fetchTemplateRows();
 
+  // Per MEMBER, not per company — a recruiter connects their own calendar, and
+  // this reads only the non-secret view columns (no token is fetched at all).
+  const calendarConnections = await fetchCalendarConnections();
+
   // Read directly rather than widening COMPANY_COLUMNS: the shared company
   // guard runs on every /ai-dashboard request and this column is only ever
   // needed here and in the dispatcher.
@@ -71,6 +76,7 @@ export default async function SettingsPage() {
       account={{ email: ctx.user.email }}
       sendRejectionDefault={sendRejectionDefault}
       templateRows={templateRows}
+      calendarConnections={calendarConnections}
       stats={{
         liveRoles: publishedJobs.count ?? 0,
         applicants: applicants.count ?? 0,

@@ -5,6 +5,8 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
 import { isValidEmail } from "@/lib/validators";
+import type { CalendarConnectionView } from "@/lib/calendar/connections";
+import { CalendarCard } from "./_calendar-card";
 import { TemplatesCard } from "./_templates-card";
 import type { TemplateRow } from "./template-types";
 import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
@@ -82,6 +84,7 @@ export function SettingsClient({
   account,
   sendRejectionDefault,
   templateRows,
+  calendarConnections,
   stats,
 }: {
   role: CompanyRole;
@@ -89,6 +92,8 @@ export function SettingsClient({
   account: { email: string };
   sendRejectionDefault: boolean;
   templateRows: TemplateRow[];
+  /** View-only shapes — no tokens. See lib/calendar/connections.ts. */
+  calendarConnections: CalendarConnectionView[];
   stats: { liveRoles: number; applicants: number; seatsUsed: number };
 }) {
   const router = useRouter();
@@ -913,6 +918,9 @@ export function SettingsClient({
             </p>
           </div>
         </section>
+
+        {/* ── Card 4: Your calendar ── */}
+        <CalendarCard initial={calendarConnections} />
 
         <TemplatesCard
           rows={templateRows}
