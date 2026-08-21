@@ -1,0 +1,760 @@
+/* Styles for /ai-video-interviews — HERO (section 1 of 13).
+   Ported from handoff_ai_video_interviews_hero. Selectors are globally
+   scoped behind a unique .avi- prefix, matching the .bta-* / .bth-* pattern
+   the other ported marketing pages use.
+
+   Marketing page: renders at 100%. The app shell's `.ai-shell { zoom: .82 }`
+   must never reach this file, and there are no vh units — the hero is
+   content-height.
+
+   The token block below is deliberately local rather than aliased wholesale
+   to globals.css:
+     · --r-amber must be #F5A524 (the app's 60-79 score band). The design
+       system's amber is #F5C842, which would repaint the 79 bar.
+     · The DS radius scale resolves to 8px / 10px (--radius is 0.625rem) and
+       has no pill token, so 14 / 20 / 999 stay literal.
+     · --remotiv-bg and --remotiv-text-* are re-declared in the .dark block
+       (#141414 / #f5f5f5); aliasing cream or ink would invert the hero.
+   Only the four brand colours that are byte-identical AND stable across
+   .dark are aliased. Scoped to .avi-hero, not :root — nothing here leaks. */
+.avi-hero {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-ink-deep: #0e0e0e;
+  --r-mint: var(--remotiv-green);
+  --r-mint-hover: var(--remotiv-green-light);
+  --r-mint-ink: #04342c;
+  --r-lime: var(--remotiv-lime);
+  --r-purple: var(--remotiv-purple);
+  --r-amber: #f5a524;
+  --r-mute: #666666;
+  --r-line: rgba(0, 0, 0, 0.08);
+  /* 4.6:1 on cream — AA at 14.5px. Do not lighten: this token also sets the
+     scorecard footer text. */
+  --r-quiet: #6e6862;
+  /* Radius of the homepage-hero CTA, which both hero buttons match. The score
+     and evidence tiles keep a literal 14px — do not wire them to this. */
+  --r-rad-btn: 12px;
+  --r-rad-card: 20px;
+  --r-rad-pill: 999px;
+  /* The site's dominant body container, for sections 2-13. The hero
+     deliberately does not use it — see .avi-inner. */
+  --r-container: 1100px;
+  /* Side padding of the real <Navbar /> (px-14 / max-md:px-6). */
+  --r-shell-pad: 56px;
+
+  position: relative;
+  overflow: hidden;
+  background: var(--r-cream);
+  /* 72px navbar-bottom to first ink, 80px to the section end (emphasis
+     tier). The 72 lives here and nowhere else — the previous build also
+     carried a 34px padding-top on .avi-grid, which stacked to 106. */
+  padding-top: 72px;
+  padding-bottom: 80px;
+  font-family: var(--font-sans);
+}
+
+/* Full-bleed 56px, NOT the handoff's max-width:1440. The handoff measured
+   0/0 alignment against its own reproduced nav, which was capped at 1440;
+   the real <Navbar /> is full-bleed (px-14, no max-width). Capping here
+   puts the copy 181px inside the wordmark at 1802 — the exact
+   floats-mid-screen defect the container change was meant to fix.
+   The intent was "align to the nav"; this is what achieves it. */
+.avi-inner {
+  position: relative;
+  z-index: 2;
+  padding: 0 var(--r-shell-pad);
+}
+
+/* ---------- BACKGROUND ----------
+   Swap treatment with data-bg on .avi-hero:
+     grid   (shipped)  the site's signature faint square grid
+     scale             0-100 measurement rule + 86 flag + riser
+     rules             ruled transcript field
+     none              flat cream
+   All CSS-only, two gradients, no image and no JS. Kept switchable so the
+   choice stays reversible without a rebuild. Never add a gradient to a dark
+   surface — the purple radial glow was retired product-wide in Aug 2026. */
+.avi-bg {
+  position: absolute;
+  inset: 0;
+  z-index: 1;
+  pointer-events: none;
+}
+.avi-bg-grid,
+.avi-bg-rules,
+.avi-bg-scale {
+  display: none;
+}
+.avi-hero[data-bg="grid"] .avi-bg-grid,
+.avi-hero[data-bg="rules"] .avi-bg-rules,
+.avi-hero[data-bg="scale"] .avi-bg-scale {
+  display: block;
+}
+.avi-bg-grid {
+  position: absolute;
+  inset: 0;
+  background-image:
+    linear-gradient(rgba(17, 17, 17, 0.05) 1px, transparent 1px),
+    linear-gradient(90deg, rgba(17, 17, 17, 0.05) 1px, transparent 1px);
+  background-size: 68px 68px;
+}
+.avi-bg-rules {
+  position: absolute;
+  inset: 0;
+  background-image: repeating-linear-gradient(rgba(17, 17, 17, 0.075) 0 1px, transparent 1px 36px);
+  mask-image: linear-gradient(#000 0 62%, rgba(0, 0, 0, 0.35) 88%, transparent);
+}
+.avi-bg-scale {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 64px;
+  height: 120px;
+}
+.avi-bg-tk {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 14px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(17, 17, 17, 0.13) 0 1px,
+    transparent 1px 16px
+  );
+}
+.avi-bg-tk5 {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 30px;
+  background-image: repeating-linear-gradient(
+    90deg,
+    rgba(17, 17, 17, 0.17) 0 1px,
+    transparent 1px 160px
+  );
+}
+.avi-bg-base {
+  position: absolute;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  height: 1px;
+  background: rgba(17, 17, 17, 0.12);
+}
+.avi-bg-num {
+  position: absolute;
+  bottom: -24px;
+  font: 700 10px / 1 var(--font-sans);
+  letter-spacing: 0.16em;
+  color: #bdb7b0;
+}
+.avi-bg-mk {
+  position: absolute;
+  left: 86%;
+  bottom: 0;
+  width: 2px;
+  height: 76px;
+  background: var(--r-mint);
+  border-radius: 2px;
+}
+.avi-bg-flag {
+  position: absolute;
+  left: 86%;
+  bottom: 88px;
+  transform: translateX(-50%);
+  background: var(--r-mint);
+  color: var(--r-mint-ink);
+  border-radius: var(--r-rad-pill);
+  padding: 6px 11px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.06em;
+  box-shadow: 0 6px 16px rgba(73, 215, 167, 0.35);
+}
+.avi-bg-riser {
+  position: absolute;
+  left: 86%;
+  bottom: 120px;
+  height: 300px;
+  width: 1.5px;
+  background: var(--r-mint);
+  opacity: 0.75;
+  mask-image: linear-gradient(transparent, #000 45%);
+}
+
+/* ---------- LAYOUT ----------
+   The card column is a fixed cap so it pins to the right edge; the copy
+   column absorbs the slack. Flexible tracks are minmax(0,1fr), never a bare
+   1fr — bare 1fr has an auto minimum and refuses to shrink, which collapsed
+   the scorecard column.
+
+   max-width bounds the ultrawide case. With both outer edges pinned to the
+   nav, the void between the 520px measure and the card grows without limit;
+   by 2560 the card reads as marooned. 1690px is the content width at the
+   1802px reference viewport — the widest case the handoff measured and
+   blessed — so the cap is inert at and below 1802 and only bites above it.
+   Left-aligned on purpose: no auto margins. Centring the capped grid would
+   re-create the floats-mid-screen defect, and the left edge (copy under the
+   wordmark) is the one that reads as alignment. */
+.avi-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 440px);
+  gap: 96px;
+  align-items: center;
+  max-width: 1690px;
+}
+
+/* ---------- COPY ----------
+   Measure is held on the text itself, not by a narrow track. Do NOT widen
+   the h1 past 520: at 560+ it drops from 4 lines to 3 and the same 48px
+   type reads noticeably larger. Perceived headline size is driven by
+   measure, not font-size. */
+/* Metrics taken from the live "Now Hiring Globally" pill on /join-as-talent
+   (.bat-pill), measured at 1440: 34.8px tall, 16px right padding, 8px gap,
+   500 13px/19.5 DM Sans on #444, 1px #ddd8d0, no shadow. That pill does not
+   change at any breakpoint, so this one does not either. */
+.avi-eyebrow {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  /* Explicit height, zero vertical padding. Vertical padding on an unset
+     height is what rendered the nav pill at 58px against a 40px CTA. */
+  height: 34.8px;
+  padding: 0 16px;
+  background: var(--r-white);
+  border: 1px solid #ddd8d0;
+  border-radius: var(--r-rad-pill);
+  font: 500 13px / 19.5px var(--font-sans);
+  color: #444444;
+}
+.avi-eyebrow i {
+  display: block;
+  width: 8px;
+  height: 8px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+.avi-hero h1 {
+  margin-top: 22px;
+  max-width: 520px;
+  font: 800 clamp(2rem, 3.4vw, 3rem) / 1.08 var(--font-heading);
+  letter-spacing: -0.025em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+/* Lime highlight sticker — a ::before behind the text, never a background on
+   the span. One highlighted word per page lede. */
+.avi-stick {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+}
+.avi-stick::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.1em;
+  right: -0.1em;
+  top: 0.08em;
+  bottom: 0.1em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+  border-radius: 3px;
+}
+.avi-sub {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 16.8px / 1.7 var(--font-sans);
+  color: var(--r-mute);
+  text-wrap: pretty;
+}
+.avi-ctas {
+  display: flex;
+  gap: 16px;
+  margin-top: 34px;
+}
+/* Metrics taken from the live "Find Your Next Hire" button in the homepage
+   hero, measured at 1440: 58px tall, 36px side padding, 600 16px/24 DM Sans,
+   12px radius, 12px gap, 20px arrow. Height is still set explicitly with zero
+   vertical padding — any child taller than 24px would drive it instead of the
+   text. Ink stays dark: white on mint is 1.9:1 and fails AA. */
+.avi-btn-primary {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  gap: 12px;
+  height: 58px;
+  padding: 0 36px;
+  background: var(--r-mint);
+  color: var(--r-ink-deep);
+  font: 600 16px / 24px var(--font-sans);
+  border-radius: var(--r-rad-btn);
+  box-shadow:
+    0 8px 32px rgba(26, 92, 74, 0.28),
+    0 2px 8px rgba(26, 92, 74, 0.15);
+  transition:
+    background 0.2s ease,
+    transform 0.2s ease;
+}
+.avi-btn-primary:hover {
+  background: var(--r-mint-hover);
+  color: var(--r-ink-deep);
+}
+.avi-btn-primary:active {
+  transform: translateY(1px);
+}
+/* No background. The homepage reference does carry a
+   rgba(255,255,255,0.18) wash, but on this button it reads as a box
+   around the arrow — a button inside a button. Removed by decision after
+   matching the reference value did not fix the appearance. Keep the 20px
+   box: anything above 24px would drive the button height instead of the
+   text. */
+.avi-btn-primary em {
+  display: grid;
+  place-items: center;
+  width: 20px;
+  height: 20px;
+  font-style: normal;
+  font-size: 13.6px;
+}
+/* Height, line-height and radius mirror the primary so the pair can never
+   render at different heights. */
+.avi-btn-secondary {
+  white-space: nowrap;
+  display: inline-flex;
+  align-items: center;
+  height: 58px;
+  padding: 0 32px;
+  background: transparent;
+  border: 1px solid rgba(17, 17, 17, 0.18);
+  color: var(--r-ink);
+  font: 600 16px / 24px var(--font-sans);
+  border-radius: var(--r-rad-btn);
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.avi-btn-secondary:hover {
+  border-color: rgba(17, 17, 17, 0.4);
+  background: rgba(0, 0, 0, 0.03);
+  color: var(--r-ink);
+}
+.avi-btn-primary:focus-visible,
+.avi-btn-secondary:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
+}
+
+/* Trust strip: each phrase carries its OWN trailing middot so a separator can
+   never land at the start of a wrapped line. On mobile the middots hide and
+   the phrases stack. Do not collapse this back into a single " · " string —
+   that is the bug this markup exists to fix. */
+.avi-trust {
+  margin-top: 22px;
+  max-width: 520px;
+  font: 400 14.5px / 1.6 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+/* The handoff wraps each phrase in <s>, purely to get a short hook to hang
+   nowrap on. Rendered as a span instead: <s> means "no longer accurate", and
+   these are three claims the page is asserting. */
+.avi-trust-item {
+  white-space: nowrap;
+  color: var(--r-quiet);
+}
+
+/* ---------- SCORECARD (hero visual) ----------
+   The visual is the product's output, not a metaphor for it. */
+/* Card top sits at padding-top; each sheet peeks above the one in front and
+   the furthest sheet is the most inset. All offsets are POSITIVE — negative
+   tops put the sheets outside the wrapper and broke the alignment. */
+.avi-stack {
+  position: relative;
+  padding-top: 24px;
+}
+/* Two blank sheets behind the card, implying the other 127. */
+.avi-sheet {
+  position: absolute;
+  top: 2px;
+  left: 30px;
+  right: 30px;
+  height: 52px;
+  background: var(--r-white);
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: var(--r-rad-card);
+  box-shadow: 0 -8px 22px rgba(17, 17, 17, 0.05);
+  opacity: 0.6;
+}
+.avi-sheet--front {
+  top: 13px;
+  left: 16px;
+  right: 16px;
+  opacity: 0.85;
+}
+.avi-rankchip {
+  position: absolute;
+  right: -12px;
+  top: -6px;
+  z-index: 3;
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  background: var(--r-ink-deep);
+  color: #fff;
+  border-radius: var(--r-rad-pill);
+  padding: 7px 13px 7px 10px;
+  font: 700 12px / 1 var(--font-sans);
+  box-shadow: 0 12px 28px rgba(17, 17, 17, 0.22);
+}
+.avi-rankchip em {
+  font-style: normal;
+  background: var(--r-lime);
+  color: var(--r-ink-deep);
+  border-radius: var(--r-rad-pill);
+  padding: 3px 7px;
+  font-size: 11px;
+}
+.avi-sc {
+  position: relative;
+  z-index: 2;
+  background: var(--r-white);
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  box-shadow: 0 22px 54px rgba(17, 17, 17, 0.09);
+  overflow: hidden;
+}
+.avi-sc-top {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 12px;
+  padding: 18px 18px 14px;
+}
+.avi-sc-av {
+  width: 40px;
+  height: 40px;
+  border-radius: var(--r-rad-pill);
+  background: #ede6ff;
+  color: #5b2ecc;
+  font: 700 13.5px / 40px var(--font-sans);
+  text-align: center;
+}
+.avi-sc-name {
+  font: 700 16px / 1.2 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi-sc-role {
+  margin-top: 2px;
+  font: 400 12.5px / 1.45 var(--font-sans);
+  color: #7d7873;
+}
+/* The overall score sits on a solid mint panel — same treatment as the app's
+   headline metric. Literal 14px: --r-rad-btn is the button token. */
+.avi-sc-score {
+  min-width: 64px;
+  text-align: center;
+  background: var(--r-mint);
+  border-radius: 14px;
+  padding: 7px 12px 9px;
+}
+.avi-sc-score b {
+  display: block;
+  font: 800 25px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-mint-ink);
+}
+.avi-sc-score span {
+  display: block;
+  margin-top: 4px;
+  font: 700 8.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-mint-ink);
+  opacity: 0.72;
+}
+.avi-sc-crit {
+  display: grid;
+  gap: 11px;
+  padding: 2px 18px 15px;
+}
+.avi-crow {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 104px 26px;
+  align-items: center;
+  gap: 12px;
+}
+.avi-crow p {
+  font: 400 13px / 1.3 var(--font-sans);
+  color: #3f3b37;
+}
+.avi-crow b {
+  font: 700 13px / 1 var(--font-sans);
+  color: var(--r-ink);
+  text-align: right;
+}
+/* Score bands, shared with the app: >=80 mint · 60-79 amber · <60 red.
+   The card deliberately shows a real amber 79 next to two mint scores — a
+   scorecard where everything passes is not evidence of anything. */
+.avi-bar {
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: #efebe6;
+  overflow: hidden;
+}
+.avi-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+.avi-bar--amber i {
+  background: var(--r-amber);
+}
+.avi-bar--red i {
+  background: #e0524b;
+}
+/* The quote is stamped with the criterion and timestamp it scored. The
+   attribution is the argument — an unattributed quote proves nothing. */
+.avi-sc-ev {
+  margin: 0 12px 12px;
+  background: var(--r-cream);
+  border-radius: 14px;
+  padding: 13px 15px;
+}
+/* Rendered as a <p>, not the handoff's <h6>: this is a caption, and an
+   h1 -> h6 jump would put a four-level skip in the outline for no reader
+   benefit. The page carries exactly one heading. */
+.avi-sc-ev-label {
+  display: flex;
+  align-items: center;
+  gap: 7px;
+  font: 700 9px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi-sc-ev-label .avi-sep {
+  color: #b9b3ac;
+}
+.avi-sc-ev-quote {
+  margin-top: 8px;
+  font: 400 13.5px / 1.58 var(--font-sans);
+  color: #33302c;
+  text-wrap: pretty;
+}
+/* "Recommendation only" + Adjust is the human-override tell and the page's
+   whole credibility claim. It is not decoration — do not drop it when
+   tightening the card. */
+.avi-sc-foot {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  padding: 12px 16px;
+  background: var(--r-white);
+  border-top: 1px solid rgba(0, 0, 0, 0.07);
+}
+.avi-sc-foot p {
+  flex: 1;
+  font: 400 12px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi-sc-foot p b {
+  color: #3f3b37;
+  font-weight: 500;
+}
+.avi-sc-override {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: var(--r-rad-pill);
+  padding: 6px 12px;
+  font: 500 12px / 1 var(--font-sans);
+  color: var(--r-ink);
+  background: transparent;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.avi-sc-override:hover {
+  border-color: rgba(17, 17, 17, 0.38);
+  background: rgba(0, 0, 0, 0.03);
+}
+.avi-sc-override i {
+  display: block;
+  width: 12px;
+  height: 12px;
+  border: 1.4px solid var(--r-ink);
+  border-radius: 2px;
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(45deg) scale(0.9);
+}
+
+/* ---------- RESPONSIVE ---------- */
+@media (max-width: 1280px) {
+  .avi-grid {
+    gap: 56px;
+  }
+}
+/* 1180, not 1023. The card track is a fixed 440 cap, so below this the copy
+   column is crushed and the rank chip slides across the card. */
+@media (max-width: 1180px) {
+  .avi-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 44px;
+  }
+  /* 520, not 560: at 560 the headline fills 87% of its measure at 900px wide,
+     which reads as a wall of text. Same cap as the two-column layout. */
+  .avi-hero h1,
+  .avi-sub,
+  .avi-trust {
+    max-width: 520px;
+  }
+  .avi-stack {
+    max-width: 460px;
+  }
+}
+/* Below 1024 the headline drops to two lines and the clamp is heading for its
+   2rem floor, so the type stops shrinking while the measure stays put and the
+   block packs solid — 520 fills 94% at 900. Under here the cap has to widen,
+   not narrow; narrowing it further only moves the denominator. */
+@media (max-width: 1023.98px) {
+  .avi-hero h1,
+  .avi-sub,
+  .avi-trust {
+    max-width: 620px;
+  }
+}
+/* The hero aligns to the navbar at every width, so its side padding has to
+   track the navbar's — not a value from the handoff. <Navbar /> is px-14 with
+   max-md:px-6, and Tailwind's md is 768px, so 56px down to 767.98 and 24px
+   below that. There is no 1280 or 640 step in the navbar, so there is none
+   here either. */
+@media (max-width: 767.98px) {
+  .avi-hero {
+    --r-shell-pad: 24px;
+  }
+}
+@media (max-width: 640px) {
+  .avi-hero {
+    padding-bottom: 64px;
+  }
+  .avi-hero h1 {
+    margin-top: 18px;
+    max-width: none;
+    font-size: 34px;
+    line-height: 1.1;
+    letter-spacing: -0.03em;
+  }
+  .avi-sub,
+  .avi-trust {
+    max-width: none;
+  }
+  .avi-sub {
+    margin-top: 16px;
+    font-size: 16px;
+  }
+  .avi-ctas {
+    flex-direction: column;
+    margin-top: 26px;
+  }
+  .avi-btn-primary,
+  .avi-btn-secondary {
+    justify-content: center;
+    width: 100%;
+    padding: 0 22px;
+  }
+  .avi-trust {
+    margin-top: 18px;
+    font-size: 13px;
+    line-height: 1.55;
+  }
+  .avi-trust-item {
+    display: block;
+  }
+  /* Stack the phrases, drop the middots — no orphan punctuation. */
+  .avi-trust-item .avi-d {
+    display: none;
+  }
+  .avi-stack {
+    margin-top: 8px;
+  }
+  /* Layered decoration doesn't read at 375, and the rank chip lands on the
+     visible sliver of the sheets — which is what reads as the chip
+     overlapping the card. */
+  .avi-sheet {
+    display: none;
+  }
+  .avi-bg-grid {
+    background-size: 46px 46px;
+  }
+  .avi-bg-scale {
+    bottom: 32px;
+  }
+  .avi-bg-tk5 {
+    background-image: repeating-linear-gradient(
+      90deg,
+      rgba(17, 17, 17, 0.17) 0 1px,
+      transparent 1px 80px
+    );
+  }
+  .avi-rankchip {
+    right: -4px;
+    top: -12px;
+  }
+  .avi-sc-top {
+    padding: 20px 16px 14px;
+    gap: 11px;
+  }
+  .avi-sc-name {
+    font-size: 16.5px;
+  }
+  .avi-sc-score {
+    min-width: 62px;
+    padding: 7px 11px 9px;
+  }
+  .avi-sc-crit {
+    padding: 0 16px 14px;
+  }
+  /* 104px of bar wrapped "Debugging under pressure" onto a second line and
+     made that row twice the height of its neighbours. */
+  .avi-crow {
+    grid-template-columns: minmax(0, 1fr) 60px 26px;
+    gap: 8px;
+  }
+  .avi-sc-ev {
+    margin: 0 10px 10px;
+    padding: 13px 14px;
+  }
+  .avi-sc-ev-quote {
+    font-size: 14px;
+  }
+  .avi-sc-foot {
+    padding: 13px 16px;
+    gap: 8px;
+  }
+  .avi-sc-foot p {
+    font-size: 12.5px;
+  }
+}
+
+/* Reduced motion. Written as an explicit, higher-specificity list rather than
+   `* { transition: none !important }`: every transition in this file lives on
+   a single-class selector, so `.avi-hero .avi-btn-primary` (0,2,0) already
+   outranks it. No animations are declared here, so there is nothing to stop
+   but transitions. */
+@media (prefers-reduced-motion: reduce) {
+  .avi-hero .avi-btn-primary,
+  .avi-hero .avi-btn-secondary,
+  .avi-hero .avi-sc-override {
+    transition: none;
+  }
+}
