@@ -132,17 +132,78 @@ export async function writeCommunicationLog(
     .single();
 
   if (error || !data) {
-    throw new Error(`communication_log insert failed: ${error?.message}`);
+    /*
+     * The SQLSTATE travels on the Error, not only inside the message.
+     * PostgREST puts the code in `error.code` and the human text in
+     * `error.message`, and the two do not overlap — a caller sniffing the
+     * message for "23505" finds nothing. tryWriteLog reads `.code`.
+     */
+    const failure = Object.assign(new Error(`communication_log insert failed: ${error?.message}`), {
+      code: error?.code,
+    });
+    throw failure;
   }
   return (data as { id: string }).id;
+}
+
+/** Postgres unique_violation. Raised by communication_logs_application_event_channel_uniq. */
+const UNIQUE_VIOLATION = "23505";
+
+/**
+ * writeCommunicationLog, without the throw.
+ *
+ * ── Why this exists ──────────────────────────────────────────
+ *
+ * deliverEmail's contract, stated at the top of this file, is that it does NOT
+ * throw — it returns the outcome so the queue handler can rethrow for retry
+ * while a recruiter-facing caller shows a message. The log insert broke that
+ * contract silently: `writeCommunicationLog` throws, deliverEmail never caught
+ * it, and the exception went straight past every caller's error handling.
+ *
+ * It surfaced as "Couldn't send — please try again." in the applicant drawer,
+ * which is the least useful thing that could have been said about a
+ * `communication_logs_application_event_channel_uniq` violation — a condition
+ * with a precise, actionable explanation.
+ *
+ * The unique violation is separated from every other failure because they mean
+ * different things to a caller. A duplicate is a REFUSAL — this exact message
+ * has already been sent to this person — and is not retryable. Anything else
+ * is an infrastructure failure and might be.
+ */
+async function tryWriteLog(
+  service: Service,
+  row: Parameters<typeof writeCommunicationLog>[1],
+): Promise<{ ok: true; logId: string } | { ok: false; duplicate: boolean; message: string }> {
+  try {
+    return { ok: true, logId: await writeCommunicationLog(service, row) };
+  } catch (err) {
+    const message = err instanceof Error ? err.message : String(err);
+    const code = (err as { code?: string } | null)?.code;
+    /*
+     * Primarily the SQLSTATE. The message check is a fallback for a future
+     * client that surfaces the code differently — and it is a FALLBACK, not
+     * the test: an earlier draft of this function checked only the message,
+     * which never matches, so every duplicate would have been misreported as
+     * an infrastructure failure and told the recruiter to try again.
+     */
+    const duplicate = code === UNIQUE_VIOLATION || message.includes(UNIQUE_VIOLATION);
+    return { ok: false, duplicate, message };
+  }
 }
 
 export type DeliveryOutcome =
   | { ok: true; logId: string; providerId: string | null }
   | {
       ok: false;
-      /** 'cap' and 'not_configured' are our decisions; 'provider' is Resend's. */
-      kind: "cap" | "not_configured" | "provider";
+      /**
+       * 'cap', 'not_configured' and 'duplicate' are our decisions; 'provider'
+       * is Resend's; 'log' is the database refusing to record the attempt.
+       *
+       * 'duplicate' means this application already has a row for this event and
+       * channel — the message has been sent before. It is a refusal, not a
+       * fault, and is the ONE kind a caller should phrase rather than retry.
+       */
+      kind: "cap" | "not_configured" | "provider" | "duplicate" | "log";
       message: string;
       logId: string | null;
     };
@@ -205,7 +266,7 @@ export async function deliverEmail(
         `Not sending ${input.event} for application ${input.applicationId}. ` +
         `Raise EMAIL_DAILY_CAP after upgrading the Resend plan.`,
     );
-    const logId = await writeCommunicationLog(service, {
+    const capped = await tryWriteLog(service, {
       companyId: input.companyId,
       applicationId: input.applicationId,
       event: input.event,
@@ -216,6 +277,9 @@ export async function deliverEmail(
       error: `Daily send cap of ${cap} reached.`,
       sentByName: input.sentByName ?? null,
     });
+    // Failing to RECORD the cap decision does not change the decision: nothing
+    // is being sent either way, and 'cap' is still the honest reason.
+    const logId = capped.ok ? capped.logId : null;
     return {
       ok: false,
       kind: "cap",
@@ -224,7 +288,12 @@ export async function deliverEmail(
     };
   }
 
-  const logId = await writeCommunicationLog(service, {
+  /*
+   * The log row is written BEFORE the provider is called, so a crash mid-send
+   * leaves evidence. That ordering also makes this the first thing that can
+   * refuse — and it must refuse by RETURNING, never by throwing.
+   */
+  const written = await tryWriteLog(service, {
     companyId: input.companyId,
     applicationId: input.applicationId,
     event: input.event,
@@ -236,6 +305,31 @@ export async function deliverEmail(
     sentByName: input.sentByName ?? null,
   });
 
+  if (!written.ok) {
+    if (written.duplicate) {
+      /*
+       * This application already has a row for this event and channel. Nothing
+       * is sent, deliberately: the constraint exists so one candidate cannot
+       * receive the same pipeline message twice, and sending anyway with no log
+       * would defeat the constraint AND lose the audit trail.
+       */
+      return {
+        ok: false,
+        kind: "duplicate",
+        message: "This candidate has already been sent this message.",
+        logId: null,
+      };
+    }
+    console.error("[email] communication_log insert failed:", written.message);
+    return {
+      ok: false,
+      kind: "log",
+      message: "The message couldn't be recorded, so it wasn't sent.",
+      logId: null,
+    };
+  }
+
+  const logId = written.logId;
   const client = getResend();
   if (!client) {
     await service

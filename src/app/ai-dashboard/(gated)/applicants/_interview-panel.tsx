@@ -1,9 +1,9 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
+import { CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react";
 import Link from "next/link";
+import { useCallback, useEffect, useState } from "react";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
-import { CalendarClock, Check, Clock, Send, Video, CircleX } from "lucide-react";
 import { sendBookingLink } from "./booking-actions";
 import { fetchInterviewPanel, sendInterviewInvite } from "./interview-actions";
 import type { InterviewPanelState } from "./interview-types";
@@ -24,10 +24,7 @@ function fmt(iso: string | null): string {
   return d.toLocaleDateString("en-GB", { day: "numeric", month: "short" });
 }
 
-const STATE: Record<
-  string,
-  { label: string; cls: string; icon: typeof Check }
-> = {
+const STATE: Record<string, { label: string; cls: string; icon: typeof Check }> = {
   invited: {
     label: "Sent — not started",
     cls: "bg-[var(--ai-sky-tint)] text-[var(--ai-sky-ink)]",
@@ -88,7 +85,19 @@ export function InterviewPanel({
     let result: Awaited<ReturnType<typeof sendInterviewInvite>>;
     try {
       result = await sendInterviewInvite(applicationId);
-    } catch {
+    } catch (err) {
+      /*
+       * LOG IT. A bare `catch {}` here is how a unique-constraint violation
+       * spent a day looking like a network blip: the action threw, the reason
+       * was discarded before anything could read it, and the recruiter was
+       * told to try again at something that would never succeed.
+       *
+       * The message still cannot be shown — Next replaces a thrown server
+       * action's message with an opaque digest in production — but the digest
+       * plus this line is enough to find it in the server log, which an empty
+       * catch was not.
+       */
+      console.error("[applicants] sendInterviewInvite threw:", err);
       result = { success: false, error: "Couldn't send — please try again." };
     }
     setBusy(false);
@@ -117,7 +126,9 @@ export function InterviewPanel({
     let result: Awaited<ReturnType<typeof sendBookingLink>>;
     try {
       result = await sendBookingLink(applicationId);
-    } catch {
+    } catch (err) {
+      // See the note in handleSend — an unexplained throw must not be silent.
+      console.error("[applicants] sendBookingLink threw:", err);
       result = { success: false, error: "Couldn't send — please try again." };
     }
     setBusy(false);
@@ -148,8 +159,7 @@ export function InterviewPanel({
    * permits one at all. A job with the toggle off still shows the section and
    * any interview already taken; it just cannot start a new one.
    */
-  const canResend =
-    !session || session.status === "expired" || session.status === "cancelled";
+  const canResend = !session || session.status === "expired" || session.status === "cancelled";
   const asyncOff = state !== null && !state.asyncEnabled;
 
   return (
@@ -219,16 +229,12 @@ export function InterviewPanel({
           className="flex w-full items-center justify-center gap-[7px] rounded-xl border border-remotiv-purple bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-remotiv-purple transition-colors hover:bg-remotiv-purple hover:text-white"
         >
           <Video className="size-[15px]" strokeWidth={1.9} />
-          {session.status === "submitted"
-            ? "Watch the interview"
-            : "See what's recorded so far"}
+          {session.status === "submitted" ? "Watch the interview" : "See what's recorded so far"}
         </Link>
       )}
 
       {!session && !asyncOff && (
-        <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">
-          No interview sent yet.
-        </p>
+        <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No interview sent yet.</p>
       )}
 
       {canResend && (

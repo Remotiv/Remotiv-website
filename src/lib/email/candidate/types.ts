@@ -39,10 +39,30 @@ export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
  * src/lib/calendar/notify.ts, has no template row, and must not reach
  * message_templates_event_check.
  *
- * Neither needs a migration to LOG, because communication_logs.event is
- * unconstrained. Verified against schema.sql, not assumed.
+ * `booking_link` is here because of a bug worth recording. It first reused
+ * `interview`, on the reasoning that a booking link IS the interview step and
+ * a company that had customised its interview wording should not be bypassed.
+ * That was wrong for a reason nothing in the type system could show: there is
+ * a UNIQUE constraint on communication_logs (application_id, event, channel),
+ * so an invitation and a booking link sharing one event value COLLIDE — the
+ * second send violates it. An interview invitation and a booking link are two
+ * different messages at the same stage, and they need two different values.
+ *
+ * ⚠ communication_logs.event IS CHECK-CONSTRAINED. This comment used to say it
+ * was unconstrained — that was true when written and is not any more, and the
+ * stale reassurance is why `booking_confirmed` was added here without the
+ * matching ALTER and now fails at insert time with SQLSTATE 23514.
+ *
+ * ADDING A VALUE HERE IS NOT ENOUGH. Two constraints must be checked:
+ *   · message_templates_event_check — only if the value joins MESSAGE_EVENTS.
+ *   · the CHECK on communication_logs.event — for EVERY value, including
+ *     log-only ones. Verify against the live database, not against this file.
+ *
+ * Currently accepted (verified by insert, 2026-08-21): application_received,
+ * screening, shortlisted, interview, offer, hired, rejected, manual,
+ * interview_reminder, booking_link. NOT booking_confirmed.
  */
-export const LOG_ONLY_EVENTS = ["interview_reminder", "booking_confirmed"] as const;
+export const LOG_ONLY_EVENTS = ["interview_reminder", "booking_confirmed", "booking_link"] as const;
 export type LogOnlyEvent = (typeof LOG_ONLY_EVENTS)[number];
 
 /** Anything that may legally appear in communication_logs.event. */

@@ -84,7 +84,7 @@ export async function sendBookingConfirmations(args: {
       </p>`;
 
     try {
-      await deliverEmail(service, {
+      const outcome = await deliverEmail(service, {
         companyId: args.row.company_id,
         applicationId: args.row.application_id,
         event: BOOKING_EVENT,
@@ -94,6 +94,20 @@ export async function sendBookingConfirmations(args: {
         companyName: args.companyName,
         replyTo: null,
       });
+      /*
+       * deliverEmail no longer THROWS on a log-insert failure — it returns.
+       * Without this check the failure would be invisible here, which is
+       * exactly the trap the empty catch in the applicant drawer set.
+       *
+       * KNOWN FAILING TODAY: `booking_confirmed` is not in the CHECK on
+       * communication_logs.event, so every candidate confirmation returns
+       * kind:"log" and is not sent. One ALTER fixes it — see types.ts.
+       */
+      if (!outcome.ok) {
+        console.error(
+          `[booking] candidate confirmation NOT sent (${outcome.kind}): ${outcome.message}`,
+        );
+      }
     } catch (err) {
       // The booking is real and on the calendar. A failed notification must
       // not unwind it — it makes a confirmed meeting look unconfirmed.

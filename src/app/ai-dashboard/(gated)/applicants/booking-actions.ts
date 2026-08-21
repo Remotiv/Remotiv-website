@@ -139,26 +139,32 @@ export async function sendBookingLink(
   const { rawToken, tokenHash } = mintBookingToken();
   const expiresAt = new Date(Date.now() + BOOKING_EXPIRY_DAYS * DAY_MS).toISOString();
 
-  const { error: insertErr } = await service.from("interview_bookings").insert({
-    company_id: ctx.companyId,
-    application_id: applicationId,
-    job_id: app.job_id,
-    host_member_id: ctx.memberId,
-    // Only the hash is stored. The raw token exists in the email URL and
-    // nowhere else — see bookings.ts.
-    token_hash: tokenHash,
-    duration_minutes: durationMinutes,
-    status: "invited",
-    meeting_mode: "auto",
-    invited_by: ctx.user.id,
-    invited_by_name: ctx.memberName,
-    expires_at: expiresAt,
-  });
+  const { data: createdRow, error: insertErr } = await service
+    .from("interview_bookings")
+    .insert({
+      company_id: ctx.companyId,
+      application_id: applicationId,
+      job_id: app.job_id,
+      host_member_id: ctx.memberId,
+      // Only the hash is stored. The raw token exists in the email URL and
+      // nowhere else — see bookings.ts.
+      token_hash: tokenHash,
+      duration_minutes: durationMinutes,
+      status: "invited",
+      meeting_mode: "auto",
+      invited_by: ctx.user.id,
+      invited_by_name: ctx.memberName,
+      expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
 
   if (insertErr) {
     console.error("[booking] invite insert failed:", insertErr.message);
     return { success: false, error: "Could not create the booking link. Try again." };
   }
+
+  const bookingId = (createdRow as { id: string } | null)?.id ?? null;
 
   const name = (app.first_name ?? "there").trim() || "there";
   const title = job?.title ?? app.jobs?.title ?? "the role";
@@ -183,10 +189,22 @@ export async function sendBookingLink(
   const outcome = await deliverEmail(service, {
     companyId: ctx.companyId,
     applicationId,
-    // An existing template event — this IS the interview step of the pipeline,
-    // and a company that has customised their interview wording should not be
-    // bypassed by a second, invisible event.
-    event: "interview",
+    /*
+     * Its OWN event, not "interview".
+     *
+     * communication_logs carries a UNIQUE constraint on
+     * (application_id, event, channel). Reusing "interview" meant a candidate
+     * who had already been sent a video-interview invitation could never be
+     * sent a booking link — the insert violated the constraint, and because
+     * deliverEmail used to throw on that, the recruiter saw only
+     * "Couldn't send — please try again."
+     *
+     * The two messages sit at the same pipeline stage but are not the same
+     * message, so they get different values. It is LOG-ONLY: composed here
+     * rather than from message_templates, and must not reach
+     * message_templates_event_check.
+     */
+    event: "booking_link",
     to,
     subject: `Book your ${title} interview`,
     html: buildCandidateHtml(body, ctx.company.name, ctx.companyId, to),
@@ -197,11 +215,38 @@ export async function sendBookingLink(
 
   if (!outcome.ok) {
     /*
-     * The row exists but the email did not go. Left as 'invited' rather than
-     * deleted: the link is valid, and the recruiter can copy it or re-send
-     * once the cause (daily cap, unconfigured provider) is cleared. Deleting
-     * would throw away a usable link to make an error message tidier.
+     * ROLL THE BOOKING BACK.
+     *
+     * The row was written before the email was attempted, so a failed send
+     * leaves an `invited` booking holding a live token that nobody received —
+     * an orphan. It shows in the pipeline as an outstanding invitation, it
+     * suppresses nothing and unblocks nothing, and the only way anyone could
+     * use it would be to dig the raw token out of a log it was never written
+     * to. There is exactly one of these in the database right now, from the
+     * bug this change fixes.
+     *
+     * An earlier version kept it, reasoning that the link was still valid and
+     * the recruiter could re-send once the cause cleared. That was wrong on
+     * both counts: nothing surfaces the raw token to copy, and a re-send mints
+     * a fresh row anyway, so keeping it only accumulated dead invitations.
+     *
+     * Deleted rather than marked `expired` because it never existed as far as
+     * anyone outside this function is concerned — no email, no candidate, no
+     * history worth keeping.
      */
+    if (bookingId) {
+      const { error: cleanupErr } = await service
+        .from("interview_bookings")
+        .delete()
+        .eq("id", bookingId)
+        // Only ever removes the row THIS call created and only while it is
+        // still untouched — a candidate cannot have booked it, but the guard
+        // costs nothing and makes that impossible rather than merely unlikely.
+        .eq("status", "invited");
+      if (cleanupErr) {
+        console.error("[booking] failed to roll back the orphan booking:", cleanupErr.message);
+      }
+    }
     return { success: false, error: outcome.message };
   }
 
