@@ -120,6 +120,14 @@ export type CompanyJobRow = {
 
 /** The wizard's single form model. Strings mirror the admin form's contract:
  *  everything arrives as text and is coerced/validated server-side. */
+/** One weekday window, in minutes from local midnight. Mirrors availability_rules. */
+export type JobBookingHours = {
+  /** 0 = Sunday, matching availability_rules.weekday. */
+  weekday: number;
+  startMinute: number;
+  endMinute: number;
+};
+
 export type CompanyJobInput = {
   title: string;
   location: string;
@@ -226,6 +234,36 @@ export type CompanyJobInput = {
   interview_criteria: string[];
 
   /**
+   * How long a LIVE interview runs — 30 or 60 minutes.
+   *
+   * Governs the booking page a candidate is sent, not the async video round
+   * above; the two are different products and a job may use either, both, or
+   * neither. The column is CHECK-constrained to 30 and 60, so the wizard offers
+   * exactly those and nothing else.
+   *
+   * NULLABLE, and null is not 30. Null means "not decided for this job" and
+   * inherits whatever the default is at the time a link is sent. Writing 30 on
+   * every save would freeze today's default onto every job and quietly exempt
+   * them all from a later change.
+   */
+  interview_duration_minutes: 30 | 60 | null;
+
+  /**
+   * Booking hours for THIS job only, overriding the host's Settings hours.
+   *
+   * NULL IS THE NORMAL CASE and the default. Almost every job wants the
+   * recruiter's own hours; the override exists for the role that does not — a
+   * night-shift support job interviewed in the candidate's evening — without
+   * rewriting the recruiter's defaults for every other job they run.
+   *
+   * Same shape as availability_rules: minutes from local midnight against a
+   * weekday, never timestamps. A weekly intention resolves to a different
+   * instant on a clock-change day, so storing instants would shift the whole
+   * week twice a year.
+   */
+  booking_hours_override: JobBookingHours[] | null;
+
+  /**
    * Interview questions for the video round.
    *
    * NOT a jobs column — these live in their own `interview_questions` table,
@@ -276,6 +314,10 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   autoshortlist_interview_threshold: null,
   scoring_must_haves: [],
   interview_criteria: [],
+  // Null, not 30 and not []: "not decided", which inherits the default in
+  // force when a booking link is sent rather than freezing today's.
+  interview_duration_minutes: null,
+  booking_hours_override: null,
   interview_questions: [],
 };
 

@@ -39,6 +39,7 @@ import {
   JOB_TEXT_COUNTER_FROM,
   JOB_TEXT_MAX,
   JOB_WORK_TYPES,
+  type JobBookingHours,
   type JobCurrency,
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
@@ -1806,6 +1807,8 @@ export function WizardClient({
                     short enough that people finish. Candidates get a practice round first, which is
                     never recorded or shared.
                   </p>
+
+                  <LiveInterviewFields state={state} set={set} />
                 </>
               )}
 
@@ -2675,6 +2678,195 @@ function ThresholdField({
         />
         <span className="text-[12px] text-[var(--ai-t3)]">out of 100</span>
       </div>
+    </div>
+  );
+}
+
+/**
+ * Live interview: how long, and optionally when.
+ *
+ * ── Why this sits under the video questions, not beside them ──
+ *
+ * The questions above are the ASYNC round — recorded alone, no call to
+ * schedule. This is the LIVE round a candidate books into a recruiter's diary.
+ * Two different products on one step, so the divider and the heading say which
+ * is which rather than letting the reader assume the fields below configure
+ * the fields above.
+ *
+ * ── The override must not read as required ───────────────────
+ *
+ * Almost every job wants the recruiter's own Settings hours, so the default is
+ * a closed disclosure showing what will be used, with the override behind an
+ * explicit "Use different hours for this job". A row of seven day pickers
+ * always on screen reads as something to fill in — and a recruiter who fills
+ * it in "to be safe" has silently narrowed their own availability for one
+ * role, which nothing on the booking page would explain.
+ */
+/** Monday-first, matching how a working week is read. 0 = Sunday. */
+const BOOKING_DAYS = [
+  { weekday: 1, label: "Monday" },
+  { weekday: 2, label: "Tuesday" },
+  { weekday: 3, label: "Wednesday" },
+  { weekday: 4, label: "Thursday" },
+  { weekday: 5, label: "Friday" },
+  { weekday: 6, label: "Saturday" },
+  { weekday: 0, label: "Sunday" },
+];
+
+function LiveInterviewFields({
+  state,
+  set,
+}: {
+  state: CompanyJobInput;
+  set: <K extends keyof CompanyJobInput>(key: K, value: CompanyJobInput[K]) => void;
+}) {
+  const rules = state.booking_hours_override;
+  const overriding = rules !== null;
+
+  const toggleOverride = (on: boolean) => {
+    // Seeding from the standard week rather than an empty list: an override
+    // that starts blank offers a candidate nothing, and "on but no times" is a
+    // state a recruiter can leave behind without noticing.
+    set(
+      "booking_hours_override",
+      on
+        ? [1, 2, 3, 4, 5].map((weekday) => ({ weekday, startMinute: 9 * 60, endMinute: 17 * 60 }))
+        : null,
+    );
+  };
+
+  const updateDay = (weekday: number, patch: Partial<JobBookingHours>) => {
+    if (!rules) return;
+    const existing = rules.find((r) => r.weekday === weekday);
+    const next = existing
+      ? rules.map((r) => (r.weekday === weekday ? { ...r, ...patch } : r))
+      : [...rules, { weekday, startMinute: 9 * 60, endMinute: 17 * 60, ...patch }];
+    set(
+      "booking_hours_override",
+      next.sort((a, b) => a.weekday - b.weekday),
+    );
+  };
+
+  const toggleDay = (weekday: number, on: boolean) => {
+    if (!rules) return;
+    set(
+      "booking_hours_override",
+      on
+        ? [...rules, { weekday, startMinute: 9 * 60, endMinute: 17 * 60 }].sort(
+            (a, b) => a.weekday - b.weekday,
+          )
+        : rules.filter((r) => r.weekday !== weekday),
+    );
+  };
+
+  const clock = (minutes: number) =>
+    `${String(Math.floor(minutes / 60)).padStart(2, "0")}:${String(minutes % 60).padStart(2, "0")}`;
+  const minutes = (value: string) => {
+    const [h, m] = value.split(":").map(Number);
+    return (h ?? 0) * 60 + (m ?? 0);
+  };
+
+  return (
+    <div className="mt-6 border-t border-[var(--ai-line)] pt-5">
+      <p className="m-0 mb-[5px] font-heading text-[15px] font-extrabold tracking-[-0.02em] text-[var(--ai-t1)]">
+        Live interview
+      </p>
+      <p className="m-0 mb-4 text-xs leading-relaxed text-[var(--ai-t3)]">
+        Separate from the recorded questions above. When you send a booking link, this is the
+        meeting the candidate picks a time for.
+      </p>
+
+      <span className="mb-[7px] block text-[11.5px] font-bold tracking-[0.01em] text-[var(--ai-t2)]">
+        How long is it?
+      </span>
+      <div className="flex flex-wrap gap-2">
+        {([30, 60] as const).map((option) => {
+          const active = state.interview_duration_minutes === option;
+          return (
+            <button
+              key={option}
+              type="button"
+              onClick={() =>
+                // Clicking the active option clears it back to "not decided",
+                // which is a real state — see EMPTY_JOB_INPUT.
+                set("interview_duration_minutes", active ? null : option)
+              }
+              className={`rounded-[11px] border px-4 py-2.5 text-[13px] font-bold transition-colors ${
+                active
+                  ? "border-remotiv-purple bg-remotiv-purple text-white"
+                  : "border-[var(--ai-line-strong)] text-[var(--ai-t2)] hover:border-remotiv-purple hover:text-remotiv-purple"
+              }`}
+            >
+              {option} minutes
+            </button>
+          );
+        })}
+      </div>
+      <p className="m-0 mt-2 text-xs leading-relaxed text-[var(--ai-t3)]">
+        {state.interview_duration_minutes === null
+          ? "Not set — booking links for this job use the 30-minute default."
+          : `Candidates will be offered ${state.interview_duration_minutes}-minute slots.`}
+      </p>
+
+      <label className="mt-5 flex cursor-pointer items-start gap-2.5">
+        <input
+          type="checkbox"
+          checked={overriding}
+          onChange={(e) => toggleOverride(e.target.checked)}
+          className="mt-0.5 size-4 accent-remotiv-purple"
+        />
+        <span>
+          <span className="block text-[13px] font-bold text-[var(--ai-t1)]">
+            Use different hours for this job
+          </span>
+          <span className="mt-0.5 block text-xs leading-relaxed text-[var(--ai-t3)]">
+            Optional. Leave this off and candidates are offered your own interview hours from
+            Settings — which is what almost every role wants.
+          </span>
+        </span>
+      </label>
+
+      {overriding && rules && (
+        <div className="mt-3 flex flex-col gap-2 rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
+          {BOOKING_DAYS.map(({ weekday, label }) => {
+            const rule = rules.find((r) => r.weekday === weekday) ?? null;
+            return (
+              <div key={weekday} className="flex flex-wrap items-center gap-2.5">
+                <label className="flex min-w-[128px] items-center gap-2 text-[12.5px] font-semibold text-[var(--ai-t1)]">
+                  <input
+                    type="checkbox"
+                    checked={rule !== null}
+                    onChange={(e) => toggleDay(weekday, e.target.checked)}
+                    className="size-[15px] accent-remotiv-purple"
+                  />
+                  {label}
+                </label>
+                <input
+                  type="time"
+                  aria-label={`${label} start`}
+                  value={clock(rule?.startMinute ?? 9 * 60)}
+                  disabled={rule === null}
+                  onChange={(e) => updateDay(weekday, { startMinute: minutes(e.target.value) })}
+                  className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-2 py-1 text-[12.5px] disabled:opacity-40"
+                />
+                <span className="text-[12.5px] text-[var(--ai-t3)]">to</span>
+                <input
+                  type="time"
+                  aria-label={`${label} finish`}
+                  value={clock(rule?.endMinute ?? 17 * 60)}
+                  disabled={rule === null}
+                  onChange={(e) => updateDay(weekday, { endMinute: minutes(e.target.value) })}
+                  className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-2 py-1 text-[12.5px] disabled:opacity-40"
+                />
+              </div>
+            );
+          })}
+          <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
+            Read in your calendar&apos;s timezone. Candidates always see these converted to their
+            own.
+          </p>
+        </div>
+      )}
     </div>
   );
 }

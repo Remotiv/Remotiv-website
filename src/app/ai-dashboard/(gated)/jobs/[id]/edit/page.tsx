@@ -6,8 +6,10 @@ import {
   type AutoshortlistSource,
   type CompanyJobInput,
   EMPTY_JOB_INPUT,
+  type JobBookingHours,
   type JobStatus,
 } from "@/app/ai-dashboard/lib/job-types";
+import { parseRules } from "@/lib/calendar/availability";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 import { fetchInterviewQuestions } from "../../actions";
@@ -55,6 +57,10 @@ type JobRow = {
   scoring_must_haves: unknown;
   /** Step 7. jsonb array of behavioural traits; [] when none. */
   interview_criteria: unknown;
+  /** Step 5. 30 or 60; null when never chosen for this job. */
+  interview_duration_minutes: number | null;
+  /** Step 5. jsonb array of weekday windows; null when using Settings hours. */
+  booking_hours_override: unknown;
 };
 
 export default async function EditJobPage({ params }: { params: Promise<{ id: string }> }) {
@@ -71,7 +77,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", id)
     .maybeSingle();
@@ -176,6 +182,22 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     interview_criteria: Array.isArray(job.interview_criteria)
       ? (job.interview_criteria as string[])
       : [],
+    /*
+     * Nullable by design, so `??` would be WRONG — null means "not decided",
+     * which is a real value the form must open on, not a gap to be defaulted.
+     * The duration is narrowed rather than cast: a legacy row holding anything
+     * other than 30 or 60 opens as "not decided" instead of putting a value in
+     * the form that the CHECK constraint would reject on save.
+     */
+    interview_duration_minutes:
+      job.interview_duration_minutes === 30 || job.interview_duration_minutes === 60
+        ? job.interview_duration_minutes
+        : null,
+    // Validated through the same parser availability reads with, so what the
+    // form shows and what slot generation uses can never disagree.
+    booking_hours_override: Array.isArray(job.booking_hours_override)
+      ? (parseRules(job.booking_hours_override) as JobBookingHours[])
+      : null,
     interview_questions: interviewQuestions,
   };
 

@@ -1,7 +1,6 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { parseRules } from "@/lib/calendar/availability";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import {
   canAccessJob,
@@ -29,6 +28,7 @@ import {
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
 } from "@/app/ai-dashboard/lib/job-types";
+import { parseRules } from "@/lib/calendar/availability";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -383,37 +383,47 @@ function buildPatch(
  * it, so anything that is not a finite number in range lands as null.
  */
 /**
- * Interview duration and per-job booking hours.
+ * Interview duration and per-job booking hours — wizard step 5.
  *
- * ── Why both columns are nullable, and stay nullable ─────────
+ * ── Why this takes CompanyJobInput, not Record<string, unknown> ──
  *
- * Null means "not decided for this job", which is a different fact from any
- * value. A null duration inherits the 30-minute default; a null hours override
- * inherits the recruiter's own Settings hours. Writing a concrete value on
- * every save would freeze today's default onto every job, so a later change to
- * either default would silently not apply to anything already created.
+ * It used to take the loose type, and that is precisely how it shipped dead.
+ * The body gated on `"interview_duration_minutes" in input` while neither key
+ * existed on CompanyJobInput, so both branches were unreachable and the
+ * function returned {} on every save — for a whole session, silently, with
+ * TypeScript perfectly happy. `Record<string, unknown>` accepts an object that
+ * can never contain what the body is looking for; that is the entire failure.
  *
- * The duration is narrowed to exactly 30 or 60 rather than passed through: the
- * column is CHECK-constrained to those two, and a stray 45 from a client would
- * be rejected at insert time with a constraint error nobody could read.
+ * Typed against the form model, a key that is not on the model is a compile
+ * error at the property access, and the `in` checks are gone because a typed
+ * field is always present — its VALUE carries "not decided", as null.
+ *
+ * ── Why null is written, not omitted ─────────────────────────
+ *
+ * Null means "not decided for this job": the duration inherits whatever the
+ * default is when a booking link is sent, and the hours inherit the host's
+ * Settings hours. Writing a concrete value on every save would freeze today's
+ * default onto every job and exempt them all from a later change. Clearing a
+ * field must also persist, so null is written rather than skipped — omitting
+ * it would make an override impossible to remove once set.
+ *
+ * The duration is re-narrowed here even though the type already says 30 | 60:
+ * this is the last thing between a client-supplied object and a CHECK
+ * constraint, and a constraint error is not a message anyone can act on.
  */
-function bookingPatch(input: Record<string, unknown>): Record<string, unknown> {
-  const patch: Record<string, unknown> = {};
+function bookingPatch(input: CompanyJobInput): Record<string, unknown> {
+  const duration = input.interview_duration_minutes;
 
-  if ("interview_duration_minutes" in input) {
-    const raw = Number(input.interview_duration_minutes);
-    patch.interview_duration_minutes = raw === 30 || raw === 60 ? raw : null;
-  }
-
-  if ("booking_hours_override" in input) {
+  return {
+    interview_duration_minutes: duration === 30 || duration === 60 ? duration : null,
     // Validated through the SAME parser availability reads with, so a
     // malformed range cannot be stored here and silently dropped there — the
-    // two would disagree about what the recruiter saved.
-    const rules = parseRules(input.booking_hours_override);
-    patch.booking_hours_override = rules.length > 0 ? rules : null;
-  }
-
-  return patch;
+    // two would otherwise disagree about what the recruiter saved.
+    booking_hours_override: (() => {
+      const rules = parseRules(input.booking_hours_override);
+      return rules.length > 0 ? rules : null;
+    })(),
+  };
 }
 
 function cvWeightPatch(input: CompanyJobInput): Record<string, number | null> {
@@ -1298,7 +1308,7 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
       // step 8/9 columns copy for exactly the same reason: a copy that dropped
       // the weighting would score its applicants differently from the original
       // with nothing on screen to explain why.
-      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria",
+      "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", jobId)
     .maybeSingle();
