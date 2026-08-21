@@ -8,6 +8,7 @@ import {
   EMPTY_JOB_INPUT,
   type JobBookingHours,
   type JobStatus,
+  normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
 import { parseRules } from "@/lib/calendar/availability";
 import type { ScreeningQuestion } from "@/lib/jobs";
@@ -185,14 +186,13 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     /*
      * Nullable by design, so `??` would be WRONG — null means "not decided",
      * which is a real value the form must open on, not a gap to be defaulted.
-     * The duration is narrowed rather than cast: a legacy row holding anything
-     * other than 30 or 60 opens as "not decided" instead of putting a value in
-     * the form that the CHECK constraint would reject on save.
+     *
+     * Validated through the SAME normaliser the form and the save path use, so
+     * a row holding a value outside 10-240 (written before the CHECK was
+     * widened, or by hand) opens as "not decided" rather than putting a number
+     * in the form that would be rejected the moment it is saved.
      */
-    interview_duration_minutes:
-      job.interview_duration_minutes === 30 || job.interview_duration_minutes === 60
-        ? job.interview_duration_minutes
-        : null,
+    interview_duration_minutes: normaliseInterviewDuration(job.interview_duration_minutes),
     // Validated through the same parser availability reads with, so what the
     // form shows and what slot generation uses can never disagree.
     booking_hours_override: Array.isArray(job.booking_hours_override)

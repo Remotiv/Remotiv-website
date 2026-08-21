@@ -16,6 +16,8 @@ import {
   CV_WEIGHT_MAX,
   CV_WEIGHT_MIN,
   INTERVIEW_CRITERIA_MAX,
+  INTERVIEW_DURATION_MAX,
+  INTERVIEW_DURATION_MIN,
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
@@ -27,6 +29,7 @@ import {
   type JobStatus,
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
+  normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
 import { parseRules } from "@/lib/calendar/availability";
 import {
@@ -294,6 +297,26 @@ function buildPatch(
   const location = (input.location ?? "").trim();
   if (!location) return { ok: false, error: "Location is required." };
 
+  /*
+   * A duration outside 10-240 is REFUSED, not silently nulled.
+   *
+   * bookingPatch would turn it into null — "not decided" — and the job would
+   * save cleanly while quietly discarding what the recruiter typed. That is
+   * the worse failure: they set 300, saw a successful save, and would find out
+   * only when a candidate was offered 30-minute slots. A refusal here names
+   * the range while the number is still on screen.
+   */
+  if (
+    input.interview_duration_minutes !== null &&
+    input.interview_duration_minutes !== undefined &&
+    normaliseInterviewDuration(input.interview_duration_minutes) === null
+  ) {
+    return {
+      ok: false,
+      error: `Interview length must be between ${INTERVIEW_DURATION_MIN} and ${INTERVIEW_DURATION_MAX} minutes.`,
+    };
+  }
+
   const currency = (input.salary_currency ?? "").trim().toUpperCase();
   if (!(JOB_CURRENCIES as readonly string[]).includes(currency)) {
     return { ok: false, error: "Currency is required (USD or PKR)." };
@@ -407,15 +430,19 @@ function buildPatch(
  * field must also persist, so null is written rather than skipped — omitting
  * it would make an override impossible to remove once set.
  *
- * The duration is re-narrowed here even though the type already says 30 | 60:
- * this is the last thing between a client-supplied object and a CHECK
- * constraint, and a constraint error is not a message anyone can act on.
+ * The duration is re-validated here even though the form already did: this is
+ * the last thing between a client-supplied object and a CHECK constraint, and
+ * a 23514 is not a message anyone can act on. `normaliseInterviewDuration` is
+ * the SAME function the form and the edit read path use, so the three cannot
+ * disagree about what 10-240 means.
+ *
+ * Out of range becomes null — "not decided" — rather than being clamped to the
+ * nearest bound. Clamping would silently store 240 for someone who typed 300
+ * and show them a number they never chose.
  */
 function bookingPatch(input: CompanyJobInput): Record<string, unknown> {
-  const duration = input.interview_duration_minutes;
-
   return {
-    interview_duration_minutes: duration === 30 || duration === 60 ? duration : null,
+    interview_duration_minutes: normaliseInterviewDuration(input.interview_duration_minutes),
     // Validated through the SAME parser availability reads with, so a
     // malformed range cannot be stored here and silently dropped there — the
     // two would otherwise disagree about what the recruiter saved.

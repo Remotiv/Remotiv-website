@@ -120,6 +120,44 @@ export type CompanyJobRow = {
 
 /** The wizard's single form model. Strings mirror the admin form's contract:
  *  everything arrives as text and is coerced/validated server-side. */
+/**
+ * Interview duration bounds, matching the widened CHECK constraints on
+ * jobs.interview_duration_minutes and interview_bookings.duration_minutes.
+ *
+ * Free-form between these, not a fixed pair: a screening call is 15 minutes
+ * and a technical round is 45, and forcing both into 30 or 60 made the field
+ * describe the product rather than the interview.
+ *
+ * Declared HERE, not in lib/calendar, because the wizard is a client component
+ * and every module under src/lib/calendar is `server-only` — importing the
+ * bounds from there would fail the build. The form and the server clamp
+ * against the same two numbers, so neither can drift from the constraint.
+ */
+export const INTERVIEW_DURATION_MIN = 10;
+export const INTERVIEW_DURATION_MAX = 240;
+
+/** The two common cases, offered as one-tap presets. NOT the allowed set. */
+export const INTERVIEW_DURATION_PRESETS = [30, 60] as const;
+
+/**
+ * Narrow anything to a storable duration, or null.
+ *
+ * The single place the range is enforced. Both the wizard's save path and the
+ * edit page's read path call it, so a value the form accepts is exactly a value
+ * the constraint accepts — a 300 typed into the custom box becomes a legible
+ * refusal rather than SQLSTATE 23514 arriving from a layer nobody was looking
+ * at.
+ *
+ * Non-integers are rejected rather than rounded: 22.5 minutes is a typo, and
+ * silently storing 23 would put a number on the page nobody entered.
+ */
+export function normaliseInterviewDuration(raw: unknown): number | null {
+  const value = typeof raw === "string" ? Number(raw.trim()) : Number(raw);
+  if (!Number.isInteger(value)) return null;
+  if (value < INTERVIEW_DURATION_MIN || value > INTERVIEW_DURATION_MAX) return null;
+  return value;
+}
+
 /** One weekday window, in minutes from local midnight. Mirrors availability_rules. */
 export type JobBookingHours = {
   /** 0 = Sunday, matching availability_rules.weekday. */
@@ -246,7 +284,7 @@ export type CompanyJobInput = {
    * every save would freeze today's default onto every job and quietly exempt
    * them all from a later change.
    */
-  interview_duration_minutes: 30 | 60 | null;
+  interview_duration_minutes: number | null;
 
   /**
    * Booking hours for THIS job only, overriding the host's Settings hours.

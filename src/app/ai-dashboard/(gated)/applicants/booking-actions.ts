@@ -3,6 +3,7 @@
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
+import { normaliseInterviewDuration } from "@/app/ai-dashboard/lib/job-types";
 import { BOOKING_EXPIRY_DAYS, bookingUrl, mintBookingToken } from "@/lib/calendar/bookings";
 import "@/lib/calendar/google";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
@@ -24,6 +25,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 type MutationResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
 const NOT_YOURS = "Applicant not found in your workspace.";
+
+/** Used when a job has not chosen one. A null is undecided, not zero-length. */
+const DEFAULT_INTERVIEW_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
 export async function sendBookingLink(
@@ -98,15 +102,25 @@ export async function sendBookingLink(
     };
   }
 
-  // 30 unless the job says otherwise. The column is nullable and a null is a
-  // choice not yet made, not a zero-length interview.
   const { data: jobRow } = await service
     .from("jobs")
     .select("title, interview_duration_minutes")
     .eq("id", app.job_id)
     .maybeSingle();
   const job = jobRow as { title: string | null; interview_duration_minutes: number | null } | null;
-  const durationMinutes = job?.interview_duration_minutes === 60 ? 60 : 30;
+
+  /*
+   * Whatever the job says, defaulting to 30 only when it says nothing.
+   *
+   * This used to read `=== 60 ? 60 : 30`, which silently rewrote every other
+   * value to 30 — a 45-minute interview would have been booked as a 30-minute
+   * one, on the candidate's page and in the recruiter's calendar, with nothing
+   * anywhere saying why. Validated rather than trusted: the row is the source
+   * of truth but it is still a number arriving from the database, and
+   * interview_bookings.duration_minutes carries its own CHECK.
+   */
+  const durationMinutes =
+    normaliseInterviewDuration(job?.interview_duration_minutes) ?? DEFAULT_INTERVIEW_MINUTES;
 
   /*
    * One live link per application. Re-sending supersedes rather than

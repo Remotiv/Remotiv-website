@@ -31,6 +31,9 @@ import {
   type CvWeightKey,
   EMPTY_JOB_INPUT,
   INTERVIEW_CRITERIA_MAX,
+  INTERVIEW_DURATION_MAX,
+  INTERVIEW_DURATION_MIN,
+  INTERVIEW_DURATION_PRESETS,
   JOB_CATEGORIES,
   JOB_CONTRACT_TYPES,
   JOB_CURRENCIES,
@@ -43,6 +46,7 @@ import {
   type JobCurrency,
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
+  normaliseInterviewDuration,
   stopForStored,
   suggestCriteria,
   WEIGHT_STOPS,
@@ -2723,6 +2727,21 @@ function LiveInterviewFields({
   const rules = state.booking_hours_override;
   const overriding = rules !== null;
 
+  const duration = state.interview_duration_minutes;
+  const isCustomDuration =
+    duration !== null && !(INTERVIEW_DURATION_PRESETS as readonly number[]).includes(duration);
+  const [customOpen, setCustomOpen] = useState(isCustomDuration);
+  /*
+   * Invalid is NOT the same as unset. An empty box is "not decided" and is
+   * fine; a number outside the range is a mistake and is said so, in the form,
+   * before the server has to turn a CHECK violation into a sentence.
+   */
+  const durationInvalid = duration !== null && normaliseInterviewDuration(duration) === null;
+  // Mirrors slotStepMinutes in lib/calendar/availability.ts, which is
+  // server-only and cannot be imported here. Preview text only — the server
+  // computes the real grid.
+  const slotStepPreview = duration === null ? 30 : Math.max(15, Math.ceil(duration / 15) * 15);
+
   const toggleOverride = (on: boolean) => {
     // Seeding from the standard week rather than an empty list: an override
     // that starts blank offers a candidate nothing, and "on but no times" is a
@@ -2779,20 +2798,31 @@ function LiveInterviewFields({
       <span className="mb-[7px] block text-[11.5px] font-bold tracking-[0.01em] text-[var(--ai-t2)]">
         How long is it?
       </span>
-      <div className="flex flex-wrap gap-2">
-        {([30, 60] as const).map((option) => {
+
+      {/*
+        PRESETS PLUS A CUSTOM BOX, not a dropdown of every allowed value.
+
+        30 and 60 cover most interviews and deserve one tap. Everything else —
+        a 15-minute screening call, a 45-minute technical round — needs a real
+        number, and a select listing 10 through 240 would be 47 options nobody
+        wants to scroll. The custom field only appears once "Custom" is chosen,
+        so the common path stays two buttons wide.
+      */}
+      <div className="flex flex-wrap items-center gap-2">
+        {INTERVIEW_DURATION_PRESETS.map((option) => {
           const active = state.interview_duration_minutes === option;
           return (
             <button
               key={option}
               type="button"
-              onClick={() =>
+              onClick={() => {
+                setCustomOpen(false);
                 // Clicking the active option clears it back to "not decided",
                 // which is a real state — see EMPTY_JOB_INPUT.
-                set("interview_duration_minutes", active ? null : option)
-              }
+                set("interview_duration_minutes", active ? null : option);
+              }}
               className={`rounded-[11px] border px-4 py-2.5 text-[13px] font-bold transition-colors ${
-                active
+                active && !customOpen
                   ? "border-remotiv-purple bg-remotiv-purple text-white"
                   : "border-[var(--ai-line-strong)] text-[var(--ai-t2)] hover:border-remotiv-purple hover:text-remotiv-purple"
               }`}
@@ -2801,12 +2831,63 @@ function LiveInterviewFields({
             </button>
           );
         })}
+
+        <button
+          type="button"
+          onClick={() => setCustomOpen((prev) => !prev)}
+          className={`rounded-[11px] border px-4 py-2.5 text-[13px] font-bold transition-colors ${
+            customOpen || isCustomDuration
+              ? "border-remotiv-purple bg-remotiv-purple text-white"
+              : "border-[var(--ai-line-strong)] text-[var(--ai-t2)] hover:border-remotiv-purple hover:text-remotiv-purple"
+          }`}
+        >
+          Custom
+        </button>
+
+        {(customOpen || isCustomDuration) && (
+          <span className="flex items-center gap-2">
+            <input
+              type="number"
+              inputMode="numeric"
+              min={INTERVIEW_DURATION_MIN}
+              max={INTERVIEW_DURATION_MAX}
+              step={5}
+              aria-label="Interview length in minutes"
+              value={state.interview_duration_minutes ?? ""}
+              onChange={(e) => {
+                const raw = e.target.value;
+                // Empty box means "not decided", not zero.
+                if (raw.trim() === "") {
+                  set("interview_duration_minutes", null);
+                  return;
+                }
+                // Stored raw so the field is not fighting the typist mid-entry;
+                // the range is judged below and again on the server.
+                const value = Number(raw);
+                set("interview_duration_minutes", Number.isFinite(value) ? value : null);
+              }}
+              className={`w-24 rounded-[11px] border px-3 py-2.5 text-[13px] outline-none ${
+                durationInvalid
+                  ? "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14]"
+                  : "border-[var(--ai-line-strong)] focus:border-remotiv-purple"
+              }`}
+            />
+            <span className="text-[13px] text-[var(--ai-t3)]">minutes</span>
+          </span>
+        )}
       </div>
-      <p className="m-0 mt-2 text-xs leading-relaxed text-[var(--ai-t3)]">
-        {state.interview_duration_minutes === null
-          ? "Not set — booking links for this job use the 30-minute default."
-          : `Candidates will be offered ${state.interview_duration_minutes}-minute slots.`}
-      </p>
+
+      {durationInvalid ? (
+        <p className="m-0 mt-2 text-xs leading-relaxed text-[#E0524B]">
+          Pick something between {INTERVIEW_DURATION_MIN} and {INTERVIEW_DURATION_MAX} minutes.
+        </p>
+      ) : (
+        <p className="m-0 mt-2 text-xs leading-relaxed text-[var(--ai-t3)]">
+          {state.interview_duration_minutes === null
+            ? "Not set — booking links for this job use the 30-minute default."
+            : `Candidates will be offered ${state.interview_duration_minutes}-minute slots, starting every ${slotStepPreview} minutes.`}
+        </p>
+      )}
 
       <label className="mt-5 flex cursor-pointer items-start gap-2.5">
         <input

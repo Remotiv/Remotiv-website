@@ -43,8 +43,46 @@ export const MIN_NOTICE_MS = 24 * HOUR_MS;
 export const BUFFER_MS = 15 * MINUTE_MS;
 /** How far ahead a candidate may book. */
 export const BOOKING_WINDOW_DAYS = 14;
-/** Slots start on this grid, so offers are 09:00, 09:30 — never 09:07. */
-export const SLOT_GRID_MINUTES = 30;
+/**
+ * The cadence slot starts are aligned to. Offers read 09:00, 09:15, 09:30 —
+ * never 09:07.
+ */
+export const SLOT_GRID_MINUTES = 15;
+
+/**
+ * How far apart two offered starts sit, for a given duration.
+ *
+ * ── Why this is derived and not a constant ───────────────────
+ *
+ * A fixed 30-minute grid was fine while every interview was 30 or 60. With a
+ * free-form duration it breaks: a 45-minute interview on a 30-minute grid
+ * offers 09:00 and 09:30, and those two OVERLAP — 09:00–09:45 runs through
+ * 09:30. Both would appear as choosable, one would silently disappear the
+ * moment the other was taken, and the page would have advertised more
+ * availability than exists.
+ *
+ * So the step is the duration itself, rounded UP to the grid so the times stay
+ * human:
+ *
+ *   15 min → step 15 → 09:00, 09:15, 09:30 …
+ *   30 min → step 30 → 09:00, 09:30, 10:00 …   (unchanged)
+ *   45 min → step 45 → 09:00, 09:45, 10:30 …
+ *   60 min → step 60 → 09:00, 10:00, 11:00 …   (unchanged)
+ *   50 min → step 60 → 09:00, 10:00, 11:00 …   (rounded up; never overlaps)
+ *
+ * Offered slots therefore never overlap each other, and the two common
+ * durations behave exactly as they did before.
+ *
+ * The BUFFER is deliberately not added here. It is not dead time the host owes
+ * every gap — it is a margin around REAL commitments, applied in subtractBusy.
+ * Adding it to the step would space a 30-minute interview 45 minutes apart and
+ * quietly cut a 9-5 day's offers by a third for no gain, since a booked slot
+ * removes its neighbours through free/busy on the very next read anyway.
+ */
+export function slotStepMinutes(durationMinutes: number): number {
+  const grid = SLOT_GRID_MINUTES;
+  return Math.max(grid, Math.ceil(durationMinutes / grid) * grid);
+}
 
 /**
  * Cap on how many slots are OFFERED, and why there is one.
@@ -174,11 +212,8 @@ export function generateSlots(args: {
        * below, because offering a candidate a time their clock will never
        * show is how you get someone dialling in an hour late.
        */
-      for (
-        let start = open.ms;
-        start + durationMs <= close.ms;
-        start += SLOT_GRID_MINUTES * MINUTE_MS
-      ) {
+      const stepMs = slotStepMinutes(durationMinutes) * MINUTE_MS;
+      for (let start = open.ms; start + durationMs <= close.ms; start += stepMs) {
         if (start < earliest) continue;
         if (start > latest) break;
         // The gap check: does this instant read back as a real wall time?
