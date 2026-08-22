@@ -63,6 +63,29 @@ export async function sendBookingConfirmations(args: {
   const hostTime = timeBlock(args.startMs, args.hostTimezone);
   const duration = args.row.duration_minutes;
 
+  /*
+   * Only cross-reference the other side's time when it actually reads
+   * differently.
+   *
+   * ── Compared as RENDERED STRINGS, not as zone names ──────────
+   *
+   * The question this answers is "does this email say the same thing twice?",
+   * and that is a question about the two lines, not about the two zones.
+   *
+   * Comparing `candidateTimezone !== hostTimezone` would be wrong in both
+   * directions. Asia/Karachi and Asia/Tashkent are different names that are
+   * always +05:00, so a name comparison would print the identical sentence
+   * twice — the exact bug being fixed, just harder to notice. And
+   * Europe/London and Africa/Abidjan are different names that render the same
+   * in January and an hour apart in July, so whether the line is redundant
+   * depends on WHEN this booking is, not on the zones in general.
+   *
+   * Comparing the strings settles it per-email, for the one instant the email
+   * is about. Identical text is redundant whatever the zones are called;
+   * different text is worth showing even when the zones look related.
+   */
+  const timesDiffer = hostTime !== candidateTime;
+
   const joinLine = args.meetingUrl
     ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p>`
     : `<p style="margin:16px 0;color:#4A4550;">Your interviewer will send joining details separately.</p>`;
@@ -76,7 +99,11 @@ export async function sendBookingConfirmations(args: {
       </p>
       <p style="margin:0 0 4px;color:#17131F;font-weight:700;">${escapeHtml(candidateTime)}</p>
       <p style="margin:0 0 12px;color:#847E8C;font-size:13px;">
-        ${duration} minutes · that's ${escapeHtml(hostTime)} for ${escapeHtml(args.hostName || "your interviewer")}
+        ${duration} minutes${
+          timesDiffer
+            ? ` · that's ${escapeHtml(hostTime)} for ${escapeHtml(args.hostName || "your interviewer")}`
+            : ""
+        }
       </p>
       ${joinLine}
       <p style="margin:16px 0 0;color:#847E8C;font-size:13px;">
@@ -121,7 +148,9 @@ export async function sendBookingConfirmations(args: {
       <p>Hi ${escapeHtml(args.hostName || "there")},</p>
       <p><strong>${escapeHtml(args.candidateName)}</strong> booked their ${escapeHtml(args.jobTitle)} interview.</p>
       <p><strong>${escapeHtml(hostTime)}</strong><br>
-      <span style="color:#847E8C;font-size:13px;">${duration} minutes · ${escapeHtml(candidateTime)} for them</span></p>
+      <span style="color:#847E8C;font-size:13px;">${duration} minutes${
+        timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""
+      }</span></p>
       ${joinLine}
       <p style="color:#847E8C;font-size:13px;">It's on your calendar already.</p>`;
 
