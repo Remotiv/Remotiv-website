@@ -85,18 +85,28 @@ export function slotStepMinutes(durationMinutes: number): number {
 }
 
 /**
- * Cap on how many slots are OFFERED, and why there is one.
+ * The per-day ceiling, and why the cap moved.
  *
- * A host with an empty calendar and 9-5 hours has roughly 160 half-hour starts
- * over fourteen days. Rendering all of them is technically correct and
- * unusable: it reads as a wall of identical buttons, gives no reason to prefer
- * any, and makes the page feel like work. See `thinSlots` — the cap is applied
- * by spreading across days, not by truncating, so a candidate who can only do
- * Fridays still sees Fridays.
+ * ── The global cap was the mistake ───────────────────────────
+ *
+ * It used to be MAX_SLOTS_OFFERED = 40 across the whole fortnight, sampled
+ * evenly. On a real diary that produced 09:00, 11:00, 13:00 — two-hour gaps in
+ * a day that was completely free — and it did the same at 15 minutes as at 30,
+ * so a 15-minute interview looked identical to an hourly one. It hid real
+ * availability and misrepresented what the recruiter had offered.
+ *
+ * The reasoning behind it was wrong in a specific way: the wall of buttons was
+ * never ONE DAY, it was fourteen days rendered at once. A single day is 16
+ * times at 30 minutes and 32 at 15 — a normal scheduling screen. So the cap
+ * belongs per day, the page shows one day at a time, and the total simply
+ * follows.
+ *
+ * 48 is twelve hours at a 15-minute cadence. A day with more offered times
+ * than that is a working-hours configuration problem, not something to solve
+ * by sampling — and if it is ever hit, the page SAYS so rather than quietly
+ * dropping the afternoon.
  */
-export const MAX_SLOTS_OFFERED = 40;
-/** At most this many per day, so one empty day cannot swallow the whole cap. */
-export const MAX_SLOTS_PER_DAY = 6;
+export const MAX_SLOTS_PER_DAY = 48;
 
 export type WorkingRule = { weekday: number; startMinute: number; endMinute: number };
 
@@ -251,21 +261,17 @@ export function subtractBusy(
 }
 
 /**
- * Reduce a wall of slots to a choosable set.
+ * Apply the per-day ceiling. Deliberately NOT a sampler.
  *
- * ── Why this is not a truncation ─────────────────────────────
+ * Every slot for a day is kept. The only case anything is dropped is a day
+ * carrying more than MAX_SLOTS_PER_DAY, and then it is the LATEST times that
+ * go, not an even spread — because "the first 48 times on this day" is a
+ * statement a candidate can understand, whereas an even sample silently
+ * removes 11:15 while keeping 11:00 and 11:30 with nothing to indicate it.
  *
- * Taking the first 40 of 160 slots would offer the next four days and hide the
- * other ten — which silently removes every option for a candidate who is busy
- * this week, and does it invisibly. Instead this takes up to
- * MAX_SLOTS_PER_DAY from EACH day, spread evenly across that day's available
- * starts, so morning and afternoon both survive and every day with any
- * availability is represented.
- *
- * The result is an offer a person can actually read: a few times a day, across
- * the whole window, rather than every legal instant.
+ * `truncated` is returned so the page can say it out loud.
  */
-export function thinSlots(
+export function capPerDay(
   starts: number[],
   hostTimezone: string,
 ): { slots: number[]; truncated: boolean } {
@@ -278,47 +284,18 @@ export function thinSlots(
     byDay.set(key, [...(byDay.get(key) ?? []), start]);
   }
 
-  const days = [...byDay.values()];
-
-  /*
-   * The per-day budget is derived from the TOTAL cap and the number of days
-   * that actually have availability, so the sum fits without a tail slice.
-   *
-   * An earlier version took MAX_SLOTS_PER_DAY from every day and then sliced
-   * the result to the total — which quietly deleted the last few days of the
-   * fortnight, the exact truncation this function exists to avoid. A candidate
-   * who is away this week would have been shown nothing they could take.
-   * Floor of 1 so no day with availability disappears entirely.
-   */
-  const perDay = Math.max(
-    1,
-    Math.min(MAX_SLOTS_PER_DAY, Math.floor(MAX_SLOTS_OFFERED / days.length)),
-  );
-
-  const picked: number[] = [];
-  for (const dayStarts of days) {
-    if (dayStarts.length <= perDay) {
-      picked.push(...dayStarts);
-      continue;
-    }
-    if (perDay === 1) {
-      // One slot: take the middle of the day rather than the first, which is
-      // usually the least convenient hour for both sides.
-      const middle = dayStarts[Math.floor(dayStarts.length / 2)];
-      if (middle !== undefined) picked.push(middle);
-      continue;
-    }
-    // Evenly spaced, so the first and last of the day are both kept and the
-    // rest spread across it rather than clustering in the morning.
-    const step = (dayStarts.length - 1) / (perDay - 1);
-    for (let i = 0; i < perDay; i += 1) {
-      const value = dayStarts[Math.round(i * step)];
-      if (value !== undefined) picked.push(value);
+  let truncated = false;
+  const kept: number[] = [];
+  for (const dayStarts of byDay.values()) {
+    if (dayStarts.length > MAX_SLOTS_PER_DAY) {
+      truncated = true;
+      kept.push(...dayStarts.slice(0, MAX_SLOTS_PER_DAY));
+    } else {
+      kept.push(...dayStarts);
     }
   }
 
-  const unique = [...new Set(picked)].sort((a, b) => a - b);
-  return { slots: unique, truncated: unique.length < starts.length };
+  return { slots: kept.sort((a, b) => a - b), truncated };
 }
 
 /* ─────────────────────── the whole pipeline ────────────────── */
@@ -425,7 +402,7 @@ export async function fetchAvailability(args: {
   }
 
   const free = subtractBusy(candidates, busy, args.durationMinutes);
-  const { slots, truncated } = thinSlots(free, hostTimezone);
+  const { slots, truncated } = capPerDay(free, hostTimezone);
 
   const durationMs = args.durationMinutes * MINUTE_MS;
   return {

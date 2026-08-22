@@ -220,22 +220,67 @@ export function BookingClient({ token }: { token: string }) {
     [token, zone, load],
   );
 
-  /** Slots grouped by the candidate's local day, so headings match their week. */
-  const byDay = useMemo(() => {
+  /**
+   * Slots grouped by the candidate's LOCAL day.
+   *
+   * Grouped in the candidate's own zone, not the host's: a 09:00 Karachi slot
+   * is the previous evening in Los Angeles, and filing it under the host's
+   * date would put a Tuesday time under a Wednesday heading.
+   */
+  const days = useMemo(() => {
     if (state.kind !== "open") return [];
     const groups = new Map<string, Slot[]>();
     for (const slot of state.slots) {
+      // Sortable key so days come out in order regardless of locale wording.
       const key = fmt(slot.startIso, zone, {
-        weekday: "long",
-        day: "numeric",
-        month: "long",
+        year: "numeric",
+        month: "2-digit",
+        day: "2-digit",
         hour: undefined,
         minute: undefined,
       });
       groups.set(key, [...(groups.get(key) ?? []), slot]);
     }
-    return [...groups.entries()];
+    return (
+      [...groups.entries()]
+        // A group only exists because a slot was pushed into it, so `slots` is
+        // never empty — but the key is already a sortable yyyy-mm-dd, so sorting
+        // on it needs no lookup into the array at all.
+        .sort((a, b) => a[0].localeCompare(b[0]))
+        .map(([key, slots]) => ({ key, slots, first: slots[0] }))
+    );
   }, [state, zone]);
+
+  // The first day with anything on it. Re-derived when the zone changes, since
+  // a zone change can move slots across a date boundary.
+  const [activeDay, setActiveDay] = useState<string | null>(null);
+  const selected = days.find((d) => d.key === activeDay) ?? days[0] ?? null;
+
+  /**
+   * Every slot for the selected day, split by part of day.
+   *
+   * ── Sections, not a sample ───────────────────────────────────
+   *
+   * All of them are here. 32 times at 15 minutes is a lot to scan as one
+   * undifferentiated block, so they are sectioned into Morning / Afternoon /
+   * Evening — which is how a person thinks about a day anyway, and how they
+   * narrow it. Nothing is hidden and nothing is dropped; the headings just give
+   * the eye somewhere to land.
+   */
+  const sections = useMemo(() => {
+    if (!selected) return [];
+    const buckets: { label: string; slots: Slot[] }[] = [
+      { label: "Morning", slots: [] },
+      { label: "Afternoon", slots: [] },
+      { label: "Evening", slots: [] },
+    ];
+    for (const slot of selected.slots) {
+      const hour = Number(fmt(slot.startIso, zone, { minute: undefined }).slice(0, 2));
+      const bucket = hour < 12 ? buckets[0] : hour < 17 ? buckets[1] : buckets[2];
+      bucket?.slots.push(slot);
+    }
+    return buckets.filter((b) => b.slots.length > 0);
+  }, [selected, zone]);
 
   return (
     <main className="min-h-screen bg-remotiv-bg px-4 py-10 font-sans">
@@ -387,32 +432,100 @@ export function BookingClient({ token }: { token: string }) {
                 </p>
               </div>
             ) : (
-              <div className="flex flex-col gap-4">
-                {byDay.map(([day, slots]) => (
-                  <div key={day} className={CARD}>
-                    <p className="mb-3 font-heading text-sm font-bold text-gray-900">{day}</p>
-                    <div className="flex flex-wrap gap-2">
-                      {slots.map((slot) => (
-                        <button
-                          key={slot.startIso}
-                          type="button"
-                          disabled={confirming !== null}
-                          onClick={() => confirm(slot)}
-                          className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:opacity-50"
-                        >
-                          {confirming === slot.startIso ? "Booking…" : fmt(slot.startIso, zone)}
-                        </button>
-                      ))}
-                    </div>
+              <div className={CARD}>
+                {/*
+                  ONE DAY AT A TIME.
+
+                  The old page rendered every day at once, which is why the
+                  offer had to be sampled down to 40 and ended up showing
+                  09:00, 11:00, 13:00 on a completely free diary. A candidate
+                  does not compare fourteen days simultaneously — they pick a
+                  day, then a time. Choosing the day first means the times
+                  below can be ALL of them.
+                */}
+                <div
+                  className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-2"
+                  role="tablist"
+                  aria-label="Choose a day"
+                >
+                  {days.map((day) => {
+                    const first = day.first?.startIso;
+                    const active = selected?.key === day.key;
+                    if (!first) return null;
+                    return (
+                      <button
+                        key={day.key}
+                        type="button"
+                        role="tab"
+                        aria-selected={active}
+                        onClick={() => setActiveDay(day.key)}
+                        className={`shrink-0 rounded-xl border px-3.5 py-2 text-center transition-colors ${
+                          active
+                            ? "border-remotiv-purple bg-remotiv-purple text-white"
+                            : "border-gray-200 text-gray-700 hover:border-remotiv-purple"
+                        }`}
+                      >
+                        <span className="block text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                          {fmt(first, zone, {
+                            weekday: "short",
+                            hour: undefined,
+                            minute: undefined,
+                          })}
+                        </span>
+                        <span className="block text-sm font-bold">
+                          {fmt(first, zone, {
+                            day: "numeric",
+                            month: "short",
+                            hour: undefined,
+                            minute: undefined,
+                          })}
+                        </span>
+                        {/* The count is the honest signal that a day is busy —
+                            previously every day looked equally sparse. */}
+                        <span className="block text-[11px] opacity-70">
+                          {day.slots.length} {day.slots.length === 1 ? "time" : "times"}
+                        </span>
+                      </button>
+                    );
+                  })}
+                </div>
+
+                {selected && (
+                  <div className="flex flex-col gap-4">
+                    {sections.map((section) => (
+                      <div key={section.label}>
+                        {/* Only labelled when there is more than one section —
+                            a single "Morning" heading over four buttons is
+                            furniture, not information. */}
+                        {sections.length > 1 && (
+                          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                            {section.label}
+                          </p>
+                        )}
+                        <div className="flex flex-wrap gap-2">
+                          {section.slots.map((slot) => (
+                            <button
+                              key={slot.startIso}
+                              type="button"
+                              disabled={confirming !== null}
+                              onClick={() => confirm(slot)}
+                              className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold tabular-nums text-gray-700 transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:opacity-50"
+                            >
+                              {confirming === slot.startIso ? "Booking…" : fmt(slot.startIso, zone)}
+                            </button>
+                          ))}
+                        </div>
+                      </div>
+                    ))}
                   </div>
-                ))}
+                )}
               </div>
             )}
 
             {state.truncated && state.slots.length > 0 && (
               <p className="mt-4 text-xs leading-relaxed text-gray-400">
-                A selection of times across the next two weeks. If none work, reply to your email
-                and we'll find another.
+                This day has more free times than we can list. If none of these work, reply to your
+                email and we'll find another.
               </p>
             )}
           </>
