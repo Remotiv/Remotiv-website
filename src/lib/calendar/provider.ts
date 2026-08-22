@@ -139,6 +139,32 @@ export interface CalendarProvider {
   createEvent?(accessToken: string, draft: EventDraft): Promise<CreatedEvent>;
 
   /**
+   * MOVE an existing event. Not delete-and-recreate.
+   *
+   * Patching preserves the event id and, critically, the conferencing link —
+   * so a candidate who already saved the Meet URL keeps a working one, and
+   * neither side receives a cancellation followed by a fresh invitation for
+   * what is, to them, the same interview being moved.
+   */
+  updateEventTime?(
+    accessToken: string,
+    args: { calendarId: string; eventId: string; startMs: number; endMs: number; timeZone: string },
+  ): Promise<void>;
+
+  /**
+   * Remove an event.
+   *
+   * Returns true when the event is gone — INCLUDING when the provider says it
+   * was already deleted, which is the desired end state reached early. Returns
+   * false when we could not tell; it must NOT throw, because a cancellation
+   * has to complete on our side either way.
+   */
+  deleteEvent?(
+    accessToken: string,
+    args: { calendarId: string; eventId: string },
+  ): Promise<boolean>;
+
+  /**
    * Invalidate the grant at the provider.
    *
    * Returns true when the grant is gone — INCLUDING when the provider says the

@@ -4,7 +4,16 @@ import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import { normaliseInterviewDuration } from "@/app/ai-dashboard/lib/job-types";
-import { BOOKING_EXPIRY_DAYS, bookingUrl, mintBookingToken } from "@/lib/calendar/bookings";
+import {
+  BOOKING_EXPIRY_DAYS,
+  type BookingRow,
+  bookingUrl,
+  canCancel,
+  cancelBooking,
+  canReschedule,
+  mintBookingToken,
+} from "@/lib/calendar/bookings";
+import { sendCancellationNotices } from "@/lib/calendar/notify";
 import "@/lib/calendar/google";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { escapeHtml } from "@/lib/email/candidate/render";
@@ -266,4 +275,133 @@ export async function sendBookingLink(
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: { expiresAt } };
+}
+
+/* ──────────────── the recruiter's side of session 3 ─────────── */
+
+export type BookingPanel = {
+  status: string;
+  scheduledStart: string | null;
+  hostTimezone: string | null;
+  candidateTimezone: string | null;
+  meetingUrl: string | null;
+  durationMinutes: number;
+  canReschedule: boolean;
+  canCancel: boolean;
+  cancelledBy: string | null;
+  cancelReason: string | null;
+} | null;
+
+/** What the drawer needs to render the booking. Never a token. */
+export async function fetchBookingPanel(applicationId: string): Promise<BookingPanel> {
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  const { data } = await service
+    .from("interview_bookings")
+    .select(
+      "status, scheduled_start, host_timezone, candidate_timezone, meeting_url, duration_minutes, cancelled_by, cancel_reason, company_id, job_id, host_member_id, id, application_id, scheduled_end, meeting_mode, provider_event_id, provider, expires_at, cancelled_at",
+    )
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId)
+    .in("status", ["invited", "booked", "cancelled"])
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+
+  const row = data as BookingRow | null;
+  if (!row) return null;
+  if (!(await canAccessJob(ctx, row.job_id))) return null;
+
+  return {
+    status: row.status,
+    scheduledStart: row.scheduled_start,
+    hostTimezone: row.host_timezone,
+    candidateTimezone: row.candidate_timezone,
+    meetingUrl: row.meeting_url,
+    durationMinutes: row.duration_minutes,
+    // Server-decided, exactly as on the candidate's page.
+    canReschedule: canReschedule(row),
+    canCancel: canCancel(row),
+    cancelledBy: row.cancelled_by,
+    cancelReason: row.cancel_reason,
+  };
+}
+
+/**
+ * Cancel from the drawer.
+ *
+ * The recruiter cannot pick a new time here — a reschedule is the CANDIDATE's
+ * choice of slot, and a recruiter silently moving someone into a time they
+ * never agreed to is not a reschedule, it is a new appointment. What the
+ * recruiter can do is cancel and send a fresh link, which is two deliberate
+ * acts rather than one invisible one.
+ */
+export async function cancelBookingAsRecruiter(
+  applicationId: string,
+  reason?: string,
+): Promise<MutationResult<{ removedFromCalendar: boolean }>> {
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  const { data } = await service
+    .from("interview_bookings")
+    .select(
+      "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, cancelled_by, cancel_reason",
+    )
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId)
+    .eq("status", "booked")
+    .maybeSingle();
+
+  const row = data as BookingRow | null;
+  if (!row) return { success: false, error: "There's no booked interview to cancel." };
+  if (!(await canAccessJob(ctx, row.job_id))) return { success: false, error: NOT_YOURS };
+  if (!canCancel(row)) {
+    return { success: false, error: "This interview has already started or passed." };
+  }
+
+  const cancelled = await cancelBooking({ row, cancelledBy: "recruiter", reason: reason ?? null });
+  if (!cancelled.ok) {
+    return { success: false, error: "Could not cancel. Try again." };
+  }
+
+  const { data: appRow } = await service
+    .from("job_applications")
+    .select("first_name, last_name, email, jobs(title)")
+    .eq("id", applicationId)
+    .maybeSingle();
+  const app = appRow as {
+    first_name: string | null;
+    last_name: string | null;
+    email: string | null;
+    jobs?: { title: string | null } | null;
+  } | null;
+
+  const { data: memberRow } = await service
+    .from("company_members")
+    .select("name, email")
+    .eq("id", row.host_member_id)
+    .maybeSingle();
+  const host = memberRow as { name: string | null; email: string | null } | null;
+
+  await sendCancellationNotices({
+    row: cancelled.row,
+    startMs: Date.parse(row.scheduled_start ?? ""),
+    cancelledBy: "recruiter",
+    reason: cancelled.row.cancel_reason,
+    removedFromCalendar: cancelled.removedFromCalendar,
+    hostTimezone: row.host_timezone ?? "UTC",
+    candidateTimezone: row.candidate_timezone ?? row.host_timezone ?? "UTC",
+    candidateEmail: app?.email ?? null,
+    candidateName: [app?.first_name, app?.last_name].filter(Boolean).join(" ").trim() || "there",
+    hostEmail: host?.email ?? null,
+    hostName: host?.name ?? ctx.memberName,
+    jobTitle: app?.jobs?.title ?? "Interview",
+    companyName: ctx.company.name,
+    meetingUrl: null,
+  });
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: { removedFromCalendar: cancelled.removedFromCalendar } };
 }

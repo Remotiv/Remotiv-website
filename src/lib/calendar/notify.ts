@@ -3,7 +3,7 @@ import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver"
 import { escapeHtml } from "@/lib/email/candidate/render";
 import { sendEmail } from "@/lib/email/send";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { BookingRow } from "./bookings";
+import type { BookingActor, BookingRow } from "./bookings";
 import { formatInZone, zoneAbbreviation } from "./timezone";
 
 /**
@@ -38,6 +38,28 @@ import { formatInZone, zoneAbbreviation } from "./timezone";
  * message_templates_event_check, which WOULD reject it.
  */
 const BOOKING_EVENT = "booking_confirmed" as const;
+
+/**
+ * Shared shape for all four of the reschedule/cancel emails.
+ *
+ * `timesDiffer` is computed once from the RENDERED blocks and threaded through
+ * every one of them, so the same-timezone suppression that fixed the
+ * confirmation email applies identically here. A recruiter and candidate in
+ * one zone never see "09:45 … that's 09:45 for them" on any message.
+ */
+type NoticeArgs = {
+  row: BookingRow;
+  startMs: number;
+  hostTimezone: string;
+  candidateTimezone: string;
+  candidateEmail: string | null;
+  candidateName: string;
+  hostEmail: string | null;
+  hostName: string;
+  jobTitle: string;
+  companyName: string;
+  meetingUrl: string | null;
+};
 
 function timeBlock(ms: number, zone: string): string {
   return `${formatInZone(ms, zone)} (${zoneAbbreviation(ms, zone)})`;
@@ -163,5 +185,164 @@ export async function sendBookingConfirmations(args: {
     } catch (err) {
       console.error("[booking] host confirmation failed to send:", err);
     }
+  }
+}
+
+/* ─────────────────── reschedule and cancel ─────────────────── */
+
+/**
+ * Both sides, when a booking MOVES.
+ *
+ * Says the new time first and the old one second — the reader's question is
+ * "when is it now", and leading with what changed rather than what it changed
+ * from answers it in the first line.
+ *
+ * The Meet link is repeated deliberately. It survives a reschedule because the
+ * event is patched rather than recreated, and saying so pre-empts the obvious
+ * worry that the old link is now dead.
+ */
+export async function sendRescheduleNotices(
+  args: NoticeArgs & { previousStartMs: number; movedBy: BookingActor },
+): Promise<void> {
+  const service = createServiceClient();
+  const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
+  const hostTime = timeBlock(args.startMs, args.hostTimezone);
+  const timesDiffer = hostTime !== candidateTime;
+  const duration = args.row.duration_minutes;
+
+  const joinLine = args.meetingUrl
+    ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p><p style="margin:0;color:#847E8C;font-size:13px;">Same link as before — nothing to re-save.</p>`
+    : `<p style="margin:16px 0;color:#4A4550;">Your interviewer will send joining details separately.</p>`;
+
+  const movedByThem = args.movedBy === "recruiter";
+
+  /* ── Candidate ───────────────────────────────────────────── */
+  if (args.candidateEmail) {
+    const body = `
+      <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
+      <p style="margin:0 0 12px;color:#4A4550;">
+        ${movedByThem ? `${escapeHtml(args.hostName || "Your interviewer")} moved your` : "You moved your"}
+        ${escapeHtml(args.jobTitle)} interview.
+      </p>
+      <p style="margin:0 0 4px;color:#17131F;font-weight:700;">${escapeHtml(candidateTime)}</p>
+      <p style="margin:0 0 12px;color:#847E8C;font-size:13px;">
+        ${duration} minutes${timesDiffer ? ` · that's ${escapeHtml(hostTime)} for ${escapeHtml(args.hostName || "your interviewer")}` : ""}
+        <br>Previously ${escapeHtml(timeBlock(args.previousStartMs, args.candidateTimezone))}
+      </p>
+      ${joinLine}`;
+    await deliverBooking(service, args, `Interview moved — ${args.jobTitle}`, body);
+  }
+
+  /* ── Host ────────────────────────────────────────────────── */
+  if (args.hostEmail) {
+    const body = `
+      <p>Hi ${escapeHtml(args.hostName || "there")},</p>
+      <p>${movedByThem ? "You moved" : `<strong>${escapeHtml(args.candidateName)}</strong> moved their`}
+      ${escapeHtml(args.jobTitle)} interview.</p>
+      <p><strong>${escapeHtml(hostTime)}</strong><br>
+      <span style="color:#847E8C;font-size:13px;">${duration} minutes${timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""}
+      <br>Previously ${escapeHtml(timeBlock(args.previousStartMs, args.hostTimezone))}</span></p>
+      ${joinLine}
+      <p style="color:#847E8C;font-size:13px;">Your calendar has been updated.</p>`;
+    await sendHostEmail(args.hostEmail, `Interview moved — ${args.jobTitle}`, body);
+  }
+}
+
+/**
+ * Both sides, when a booking is CANCELLED.
+ *
+ * The reason is included only when one was given — it is optional by design,
+ * and "Reason: (none)" reads as an accusation about a field somebody chose not
+ * to fill in.
+ *
+ * When the calendar entry could not be removed, the HOST is told so and asked
+ * to delete it. The candidate is not: the stale entry is not in their diary,
+ * and it is not their problem to solve.
+ */
+export async function sendCancellationNotices(
+  args: NoticeArgs & {
+    cancelledBy: BookingActor;
+    reason: string | null;
+    removedFromCalendar: boolean;
+  },
+): Promise<void> {
+  const service = createServiceClient();
+  const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
+  const hostTime = timeBlock(args.startMs, args.hostTimezone);
+  const timesDiffer = hostTime !== candidateTime;
+  const cancelledByThem = args.cancelledBy === "recruiter";
+  const reasonLine = args.reason
+    ? `<p style="margin:12px 0;color:#4A4550;">Reason given: ${escapeHtml(args.reason)}</p>`
+    : "";
+
+  /* ── Candidate ───────────────────────────────────────────── */
+  if (args.candidateEmail) {
+    const body = `
+      <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
+      <p style="margin:0 0 12px;color:#4A4550;">
+        ${cancelledByThem ? `${escapeHtml(args.hostName || "Your interviewer")} cancelled your` : "You cancelled your"}
+        ${escapeHtml(args.jobTitle)} interview${escapeHtml(args.companyName ? ` at ${args.companyName}` : "")}.
+      </p>
+      <p style="margin:0 0 4px;color:#847E8C;text-decoration:line-through;">${escapeHtml(candidateTime)}</p>
+      ${reasonLine}
+      <p style="margin:16px 0 0;color:#4A4550;">
+        ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Reply to this email if you'd like to arrange another time."}
+      </p>`;
+    await deliverBooking(service, args, `Interview cancelled — ${args.jobTitle}`, body);
+  }
+
+  /* ── Host ────────────────────────────────────────────────── */
+  if (args.hostEmail) {
+    const body = `
+      <p>Hi ${escapeHtml(args.hostName || "there")},</p>
+      <p>${cancelledByThem ? "You cancelled" : `<strong>${escapeHtml(args.candidateName)}</strong> cancelled their`}
+      ${escapeHtml(args.jobTitle)} interview.</p>
+      <p style="color:#847E8C;text-decoration:line-through;">${escapeHtml(hostTime)}${timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""}</p>
+      ${reasonLine}
+      <p style="color:#847E8C;font-size:13px;">${
+        args.removedFromCalendar
+          ? "It's been removed from your calendar."
+          : "We couldn't confirm its removal from your calendar — please delete the entry yourself."
+      }</p>`;
+    await sendHostEmail(args.hostEmail, `Interview cancelled — ${args.jobTitle}`, body);
+  }
+}
+
+/** Candidate mail, through the logged/capped/unsubscribable path. */
+async function deliverBooking(
+  service: ReturnType<typeof createServiceClient>,
+  args: NoticeArgs,
+  subject: string,
+  body: string,
+): Promise<void> {
+  if (!args.candidateEmail) return;
+  try {
+    const outcome = await deliverEmail(service, {
+      companyId: args.row.company_id,
+      applicationId: args.row.application_id,
+      event: BOOKING_EVENT,
+      to: args.candidateEmail,
+      subject,
+      html: buildCandidateHtml(body, args.companyName, args.row.company_id, args.candidateEmail),
+      companyName: args.companyName,
+      replyTo: null,
+    });
+    if (!outcome.ok) {
+      console.error(`[booking] candidate notice NOT sent (${outcome.kind}): ${outcome.message}`);
+    }
+  } catch (err) {
+    // The booking change is already real. A failed notification must not
+    // unwind it.
+    console.error("[booking] candidate notice failed to send:", err);
+  }
+}
+
+/** Host mail, plain sender — a recruiter must not be able to unsubscribe from
+ *  their own diary. */
+async function sendHostEmail(to: string, subject: string, html: string): Promise<void> {
+  try {
+    await sendEmail({ to, subject, html });
+  } catch (err) {
+    console.error("[booking] host notice failed to send:", err);
   }
 }

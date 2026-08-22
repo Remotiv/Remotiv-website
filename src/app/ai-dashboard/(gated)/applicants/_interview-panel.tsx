@@ -4,7 +4,12 @@ import { CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react"
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
-import { sendBookingLink } from "./booking-actions";
+import {
+  type BookingPanel,
+  cancelBookingAsRecruiter,
+  fetchBookingPanel,
+  sendBookingLink,
+} from "./booking-actions";
 import { fetchInterviewPanel, sendInterviewInvite } from "./interview-actions";
 import type { InterviewPanelState } from "./interview-types";
 
@@ -120,6 +125,56 @@ export function InterviewPanel({
    * meeting in the recruiter's diary. A team may use either, both in sequence,
    * or neither, so one must not be presented as the other's replacement.
    */
+  /** The booking, if there is one. Read alongside the interview panel. */
+  const [booking, setBooking] = useState<BookingPanel>(null);
+  const [cancelling, setCancelling] = useState(false);
+  const [cancelReason, setCancelReason] = useState("");
+
+  const loadBooking = useCallback(async () => {
+    try {
+      setBooking(await fetchBookingPanel(applicationId));
+    } catch (err) {
+      console.error("[applicants] fetchBookingPanel threw:", err);
+    }
+  }, [applicationId]);
+
+  useEffect(() => {
+    void loadBooking();
+  }, [loadBooking]);
+
+  /**
+   * Cancel from the recruiter's side.
+   *
+   * There is no "reschedule" button here on purpose — see the note on
+   * cancelBookingAsRecruiter. Moving someone into a time they never chose is
+   * not a reschedule.
+   */
+  async function handleCancelBooking() {
+    setBusy(true);
+    setError(null);
+    let result: Awaited<ReturnType<typeof cancelBookingAsRecruiter>>;
+    try {
+      result = await cancelBookingAsRecruiter(applicationId, cancelReason.trim() || undefined);
+    } catch (err) {
+      console.error("[applicants] cancelBookingAsRecruiter threw:", err);
+      result = { success: false, error: "Couldn't cancel — please try again." };
+    }
+    setBusy(false);
+    setCancelling(false);
+    setCancelReason("");
+
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    onToast(
+      result.data.removedFromCalendar
+        ? "Interview cancelled"
+        : "Cancelled — remove it from your calendar too",
+    );
+    await loadBooking();
+  }
+
   async function handleSendBooking() {
     setBusy(true);
     setError(null);
@@ -249,6 +304,82 @@ export function InterviewPanel({
           <Video className="size-[15px]" strokeWidth={1.9} />
           {busy ? "Sending…" : session ? "Send a new link" : "Send video interview"}
         </button>
+      )}
+
+      {booking?.status === "booked" && booking.scheduledStart && (
+        <div className="rounded-xl border border-[var(--ai-line)] px-3.5 py-3">
+          <p className="m-0 text-[13px] font-bold text-[var(--ai-t1)]">
+            {new Intl.DateTimeFormat("en-GB", {
+              timeZone: booking.hostTimezone ?? "UTC",
+              weekday: "short",
+              day: "numeric",
+              month: "short",
+              hour: "2-digit",
+              minute: "2-digit",
+              hour12: false,
+            }).format(new Date(booking.scheduledStart))}
+          </p>
+          <p className="m-0 mt-0.5 text-[11.5px] text-[var(--ai-t3)]">
+            {booking.durationMinutes} minutes
+            {booking.hostTimezone ? ` · ${booking.hostTimezone}` : ""}
+          </p>
+          {booking.meetingUrl && (
+            <a
+              href={booking.meetingUrl}
+              className="mt-2 inline-block text-[12.5px] font-semibold text-remotiv-purple underline underline-offset-2"
+            >
+              Join link
+            </a>
+          )}
+
+          {cancelling ? (
+            <div className="mt-3">
+              <input
+                type="text"
+                value={cancelReason}
+                maxLength={500}
+                onChange={(e) => setCancelReason(e.target.value)}
+                placeholder="Reason (optional)"
+                className="mb-2 w-full rounded-[10px] border border-[var(--ai-line-strong)] px-2.5 py-2 text-[12.5px] outline-none focus:border-remotiv-purple"
+              />
+              <div className="flex flex-wrap gap-2">
+                <button
+                  type="button"
+                  disabled={busy}
+                  onClick={() => void handleCancelBooking()}
+                  className="rounded-[10px] bg-[#E0524B] px-3 py-1.5 text-[12.5px] font-bold text-white disabled:opacity-50"
+                >
+                  {busy ? "Cancelling…" : "Cancel interview"}
+                </button>
+                <button
+                  type="button"
+                  onClick={() => setCancelling(false)}
+                  className="rounded-[10px] px-3 py-1.5 text-[12.5px] font-semibold text-[var(--ai-t3)]"
+                >
+                  Keep it
+                </button>
+              </div>
+            </div>
+          ) : (
+            booking.canCancel && (
+              <button
+                type="button"
+                onClick={() => setCancelling(true)}
+                className="mt-2 block text-[12.5px] font-semibold text-[var(--ai-t3)] hover:text-[#E0524B]"
+              >
+                Cancel interview
+              </button>
+            )
+          )}
+        </div>
+      )}
+
+      {booking?.status === "cancelled" && (
+        <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          Interview cancelled
+          {booking.cancelledBy === "candidate" ? " by the candidate" : ""}
+          {booking.cancelReason ? ` — "${booking.cancelReason}"` : "."}
+        </p>
       )}
 
       <button

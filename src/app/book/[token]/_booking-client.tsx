@@ -1,6 +1,6 @@
 "use client";
 
-import { AlertTriangle, Calendar, Check, Clock, Globe, Video } from "lucide-react";
+import { AlertTriangle, Calendar, Check, Clock, Globe, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
 
 /**
@@ -54,6 +54,21 @@ type State =
       companyName: string;
       hostName: string;
       durationMinutes: number;
+      /* Both decided server-side. They are NOT the same question: cancel stays
+         open after reschedule closes. */
+      canReschedule: boolean;
+      canCancel: boolean;
+      /** Present when a move is still allowed; drives the same picker. */
+      slots: Slot[];
+    }
+  | {
+      kind: "cancelled";
+      scheduledStart: string | null;
+      cancelledBy: string | null;
+      cancelReason: string | null;
+      jobTitle: string;
+      companyName: string;
+      hostName: string;
     };
 
 /**
@@ -162,6 +177,13 @@ const ERROR_COPY: Record<string, string> = {
   expired: "This booking link has expired. Reply to the email and we'll send a new one.",
   cancelled: "This interview was cancelled. Reply to the email if that's unexpected.",
   slot_taken: "That time was just taken. Pick another below.",
+  too_late_to_move:
+    "This interview is less than 24 hours away, so it can't be moved now — but you can still cancel it.",
+  too_late_to_cancel: "This interview has already started.",
+  already_cancelled: "This interview is already cancelled.",
+  not_booked: "This interview isn't booked, so there's nothing to change.",
+  provider_failed:
+    "We couldn't move it in the interviewer's calendar, so nothing was changed. Try again in a moment.",
   already_booked: "This interview is already booked.",
   bad_timezone: "That timezone wasn't recognised. Pick one from the list.",
   calendar_failed: "We couldn't put that on the interviewer's calendar. Try another time.",
@@ -174,6 +196,10 @@ export function BookingClient({ token }: { token: string }) {
   const [state, setState] = useState<State>({ kind: "loading" });
   const [confirming, setConfirming] = useState<string | null>(null);
   const [notice, setNotice] = useState<string | null>(null);
+  /** null = just viewing. "reschedule" opens the picker, "cancel" the prompt. */
+  const [mode, setMode] = useState<"reschedule" | "cancel" | null>(null);
+  const [reason, setReason] = useState("");
+  const [busy, setBusy] = useState(false);
 
   // Detection runs in an effect, not during render: the server has no zone and
   // rendering one there would produce a hydration mismatch on every visit.
@@ -237,7 +263,68 @@ export function BookingClient({ token }: { token: string }) {
           companyName: prev.kind === "open" ? prev.companyName : "",
           hostName: prev.kind === "open" ? prev.hostName : "",
           durationMinutes: prev.kind === "open" ? prev.durationMinutes : 30,
+          // Straight from the server's answer, never inferred here.
+          canReschedule: body.canReschedule === true,
+          canCancel: body.canCancel === true,
+          // The confirm response carries no slot list; the next load() does.
+          slots: [],
         }));
+      } catch {
+        setNotice(ERROR_COPY.network);
+      } finally {
+        setConfirming(null);
+      }
+    },
+    [token, zone, load],
+  );
+
+  /** Cancel, with an optional reason. Reloads so the page shows the outcome. */
+  const cancelBooking = useCallback(async () => {
+    setBusy(true);
+    setNotice(null);
+    try {
+      const res = await fetch(`/api/book/${token}`, {
+        method: "DELETE",
+        headers: { "content-type": "application/json" },
+        body: JSON.stringify({ reason: reason.trim() || undefined }),
+      });
+      const body = await res.json().catch(() => null);
+      if (!res.ok) {
+        setNotice(ERROR_COPY[body?.error] ?? ERROR_COPY.network);
+        return;
+      }
+      setMode(null);
+      await load();
+    } catch {
+      setNotice(ERROR_COPY.network);
+    } finally {
+      setBusy(false);
+    }
+  }, [token, reason, load]);
+
+  /** Move to a slot the candidate picked while in reschedule mode. */
+  const rescheduleTo = useCallback(
+    async (slot: Slot) => {
+      setConfirming(slot.startIso);
+      setNotice(null);
+      try {
+        const res = await fetch(`/api/book/${token}`, {
+          method: "PATCH",
+          headers: { "content-type": "application/json" },
+          body: JSON.stringify({ startIso: slot.startIso, timezone: zone }),
+        });
+        const body = await res.json().catch(() => null);
+        if (!res.ok) {
+          setNotice(ERROR_COPY[body?.error] ?? ERROR_COPY.network);
+          // A lost race or a closed window both mean the offer is stale.
+          if (body?.error === "slot_taken" || body?.error === "too_late_to_move") {
+            setMode(null);
+            await load();
+          }
+          return;
+        }
+        setMode(null);
+        await load();
       } catch {
         setNotice(ERROR_COPY.network);
       } finally {
@@ -255,9 +342,16 @@ export function BookingClient({ token }: { token: string }) {
    * date would put a Tuesday time under a Wednesday heading.
    */
   const days = useMemo(() => {
-    if (state.kind !== "open") return [];
+    /*
+     * One source, two entry points. An "open" booking is choosing its first
+     * time; a "booked" one in reschedule mode is choosing a replacement. Same
+     * slots, same grouping, same buttons — so the two paths cannot drift into
+     * looking or behaving differently.
+     */
+    const source = state.kind === "open" ? state.slots : state.kind === "booked" ? state.slots : [];
+    if (source.length === 0) return [];
     const groups = new Map<string, Slot[]>();
-    for (const slot of state.slots) {
+    for (const slot of source) {
       groups.set(dayKey(slot.startIso, zone), [
         ...(groups.get(dayKey(slot.startIso, zone)) ?? []),
         slot,
@@ -405,6 +499,159 @@ export function BookingClient({ token }: { token: string }) {
               A confirmation is on its way to your inbox, and it's in{" "}
               {state.hostName || "your interviewer"}'s calendar.
             </p>
+
+            <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-5">
+              {state.canReschedule && (
+                <button
+                  type="button"
+                  onClick={() => setMode("reschedule")}
+                  className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:border-remotiv-purple hover:text-remotiv-purple"
+                >
+                  Change the time
+                </button>
+              )}
+              {state.canCancel && (
+                <button
+                  type="button"
+                  onClick={() => setMode("cancel")}
+                  className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-500 transition-colors hover:text-[#E0524B]"
+                >
+                  Cancel interview
+                </button>
+              )}
+            </div>
+
+            {/*
+              THE BLOCKED-RESCHEDULE MESSAGE.
+
+              Shown only when moving has closed but cancelling has not — the one
+              state where the two rules diverge, and the one most likely to read
+              as an arbitrary refusal.
+
+              It leads with what they CAN do. "You can no longer move this" as an
+              opening clause is a door closing; the same fact after "it's less
+              than 24 hours away" is a reason, and putting the cancel option in
+              the same breath means the sentence ends with an action rather than
+              a wall. It also says what to do if they need a different time,
+              because that is the actual want behind pressing Change.
+            */}
+            {!state.canReschedule && state.canCancel && (
+              <p className="mt-3 text-xs leading-relaxed text-gray-400">
+                This interview is less than 24 hours away, so the time is now fixed. You can still
+                cancel it if you can't make it — and if you need a different time, cancel and reply
+                to your email, and {state.hostName || "your interviewer"} will send a new
+                invitation.
+              </p>
+            )}
+
+            {mode === "reschedule" && (
+              <div className="mt-4 border-t border-gray-100 pt-4">
+                <div className="mb-3 flex flex-wrap items-baseline justify-between gap-2">
+                  <p className="m-0 text-[13px] font-semibold text-gray-700">
+                    Pick a new time — your joining link stays the same.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={() => setMode(null)}
+                    className="text-[13px] font-semibold text-gray-400 hover:text-gray-700"
+                  >
+                    Keep the current time
+                  </button>
+                </div>
+                {days.length === 0 ? (
+                  <p className="m-0 text-sm text-gray-500">
+                    No other times are free in the next two weeks. Reply to your email and{" "}
+                    {state.hostName || "your interviewer"} will find one with you.
+                  </p>
+                ) : (
+                  <SlotPicker
+                    days={days}
+                    selected={selected}
+                    sections={sections}
+                    zone={zone}
+                    confirming={confirming}
+                    onSelectDay={setActiveDay}
+                    onPick={(slot) => void rescheduleTo(slot)}
+                  />
+                )}
+              </div>
+            )}
+
+            {mode === "cancel" && (
+              <div className="mt-4 rounded-2xl border border-gray-200 p-4">
+                <label
+                  htmlFor="cancel-reason"
+                  className="mb-2 block text-[13px] font-semibold text-gray-700"
+                >
+                  Cancel this interview?
+                </label>
+                {/*
+                  OPTIONAL, and labelled as such. A required reason is how
+                  someone abandons the cancellation and simply doesn't turn up,
+                  which is the outcome this whole screen exists to prevent.
+                */}
+                <input
+                  id="cancel-reason"
+                  type="text"
+                  value={reason}
+                  maxLength={500}
+                  onChange={(e) => setReason(e.target.value)}
+                  placeholder="Reason (optional)"
+                  className="mb-3 w-full rounded-xl border border-gray-200 px-3 py-2.5 text-sm outline-none focus:border-remotiv-purple"
+                />
+                <div className="flex flex-wrap gap-2">
+                  <button
+                    type="button"
+                    disabled={busy}
+                    onClick={() => void cancelBooking()}
+                    className="rounded-xl bg-[#E0524B] px-4 py-2.5 text-sm font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                  >
+                    {busy ? "Cancelling…" : "Yes, cancel it"}
+                  </button>
+                  <button
+                    type="button"
+                    onClick={() => setMode(null)}
+                    className="rounded-xl px-4 py-2.5 text-sm font-semibold text-gray-500"
+                  >
+                    Keep it
+                  </button>
+                </div>
+              </div>
+            )}
+          </div>
+        )}
+
+        {state.kind === "cancelled" && (
+          <div className={CARD}>
+            <span className="mb-4 flex size-11 items-center justify-center rounded-full bg-gray-100">
+              <X className="size-5 text-gray-500" strokeWidth={2.4} />
+            </span>
+            <h1 className="font-heading text-2xl font-bold tracking-tight text-gray-900">
+              Interview cancelled
+            </h1>
+            <p className="mt-2 text-sm text-gray-500">
+              {state.jobTitle}
+              {state.companyName ? ` · ${state.companyName}` : ""}
+            </p>
+            {state.scheduledStart && (
+              <p className="mt-4 text-sm text-gray-400 line-through">
+                {fmt(state.scheduledStart, zone, {
+                  weekday: "long",
+                  day: "numeric",
+                  month: "long",
+                })}
+                {", "}
+                {fmt(state.scheduledStart, zone)}
+              </p>
+            )}
+            {state.cancelReason && (
+              <p className="mt-3 text-sm text-gray-500">Reason given: {state.cancelReason}</p>
+            )}
+            <p className="mt-5 text-sm leading-relaxed text-gray-500">
+              {state.cancelledBy === "recruiter"
+                ? `${state.hostName || "Your interviewer"} will be in touch if there's another time that works.`
+                : "Reply to your email if you'd like to arrange another time."}
+            </p>
           </div>
         )}
 
@@ -474,82 +721,15 @@ export function BookingClient({ token }: { token: string }) {
                   day, then a time. Choosing the day first means the times
                   below can be ALL of them.
                 */}
-                <div
-                  className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-2"
-                  role="tablist"
-                  aria-label="Choose a day"
-                >
-                  {days.map((day) => {
-                    const first = day.first?.startIso;
-                    const active = selected?.key === day.key;
-                    if (!first) return null;
-                    return (
-                      <button
-                        key={day.key}
-                        type="button"
-                        role="tab"
-                        aria-selected={active}
-                        onClick={() => setActiveDay(day.key)}
-                        className={`shrink-0 rounded-xl border px-3.5 py-2 text-center transition-colors ${
-                          active
-                            ? "border-remotiv-purple bg-remotiv-purple text-white"
-                            : "border-gray-200 text-gray-700 hover:border-remotiv-purple"
-                        }`}
-                      >
-                        <span className="block text-[11px] font-semibold uppercase tracking-wide opacity-80">
-                          {fmt(first, zone, {
-                            weekday: "short",
-                            hour: undefined,
-                            minute: undefined,
-                          })}
-                        </span>
-                        <span className="block text-sm font-bold">
-                          {fmt(first, zone, {
-                            day: "numeric",
-                            month: "short",
-                            hour: undefined,
-                            minute: undefined,
-                          })}
-                        </span>
-                        {/* The count is the honest signal that a day is busy —
-                            previously every day looked equally sparse. */}
-                        <span className="block text-[11px] opacity-70">
-                          {day.slots.length} {day.slots.length === 1 ? "time" : "times"}
-                        </span>
-                      </button>
-                    );
-                  })}
-                </div>
-
-                {selected && (
-                  <div className="flex flex-col gap-4">
-                    {sections.map((section) => (
-                      <div key={section.label}>
-                        {/* Only labelled when there is more than one section —
-                            a single "Morning" heading over four buttons is
-                            furniture, not information. */}
-                        {sections.length > 1 && (
-                          <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
-                            {section.label}
-                          </p>
-                        )}
-                        <div className="flex flex-wrap gap-2">
-                          {section.slots.map((slot) => (
-                            <button
-                              key={slot.startIso}
-                              type="button"
-                              disabled={confirming !== null}
-                              onClick={() => confirm(slot)}
-                              className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold tabular-nums text-gray-700 transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:opacity-50"
-                            >
-                              {confirming === slot.startIso ? "Booking…" : fmt(slot.startIso, zone)}
-                            </button>
-                          ))}
-                        </div>
-                      </div>
-                    ))}
-                  </div>
-                )}
+                <SlotPicker
+                  days={days}
+                  selected={selected}
+                  sections={sections}
+                  zone={zone}
+                  confirming={confirming}
+                  onSelectDay={setActiveDay}
+                  onPick={(slot) => void confirm(slot)}
+                />
               </div>
             )}
 
@@ -563,5 +743,114 @@ export function BookingClient({ token }: { token: string }) {
         )}
       </div>
     </main>
+  );
+}
+
+type DayGroup = { key: string; slots: Slot[]; first: Slot | undefined };
+
+/**
+ * The day strip and the day's times.
+ *
+ * Extracted so the FIRST booking and a RESCHEDULE render the identical control.
+ * They are the same choice — which of the interviewer's free times suits you —
+ * and two copies of this markup would have drifted apart the first time either
+ * was touched.
+ */
+function SlotPicker({
+  days,
+  selected,
+  sections,
+  zone,
+  confirming,
+  onSelectDay,
+  onPick,
+}: {
+  days: DayGroup[];
+  selected: DayGroup | null;
+  sections: { label: string; slots: Slot[] }[];
+  zone: string;
+  confirming: string | null;
+  onSelectDay: (key: string) => void;
+  onPick: (slot: Slot) => void;
+}) {
+  return (
+    <>
+      <div
+        className="-mx-1 mb-4 flex gap-2 overflow-x-auto px-1 pb-2"
+        role="tablist"
+        aria-label="Choose a day"
+      >
+        {days.map((day) => {
+          const first = day.first?.startIso;
+          const active = selected?.key === day.key;
+          if (!first) return null;
+          return (
+            <button
+              key={day.key}
+              type="button"
+              role="tab"
+              aria-selected={active}
+              onClick={() => onSelectDay(day.key)}
+              className={`shrink-0 rounded-xl border px-3.5 py-2 text-center transition-colors ${
+                active
+                  ? "border-remotiv-purple bg-remotiv-purple text-white"
+                  : "border-gray-200 text-gray-700 hover:border-remotiv-purple"
+              }`}
+            >
+              <span className="block text-[11px] font-semibold uppercase tracking-wide opacity-80">
+                {fmt(first, zone, {
+                  weekday: "short",
+                  hour: undefined,
+                  minute: undefined,
+                })}
+              </span>
+              <span className="block text-sm font-bold">
+                {fmt(first, zone, {
+                  day: "numeric",
+                  month: "short",
+                  hour: undefined,
+                  minute: undefined,
+                })}
+              </span>
+              {/* The count is the honest signal that a day is busy —
+                            previously every day looked equally sparse. */}
+              <span className="block text-[11px] opacity-70">
+                {day.slots.length} {day.slots.length === 1 ? "time" : "times"}
+              </span>
+            </button>
+          );
+        })}
+      </div>
+
+      {selected && (
+        <div className="flex flex-col gap-4">
+          {sections.map((section) => (
+            <div key={section.label}>
+              {/* Only labelled when there is more than one section —
+                            a single "Morning" heading over four buttons is
+                            furniture, not information. */}
+              {sections.length > 1 && (
+                <p className="mb-2 text-[11px] font-bold uppercase tracking-wide text-gray-400">
+                  {section.label}
+                </p>
+              )}
+              <div className="flex flex-wrap gap-2">
+                {section.slots.map((slot) => (
+                  <button
+                    key={slot.startIso}
+                    type="button"
+                    disabled={confirming !== null}
+                    onClick={() => onPick(slot)}
+                    className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold tabular-nums text-gray-700 transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:opacity-50"
+                  >
+                    {confirming === slot.startIso ? "Booking…" : fmt(slot.startIso, zone)}
+                  </button>
+                ))}
+              </div>
+            </div>
+          ))}
+        </div>
+      )}
+    </>
   );
 }

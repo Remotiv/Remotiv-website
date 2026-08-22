@@ -337,6 +337,55 @@ const google: CalendarProvider = {
   },
 
   /**
+   * PATCH the event's times. Everything else — attendees, description, the
+   * Meet link — is left exactly as it is, because a PATCH only touches what it
+   * names.
+   *
+   * `sendUpdates=all` so both attendees get the calendar's own "this event has
+   * moved" notice, which is the one their calendar app acts on.
+   */
+  async updateEventTime(accessToken, { calendarId, eventId, startMs, endMs, timeZone }) {
+    const res = await fetch(
+      `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+      {
+        method: "PATCH",
+        headers: { authorization: `Bearer ${accessToken}`, "content-type": "application/json" },
+        body: JSON.stringify({
+          start: { dateTime: new Date(startMs).toISOString(), timeZone },
+          end: { dateTime: new Date(endMs).toISOString(), timeZone },
+        }),
+        cache: "no-store",
+      },
+    );
+    if (!res.ok) throw await providerError(res, "Google event move");
+  },
+
+  /**
+   * Delete the event.
+   *
+   * 200/204 is success. So is 404 or 410 — the event is already gone, which is
+   * the state we were asking for, and treating that as a failure would leave a
+   * cancellation permanently stuck. Anything else means we could not tell, and
+   * the caller cancels locally regardless.
+   */
+  async deleteEvent(accessToken, { calendarId, eventId }) {
+    try {
+      const res = await fetch(
+        `${CALENDAR_API}/calendars/${encodeURIComponent(calendarId)}/events/${encodeURIComponent(eventId)}?sendUpdates=all`,
+        {
+          method: "DELETE",
+          headers: { authorization: `Bearer ${accessToken}` },
+          cache: "no-store",
+        },
+      );
+      if (res.ok || res.status === 404 || res.status === 410) return true;
+      return false;
+    } catch {
+      return false;
+    }
+  },
+
+  /**
    * Revoke at Google.
    *
    * 200 is success. So is a 400 naming an invalid token: the grant is already

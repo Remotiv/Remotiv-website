@@ -20,6 +20,46 @@ import { isValidTimeZone } from "./timezone";
 
 export const BOOKING_EXPIRY_DAYS = 14;
 
+/**
+ * Moving needs notice. Cancelling never does.
+ *
+ * ── Why the two rules differ ─────────────────────────────────
+ *
+ * They are not the same act. A late CANCELLATION is information the other side
+ * urgently wants — someone who cannot come should always be able to say so,
+ * and a product that blocks it at the eleventh hour just converts a cancelled
+ * interview into a no-show, which is strictly worse for everybody.
+ *
+ * A late RESCHEDULE is different: it picks a NEW time, and the 24-hour rule
+ * already governs first bookings for the same reason — nobody should be
+ * committed to something tomorrow morning they learned about tonight. Allowing
+ * a move inside the window would let the notice rule be bypassed by booking
+ * far out and then dragging the slot forward.
+ *
+ * So: cancel until the moment it starts; move only with a day's notice.
+ */
+export const RESCHEDULE_NOTICE_MS = 24 * 60 * 60 * 1000;
+
+/** May this booking still be MOVED? */
+export function canReschedule(row: BookingRow, now = Date.now()): boolean {
+  if (row.status !== "booked" || !row.scheduled_start) return false;
+  const start = Date.parse(row.scheduled_start);
+  return Number.isFinite(start) && start - now >= RESCHEDULE_NOTICE_MS;
+}
+
+/** May this booking still be CANCELLED? Right up to the start. */
+export function canCancel(row: BookingRow, now = Date.now()): boolean {
+  if (row.status !== "booked" || !row.scheduled_start) return false;
+  const start = Date.parse(row.scheduled_start);
+  return Number.isFinite(start) && start > now;
+}
+
+/** Longest a stored cancellation reason may be. Optional, never required. */
+export const CANCEL_REASON_MAX = 500;
+
+/** Who acted. Stored on cancelled_by so the emails and the audit agree. */
+export type BookingActor = "candidate" | "recruiter";
+
 export function mintBookingToken(): { rawToken: string; tokenHash: string } {
   const rawToken = randomBytes(32).toString("base64url");
   return { rawToken, tokenHash: hashBookingToken(rawToken) };
@@ -72,10 +112,14 @@ export type BookingRow = {
   provider_event_id: string | null;
   provider: string | null;
   expires_at: string | null;
+  cancelled_at: string | null;
+  /** 'candidate' or 'recruiter' — see BookingActor. */
+  cancelled_by: string | null;
+  cancel_reason: string | null;
 };
 
 const ROW_COLUMNS =
-  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at";
+  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, cancelled_by, cancel_reason";
 
 /** Look a booking up by its RAW token. Hashes before querying — the raw value
  *  never reaches a query predicate. */
@@ -348,6 +392,273 @@ export async function attachCalendarEvent(args: {
     meetingUrl: created.meetingUrl,
     meetingProvider: created.meetingProvider,
     eventId: created.eventId || null,
+  };
+}
+
+/* ─────────────────────── reschedule ────────────────────────── */
+
+export type MoveOutcome =
+  | { ok: true; row: BookingRow; previousStart: string }
+  | {
+      ok: false;
+      reason: "too_late" | "slot_taken" | "not_booked" | "provider_failed" | "write_failed";
+    };
+
+/**
+ * Move an existing booking to a new time. ONE row, ONE history.
+ *
+ * ── Not a cancel plus a new booking ──────────────────────────
+ *
+ * The row keeps its id, its token and its provider_event_id. The application
+ * therefore keeps a single booking with a single history, and the candidate's
+ * original link still works — a link that died on every reschedule would
+ * strand anyone who opened the email again.
+ *
+ * ── What wins when the claim and the provider disagree ───────
+ *
+ * The database moves first, then the provider. If the provider call fails, the
+ * database move is ROLLED BACK to the original time and the caller is told the
+ * move did not happen.
+ *
+ * That direction is deliberate. The provider is the copy both humans can see:
+ * it is in the recruiter's calendar, it sends the notifications, it holds the
+ * Meet link. If the two disagree, the one nobody looks at has to yield. The
+ * alternative — keep the new time locally and let the calendar lag — produces
+ * two parties who each believe a different hour and no way to tell which is
+ * real. A rollback leaves everything exactly as it was and asks them to try
+ * again, which is a state both sides already understand.
+ *
+ * The rollback is a local UPDATE, and local writes are reliable in a way a
+ * remote retry is not. The window where the row holds the new time is the
+ * duration of one HTTP call.
+ */
+export async function rescheduleBooking(args: {
+  row: BookingRow;
+  startMs: number;
+  endMs: number;
+  hostTimezone: string;
+  candidateTimezone?: string | null;
+}): Promise<MoveOutcome> {
+  const service = createServiceClient();
+  const previousStart = args.row.scheduled_start ?? "";
+
+  if (args.row.status !== "booked") return { ok: false, reason: "not_booked" };
+  if (!canReschedule(args.row)) return { ok: false, reason: "too_late" };
+
+  // Same pre-flight as the first booking. Excludes THIS row, which legitimately
+  // occupies its own current time.
+  if (await overlapsExisting(args.row.host_member_id, args.startMs, args.endMs, args.row.id)) {
+    return { ok: false, reason: "slot_taken" };
+  }
+
+  const patch: Record<string, unknown> = {
+    scheduled_start: new Date(args.startMs).toISOString(),
+    scheduled_end: new Date(args.endMs).toISOString(),
+    host_timezone: args.hostTimezone,
+  };
+  // The candidate may have corrected their zone on the way through; only
+  // overwrite when they actually supplied one.
+  if (args.candidateTimezone) patch.candidate_timezone = args.candidateTimezone;
+
+  const { data, error } = await service
+    .from("interview_bookings")
+    .update(patch)
+    .eq("id", args.row.id)
+    // THE GATE, same shape as the original claim: only a row still 'booked'
+    // moves, so two simultaneous reschedules cannot both win.
+    .eq("status", "booked")
+    .eq("scheduled_start", previousStart)
+    .select(ROW_COLUMNS);
+
+  if (error) {
+    // 23P01 is the EXCLUDE constraint — the new slot belongs to someone else.
+    if ((error as { code?: string }).code === "23P01") return { ok: false, reason: "slot_taken" };
+    console.error("[booking] reschedule write failed:", error.message);
+    return { ok: false, reason: "write_failed" };
+  }
+
+  const moved = ((data ?? []) as BookingRow[])[0];
+  // Zero rows means somebody moved or cancelled it between the read and this
+  // write.
+  if (!moved) return { ok: false, reason: "not_booked" };
+
+  const event = await withProviderEvent(moved);
+  if (!event) {
+    /*
+     * No event to move — the booking exists but was never recorded against a
+     * provider event. The times are updated and the caller is told; there is
+     * nothing to roll back to, since the calendar never had it.
+     */
+    console.error("[booking] rescheduled a booking with no provider_event_id:", moved.id);
+    return { ok: true, row: moved, previousStart };
+  }
+
+  try {
+    await event.provider.updateEventTime?.(event.accessToken, {
+      calendarId: event.calendarId,
+      eventId: event.eventId,
+      startMs: args.startMs,
+      endMs: args.endMs,
+      timeZone: args.hostTimezone,
+    });
+  } catch (err) {
+    console.error("[booking] calendar move failed — rolling the row back:", err);
+    const { error: rollbackErr } = await service
+      .from("interview_bookings")
+      .update({
+        scheduled_start: previousStart,
+        scheduled_end: args.row.scheduled_end,
+        host_timezone: args.row.host_timezone,
+        candidate_timezone: args.row.candidate_timezone,
+      })
+      .eq("id", moved.id);
+    if (rollbackErr) {
+      /*
+       * Both the provider move AND the rollback failed. The row now says a time
+       * the calendar does not. Loud, because this is the only path that can
+       * leave the two genuinely out of step and it needs a human.
+       */
+      console.error("[booking] ROLLBACK FAILED — row and calendar disagree:", {
+        bookingId: moved.id,
+        rowSaysStart: patch.scheduled_start,
+        calendarSaysStart: previousStart,
+        error: rollbackErr.message,
+      });
+    }
+    return { ok: false, reason: "provider_failed" };
+  }
+
+  return { ok: true, row: moved, previousStart };
+}
+
+/* ───────────────────────── cancel ──────────────────────────── */
+
+export type CancelOutcome =
+  | { ok: true; row: BookingRow; removedFromCalendar: boolean }
+  | { ok: false; reason: "too_late" | "not_booked" | "write_failed" };
+
+/**
+ * Cancel a booking. Allowed right up to the start.
+ *
+ * ── What a failed provider delete does ───────────────────────
+ *
+ * The cancellation goes through anyway, and the caller is told the calendar
+ * was not confirmed.
+ *
+ * This is the opposite resolution to reschedule, and deliberately so. A
+ * reschedule that half-lands leaves two live-but-different times, so it must
+ * be undone. A cancellation that half-lands leaves ONE stale entry in a diary
+ * — annoying, not ambiguous — while refusing it would trap someone who cannot
+ * attend inside a meeting they have already told us they are not coming to.
+ * The information is what matters, and the emails carry it regardless of what
+ * Google did.
+ *
+ * `removedFromCalendar: false` travels back so both the recruiter's UI and the
+ * emails can say the entry may still be in the diary, rather than claiming a
+ * tidiness we did not achieve. The provider's delete already treats 404/410 as
+ * success, so this only reports a genuine "could not tell".
+ */
+export async function cancelBooking(args: {
+  row: BookingRow;
+  cancelledBy: BookingActor;
+  reason?: string | null;
+}): Promise<CancelOutcome> {
+  const service = createServiceClient();
+
+  if (args.row.status !== "booked") return { ok: false, reason: "not_booked" };
+  if (!canCancel(args.row)) return { ok: false, reason: "too_late" };
+
+  /*
+   * The calendar is cleared FIRST, while the row still names the event.
+   *
+   * If the local write then failed we would have deleted an event for a
+   * booking that still reads 'booked' — recoverable, because the next cancel
+   * attempt treats an already-gone event as success. The reverse order risks
+   * cancelling locally and then losing the event id, which strands the entry
+   * in the diary with nothing left pointing at it.
+   */
+  let removedFromCalendar = false;
+  const event = await withProviderEvent(args.row);
+  if (!event) {
+    // Nothing to remove. Not a failure — say so honestly rather than implying
+    // we cleaned up a calendar that never had it.
+    removedFromCalendar = true;
+  } else {
+    removedFromCalendar =
+      (await event.provider.deleteEvent?.(event.accessToken, {
+        calendarId: event.calendarId,
+        eventId: event.eventId,
+      })) ?? false;
+    if (!removedFromCalendar) {
+      console.error("[booking] calendar delete did not confirm; cancelling locally anyway:", {
+        bookingId: args.row.id,
+        eventId: event.eventId,
+      });
+    }
+  }
+
+  const { data, error } = await service
+    .from("interview_bookings")
+    .update({
+      status: "cancelled",
+      cancelled_at: new Date().toISOString(),
+      cancelled_by: args.cancelledBy,
+      cancel_reason: (args.reason ?? "").trim().slice(0, CANCEL_REASON_MAX) || null,
+    })
+    .eq("id", args.row.id)
+    // Same single-winner gate. Two cancels race safely; one wins, one is told
+    // it is already cancelled.
+    .eq("status", "booked")
+    .select(ROW_COLUMNS);
+
+  if (error) {
+    console.error("[booking] cancel write failed:", error.message);
+    return { ok: false, reason: "write_failed" };
+  }
+  const cancelled = ((data ?? []) as BookingRow[])[0];
+  if (!cancelled) return { ok: false, reason: "not_booked" };
+
+  return { ok: true, row: cancelled, removedFromCalendar };
+}
+
+/**
+ * Resolve everything needed to act on a booking's provider event, or null when
+ * there is nothing to act on.
+ *
+ * Shared by reschedule and cancel so the connection lookup, the token refresh
+ * and the "no event id recorded" case are handled identically in both.
+ */
+async function withProviderEvent(row: BookingRow): Promise<{
+  provider: NonNullable<ReturnType<typeof getProvider>>;
+  accessToken: string;
+  calendarId: string;
+  eventId: string;
+} | null> {
+  if (!row.provider_event_id) return null;
+
+  const service = createServiceClient();
+  const { data: connRow } = await service
+    .from("calendar_connections")
+    .select("provider, calendar_id")
+    .eq("member_id", row.host_member_id)
+    .eq("status", "active")
+    .maybeSingle();
+
+  const conn = connRow as { provider: string; calendar_id: string | null } | null;
+  if (!conn) return null;
+
+  const provider = getProvider(row.provider ?? conn.provider);
+  if (!provider) return null;
+
+  // THE SEAM. Never refreshes inline — see connections.ts.
+  const accessToken = await getAccessToken(row.host_member_id, conn.provider as "google");
+  if (!accessToken) return null;
+
+  return {
+    provider,
+    accessToken,
+    calendarId: conn.calendar_id ?? "primary",
+    eventId: row.provider_event_id,
   };
 }
 
