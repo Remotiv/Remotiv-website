@@ -118,6 +118,33 @@ function fmt(iso: string, zone: string, options: Intl.DateTimeFormatOptions = {}
   }).format(new Date(iso));
 }
 
+/**
+ * A genuinely sortable calendar-date key: "2026-09-01".
+ *
+ * ── Why this is not `fmt(...)` with numeric options ──────────
+ *
+ * It was, and that was the bug. `fmt` is pinned to "en-GB", so numeric date
+ * options render dd/mm/yyyy — and comparing "01/09/2026" against "24/08/2026"
+ * as strings puts September before August. The day strip showed
+ * Tue 1 Sept … Fri 4 Sept, Mon 24 Aug — and a fortnight window crosses a month
+ * boundary roughly half the time, so this was live for about half of all
+ * candidates.
+ *
+ * `formatToParts` removes the assumption rather than swapping one locale for
+ * another: the parts are read by NAME and reassembled, so no locale's date
+ * order can change the result.
+ */
+function dayKey(iso: string, zone: string): string {
+  const parts = new Intl.DateTimeFormat("en-GB", {
+    timeZone: zone,
+    year: "numeric",
+    month: "2-digit",
+    day: "2-digit",
+  }).formatToParts(new Date(iso));
+  const get = (type: string) => parts.find((p) => p.type === type)?.value ?? "";
+  return `${get("year")}-${get("month")}-${get("day")}`;
+}
+
 function zoneLabel(iso: string, zone: string): string {
   try {
     const parts = new Intl.DateTimeFormat("en-GB", {
@@ -231,23 +258,27 @@ export function BookingClient({ token }: { token: string }) {
     if (state.kind !== "open") return [];
     const groups = new Map<string, Slot[]>();
     for (const slot of state.slots) {
-      // Sortable key so days come out in order regardless of locale wording.
-      const key = fmt(slot.startIso, zone, {
-        year: "numeric",
-        month: "2-digit",
-        day: "2-digit",
-        hour: undefined,
-        minute: undefined,
-      });
-      groups.set(key, [...(groups.get(key) ?? []), slot]);
+      groups.set(dayKey(slot.startIso, zone), [
+        ...(groups.get(dayKey(slot.startIso, zone)) ?? []),
+        slot,
+      ]);
     }
     return (
       [...groups.entries()]
-        // A group only exists because a slot was pushed into it, so `slots` is
-        // never empty — but the key is already a sortable yyyy-mm-dd, so sorting
-        // on it needs no lookup into the array at all.
-        .sort((a, b) => a[0].localeCompare(b[0]))
         .map(([key, slots]) => ({ key, slots, first: slots[0] }))
+        /*
+         * Sorted on the INSTANT, not on any rendered string.
+         *
+         * `dayKey` is now genuinely yyyy-mm-dd so a string sort would also
+         * work, but ordering days by a formatted value is what broke this in
+         * the first place. The timestamp cannot be reinterpreted by a locale,
+         * a zone or a format option, so it is what the order depends on. The
+         * key is left to do the one job it is good at: identity.
+         *
+         * Slots arrive from the server already ascending and grouping
+         * preserves that, so `first` is the earliest of its day.
+         */
+        .sort((a, b) => Date.parse(a.first?.startIso ?? "") - Date.parse(b.first?.startIso ?? ""))
     );
   }, [state, zone]);
 
