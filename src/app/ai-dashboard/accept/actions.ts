@@ -7,6 +7,7 @@ import {
 } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
+import { isAlreadyRegistered } from "@/lib/company-identity";
 import { notifyCompany } from "@/lib/notifications/company";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -24,11 +25,6 @@ type InviteRow = {
   status: string;
   expires_at: string;
 };
-
-/** Matches Supabase's "email already in use" family of createUser errors. */
-function isAlreadyRegistered(message: string): boolean {
-  return /already|exists|registered/i.test(message);
-}
 
 /**
  * Redeem an invite token and join the company.

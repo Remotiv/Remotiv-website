@@ -843,7 +843,12 @@ function CreateCompanyModal({
   onSuccess,
 }: {
   onClose: () => void;
-  onSuccess: (creds: { name: string; email: string; password: string }) => void;
+  onSuccess: (creds: {
+    name: string;
+    email: string;
+    password: string | null;
+    linked: boolean;
+  }) => void;
 }) {
   const [name, setName] = useState("");
   const [contactName, setContactName] = useState("");
@@ -867,9 +872,10 @@ function CreateCompanyModal({
     return () => { document.body.style.overflow = prev; };
   }, []);
 
-  // Belt-and-braces double-click guard. createCompany creates a Supabase auth
-  // user; firing it twice from a fast double-click leaves an orphan account
-  // because the second insert hits the unique-email constraint.
+  // Belt-and-braces double-click guard. On the CREATE path a second call would
+  // leave an orphan auth account behind the failed company insert. On the LINK
+  // path nothing is created, so the second call is merely refused by
+  // companies_contact_email_key — harmless, but still worth not sending.
   const inFlightRef = useRef(false);
 
   async function handleSubmit(e: React.FormEvent) {
@@ -880,7 +886,11 @@ function CreateCompanyModal({
     if (!/^[^\s@]+@[^\s@]+\.[^\s@]+$/.test(email.trim())) {
       return setError("Please enter a valid email address.");
     }
-    if (password.length < 8) return setError("Password must be at least 8 characters.");
+    // Blank is allowed: it means "this person already has a Remotiv login,
+    // link it". A password that IS typed still has to be a usable one.
+    if (password.length > 0 && password.length < 8) {
+      return setError("Password must be at least 8 characters, or leave it blank to link an existing account.");
+    }
 
     inFlightRef.current = true;
     setSubmitting(true);
@@ -900,7 +910,10 @@ function CreateCompanyModal({
       onSuccess({
         name: name.trim(),
         email: email.trim().toLowerCase(),
-        password,
+        // Never a password on the link path — the account kept its own, and
+        // this field may hold one the admin typed that was then discarded.
+        password: result.data.linked ? null : password,
+        linked: result.data.linked,
       });
     } finally {
       inFlightRef.current = false;
@@ -971,14 +984,17 @@ function CreateCompanyModal({
               className={INPUT_CLS}
             />
           </Field>
-          <Field label="Password" required hint="Minimum 8 characters.">
+          <Field
+            label="Password"
+            hint="Minimum 8 characters. Leave blank if this person already has a Remotiv login — their existing password is kept."
+          >
             <div className="relative">
               <input
                 type={showPassword ? "text" : "password"}
                 value={password}
                 onChange={(e) => setPassword(e.target.value)}
                 minLength={8}
-                placeholder="Min 8 characters"
+                placeholder="Blank to link an existing account"
                 className={`${INPUT_CLS} pr-20`}
               />
               <div className="absolute right-1 top-1/2 flex -translate-y-1/2 items-center gap-1">
@@ -1065,12 +1081,17 @@ function CredentialsModal({
   creds,
   onClose,
 }: {
-  creds: { name: string; email: string; password: string };
+  creds: { name: string; email: string; password: string | null; linked: boolean };
   onClose: () => void;
 }) {
   const [copied, setCopied] = useState(false);
 
-  const blob = `Email: ${creds.email}\nPassword: ${creds.password}\nURL: ${COMPANY_LOGIN_URL}`;
+  // A linked account kept its own password, and this modal has none to show.
+  // Printing an empty or stale one would be worse than the error this path
+  // replaced: the admin would send credentials that do not work.
+  const blob = creds.password
+    ? `Email: ${creds.email}\nPassword: ${creds.password}\nURL: ${COMPANY_LOGIN_URL}`
+    : `Email: ${creds.email}\nPassword: their existing Remotiv password (unchanged)\nURL: ${COMPANY_LOGIN_URL}`;
 
   async function copyAll() {
     try {
@@ -1101,10 +1122,22 @@ function CredentialsModal({
             id="company-credentials-modal-title"
             className="font-heading text-lg font-bold text-gray-900"
           >
-            Company Created Successfully
+            {creds.linked ? "Company Linked to an Existing Account" : "Company Created Successfully"}
           </h3>
           <p className="mt-1 text-xs text-gray-500">
-            Send these credentials to <span className="font-semibold text-gray-700">{creds.name}</span>:
+            {creds.linked ? (
+              <>
+                <span className="font-semibold text-gray-700">{creds.email}</span> already had a
+                Remotiv account. It is now also the owner of{" "}
+                <span className="font-semibold text-gray-700">{creds.name}</span> — no new account,
+                no new password. Tell them to sign in as they always do.
+              </>
+            ) : (
+              <>
+                Send these credentials to{" "}
+                <span className="font-semibold text-gray-700">{creds.name}</span>:
+              </>
+            )}
           </p>
         </div>
 
@@ -1115,7 +1148,11 @@ function CredentialsModal({
           </div>
           <div>
             <span className="text-gray-400">Password:</span>{" "}
-            <span className="font-semibold">{creds.password}</span>
+            {creds.password ? (
+              <span className="font-semibold">{creds.password}</span>
+            ) : (
+              <span className="italic text-gray-500">unchanged — they keep their existing one</span>
+            )}
           </div>
           <div>
             <span className="text-gray-400">URL:</span>{" "}
@@ -1200,7 +1237,7 @@ export function CompaniesDashboard({
   const [openId, setOpenId] = useState<string | null>(null);
   const [showCreate, setShowCreate] = useState(false);
   const [createdCreds, setCreatedCreds] = useState<
-    | { name: string; email: string; password: string }
+    | { name: string; email: string; password: string | null; linked: boolean }
     | null
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);

@@ -18,6 +18,18 @@ import type { createServiceClient } from "@/lib/supabase/server";
  */
 
 /**
+ * Does this GoTrue failure mean "that email already has an account"?
+ *
+ * GoTrue words this several ways across versions and endpoints, so the match is
+ * deliberately loose. Shared between invite acceptance and company provisioning
+ * — both try createUser first and both need to tell "taken" apart from a real
+ * failure, and two copies of a regex is two chances for them to drift.
+ */
+export function isAlreadyRegistered(message: string): boolean {
+  return /already|exists|registered/i.test(message);
+}
+
+/**
  * Look up an auth user by exact email, without paginating the whole project.
  *
  * `auth.admin.listUsers` walks every user and truncates, which made it useless

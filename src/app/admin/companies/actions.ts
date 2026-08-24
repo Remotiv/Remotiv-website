@@ -7,6 +7,7 @@ import { isValidEmail } from "@/lib/validators";
 import { slugify, uniqueSlug } from "@/lib/slug";
 import {
   findAuthUserIdByEmail,
+  isAlreadyRegistered,
   syncJobsCompanyName,
 } from "@/lib/company-identity";
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
@@ -88,12 +89,89 @@ export async function fetchCompanies(): Promise<Company[]> {
 
 // ── Mutations ────────────────────────────────────────────────
 
+/**
+ * The owner's auth account: created here, or an existing one linked.
+ *
+ * `createdUserId` is non-null ONLY when this request created the account, and
+ * it gates every rollback below. Same two-variable shape invite acceptance uses,
+ * and for the same reason: a provisioning failure must never delete a Remotiv
+ * admin's or a talent's login just because their address was typed into this
+ * form.
+ */
+type OwnerAccount = {
+  userId: string;
+  createdUserId: string | null;
+  /** True when an existing account was adopted rather than created. */
+  linked: boolean;
+};
+
+/**
+ * Create the owner's account, or adopt the one that already exists.
+ *
+ * ── Why this does not ask for a password ─────────────────────
+ *
+ * Invite acceptance resolves the same collision by calling signInWithPassword:
+ * the invitee is the person at the keyboard, so making them prove the account
+ * is theirs both authenticates them and yields the user id without ever
+ * enumerating auth.users.
+ *
+ * Here the person at the keyboard is a Remotiv super-admin, not the owner-to-be.
+ * They do not have that person's password and must not be asked for it, so the
+ * id is resolved by directory lookup instead. That is not a new capability for
+ * this caller: createCompany already runs behind requireSuperAdmin, and
+ * updateCompany already uses the same helper on the email-edit path.
+ *
+ * The typed password is DISCARDED on the link path. An existing account keeps
+ * its own — provisioning a second workspace for someone is not a reason to
+ * change how they sign in to the first.
+ */
+async function resolveOrCreateOwner(
+  supabase: ReturnType<typeof createServiceClient>,
+  email: string,
+  password: string,
+): Promise<MutationResult<OwnerAccount>> {
+  if (password) {
+    const { data: created, error: authError } = await supabase.auth.admin.createUser({
+      email,
+      password,
+      email_confirm: true,
+    });
+
+    if (created?.user) {
+      return {
+        success: true,
+        data: { userId: created.user.id, createdUserId: created.user.id, linked: false },
+      };
+    }
+
+    const msg = authError?.message ?? "Failed to create auth user.";
+    // Anything that is NOT a collision is a real failure and stops here.
+    if (!isAlreadyRegistered(msg)) return { success: false, error: msg };
+  }
+
+  const existingId = await findAuthUserIdByEmail(email);
+  if (existingId) {
+    return { success: true, data: { userId: existingId, createdUserId: null, linked: true } };
+  }
+
+  return {
+    success: false,
+    error: password
+      ? // GoTrue said the address is taken but the directory cannot find it —
+        // a soft-deleted account, or a lookup that failed. Neither is something
+        // to guess past, because guessing means creating a company with no owner.
+        "That email is already registered, but the account couldn't be read. Try again, or check it in Supabase."
+      : "No Remotiv account uses that email yet. Set a password to create one.",
+  };
+}
+
 export async function createCompany(input: {
   name: string;
   contact_name: string;
   contact_email: string;
-  password: string;
-}): Promise<MutationResult<{ id: string }>> {
+  /** Blank is legitimate: it means "link the account that already exists". */
+  password?: string;
+}): Promise<MutationResult<{ id: string; linked: boolean }>> {
   await requireSuperAdmin();
 
   const name = input.name?.trim() ?? "";
@@ -105,33 +183,21 @@ export async function createCompany(input: {
   if (!isValidEmail(contact_email)) {
     return { success: false, error: "Please enter a valid email address." };
   }
-  if (!isValidPassword(password)) {
+  // Conditional, not optional: a password that IS supplied must still be a
+  // usable one. A blank password is the link path, which needs none.
+  if (password && !isValidPassword(password)) {
     return { success: false, error: "Password must be at least 8 characters." };
   }
 
   const supabase = createServiceClient();
 
-  // 1. Create the auth user. Failure here typically means the email is taken.
-  const { data: created, error: authError } = await supabase.auth.admin.createUser({
-    email: contact_email,
-    password,
-    email_confirm: true,
-  });
+  // 1. The owner's auth account — created, or adopted if it already exists.
+  const account = await resolveOrCreateOwner(supabase, contact_email, password);
+  if (!account.success) return account;
+  const { userId, createdUserId, linked } = account.data;
 
-  if (authError || !created?.user) {
-    const msg = authError?.message ?? "Failed to create auth user.";
-    if (/already|exists|registered/i.test(msg)) {
-      return { success: false, error: "This email is already registered." };
-    }
-    return { success: false, error: msg };
-  }
-
-  const userId = created.user.id;
-
-  // 2. Insert the companies row. If this fails, clean up the orphaned auth
-  //    user so the email can be reused without manual intervention.
-  //    must_change_password=true forces the owner through
-  //    /ai-dashboard/change-password on first login.
+  // 2. Insert the companies row. If this fails, clean up the auth user — but
+  //    only if we created it; see the rollback below.
   // The careers link (/jobs?company=<slug>) is the company's own filtered job
   // list, so provisioning without a slug hands every new customer a link that
   // silently falls back to the FULL board — every competitor's roles included.
@@ -158,13 +224,21 @@ export async function createCompany(input: {
       contact_name: contact_name || null,
       contact_email,
       status: "active",
-      must_change_password: true,
+      /*
+       * Only for an account we just created. must_change_password forces the
+       * owner through /ai-dashboard/change-password on first login, which is
+       * right for a password a Remotiv admin typed and is wrong for one the
+       * person already chose and has been using — it would demand they change
+       * a password this action never touched.
+       */
+      must_change_password: !linked,
     })
     .select("id")
     .single();
 
   if (insertError || !row) {
-    await supabase.auth.admin.deleteUser(userId);
+    // Only ever an account THIS request created.
+    if (createdUserId) await supabase.auth.admin.deleteUser(createdUserId);
     if (insertError?.code === "23505") {
       // Two unique constraints can raise this, and they need different copy —
       // telling someone their email is taken when the SLUG collided sends them
@@ -180,7 +254,17 @@ export async function createCompany(input: {
           error: "That company name was just taken. Try again.",
         };
       }
-      return { success: false, error: "This email is already registered." };
+      /*
+       * companies_contact_email_key. NOT the same fact as "that email has an
+       * account" — that case is now linked rather than refused, so repeating
+       * the old wording here would send an admin looking for a duplicate login
+       * that is perfectly fine to reuse. What actually collided is the CONTACT
+       * ADDRESS, which is unique per company by index.
+       */
+      return {
+        success: false,
+        error: "Another company already uses that contact email. Each company needs its own.",
+      };
     }
     return { success: false, error: insertError?.message ?? "Failed to insert company." };
   }
@@ -212,15 +296,21 @@ export async function createCompany(input: {
 
   if (memberError) {
     await supabase.from("companies").delete().eq("id", companyId);
-    await supabase.auth.admin.deleteUser(userId);
+    if (createdUserId) await supabase.auth.admin.deleteUser(createdUserId);
     if (memberError.code === "23505") {
-      return { success: false, error: "This user is already a member of a company." };
+      /*
+       * company_members is unique on (company_id, user_id) and this company was
+       * created seconds ago, so this cannot mean "already a member of a
+       * company" — belonging to ANOTHER company is legal and is the whole point
+       * of the link path. Report it as the unexpected thing it is.
+       */
+      return { success: false, error: `Couldn't add the owner: ${memberError.message}` };
     }
     return { success: false, error: memberError.message };
   }
 
   revalidatePath("/admin/companies");
-  return { success: true, data: { id: companyId } };
+  return { success: true, data: { id: companyId, linked } };
 }
 
 
@@ -324,7 +414,7 @@ export async function updateCompany(
         });
 
         const msg = authErr.message ?? "Failed to update auth email.";
-        if (/already|exists|registered/i.test(msg)) {
+        if (isAlreadyRegistered(msg)) {
           return {
             success: false,
             error: "This email is already registered to another account.",
