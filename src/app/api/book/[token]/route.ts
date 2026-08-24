@@ -11,14 +11,17 @@ import {
   isExpired,
   releaseClaim,
   rescheduleBooking,
+  resolveHostEmail,
 } from "@/lib/calendar/bookings";
 import "@/lib/calendar/google";
 import {
+  type NoticeOutcome,
   sendBookingConfirmations,
   sendCancellationNotices,
   sendRescheduleNotices,
 } from "@/lib/calendar/notify";
 import { formatInZone, isValidTimeZone } from "@/lib/calendar/timezone";
+import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -44,10 +47,33 @@ function fail(status: number, error: string) {
   return NextResponse.json({ error }, { status, headers: NO_STORE });
 }
 
+/**
+ * One line per thing that did not reach somebody.
+ *
+ * The notices used to return void, so a refused candidate email and a skipped
+ * host email both disappeared behind a 200. This is the whole point of the
+ * outcome: the request still succeeds, but the server says what did not send.
+ */
+function reportNotices(what: string, bookingId: string, notices: NoticeOutcome) {
+  if (notices.problems.length === 0) return;
+  for (const problem of notices.problems) {
+    console.error(`[booking] ${what} ${bookingId}: ${problem}`);
+  }
+}
+
+function candidateLabel(ctx: {
+  candidate: { first_name: string | null; last_name: string | null } | null;
+}) {
+  return (
+    [ctx.candidate?.first_name, ctx.candidate?.last_name].filter(Boolean).join(" ").trim() ||
+    "A candidate"
+  );
+}
+
 /** Context the page needs, gathered once. Server-side ids stay here. */
 async function loadContext(row: BookingRow) {
   const service = createServiceClient();
-  const [{ data: app }, { data: job }, { data: company }, { data: member }] = await Promise.all([
+  const [{ data: app }, { data: job }, { data: company }, host] = await Promise.all([
     service
       .from("job_applications")
       .select("first_name, last_name, email")
@@ -59,11 +85,7 @@ async function loadContext(row: BookingRow) {
       .eq("id", row.job_id)
       .maybeSingle(),
     service.from("companies").select("name").eq("id", row.company_id).maybeSingle(),
-    service
-      .from("company_members")
-      .select("name, email")
-      .eq("id", row.host_member_id)
-      .maybeSingle(),
+    resolveHostEmail(row.host_member_id, row.company_id),
   ]);
 
   return {
@@ -74,7 +96,13 @@ async function loadContext(row: BookingRow) {
     } | null,
     job: job as { title: string | null; interview_duration_minutes: number | null } | null,
     company: company as { name: string | null } | null,
-    host: member as { name: string | null; email: string | null } | null,
+    /*
+     * Resolved rather than read straight off company_members: that column is
+     * NULL for every company OWNER, because owner provisioning never writes it.
+     * See resolveHostEmail — it falls back to auth.users, then to the company's
+     * contact address, and reports rather than returning silently empty.
+     */
+    host,
   };
 }
 
@@ -99,7 +127,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
         meetingUrl: row.meeting_url,
         jobTitle: ctx.job?.title ?? "the role",
         companyName: ctx.company?.name ?? "the company",
-        hostName: ctx.host?.name ?? "your interviewer",
+        hostName: ctx.host.name ?? "your interviewer",
         durationMinutes: row.duration_minutes,
         /*
          * Decided on the SERVER, not from the browser's clock. A device an
@@ -141,7 +169,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
         cancelReason: row.cancel_reason,
         jobTitle: ctx.job?.title ?? "the role",
         companyName: ctx.company?.name ?? "the company",
-        hostName: ctx.host?.name ?? "your interviewer",
+        hostName: ctx.host.name ?? "your interviewer",
       },
       { headers: NO_STORE },
     );
@@ -169,7 +197,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
         reason: availability.reason,
         jobTitle: ctx.job?.title ?? "the role",
         companyName: ctx.company?.name ?? "the company",
-        hostName: ctx.host?.name ?? "your interviewer",
+        hostName: ctx.host.name ?? "your interviewer",
         candidateFirstName: ctx.candidate?.first_name ?? "",
       },
       { headers: NO_STORE },
@@ -185,7 +213,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
       durationMinutes: row.duration_minutes,
       jobTitle: ctx.job?.title ?? "the role",
       companyName: ctx.company?.name ?? "the company",
-      hostName: ctx.host?.name ?? "your interviewer",
+      hostName: ctx.host.name ?? "your interviewer",
       candidateFirstName: ctx.candidate?.first_name ?? "",
       expiresAt: row.expires_at,
     },
@@ -293,9 +321,13 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return fail(502, "calendar_failed");
   }
 
-  // Both sides are told. A failure here does not undo the booking — the
-  // meeting is real and on the calendar; the email is a notification about it.
-  await sendBookingConfirmations({
+  /*
+   * Both sides are told. A failure here does not undo the booking — the meeting
+   * is real and on the calendar; the email is a notification about it. But it
+   * is no longer allowed to fail SILENTLY: the notices report what they managed
+   * to send, and anything short of "sent" is logged with the booking id.
+   */
+  const notices = await sendBookingConfirmations({
     row: claim.row,
     startMs,
     endMs,
@@ -303,11 +335,23 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     candidateTimezone,
     candidateEmail: ctx.candidate?.email ?? null,
     candidateName: candidateName || "there",
-    hostEmail: ctx.host?.email ?? null,
-    hostName: ctx.host?.name ?? "",
+    hostEmail: ctx.host.email,
+    hostName: ctx.host.name ?? "",
     jobTitle,
     companyName: ctx.company?.name ?? "",
     meetingUrl,
+  });
+  reportNotices("booked", claim.row.id, notices);
+
+  await notifyCompany({
+    companyId: claim.row.company_id,
+    type: "interview_booked",
+    title: `${candidateName || "A candidate"} booked an interview`,
+    body: `${formatInZone(startMs, availability.hostTimezone)} · ${jobTitle}`,
+    jobId: claim.row.job_id,
+    applicationId: claim.row.application_id,
+    href: "/ai-dashboard/applicants",
+    // No actor: the candidate did this, and they are not a member.
   });
 
   return NextResponse.json(
@@ -383,7 +427,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
   }
 
   const ctx = await loadContext(row);
-  await sendRescheduleNotices({
+  const notices = await sendRescheduleNotices({
     row: moved.row,
     startMs,
     previousStartMs: Date.parse(moved.previousStart),
@@ -394,11 +438,22 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     candidateName:
       [ctx.candidate?.first_name, ctx.candidate?.last_name].filter(Boolean).join(" ").trim() ||
       "there",
-    hostEmail: ctx.host?.email ?? null,
-    hostName: ctx.host?.name ?? "",
+    hostEmail: ctx.host.email,
+    hostName: ctx.host.name ?? "",
     jobTitle: ctx.job?.title ?? "Interview",
     companyName: ctx.company?.name ?? "",
     meetingUrl: moved.row.meeting_url,
+  });
+  reportNotices("rescheduled", moved.row.id, notices);
+
+  await notifyCompany({
+    companyId: moved.row.company_id,
+    type: "interview_rescheduled",
+    title: `${candidateLabel(ctx)} moved their interview`,
+    body: `Now ${formatInZone(startMs, availability.hostTimezone)} · was ${formatInZone(Date.parse(moved.previousStart), availability.hostTimezone)}`,
+    jobId: moved.row.job_id,
+    applicationId: moved.row.application_id,
+    href: "/ai-dashboard/applicants",
   });
 
   return NextResponse.json(
@@ -444,7 +499,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
   }
 
   const ctx = await loadContext(row);
-  await sendCancellationNotices({
+  const notices = await sendCancellationNotices({
     row: cancelled.row,
     startMs,
     cancelledBy: "candidate",
@@ -456,12 +511,41 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     candidateName:
       [ctx.candidate?.first_name, ctx.candidate?.last_name].filter(Boolean).join(" ").trim() ||
       "there",
-    hostEmail: ctx.host?.email ?? null,
-    hostName: ctx.host?.name ?? "",
+    hostEmail: ctx.host.email,
+    hostName: ctx.host.name ?? "",
     jobTitle: ctx.job?.title ?? "Interview",
     companyName: ctx.company?.name ?? "",
     meetingUrl: null,
   });
+  reportNotices("cancelled", cancelled.row.id, notices);
 
-  return NextResponse.json({ state: "cancelled" }, { headers: NO_STORE });
+  /*
+   * The clearest case the bell exists for. Nobody on the team did this, the
+   * email lands in one person's inbox, and a diary entry vanishing the day
+   * before with no explanation is precisely what a notification is for.
+   */
+  await notifyCompany({
+    companyId: cancelled.row.company_id,
+    type: "interview_cancelled",
+    title: `${candidateLabel(ctx)} cancelled their interview`,
+    body: `${formatInZone(startMs, row.host_timezone ?? "UTC")}${
+      cancelled.row.cancel_reason ? ` · ${cancelled.row.cancel_reason}` : ""
+    }`,
+    jobId: cancelled.row.job_id,
+    applicationId: cancelled.row.application_id,
+    href: "/ai-dashboard/applicants",
+  });
+
+  /*
+   * Still a 200, and still `cancelled`.
+   *
+   * A cancellation whose notification failed is a SUCCESSFUL cancellation —
+   * the booking is gone and the calendar entry with it. Returning an error
+   * would tell the candidate their cancellation did not work, and the only
+   * thing they could do about it is try again, which is worse than the
+   * problem. The delivery trouble belongs to us, so it goes to the log and to
+   * `notices` in the body, where the client may mention it but must not treat
+   * it as a failure.
+   */
+  return NextResponse.json({ state: "cancelled", notices }, { headers: NO_STORE });
 }

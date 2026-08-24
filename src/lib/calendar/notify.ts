@@ -1,6 +1,7 @@
 import "server-only";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { escapeHtml } from "@/lib/email/candidate/render";
+import type { LoggedEvent } from "@/lib/email/candidate/types";
 import { sendEmail } from "@/lib/email/send";
 import { createServiceClient } from "@/lib/supabase/server";
 import type { BookingActor, BookingRow } from "./bookings";
@@ -29,15 +30,26 @@ import { formatInZone, zoneAbbreviation } from "./timezone";
  */
 
 /**
- * `booking_confirmed` is a LOG-ONLY event.
+ * These are LOG-ONLY events.
  *
- * `communication_logs.event` is plain text with no CHECK — verified in
- * src/lib/email/candidate/types.ts against schema.sql — so this needs no
- * migration. It deliberately does NOT join MESSAGE_EVENTS: that union drives
- * the Settings template editor and is constrained by
- * message_templates_event_check, which WOULD reject it.
+ * `communication_logs.event` DOES carry a CHECK, and all three booking values
+ * are in it — the ALTER was run and verified. What these must not join is
+ * MESSAGE_EVENTS: that union drives the Settings template editor and is
+ * constrained by message_templates_event_check, which would reject them.
  */
-const BOOKING_EVENT = "booking_confirmed" as const;
+/**
+ * One event value per message, never shared.
+ *
+ * The UNIQUE index on (application_id, event, channel) WHERE sent_by_name IS
+ * NULL means a shared value makes the SECOND message unsendable — and these
+ * three all go to the same application with a null sender, so sharing one was
+ * guaranteed to break two of them. It did: reschedule and cancellation notices
+ * both collided with the confirmation and were refused with 23505, logged and
+ * never sent, while the API returned 200.
+ */
+const EVENT_CONFIRMED = "booking_confirmed" as const;
+const EVENT_RESCHEDULED = "booking_rescheduled" as const;
+const EVENT_CANCELLED = "booking_cancelled" as const;
 
 /**
  * Shared shape for all four of the reschedule/cancel emails.
@@ -78,7 +90,7 @@ export async function sendBookingConfirmations(args: {
   jobTitle: string;
   companyName: string;
   meetingUrl: string | null;
-}): Promise<void> {
+}): Promise<NoticeOutcome> {
   const service = createServiceClient();
 
   const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
@@ -107,6 +119,14 @@ export async function sendBookingConfirmations(args: {
    * different text is worth showing even when the zones look related.
    */
   const timesDiffer = hostTime !== candidateTime;
+  let candidate: Awaited<ReturnType<typeof deliverBooking>> = {
+    result: "skipped_no_address",
+    problem: "candidate has no email address",
+  };
+  let host: Awaited<ReturnType<typeof sendHostEmail>> = {
+    result: "skipped_no_address",
+    problem: "host has no resolvable email address",
+  };
 
   const joinLine = args.meetingUrl
     ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p>`
@@ -132,36 +152,13 @@ export async function sendBookingConfirmations(args: {
         Times are shown in ${escapeHtml(args.candidateTimezone)}. If that isn't your timezone, reply to this email.
       </p>`;
 
-    try {
-      const outcome = await deliverEmail(service, {
-        companyId: args.row.company_id,
-        applicationId: args.row.application_id,
-        event: BOOKING_EVENT,
-        to: args.candidateEmail,
-        subject: `Interview confirmed — ${args.jobTitle}`,
-        html: buildCandidateHtml(body, args.companyName, args.row.company_id, args.candidateEmail),
-        companyName: args.companyName,
-        replyTo: null,
-      });
-      /*
-       * deliverEmail no longer THROWS on a log-insert failure — it returns.
-       * Without this check the failure would be invisible here, which is
-       * exactly the trap the empty catch in the applicant drawer set.
-       *
-       * KNOWN FAILING TODAY: `booking_confirmed` is not in the CHECK on
-       * communication_logs.event, so every candidate confirmation returns
-       * kind:"log" and is not sent. One ALTER fixes it — see types.ts.
-       */
-      if (!outcome.ok) {
-        console.error(
-          `[booking] candidate confirmation NOT sent (${outcome.kind}): ${outcome.message}`,
-        );
-      }
-    } catch (err) {
-      // The booking is real and on the calendar. A failed notification must
-      // not unwind it — it makes a confirmed meeting look unconfirmed.
-      console.error("[booking] candidate confirmation failed to send:", err);
-    }
+    candidate = await deliverBooking(
+      service,
+      args,
+      EVENT_CONFIRMED,
+      `Interview confirmed — ${args.jobTitle}`,
+      body,
+    );
   }
 
   /* ── Host ────────────────────────────────────────────────── */
@@ -176,16 +173,21 @@ export async function sendBookingConfirmations(args: {
       ${joinLine}
       <p style="color:#847E8C;font-size:13px;">It's on your calendar already.</p>`;
 
-    try {
-      await sendEmail({
-        to: args.hostEmail,
-        subject: `${args.candidateName} booked — ${args.jobTitle}`,
-        html: body,
-      });
-    } catch (err) {
-      console.error("[booking] host confirmation failed to send:", err);
-    }
+    /*
+     * This branch USED to be `await sendEmail(...)` inside a try/catch with no
+     * check of the returned `ok`. sendEmail does not throw — it returns
+     * {ok:false, error} when Resend is unconfigured or rejects — so the catch
+     * caught nothing and a refused send looked identical to a delivered one.
+     * sendHostEmail checks the flag.
+     */
+    host = await sendHostEmail(
+      args.hostEmail,
+      `${args.candidateName} booked — ${args.jobTitle}`,
+      body,
+    );
   }
+
+  return summarise(candidate, host);
 }
 
 /* ─────────────────── reschedule and cancel ─────────────────── */
@@ -203,12 +205,20 @@ export async function sendBookingConfirmations(args: {
  */
 export async function sendRescheduleNotices(
   args: NoticeArgs & { previousStartMs: number; movedBy: BookingActor },
-): Promise<void> {
+): Promise<NoticeOutcome> {
   const service = createServiceClient();
   const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
   const hostTime = timeBlock(args.startMs, args.hostTimezone);
   const timesDiffer = hostTime !== candidateTime;
   const duration = args.row.duration_minutes;
+  let candidate: Awaited<ReturnType<typeof deliverBooking>> = {
+    result: "skipped_no_address",
+    problem: "candidate has no email address",
+  };
+  let host: Awaited<ReturnType<typeof sendHostEmail>> = {
+    result: "skipped_no_address",
+    problem: "host has no resolvable email address",
+  };
 
   const joinLine = args.meetingUrl
     ? `<p style="margin:16px 0;"><a href="${escapeHtml(args.meetingUrl)}" style="color:#7E47FF;font-weight:700;">Join the interview</a></p><p style="margin:0;color:#847E8C;font-size:13px;">Same link as before — nothing to re-save.</p>`
@@ -230,7 +240,13 @@ export async function sendRescheduleNotices(
         <br>Previously ${escapeHtml(timeBlock(args.previousStartMs, args.candidateTimezone))}
       </p>
       ${joinLine}`;
-    await deliverBooking(service, args, `Interview moved — ${args.jobTitle}`, body);
+    candidate = await deliverBooking(
+      service,
+      args,
+      EVENT_RESCHEDULED,
+      `Interview moved — ${args.jobTitle}`,
+      body,
+    );
   }
 
   /* ── Host ────────────────────────────────────────────────── */
@@ -244,8 +260,10 @@ export async function sendRescheduleNotices(
       <br>Previously ${escapeHtml(timeBlock(args.previousStartMs, args.hostTimezone))}</span></p>
       ${joinLine}
       <p style="color:#847E8C;font-size:13px;">Your calendar has been updated.</p>`;
-    await sendHostEmail(args.hostEmail, `Interview moved — ${args.jobTitle}`, body);
+    host = await sendHostEmail(args.hostEmail, `Interview moved — ${args.jobTitle}`, body);
   }
+
+  return summarise(candidate, host);
 }
 
 /**
@@ -265,12 +283,20 @@ export async function sendCancellationNotices(
     reason: string | null;
     removedFromCalendar: boolean;
   },
-): Promise<void> {
+): Promise<NoticeOutcome> {
   const service = createServiceClient();
   const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
   const hostTime = timeBlock(args.startMs, args.hostTimezone);
   const timesDiffer = hostTime !== candidateTime;
   const cancelledByThem = args.cancelledBy === "recruiter";
+  let candidate: Awaited<ReturnType<typeof deliverBooking>> = {
+    result: "skipped_no_address",
+    problem: "candidate has no email address",
+  };
+  let host: Awaited<ReturnType<typeof sendHostEmail>> = {
+    result: "skipped_no_address",
+    problem: "host has no resolvable email address",
+  };
   const reasonLine = args.reason
     ? `<p style="margin:12px 0;color:#4A4550;">Reason given: ${escapeHtml(args.reason)}</p>`
     : "";
@@ -288,7 +314,13 @@ export async function sendCancellationNotices(
       <p style="margin:16px 0 0;color:#4A4550;">
         ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Reply to this email if you'd like to arrange another time."}
       </p>`;
-    await deliverBooking(service, args, `Interview cancelled — ${args.jobTitle}`, body);
+    candidate = await deliverBooking(
+      service,
+      args,
+      EVENT_CANCELLED,
+      `Interview cancelled — ${args.jobTitle}`,
+      body,
+    );
   }
 
   /* ── Host ────────────────────────────────────────────────── */
@@ -304,23 +336,46 @@ export async function sendCancellationNotices(
           ? "It's been removed from your calendar."
           : "We couldn't confirm its removal from your calendar — please delete the entry yourself."
       }</p>`;
-    await sendHostEmail(args.hostEmail, `Interview cancelled — ${args.jobTitle}`, body);
+    host = await sendHostEmail(args.hostEmail, `Interview cancelled — ${args.jobTitle}`, body);
   }
+
+  return summarise(candidate, host);
 }
+
+/**
+ * What a set of notices actually managed to do.
+ *
+ * ── Why this is no longer void ───────────────────────────────
+ *
+ * `Promise<void>` is what let TWO separate failures hide behind a 200: the
+ * candidate's mail was refused by a unique constraint and the host's was
+ * skipped for want of an address, and the route — which dutifully awaited
+ * both — had nothing to inspect and nothing to log. A function that can fail
+ * partially has to say so.
+ */
+export type NoticeOutcome = {
+  candidate: "sent" | "skipped_no_address" | "failed";
+  host: "sent" | "skipped_no_address" | "failed";
+  /** Populated when either side is not "sent". Safe to log; no personal data. */
+  problems: string[];
+};
 
 /** Candidate mail, through the logged/capped/unsubscribable path. */
 async function deliverBooking(
   service: ReturnType<typeof createServiceClient>,
   args: NoticeArgs,
+  event: LoggedEvent,
   subject: string,
   body: string,
-): Promise<void> {
-  if (!args.candidateEmail) return;
+): Promise<{ result: NoticeOutcome["candidate"]; problem?: string }> {
+  if (!args.candidateEmail) {
+    return { result: "skipped_no_address", problem: "candidate has no email address" };
+  }
   try {
     const outcome = await deliverEmail(service, {
       companyId: args.row.company_id,
       applicationId: args.row.application_id,
-      event: BOOKING_EVENT,
+      event,
       to: args.candidateEmail,
       subject,
       html: buildCandidateHtml(body, args.companyName, args.row.company_id, args.candidateEmail),
@@ -328,21 +383,64 @@ async function deliverBooking(
       replyTo: null,
     });
     if (!outcome.ok) {
-      console.error(`[booking] candidate notice NOT sent (${outcome.kind}): ${outcome.message}`);
+      const problem = `candidate ${event}: ${outcome.kind} — ${outcome.message}`;
+      console.error(`[booking] ${problem}`);
+      return { result: "failed", problem };
     }
+    return { result: "sent" };
   } catch (err) {
     // The booking change is already real. A failed notification must not
-    // unwind it.
-    console.error("[booking] candidate notice failed to send:", err);
+    // unwind it — but it must not vanish either.
+    const problem = `candidate ${event}: threw — ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[booking] ${problem}`);
+    return { result: "failed", problem };
   }
 }
 
 /** Host mail, plain sender — a recruiter must not be able to unsubscribe from
  *  their own diary. */
-async function sendHostEmail(to: string, subject: string, html: string): Promise<void> {
-  try {
-    await sendEmail({ to, subject, html });
-  } catch (err) {
-    console.error("[booking] host notice failed to send:", err);
+async function sendHostEmail(
+  to: string | null,
+  subject: string,
+  html: string,
+): Promise<{ result: NoticeOutcome["host"]; problem?: string }> {
+  if (!to) {
+    /*
+     * THIS IS THE ONE THAT WENT UNNOTICED FOR TWO SESSIONS.
+     *
+     * The host branch was guarded by `if (args.hostEmail)` and simply did
+     * nothing when the address was null — no log, no error, no trace. Every
+     * booking email to the recruiter had been silently skipped since session
+     * 2, including the original confirmation, and the feature was reported
+     * working because the candidate's copy arrived.
+     *
+     * Now it is a reported outcome rather than an early return.
+     */
+    return { result: "skipped_no_address", problem: "host has no resolvable email address" };
   }
+  try {
+    const sent = await sendEmail({ to, subject, html });
+    if (!sent.ok) {
+      const problem = `host: ${sent.error ?? "send failed"}`;
+      console.error(`[booking] ${problem}`);
+      return { result: "failed", problem };
+    }
+    return { result: "sent" };
+  } catch (err) {
+    const problem = `host: threw — ${err instanceof Error ? err.message : String(err)}`;
+    console.error(`[booking] ${problem}`);
+    return { result: "failed", problem };
+  }
+}
+
+/** Fold the two halves into one reportable outcome. */
+function summarise(
+  candidate: { result: NoticeOutcome["candidate"]; problem?: string },
+  host: { result: NoticeOutcome["host"]; problem?: string },
+): NoticeOutcome {
+  return {
+    candidate: candidate.result,
+    host: host.result,
+    problems: [candidate.problem, host.problem].filter((p): p is string => Boolean(p)),
+  };
 }

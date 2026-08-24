@@ -395,6 +395,86 @@ export async function attachCalendarEvent(args: {
   };
 }
 
+/**
+ * The host's email address, resolved properly.
+ *
+ * ── What company_members.email is FOR, and why this exists ───
+ *
+ * It is the member's own address, and it is genuinely populated — the
+ * invite-acceptance path (ai-dashboard/accept/actions.ts) writes `name` and
+ * `email` when someone joins a team. The team list, the member search and the
+ * hiring-team picker all read it.
+ *
+ * It is NULL for OWNERS, and that is a real bug rather than a quirk to route
+ * around: owner provisioning in admin/companies/actions.ts inserts only
+ * company_id, user_id, role and status — no name, no email. So every company's
+ * founding member has a blank one, and the blank shows up anywhere that column
+ * is read, not only here. That file is out of scope for this change and is
+ * reported rather than edited.
+ *
+ * Given that, this does not TRUST the column:
+ *
+ *   1. company_members.email — correct when present, and the member's own
+ *      choice, so it wins.
+ *   2. auth.users.email via user_id — the authoritative address they actually
+ *      sign in with. This is what makes an owner reachable today.
+ *   3. companies.contact_email — the company's published address. A backstop,
+ *      not a preference: on a multi-member team it may belong to somebody else
+ *      entirely, which is why it is last.
+ *
+ * Returns null only when all three are empty, and the caller reports that as a
+ * skipped notice rather than passing over it in silence.
+ */
+export async function resolveHostEmail(
+  memberId: string,
+  companyId: string,
+): Promise<{ email: string | null; name: string | null; source: string }> {
+  const service = createServiceClient();
+
+  const { data: memberRow } = await service
+    .from("company_members")
+    .select("name, email, user_id")
+    .eq("id", memberId)
+    .maybeSingle();
+  const member = memberRow as {
+    name: string | null;
+    email: string | null;
+    user_id: string | null;
+  } | null;
+
+  const fromMember = (member?.email ?? "").trim();
+  if (fromMember)
+    return { email: fromMember, name: member?.name ?? null, source: "company_members" };
+
+  if (member?.user_id) {
+    // The service client can read auth.users through the admin API.
+    const { data: authUser } = await service.auth.admin.getUserById(member.user_id);
+    const fromAuth = (authUser?.user?.email ?? "").trim();
+    if (fromAuth) return { email: fromAuth, name: member?.name ?? null, source: "auth.users" };
+  }
+
+  const { data: companyRow } = await service
+    .from("companies")
+    .select("contact_email, contact_name")
+    .eq("id", companyId)
+    .maybeSingle();
+  const company = companyRow as {
+    contact_email: string | null;
+    contact_name: string | null;
+  } | null;
+  const fromCompany = (company?.contact_email ?? "").trim();
+  if (fromCompany) {
+    return {
+      email: fromCompany,
+      name: member?.name ?? company?.contact_name ?? null,
+      source: "companies.contact_email",
+    };
+  }
+
+  console.error("[booking] no host email could be resolved:", { memberId, companyId });
+  return { email: null, name: member?.name ?? null, source: "none" };
+}
+
 /* ─────────────────────── reschedule ────────────────────────── */
 
 export type MoveOutcome =

@@ -58,11 +58,29 @@ export type MessageEvent = (typeof MESSAGE_EVENTS)[number];
  *   · the CHECK on communication_logs.event — for EVERY value, including
  *     log-only ones. Verify against the live database, not against this file.
  *
- * Currently accepted (verified by insert, 2026-08-21): application_received,
- * screening, shortlisted, interview, offer, hired, rejected, manual,
- * interview_reminder, booking_link. NOT booking_confirmed.
+ * ONE EVENT PER MESSAGE, always. There is a UNIQUE index on
+ * (application_id, event, channel) WHERE sent_by_name IS NULL, so two
+ * different automatic messages sharing an event value COLLIDE — the second one
+ * is refused and silently never sends.
+ *
+ * That has now happened twice. `booking_link` reused `interview`; then the
+ * reschedule and cancellation notices reused `booking_confirmed`, which the
+ * confirmation email had already consumed. Both times the symptom was "no
+ * email arrives" with a successful-looking action. If you are adding a
+ * candidate-facing message, it needs its OWN value here — reusing a near-miss
+ * is never the cheap option it looks like.
+ *
+ * Accepted as of 2026-08-22 (event check widened and verified): the eight
+ * MESSAGE_EVENTS plus interview_reminder, booking_link, booking_confirmed,
+ * booking_rescheduled, booking_cancelled.
  */
-export const LOG_ONLY_EVENTS = ["interview_reminder", "booking_confirmed", "booking_link"] as const;
+export const LOG_ONLY_EVENTS = [
+  "interview_reminder",
+  "booking_confirmed",
+  "booking_link",
+  "booking_rescheduled",
+  "booking_cancelled",
+] as const;
 export type LogOnlyEvent = (typeof LOG_ONLY_EVENTS)[number];
 
 /** Anything that may legally appear in communication_logs.event. */

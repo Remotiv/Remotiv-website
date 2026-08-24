@@ -12,11 +12,13 @@ import {
   cancelBooking,
   canReschedule,
   mintBookingToken,
+  resolveHostEmail,
 } from "@/lib/calendar/bookings";
 import { sendCancellationNotices } from "@/lib/calendar/notify";
 import "@/lib/calendar/google";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { escapeHtml } from "@/lib/email/candidate/render";
+import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -378,14 +380,11 @@ export async function cancelBookingAsRecruiter(
     jobs?: { title: string | null } | null;
   } | null;
 
-  const { data: memberRow } = await service
-    .from("company_members")
-    .select("name, email")
-    .eq("id", row.host_member_id)
-    .maybeSingle();
-  const host = memberRow as { name: string | null; email: string | null } | null;
+  // Resolved, not read: company_members.email is NULL for owners, and reading
+  // it directly is why the host has never received a booking email.
+  const host = await resolveHostEmail(row.host_member_id, row.company_id);
 
-  await sendCancellationNotices({
+  const notices = await sendCancellationNotices({
     row: cancelled.row,
     startMs: Date.parse(row.scheduled_start ?? ""),
     cancelledBy: "recruiter",
@@ -395,11 +394,30 @@ export async function cancelBookingAsRecruiter(
     candidateTimezone: row.candidate_timezone ?? row.host_timezone ?? "UTC",
     candidateEmail: app?.email ?? null,
     candidateName: [app?.first_name, app?.last_name].filter(Boolean).join(" ").trim() || "there",
-    hostEmail: host?.email ?? null,
-    hostName: host?.name ?? ctx.memberName,
+    hostEmail: host.email,
+    hostName: host.name ?? ctx.memberName,
     jobTitle: app?.jobs?.title ?? "Interview",
     companyName: ctx.company.name,
     meetingUrl: null,
+  });
+  for (const problem of notices.problems) {
+    console.error(`[booking] recruiter cancel ${cancelled.row.id}: ${problem}`);
+  }
+
+  /*
+   * The team is told, the canceller is not — they just clicked the button.
+   * actorMemberId is what excludes them, and it is the difference between a
+   * useful bell and one that reports your own actions back to you.
+   */
+  await notifyCompany({
+    companyId: row.company_id,
+    type: "interview_cancelled",
+    title: `${[app?.first_name, app?.last_name].filter(Boolean).join(" ").trim() || "A candidate"}'s interview was cancelled`,
+    body: `${ctx.memberName} cancelled it${cancelled.row.cancel_reason ? ` · ${cancelled.row.cancel_reason}` : ""}`,
+    jobId: row.job_id,
+    applicationId: row.application_id,
+    href: "/ai-dashboard/applicants",
+    actorMemberId: ctx.memberId,
   });
 
   revalidatePath("/ai-dashboard/applicants");

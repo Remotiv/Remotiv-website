@@ -42,6 +42,18 @@ export const COMPANY_NOTIFICATION_TYPES = [
    * codebase convention rather than a mirror of the database.
    */
   "interview_expired",
+  /*
+   * The three booking events. A candidate cancelling tomorrow's interview is
+   * the clearest case this bell exists for: nobody on the team did it, the
+   * email lands in one person's inbox, and the diary entry disappears without
+   * explanation unless something says why.
+   *
+   * Verified by probe insert that notifications_company.type accepts these —
+   * the column is unconstrained, so no migration is needed.
+   */
+  "interview_booked",
+  "interview_rescheduled",
+  "interview_cancelled",
   "job_published",
   "job_closed",
   "job_archived",
@@ -110,9 +122,7 @@ async function resolveRecipients(
     .limit(1000);
 
   const members = (memberRows ?? []) as MemberRow[];
-  const siteWide = members
-    .filter((m) => m.role === "owner" || m.role === "admin")
-    .map((m) => m.id);
+  const siteWide = members.filter((m) => m.role === "owner" || m.role === "admin").map((m) => m.id);
 
   if (TEAM_ADMIN_TYPES.has(input.type)) return siteWide;
   if (!input.jobId) return siteWide;
@@ -166,9 +176,7 @@ export async function notifyCompany(input: NotifyInput): Promise<void> {
     // Chunked: a large company with a wide hiring team would otherwise send
     // one very large insert.
     for (let i = 0; i < rows.length; i += 200) {
-      const { error } = await service
-        .from("notifications_company")
-        .insert(rows.slice(i, i + 200));
+      const { error } = await service.from("notifications_company").insert(rows.slice(i, i + 200));
       if (error) {
         console.error("[notify-company] insert failed:", error.message);
         return;
