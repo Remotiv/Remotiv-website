@@ -607,7 +607,6 @@ export async function updateApplicationStage(
     body: `${ctx.memberName} moved them from ${PIPELINE_STAGE_LABELS[fromStage as PipelineStage]}.`,
     jobId: target.job_id,
     applicationId,
-    href: "/ai-dashboard/applicants",
     actorMemberId: ctx.memberId,
   });
 
@@ -1018,8 +1017,8 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     body: `${ctx.memberName} permanently removed them and their CV.`,
     jobId: target.job_id,
     // No application_id: the row it pointed at no longer exists, and a link to
-    // a deleted applicant is a dead end.
-    href: "/ai-dashboard/applicants",
+    // a deleted applicant is a dead end. Without one, notifyCompany routes this
+    // to the bare list rather than to a candidate who isn't there.
     actorMemberId: ctx.memberId,
   });
 

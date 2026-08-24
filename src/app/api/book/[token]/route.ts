@@ -350,7 +350,6 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     body: `${formatInZone(startMs, availability.hostTimezone)} · ${jobTitle}`,
     jobId: claim.row.job_id,
     applicationId: claim.row.application_id,
-    href: "/ai-dashboard/applicants",
     // No actor: the candidate did this, and they are not a member.
   });
 
@@ -453,7 +452,6 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     body: `Now ${formatInZone(startMs, availability.hostTimezone)} · was ${formatInZone(Date.parse(moved.previousStart), availability.hostTimezone)}`,
     jobId: moved.row.job_id,
     applicationId: moved.row.application_id,
-    href: "/ai-dashboard/applicants",
   });
 
   return NextResponse.json(
@@ -533,7 +531,6 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     }`,
     jobId: cancelled.row.job_id,
     applicationId: cancelled.row.application_id,
-    href: "/ai-dashboard/applicants",
   });
 
   /*

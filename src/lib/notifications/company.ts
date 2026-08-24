@@ -72,6 +72,61 @@ const TEAM_ADMIN_TYPES = new Set<CompanyNotificationType>([
   "member_role_changed",
 ]);
 
+const APPLICANTS_PATH = "/ai-dashboard/applicants";
+
+/**
+ * Types that are ABOUT one candidate, and therefore land on that candidate.
+ *
+ * Every one of these used to pass `href: "/ai-dashboard/applicants"` by hand
+ * and land on the list showing everyone — including score_ready, which was the
+ * pattern the others copied. The application id was written to the row and read
+ * by nothing: the feed maps it out and the bell pushes `href` verbatim, so the
+ * column had no effect on where a click went.
+ *
+ * Deriving it here rather than at each call site is deliberate. Six sites
+ * shared one destination and one fallback; six copies of a rule is six chances
+ * for the next one to be written differently, which is how they all ended up on
+ * the list to begin with.
+ */
+const APPLICANT_TYPES = new Set<CompanyNotificationType>([
+  "score_ready",
+  "stage_change",
+  "applicant_deleted",
+  "interview_booked",
+  "interview_rescheduled",
+  "interview_cancelled",
+]);
+
+/**
+ * Where the row navigates to.
+ *
+ * Exported for its test — it is the whole rule, and a rule six call sites now
+ * depend on deserves an assertion rather than a reading.
+ *
+ * An explicitly passed `href` always wins, including `null` for "this row is
+ * not a link" — interview_expired points at the interview itself, and nothing
+ * here should second-guess a caller that named its destination.
+ *
+ * Otherwise an applicant-scoped type deep-links to its candidate, and falls
+ * back to the bare list when there is no application id. The fallback is the
+ * list rather than nothing, because the notification still says something true
+ * that the reader may want to act on; it just cannot say who any more. This is
+ * the case applicant_deleted has always reasoned about — its candidate is gone
+ * by construction — and it is now also the booking events, whose
+ * `application_id` goes NULL if the candidate is deleted after booking.
+ */
+export function resolveHref(input: {
+  type: CompanyNotificationType;
+  applicationId?: string | null;
+  href?: string | null;
+}): string | null {
+  if (input.href !== undefined) return input.href;
+  if (!APPLICANT_TYPES.has(input.type)) return null;
+  return input.applicationId
+    ? `${APPLICANTS_PATH}?applicant=${input.applicationId}`
+    : APPLICANTS_PATH;
+}
+
 type NotifyInput = {
   companyId: string;
   type: CompanyNotificationType;
@@ -170,7 +225,7 @@ export async function notifyCompany(input: NotifyInput): Promise<void> {
       body: input.body,
       job_id: input.jobId ?? null,
       application_id: input.applicationId ?? null,
-      href: input.href ?? null,
+      href: resolveHref(input),
     }));
 
     // Chunked: a large company with a wide hiring team would otherwise send
@@ -201,6 +256,7 @@ export async function notifyCompanyMember(input: {
   title: string;
   body: string;
   jobId?: string | null;
+  applicationId?: string | null;
   href?: string | null;
   actorMemberId?: string | null;
 }): Promise<void> {
@@ -218,7 +274,7 @@ export async function notifyCompanyMember(input: {
       body: input.body,
       job_id: input.jobId ?? null,
       application_id: null,
-      href: input.href ?? null,
+      href: resolveHref(input),
     });
     if (error) console.error("[notify-company] member insert failed:", error.message);
   } catch (err) {

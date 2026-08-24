@@ -1503,7 +1503,6 @@ export async function handleAiCvScore(job: {
       body: `AI screening finished for ${jobRow.title ?? "this role"}.`,
       jobId: app.job_id,
       applicationId: app.id,
-      href: "/ai-dashboard/applicants",
       // No actor: the scorer is the machine, so there is nobody to exclude.
     });
   }

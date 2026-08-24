@@ -416,7 +416,6 @@ export async function cancelBookingAsRecruiter(
     body: `${ctx.memberName} cancelled it${cancelled.row.cancel_reason ? ` · ${cancelled.row.cancel_reason}` : ""}`,
     jobId: row.job_id,
     applicationId: row.application_id,
-    href: "/ai-dashboard/applicants",
     actorMemberId: ctx.memberId,
   });
 

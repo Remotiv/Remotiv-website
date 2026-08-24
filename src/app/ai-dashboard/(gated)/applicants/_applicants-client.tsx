@@ -1766,7 +1766,18 @@ export function ApplicantsClient({
   // filtered, rather than on an unfiltered page the reader has to search again.
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
-  const [openId, setOpenId] = useState<string | null>(null);
+  /**
+   * Seeded from ?applicant= the same way, so a notification about ONE candidate
+   * opens that candidate.
+   *
+   * No filter is touched to get there. `rows` holds every applicant this member
+   * can see — the server pages the whole set in, and the tab, job filter and
+   * pagination are applied further down for display only — so the drawer opens
+   * on someone the current view is not showing, which is the point: a link from
+   * the bell should not depend on which tab was left selected.
+   */
+  const deepLinkId = searchParams.get("applicant");
+  const [openId, setOpenId] = useState<string | null>(() => deepLinkId);
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);
   const [page, setPage] = useState(1);
@@ -1898,6 +1909,32 @@ export function ApplicantsClient({
   }, [tab, jobFilter, search, topOnly, flaggedOnly]);
 
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
+
+  /**
+   * A deep link whose candidate isn't here.
+   *
+   * `openRow` is looked up in `rows`, so a missing id already fails safely —
+   * the drawer simply doesn't render. That silence is the problem: the click
+   * appears to do nothing, which reads as a broken bell rather than as a
+   * candidate who has since been deleted. Say which.
+   *
+   * Deletion is the likely cause and the one applicant_deleted anticipates, but
+   * it is not the only one: a scoped member who opens someone else's link is
+   * also looking at an id that is not in their `rows`. The wording covers both
+   * rather than asserting a deletion that may not have happened.
+   *
+   * Reported once per id. `rows` changes on every optimistic stage or score
+   * edit, and a toast that reappears on each of those would be worse than the
+   * silence it replaces.
+   */
+  const deadLinkReportedFor = useRef<string | null>(null);
+  useEffect(() => {
+    if (!deepLinkId || deadLinkReportedFor.current === deepLinkId) return;
+    if (rows.some((r) => r.id === deepLinkId)) return;
+    deadLinkReportedFor.current = deepLinkId;
+    setOpenId((current) => (current === deepLinkId ? null : current));
+    setToast("That applicant isn't in your list — they may have been deleted.");
+  }, [deepLinkId, rows]);
 
   /**
    * Permanent delete. Optimistic: the row leaves the list immediately and is
