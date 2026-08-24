@@ -191,9 +191,21 @@ export async function createCompany(input: {
   //    truth for tenant resolution, so a company without it would resolve
   //    only through the companies.user_id fallback — roll the whole
   //    provisioning back rather than leave a half-provisioned tenant.
+  //
+  //    `name` and `email` are written HERE, the same way invite acceptance
+  //    writes them (ai-dashboard/accept/actions.ts). Leaving them null was the
+  //    original defect: every founding member of every company had a blank
+  //    row, and each reader of that column improvised its own fallback —
+  //    "Member" in the hiring-team picker, unfindable in search, and no
+  //    address at all for booking mail. The auth user was created from
+  //    contact_email a few lines up, so both values are already in hand.
   const { error: memberError } = await supabase.from("company_members").insert({
     company_id: companyId,
     user_id: userId,
+    // The local-part fallback matches acceptance exactly, so a company created
+    // without a contact name gets the same treatment as an invitee without one.
+    name: contact_name || contact_email.split("@")[0],
+    email: contact_email,
     role: "owner",
     status: "active",
   });
@@ -356,33 +368,52 @@ export async function updateCompany(
     return { success: false, error: error.message };
   }
 
-  // Clear the owner's denormalised identity copy on company_members.
+  // Carry the edit onto the owner's company_members row.
   //
-  // That row is written at provisioning and updated by nothing, so a stale
-  // name/email there used to outrank the truth: the Team page rendered
-  // company_members.name, and getCompanyContext resolves memberName as
-  // `member.name || company.contact_name`, so the topbar and sidebar showed
-  // the stale value too. Nulling it makes BOTH fall through to
-  // companies.contact_name — the field this action just edited — so an admin
-  // edit is reflected immediately with no backfill.
+  // This block used to NULL name and email instead of writing them. That was a
+  // reasonable answer to the problem it faced — the row was written at
+  // provisioning and updated by nothing, so a stale copy outranked the truth in
+  // getCompanyContext (`member.name || company.contact_name`) and on the Team
+  // page — but it fixed staleness by guaranteeing emptiness, and emptiness has
+  // its own readers who cannot fall through to companies.contact_name:
   //
-  // The COLUMNS stay: invited members legitimately own their own name there,
-  // set at accept time. Only the owner's copy is cleared, because for the
-  // owner it is a pure duplicate of contact_name/contact_email.
+  //   • the hiring-team picker and job team list render the literal "Member";
+  //   • search matches on `name.ilike`/`email.ilike`, and NULL matches neither,
+  //     so the owner cannot be found by their own name or address;
+  //   • booking mail had no host address at all.
+  //
+  // Keeping the copy IN STEP is what the settings action already does when a
+  // member changes their own email, so this is now the one rule rather than
+  // two contradictory ones: whoever edits the identity updates every copy of
+  // it. Provisioning writes both fields, this keeps them true.
+  //
+  // An emptied contact_name still writes NULL — that is not a stale value, and
+  // the fall-through to companies.contact_name remains the right answer when
+  // there is genuinely no name to show.
+  //
+  // Only the OWNER's row: an invited member's name is their own, set at accept
+  // time, and no admin edit of the company speaks for it.
   //
   // Best-effort: the company edit has already committed and must not be
-  // reported as failed because a cache clear didn't land.
+  // reported as failed because the copy didn't land.
   if (patch.contact_name !== undefined || patch.contact_email !== undefined) {
+    const identity: Record<string, unknown> = {};
+    if (typeof patch.contact_name === "string") {
+      identity.name = patch.contact_name || null;
+    }
+    if (typeof patch.contact_email === "string") {
+      identity.email = patch.contact_email;
+    }
     const { error: cacheErr } = await supabase
       .from("company_members")
-      .update({ name: null, email: null })
+      .update(identity)
       .eq("company_id", id)
       .eq("role", "owner");
     if (cacheErr) {
-      console.error(
-        "[admin/companies] owner identity cache clear failed (non-fatal)",
-        { companyId: id, error: cacheErr.message },
-      );
+      console.error("[admin/companies] owner identity copy failed (non-fatal)", {
+        companyId: id,
+        error: cacheErr.message,
+      });
     }
   }
 
