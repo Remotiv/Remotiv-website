@@ -52,6 +52,21 @@ export function CompanyLoginClient({ reason }: { reason: string | null }) {
     // policies, so the browser client can never read those rows.
     const verified = await verifyCompanyAccess();
 
+    /*
+     * A failed LOOKUP is not a failed login.
+     *
+     * Signing out here is how the gate evicts someone who doesn't belong. When
+     * the check itself could not run, the session is left intact and they are
+     * asked to retry — signing a legitimate member out over a transient
+     * database error, and telling them their account is the wrong kind, would
+     * be the worse of the two mistakes.
+     */
+    if (!verified.ok && verified.reason === "unavailable") {
+      setError("We couldn't verify your account just now. Try again in a moment.");
+      setLoading(false);
+      return;
+    }
+
     if (!verified.ok) {
       await supabase.auth.signOut();
       setError(

@@ -5,12 +5,13 @@ import {
   createServiceClient,
 } from "@/lib/supabase/server";
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
+import { resolveMembership } from "@/app/ai-dashboard/lib/company-guards";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Keep result types local to this file.
 type VerifyResult =
   | { ok: true }
-  | { ok: false; reason: "not_company" | "inactive"; status?: string };
+  | { ok: false; reason: "not_company" | "inactive" | "unavailable"; status?: string };
 
 /**
  * Post-sign-in gate for /ai-dashboard/login.
@@ -32,22 +33,20 @@ export async function verifyCompanyAccess(): Promise<VerifyResult> {
 
   const service = createServiceClient();
 
-  const { data: memberRow } = await service
-    .from("company_members")
-    .select("company_id")
-    .eq("user_id", user.id)
-    .eq("status", "active")
-    .maybeSingle();
-
-  let companyId = (memberRow as { company_id: string } | null)?.company_id ?? null;
-
-  if (!companyId) {
-    const { data: fallbackRow } = await service
-      .from("companies")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    companyId = (fallbackRow as { id: string } | null)?.id ?? null;
+  /*
+   * `unavailable` is not `not_company`.
+   *
+   * The caller signs the user out on a refusal, so answering "you are not a
+   * company account" when the lookup merely FAILED would evict a legitimate
+   * member over a transient database error. resolveMembership throws rather
+   * than returning null on failure precisely so the two can be told apart.
+   */
+  let companyId: string | null;
+  try {
+    companyId = (await resolveMembership(service, user.id)).companyId;
+  } catch (err) {
+    console.error("[login] company resolution failed:", err);
+    return { ok: false, reason: "unavailable" };
   }
 
   if (!companyId) return { ok: false, reason: "not_company" };

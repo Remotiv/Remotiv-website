@@ -1,5 +1,6 @@
 "use server";
 
+import { resolveMembership } from "@/app/ai-dashboard/lib/company-guards";
 import {
   createClient as createAuthClient,
   createServiceClient,
@@ -35,22 +36,11 @@ export async function resolveResetDestination(): Promise<string> {
 
     const service = createServiceClient();
 
-    const { data: memberRow } = await service
-      .from("company_members")
-      .select("id")
-      .eq("user_id", user.id)
-      .eq("status", "active")
-      .maybeSingle();
-    if (memberRow) return COMPANY_HOME;
-
-    const { data: ownerRow } = await service
-      .from("companies")
-      .select("id")
-      .eq("user_id", user.id)
-      .maybeSingle();
-    if (ownerRow) return COMPANY_HOME;
-
-    return PUBLIC_HOME;
+    // Both paths in one: a member row OR the owner fallback means the company
+    // portal. Previously a user in two companies matched NEITHER lookup and was
+    // sent to the public site.
+    const { companyId } = await resolveMembership(service, user.id);
+    return companyId ? COMPANY_HOME : PUBLIC_HOME;
   } catch {
     return PUBLIC_HOME;
   }
