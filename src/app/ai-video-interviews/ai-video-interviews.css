@@ -758,3 +758,732 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 2 of 13 · PRODUCT DEMO — "the rail" (v5)
+   ============================================================
+   Ported from handoff_ai_video_interviews_s2 v5, the sizing correction of
+   v4. Design, colours, layout and copy are unchanged from the approved v4
+   — only the numbers moved. Calibrated against the "Our Process" section
+   on /services/recruitment at 1440x900.
+
+   Every class carries an .avi2- prefix: the delivered names (.sec, .rail,
+   .stops, .frag, .box, .badge, .cap) are generic enough to collide with
+   sections 3-13 and with globals.
+
+   The v5 file ships production-shaped — no design-canvas frames, no
+   design_doc_mode meta, @media rather than @container, vw rather than cqw.
+   Dropped on the way in: the global element resets (Tailwind preflight
+   already zeroes list and heading margins) and the Google Fonts <link>.
+
+   Font stacks go through --font-heading / --font-sans. A literal 'Sora' or
+   'DM Sans' silently falls back to the generic: next/font self-hosts both
+   under those variables and no @font-face by those names exists.
+
+   Tokens are scoped to .avi2-sec, never :root, exactly as the hero scopes
+   its own to .avi-hero. The two blocks cannot be merged: --r-rad-card is
+   24px here against the hero's 20px, and section 2 has no cream ground. */
+.avi2-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-slab: #141020;
+  --r-mint: var(--remotiv-green);
+  --r-mint-ink: #04342c;
+  --r-lime: var(--remotiv-lime);
+  --r-purple: var(--remotiv-purple);
+  /* The app's 60-79 score band. The DS amber (#f5c842) would repaint the
+     79 bar into the wrong band. */
+  --r-amber: #f5a524;
+  /* Small-meta grey, 5.50:1 on white and 5.03:1 on cream. Three earlier
+     rounds of this project shipped 2.2-3.3:1 greys before this settled.
+     Do not lighten to compensate for the smaller v5 type. */
+  --r-quiet: #6e6862;
+  --r-line: rgba(0, 0, 0, 0.08);
+  --on-dark: rgba(255, 255, 255, 0.74);
+  --r-rad-card: 24px;
+  --r-rad-inner: 20px;
+  --r-rad-pill: 999px;
+  /* Matches /services/recruitment's Our Process: a full-width section with
+     40px gutters holding a slab capped at 1400. NOT the hero's full-bleed
+     56px shell — that is a documented hero-only exception. */
+  --r-container: 1400px;
+  --r-pad: 40px;
+
+  background: var(--r-white);
+  padding: 72px 0;
+  font-family: var(--font-sans);
+}
+.avi2-wrap {
+  padding: 0 var(--r-pad);
+}
+/* The slab is the width-bearing element, capped and centred, so it runs to
+   the section's gutters exactly like the reference's dark card. The 24px
+   inset below is the floor — under it the slab stops reading as a card. */
+.avi2-slab {
+  position: relative;
+  max-width: var(--r-container);
+  margin: 0 auto;
+  background: var(--r-slab);
+  border-radius: var(--r-rad-card);
+  padding: 30px 24px 28px;
+  box-shadow: 0 30px 70px rgba(20, 16, 32, 0.24);
+}
+
+/* ---------- head ---------- */
+.avi2-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 48px;
+  align-items: start;
+}
+.avi2-eyeb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-mint);
+}
+.avi2-eyeb i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+/* Measure lives on the TEXT: 520px is the value that worked on the hero.
+   The clamp is vw-based — 2.3vw hits the 32px cap at 1392 and above. */
+.avi2-head h2 {
+  margin-top: 16px;
+  max-width: 520px;
+  font: 800 clamp(1.55rem, 2.3vw, 2rem) / 1.1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: #ffffff;
+  text-wrap: balance;
+}
+.avi2-stick {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  margin: 0 0.26em 0 0.08em;
+  color: var(--r-slab);
+}
+.avi2-stick::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.12em;
+  right: -0.12em;
+  top: 0.1em;
+  bottom: 0.12em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+  border-radius: 3px;
+}
+.avi2-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--on-dark);
+  text-wrap: pretty;
+}
+.avi2-count {
+  display: grid;
+  min-width: 176px;
+}
+.avi2-count div {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  align-items: baseline;
+  gap: 11px;
+  padding: 11px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.12);
+}
+.avi2-count div:last-child {
+  border-bottom: 1px solid rgba(255, 255, 255, 0.12);
+}
+.avi2-count b {
+  font: 800 20px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: #ffffff;
+}
+.avi2-count span {
+  font: 500 12.6px / 1.35 var(--font-sans);
+  color: var(--on-dark);
+}
+.avi2-count .avi2-m b,
+.avi2-count .avi2-m span {
+  color: var(--r-mint);
+}
+
+/* ---------- the rail: two runs of three ---------- */
+.avi2-rail {
+  margin-top: 48px;
+}
+.avi2-run + .avi2-run {
+  margin-top: 32px;
+}
+.avi2-plabel {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 16px;
+  margin-bottom: 11px;
+  font: 700 10px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--on-dark);
+}
+.avi2-run--two .avi2-plabel {
+  color: #ffffff;
+}
+/* The source declared font-style:normal ahead of the shorthand; the
+   shorthand resets it to normal anyway, so it was dead. */
+.avi2-plabel em {
+  font: 500 11.6px / 1 var(--font-sans);
+  letter-spacing: 0;
+  text-transform: none;
+  color: rgba(255, 255, 255, 0.5);
+}
+
+/* The rule is two segments per run, so the three weights survive the 3 + 3
+   wrap. Columns come from classes, never inline — the mobile query has to
+   win. .avi2-rrow's gap must equal .avi2-g3's (both 24) or the segments
+   stop aligning with the stops beneath them. */
+.avi2-rrow {
+  position: relative;
+  display: grid;
+  gap: 24px;
+  height: 2px;
+  align-items: center;
+}
+.avi2-rrow > * {
+  grid-row: 1;
+}
+.avi2-rrow b {
+  display: block;
+  height: 1px;
+  background: rgba(255, 255, 255, 0.14);
+}
+.avi2-rrow .avi2-s1 {
+  grid-column: 1 / 3;
+}
+.avi2-rrow .avi2-s2 {
+  grid-column: 3 / 4;
+}
+.avi2-rrow .avi2-bright {
+  background: rgba(255, 255, 255, 0.42);
+}
+.avi2-rrow .avi2-mint {
+  height: 2px;
+  border-radius: 2px;
+  background: var(--r-mint);
+}
+/* Dots hang off each STOP as a pseudo-element, never as grid children of
+   the rule row: placed in the rule grid they auto-flowed into implicit
+   columns outside the slab. Dot centres must land ON the line — the rule
+   row is 2px and .avi2-stops adds 20px, so the line centre is exactly
+   -21px from a stop's top, and top = -21 minus half the dot. If you change
+   .avi2-stops padding-top, recompute these. */
+.avi2-st::before {
+  content: "";
+  position: absolute;
+  z-index: 2;
+  left: 0;
+  top: -27px;
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-slab);
+  border: 1.6px solid rgba(255, 255, 255, 0.4);
+}
+.avi2-st--key::before {
+  background: #ffffff;
+  border-color: #ffffff;
+}
+.avi2-st--dest::before {
+  background: var(--r-mint);
+  border-color: var(--r-mint);
+  width: 11px;
+  height: 11px;
+  top: -28px;
+}
+.avi2-rrow s {
+  position: absolute;
+  right: 0;
+  top: -5px;
+  width: 2px;
+  height: 12px;
+  border-radius: 2px;
+  background: var(--r-mint);
+  text-decoration: none;
+}
+
+/* ---------- stop grids — every flexible track minmax(0, 1fr) ---------- */
+.avi2-g3 {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+}
+.avi2-stops {
+  padding-top: 20px;
+}
+.avi2-st {
+  position: relative;
+  min-width: 0;
+}
+.avi2-st__n {
+  font: 700 10px / 1 var(--font-sans);
+  letter-spacing: 0.18em;
+  color: var(--on-dark);
+}
+.avi2-st__t {
+  margin-top: 9px;
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.022em;
+  color: #ffffff;
+  text-wrap: balance;
+  hyphens: manual;
+}
+.avi2-st__d {
+  margin-top: 8px;
+  max-width: 300px;
+  font: 400 13.6px / 1.6 var(--font-sans);
+  color: var(--on-dark);
+  text-wrap: pretty;
+}
+.avi2-st__meta {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+}
+.avi2-badge {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+}
+.avi2-badge i {
+  display: block;
+  width: 14px;
+  height: 9px;
+  border: 1.4px solid currentColor;
+  border-radius: 2px;
+  position: relative;
+  flex: none;
+}
+.avi2-badge i::after {
+  content: "";
+  position: absolute;
+  left: 3.6px;
+  top: 1.5px;
+  border-left: 5px solid currentColor;
+  border-top: 2.6px solid transparent;
+  border-bottom: 2.6px solid transparent;
+}
+
+/* The two interviews — white cards. On ink, white IS the emphasis: no
+   badges and no lifts are needed to carry it. */
+.avi2-st--key .avi2-box {
+  position: relative;
+  background: #ffffff;
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-inner);
+  padding: 20px;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+  transition:
+    transform 0.35s ease,
+    box-shadow 0.35s ease;
+}
+.avi2-st--key .avi2-box:hover {
+  transform: translateY(-4px);
+  box-shadow: 0 28px 56px rgba(0, 0, 0, 0.44);
+}
+.avi2-st--key .avi2-box::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 22px;
+  bottom: 22px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--r-purple);
+}
+.avi2-st--key .avi2-st__n {
+  color: var(--r-quiet);
+}
+.avi2-st--key .avi2-badge {
+  color: var(--r-purple);
+}
+.avi2-st--key .avi2-st__t {
+  color: var(--r-ink);
+}
+.avi2-st--key .avi2-st__d {
+  color: #5c574f;
+}
+
+/* The destination — the only mint object in the section. That is
+   deliberate and load-bearing: it is what makes "a person decides" read as
+   the destination. */
+.avi2-st--dest .avi2-box {
+  background: var(--r-mint);
+  border-radius: var(--r-rad-inner);
+  padding: 20px;
+  box-shadow: 0 22px 48px rgba(73, 215, 167, 0.2);
+}
+.avi2-st--dest .avi2-st__n {
+  color: rgba(4, 52, 44, 0.86);
+}
+.avi2-st--dest .avi2-badge {
+  color: var(--r-mint-ink);
+}
+.avi2-st--dest .avi2-badge i {
+  width: 9px;
+  height: 9px;
+  border-radius: var(--r-rad-pill);
+  background: currentColor;
+  border: 0;
+}
+.avi2-st--dest .avi2-badge i::after {
+  display: none;
+}
+.avi2-st--dest .avi2-st__t {
+  color: var(--r-mint-ink);
+}
+.avi2-st--dest .avi2-st__d {
+  color: rgba(4, 52, 44, 0.82);
+}
+
+/* ---------- artifact row: the scorecard sits under the stages it comes
+   out of, so the section ends on product rather than diagram ---------- */
+.avi2-artrow {
+  display: grid;
+  grid-template-columns: repeat(3, minmax(0, 1fr));
+  gap: 24px;
+  align-items: start;
+  margin-top: 36px;
+}
+/* Overhang budget: the slab's 28px bottom padding absorbs 28 of the -52,
+   and the remaining 24 eats into the section's 72px bottom padding,
+   leaving ~48px clear below the card. If you change the slab's bottom
+   padding, re-check that clearance — at -84 the card came within 16px of
+   the next section and read as a collision. */
+.avi2-fragcol {
+  grid-column: 1 / 3;
+  margin-bottom: -52px;
+}
+.avi2-cap {
+  grid-column: 3;
+}
+.avi2-cap b {
+  display: block;
+  margin-bottom: 6px;
+  font: 700 10px / 1 var(--font-sans);
+  letter-spacing: 0.18em;
+  text-transform: uppercase;
+  color: var(--r-mint);
+}
+.avi2-cap p {
+  max-width: 520px;
+  font: 400 13.6px / 1.6 var(--font-sans);
+  color: var(--on-dark);
+  text-wrap: pretty;
+}
+
+/* ---------- real UI, redrawn from the app scorecard ---------- */
+.avi2-frag {
+  background: var(--r-white);
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-inner);
+  box-shadow: 0 34px 70px rgba(0, 0, 0, 0.3);
+  padding: 20px;
+}
+.avi2-frag__tag {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi2-frag__tag s {
+  text-decoration: none;
+  color: #bcb5ac;
+}
+.avi2-frag__row {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 112px 26px;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.avi2-frag__row p {
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: #3f3b37;
+}
+.avi2-frag__row b {
+  font: 700 13.4px / 1 var(--font-sans);
+  color: var(--r-ink);
+  text-align: right;
+}
+.avi2-bar {
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: #efebe6;
+  overflow: hidden;
+}
+.avi2-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+.avi2-bar--amber i {
+  background: var(--r-amber);
+}
+.avi2-frag__ev {
+  margin-top: 12px;
+  background: var(--r-cream);
+  border-radius: 14px;
+  padding: 13px 14px;
+}
+.avi2-frag__ev p {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: #33302c;
+  text-wrap: pretty;
+}
+.avi2-frag__ev em {
+  display: block;
+  margin-top: 8px;
+  font: 500 11.8px / 1 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi2-frag__foot {
+  display: flex;
+  align-items: center;
+  gap: 12px;
+  margin-top: 12px;
+}
+.avi2-frag__foot p {
+  flex: 1;
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi2-frag__foot p b {
+  color: #3f3b37;
+  font-weight: 500;
+}
+.avi2-adjust {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  height: 31px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: var(--r-rad-pill);
+  padding: 0 13px;
+  font: 500 12.4px / 1 var(--font-sans);
+  color: var(--r-ink);
+  background: transparent;
+  cursor: pointer;
+  white-space: nowrap;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.avi2-adjust:hover {
+  border-color: rgba(17, 17, 17, 0.38);
+  background: rgba(0, 0, 0, 0.03);
+}
+.avi2-adjust i {
+  display: block;
+  width: 11px;
+  height: 11px;
+  border: 1.4px solid var(--r-ink);
+  border-radius: 2px;
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(45deg) scale(0.9);
+}
+
+/* ---------- entrance ----------
+   Opt-in per block via data-reveal, so a rail without the attribute
+   renders fully and nothing is default-hidden. Gated on scripting:enabled
+   as well, so the section renders with JS off. Bars use clip-path, NEVER
+   scaleX — scaleX distorts the pill radius, squashes the fill, and has
+   latched at scaleX(0) leaving bars invisible. */
+@media (scripting: enabled) {
+  .avi2-rail[data-reveal] .avi2-run,
+  .avi2-rail[data-reveal] .avi2-artrow > * {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi2-rail[data-reveal].avi2-in .avi2-run,
+  .avi2-rail[data-reveal].avi2-in .avi2-artrow > * {
+    opacity: 1;
+    transform: none;
+  }
+  .avi2-rail[data-reveal].avi2-in .avi2-run {
+    transition-delay: calc(var(--i) * 0.14s);
+  }
+  .avi2-rail[data-reveal].avi2-in .avi2-artrow > * {
+    transition-delay: 0.34s;
+  }
+  .avi2-rail[data-reveal] .avi2-bar i {
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 0.9s cubic-bezier(0.22, 0.7, 0.2, 1) 0.45s;
+  }
+  .avi2-rail[data-reveal].avi2-in .avi2-bar i {
+    clip-path: inset(0 0 0 0);
+  }
+  .avi2-rail[data-reveal].avi2-in .avi2-frag__row:nth-of-type(2) .avi2-bar i {
+    transition-delay: 0.57s;
+  }
+}
+
+@media (max-width: 900px) {
+  .avi2-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+  }
+  .avi2-head h2,
+  .avi2-lede {
+    max-width: 100%;
+  }
+  .avi2-g3,
+  .avi2-artrow {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  .avi2-fragcol {
+    grid-column: 1 / 3;
+    margin-bottom: 0;
+  }
+  .avi2-cap {
+    grid-column: 1 / 3;
+  }
+}
+/* Gutters track the reference exactly: px-5 sm:px-10, where Tailwind's sm is
+   min-width 640. So 40px holds down to and including 640, 20px below it. The
+   rest of the section keeps its own max-width:640 breakpoint. */
+@media (max-width: 639.98px) {
+  .avi2-sec {
+    --r-pad: 20px;
+  }
+}
+@media (max-width: 640px) {
+  .avi2-sec {
+    padding: 56px 0;
+  }
+  .avi2-slab {
+    padding: 24px 20px 26px;
+    border-radius: 20px;
+  }
+  .avi2-head h2 {
+    font-size: 1.5rem;
+    line-height: 1.14;
+    margin-top: 14px;
+  }
+  .avi2-lede {
+    margin-top: 14px;
+    font-size: 15px;
+  }
+  .avi2-count {
+    min-width: 0;
+  }
+  .avi2-count div {
+    padding: 11px 0;
+  }
+  .avi2-count b {
+    font-size: 19px;
+  }
+  .avi2-rail {
+    margin-top: 32px;
+  }
+  .avi2-run + .avi2-run {
+    margin-top: 26px;
+  }
+  /* The wrap becomes a stack, each run's rule collapses to one divider,
+     and the stop dots come off: a stacked list has no line to sit on. */
+  .avi2-g3,
+  .avi2-artrow {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 22px;
+  }
+  .avi2-rrow {
+    gap: 0;
+  }
+  .avi2-rrow .avi2-s1 {
+    grid-column: 1 / -1;
+  }
+  .avi2-rrow .avi2-s2,
+  .avi2-rrow s {
+    display: none;
+  }
+  .avi2-st::before {
+    display: none;
+  }
+  .avi2-stops {
+    padding-top: 16px;
+  }
+  .avi2-artrow {
+    margin-top: 26px;
+  }
+  .avi2-st__d {
+    max-width: none;
+  }
+  .avi2-st--key .avi2-box,
+  .avi2-st--dest .avi2-box {
+    padding: 17px 16px;
+  }
+  .avi2-st--key .avi2-box:hover {
+    transform: none;
+  }
+  .avi2-fragcol {
+    grid-column: 1;
+    margin-bottom: -40px;
+  }
+  /* Caption BEFORE the card when stacked. The card's negative bottom
+     margin pulls the next grid item up under the white sheet, which
+     painted the caption white-on-white. Ordering it first keeps both the
+     overhang and the text. */
+  .avi2-cap {
+    grid-column: 1;
+    order: -1;
+    margin-bottom: 16px;
+  }
+  .avi2-frag {
+    padding: 16px;
+  }
+  .avi2-frag__row {
+    grid-template-columns: minmax(0, 1fr) 84px 24px;
+    gap: 11px;
+  }
+  .avi2-frag__ev {
+    padding: 13px 14px;
+  }
+  .avi2-frag__foot {
+    align-items: flex-start;
+    gap: 10px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avi2-rail[data-reveal] .avi2-run,
+  .avi2-rail[data-reveal] .avi2-artrow > * {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .avi2-rail[data-reveal] .avi2-bar i {
+    clip-path: inset(0 0 0 0);
+    transition: none;
+  }
+}
