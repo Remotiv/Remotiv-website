@@ -1173,7 +1173,7 @@ export function JobsClient({
             would crush the volume bar, and scrolling it sideways hides Status,
             Applicants and Posted. */}
         {paged.length > 0 && (
-          <div className="min-[1049px]:hidden">
+          <div data-twin-narrow className="min-[1049px]:hidden">
             {paged.map((job) => (
               <JobCard
                 key={job.id}
@@ -1189,7 +1189,7 @@ export function JobsClient({
 
         {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
             kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-        <div className="hidden overflow-x-auto min-[1049px]:block">
+        <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
           <div className="min-w-[900px]">
             <div
               className={`${ROW_GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ai-t3)]`}

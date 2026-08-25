@@ -1452,7 +1452,7 @@ export function TeamClient({
         {/* Stacked cards below the table breakpoint. The 5-column grid needs
             840 design px; the widest phone in scope offers 415. */}
         {filtered.length > 0 && (
-          <div className="min-[1049px]:hidden">
+          <div data-twin-narrow className="min-[1049px]:hidden">
             {filtered.map((m) => (
               <MemberCard
                 key={m.id}
@@ -1466,7 +1466,7 @@ export function TeamClient({
 
         {/* Desktop table — overflow-x-auto is a belt-and-braces guard; at
             >=1049px the grid fits. */}
-        <div className="hidden overflow-x-auto min-[1049px]:block">
+        <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
           <div className="min-w-[840px]">
             <div
               className={`${ROW_GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[11px] font-semibold uppercase tracking-[0.06em] text-[var(--ai-t3)]`}

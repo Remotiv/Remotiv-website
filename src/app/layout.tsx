@@ -78,7 +78,13 @@ export default function RootLayout({
         <style
           // biome-ignore lint/security/noDangerouslySetInnerHtml: critical-CSS inline style — prevents cold-load FOUC before Tailwind chunk arrives
           dangerouslySetInnerHTML={{
-            __html: `html,body{background:#f8f4f1!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}`,
+            // The [data-twin-*] pair: responsive twins that BOTH exist in the
+            // DOM and rely on Tailwind's `hidden` to pick one. Until that chunk
+            // applies neither is hidden and both paint — the applicants list
+            // showed its table and its mobile cards at once. Same 1049px
+            // breakpoint as the classes, which stay the authority once the
+            // sheet lands.
+            __html: `html,body{background:#f8f4f1!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}@media(min-width:1049px){[data-twin-narrow]{display:none}}@media(max-width:1048px){[data-twin-wide]{display:none}}`,
           }}
         />
         <script

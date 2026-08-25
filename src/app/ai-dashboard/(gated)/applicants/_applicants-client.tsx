@@ -17,7 +17,7 @@ import {
   Zap,
 } from "lucide-react";
 import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState } from "react";
+import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
@@ -155,18 +155,65 @@ function fullName(r: CompanyApplicantRow): string {
   return `${r.first_name} ${r.last_name}`.trim() || r.email.split("@")[0] || "Unknown";
 }
 
-function fmtApplied(iso: string): { main: string; sub: string } {
+/**
+ * The clock every date on this page reads.
+ *
+ * ── Why a date can't just be formatted during render ─────────
+ *
+ * These are client components, so they render TWICE: once on the server, once
+ * in the browser during hydration. `Date.now()` and `toLocaleDateString` both
+ * answer differently in those two places — the server runs in UTC, the reader's
+ * browser in their own zone — so an application created after 19:00 UTC came
+ * out "21 Aug" on the server and "22 Aug" in Karachi. Every applicant row
+ * carries one of these, which made a hydration mismatch the normal case rather
+ * than an edge one.
+ *
+ * `now` is the SERVER's render time until hydration finishes, then the live
+ * clock. `local` is false until then, and the formatters pin UTC while it is —
+ * UTC being the only zone both sides can agree on before the browser is
+ * involved. After hydration both switch to the reader's own clock and zone.
+ *
+ * The visible cost is one re-render on mount, and it only changes text for
+ * rows whose timestamp falls on a different calendar day in the two zones —
+ * the ones that were rendering wrong anyway.
+ */
+type PageClock = { now: number; local: boolean };
+
+const NEVER_CHANGES = () => () => {};
+
+/**
+ * false on the server and during the first client render, true afterwards.
+ *
+ * useSyncExternalStore rather than useState+useEffect because its
+ * getServerSnapshot is exactly this distinction: React guarantees the
+ * hydrating render sees the server value, so the first client pass matches the
+ * HTML by construction instead of by timing.
+ */
+function useIsHydrated(): boolean {
+  return useSyncExternalStore(
+    NEVER_CHANGES,
+    () => true,
+    () => false,
+  );
+}
+
+function fmtApplied(iso: string, clock: PageClock): { main: string; sub: string } {
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return { main: "—", sub: "" };
-  const abs = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short" });
-  const days = Math.floor((Date.now() - d.getTime()) / 86_400_000);
+  const abs = d.toLocaleDateString("en-GB", {
+    day: "2-digit",
+    month: "short",
+    ...(clock.local ? {} : { timeZone: "UTC" }),
+  });
+  if (clock.now <= 0) return { main: abs, sub: "" };
+  const days = Math.floor((clock.now - d.getTime()) / 86_400_000);
   if (days < 1) return { main: "Today", sub: abs };
   if (days === 1) return { main: "1d ago", sub: abs };
   return { main: `${days}d ago`, sub: abs };
 }
 
 /** "12 Mar 2026", or null when the timestamp is missing or unparseable. */
-function fmtDay(iso: string | null): string | null {
+function fmtDay(iso: string | null, local: boolean): string | null {
   if (!iso) return null;
   const d = new Date(iso);
   if (Number.isNaN(d.getTime())) return null;
@@ -174,6 +221,7 @@ function fmtDay(iso: string | null): string | null {
     day: "2-digit",
     month: "short",
     year: "numeric",
+    ...(local ? {} : { timeZone: "UTC" }),
   });
 }
 
@@ -183,9 +231,9 @@ function fmtDay(iso: string | null): string | null {
  * Both halves are optional because the optimistic paint deliberately doesn't
  * guess the byline — it renders without one until the refetch supplies it.
  */
-function adjustmentByline(detail: ApplicantScoreDetail | null): string {
+function adjustmentByline(detail: ApplicantScoreDetail | null, local: boolean): string {
   if (!detail) return "";
-  const when = fmtDay(detail.adjusted_at);
+  const when = fmtDay(detail.adjusted_at, local);
   const who = detail.adjusted_by_name?.trim();
   if (who && when) return ` · adjusted by ${who} on ${when}`;
   if (who) return ` · adjusted by ${who}`;
@@ -636,6 +684,7 @@ function ApplicantCard({
   isTop,
   selected,
   onOpen,
+  clock,
 }: {
   row: CompanyApplicantRow;
   index: number;
@@ -643,9 +692,10 @@ function ApplicantCard({
   isTop: boolean;
   selected: boolean;
   onOpen: () => void;
+  clock: PageClock;
 }) {
   const tint = getTint(row.id);
-  const applied = fmtApplied(row.created_at);
+  const applied = fmtApplied(row.created_at, clock);
   const stage = stageOf(row);
   const pill = STAGE_PILL[stage];
   const worthALook = showsWorthALook(row);
@@ -757,11 +807,14 @@ function ScoreAdjuster({
   saving,
   onSave,
   onClear,
+  local,
 }: {
   detail: ApplicantScoreDetail;
   saving: boolean;
   onSave: (score: number, feedback: string) => void;
   onClear: () => void;
+  /** False until hydration; see PageClock. */
+  local: boolean;
 }) {
   const [editing, setEditing] = useState(false);
   const [value, setValue] = useState("");
@@ -794,7 +847,9 @@ function ScoreAdjuster({
           <>
             <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
               Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "—"}
-              <span className="font-normal text-[var(--ai-t3)]">{adjustmentByline(detail)}</span>
+              <span className="font-normal text-[var(--ai-t3)]">
+                {adjustmentByline(detail, local)}
+              </span>
             </p>
             {detail.human_feedback && (
               <p className="m-0 mt-2 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[13px] italic leading-relaxed text-[var(--ai-t2)]">
@@ -915,6 +970,7 @@ function ApplicantDrawer({
   onDelete,
   onDismissFlag,
   dismissing,
+  clock,
 }: {
   row: CompanyApplicantRow;
   history: StageHistoryRow[];
@@ -938,11 +994,12 @@ function ApplicantDrawer({
   onDismissFlag: (id: string) => void;
   /** The id currently being dismissed, or null. */
   dismissing: string | null;
+  clock: PageClock;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
   const name = fullName(row);
-  const applied = fmtApplied(row.created_at);
+  const applied = fmtApplied(row.created_at, clock);
   const stage = stageOf(row);
 
   // Escape closes, body scroll locks, focus moves into the panel — the same
@@ -1089,7 +1146,7 @@ function ApplicantDrawer({
                     <span className="font-semibold text-white/80">
                       AI scored {headerScore.ai_overall}
                     </span>
-                    {adjustmentByline(scoreDetail)}
+                    {adjustmentByline(scoreDetail, clock.local)}
                   </p>
                 ) : (
                   <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
@@ -1453,6 +1510,7 @@ function ApplicantDrawer({
               saving={scoreSaving}
               onSave={onAdjustScore}
               onClear={onClearAdjustment}
+              local={clock.local}
             />
           )}
 
@@ -1507,7 +1565,7 @@ function ApplicantDrawer({
           <DrawerLabel>Stage history</DrawerLabel>
           <div className="flex flex-col gap-[14px]">
             {history.map((h) => {
-              const when = fmtApplied(h.created_at);
+              const when = fmtApplied(h.created_at, clock);
               // The seeded first entry has no from_stage — it reads as plain
               // "Applied" rather than an arrow from nowhere.
               const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
@@ -1685,6 +1743,7 @@ export function ApplicantsClient({
   replyToAddress,
   manualTemplates,
   unassigned,
+  renderedAt,
 }: {
   viewerRole: CompanyRole;
   applicants: CompanyApplicantRow[];
@@ -1695,6 +1754,11 @@ export function ApplicantsClient({
   manualTemplates: ManualTemplate[];
   /** True for a scoped member on no hiring teams — see the empty state. */
   unassigned: boolean;
+  /**
+   * The SERVER's clock at render time, so the server pass and the hydrating
+   * client pass agree on "2d ago". Replaced by the live clock once hydrated.
+   */
+  renderedAt: number;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -1767,17 +1831,46 @@ export function ApplicantsClient({
   const searchParams = useSearchParams();
   const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
   /**
-   * Seeded from ?applicant= the same way, so a notification about ONE candidate
-   * opens that candidate.
+   * Opened from ?applicant=, so a notification about ONE candidate opens that
+   * candidate.
    *
    * No filter is touched to get there. `rows` holds every applicant this member
    * can see — the server pages the whole set in, and the tab, job filter and
    * pagination are applied further down for display only — so the drawer opens
    * on someone the current view is not showing, which is the point: a link from
    * the bell should not depend on which tab was left selected.
+   *
+   * ── Why an effect and NOT a useState initialiser ─────────────
+   *
+   * Seeding at first render put the drawer in the SERVER HTML, which is the one
+   * thing that separated this path from a click. The drawer is a `fixed`
+   * overlay with a backdrop-blur, inside `.ai-shell`'s `zoom: 0.82` — and in
+   * the window before the Tailwind chunk applies, that markup is laid out once
+   * unstyled and again once the sheet lands, which is what painted it twice,
+   * offset. A click can never hit that window because it happens long after
+   * hydration.
+   *
+   * Opening in an effect makes the deep link behave exactly like a click: the
+   * drawer is absent from the server HTML and mounts after hydration. It costs
+   * one frame — the list paints, then the drawer opens over it.
+   *
+   * This is a mitigation, not a cure. Any fixed overlay that IS server-rendered
+   * inside .ai-shell can still hit the same window.
    */
+  const hydrated = useIsHydrated();
+  const clock = useMemo<PageClock>(
+    // Date.now() inside a memo is deliberate: it is read ONCE, on the render
+    // where `hydrated` flips, and never again. A live-ticking clock would
+    // rerender the whole list to change nothing most minutes.
+    () => ({ now: hydrated ? Date.now() : renderedAt, local: hydrated }),
+    [hydrated, renderedAt],
+  );
+
   const deepLinkId = searchParams.get("applicant");
-  const [openId, setOpenId] = useState<string | null>(() => deepLinkId);
+  const [openId, setOpenId] = useState<string | null>(null);
+  useEffect(() => {
+    if (deepLinkId) setOpenId(deepLinkId);
+  }, [deepLinkId]);
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);
   const [page, setPage] = useState(1);
@@ -2519,7 +2612,7 @@ export function ApplicantsClient({
         )}
 
         {paged.length > 0 && (
-          <div className="min-[1049px]:hidden">
+          <div data-twin-narrow className="min-[1049px]:hidden">
             {paged.map((r, i) => (
               <ApplicantCard
                 key={r.id}
@@ -2528,6 +2621,7 @@ export function ApplicantsClient({
                 isTop={topMatchIds.has(r.id)}
                 selected={openId === r.id}
                 onOpen={() => setOpenId(r.id)}
+                clock={clock}
               />
             ))}
           </div>
@@ -2535,7 +2629,7 @@ export function ApplicantsClient({
 
         {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
             kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-        <div className="hidden overflow-x-auto min-[1049px]:block">
+        <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
           <div className="min-w-[960px]">
             <div
               className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
@@ -2551,7 +2645,7 @@ export function ApplicantsClient({
 
             {paged.map((r, i) => {
               const tint = getTint(r.id);
-              const applied = fmtApplied(r.created_at);
+              const applied = fmtApplied(r.created_at, clock);
               const stage = stageOf(r);
               const pill = STAGE_PILL[stage];
               const isTop = topMatchIds.has(r.id);
@@ -2693,6 +2787,7 @@ export function ApplicantsClient({
            */
           key={openRow.id}
           row={openRow}
+          clock={clock}
           history={history}
           scoreDetail={scoreDetail}
           historyLoading={historyLoading}

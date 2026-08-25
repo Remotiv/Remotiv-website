@@ -32,7 +32,13 @@ export default async function ApplicantsPage() {
       ?.candidate_reply_email ?? "").trim() || null;
 
   // Computed, never hardcoded — same rule the handoff sets for Overview.
-  const since = Date.now() - WEEK_MS;
+  //
+  // `now` is also handed to the client so its date formatters can render "2d
+  // ago" identically on this pass and on the hydrating one. Reading the clock
+  // independently in both places is what made every applicant row a hydration
+  // mismatch.
+  const now = Date.now();
+  const since = now - WEEK_MS;
   const newThisWeek = applicants.filter((r) => {
     const t = new Date(r.created_at).getTime();
     return !Number.isNaN(t) && t >= since;
@@ -55,6 +61,7 @@ export default async function ApplicantsPage() {
       replyToAddress={replyToAddress}
       manualTemplates={manualTemplates}
       unassigned={unassigned}
+      renderedAt={now}
     />
   );
 }
