@@ -182,12 +182,32 @@ function CandidateCardMobile({
     candidate.loom_video_url ||
     null;
 
+  /*
+   * A DIV with a stretched click layer, not a <button> wrapping everything.
+   *
+   * This card holds two controls that have to stay: the "More actions" menu —
+   * the only route to "Move to Applications" on mobile, since the desktop
+   * table's copy is hidden below lg — and the interview link. A <button>
+   * nested inside a <button> is invalid HTML, and the parser does not tolerate
+   * it: it generates implied end tags and pops the outer button, so everything
+   * after the menu lands as a SIBLING of the card. The server tree and the
+   * client tree then disagree and hydration fails, leaving the mangled server
+   * DOM orphaned on the page. The applicants table had the identical defect.
+   *
+   * There the inner control was droppable, because the drawer still offered it.
+   * Here both are the only way to reach what they do, so the wrapper gives way
+   * instead: an absolutely-positioned button covers the card and takes the
+   * click, and the two real controls sit above it on `relative z-10`. Whole-card
+   * clicking survives, and no interactive element is nested inside another.
+   */
   return (
-    <button
-      type="button"
-      onClick={onClick}
-      className="flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md"
-    >
+    <div className="relative flex w-full flex-col overflow-hidden rounded-2xl border border-gray-100 bg-white text-left shadow-sm transition-shadow active:shadow-md">
+      <button
+        type="button"
+        onClick={onClick}
+        aria-label={`View details for ${fullName(candidate)}`}
+        className="absolute inset-0 cursor-pointer"
+      />
       <div className="p-4">
         <div className="flex items-start gap-3">
           <RowAvatar candidate={candidate} size={40} />
@@ -202,14 +222,15 @@ function CandidateCardMobile({
                 >
                   {candidate.stage}
                 </span>
+                {/* No stopPropagation any more: this is a SIBLING of the card's
+                    click layer, not a descendant, so there is no bubbling to
+                    stop. Leaving it in would imply a nesting that no longer
+                    exists. */}
                 <button
                   type="button"
-                  onClick={(e) => {
-                    e.stopPropagation();
-                    onOpenMenu(candidate.id);
-                  }}
+                  onClick={() => onOpenMenu(candidate.id)}
                   aria-label="More actions"
-                  className="flex size-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
+                  className="relative z-10 flex size-8 items-center justify-center rounded-lg text-gray-400 hover:bg-gray-100 hover:text-gray-700"
                 >
                   <MoreVertical className="size-4" strokeWidth={2} />
                 </button>
@@ -249,12 +270,17 @@ function CandidateCardMobile({
         </div>
 
         {interviewUrl && (
+          /*
+           * Also a sibling now. As a descendant of the card button it was
+           * fighting it: the anchor navigated AND the card tried to open the
+           * detail view, and stopPropagation only papered over the collision.
+           * Above the click layer it simply wins its own clicks.
+           */
           <a
             href={interviewUrl}
             target="_blank"
             rel="noopener noreferrer"
-            onClick={(e) => e.stopPropagation()}
-            className="mt-3 inline-flex items-center gap-1 text-xs font-semibold text-remotiv-purple hover:underline"
+            className="relative z-10 mt-3 inline-flex items-center gap-1 text-xs font-semibold text-remotiv-purple hover:underline"
           >
             <Calendar className="size-3" strokeWidth={2.5} />
             Open interview link
@@ -266,7 +292,7 @@ function CandidateCardMobile({
         View details
         <ChevronRight className="size-4" strokeWidth={2.5} />
       </div>
-    </button>
+    </div>
   );
 }
 

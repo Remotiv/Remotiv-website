@@ -640,25 +640,33 @@ function CriterionRow({
   );
 }
 
-function WorthALookChip({ onDismiss, busy }: { onDismiss?: () => void; busy?: boolean }) {
+/**
+ * The flag, as a MARK. It takes no props and it never will.
+ *
+ * ── Why the dismiss button is gone rather than optional ──────
+ *
+ * It used to accept `onDismiss`, and passing it rendered a <button> inside the
+ * chip. Both places the chip is used are rows that are themselves <button>s, so
+ * that one optional prop decided whether the markup was valid — and invalid is
+ * not a cosmetic state here. The parser generates implied end tags on a nested
+ * <button> and pops the outer one, so everything after the chip became a
+ * SIBLING of the row: the server tree and the client tree disagreed, hydration
+ * failed, and React left the mangled server DOM orphaned below the page.
+ *
+ * A component whose validity depends on where it is rendered is a trap, and no
+ * signature can express "only if my ancestor is not a button" — the type system
+ * cannot see the DOM. So the capability is removed instead of guarded: with no
+ * prop to pass, the mistake is unspeakable rather than merely discouraged, and
+ * a reader does not have to know the rule to stay on the right side of it.
+ *
+ * Dismissal lives in the drawer's Worth-a-look banner, which is a real region
+ * rather than a chip and can hold a button safely. Both call sites open that
+ * drawer on click, so it is one click from either.
+ */
+function WorthALookChip() {
   return (
-    <span className="group/chip inline-flex shrink-0 items-center gap-1 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] py-0.5 pl-[7px] pr-[7px] text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-remotiv-purple">
+    <span className="inline-flex shrink-0 items-center gap-1 rounded-full border border-remotiv-purple/45 bg-remotiv-purple/[0.06] py-0.5 pl-[7px] pr-[7px] text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-remotiv-purple">
       Worth a look
-      {onDismiss && (
-        <button
-          type="button"
-          aria-label="Dismiss this flag"
-          disabled={busy}
-          onClick={(e) => {
-            // The row itself opens the drawer — dismissing must not also open it.
-            e.stopPropagation();
-            onDismiss();
-          }}
-          className="-mr-0.5 rounded-full p-0.5 opacity-0 transition-opacity hover:bg-remotiv-purple/15 focus-visible:opacity-100 disabled:opacity-40 group-hover/row:opacity-70 group-hover/chip:opacity-100"
-        >
-          <X className="size-[11px]" strokeWidth={2.6} />
-        </button>
-      )}
     </span>
   );
 }
@@ -2706,12 +2714,19 @@ export function ApplicantsClient({
                             Top match
                           </span>
                         )}
-                        {showsWorthALook(r) && (
-                          <WorthALookChip
-                            busy={dismissing === r.id}
-                            onDismiss={() => dismissFlag(r.id)}
-                          />
-                        )}
+                        {/* Display-only, exactly as ApplicantCard renders it.
+                            Passing onDismiss puts a <button> inside this row's
+                            <button>, which is invalid HTML: the parser closes
+                            the row early and reparents everything after the
+                            chip — reason, job, score, stage, date — as
+                            siblings. The server tree and the client tree then
+                            disagree, hydration fails, and React leaves the
+                            mangled server DOM orphaned below the page. Only
+                            FLAGGED rows carried the chip, which is why only
+                            they broke. Dismissal lives in the drawer's
+                            Worth-a-look banner, one click away on the row the
+                            reader is already pointing at. */}
+                        {showsWorthALook(r) && <WorthALookChip />}
                       </p>
                       {showsWorthALook(r) ? (
                         <FlagReasonLine reason={r.shortlist.reason} />
