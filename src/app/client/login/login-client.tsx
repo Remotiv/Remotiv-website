@@ -47,13 +47,38 @@ export function ClientLoginClient({ reason }: { reason: string | null }) {
       return;
     }
 
-    // Verify the auth user actually owns a clients row before redirecting.
-    // Without this, an admin user could land in the client portal.
-    const { data: clientRow } = await supabase
+    /*
+     * Verify the auth user actually owns a clients row before redirecting.
+     * Without this, an admin user could land in the client portal.
+     *
+     * Ordered and limited rather than maybeSingle(): clients.user_id has no
+     * unique index, and maybeSingle() over two rows returns `data: null` with a
+     * PGRST116 error rather than picking one. With the error discarded that was
+     * indistinguishable from "not a client", and this branch SIGNS THE USER OUT
+     * — so owning a second client row would have locked someone out of the
+     * portal entirely. Same order as resolveClientMembership's fallback, so the
+     * gate and the context agree on which client that is.
+     */
+    const { data: clientRows, error: clientError } = await supabase
       .from("clients")
       .select("id, status, user_id")
       .eq("user_id", authData.user.id)
-      .maybeSingle();
+      .order("created_at", { ascending: true })
+      .order("id", { ascending: true })
+      .limit(1);
+
+    /*
+     * A failed lookup is not a failed login. Signing someone out because the
+     * check could not run, and telling them their account is the wrong kind,
+     * is the worse of the two mistakes — leave the session and ask for a retry.
+     */
+    if (clientError) {
+      setError("We couldn't verify your account just now. Try again in a moment.");
+      setLoading(false);
+      return;
+    }
+
+    const clientRow = (clientRows ?? [])[0] ?? null;
 
     if (!clientRow) {
       await supabase.auth.signOut();
