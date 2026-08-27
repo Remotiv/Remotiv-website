@@ -1,0 +1,173 @@
+/*
+ * White-label public pages — shared foundations.
+ *
+ * Scope: /careers/[slug] and /jobs/[slug]. Everything here is scoped under
+ * [data-wl-canvas] so none of it reaches the marketing site or the dashboard,
+ * and nothing from those two can be assumed here either.
+ *
+ * This file is the approved handoff's §3.1 token block and §3.3 container,
+ * nothing more. Components (.btn, .card, .mark, .panel, .row, …) belong to the
+ * pages and are deliberately absent — a half-built component library is worse
+ * than none.
+ *
+ * ── The one deviation from the handoff, and why ──────────────
+ *
+ * The design sets `html, body { font-size: 14px }`, which does two jobs: it
+ * fixes the rem basis, and it sets the inherited text size. The handoff offers
+ * two remedies for a 16px-root app. We take the SECOND (convert the clamps to
+ * px), because the first would break this app in a way the handoff could not
+ * have known about: Tailwind v4's scales are rem-derived —
+ *
+ *     --spacing: .25rem   --text-sm: .875rem   --radius: 0.625rem
+ *
+ * — so a 14px root shrinks every spacing, type and radius token by 12.5%. The
+ * radius scale is the sharpest case: at 16px it resolves to 6/8/10/14/18/22,
+ * which is EXACTLY the design's --r-sm…--r-3xl. At 14px it becomes
+ * 5.25/7/8.75/12.25/15.75/19.25 and matches nothing.
+ *
+ * So: the rem basis stays 16px, the three clamps below are authored in px, and
+ * `font-size:14px` is set on this WRAPPER rather than on html. On a div it sets
+ * only the inherited text size — rem still resolves against html — which is the
+ * half of the design's rule we want without the half we don't.
+ */
+
+[data-wl-canvas] {
+  /* ── Brand (§3.1). Plum is the default of five Settings presets; --brand-ink
+     / --brand-tint / --brand-line are DERIVED in JS at runtime (mix −0.26 /
+     +0.91, rgba .30). These literals are Plum's derivations, present so the
+     pre-JS frame is correct — never hand-pick them for another preset. */
+  --brand: #5b3fbf;
+  --brand-ink: #432e8e;
+  --brand-tint: #efecfa;
+  --brand-line: rgba(91, 63, 191, 0.28);
+
+  /* ── Surface */
+  --page: #fbfaf9;
+  --surface: #ffffff;
+
+  /* ── Ink */
+  --t1: #131318;
+  --t2: #4a4a54;
+  --t3: #787884;
+  --t4: #a2a2ac;
+
+  /* ── Hairlines. The design has exactly three shadows and none of them are on
+     cards, panels or buttons — separation is these two plus rgba(255,255,255,
+     .16) on brand. Do not add a card shadow. */
+  --line: rgba(0, 0, 0, 0.09);
+  --line-soft: rgba(0, 0, 0, 0.06);
+
+  /* ── Radius (§3.1). Literal px, not aliases of --radius-*: the Tailwind
+     tokens happen to resolve to the same six values today, and tying these to
+     them would make the design drift the moment --radius changes. */
+  --r-sm: 6px;
+  --r-md: 8px;
+  --r-lg: 10px;
+  --r-xl: 14px;
+  --r-2xl: 18px;
+  --r-3xl: 22px;
+
+  /* ── Families (§3.2). The design names them --font-display / --font-body;
+     this app binds Sora and DM Sans to --font-heading / --font-sans in the root
+     layout. Aliased rather than renamed so neither side has to move. */
+  --font-display: var(--font-heading, "Sora", sans-serif);
+  --font-body: var(--font-sans, "DM Sans", sans-serif);
+
+  /*
+   * ── The three clamps, resolved to px ─────────────────────────
+   *
+   * Authored in the design as rem against a 14px root. The vw middle term is
+   * unaffected by root size; only the floor and ceiling move, so these are the
+   * authored values multiplied by 14 rather than a reinterpretation:
+   *
+   *   careers h1  2.5rem  / 4.25rem  → 35px    / 59.5px
+   *   job h1      2.2rem  / 3.6rem   → 30.8px  / 50.4px
+   *   careers h2  1.75rem / 2.25rem  → 24.5px  / 31.5px
+   *
+   * Held as custom properties so the two pages consume one definition and
+   * cannot re-derive them differently.
+   */
+  --wl-h1-careers: clamp(35px, 6.4vw, 59.5px);
+  --wl-h1-job: clamp(30.8px, 5.2vw, 50.4px);
+  --wl-h2-careers: clamp(24.5px, 3.4vw, 31.5px);
+
+  background: var(--page);
+  color: var(--t1);
+  font-family: var(--font-body);
+  /* Inherited text size only — see the header note. */
+  font-size: 14px;
+  -webkit-font-smoothing: antialiased;
+}
+
+/*
+ * §3.2 — the design system ships `p { color: var(--t2) }` and both design files
+ * repeat it. This app has no global p rule at all (verified: no bare `p`
+ * selector in any stylesheet under src/), so it has to be declared here or
+ * every paragraph inherits --t1 and the whole page reads a shade too dark.
+ *
+ * The handoff's corollary still applies to the pages: any <p> on the brand
+ * panel needs an explicit colour, because this rule beats inheriting white.
+ */
+[data-wl-canvas] p {
+  color: var(--t2);
+}
+
+[data-wl-canvas] a {
+  color: var(--brand);
+  text-decoration: none;
+}
+
+[data-wl-canvas] a:hover {
+  color: var(--brand-ink);
+}
+
+/*
+ * ── Container (§3.3) ─────────────────────────────────────────
+ *
+ * Authored as the design declares it rather than through Tailwind's `sm:` /
+ * `xl:`, because the design's ladder is 641 / 1281 and Tailwind's is 640 /
+ * 1280. At exactly 640px the design is still on 24px padding and `sm:` has
+ * already moved to 40px; at exactly 1280px the design is still on 40px and
+ * `xl:` has already moved to 48px. One pixel each way, verified at both
+ * boundaries in the handoff's table.
+ *
+ * At the 1440 target this resolves to 1200 − 96 = 1104px of content, which is
+ * the width every measurement in the handoff refers to. The app's stock
+ * `px-6 sm:px-10` has no third step and yields 1120px — 16px too wide, and the
+ * single cause of every horizontal measurement being out.
+ */
+[data-wl-canvas] .wrap {
+  max-width: 1200px;
+  margin: 0 auto;
+  padding: 0 24px;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .wrap {
+    padding: 0 40px;
+  }
+}
+
+@media (min-width: 1281px) {
+  [data-wl-canvas] .wrap {
+    padding: 0 48px;
+  }
+}
+
+/*
+ * ── Focus ring ───────────────────────────────────────────────
+ *
+ * globals.css sets `*:focus-visible { outline: 2px solid
+ * var(--color-remotiv-purple) }` sitewide. On a white-label page that is the
+ * wrong brand by construction: a Remotiv-purple ring looks incidental on the
+ * Plum preset and plainly broken on Rust, Forest, Navy or Ink.
+ *
+ * `[data-wl-canvas] *:focus-visible` is (0,2,0) against the global's (0,1,0),
+ * so it wins on specificity rather than on file order, and the descendant
+ * combinator means it cannot apply to anything outside this wrapper.
+ */
+[data-wl-canvas] *:focus-visible {
+  outline: 2px solid var(--brand);
+  outline-offset: 2px;
+  border-radius: 2px;
+}

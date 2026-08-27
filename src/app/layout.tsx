@@ -84,7 +84,12 @@ export default function RootLayout({
             // showed its table and its mobile cards at once. Same 1049px
             // breakpoint as the classes, which stay the authority once the
             // sheet lands.
-            __html: `html,body{background:#f8f4f1!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}@media(min-width:1049px){[data-twin-narrow]{display:none}}@media(max-width:1048px){[data-twin-wide]{display:none}}`,
+            // The [data-wl-canvas] pair mirrors the release in globals.css and
+            // has to be here as well as there: this block exists precisely for
+            // the window before the Tailwind chunk applies, and a white-label
+            // page painting Remotiv cream for that window and then swapping to
+            // #FBFAF9 is the flash the block was written to prevent.
+            __html: `html,body{background:#f8f4f1!important}html:has([data-wl-canvas]),body:has([data-wl-canvas]){background:#fbfaf9!important}body{display:flex;flex-direction:column;min-height:100vh;overflow-x:hidden}html{--font-heading:'Sora',ui-sans-serif,system-ui,sans-serif;--font-sans:'DM Sans',ui-sans-serif,system-ui,sans-serif}[data-nav]{background:#fff}.skip-link{position:absolute;top:-40px}@media(min-width:1049px){[data-twin-narrow]{display:none}}@media(max-width:1048px){[data-twin-wide]{display:none}}`,
           }}
         />
         <script

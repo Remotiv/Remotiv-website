@@ -254,6 +254,31 @@ body {
   background: #f8f4f1 !important;
 }
 
+/* The white-label public pages are a neutral #FBFAF9, not Remotiv cream — the
+ * approved design says so explicitly, and the value is load-bearing beyond the
+ * canvas: the sticky header (.88 / .9), the mobile apply bar (.97) and the
+ * share buttons are all the same colour at other alphas. Leaving the canvas
+ * cream makes four surfaces disagree.
+ *
+ * The rule above cannot simply be scoped away — its reason is still valid on
+ * every other route, so the lock stays and this releases it for these pages
+ * only. `:has()` because a nested layout renders inside <body> and so cannot
+ * put a class on <html>; the two mechanisms that CAN reach <html> from below
+ * are this and a later-in-document !important rule, and a selector that states
+ * its own condition beats one that depends on document order.
+ *
+ * Specificity, not order, is what makes this win: `html:has([data-wl-canvas])`
+ * is (0,1,1) against the lock's (0,0,1).
+ *
+ * Degrades gracefully. Where :has() is unsupported (Firefox < 121) the canvas
+ * falls back to cream — a 3-unit colour difference in the overscroll area, not
+ * a broken page — and the wrapper paints var(--page) over the content area
+ * regardless. */
+html:has([data-wl-canvas]),
+body:has([data-wl-canvas]) {
+  background: #fbfaf9 !important;
+}
+
 /* Respect the OS-level "Reduce motion" preference (WCAG 2.3.3).
    Strips animation duration + iteration count + transition duration
    sitewide for users who've opted into reduced motion. Tailwind's
