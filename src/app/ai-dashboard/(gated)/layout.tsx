@@ -4,6 +4,7 @@ import { AiShell } from "../_components/ai-shell";
 import { CompanyLookupError, getCompanyContext } from "../lib/company-guards";
 import { getJobScope, scopedApplicationIds } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
+import { SessionRefresh } from "./_session-refresh";
 import type { CompanyContext } from "../lib/company-roles";
 
 export default async function GatedCompanyLayout({
@@ -121,6 +122,7 @@ export default async function GatedCompanyLayout({
       messageCount={messageCount ?? 0}
       interviewCount={interviewCount ?? 0}
     >
+      <SessionRefresh />
       {children}
     </AiShell>
   );
