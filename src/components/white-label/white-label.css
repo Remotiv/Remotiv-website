@@ -171,3 +171,202 @@
   outline-offset: 2px;
   border-radius: 2px;
 }
+
+/* ══════════════════════════════════════════════════════════════
+ * SHARED COMPONENTS (handoff §3.4 — "identical in both files")
+ *
+ * These live here rather than in either page so /careers and /jobs cannot
+ * drift apart. Anything whose values DIFFER between the two pages is not here:
+ * `.panel` is the notable one — its padding is 44/40 → 56/48 on careers and
+ * 40/40 → 48/48 on the job page, so it belongs to each page.
+ * ══════════════════════════════════════════════════════════════ */
+
+[data-wl-canvas] .eyebrow {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.15em;
+  text-transform: uppercase;
+  color: var(--t4);
+  margin: 0;
+}
+
+[data-wl-canvas] .meta {
+  font-size: 12.5px;
+  color: var(--t3);
+  margin: 0;
+}
+
+/* Logo tile / lettermark. 30 × 30 is the base; the pages override the size,
+   radius and font-size for their variants (26/6/12, 34/10/14, 44/10/17). */
+[data-wl-canvas] .mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  background: var(--brand);
+  color: #fff;
+  font-family: var(--font-display);
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  flex-shrink: 0;
+  width: 30px;
+  height: 30px;
+  border-radius: var(--r-md);
+  font-size: 13px;
+  overflow: hidden;
+}
+
+[data-wl-canvas] .mark img {
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  display: block;
+}
+
+/* Measured height 53.09px = 28px padding + 2px border + 23.09px line box.
+   Width is content-driven. No shadow — the design has exactly three and none
+   is on a button. */
+[data-wl-canvas] .btn {
+  display: inline-flex;
+  align-items: center;
+  justify-content: center;
+  gap: 8px;
+  font-size: 14px;
+  font-weight: 700;
+  border: 1px solid transparent;
+  border-radius: var(--r-xl);
+  padding: 14px 24px;
+  transition: 0.18s;
+  background: var(--brand);
+  color: #fff;
+}
+
+[data-wl-canvas] .btn:hover {
+  background: var(--brand-ink);
+  color: #fff;
+}
+
+[data-wl-canvas] .btn:active {
+  transform: translateY(1px);
+}
+
+[data-wl-canvas] .btn svg {
+  width: 14px;
+  height: 14px;
+  stroke-width: 2.2;
+  transition: transform 0.18s;
+}
+
+[data-wl-canvas] .btn:hover svg {
+  transform: translateX(3px);
+}
+
+[data-wl-canvas] .btn.onbrand {
+  background: #fff;
+  color: var(--brand-ink);
+}
+
+[data-wl-canvas] .btn.onbrand:hover {
+  background: rgba(255, 255, 255, 0.88);
+  color: var(--brand-ink);
+}
+
+[data-wl-canvas] .btn.onbrand-g {
+  background: transparent;
+  border-color: rgba(255, 255, 255, 0.32);
+  color: #fff;
+}
+
+[data-wl-canvas] .btn.onbrand-g:hover {
+  background: rgba(255, 255, 255, 0.1);
+  border-color: rgba(255, 255, 255, 0.5);
+  color: #fff;
+}
+
+[data-wl-canvas] .btn.ghost {
+  background: transparent;
+  border-color: var(--line);
+  color: var(--t2);
+}
+
+[data-wl-canvas] .btn.ghost:hover {
+  border-color: var(--brand);
+  background: var(--brand-tint);
+  color: var(--brand-ink);
+}
+
+[data-wl-canvas] .card {
+  background: var(--surface);
+  border: 1px solid var(--line);
+  border-radius: var(--r-2xl);
+  padding: 24px;
+}
+
+/* Sticky company header. The 64px inner row is the ONLY fixed-height block in
+   either page — everything else is content-height. */
+[data-wl-canvas] .chead {
+  position: sticky;
+  top: 0;
+  z-index: 40;
+  background: rgba(251, 250, 249, 0.88);
+  backdrop-filter: blur(14px);
+  border-bottom: 1px solid var(--line-soft);
+}
+
+[data-wl-canvas] .chead .wrap {
+  height: 64px;
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+[data-wl-canvas] .cid {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  min-width: 0;
+}
+
+[data-wl-canvas] .cname {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--t1);
+  white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
+}
+
+/* Carries "Hiring powered by Remotiv · Privacy" — legally load-bearing per the
+   handoff. Never let a state hide it. margin-top is 64 here and 56 on the job
+   page, so only the shared half lives in this rule. */
+[data-wl-canvas] .foot {
+  border-top: 1px solid var(--line);
+  padding: 24px 0 40px;
+}
+
+[data-wl-canvas] .foot .wrap {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  flex-wrap: wrap;
+}
+
+[data-wl-canvas] .foot span,
+[data-wl-canvas] .foot p {
+  font-size: 12.5px;
+  color: var(--t3);
+  margin: 0;
+}
+
+[data-wl-canvas] .foot .pw a {
+  color: var(--t2);
+  font-weight: 500;
+}
+
+[data-wl-canvas] .foot .pw a:hover {
+  color: var(--t1);
+  text-decoration: underline;
+}

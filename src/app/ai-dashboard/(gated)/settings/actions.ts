@@ -14,6 +14,7 @@ import {
 } from "@/app/ai-dashboard/lib/company-guards";
 import {
   COMPANY_DESCRIPTION_MAX,
+  COMPANY_FACT_MAX,
   COMPANY_INDUSTRIES,
 } from "@/app/ai-dashboard/lib/company-roles";
 import { COMPANY_LOGO_BUCKET } from "./constants";
@@ -61,6 +62,8 @@ export async function updateCompanyProfile(input: {
   website: string;
   industry: string;
   description: string;
+  team_size: string;
+  location: string;
 }): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
@@ -97,6 +100,31 @@ export async function updateCompanyProfile(input: {
     };
   }
 
+  /*
+   * The two careers-page facts. Free text, because neither is a number or an
+   * enum: the design asks for a RANGE ("40–60 people") and a place plus a
+   * working style ("Dubai · Remote"), and a headcount integer or a country
+   * dropdown could express neither.
+   *
+   * Blank is a real, chosen value meaning "don't publish this" — it stores null
+   * and the careers rail omits the cell, so there is nothing to fail here.
+   */
+  const teamSize = (input.team_size ?? "").trim();
+  if (teamSize.length > COMPANY_FACT_MAX) {
+    return {
+      success: false,
+      error: `Team size is too long (max ${COMPANY_FACT_MAX} characters). Try a range like "40–60 people".`,
+    };
+  }
+
+  const location = (input.location ?? "").trim();
+  if (location.length > COMPANY_FACT_MAX) {
+    return {
+      success: false,
+      error: `Based in is too long (max ${COMPANY_FACT_MAX} characters). Try "Dubai · Remote".`,
+    };
+  }
+
   // Unrecognised industries fall back to null rather than being stored — the
   // list is closed precisely so this column stays groupable.
   const industry = (COMPANY_INDUSTRIES as readonly string[]).includes(input.industry)
@@ -115,6 +143,8 @@ export async function updateCompanyProfile(input: {
       website: site.value,
       industry,
       description: description || null,
+      team_size: teamSize || null,
+      location: location || null,
     })
     .eq("id", ctx.companyId);
 

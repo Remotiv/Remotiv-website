@@ -50,12 +50,20 @@ export default async function SettingsPage() {
   // needed here and in the dispatcher.
   const { data: replyRow } = await service
     .from("companies")
-    .select("candidate_reply_email")
+    .select("candidate_reply_email, team_size, location")
     .eq("id", ctx.companyId)
     .maybeSingle();
-  const candidateReplyEmail =
-    (replyRow as { candidate_reply_email: string | null } | null)
-      ?.candidate_reply_email ?? "";
+  // team_size and location ride along on the SAME query for the same reason the
+  // comment above gives for candidate_reply_email: they are needed here to edit
+  // them and on the public careers page to render them, and nowhere in the
+  // dashboard chrome — so they stay off COMPANY_COLUMNS, which the guard reads
+  // on every /ai-dashboard request.
+  const profileRow = replyRow as {
+    candidate_reply_email: string | null;
+    team_size: string | null;
+    location: string | null;
+  } | null;
+  const candidateReplyEmail = profileRow?.candidate_reply_email ?? "";
 
   const logoUrl = ctx.company.logo_path
     ? service.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(ctx.company.logo_path)
@@ -73,6 +81,8 @@ export default async function SettingsPage() {
         website: ctx.company.website ?? "",
         industry: ctx.company.industry ?? "",
         description: ctx.company.description ?? "",
+        team_size: profileRow?.team_size ?? "",
+        location: profileRow?.location ?? "",
         logoUrl,
       }}
       account={{ email: ctx.user.email }}

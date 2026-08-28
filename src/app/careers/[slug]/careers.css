@@ -1,0 +1,673 @@
+/*
+ * /careers/[slug] — page-specific styles.
+ *
+ * Everything shared with /jobs/[slug] lives in components/white-label — the
+ * tokens, .wrap, .eyebrow, .meta, .mark, .btn, .card, .chead and .foot. This
+ * file is only what belongs to the careers page, plus `.panel`, whose padding
+ * differs between the two pages and so cannot be shared.
+ *
+ * Values are the approved design's, verbatim. Where a rule looks odd it is
+ * commented as such rather than corrected — see the rail.
+ */
+
+/* ── sticky header extras (careers-only controls) ───────────── */
+
+[data-wl-canvas] .hnav {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+}
+
+/* Hidden below 641 — the header keeps the name and the roles button only. */
+[data-wl-canvas] .wsite {
+  display: none;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--t3);
+  transition: 0.16s;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .wsite {
+    display: inline-flex;
+  }
+}
+
+[data-wl-canvas] .wsite:hover {
+  color: var(--t1);
+}
+
+[data-wl-canvas] .wsite svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+}
+
+[data-wl-canvas] .tobtn {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--brand);
+  border: 1px solid var(--brand-line);
+  border-radius: var(--r-lg);
+  padding: 8px 14px;
+  transition: 0.16s;
+}
+
+[data-wl-canvas] .tobtn:hover {
+  background: var(--brand-tint);
+  border-color: var(--brand);
+  color: var(--brand-ink);
+}
+
+[data-wl-canvas] .tobtn b {
+  font-weight: 700;
+  font-variant-numeric: tabular-nums;
+}
+
+/* ── brand masthead ─────────────────────────────────────────── */
+
+[data-wl-canvas] .mast {
+  padding: 24px 0 0;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .mast {
+    padding: 28px 0 0;
+  }
+}
+
+/* No bottom padding at ≥641 — the stat rail closes the panel. At 1440 the
+   panel measures 1104 × 465.29, content box 1104 − 96 = 1008. */
+[data-wl-canvas] .panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--brand);
+  border-radius: var(--r-3xl);
+  padding: 32px 28px;
+  color: #fff;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .panel {
+    padding: 44px 40px 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas] .panel {
+    padding: 56px 48px 0;
+  }
+}
+
+[data-wl-canvas] .panel .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+}
+
+[data-wl-canvas] .panel .top .eyebrow {
+  color: rgba(255, 255, 255, 0.58);
+}
+
+[data-wl-canvas] .psite {
+  display: inline-flex;
+  align-items: center;
+  gap: 6px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.78);
+  transition: 0.16s;
+}
+
+[data-wl-canvas] .psite:hover {
+  color: #fff;
+}
+
+[data-wl-canvas] .psite svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
+}
+
+/* --wl-h1-careers is the design's clamp(2.5rem,6.4vw,4.25rem) resolved against
+   its 14px root — 35 → 59.5px. Ceiling at ≥929.7px viewport, floor at ≤546.9px;
+   768 → 49.15px. Declared once in white-label.css so both pages agree. */
+[data-wl-canvas] .panel h1 {
+  font-family: var(--font-display);
+  font-size: var(--wl-h1-careers);
+  font-weight: 800;
+  line-height: 0.94;
+  letter-spacing: -0.045em;
+  margin: 18px 0 0;
+  color: #fff;
+  max-width: 20ch;
+  text-wrap: balance;
+}
+
+/* Explicit colour, not inherited: the shared `p { color: var(--t2) }` beats
+   inheriting white from the panel. Same trap the handoff flags in §3.2. */
+[data-wl-canvas] .panel .lede {
+  font-size: 16px;
+  line-height: 1.65;
+  color: rgba(255, 255, 255, 0.76);
+  margin: 20px 0 0;
+  max-width: 58ch;
+  text-wrap: pretty;
+}
+
+[data-wl-canvas] .panel .cta {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 12px;
+  margin: 28px 0 0;
+}
+
+/* ── stat rail — bled to the panel edges ────────────────────── */
+
+/* The negative margins equal the panel's own side padding, so the rail is
+   exactly panel-width. At 1440: rail 1104 × 108.84, four cells of 276 × 107.84.
+   Fewer cells than columns is expected and correct — the design's own
+   no-roles state renders three into this four-column grid. */
+[data-wl-canvas] .rail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 0;
+  margin: 36px -28px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .rail {
+    margin: 44px -40px 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas] .rail {
+    margin: 52px -48px 0;
+  }
+}
+
+[data-wl-canvas] .rail div {
+  padding: 18px 28px 22px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+[data-wl-canvas] .rail div:nth-child(-n + 2) {
+  border-top: none;
+}
+
+[data-wl-canvas] .rail div:nth-child(2n + 1) {
+  border-left: none;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .rail div {
+    padding: 20px 26px 26px;
+    border-top: none;
+  }
+
+  [data-wl-canvas] .rail div:nth-child(2n + 1) {
+    border-left: 1px solid rgba(255, 255, 255, 0.16);
+  }
+
+  [data-wl-canvas] .rail div:first-child {
+    border-left: none;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas] .rail div {
+    padding: 22px 30px 30px;
+  }
+}
+
+@media (min-width: 1281px) {
+  [data-wl-canvas] .rail div {
+    padding: 22px 38px 30px;
+  }
+}
+
+/*
+ * KNOWN INCONSISTENCY — reproduced as-is, per the handoff.
+ *
+ * This odd-child rule sets padding-left:26px at ≥641 and is never overridden
+ * for cell 3, while the ≥1281 rule above gives cells 2 and 4 a padding-left of
+ * 38px. Cell 3 therefore sits 12px further left than its even-numbered
+ * neighbours at the target width. Nobody has flagged it visually. The handoff
+ * says fix only on request, so it stays.
+ *
+ * Cell 1's padding-left deliberately matches the panel's own padding at each
+ * step (28 / 40 / 48) so the first stat value aligns to the h1's left edge.
+ */
+[data-wl-canvas] .rail div:nth-child(2n + 1) {
+  padding-left: 28px;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .rail div:nth-child(2n + 1) {
+    padding-left: 26px;
+  }
+
+  [data-wl-canvas] .rail div:first-child {
+    padding-left: 40px;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas] .rail div:first-child {
+    padding-left: 48px;
+  }
+}
+
+/* The .72 alpha is required for 4.5:1 against all five presets. Do not lower. */
+[data-wl-canvas] .rail dt {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+[data-wl-canvas] .rail dd {
+  font-family: var(--font-display);
+  font-size: 17.5px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #fff;
+  margin: 8px 0 0;
+  text-wrap: balance;
+}
+
+[data-wl-canvas] .rail dd .dot {
+  display: inline-block;
+  width: 7px;
+  height: 7px;
+  border-radius: 50%;
+  background: #fff;
+  margin-right: 8px;
+  vertical-align: 2px;
+}
+
+/* ── roles index ────────────────────────────────────────────── */
+
+[data-wl-canvas] .roles {
+  padding: 64px 0 0;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .roles {
+    padding: 80px 0 0;
+  }
+}
+
+[data-wl-canvas] .rhead {
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+/* clamp(1.75rem,3.4vw,2.25rem) on a 14px root — 24.5 → 31.5px. Ceiling at
+   ≥926.5px, floor at ≤720.6px; 768 → 26.11px. */
+[data-wl-canvas] .rhead h2 {
+  font-family: var(--font-display);
+  font-size: var(--wl-h2-careers);
+  font-weight: 800;
+  letter-spacing: -0.04em;
+  line-height: 1.02;
+  margin: 10px 0 0;
+  color: var(--t1);
+}
+
+[data-wl-canvas] .fils {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 22px;
+}
+
+/* flex:0 0 auto and white-space:nowrap are BOTH required — a wrapped label puts
+   the underline through the middle of the text. */
+[data-wl-canvas] .fil {
+  flex: 0 0 auto;
+  white-space: nowrap;
+  background: none;
+  border: 0;
+  padding: 0 0 9px;
+  font-size: 13.5px;
+  font-weight: 600;
+  color: var(--t3);
+  border-bottom: 2px solid transparent;
+  transition: 0.16s;
+}
+
+[data-wl-canvas] .fil:hover {
+  color: var(--t1);
+}
+
+[data-wl-canvas] .fil.on {
+  color: var(--t1);
+  border-bottom-color: var(--brand);
+}
+
+[data-wl-canvas] .fil b {
+  font-weight: 600;
+  color: var(--t4);
+  margin-left: 6px;
+  font-variant-numeric: tabular-nums;
+}
+
+[data-wl-canvas] .fil.on b {
+  color: var(--brand);
+}
+
+/* ── groups and rows ────────────────────────────────────────── */
+
+[data-wl-canvas] .grp {
+  margin-top: 38px;
+}
+
+[data-wl-canvas] .glab {
+  display: flex;
+  align-items: center;
+  gap: 16px;
+  margin-bottom: 4px;
+}
+
+[data-wl-canvas] .glab .rule {
+  flex: 1;
+  height: 1px;
+  background: var(--line);
+}
+
+[data-wl-canvas] .rows {
+  display: flex;
+  flex-direction: column;
+}
+
+/* Measured at 1440: 1104 × 115.73 (content-height — a two-line title grows it).
+   Track math at 1440: 34 + 24 + [1fr] + 24 + [auto]. */
+[data-wl-canvas] .row {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 10px;
+  align-items: center;
+  padding: 24px 18px;
+  border-top: 1px solid var(--line);
+  border-radius: var(--r-xl);
+  color: inherit;
+  transition:
+    background 0.2s,
+    box-shadow 0.2s;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .row {
+    grid-template-columns: 34px minmax(0, 1fr) auto;
+    gap: 24px;
+    padding: 26px 20px;
+  }
+}
+
+[data-wl-canvas] .row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 0 3px 3px 0;
+  background: var(--brand);
+  opacity: 0;
+  transition: opacity 0.2s;
+}
+
+/* One of only three shadows in the whole design. */
+[data-wl-canvas] .row:hover {
+  background: var(--surface);
+  border-top-color: transparent;
+  box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07);
+  color: inherit;
+}
+
+[data-wl-canvas] .row:hover::before {
+  opacity: 1;
+}
+
+[data-wl-canvas] .row:hover + .row {
+  border-top-color: transparent;
+}
+
+[data-wl-canvas] .rnum {
+  display: none;
+  font-family: var(--font-display);
+  font-size: 13px;
+  font-weight: 700;
+  color: var(--t4);
+  font-variant-numeric: tabular-nums;
+  letter-spacing: -0.02em;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .rnum {
+    display: block;
+  }
+}
+
+[data-wl-canvas] .row:hover .rnum {
+  color: var(--brand);
+}
+
+[data-wl-canvas] .rt {
+  font-family: var(--font-display);
+  font-size: 22px;
+  font-weight: 700;
+  letter-spacing: -0.035em;
+  color: var(--t1);
+  margin: 0;
+  line-height: 1.14;
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas] .rt {
+    font-size: 26px;
+  }
+}
+
+[data-wl-canvas] .row:hover .rt {
+  color: var(--brand);
+}
+
+[data-wl-canvas] .new {
+  font-family: var(--font-body);
+  font-size: 10px;
+  font-weight: 700;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--brand);
+  background: var(--brand-tint);
+  border-radius: 999px;
+  padding: 4px 9px;
+  position: relative;
+  top: -1px;
+}
+
+[data-wl-canvas] .rmeta {
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 9px;
+  margin: 11px 0 0;
+  padding: 0;
+  list-style: none;
+  font-size: 13.4px;
+  color: var(--t3);
+}
+
+[data-wl-canvas] .rmeta li {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+}
+
+[data-wl-canvas] .rmeta li::after {
+  content: "";
+  width: 3px;
+  height: 3px;
+  border-radius: 50%;
+  background: var(--t4);
+}
+
+[data-wl-canvas] .rmeta li:last-child::after {
+  display: none;
+}
+
+[data-wl-canvas] .rright {
+  display: flex;
+  align-items: center;
+  gap: 20px;
+  justify-content: space-between;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas] .rright {
+    justify-content: flex-end;
+  }
+}
+
+[data-wl-canvas] .pay {
+  font-family: var(--font-display);
+  font-size: 15.5px;
+  font-weight: 700;
+  letter-spacing: -0.025em;
+  color: var(--t1);
+  white-space: nowrap;
+}
+
+[data-wl-canvas] .pay span {
+  display: block;
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 500;
+  letter-spacing: 0.1em;
+  text-transform: uppercase;
+  color: var(--t4);
+  margin-top: 5px;
+  text-align: right;
+}
+
+[data-wl-canvas] .rgo {
+  width: 38px;
+  height: 38px;
+  border-radius: 50%;
+  border: 1px solid var(--line);
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: var(--t2);
+  transition: 0.2s;
+  flex-shrink: 0;
+}
+
+[data-wl-canvas] .rgo svg {
+  width: 15px;
+  height: 15px;
+  stroke-width: 2.2;
+  transition: transform 0.2s;
+}
+
+[data-wl-canvas] .row:hover .rgo {
+  background: var(--brand);
+  border-color: var(--brand);
+  color: #fff;
+}
+
+[data-wl-canvas] .row:hover .rgo svg {
+  transform: translateX(2px);
+}
+
+/* ── empty state and closer ─────────────────────────────────── */
+
+[data-wl-canvas] .empty {
+  margin-top: 38px;
+  padding: 40px;
+}
+
+[data-wl-canvas] .empty .mark {
+  width: 44px;
+  height: 44px;
+  border-radius: var(--r-lg);
+  font-size: 17px;
+  margin-bottom: 18px;
+}
+
+[data-wl-canvas] .empty h3 {
+  font-family: var(--font-display);
+  font-size: 26px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  margin: 0 0 10px;
+  color: var(--t1);
+}
+
+[data-wl-canvas] .empty p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t2);
+  margin: 0;
+  max-width: 56ch;
+}
+
+[data-wl-canvas] .empty .btn {
+  margin-top: 22px;
+}
+
+/* last row → closer = margin-top 56 + padding-top 36 + 1px border = 93px */
+[data-wl-canvas] .closer {
+  margin-top: 56px;
+  padding-top: 36px;
+  border-top: 1px solid var(--line);
+  display: flex;
+  align-items: flex-end;
+  justify-content: space-between;
+  gap: 24px;
+  flex-wrap: wrap;
+}
+
+[data-wl-canvas] .closer h3 {
+  font-family: var(--font-display);
+  font-size: 24px;
+  font-weight: 800;
+  letter-spacing: -0.035em;
+  margin: 0 0 8px;
+  color: var(--t1);
+}
+
+[data-wl-canvas] .closer p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t2);
+  margin: 0;
+  max-width: 52ch;
+}
+
+/* closer → footer = margin-top 64 + 1px border + padding-top 24 = 89px.
+   The shared .foot rule carries the border and padding; only the careers
+   margin-top is here, because the job page uses 56. */
+[data-wl-canvas] .foot {
+  margin-top: 64px;
+}

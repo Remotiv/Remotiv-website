@@ -70,6 +70,20 @@ export type CompanyIndustry = (typeof COMPANY_INDUSTRIES)[number];
 /** Same ceiling as a job description — see JOB_TEXT_MAX. */
 export const COMPANY_DESCRIPTION_MAX = 10_000;
 
+/**
+ * Cap for `team_size` and `location` — the two public-profile facts.
+ *
+ * Short on purpose. Each renders as a single `dd` in a ~276px rail cell on the
+ * careers page: "40–60 people" is 12 characters and "Dubai · Remote" is 14.
+ * Anything approaching a sentence wraps to three lines and unbalances the rail,
+ * and a limit that permits a paragraph invites one.
+ *
+ * Here rather than in the settings action because that module is "use server"
+ * and may only export async functions — the same reason
+ * COMPANY_DESCRIPTION_MAX lives beside it.
+ */
+export const COMPANY_FACT_MAX = 60;
+
 export type CompanyMemberStatus = "active" | "invited" | "removed";
 
 // One row of the Team table. Lives here rather than in team/actions.ts because

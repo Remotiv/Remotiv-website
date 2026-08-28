@@ -15,6 +15,7 @@ import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import {
   COMPANY_DESCRIPTION_MAX,
+  COMPANY_FACT_MAX,
   COMPANY_INDUSTRIES,
   COMPANY_ROLE_LABELS,
   type CompanyRole,
@@ -57,6 +58,9 @@ type CompanyForm = {
   website: string;
   industry: string;
   description: string;
+  /** Free text, both of them — see the placeholders below for the shape. */
+  team_size: string;
+  location: string;
 };
 type AccountForm = {
   email: string;
@@ -145,6 +149,8 @@ export function SettingsClient({
     website: company.website,
     industry: company.industry,
     description: company.description,
+    team_size: company.team_size,
+    location: company.location,
   };
   const [coSaved, setCoSaved] = useState<CompanyForm>(initialCompanyForm);
   const [co, setCo] = useState<CompanyForm>(initialCompanyForm);
@@ -630,6 +636,48 @@ export function SettingsClient({
                 className={`${INPUT_CLS} ${coErr.website ? INPUT_ERR_CLS : ""}`}
               />
               {coErr.website && <p className={ERR_CLS}>{coErr.website}</p>}
+            </div>
+
+            {/* Both appear on the public careers page and nowhere else, so the
+                hints say where they land. Left blank, each cell is simply
+                absent from the rail — never shown with a dash. */}
+            <div className="mb-4 grid grid-cols-1 gap-3.5 min-[820px]:grid-cols-2">
+              <div>
+                <label className={LABEL_CLS} htmlFor="co-team-size">
+                  Team size
+                </label>
+                <input
+                  id="co-team-size"
+                  value={co.team_size}
+                  placeholder="40–60 people"
+                  maxLength={COMPANY_FACT_MAX}
+                  disabled={!canEditCompany}
+                  onChange={(e) => setCoField("team_size", e.target.value)}
+                  className={INPUT_CLS}
+                />
+                <p className={HINT_CLS}>
+                  A range reads better than a number — &ldquo;40–60 people&rdquo;, not
+                  &ldquo;52&rdquo;. Shown on your careers page.
+                </p>
+              </div>
+              <div>
+                <label className={LABEL_CLS} htmlFor="co-location">
+                  Based in
+                </label>
+                <input
+                  id="co-location"
+                  value={co.location}
+                  placeholder="Dubai · Remote"
+                  maxLength={COMPANY_FACT_MAX}
+                  disabled={!canEditCompany}
+                  onChange={(e) => setCoField("location", e.target.value)}
+                  className={INPUT_CLS}
+                />
+                <p className={HINT_CLS}>
+                  A place and how you work — &ldquo;Dubai · Remote&rdquo;. Shown on your careers
+                  page.
+                </p>
+              </div>
             </div>
 
             <div className="mb-4">
