@@ -7,6 +7,22 @@ import type { CompanyContext, CompanyRole, CompanyRow } from "./company-roles";
 const COMPANY_COLUMNS =
   "id, name, slug, contact_name, contact_email, website, logo_path, industry, description, status, user_id, must_change_password, created_at";
 
+/**
+ * A lookup that could not be ASKED, as distinct from one answered "no".
+ *
+ * Every caller that evicts on refusal — signs the user out, or bounces them to
+ * login as the wrong kind of account — has to be able to tell the two apart.
+ * resolveMembership throws rather than returning null for exactly this reason;
+ * without a distinguishable type, each caller's `catch` collapses the
+ * distinction again on the way back out.
+ */
+export class CompanyLookupError extends Error {
+  constructor(message: string, options?: { cause?: unknown }) {
+    super(message, options);
+    this.name = "CompanyLookupError";
+  }
+}
+
 /** What resolving a user to a tenant produced, and which path produced it. */
 export type ResolvedMembership = {
   companyId: string | null;
@@ -71,7 +87,10 @@ export async function resolveMembership(
   // Surfaced, never swallowed. A failed lookup is not the same fact as "no
   // membership", and treating it as one is what hid the original bug.
   if (memberError) {
-    throw new Error(`Could not resolve company membership: ${memberError.message}`);
+    throw new CompanyLookupError(
+      `Could not resolve company membership: ${memberError.message}`,
+      { cause: memberError },
+    );
   }
 
   const member = (memberRows ?? [])[0] as
@@ -100,7 +119,10 @@ export async function resolveMembership(
     .limit(1);
 
   if (ownedError) {
-    throw new Error(`Could not resolve company ownership: ${ownedError.message}`);
+    throw new CompanyLookupError(
+      `Could not resolve company ownership: ${ownedError.message}`,
+      { cause: ownedError },
+    );
   }
 
   const owned = (ownedRows ?? [])[0] as { id: string } | undefined;
@@ -143,11 +165,21 @@ export async function getCompanyContext(): Promise<CompanyContext> {
   // meaning the question could not be asked.
   if (!companyId) throw new Error("Not a company account");
 
-  const { data: companyRow } = await service
+  // Surfaced for the same reason as the membership lookup. This select asks for
+  // thirteen columns where the login gate asks only for `status`, so it can fail
+  // where the gate succeeds — a renamed column here used to arrive as "Not a
+  // company account", bouncing the user to a login page that would send them
+  // straight back.
+  const { data: companyRow, error: companyError } = await service
     .from("companies")
     .select(COMPANY_COLUMNS)
     .eq("id", companyId)
     .maybeSingle();
+  if (companyError) {
+    throw new CompanyLookupError(`Could not load company: ${companyError.message}`, {
+      cause: companyError,
+    });
+  }
   const row = companyRow as CompanyRow | null;
   if (!row) throw new Error("Not a company account");
   if (row.status !== "active") throw new Error(`Company status: ${row.status}`);

@@ -1,7 +1,7 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { AiShell } from "../_components/ai-shell";
-import { getCompanyContext } from "../lib/company-guards";
+import { CompanyLookupError, getCompanyContext } from "../lib/company-guards";
 import { getJobScope, scopedApplicationIds } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import type { CompanyContext } from "../lib/company-roles";
@@ -27,7 +27,15 @@ export default async function GatedCompanyLayout({
   let ctx: CompanyContext;
   try {
     ctx = await getCompanyContext();
-  } catch {
+  } catch (err) {
+    // A failed LOOKUP is not a wrong kind of account. Collapsing the two here
+    // undid the login gate's own distinction on the way back out: a transient
+    // database error bounced a legitimate owner to login and told them this
+    // login is for company accounts only.
+    if (err instanceof CompanyLookupError) {
+      console.error("[ai-dashboard] company lookup failed:", err);
+      redirect("/ai-dashboard/login?reason=unavailable");
+    }
     redirect("/ai-dashboard/login?reason=unauthorized");
   }
 

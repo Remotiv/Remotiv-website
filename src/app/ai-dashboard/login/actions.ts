@@ -51,11 +51,19 @@ export async function verifyCompanyAccess(): Promise<VerifyResult> {
 
   if (!companyId) return { ok: false, reason: "not_company" };
 
-  const { data: companyRow } = await service
+  // Same rule as the membership lookup above: a query that FAILED must not read
+  // as a status that isn't active, because the caller signs the user out on that
+  // answer and tells them their account is paused.
+  const { data: companyRow, error: companyError } = await service
     .from("companies")
     .select("status")
     .eq("id", companyId)
     .maybeSingle();
+
+  if (companyError) {
+    console.error("[login] company status lookup failed:", companyError);
+    return { ok: false, reason: "unavailable" };
+  }
 
   const status = (companyRow as { status: CompanyStatus } | null)?.status ?? null;
   if (status !== "active") {

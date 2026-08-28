@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { getCompanyContext } from "../lib/company-guards";
+import { CompanyLookupError, getCompanyContext } from "../lib/company-guards";
 import {
   canCreateJobs,
   canManageTeam,
@@ -18,7 +18,11 @@ export default async function CompanyOverviewPage() {
   let ctx: CompanyContext;
   try {
     ctx = await getCompanyContext();
-  } catch {
+  } catch (err) {
+    if (err instanceof CompanyLookupError) {
+      console.error("[ai-dashboard] company lookup failed:", err);
+      redirect("/ai-dashboard/login?reason=unavailable");
+    }
     redirect("/ai-dashboard/login?reason=unauthorized");
   }
 

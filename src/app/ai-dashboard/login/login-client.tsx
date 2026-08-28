@@ -8,6 +8,10 @@ import { verifyCompanyAccess } from "./actions";
 
 const REASON_MESSAGES: Record<string, string> = {
   unauthorized: "This login is for company accounts only. Please use the portal you were given access to.",
+  // Sent by the gated layout when the workspace lookup FAILED. Deliberately not
+  // the `unauthorized` copy: the account is not the wrong kind, the question
+  // could not be answered.
+  unavailable: "We couldn't load your workspace just now. Please sign in again in a moment.",
   paused: "Your company account has been paused. Contact your account manager.",
   archived: "Your company account has been archived. Contact your account manager.",
 };
@@ -26,65 +30,87 @@ export function CompanyLoginClient({ reason }: { reason: string | null }) {
     setLoading(true);
     setError(null);
 
-    const supabase = createClient();
-    const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-      email: email.trim(),
-      password,
-    });
-
-    if (authError || !authData.user) {
-      // Enumeration-safe handling: collapse credential errors, surface
-      // rate-limit distinctly.
-      const raw = authError?.message?.toLowerCase() ?? "";
-      const status = (authError as { status?: number } | null)?.status;
-      if (raw.includes("rate") || status === 429) {
-        setError("Too many attempts. Please try again in a minute.");
-      } else {
-        setError("Invalid email or password.");
-      }
-      setLoading(false);
-      return;
-    }
-
-    // Verify the auth user actually belongs to a company before redirecting.
-    // Without this, a client-portal or admin user could land here. This runs
-    // server-side (service client): RLS on companies/company_members has no
-    // policies, so the browser client can never read those rows.
-    const verified = await verifyCompanyAccess();
-
     /*
-     * A failed LOOKUP is not a failed login.
+     * Every exit from here must either reset `loading` or navigate away.
      *
-     * Signing out here is how the gate evicts someone who doesn't belong. When
-     * the check itself could not run, the session is left intact and they are
-     * asked to retry — signing a legitimate member out over a transient
-     * database error, and telling them their account is the wrong kind, would
-     * be the worse of the two mistakes.
+     * There is deliberately no `finally`: the success path leaves the button
+     * busy on purpose while the document unloads. That is also why the catch
+     * has to exist — a rejected server action skipped every setLoading(false)
+     * below, and React drops a rejection thrown from an event handler on the
+     * floor, so the button sat on "Signing in…" with nothing logged and nothing
+     * shown. The failure was invisible rather than merely unhandled.
      */
-    if (!verified.ok && verified.reason === "unavailable") {
-      setError("We couldn't verify your account just now. Try again in a moment.");
-      setLoading(false);
-      return;
-    }
+    try {
+      const supabase = createClient();
+      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
+        email: email.trim(),
+        password,
+      });
 
-    if (!verified.ok) {
-      await supabase.auth.signOut();
+      if (authError || !authData.user) {
+        // Enumeration-safe handling: collapse credential errors, surface
+        // rate-limit distinctly.
+        const raw = authError?.message?.toLowerCase() ?? "";
+        const status = (authError as { status?: number } | null)?.status;
+        if (raw.includes("rate") || status === 429) {
+          setError("Too many attempts. Please try again in a minute.");
+        } else {
+          setError("Invalid email or password.");
+        }
+        setLoading(false);
+        return;
+      }
+
+      // Verify the auth user actually belongs to a company before redirecting.
+      // Without this, a client-portal or admin user could land here. This runs
+      // server-side (service client): RLS on companies/company_members has no
+      // policies, so the browser client can never read those rows.
+      const verified = await verifyCompanyAccess();
+
+      /*
+       * A failed LOOKUP is not a failed login.
+       *
+       * Signing out here is how the gate evicts someone who doesn't belong. When
+       * the check itself could not run, the session is left intact and they are
+       * asked to retry — signing a legitimate member out over a transient
+       * database error, and telling them their account is the wrong kind, would
+       * be the worse of the two mistakes.
+       */
+      if (!verified.ok && verified.reason === "unavailable") {
+        setError("We couldn't verify your account just now. Try again in a moment.");
+        setLoading(false);
+        return;
+      }
+
+      if (!verified.ok) {
+        await supabase.auth.signOut();
+        setError(
+          verified.reason === "inactive"
+            ? (verified.status ? REASON_MESSAGES[verified.status] : null) ??
+                "Your account isn't active."
+            : REASON_MESSAGES.unauthorized,
+        );
+        setLoading(false);
+        return;
+      }
+
+      // Full-page navigation, NOT router.push: the session cookie was just set
+      // client-side, and an RSC navigation would render the gated layout on the
+      // server with stale cookies — its redirect() then stalls the transition.
+      // `loading` is deliberately left true; the page is being replaced, so
+      // "Signing in…" is the correct state until it unloads.
+      window.location.assign("/ai-dashboard");
+    } catch (err) {
+      // Nothing here can name a cause: the sign-in call and the server action
+      // both land in this branch, and the action reports failure as a value,
+      // so an actual throw is something neither anticipated. Say only what is
+      // certainly true — it is not the password, and retrying is worth it.
+      console.error("[login] sign-in failed:", err);
       setError(
-        verified.reason === "inactive"
-          ? (verified.status ? REASON_MESSAGES[verified.status] : null) ??
-              "Your account isn't active."
-          : REASON_MESSAGES.unauthorized,
+        "Something went wrong signing you in. This isn't your password — please try again, and contact your account manager if it keeps happening.",
       );
       setLoading(false);
-      return;
     }
-
-    // Full-page navigation, NOT router.push: the session cookie was just set
-    // client-side, and an RSC navigation would render the gated layout on the
-    // server with stale cookies — its redirect() then stalls the transition.
-    // `loading` is deliberately left true; the page is being replaced, so
-    // "Signing in…" is the correct state until it unloads.
-    window.location.assign("/ai-dashboard");
   }
 
   return (
