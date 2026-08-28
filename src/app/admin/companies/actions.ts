@@ -271,10 +271,11 @@ export async function createCompany(input: {
 
   const companyId = (row as { id: string }).id;
 
-  // 3. Insert the owner membership row. company_members is the source of
-  //    truth for tenant resolution, so a company without it would resolve
-  //    only through the companies.user_id fallback — roll the whole
-  //    provisioning back rather than leave a half-provisioned tenant.
+  // 3. Insert the owner membership row. company_members is the ONLY source of
+  //    truth for tenant resolution, so a company without it is a company its
+  //    own owner cannot sign in to — there is no longer a companies.user_id
+  //    fallback to catch it. Roll the whole provisioning back rather than
+  //    leave a tenant in that state.
   //
   //    `name` and `email` are written HERE, the same way invite acceptance
   //    writes them (ai-dashboard/accept/actions.ts). Leaving them null was the

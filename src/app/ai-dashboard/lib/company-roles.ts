@@ -129,14 +129,16 @@ export type CompanyContext = {
    */
   memberName: string;
   /**
-   * company_members.id for the viewer, or null on the legacy
-   * companies.user_id fallback path (which is always an owner).
+   * company_members.id for the viewer. Never null: an active membership is what
+   * grants access, so holding a context and having a member row are the same
+   * fact. It was nullable only for the companies.user_id fallback, which no
+   * longer resolves anyone.
    *
    * job_hiring_team.member_id points at this, so it is what per-job scoping
    * resolves through — never user_id, which the hiring-team table does not
    * carry.
    */
-  memberId: string | null;
+  memberId: string;
   mustChangePassword: boolean;
 };
 

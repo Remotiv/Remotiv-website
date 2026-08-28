@@ -19,9 +19,8 @@ const PUBLIC_HOME = "/browse-talent?password_updated=true";
  * Resolves ONLY the already-authenticated caller — it takes no input, so it
  * can't be used to probe whether an arbitrary email belongs to a company. The
  * lookup needs the service client because company_members has RLS enabled with
- * no policies. Mirrors getCompanyContext's order (members row, then the
- * companies.user_id owner fallback) so an owner without a member row still
- * lands in the right product.
+ * no policies. Shares getCompanyContext's resolver, so this destination and the
+ * gate that greets them on arrival can never disagree.
  *
  * Any failure falls back to the public destination — a wrong-but-valid page
  * beats a dead end, and the company portal re-gates on arrival anyway.
@@ -36,9 +35,8 @@ export async function resolveResetDestination(): Promise<string> {
 
     const service = createServiceClient();
 
-    // Both paths in one: a member row OR the owner fallback means the company
-    // portal. Previously a user in two companies matched NEITHER lookup and was
-    // sent to the public site.
+    // An active membership means the company portal. Previously a user in two
+    // companies matched NEITHER lookup and was sent to the public site.
     const { companyId } = await resolveMembership(service, user.id);
     return companyId ? COMPANY_HOME : PUBLIC_HOME;
   } catch {

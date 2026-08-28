@@ -26,18 +26,20 @@ export class CompanyLookupError extends Error {
   }
 }
 
-/** What resolving a user to a tenant produced, and which path produced it. */
-export type ResolvedMembership = {
-  companyId: string | null;
-  role: CompanyRole;
-  memberName: string | null;
-  memberId: string | null;
-  /** "member" | "owner_fallback" | "none" — for callers that need to explain. */
-  source: "member" | "owner_fallback" | "none";
-};
+/**
+ * What resolving a user to a tenant produced.
+ *
+ * A union rather than four independently-nullable fields, so that "there is a
+ * company" and "there is a member row" are the SAME fact rather than two facts
+ * a caller has to check separately. They are the same fact now: company_members
+ * is the only thing that resolves a user to a company.
+ */
+export type ResolvedMembership =
+  | { companyId: string; role: CompanyRole; memberName: string | null; memberId: string }
+  | { companyId: null; role: null; memberName: null; memberId: null };
 
 /**
- * Resolve a user to ONE company. The single copy of this rule.
+ * Resolve a user to ONE company, through company_members and nothing else.
  *
  * ── Why this exists ──────────────────────────────────────────
  *
@@ -55,9 +57,24 @@ export type ResolvedMembership = {
  * ("cross-product emails are fine"), and company_members is unique on
  * (company_id, user_id), so a second row for a second company is legal.
  *
- * The consequence was silent: the user fell through to the companies.user_id
- * fallback and either landed in whichever company they happened to own, as
- * "owner", or was told they were not a company account at all.
+ * ── There used to be a second way in ─────────────────────────
+ *
+ * A user who owned a `companies` row could resolve through `companies.user_id`
+ * even with no membership. It was carried here when the rule was extracted, and
+ * it should not have been: a canonical resolver with two independent paths into
+ * it is not canonical, and it is the same shape this function was written to
+ * remove.
+ *
+ * It was also unreachable. Provisioning has inserted the owner's member row
+ * since the feature's first commit and rolls the whole company back if that
+ * insert fails (admin/companies/actions.ts), the product refuses to change an
+ * owner's role or remove them (team/actions.ts), and production carried no
+ * company that resolved through it. So this is not a migration — there was
+ * never an earlier era to migrate from.
+ *
+ * `companies.user_id` stays as a COLUMN. It is how an admin updates the owner's
+ * auth email and password, how deletion finds the auth user, and what the admin
+ * drawer displays. It just no longer confers access.
  *
  * ── Which company wins ───────────────────────────────────────
  *
@@ -99,45 +116,14 @@ export async function resolveMembership(
     | { id: string; company_id: string; role: CompanyRole; name: string | null }
     | undefined;
 
-  if (member) {
-    return {
-      companyId: member.company_id,
-      role: member.role,
-      memberName: member.name,
-      memberId: member.id,
-      source: "member",
-    };
-  }
+  if (!member) return { companyId: null, role: null, memberName: null, memberId: null };
 
-  // Fallback: a company whose member row was lost or predates provisioning.
-  // Ordered for the same reason — companies.user_id has no unique index, so one
-  // auth user owning two companies is legal here too.
-  const { data: ownedRows, error: ownedError } = await service
-    .from("companies")
-    .select("id")
-    .eq("user_id", userId)
-    .order("created_at", { ascending: true })
-    .order("id", { ascending: true })
-    .limit(1);
-
-  if (ownedError) {
-    throw new CompanyLookupError(`Could not resolve company ownership: ${ownedError.message}`, {
-      cause: ownedError,
-    });
-  }
-
-  const owned = (ownedRows ?? [])[0] as { id: string } | undefined;
-  if (owned) {
-    return {
-      companyId: owned.id,
-      role: "owner",
-      memberName: null,
-      memberId: null,
-      source: "owner_fallback",
-    };
-  }
-
-  return { companyId: null, role: "owner", memberName: null, memberId: null, source: "none" };
+  return {
+    companyId: member.company_id,
+    role: member.role,
+    memberName: member.name,
+    memberId: member.id,
+  };
 }
 
 /** May this user enter /ai-dashboard at all, and as whom. */
@@ -147,7 +133,12 @@ export type CompanyAccess =
       companyId: string;
       role: CompanyRole;
       memberName: string | null;
-      memberId: string | null;
+      /**
+       * Never null. Access requires an active membership, so granting it and
+       * having a member row are now the same fact — which is what lets
+       * job_hiring_team.member_id be resolved without a null branch.
+       */
+      memberId: string;
     }
   | { ok: false; reason: "unauthenticated" }
   | { ok: false; reason: "not_company" }
@@ -176,7 +167,7 @@ export type CompanyAccessDeniedReason = Extract<CompanyAccess, { ok: false }>;
  * query. So eligibility asks for exactly what eligibility turns on:
  *
  *     authenticated user
- *       → active company_members membership (or the companies.user_id fallback)
+ *       → active company_members membership
  *       → company row exists and is active
  *       → company_id + role
  *

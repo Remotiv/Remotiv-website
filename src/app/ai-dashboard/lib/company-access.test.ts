@@ -42,20 +42,31 @@ const COMPANY = "22222222-2222-2222-2222-222222222222";
  * whole point of the rule is that a query which FAILED is a different fact from
  * one answered "no", and the stub has to be able to express both.
  */
-function stubService({ members = [], membersError = null, company = null, companyError = null }) {
+function stubService({
+  members = [],
+  membersError = null,
+  company = null,
+  companyError = null,
+  ownedCompanies = [{ id: COMPANY }],
+} = {}) {
   return {
     from(table: string) {
       const chain = {
         select: () => chain,
         eq: () => chain,
         order: () => chain,
-        limit: () => Promise.resolve({ data: members, error: membersError }),
+        // `.limit` ends a list read. company_members is the only table the rule
+        // lists; `ownedCompanies` exists so a test can prove that a companies
+        // row owned by this user is NOT consulted — if the fallback ever comes
+        // back, this stub will happily feed it and the test will fail.
+        limit: () =>
+          Promise.resolve(
+            table === "companies"
+              ? { data: ownedCompanies, error: null }
+              : { data: members, error: membersError },
+          ),
         maybeSingle: () => Promise.resolve({ data: company, error: companyError }),
       };
-      // `companies` is read twice by the rule — once as the owner fallback
-      // (.limit) and once for status (.maybeSingle) — so the table name alone
-      // does not pick the answer; the terminal method does.
-      void table;
       return chain;
     },
   };
@@ -151,6 +162,82 @@ test("every refusal has a login destination that agrees with it", async () => {
       `${name}: every refusal names a reason the login page has copy for`,
     );
   }
+});
+
+test("companies.user_id ALONE does not grant access", async () => {
+  /*
+   * The state the removed fallback used to admit: a user who owns a companies
+   * row and has no membership. The stub answers the owner query generously —
+   * `ownedCompanies` defaults to a row for this very company — so if anything
+   * ever consults `companies.user_id` again to resolve a user, this passes and
+   * the assertion below fails.
+   */
+  const access = await resolveCompanyAccess(
+    stubService({ members: [], company: { status: "active" }, ownedCompanies: [{ id: COMPANY }] }),
+    USER,
+  );
+  assert.equal(access.ok, false, "owning a company is not membership");
+  assert.equal(access.reason, "not_company");
+});
+
+test("an ACTIVE OWNER membership grants access", async () => {
+  const owner = [{ id: "m-owner", company_id: COMPANY, role: "owner", name: "Ada" }];
+  const access = await resolveCompanyAccess(
+    stubService({ members: owner, company: { status: "active" } }),
+    USER,
+  );
+  assert.equal(access.ok, true);
+  assert.equal(access.role, "owner");
+  assert.equal(access.memberId, "m-owner", "memberId is never null on the ok path");
+});
+
+test("a REMOVED membership does not grant access", async () => {
+  // The query filters status=active, so a removed row never reaches the rule —
+  // the stub returns what that filtered query would return, which is nothing.
+  const access = await resolveCompanyAccess(
+    stubService({ members: [], company: { status: "active" } }),
+    USER,
+  );
+  assert.equal(access.ok, false);
+  assert.equal(access.reason, "not_company");
+});
+
+test("an INACTIVE company does not grant access, whatever the membership", async () => {
+  for (const status of ["paused", "archived"]) {
+    const access = await resolveCompanyAccess(
+      stubService({ members: activeMember, company: { status } }),
+      USER,
+    );
+    assert.equal(access.ok, false, `${status}: must not grant access`);
+    assert.equal(access.reason, "inactive");
+    assert.equal(access.status, status);
+  }
+});
+
+test("PROVISIONING still requires the owner member row", async () => {
+  /*
+   * The invariant that keeps the fallback unnecessary rather than merely
+   * unused. With company_members the sole authorization source, a company
+   * created without one is a company its own owner cannot sign in to — so
+   * provisioning must roll the whole thing back rather than leave it.
+   *
+   * Asserted against the source because the alternative is standing up the
+   * admin action against a real database.
+   */
+  const { readFileSync } = await import("node:fs");
+  const src = readFileSync(new URL("../../admin/companies/actions.ts", import.meta.url), "utf8");
+
+  const block = src.slice(src.indexOf('from("company_members").insert'));
+  assert.ok(block.length > 0, "provisioning inserts an owner member row");
+  assert.ok(/role: "owner"/.test(block.slice(0, 600)), "and it is inserted as the owner");
+  assert.ok(/status: "active"/.test(block.slice(0, 600)), "and as active");
+
+  const onError = block.slice(block.indexOf("if (memberError)"), block.indexOf("revalidatePath"));
+  assert.ok(
+    /from\("companies"\)\s*\.delete\(\)/.test(onError),
+    "a failed member insert deletes the company — no half-provisioned tenant",
+  );
+  assert.ok(/deleteUser\(createdUserId\)/.test(onError), "and deletes the auth user it created");
 });
 
 test("INVARIANT: nothing re-decides access after the verdict", async () => {

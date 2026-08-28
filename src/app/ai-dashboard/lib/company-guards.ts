@@ -98,9 +98,7 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     //                     at accept time and have no companies row; the
     //                     company's contact_name is somebody else's name.
     //
-    // Both then fall back to the other source, then the email local-part. The
-    // owner-by-companies.user_id fallback path has no member row and `role`
-    // stays "owner", so it lands on contact_name — correct on that path too.
+    // Both then fall back to the other source, then the email local-part.
     memberName:
       (role === "owner"
         ? company.contact_name?.trim() || memberName?.trim()
