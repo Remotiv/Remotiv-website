@@ -96,6 +96,32 @@
   font-family: var(--font-body);
   /* Inherited text size only — see the header note. */
   font-size: 14px;
+
+  /*
+   * The other half of the design's base type, and it has to be declared here.
+   *
+   * The design inherits 1.65 from its design-system stylesheet. This app has
+   * Tailwind Preflight's unitless 1.5 on <html>, so without this line every
+   * element that does NOT set its own line-height was short — and because the
+   * value is unitless it re-resolves against each element's own font-size, so
+   * it was wrong everywhere at once and by a different amount each time.
+   *
+   * Measured against the handoff before the fix:
+   *
+   *   .btn           53.09 → 51.00   (line box 23.1 → 21)
+   *   .row           115.73 → 113.73
+   *   .rail div      107.84 → 103.50
+   *   careers h1     55.93 → 55.93   ← unchanged, it sets line-height: 0.94
+   *
+   * That last row is the proof: everything declaring its own line-height was
+   * already exact, everything inheriting was not. It read as several unrelated
+   * faults — a mark that looked stretched, buttons that looked misaligned —
+   * and it was one missing declaration.
+   *
+   * Unitless so it inherits as a FACTOR: 11.5px text gets 18.98, 14px gets
+   * 23.1, 17.5px gets 28.88. A px value here would flatten all three.
+   */
+  line-height: 1.65;
   -webkit-font-smoothing: antialiased;
 }
 
