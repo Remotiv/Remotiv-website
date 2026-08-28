@@ -24,15 +24,16 @@ const HIDDEN_PREFIXES = [
 /**
  * Children of the segment, but NOT the segment itself.
  *
- * `/jobs` is the Remotiv-run board and keeps the site footer. `/jobs/<slug>` is
- * a white-label company page carrying the design's own `.foot`, which holds the
- * "Hiring powered by Remotiv · Privacy" line — legally load-bearing, per the
- * handoff, and duplicated if the site footer also renders.
+ * Empty since /jobs/[slug] branched. It held "/jobs" while every job detail
+ * page was going to be white-label; now a job with no company_id keeps the
+ * editorial Remotiv page, which has no footer of its own, so hiding the site
+ * footer by path took the only one it had.
  *
- * A plain prefix entry would take both, because the match above is `=== prefix
- * || startsWith(prefix + "/")` and the first half would catch the board.
+ * White-label pages suppress it by the presence of their canvas instead — see
+ * `body:has([data-wl-canvas]) > footer` in white-label.css. That condition is
+ * exact where a path prefix could only guess.
  */
-const HIDDEN_CHILD_PREFIXES = ["/jobs"];
+const HIDDEN_CHILD_PREFIXES: string[] = [];
 
 export function FooterWrapper() {
   const pathname = usePathname();

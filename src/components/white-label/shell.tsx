@@ -36,6 +36,43 @@ import "./white-label.css";
  * The site footer comes from the ROOT layout, which this component sits inside
  * and cannot reach — that one is handled in footer-wrapper.tsx.
  */
-export function WhiteLabelShell({ children }: { children: React.ReactNode }) {
-  return <div data-wl-canvas>{children}</div>;
+/**
+ * Which white-label page this is.
+ *
+ * ── Why this is not cosmetic ─────────────────────────────────
+ *
+ * The two designs reuse class names for DIFFERENT things. `.rail` is the
+ * careers masthead's four-cell stat grid and the job page's right-hand column.
+ * `.panel`, `.panel .top`, `.panel h1` and `.foot` all carry different values on
+ * each page too.
+ *
+ * That would be harmless if only one stylesheet were ever loaded, and it isn't.
+ * Measured: navigating from /careers/x to /jobs/y client-side leaves BOTH sheets
+ * in the document — 15 `[data-wl-canvas] .rail` rules from careers were still
+ * live on the job page. Careers' rail rules would then turn the job page's right
+ * column into a two-column grid with negative margins and white borders.
+ *
+ * So each page's rules carry its own attribute ON THE SAME ELEMENT as
+ * `data-wl-canvas`, making them (0,3,0) against the other page's (0,2,0). The
+ * winner is decided by specificity rather than by which sheet loaded last, which
+ * is not something a stylesheet should have to know.
+ *
+ * Omitted on careers, whose rules predate this and are already unprefixed —
+ * they simply never match a page that is not careers, because the class names
+ * they target don't appear there.
+ */
+type WhiteLabelPage = "job";
+
+export function WhiteLabelShell({
+  children,
+  page,
+}: {
+  children: React.ReactNode;
+  page?: WhiteLabelPage;
+}) {
+  return (
+    <div data-wl-canvas data-wl-page={page}>
+      {children}
+    </div>
+  );
 }

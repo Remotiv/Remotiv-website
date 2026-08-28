@@ -1,0 +1,701 @@
+/*
+ * /jobs/[slug] — the white-label company job page.
+ *
+ * Shared with careers via components/white-label: the tokens, .wrap, .eyebrow,
+ * .meta, .mark, .btn, .card, .chead and .foot's border and padding.
+ *
+ * ── Why every selector carries [data-wl-page="job"] ──────────
+ *
+ * The two designs reuse class names for different things — `.rail` is careers'
+ * stat grid and this page's right column; `.panel`, `.panel .top`, `.panel h1`
+ * and `.foot` differ too. Both stylesheets can be in the document at once:
+ * measured, a client-side nav from /careers/x to /jobs/y left 15 careers `.rail`
+ * rules live on the job page. The attribute makes these (0,3,0) against
+ * careers' (0,2,0), so specificity decides rather than load order.
+ */
+
+/* ── sticky header extras ───────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .allroles {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 500;
+  color: var(--t3);
+  transition: 0.16s;
+}
+
+[data-wl-canvas][data-wl-page="job"] .allroles:hover {
+  color: var(--t1);
+}
+
+[data-wl-canvas][data-wl-page="job"] .allroles svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2;
+  transition: transform 0.18s;
+}
+
+[data-wl-canvas][data-wl-page="job"] .allroles:hover svg {
+  transform: translateX(3px);
+}
+
+/* The job header is .9 alpha where careers is .88 — reproduced, not unified. */
+[data-wl-canvas][data-wl-page="job"] .chead {
+  background: rgba(251, 250, 249, 0.9);
+}
+
+/* ── hero masthead ──────────────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .hero {
+  padding: 24px 0 0;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas][data-wl-page="job"] .hero {
+    padding: 28px 0 0;
+  }
+}
+
+/* 40/40 and 48/48 — NOT careers' 44/40 and 56/48. */
+[data-wl-canvas][data-wl-page="job"] .panel {
+  position: relative;
+  overflow: hidden;
+  background: var(--brand);
+  border-radius: var(--r-3xl);
+  padding: 32px 28px;
+  color: #fff;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas][data-wl-page="job"] .panel {
+    padding: 40px 40px 0;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas][data-wl-page="job"] .panel {
+    padding: 48px 48px 0;
+  }
+}
+
+/* Wraps, where careers' .top does not — the crumb and the company chip are both
+   variable-length and would otherwise squeeze each other. */
+[data-wl-canvas][data-wl-page="job"] .panel .top {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  flex-wrap: wrap;
+}
+
+[data-wl-canvas][data-wl-page="job"] .crumb {
+  margin: 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .crumb a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.5px;
+  font-weight: 600;
+  color: rgba(255, 255, 255, 0.74);
+}
+
+[data-wl-canvas][data-wl-page="job"] .crumb a:hover {
+  color: #fff;
+}
+
+/* Leftward on hover — it is a back link, so the nudge points the way it goes. */
+[data-wl-canvas][data-wl-page="job"] .crumb svg {
+  width: 12px;
+  height: 12px;
+  stroke-width: 2.2;
+  transition: transform 0.18s;
+}
+
+[data-wl-canvas][data-wl-page="job"] .crumb a:hover svg {
+  transform: translateX(-3px);
+}
+
+[data-wl-canvas][data-wl-page="job"] .pco {
+  display: flex;
+  align-items: center;
+  gap: 9px;
+  min-width: 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .pco .mark {
+  background: #fff;
+  color: var(--brand-ink);
+  width: 26px;
+  height: 26px;
+  border-radius: var(--r-sm);
+  font-size: 12px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .pco span {
+  font-family: var(--font-display);
+  font-size: 13.5px;
+  font-weight: 700;
+  letter-spacing: -0.022em;
+  color: rgba(255, 255, 255, 0.9);
+  white-space: nowrap;
+}
+
+/* --wl-h1-job is clamp(2.2rem,5.2vw,3.6rem) resolved off the design's 14px root
+   — 30.8 → 50.4px. Ceiling at ≥969.2px, floor at ≤592.3px; 768 → 39.94px. */
+[data-wl-canvas][data-wl-page="job"] .panel h1 {
+  font-family: var(--font-display);
+  font-size: var(--wl-h1-job);
+  font-weight: 800;
+  line-height: 0.98;
+  letter-spacing: -0.042em;
+  margin: 20px 0 0;
+  color: #fff;
+  max-width: 22ch;
+  text-wrap: balance;
+}
+
+[data-wl-canvas][data-wl-page="job"] .hact {
+  display: flex;
+  align-items: center;
+  gap: 18px;
+  flex-wrap: wrap;
+  margin: 28px 0 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .hact .meta {
+  font-size: 13px;
+  color: rgba(255, 255, 255, 0.64);
+}
+
+/* ── masthead stat rail ─────────────────────────────────────── */
+
+/* Same mechanics as careers' rail, and deliberately a DIFFERENT class: this
+   page's `.rail` is the right-hand column. Note there is no 1281 step here —
+   careers goes to 38px, this page stays at 30px. */
+[data-wl-canvas][data-wl-page="job"] .mrail {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  margin: 32px -28px 0;
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas][data-wl-page="job"] .mrail {
+    margin: 40px -40px 0;
+    grid-template-columns: repeat(4, minmax(0, 1fr));
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas][data-wl-page="job"] .mrail {
+    margin: 48px -48px 0;
+  }
+}
+
+[data-wl-canvas][data-wl-page="job"] .mrail div {
+  padding: 18px 28px 22px;
+  border-left: 1px solid rgba(255, 255, 255, 0.16);
+  border-top: 1px solid rgba(255, 255, 255, 0.16);
+}
+
+[data-wl-canvas][data-wl-page="job"] .mrail div:nth-child(-n + 2) {
+  border-top: none;
+}
+
+[data-wl-canvas][data-wl-page="job"] .mrail div:nth-child(2n + 1) {
+  border-left: none;
+  padding-left: 28px;
+}
+
+@media (min-width: 641px) {
+  [data-wl-canvas][data-wl-page="job"] .mrail div {
+    padding: 20px 26px 26px;
+    border-top: none;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .mrail div:nth-child(2n + 1) {
+    border-left: 1px solid rgba(255, 255, 255, 0.16);
+    padding-left: 26px;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .mrail div:first-child {
+    border-left: none;
+    padding-left: 40px;
+  }
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas][data-wl-page="job"] .mrail div {
+    padding: 22px 30px 30px;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .mrail div:first-child {
+    padding-left: 48px;
+  }
+}
+
+/* The .72 alpha is required for 4.5:1 across all five presets. Do not lower. */
+[data-wl-canvas][data-wl-page="job"] .mrail dt {
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0.13em;
+  text-transform: uppercase;
+  color: rgba(255, 255, 255, 0.72);
+}
+
+[data-wl-canvas][data-wl-page="job"] .mrail dd {
+  font-family: var(--font-display);
+  font-size: 17.5px;
+  font-weight: 700;
+  letter-spacing: -0.03em;
+  color: #fff;
+  margin: 8px 0 0;
+  text-wrap: balance;
+}
+
+/* ── body grid ──────────────────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .body {
+  padding: 20px 0;
+}
+
+/* minmax(0,1fr) is mandatory — a bare 1fr has an auto minimum and refuses to
+   shrink, so a long unbroken string in the document column would push the rail
+   off the page. Below 1024 the right column is ABSENT, not reflowed below. */
+[data-wl-canvas][data-wl-page="job"] .body .grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr);
+  gap: 16px;
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas][data-wl-page="job"] .body .grid {
+    grid-template-columns: 1.65fr 1fr;
+    gap: 16px;
+    align-items: start;
+  }
+}
+
+/* ── document column ────────────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .doc {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .doc h2 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  color: var(--t1);
+  margin: 0 0 12px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .doc p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t2);
+  margin: 0 0 12px;
+  text-wrap: pretty;
+}
+
+[data-wl-canvas][data-wl-page="job"] .doc p:last-child {
+  margin-bottom: 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .doc ul {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+}
+
+/* `.doc li` before `.doc ul li` so specificity ascends. The two set disjoint
+   properties, so the order changes nothing rendered — it just stops the pair
+   reading as an accident. */
+[data-wl-canvas][data-wl-page="job"] .doc li {
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--t2);
+}
+
+[data-wl-canvas][data-wl-page="job"] .doc ul li {
+  position: relative;
+  padding-left: 20px;
+}
+
+/*
+ * SCOPED TO `ul`, and it must stay that way.
+ *
+ * As `.doc li::before` it also matches the <ol class="steps"> items and paints
+ * a stray dot above every step number. The handoff names this as a bug already
+ * paid for once.
+ */
+[data-wl-canvas][data-wl-page="job"] .doc ul li::before {
+  content: "";
+  position: absolute;
+  left: 2px;
+  top: 7px;
+  width: 6px;
+  height: 6px;
+  border-radius: 50%;
+  background: var(--brand);
+  opacity: 0.5;
+}
+
+/*
+ * ── "How we hire" steps ──────────────────────────────────────
+ *
+ * Biome flags `.steps li` and `.facts li` below as descending specificity
+ * against `.doc ul li` above. Left as-is: `.steps` is an <ol> and `.facts` is
+ * in the right column, so neither can be matched by `.doc ul li` — the warning
+ * is a static comparison, not a real cascade conflict, and reordering to
+ * silence it would scatter the file's sections for nothing.
+ */
+
+[data-wl-canvas][data-wl-page="job"] .steps {
+  margin: 0;
+  padding: 0;
+  list-style: none;
+  display: flex;
+  flex-direction: column;
+  gap: 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .steps li {
+  display: grid;
+  grid-template-columns: 26px minmax(0, 1fr);
+  gap: 14px;
+  align-items: start;
+  padding: 14px 0;
+  font-size: 14px;
+  line-height: 1.55;
+  color: var(--t2);
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-wl-canvas][data-wl-page="job"] .steps li:first-child {
+  border-top: none;
+  padding-top: 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .steps li:last-child {
+  padding-bottom: 0;
+}
+
+/*
+ * The numerals are REAL MARKUP — <span class="n">1</span> — in DM Sans, single
+ * digits, no leading zero.
+ *
+ * Never a CSS counter. The bug this replaced used
+ * `content: counter(s, decimal-leading-zero)` in Sora with
+ * `font-variant-numeric: tabular-nums`; Sora's `tnum` feature gives
+ * decimal-leading-zero a broken advance width and the `0` and the digit drew on
+ * top of each other. letter-spacing is pinned to 0 for the same family reason.
+ */
+[data-wl-canvas][data-wl-page="job"] .steps .n {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 26px;
+  height: 26px;
+  border-radius: 50%;
+  background: var(--brand-tint);
+  color: var(--brand);
+  font-family: var(--font-body);
+  font-size: 11.5px;
+  font-weight: 700;
+  letter-spacing: 0;
+  line-height: 1;
+  margin-top: -2px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .steps b {
+  color: var(--t1);
+  font-weight: 600;
+}
+
+/* ── right column ───────────────────────────────────────────── */
+
+/* Careers' `.rail` is a grid with negative margins and a white top border. This
+   one is a sticky flex column. The page attribute is what keeps them apart. */
+[data-wl-canvas][data-wl-page="job"] .rail {
+  display: flex;
+  flex-direction: column;
+  gap: 16px;
+}
+
+@media (min-width: 1024px) {
+  [data-wl-canvas][data-wl-page="job"] .rail {
+    position: sticky;
+    top: 96px;
+  }
+}
+
+[data-wl-canvas][data-wl-page="job"] .rname {
+  display: flex;
+  align-items: center;
+  gap: 10px;
+  margin: 14px 0 12px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .rname .mark {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-lg);
+  font-size: 14px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .rname p {
+  font-family: var(--font-display);
+  font-size: 15px;
+  font-weight: 700;
+  letter-spacing: -0.024em;
+  color: var(--t1);
+  margin: 0;
+}
+
+/* Removed entirely when the company has no description — never empty space. */
+[data-wl-canvas][data-wl-page="job"] .about {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t2);
+  margin: 0 0 16px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts {
+  display: flex;
+  flex-direction: column;
+  margin: 0;
+  padding: 0;
+  list-style: none;
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts li {
+  display: flex;
+  align-items: baseline;
+  justify-content: space-between;
+  gap: 14px;
+  font-size: 12.5px;
+  padding: 10px 0;
+  border-top: 1px solid var(--line-soft);
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts li:first-child {
+  border-top: none;
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts li span {
+  color: var(--t3);
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts b {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  text-align: right;
+}
+
+[data-wl-canvas][data-wl-page="job"] .facts a {
+  font-size: 13px;
+  font-weight: 600;
+}
+
+[data-wl-canvas][data-wl-page="job"] .rlink {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  margin-top: 16px;
+  font-size: 14px;
+  font-weight: 700;
+  color: var(--brand);
+}
+
+[data-wl-canvas][data-wl-page="job"] .rlink svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 2.2;
+  transition: transform 0.18s;
+}
+
+[data-wl-canvas][data-wl-page="job"] .rlink:hover svg {
+  transform: translateX(3px);
+}
+
+[data-wl-canvas][data-wl-page="job"] .share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+[data-wl-canvas][data-wl-page="job"] .share button {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.48px;
+  font-weight: 500;
+  color: var(--t2);
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  transition: 0.16s;
+}
+
+[data-wl-canvas][data-wl-page="job"] .share button:hover {
+  border-color: var(--brand);
+  color: var(--brand-ink);
+  background: var(--brand-tint);
+}
+
+/* Icons are inline 1.5px-stroke SVG — no emoji. */
+[data-wl-canvas][data-wl-page="job"] .share svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.9;
+}
+
+/* ── closing card ───────────────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .close {
+  padding: 4px 0 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .close .card {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  gap: 20px;
+  flex-wrap: wrap;
+}
+
+[data-wl-canvas][data-wl-page="job"] .close h3 {
+  font-family: var(--font-display);
+  font-size: 17px;
+  font-weight: 700;
+  letter-spacing: -0.02em;
+  margin: 0 0 6px;
+  color: var(--t1);
+}
+
+[data-wl-canvas][data-wl-page="job"] .close p {
+  font-size: 14px;
+  line-height: 1.7;
+  color: var(--t2);
+  margin: 0;
+  max-width: 52ch;
+}
+
+[data-wl-canvas][data-wl-page="job"] .close .other {
+  font-size: 12.5px;
+  color: var(--t3);
+  margin: 14px 0 0;
+}
+
+[data-wl-canvas][data-wl-page="job"] .close .other a {
+  font-weight: 500;
+}
+
+/* 56 here, where careers is 64. The shared .foot rule carries the border and
+   padding; only the margin differs. */
+[data-wl-canvas][data-wl-page="job"] .foot {
+  margin-top: 56px;
+}
+
+/* ── mobile apply bar ───────────────────────────────────────── */
+
+/* display:none above 640, flex below — the ONLY max-width query in either
+   design. */
+[data-wl-canvas][data-wl-page="job"] .stick {
+  position: fixed;
+  left: 0;
+  right: 0;
+  bottom: 0;
+  z-index: 50;
+  display: none;
+  align-items: center;
+  justify-content: space-between;
+  gap: 12px;
+  padding: 10px 24px calc(10px + env(safe-area-inset-bottom));
+  background: rgba(251, 250, 249, 0.97);
+  backdrop-filter: blur(14px);
+  border-top: 1px solid var(--line);
+}
+
+[data-wl-canvas][data-wl-page="job"] .stick .st {
+  font-size: 13px;
+  font-weight: 600;
+  color: var(--t1);
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+@media (max-width: 640px) {
+  [data-wl-canvas][data-wl-page="job"] .stick {
+    display: flex;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .btn {
+    width: 100%;
+  }
+
+  /* The bar's own button overrides the .btn padding. Declared inside this query
+     rather than above it because .stick is display:none anywhere else, so the
+     rule had no effect there — and here it lands after .btn, which keeps the
+     file's specificity ascending. */
+  [data-wl-canvas][data-wl-page="job"] .stick .btn {
+    padding: 11px 20px;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .close .card {
+    flex-direction: column;
+    align-items: flex-start;
+  }
+
+  /* 88px so the fixed bar cannot cover the Remotiv line, which is legally
+     load-bearing. */
+  [data-wl-canvas][data-wl-page="job"] .foot {
+    padding-bottom: 88px;
+  }
+
+  [data-wl-canvas][data-wl-page="job"] .foot .wrap {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 8px;
+  }
+}
+
+/* ── toast ──────────────────────────────────────────────────── */
+
+[data-wl-canvas][data-wl-page="job"] .toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%) translateY(14px);
+  z-index: 200;
+  background: var(--t1);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 11px 17px;
+  border-radius: var(--r-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.24s;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+}
+
+[data-wl-canvas][data-wl-page="job"] .toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

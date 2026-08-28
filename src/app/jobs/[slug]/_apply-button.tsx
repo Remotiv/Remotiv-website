@@ -29,23 +29,48 @@ function useCaptureAttribution(): void {
 export default function ApplyButton({
   job,
   variant = "hero",
+  className: override,
+  label = "Apply for this role",
+  children,
 }: {
   job: Job;
   variant?: "hero" | "ticket";
+  /**
+   * The white-label pages style their own buttons — `.btn`, `.btn.onbrand` —
+   * so they pass a class instead of picking a variant. When present it REPLACES
+   * the variant class rather than merging: the two systems have different
+   * padding, radius and colour, and a merge would be both.
+   */
+  className?: string;
+  /** White-label copy is "Apply for this role"; the variants keep "Apply now". */
+  label?: string;
+  /** The white-label icon, so the design's arrow travels with its own stroke. */
+  children?: React.ReactNode;
 }) {
   const [open, setOpen] = useState(false);
   useCaptureAttribution();
 
-  const className =
+  const variantClass =
     variant === "ticket"
       ? "flex w-full items-center justify-center gap-2 rounded-xl bg-remotiv-purple px-6 py-3.5 font-heading text-sm font-bold text-white transition-opacity hover:opacity-90"
       : "inline-flex items-center gap-2 rounded-xl bg-white px-6 py-3.5 font-heading text-sm font-bold text-remotiv-purple shadow-[0_8px_24px_rgba(0,0,0,0.18)] transition-transform hover:-translate-y-0.5";
 
+  const whiteLabel = Boolean(override);
+
   return (
     <>
-      <button type="button" onClick={() => setOpen(true)} className={className}>
-        <IconSend size={18} stroke={2} />
-        Apply now
+      <button type="button" onClick={() => setOpen(true)} className={override ?? variantClass}>
+        {whiteLabel ? (
+          <>
+            {label}
+            {children}
+          </>
+        ) : (
+          <>
+            <IconSend size={18} stroke={2} />
+            Apply now
+          </>
+        )}
       </button>
       {open && <ApplyModal job={job} onClose={() => setOpen(false)} />}
     </>

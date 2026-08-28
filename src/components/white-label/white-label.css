@@ -100,6 +100,27 @@
 }
 
 /*
+ * The site footer, hidden wherever a white-label canvas is on the page.
+ *
+ * Phase 1 did this by pathname — `/jobs/<slug>` in the footer wrapper's hidden
+ * list — which was right while every job page was going to be white-label. It
+ * stopped being right the moment /jobs/[slug] branched: a job with no
+ * company_id keeps the editorial Remotiv page, which has NO footer of its own,
+ * and the blanket rule left it with none at all.
+ *
+ * Presence of the canvas is the exact condition. A page carrying it renders the
+ * design's own `.foot` inside; a page without it needs the site's. Nothing has
+ * to know which route it is on, and a future white-label page gets the right
+ * behaviour without an entry in a list.
+ *
+ * `body > footer` reaches only the root layout's footer — the design's lives
+ * inside the canvas div and is never a direct child of body.
+ */
+body:has([data-wl-canvas]) > footer {
+  display: none;
+}
+
+/*
  * §3.2 — the design system ships `p { color: var(--t2) }` and both design files
  * repeat it. This app has no global p rule at all (verified: no bare `p`
  * selector in any stylesheet under src/), so it has to be declared here or
