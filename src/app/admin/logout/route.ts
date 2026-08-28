@@ -9,9 +9,13 @@ export const dynamic = "force-dynamic";
  * posts a hidden form rather than calling supabase.auth.signOut() inline,
  * so a network failure on the auth call still surfaces a redirect.
  */
-export async function POST(request: Request) {
+export async function POST() {
   const supabase = await createClient();
   await supabase.auth.signOut();
-  const origin = process.env.NEXT_PUBLIC_SITE_URL ?? new URL(request.url).origin;
-  return NextResponse.redirect(new URL("/login", origin), { status: 303 });
+
+  // Relative Location — see /ai-dashboard/logout for why. In short: this used
+  // to build an absolute URL from NEXT_PUBLIC_SITE_URL, a build-time constant
+  // naming one deployment, so on any other host sign-out cleared the cookie
+  // here and then sent the browser somewhere else.
+  return new NextResponse(null, { status: 303, headers: { Location: "/login" } });
 }
