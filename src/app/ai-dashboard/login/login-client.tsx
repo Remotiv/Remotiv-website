@@ -3,8 +3,7 @@
 import { useState } from "react";
 import Link from "next/link";
 import { Eye, EyeOff } from "lucide-react";
-import { createClient } from "@/lib/supabase/client";
-import { verifyCompanyAccess } from "./actions";
+import { signInToCompany } from "./actions";
 
 const REASON_MESSAGES: Record<string, string> = {
   unauthorized: "This login is for company accounts only. Please use the portal you were given access to.",
@@ -14,7 +13,20 @@ const REASON_MESSAGES: Record<string, string> = {
   unavailable: "We couldn't load your workspace just now. Please sign in again in a moment.",
   paused: "Your company account has been paused. Contact your account manager.",
   archived: "Your company account has been archived. Contact your account manager.",
+  // Any non-active status we may add later. True of all of them, so a new
+  // status can never render a blank banner.
+  inactive: "Your company account isn't active. Contact your account manager.",
 };
+
+/** What the user is told, for each way the server action can refuse. */
+const FAILURE_MESSAGES = {
+  credentials: "Invalid email or password.",
+  rate_limited: "Too many attempts. Please try again in a minute.",
+  not_company: REASON_MESSAGES.unauthorized,
+  unavailable: "We couldn't verify your account just now. Try again in a moment.",
+  error:
+    "Something went wrong signing you in. This isn't your password — please try again, and contact your account manager if it keeps happening.",
+} as const;
 
 export function CompanyLoginClient({ reason }: { reason: string | null }) {
   const reasonMessage = reason ? REASON_MESSAGES[reason] ?? null : null;
@@ -34,81 +46,53 @@ export function CompanyLoginClient({ reason }: { reason: string | null }) {
      * Every exit from here must either reset `loading` or navigate away.
      *
      * There is deliberately no `finally`: the success path leaves the button
-     * busy on purpose while the document unloads. That is also why the catch
-     * has to exist — a rejected server action skipped every setLoading(false)
-     * below, and React drops a rejection thrown from an event handler on the
-     * floor, so the button sat on "Signing in…" with nothing logged and nothing
-     * shown. The failure was invisible rather than merely unhandled.
+     * busy on purpose while the document unloads. The catch is for TRANSPORT
+     * faults only now — a bundle older than the deployment, so the action id no
+     * longer resolves, or a request that never arrives. Everything the sign-in
+     * itself can get wrong comes back as a value. React drops a rejection
+     * thrown from an async event handler on the floor, so without this the
+     * button would sit on "Signing in…" with nothing logged and nothing shown.
      */
     try {
-      const supabase = createClient();
-      const { data: authData, error: authError } = await supabase.auth.signInWithPassword({
-        email: email.trim(),
-        password,
-      });
+      // One request: sign in, check eligibility, set cookies. The browser never
+      // holds a session that has not been checked, so there is nothing to sign
+      // back out of when the check refuses.
+      //
+      // FormData rather than positional arguments: Next prints server-action
+      // arguments to the dev terminal verbatim when `logServerFunctions` is on,
+      // and a positional password would be printed there.
+      const form = new FormData();
+      form.set("email", email.trim());
+      form.set("password", password);
+      const result = await signInToCompany(form);
 
-      if (authError || !authData.user) {
-        // Enumeration-safe handling: collapse credential errors, surface
-        // rate-limit distinctly.
-        const raw = authError?.message?.toLowerCase() ?? "";
-        const status = (authError as { status?: number } | null)?.status;
-        if (raw.includes("rate") || status === 429) {
-          setError("Too many attempts. Please try again in a minute.");
-        } else {
-          setError("Invalid email or password.");
-        }
-        setLoading(false);
-        return;
-      }
-
-      // Verify the auth user actually belongs to a company before redirecting.
-      // Without this, a client-portal or admin user could land here. This runs
-      // server-side (service client): RLS on companies/company_members has no
-      // policies, so the browser client can never read those rows.
-      const verified = await verifyCompanyAccess();
-
-      /*
-       * A failed LOOKUP is not a failed login.
-       *
-       * Signing out here is how the gate evicts someone who doesn't belong. When
-       * the check itself could not run, the session is left intact and they are
-       * asked to retry — signing a legitimate member out over a transient
-       * database error, and telling them their account is the wrong kind, would
-       * be the worse of the two mistakes.
-       */
-      if (!verified.ok && verified.reason === "unavailable") {
-        setError("We couldn't verify your account just now. Try again in a moment.");
-        setLoading(false);
-        return;
-      }
-
-      if (!verified.ok) {
-        await supabase.auth.signOut();
+      if (!result.ok) {
         setError(
-          verified.reason === "inactive"
-            ? (verified.status ? REASON_MESSAGES[verified.status] : null) ??
-                "Your account isn't active."
-            : REASON_MESSAGES.unauthorized,
+          result.reason === "inactive"
+            ? (result.status ? REASON_MESSAGES[result.status] : null) ?? REASON_MESSAGES.inactive
+            : FAILURE_MESSAGES[result.reason],
         );
         setLoading(false);
         return;
       }
 
-      // Full-page navigation, NOT router.push: the session cookie was just set
-      // client-side, and an RSC navigation would render the gated layout on the
-      // server with stale cookies — its redirect() then stalls the transition.
-      // `loading` is deliberately left true; the page is being replaced, so
-      // "Signing in…" is the correct state until it unloads.
+      /*
+       * Full document load — NOT router.push, and NOT redirect() from the action.
+       *
+       * redirect() would be the idiomatic ending, but Next reports an action
+       * redirect by REJECTING the action promise with a redirect error
+       * (server-action-reducer.js), which the catch below would swallow —
+       * stranding the user on a login page that had already signed them in.
+       * Re-throwing it correctly is a footgun on the only way into the product.
+       * A hard navigation costs one round-trip and cannot be got wrong.
+       *
+       * `loading` is deliberately left true; the page is being replaced, so
+       * "Signing in…" is the correct state until it unloads.
+       */
       window.location.assign("/ai-dashboard");
     } catch (err) {
-      // Nothing here can name a cause: the sign-in call and the server action
-      // both land in this branch, and the action reports failure as a value,
-      // so an actual throw is something neither anticipated. Say only what is
-      // certainly true — it is not the password, and retrying is worth it.
       console.error("[login] sign-in failed:", err);
-      setError(
-        "Something went wrong signing you in. This isn't your password — please try again, and contact your account manager if it keeps happening.",
-      );
+      setError(FAILURE_MESSAGES.error);
       setLoading(false);
     }
   }

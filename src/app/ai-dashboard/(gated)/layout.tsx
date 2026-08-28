@@ -1,7 +1,11 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { AiShell } from "../_components/ai-shell";
-import { CompanyLookupError, getCompanyContext } from "../lib/company-guards";
+import {
+  CompanyAccessDenied,
+  getCompanyContext,
+  loginRedirectFor,
+} from "../lib/company-guards";
 import { getJobScope, scopedApplicationIds } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
@@ -21,23 +25,23 @@ export default async function GatedCompanyLayout({
     redirect("/ai-dashboard/login");
   }
 
-  // Resolve company + role (company_members → companies.user_id fallback).
-  // A non-company session throws — bounce it back to login rather than
-  // rendering an empty workspace. This is the ONLY resolution in the tree;
-  // the shell reads company/role/user straight off this ctx.
+  // Resolve company + role. Eligibility comes from resolveCompanyAccess, the
+  // same rule the login page admits on. This is the ONLY resolution in the
+  // tree; the shell reads company/role/user straight off this ctx.
   let ctx: CompanyContext;
   try {
     ctx = await getCompanyContext();
   } catch (err) {
-    // A failed LOOKUP is not a wrong kind of account. Collapsing the two here
-    // undid the login gate's own distinction on the way back out: a transient
-    // database error bounced a legitimate owner to login and told them this
-    // login is for company accounts only.
-    if (err instanceof CompanyLookupError) {
-      console.error("[ai-dashboard] company lookup failed:", err);
-      redirect("/ai-dashboard/login?reason=unavailable");
+    // Only a DECIDED refusal becomes a redirect, and each reason goes to a
+    // login page that will agree with it. Anything else — a company profile
+    // that would not load after access was already granted — is rethrown to
+    // the error boundary. Redirecting on that would send the user to a login
+    // page that admits them, and back here, and round again.
+    if (err instanceof CompanyAccessDenied) {
+      console.error("[ai-dashboard] access denied:", err.access.reason);
+      redirect(loginRedirectFor(err.access));
     }
-    redirect("/ai-dashboard/login?reason=unauthorized");
+    throw err;
   }
 
   if (ctx.mustChangePassword) {

@@ -1,5 +1,9 @@
 import { redirect } from "next/navigation";
-import { CompanyLookupError, getCompanyContext } from "../lib/company-guards";
+import {
+  CompanyAccessDenied,
+  getCompanyContext,
+  loginRedirectFor,
+} from "../lib/company-guards";
 import {
   canCreateJobs,
   canManageTeam,
@@ -19,11 +23,11 @@ export default async function CompanyOverviewPage() {
   try {
     ctx = await getCompanyContext();
   } catch (err) {
-    if (err instanceof CompanyLookupError) {
-      console.error("[ai-dashboard] company lookup failed:", err);
-      redirect("/ai-dashboard/login?reason=unavailable");
+    if (err instanceof CompanyAccessDenied) {
+      console.error("[ai-dashboard] access denied:", err.access.reason);
+      redirect(loginRedirectFor(err.access));
     }
-    redirect("/ai-dashboard/login?reason=unauthorized");
+    throw err;
   }
 
   const data = await fetchOverview();

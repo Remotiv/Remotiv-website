@@ -1,74 +1,93 @@
 "use server";
 
-import {
-  createClient as createAuthClient,
-  createServiceClient,
-} from "@/lib/supabase/server";
-import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
-import { resolveMembership } from "@/app/ai-dashboard/lib/company-guards";
+import { resolveCompanyAccess } from "@/app/ai-dashboard/lib/company-guards";
+import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Keep result types local to this file.
-type VerifyResult =
+export type LoginResult =
   | { ok: true }
-  | { ok: false; reason: "not_company" | "inactive" | "unavailable"; status?: string };
+  | {
+      ok: false;
+      reason: "credentials" | "rate_limited" | "not_company" | "inactive" | "unavailable" | "error";
+      /** The company status, when `inactive` — picks the message to show. */
+      status?: string;
+    };
+
+function isRateLimited(error: { message?: string; status?: number } | null): boolean {
+  return error?.status === 429 || (error?.message?.toLowerCase().includes("rate") ?? false);
+}
 
 /**
- * Post-sign-in gate for /ai-dashboard/login.
+ * Sign in to the AI product, and decide eligibility, in one server operation.
  *
- * RLS is enabled on `companies` and `company_members` with no policies, so the
- * browser (anon) client can never see these rows — the verification has to run
- * server-side against the service client. Resolution order mirrors
- * getCompanyContext: company_members (active) → companies.user_id fallback.
+ * ── Why the sign-in moved to the server ──────────────────────
  *
- * Returns a reason instead of throwing so the caller can sign the user out and
- * show the same message it always has.
+ * It used to run in the browser and then call a second action to check
+ * membership. That left a window in which someone was authenticated but not yet
+ * verified, which the client had to clean up by calling signOut() — and it made
+ * the only way into the product depend on two network round-trips either of
+ * which could fail independently. Here the two are one request: nobody holds a
+ * session that has not been checked, because the check happens before the
+ * response carrying the cookies is written.
+ *
+ * ── Credentials are passed as FormData deliberately ──────────
+ *
+ * Next logs server-action arguments to the dev terminal verbatim when
+ * `logServerFunctions` is on (action-handler.js — it formats each argument with
+ * JSON.stringify). Positional string arguments would print the password there.
+ * A FormData serializes to `{}`, so it cannot.
+ *
+ * Never throws. Every failure is a value, so the caller's own catch is left for
+ * genuine transport faults rather than being the thing that reports a bad
+ * password.
  */
-export async function verifyCompanyAccess(): Promise<VerifyResult> {
-  const auth = await createAuthClient();
-  const {
-    data: { user },
-  } = await auth.auth.getUser();
-  if (!user) return { ok: false, reason: "not_company" };
+export async function signInToCompany(form: FormData): Promise<LoginResult> {
+  const email = String(form.get("email") ?? "").trim();
+  const password = String(form.get("password") ?? "");
 
-  const service = createServiceClient();
+  if (!email || !password) return { ok: false, reason: "credentials" };
 
-  /*
-   * `unavailable` is not `not_company`.
-   *
-   * The caller signs the user out on a refusal, so answering "you are not a
-   * company account" when the lookup merely FAILED would evict a legitimate
-   * member over a transient database error. resolveMembership throws rather
-   * than returning null on failure precisely so the two can be told apart.
-   */
-  let companyId: string | null;
   try {
-    companyId = (await resolveMembership(service, user.id)).companyId;
+    const auth = await createAuthClient();
+    const { data, error } = await auth.auth.signInWithPassword({ email, password });
+
+    if (error || !data.user) {
+      // Enumeration-safe: every credential failure collapses to one message,
+      // and only rate limiting is distinguished.
+      return {
+        ok: false,
+        reason: isRateLimited(error as { message?: string; status?: number } | null)
+          ? "rate_limited"
+          : "credentials",
+      };
+    }
+
+    const access = await resolveCompanyAccess(createServiceClient(), data.user.id);
+    if (access.ok) return { ok: true };
+
+    /*
+     * A failed LOOKUP is not a failed login.
+     *
+     * Signing out is how this gate evicts someone who does not belong. When the
+     * check could not RUN, the session is left intact and they are asked to
+     * retry — signing a legitimate member out over a transient database error,
+     * and telling them their account is the wrong kind, is the worse of the two
+     * mistakes.
+     */
+    if (access.reason === "unavailable") return { ok: false, reason: "unavailable" };
+
+    await auth.auth.signOut();
+
+    if (access.reason === "inactive") {
+      return { ok: false, reason: "inactive", status: access.status ?? undefined };
+    }
+    return { ok: false, reason: "not_company" };
   } catch (err) {
-    console.error("[login] company resolution failed:", err);
-    return { ok: false, reason: "unavailable" };
+    // Reaching here means something neither path anticipated — the Supabase
+    // call threw rather than returning an error, or a cookie write failed. The
+    // user is told to retry, and the cause is on the server where it belongs.
+    console.error("[login] sign-in threw:", err);
+    return { ok: false, reason: "error" };
   }
-
-  if (!companyId) return { ok: false, reason: "not_company" };
-
-  // Same rule as the membership lookup above: a query that FAILED must not read
-  // as a status that isn't active, because the caller signs the user out on that
-  // answer and tells them their account is paused.
-  const { data: companyRow, error: companyError } = await service
-    .from("companies")
-    .select("status")
-    .eq("id", companyId)
-    .maybeSingle();
-
-  if (companyError) {
-    console.error("[login] company status lookup failed:", companyError);
-    return { ok: false, reason: "unavailable" };
-  }
-
-  const status = (companyRow as { status: CompanyStatus } | null)?.status ?? null;
-  if (status !== "active") {
-    return { ok: false, reason: "inactive", status: status ?? undefined };
-  }
-
-  return { ok: true };
 }
