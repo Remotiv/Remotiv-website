@@ -34,7 +34,87 @@ setTimeout(function(){r.forEach(function(e){
 if(!e.classList.contains("avi2-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
-// Sections 1 and 2 of 13. Sections 3-13 are still to design; per the handoff
+// Section 3 gets its own observer rather than sharing section 2's, so that
+// REVEAL_SCRIPT above stays byte-identical to what shipped in 08f22aa.
+const SECTION3_REVEAL_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi3-viz[data-reveal]");
+var s=function(e){e.classList.add("avi3-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi3-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Fixed sample data. The roster is international by design — the product sells
+// worldwide and a single-country list misrepresents it. Ring dash offsets are
+// precomputed as C x (1 - score/100) so the arc can never disagree with the
+// numeral drawn over it; C is 2(pi)r for r=19.
+const RING_C = "119.38";
+const RANKED = [
+  {
+    rank: 1,
+    initials: "MH",
+    name: "Marcus Hale",
+    meta: "6 yrs · London · applied 2 days ago",
+    score: 88,
+    off: "14.33",
+    tone: "mint",
+    selected: true,
+  },
+  {
+    rank: 2,
+    initials: "PN",
+    name: "Priya Nair",
+    meta: "8 yrs · Singapore · applied 3 days ago",
+    score: 84,
+    off: "19.10",
+    tone: "mint",
+    selected: false,
+  },
+  {
+    rank: 3,
+    initials: "SA",
+    name: "Sofia Almeida",
+    meta: "5 yrs · Lisbon · applied 3 days ago",
+    score: 71,
+    off: "34.62",
+    tone: "amber",
+    selected: false,
+  },
+  {
+    rank: 4,
+    initials: "OH",
+    name: "Omar Haddad",
+    meta: "4 yrs · Dubai · applied 4 days ago",
+    score: 66,
+    off: "40.59",
+    tone: "amber",
+    selected: false,
+  },
+  {
+    rank: 5,
+    initials: "DO",
+    name: "Daniel Okafor",
+    meta: "3 yrs · Toronto · applied 4 days ago",
+    score: 54,
+    off: "54.91",
+    tone: "red",
+    selected: false,
+  },
+];
+
+// The scorecard deliberately does not pass everything: an amber 74, one
+// requirement not evidenced and one point to verify. A card where every line
+// is green is evidence of nothing.
+const CRITERIA = [
+  { label: "Distributed systems in production", score: 92, tone: "mint" },
+  { label: "Python · async services", score: 88, tone: "mint" },
+  { label: "Leading engineers", score: 74, tone: "amber" },
+];
+
+// Sections 1 to 3 of 13. Sections 4-13 are still to design; per the handoff
 // they should keep alternating cream and white rather than repeat either
 // treatment.
 export default function AIVideoInterviewsPage() {
@@ -371,6 +451,172 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi3-sec">
+          <div className="avi3-wrap">
+            <header className="avi3-head">
+              <div>
+                <p className="avi3-eyeb">
+                  <i />
+                  AI CV Ranking
+                </p>
+                <h2>
+                  Know who to interview <span className="avi3-stick">before</span> you send the
+                  invite.
+                </h2>
+                <p className="avi3-lede">
+                  Remotiv scores every CV against the criteria of the role — not just keyword
+                  matches — then shows what fits, what&rsquo;s missing, and what your hiring team
+                  should verify. Interview invitations start from a ranked list, not an application
+                  pile.
+                </p>
+              </div>
+              <ul className="avi3-pts">
+                <li>Scored against the actual role criteria — not just keyword matching</li>
+                <li>Missing requirements are shown clearly, not buried inside a score</li>
+                <li>Points to verify are surfaced for the recruiter</li>
+                <li>
+                  Change the role criteria and re-score candidates against the updated version
+                </li>
+              </ul>
+            </header>
+
+            <div className="avi3-viz" data-reveal>
+              <div className="avi3-panel avi3-panel--list">
+                <div className="avi3-p__head">
+                  <div>
+                    <p className="avi3-p__ttl">Senior Backend Engineer</p>
+                    <p className="avi3-p__sub">128 applicants · ranked on criteria fit</p>
+                  </div>
+                  <p className="avi3-chip">Sorted by score</p>
+                </div>
+                <ol className="avi3-rows">
+                  {RANKED.map((c) => (
+                    <li
+                      key={c.name}
+                      className={c.selected ? "avi3-row avi3-is-sel" : "avi3-row"}
+                      aria-current={c.selected ? "true" : undefined}
+                    >
+                      <p className="avi3-rk">{c.rank}</p>
+                      <span className={`avi3-av avi3-av--${c.rank}`} aria-hidden="true">
+                        {c.initials}
+                      </span>
+                      <div className="avi3-who">
+                        <p className="avi3-nm">{c.name}</p>
+                        <p className="avi3-mt">{c.meta}</p>
+                      </div>
+                      <div className={`avi3-ring avi3-ring--${c.tone}`}>
+                        <svg viewBox="0 0 44 44" aria-hidden="true">
+                          <circle className="avi3-trk" cx="22" cy="22" r="19" />
+                          <circle
+                            className="avi3-val"
+                            cx="22"
+                            cy="22"
+                            r="19"
+                            style={
+                              {
+                                "--c": RING_C,
+                                "--off": c.off,
+                                "--i": c.rank - 1,
+                              } as CSSPropertiesWithVars
+                            }
+                          />
+                        </svg>
+                        <b>{c.score}</b>
+                      </div>
+                    </li>
+                  ))}
+                </ol>
+                <p className="avi3-p__foot">
+                  Showing the top 5 of 128. Rank moves when the role criteria change.
+                </p>
+              </div>
+
+              <div className="avi3-panel avi3-panel--score">
+                <div className="avi3-p__head">
+                  <div>
+                    <p className="avi3-p__ttl">Marcus Hale</p>
+                    <p className="avi3-p__sub">Rank 1 · Senior Backend Engineer</p>
+                  </div>
+                  <p className="avi3-chip avi3-chip--pp">
+                    <i />
+                    Re-scored on criteria v3
+                  </p>
+                </div>
+
+                <div className="avi3-overall">
+                  <div className="avi3-ring avi3-ring--lg avi3-ring--mint">
+                    <svg viewBox="0 0 76 76" aria-hidden="true">
+                      <circle className="avi3-trk" cx="38" cy="38" r="33" />
+                      <circle
+                        className="avi3-val"
+                        cx="38"
+                        cy="38"
+                        r="33"
+                        style={
+                          { "--c": "207.35", "--off": "24.88", "--i": 0 } as CSSPropertiesWithVars
+                        }
+                      />
+                    </svg>
+                    <b>88</b>
+                  </div>
+                  <div className="avi3-overall__t">
+                    <p className="avi3-conf">High confidence</p>
+                    <p>
+                      Nine of twelve criteria are evidenced directly, two are partial and one is not
+                      — all listed below.
+                    </p>
+                    <p className="avi3-was">
+                      Was 81 on criteria v2 — Kubernetes was added on 21 Aug and 34 candidates were
+                      re-scored.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="avi3-crits">
+                  <p className="avi3-lbl">Criteria breakdown</p>
+                  {CRITERIA.map((c, i) => (
+                    <div className="avi3-crit" key={c.label}>
+                      <p>{c.label}</p>
+                      <div className={`avi3-bar avi3-bar--${c.tone}`}>
+                        <i style={{ width: `${c.score}%`, "--i": i } as CSSPropertiesWithVars} />
+                      </div>
+                      <b>{c.score}</b>
+                    </div>
+                  ))}
+                </div>
+
+                <div className="avi3-notes">
+                  <div className="avi3-note">
+                    <p className="avi3-lbl">Not evidenced</p>
+                    <p>
+                      <b>Kubernetes in production.</b> The CV covers Docker and ECS. Nothing on
+                      Kubernetes either way — treat it as unknown, not absent.
+                    </p>
+                  </div>
+                  <div className="avi3-note avi3-note--pp">
+                    <p className="avi3-lbl">Points to verify</p>
+                    <p>
+                      <b>Scope of the lead role.</b> Describes leading six engineers; no dates are
+                      given for that period. Worth asking in the screen.
+                    </p>
+                  </div>
+                </div>
+
+                <div className="avi3-p__disc">
+                  <p>
+                    <b>Recommendation only.</b> CV text is the only input — no photo, name, or
+                    location weighting. A person decides who gets interviewed.
+                  </p>
+                  <button className="avi3-ghost" type="button">
+                    Open full scorecard
+                    <i />
+                  </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -380,6 +626,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 2 entrance observer
         dangerouslySetInnerHTML={{ __html: REVEAL_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 3 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION3_REVEAL_SCRIPT }}
       />
     </>
   );

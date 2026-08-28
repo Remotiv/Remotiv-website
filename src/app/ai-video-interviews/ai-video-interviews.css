@@ -1487,3 +1487,720 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 3 of 13 · AI CV RANKING
+   ============================================================
+   Ported from handoff_ai_video_interviews_s3. Cream ground (#F8F4F1) under
+   section 2's dark slab — the alternation is the point, so this section does
+   not repeat the slab treatment.
+
+   Every class carries an .avi3- prefix. The delivered names (.sec, .wrap,
+   .head, .row, .ring, .bar, .note, .chip, .panel) would collide with the
+   hero, with section 2 and with globals.
+
+   Width follows /services/recruitment's "Our Process": the section is full
+   width with 40px gutters and NO max-width; .avi3-wrap carries the 1400 cap.
+   At 1440 that is 1360 of content, 40 from each edge. Section 2 originally
+   centred an 1100 container here and left 170px of dead page each side.
+
+   Gutters are 40 down to AND INCLUDING 640 — the site is px-5 sm:px-10 and
+   Tailwind's sm is min-width 640 — so the small query is max-width 639.9px.
+
+   h2 is a FLAT 32px, never a clamp: a vw clamp capped at 32 only reads 32
+   near 1440 and fell to 24.8 at 900, where it stopped matching the reference.
+   It steps to 24 below 640 and nowhere else.
+
+   Font stacks go through --font-heading / --font-sans. A literal 'Sora' or
+   'DM Sans' silently falls back: next/font self-hosts both under those
+   variables and no @font-face by those names exists.
+
+   Dropped on the way in: the :root token block (rescoped to .avi3-sec, as
+   the hero and section 2 both do), the global element resets (* / body / a /
+   img,svg / ol,ul — Tailwind preflight already covers them) and the Google
+   Fonts <link>. The file shipped production-shaped otherwise: no canvas
+   frame, no design_doc_mode meta, @media rather than @container. */
+.avi3-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-body: #666666;
+  --r-mint: var(--remotiv-green);
+  --r-mint-ink: #04342c;
+  --r-lime: var(--remotiv-lime);
+  --r-purple: var(--remotiv-purple);
+  --r-amber: #f5a524;
+  --r-red: #e0524b;
+  /* Floor for quiet text: 5.50:1 on white, 5.03:1 on cream. Rank numerals
+     and the re-score line are content, not decoration. Do not lighten. */
+  --r-quiet: #6e6862;
+  --r-line: rgba(0, 0, 0, 0.08);
+  /* 20, not the 22 this section shipped with, to match section 2 directly
+     above. /services/recruitment uses 22 and section 2 is the outlier against
+     it, but two adjacent cards on one page reading at different weights is the
+     louder problem. Deliberate — do not "correct" this back to 22. */
+  --r-rad-card: 20px;
+  --r-rad-inner: 14px;
+  --r-rad-pill: 999px;
+
+  background: var(--r-cream);
+  padding: 72px 40px;
+  font-family: var(--font-sans);
+}
+/* The cap lives here, not on the section. */
+.avi3-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ---------- head ---------- */
+.avi3-head {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.avi3-eyeb {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi3-eyeb i {
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+/* Measure sits on the text, never on the grid track: the track and the
+   measure are separate jobs. The longest line fills 366 of this 600. */
+.avi3-head h2 {
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+.avi3-stick {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  margin: 0 0.2em 0 0.06em;
+}
+.avi3-stick::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.12em;
+  right: -0.12em;
+  top: 0.12em;
+  bottom: 0.14em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+  border-radius: 3px;
+}
+.avi3-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+.avi3-pts {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 16px 24px;
+  max-width: 600px;
+  justify-self: end;
+  padding-top: 4px;
+}
+.avi3-pts li {
+  position: relative;
+  padding-left: 26px;
+  font: 400 14.6px / 1.55 var(--font-sans);
+  color: #3f3b37;
+  text-wrap: pretty;
+}
+.avi3-pts li::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 3px;
+  width: 16px;
+  height: 16px;
+  border-radius: var(--r-rad-pill);
+  background: rgba(73, 215, 167, 0.18);
+}
+.avi3-pts li::after {
+  content: "";
+  position: absolute;
+  left: 4.6px;
+  top: 8px;
+  width: 6.6px;
+  height: 3.6px;
+  border-left: 1.7px solid var(--r-mint-ink);
+  border-bottom: 1.7px solid var(--r-mint-ink);
+  transform: rotate(-45deg);
+}
+
+/* ---------- the visual: ranked list feeds an open scorecard ---------- */
+/* The scorecard takes the width, not the list. Measured at 1440: widening the
+   scorecard from 755 to 836 drops a note from three lines to two, and the list
+   still holds its longest meta line ("8 yrs · Singapore · applied 3 days ago")
+   on one line at 500. Going the other way — narrowing the whole slab to 1120 —
+   made the scorecard 42px TALLER, because the summary, both notes and the
+   disclosure each gained a line. Width is not the lever here; wrapping is. */
+.avi3-viz {
+  display: grid;
+  grid-template-columns: minmax(0, 500px) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+  margin-top: 48px;
+}
+.avi3-panel {
+  background: var(--r-white);
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  padding: 18px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+.avi3-p__head {
+  display: flex;
+  align-items: flex-start;
+  justify-content: space-between;
+  gap: 16px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--r-line);
+}
+.avi3-p__ttl {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi3-p__sub {
+  margin-top: 5px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+/* Both card labels are plain text, copied off .avi2-frag__tag — small,
+   uppercase, tracked, purple, no chrome at all. These shipped as bordered
+   pills, which nothing else on the page does; the pill outline and fill were
+   most of why section 3's cards read heavier than section 2's. Matches
+   .avi2-frag__tag declaration for declaration. */
+.avi3-chip {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+  white-space: nowrap;
+}
+/* Section 2's label carries no dot, so this one drops its own. The <i> is
+   still in the markup — page.tsx is out of scope — so it is hidden here.
+   .avi3-chip--pp now sets nothing: with the fill, border and ink gone the
+   modifier has no work left, and both labels are deliberately identical. */
+.avi3-chip i {
+  display: none;
+}
+
+/* Rows are the primary control in the real product, so they shipped at 70px —
+   deliberately above the 44px tap floor. 70 was carrying only 38.2px of text,
+   i.e. 31.8px of slack per row and ~159px of air across the five: the single
+   largest reason these cards read heavier than section 2's. Now at 8px top and
+   bottom, which puts the row on exactly 56px — the 40px ring plus its padding,
+   and the documented floor. Do not go below it: under 56 the list stops reading
+   as a set of controls, and it would drop under the 44px tap target once the
+   ring shrinks on mobile. Purple left accent on hover is the app's idiom. The
+   38px avatar track moves to 34 in step with .avi3-av, otherwise the smaller
+   avatar just floats in the old column. */
+.avi3-rows {
+  margin-top: 4px;
+}
+.avi3-row {
+  position: relative;
+  display: grid;
+  grid-template-columns: 22px 34px minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  padding: 8px 12px 8px 10px;
+  border-radius: 14px;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.35s ease;
+}
+.avi3-row::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 12px;
+  bottom: 12px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--r-purple);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.avi3-row:hover {
+  background: rgba(0, 0, 0, 0.02);
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.06);
+}
+.avi3-row:hover::before {
+  opacity: 0.55;
+}
+.avi3-row.avi3-is-sel {
+  background: var(--r-cream);
+}
+.avi3-row.avi3-is-sel::before {
+  opacity: 1;
+}
+.avi3-rk {
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.1em;
+  color: var(--r-quiet);
+  text-align: center;
+}
+.avi3-row.avi3-is-sel .avi3-rk {
+  color: var(--r-ink);
+}
+.avi3-av {
+  display: grid;
+  place-items: center;
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-rad-pill);
+  font: 700 11.6px / 1 var(--font-sans);
+  letter-spacing: 0.02em;
+  color: #2b2724;
+}
+.avi3-av--1 {
+  background: #f5e0dc;
+}
+.avi3-av--2 {
+  background: #e8c8d0;
+}
+.avi3-av--3 {
+  background: #f9de6f;
+}
+.avi3-av--4 {
+  background: rgba(73, 215, 167, 0.34);
+}
+.avi3-av--5 {
+  background: rgba(126, 71, 255, 0.18);
+}
+.avi3-nm {
+  font: 700 14px / 1.25 var(--font-sans);
+  color: var(--r-ink);
+}
+.avi3-mt {
+  margin-top: 3px;
+  font: 400 11.8px / 1.35 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi3-p__foot {
+  margin-top: 10px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+}
+
+/* Rings animate with stroke-dashoffset; bars use clip-path. --c and --off are
+   set inline per element, precomputed as C x (1 - score/100), so the arc can
+   never drift from the numeral sitting over it. */
+.avi3-ring {
+  position: relative;
+  width: 40px;
+  height: 40px;
+  flex: none;
+}
+.avi3-ring svg {
+  display: block;
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.avi3-ring circle {
+  fill: none;
+  stroke-width: 3.4;
+  stroke-linecap: round;
+}
+.avi3-ring .avi3-trk {
+  stroke: #ede8e2;
+}
+.avi3-ring .avi3-val {
+  stroke: var(--r-mint);
+  stroke-dasharray: var(--c);
+  stroke-dashoffset: var(--off);
+}
+/* The numeral sits outside the stroke, centred over it — placing it inside
+   would force a min-width on a 40px element. */
+.avi3-ring b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 12px / 1 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-mint-ink);
+}
+.avi3-ring--amber .avi3-val {
+  stroke: var(--r-amber);
+}
+.avi3-ring--amber b {
+  color: #7a4e05;
+}
+.avi3-ring--red .avi3-val {
+  stroke: var(--r-red);
+}
+.avi3-ring--red b {
+  color: #b02a24;
+}
+.avi3-ring--lg {
+  width: 76px;
+  height: 76px;
+}
+.avi3-ring--lg circle {
+  stroke-width: 5;
+}
+.avi3-ring--lg b {
+  font-size: 22px;
+}
+
+/* ---------- overall ---------- */
+/* The 76px ring is not what sizes this block — the text column beside it is
+   97.6px tall, so the ring rides free inside it. Only the padding is worth
+   trimming here; shrinking the ring would buy nothing. */
+.avi3-overall {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr);
+  gap: 16px;
+  align-items: start;
+  padding: 14px 0;
+}
+.avi3-overall__t p {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: #3f3b37;
+  text-wrap: pretty;
+}
+/* The delivered file puts `font:700 14.6px/1 Sora` on .conf, but `.overall__t p`
+   (0,1,1) outranks `.conf` (0,1,0), so that shorthand never landed — the
+   approved screenshot renders this line at 13.6/1.6 DM Sans 400, set apart only
+   by darker ink and tightened tracking. Specificity is raised here and only the
+   declarations that actually take effect are kept, so the rendering matches the
+   approved design exactly rather than silently growing a bold Sora label. */
+.avi3-overall__t .avi3-conf {
+  margin-bottom: 6px;
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+/* The prior score is factual history, not a retraction — plain text, no <s>. */
+.avi3-overall__t .avi3-was {
+  margin-top: 7px;
+  font-size: 12.4px;
+  color: var(--r-quiet);
+}
+
+/* ---------- criteria ---------- */
+.avi3-crits {
+  padding: 12px 0 0;
+  border-top: 1px solid var(--r-line);
+}
+.avi3-lbl {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-quiet);
+}
+/* The LABEL column is what's capped, not the bar. With a fixed bar track the
+   bars floated at the far right of a wide panel, away from their labels. The
+   300px cap stays: at 200 the two longest labels wrap to two lines and the
+   block gets taller, which is the opposite of the point. */
+.avi3-crit {
+  display: grid;
+  grid-template-columns: minmax(0, 300px) minmax(0, 1fr) 26px;
+  align-items: center;
+  gap: 14px;
+  margin-top: 9px;
+}
+.avi3-crit p {
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: #3f3b37;
+}
+.avi3-crit b {
+  font: 700 13.4px / 1 var(--font-sans);
+  color: var(--r-ink);
+  text-align: right;
+}
+.avi3-bar {
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: #ede8e2;
+  overflow: hidden;
+}
+.avi3-bar i {
+  display: block;
+  height: 100%;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+.avi3-bar--amber i {
+  background: var(--r-amber);
+}
+.avi3-bar--red i {
+  background: var(--r-red);
+}
+
+/* The two evidence notes. Not evidenced is not the same as absent: the
+   missing-requirement note is a plain cream block with a neutral grey rule.
+   Never a failure state, never red. */
+.avi3-notes {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 14px;
+}
+.avi3-note {
+  position: relative;
+  background: var(--r-cream);
+  border-radius: var(--r-rad-inner);
+  padding: 11px 12px;
+}
+.avi3-note > p + p {
+  margin-top: 8px;
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: #3f3b37;
+  text-wrap: pretty;
+}
+.avi3-note > p + p b {
+  font-weight: 700;
+  color: var(--r-ink);
+}
+/* Inset tracks the note padding (11) plus the 3px it always sat inside it, so
+   the rule keeps the same relationship to the text after the box tightened. */
+.avi3-note::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 14px;
+  bottom: 14px;
+  width: 2px;
+  border-radius: 2px;
+  background: #cfc7bd;
+}
+.avi3-note--pp::before {
+  background: var(--r-purple);
+}
+.avi3-note--pp .avi3-lbl {
+  color: #5b2fc4;
+}
+
+/* ---------- disclosure ---------- */
+.avi3-p__disc {
+  display: flex;
+  align-items: center;
+  gap: 14px;
+  margin-top: 14px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+}
+.avi3-p__disc p {
+  flex: 1;
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi3-p__disc p b {
+  font-weight: 500;
+  color: #3f3b37;
+}
+.avi3-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  flex: none;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid rgba(0, 0, 0, 0.14);
+  border-radius: var(--r-rad-pill);
+  background: transparent;
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.avi3-ghost:hover {
+  border-color: rgba(17, 17, 17, 0.38);
+  background: rgba(0, 0, 0, 0.03);
+}
+.avi3-ghost i {
+  display: block;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--r-ink);
+  border-radius: 1px;
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(45deg) scale(0.92);
+}
+
+/* ---------- entrance ----------
+   Opt-in via [data-reveal] and gated on scripting so nothing is left at
+   opacity 0 for a reader without JS. Bars use clip-path, never scaleX —
+   scaleX distorts the pill radius and has latched at zero before now. */
+@media (scripting: enabled) {
+  .avi3-viz[data-reveal] .avi3-panel {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi3-viz[data-reveal].avi3-in .avi3-panel {
+    opacity: 1;
+    transform: none;
+  }
+  .avi3-viz[data-reveal].avi3-in .avi3-panel--score {
+    transition-delay: 0.12s;
+  }
+  .avi3-viz[data-reveal] .avi3-val {
+    stroke-dashoffset: var(--c);
+    transition: stroke-dashoffset 0.95s cubic-bezier(0.22, 0.7, 0.2, 1);
+  }
+  .avi3-viz[data-reveal].avi3-in .avi3-val {
+    stroke-dashoffset: var(--off);
+    transition-delay: calc(0.3s + var(--i) * 0.09s);
+  }
+  .avi3-viz[data-reveal] .avi3-bar i {
+    clip-path: inset(0 100% 0 0);
+    transition: clip-path 0.9s cubic-bezier(0.22, 0.7, 0.2, 1);
+  }
+  .avi3-viz[data-reveal].avi3-in .avi3-bar i {
+    clip-path: inset(0 0 0 0);
+    transition-delay: calc(0.45s + var(--i) * 0.08s);
+  }
+}
+
+/* ---------- responsive ---------- */
+/* Two columns collapse at 1180, not 1024: the list stops being a column and
+   becomes the row above the scorecard. */
+@media (max-width: 1180px) {
+  .avi3-head {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .avi3-pts {
+    justify-self: start;
+    max-width: 100%;
+  }
+  .avi3-viz {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+  }
+  .avi3-crit {
+    grid-template-columns: minmax(0, 260px) minmax(0, 1fr) 26px;
+  }
+}
+@media (max-width: 900px) {
+  .avi3-notes {
+    grid-template-columns: minmax(0, 1fr);
+  }
+  .avi3-crit {
+    grid-template-columns: minmax(0, 1fr) 130px 26px;
+  }
+}
+/* The site is px-5 sm:px-10 and Tailwind's sm is min-width 640, so 40px gutters
+   hold AT 640 and 20px applies only below it — hence 639.9, not 640. */
+@media (max-width: 639.9px) {
+  .avi3-sec {
+    padding: 56px 20px;
+  }
+  .avi3-head h2 {
+    margin-top: 14px;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi3-lede {
+    margin-top: 14px;
+    font-size: 15px;
+  }
+  .avi3-pts {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 12px;
+  }
+  .avi3-viz {
+    margin-top: 32px;
+  }
+  .avi3-panel {
+    padding: 16px;
+    border-radius: 18px;
+  }
+  .avi3-p__head {
+    flex-wrap: wrap;
+  }
+  /* Kept at 9px rather than following the desktop 8px. The row is not ring-
+     driven here: at this width the meta line ("6 yrs · London · applied 2 days
+     ago") wraps to two lines, so the row measures ~70px and the padding is the
+     only thing holding the text off the row edge. The .avi3-av and .avi3-mt
+     overrides that sat here (34px / 11.6px and 11.8px) were deleted, not
+     loosened — the desktop rules now carry those same values. */
+  .avi3-row {
+    grid-template-columns: 18px 34px minmax(0, 1fr) auto;
+    gap: 11px;
+    padding: 9px 10px;
+  }
+  .avi3-ring {
+    width: 38px;
+    height: 38px;
+  }
+  .avi3-ring b {
+    font-size: 11.8px;
+  }
+  .avi3-ring--lg {
+    width: 64px;
+    height: 64px;
+  }
+  .avi3-ring--lg b {
+    font-size: 19px;
+  }
+  .avi3-overall {
+    gap: 14px;
+    padding: 16px 0;
+  }
+  .avi3-crit {
+    grid-template-columns: minmax(0, 1fr) 74px 24px;
+    gap: 10px;
+  }
+  .avi3-crit p {
+    font-size: 13.2px;
+  }
+  .avi3-p__disc {
+    flex-direction: column;
+    align-items: flex-start;
+    gap: 12px;
+  }
+}
+@media (prefers-reduced-motion: reduce) {
+  .avi3-viz[data-reveal] .avi3-panel {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .avi3-viz[data-reveal] .avi3-val {
+    stroke-dashoffset: var(--off);
+    transition: none;
+  }
+  .avi3-viz[data-reveal] .avi3-bar i {
+    clip-path: inset(0 0 0 0);
+    transition: none;
+  }
+}
