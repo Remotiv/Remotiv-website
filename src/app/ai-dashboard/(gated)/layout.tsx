@@ -11,6 +11,23 @@ import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
 import type { CompanyContext } from "../lib/company-roles";
 
+/**
+ * A badge number the sidebar can stand behind, or nothing at all.
+ *
+ * `count ?? 0` turned a query that FAILED into a confident zero. A recruiter
+ * reads "0" beside Applicants, believes it, and stops looking — while the page
+ * itself would have listed eighty-seven. A wrong answer presented as a right
+ * one is worse than no answer, and the sidebar already knows how to show no
+ * answer: an undefined count renders no badge.
+ *
+ * A real zero survives. The noJobs short-circuit passes `error: null`, and a
+ * genuinely empty workspace still counts nothing and still shows 0 — which is
+ * the entire point, since those two cases used to be indistinguishable.
+ */
+function badgeCount(result: { count: number | null; error: unknown }): number | undefined {
+  return result.error ? undefined : (result.count ?? 0);
+}
+
 export default async function GatedCompanyLayout({
   children,
 }: {
@@ -60,14 +77,14 @@ export default async function GatedCompanyLayout({
   const allowedApps = await scopedApplicationIds(ctx, scope);
   const noJobs = scope.scoped && scope.jobIds.length === 0;
 
-  const [
-    { count: jobCount },
-    { count: applicantCount },
-    { count: messageCount },
-    { count: interviewCount },
-  ] =
+  const [jobs, applicants, messages, interviews] =
     noJobs
-      ? [{ count: 0 }, { count: 0 }, { count: 0 }, { count: 0 }]
+      ? [
+          { count: 0, error: null },
+          { count: 0, error: null },
+          { count: 0, error: null },
+          { count: 0, error: null },
+        ]
       : await Promise.all([
           (() => {
             const q = service
@@ -121,10 +138,10 @@ export default async function GatedCompanyLayout({
       role={ctx.role}
       userName={ctx.memberName}
       userEmail={ctx.user.email}
-      jobCount={jobCount ?? 0}
-      applicantCount={applicantCount ?? 0}
-      messageCount={messageCount ?? 0}
-      interviewCount={interviewCount ?? 0}
+      jobCount={badgeCount(jobs)}
+      applicantCount={badgeCount(applicants)}
+      messageCount={badgeCount(messages)}
+      interviewCount={badgeCount(interviews)}
     >
       <SessionRefresh />
       {children}

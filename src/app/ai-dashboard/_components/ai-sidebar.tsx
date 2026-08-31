@@ -27,10 +27,12 @@ type NavItem = {
 };
 
 function primaryNav(
-  jobCount: number,
-  applicantCount: number,
-  messageCount: number,
-  interviewCount: number,
+  // Undefined for a count that could not be read. NavItem.count is optional
+  // and already renders nothing for it.
+  jobCount: number | undefined,
+  applicantCount: number | undefined,
+  messageCount: number | undefined,
+  interviewCount: number | undefined,
 ): ReadonlyArray<NavItem> {
   return [
     { label: "Overview", href: "/ai-dashboard", icon: LayoutGrid },
@@ -135,10 +137,10 @@ function SidebarBody({
   companyName: string;
   companyLogoUrl: string | null;
   role: CompanyRole;
-  jobCount: number;
-  applicantCount: number;
-  messageCount: number;
-  interviewCount: number;
+  jobCount: number | undefined;
+  applicantCount: number | undefined;
+  messageCount: number | undefined;
+  interviewCount: number | undefined;
   pathname: string;
   onNavigate?: () => void;
 }) {
@@ -202,10 +204,10 @@ export function AiSidebar({
   companyName: string;
   companyLogoUrl: string | null;
   role: CompanyRole;
-  jobCount: number;
-  applicantCount: number;
-  messageCount: number;
-  interviewCount: number;
+  jobCount: number | undefined;
+  applicantCount: number | undefined;
+  messageCount: number | undefined;
+  interviewCount: number | undefined;
   mobileOpen: boolean;
   onClose: () => void;
 }) {

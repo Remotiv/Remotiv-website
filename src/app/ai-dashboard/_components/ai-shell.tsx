@@ -28,10 +28,12 @@ export function AiShell({
   role: CompanyRole;
   userName: string;
   userEmail: string;
-  jobCount: number;
-  applicantCount: number;
-  messageCount: number;
-  interviewCount: number;
+  // Undefined means the count could not be read, not zero — the sidebar
+  // renders no badge for it rather than asserting a number nobody verified.
+  jobCount: number | undefined;
+  applicantCount: number | undefined;
+  messageCount: number | undefined;
+  interviewCount: number | undefined;
   children: React.ReactNode;
 }) {
   const pathname = usePathname();
