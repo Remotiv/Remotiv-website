@@ -56,20 +56,48 @@ const MAX_ROWS = 50_000;
  * window ordered by a stable key — nothing in these queries mutates its own
  * filter predicate while the loop runs.
  */
+/**
+ * Read every row matching a query, 1000 at a time, up to MAX_ROWS.
+ *
+ * ── Why a failed page throws ─────────────────────────────────
+ *
+ * It used to log and return the pages it already had. This page's whole claim
+ * is that its arithmetic is inspectable — its own reconciliation tests open by
+ * arguing that a figure which does not reconcile with the table beneath it
+ * discredits every other figure on the page. A short read produced exactly
+ * that: every cost, margin and calibration figure computed over a silently
+ * truncated set, reconciling perfectly with each other and with nothing real.
+ *
+ * ── MAX_ROWS is a different thing, and it stays ──────────────
+ *
+ * The cap is deliberate: an admin page should not pull unbounded rows. But
+ * hitting it truncates just as silently as an error did, so it now warns. That
+ * warning goes to the server log, NOT to the reader — telling the reader would
+ * mean threading a flag out of nine call sites and deciding where on the page
+ * it appears, which is a design decision this change does not make. Until then
+ * the cap is disclosed to whoever is on call, not to whoever is deciding.
+ */
 async function pageAll<T>(
   build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+  label: string,
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; from < MAX_ROWS; from += PAGE) {
     const { data, error } = await build(from, from + PAGE - 1);
     if (error) {
-      console.error("[platform-analytics] page read failed", error);
-      break;
+      throw new Error(`[platform-analytics] ${label} failed at rows ${from}-${from + PAGE - 1}`, {
+        cause: error,
+      });
     }
     const rows = (data ?? []) as T[];
     out.push(...rows);
-    if (rows.length < PAGE) break;
+    if (rows.length < PAGE) return out;
   }
+  // Fell out of the loop still reading full pages: there is more than MAX_ROWS
+  // and every figure derived from this is computed over a prefix.
+  console.warn(
+    `[platform-analytics] ${label} hit the ${MAX_ROWS.toLocaleString("en-US")}-row cap — figures derived from it are truncated`,
+  );
   return out;
 }
 
@@ -136,8 +164,10 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     name: string | null;
     is_internal: boolean | null;
     created_at: string | null;
-  }>((from, to) =>
-    service.from("companies").select("id, name, is_internal, created_at").range(from, to),
+  }>(
+    (from, to) =>
+      service.from("companies").select("id, name, is_internal, created_at").range(from, to),
+    "companies",
   );
 
   const jobs = await pageAll<{
@@ -148,11 +178,13 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     ai_cv_scoring_enabled: boolean | null;
     created_at: string | null;
     archived_at: string | null;
-  }>((from, to) =>
-    service
-      .from("jobs")
-      .select("id, company_id, category, status, ai_cv_scoring_enabled, created_at, archived_at")
-      .range(from, to),
+  }>(
+    (from, to) =>
+      service
+        .from("jobs")
+        .select("id, company_id, category, status, ai_cv_scoring_enabled, created_at, archived_at")
+        .range(from, to),
+    "jobs",
   );
 
   const categoryByJob = new Map(jobs.map((j) => [j.id, j.category]));
@@ -180,14 +212,16 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     status: string | null;
     error: string | null;
     scored_at: string | null;
-  }>((from, to) =>
-    service
-      .from("application_scores")
-      .select(
-        "company_id, job_id, overall_score, human_adjusted_score, adjusted_by_name, prompt_version, status, error, scored_at",
-      )
-      .order("scored_at", { ascending: true, nullsFirst: true })
-      .range(from, to),
+  }>(
+    (from, to) =>
+      service
+        .from("application_scores")
+        .select(
+          "company_id, job_id, overall_score, human_adjusted_score, adjusted_by_name, prompt_version, status, error, scored_at",
+        )
+        .order("scored_at", { ascending: true, nullsFirst: true })
+        .range(from, to),
+    "cv scores",
   );
 
   /*
@@ -201,11 +235,13 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     job_id: string | null;
     company_id: string | null;
     submitted_at: string | null;
-  }>((from, to) =>
-    service
-      .from("interview_sessions")
-      .select("id, job_id, company_id, submitted_at")
-      .range(from, to),
+  }>(
+    (from, to) =>
+      service
+        .from("interview_sessions")
+        .select("id, job_id, company_id, submitted_at")
+        .range(from, to),
+    "interview sessions",
   );
   const jobBySession = new Map(sessions.map((s) => [s.id, s.job_id]));
   const companyBySession = new Map<string, string>();
@@ -221,13 +257,15 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     adjusted_by_name: string | null;
     prompt_version: string | null;
     status: string | null;
-  }>((from, to) =>
-    service
-      .from("interview_session_scores")
-      .select(
-        "session_id, company_id, overall_score, human_adjusted_score, adjusted_by_name, prompt_version, status",
-      )
-      .range(from, to),
+  }>(
+    (from, to) =>
+      service
+        .from("interview_session_scores")
+        .select(
+          "session_id, company_id, overall_score, human_adjusted_score, adjusted_by_name, prompt_version, status",
+        )
+        .range(from, to),
+    "interview scores",
   );
 
   /*
@@ -277,7 +315,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     let q = service.from("usage_events").select("company_id, type, quantity, created_at");
     if (since) q = q.gte("created_at", since);
     return q.order("created_at", { ascending: true }).range(from, to);
-  });
+  }, "usage events");
 
   const usage: UsageRow[] = usageRows.map((u) => ({
     companyId: u.company_id,
@@ -304,7 +342,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
       .eq("transcript_status", "done");
     if (since) q = q.gte("recorded_at", since);
     return q.order("recorded_at", { ascending: true, nullsFirst: true }).range(from, to);
-  });
+  }, "interview answers");
 
   /*
    * Interviews SUBMITTED in the range, which is a different population from
@@ -342,7 +380,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
       .eq("channel", "email");
     if (since) q = q.gte("created_at", since);
     return q.order("created_at", { ascending: true }).range(from, to);
-  });
+  }, "communication logs");
 
   const emailsByCompany = new Map<string, number>();
   for (const log of emailLogs) {
@@ -382,13 +420,15 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     const ids = scoringOffJobs.map((j) => j.id);
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
-      const apps = await pageAll<{ company_id_snapshot: string | null }>((from, to) =>
-        service
-          .from("job_applications")
-          .select("company_id_snapshot, created_at")
-          .in("job_id", chunk)
-          .order("created_at", { ascending: true })
-          .range(from, to),
+      const apps = await pageAll<{ company_id_snapshot: string | null }>(
+        (from, to) =>
+          service
+            .from("job_applications")
+            .select("company_id_snapshot, created_at")
+            .in("job_id", chunk)
+            .order("created_at", { ascending: true })
+            .range(from, to),
+        "job applications",
       );
       for (const app of apps) {
         if (!app.company_id_snapshot) continue;
