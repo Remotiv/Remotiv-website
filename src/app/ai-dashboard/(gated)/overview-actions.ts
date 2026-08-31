@@ -84,8 +84,28 @@ type HistoryRow = {
   created_at: string | null;
 };
 
-/** Range-paged read: both tables have hit the PostgREST 1000-row cap before,
- *  and an unbounded select silently truncates rather than erroring. */
+/**
+ * Range-paged read: both tables have hit the PostgREST 1000-row cap before,
+ * and an unbounded select silently truncates rather than erroring.
+ *
+ * ── Why a failed page throws ─────────────────────────────────
+ *
+ * It used to log the error and return the pages it already had. Every figure on
+ * Overview — the hero counts, the funnel, the role bars, the recent applicants,
+ * the activity feed — is derived from the two arrays this returns, so a failure
+ * on page 3 of 5 did not blank the page. It rendered a complete-looking
+ * dashboard whose every number was computed over a truncated dataset: wrong,
+ * plausible, and internally consistent, which is precisely what stops anyone
+ * noticing.
+ *
+ * There is no partial answer worth returning here. A caller cannot tell a short
+ * read from a small company, and the numbers are the whole point of the page.
+ * So this throws and the error boundary shows a failure — a page that fails
+ * visibly beats one that lies quietly.
+ *
+ * The error carries the label and the row range, and the PostgREST error as
+ * `cause`, so the diagnostic the old console.error provided is not lost.
+ */
 async function pageAll<T>(
   // PromiseLike, not Promise: a PostgREST query builder is thenable but has no
   // .catch/.finally, so it doesn't satisfy the Promise interface.
@@ -100,8 +120,9 @@ async function pageAll<T>(
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await run(from, from + PAGE - 1);
     if (error) {
-      console.error(`[overview] ${label} failed:`, error);
-      return rows;
+      throw new Error(`[overview] ${label} failed at rows ${from}-${from + PAGE - 1}`, {
+        cause: error,
+      });
     }
     const batch = (data ?? []) as T[];
     rows.push(...batch);
