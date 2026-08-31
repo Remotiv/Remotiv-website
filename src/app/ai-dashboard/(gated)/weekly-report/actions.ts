@@ -78,14 +78,34 @@ function fmtRange(start: Date, end: Date): string {
   return `${fmtDay(start)} – ${fmtDay(end)}`;
 }
 
-/** Read every row matching a query, 1000 at a time. */
+/**
+ * Read every row matching a query, 1000 at a time.
+ *
+ * ── Why a failed page throws ─────────────────────────────────
+ *
+ * This used to `break` on error without even logging, and return the pages it
+ * already had. A weekly report is entirely derived arithmetic — the counts,
+ * the deltas against last week, the role bars, the attention list — so a short
+ * read did not produce a broken page. It produced a plausible report of a week
+ * that did not happen, with no trace anywhere that it had gone wrong.
+ *
+ * Both callers reach a reader either way: the page awaits this on the server,
+ * where the error boundary catches it, and the client's week-walker already
+ * wraps its call in try/catch and raises "Couldn't load that week". Failing is
+ * visible on both paths; being quietly wrong was visible on neither.
+ */
 async function pageAll<T>(
   build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
+  label: string,
 ): Promise<T[]> {
   const out: T[] = [];
   for (let from = 0; ; from += PAGE) {
     const { data, error } = await build(from, from + PAGE - 1);
-    if (error) break;
+    if (error) {
+      throw new Error(`[weekly-report] ${label} failed at rows ${from}-${from + PAGE - 1}`, {
+        cause: error,
+      });
+    }
     const batch = (data ?? []) as T[];
     out.push(...batch);
     if (batch.length < PAGE) break;
@@ -231,7 +251,7 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
           return (scope.scoped ? q.in("job_id", scope.jobIds) : q)
             .order("created_at", { ascending: false })
             .range(from, to);
-        });
+        }, "applications");
 
   const histAll = await pageAll<HistRow>((from, to) =>
     service
@@ -241,6 +261,7 @@ export async function fetchWeekReport(offset: number): Promise<WeekReport> {
       .lt("created_at", end.toISOString())
       .order("created_at", { ascending: false })
       .range(from, to),
+    "stage history",
   );
 
   // History keys on application_id, not job_id, so it is narrowed against the
