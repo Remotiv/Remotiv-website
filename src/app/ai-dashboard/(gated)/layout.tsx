@@ -1,5 +1,5 @@
 import { redirect } from "next/navigation";
-import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { createServiceClient } from "@/lib/supabase/server";
 import { AiShell } from "../_components/ai-shell";
 import {
   CompanyAccessDenied,
@@ -16,18 +16,18 @@ export default async function GatedCompanyLayout({
 }: {
   children: React.ReactNode;
 }) {
-  const supabase = await createClient();
-  const {
-    data: { user },
-  } = await supabase.auth.getUser();
-
-  if (!user) {
-    redirect("/ai-dashboard/login");
-  }
-
-  // Resolve company + role. Eligibility comes from resolveCompanyAccess, the
-  // same rule the login page admits on. This is the ONLY resolution in the
-  // tree; the shell reads company/role/user straight off this ctx.
+  /*
+   * Resolve company + role. Eligibility comes from resolveCompanyAccess, the
+   * same rule the login page admits on; the shell reads company/role/user
+   * straight off this ctx.
+   *
+   * There is no separate getUser() above this. getCompanyContext resolves the
+   * session itself and throws CompanyAccessDenied("unauthenticated") when there
+   * isn't one, which the catch below routes to exactly the same bare
+   * /ai-dashboard/login the explicit guard used to. It earned its place before
+   * the catch could tell "signed out" from "wrong account"; now it is four
+   * sequential round-trips buying nothing.
+   */
   let ctx: CompanyContext;
   try {
     ctx = await getCompanyContext();

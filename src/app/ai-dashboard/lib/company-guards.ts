@@ -1,3 +1,4 @@
+import { cache } from "react";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { CompanyAccessDenied, CompanyProfileError, resolveCompanyAccess } from "./company-access";
 import type { CompanyContext, CompanyRole, CompanyRow } from "./company-roles";
@@ -30,8 +31,33 @@ const COMPANY_COLUMNS =
  * Throws CompanyAccessDenied when the gate refuses — callers redirect on that.
  * Throws CompanyProfileError when access was granted but the profile would not
  * load; that is not a redirect, because login would allow what this refused.
+ *
+ * ── Why this is wrapped in cache() ───────────────────────────
+ *
+ * Three places resolve it on one dashboard render — the gated layout, the
+ * overview page, and fetchOverview — and each one used to pay four sequential
+ * Supabase round-trips: getUser, the membership lookup, the status read and the
+ * profile read. Twelve legs where four would do, on a path where measurement
+ * showed every leg costs the same and no query dominates.
+ *
+ * cache() changes nothing about WHAT is resolved. Same function, same canonical
+ * rule, same single path — memoised for the duration of one render, not
+ * replaced by a second resolver or a looser check.
+ *
+ * ── Why this is safe across tenants ──────────────────────────
+ *
+ * React's cache() is backed by Next's per-request AsyncLocalStorage, so the
+ * memo lives and dies with one render pass. It is NOT a process-level cache: it
+ * cannot outlive the request, and a second request — the same user's or another
+ * company's — always resolves afresh. That was demonstrated by counting actual
+ * executions across repeated requests rather than assumed, because the failure
+ * this would cause is not a stale page, it is serving one company's context to
+ * another company's user.
+ *
+ * A thrown verdict is memoised too, which is what we want: every caller in a
+ * render sees the same answer rather than re-asking and possibly disagreeing.
  */
-export async function getCompanyContext(): Promise<CompanyContext> {
+export const getCompanyContext = cache(async (): Promise<CompanyContext> => {
   const auth = await createAuthClient();
   const {
     data: { user },
@@ -108,7 +134,7 @@ export async function getCompanyContext(): Promise<CompanyContext> {
     memberId,
     mustChangePassword: row.must_change_password === true,
   };
-}
+});
 
 /** Guard: resolve the company context and require one of `allowed` roles. */
 export async function requireCompanyRole(...allowed: CompanyRole[]): Promise<CompanyContext> {
