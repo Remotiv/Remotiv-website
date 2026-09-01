@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash, randomBytes } from "node:crypto";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAccessToken } from "./connections";
 import { getProvider } from "./provider";
@@ -123,7 +124,7 @@ const ROW_COLUMNS =
 
 /** Look a booking up by its RAW token. Hashes before querying — the raw value
  *  never reaches a query predicate. */
-export async function findBookingByToken(rawToken: string): Promise<BookingRow | null> {
+export async function findBookingByToken(rawToken: string): Promise<Read<BookingRow | null>> {
   const service = createServiceClient();
   const { data, error } = await service
     .from("interview_bookings")
@@ -131,11 +132,20 @@ export async function findBookingByToken(rawToken: string): Promise<BookingRow |
     .eq("token_hash", hashBookingToken(rawToken))
     .maybeSingle();
 
+  /*
+   * `unavailable`, not null.
+   *
+   * Null means "no such token", and the route turns that into 404 →
+   * "This booking link isn't valid. Check the link in your email." A candidate
+   * who reads that about a link that IS valid does not refresh. They conclude
+   * the interview fell through and they stop — which is the most expensive
+   * failure in this codebase, because nobody ever finds out it happened.
+   */
   if (error) {
     console.error("[booking] lookup failed:", error.message);
-    return null;
+    return unavailable();
   }
-  return (data as BookingRow | null) ?? null;
+  return answered((data as BookingRow | null) ?? null);
 }
 
 /** Has this link run out, regardless of what the status column says? */

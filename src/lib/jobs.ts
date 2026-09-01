@@ -16,6 +16,7 @@
 // directly (createServiceClient pulls server-only `next/headers`), so the
 // client hits the API route which delegates here.
 
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
@@ -244,9 +245,17 @@ export async function getInitialJobs(): Promise<Job[]> {
   return attachCompanyLogos((data ?? []) as unknown as Job[]);
 }
 
-export async function getJobById(id: string): Promise<Job | null> {
-  // Reject non-UUID input before any DB work — see UUID_REGEX above.
-  if (!id || !UUID_REGEX.test(id)) return null;
+/**
+ * One publicly visible job by id, or the fact that we could not look.
+ *
+ * `Read<Job | null>` rather than `Job | null`: `if (error || !data) return null`
+ * gave a database failure and a deleted job the same answer, and every caller
+ * turned that into a 404. A live job told the reader it did not exist.
+ */
+export async function getJobById(id: string): Promise<Read<Job | null>> {
+  // Reject non-UUID input before any DB work — see UUID_REGEX above. This is
+  // an ANSWER: no such job can exist, and no query was needed to know it.
+  if (!id || !UUID_REGEX.test(id)) return answered(null);
 
   const supabase = createServiceClient();
 
@@ -254,15 +263,22 @@ export async function getJobById(id: string): Promise<Job | null> {
     supabase.from("jobs").select("*").eq("id", id),
   ).maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error("[jobs] getJobById failed:", error.message);
+    return unavailable();
+  }
+  if (!data) return answered(null);
+
   const [job] = await attachCompanyLogos([data as Job]);
-  return job ?? null;
+  return answered(job ?? null);
 }
 
-export async function getJobBySlug(slug: string): Promise<Job | null> {
-  // Mirror of getJobById, matching on the human-readable slug instead of the
-  // UUID. Same status gate + null-on-miss behaviour.
-  if (!slug || slug.trim().length === 0) return null;
+/**
+ * Mirror of getJobById, matching on the human-readable slug instead of the
+ * UUID. Same status gate, and the same three-state answer.
+ */
+export async function getJobBySlug(slug: string): Promise<Read<Job | null>> {
+  if (!slug || slug.trim().length === 0) return answered(null);
 
   const supabase = createServiceClient();
 
@@ -270,7 +286,12 @@ export async function getJobBySlug(slug: string): Promise<Job | null> {
     supabase.from("jobs").select("*").eq("slug", slug),
   ).maybeSingle();
 
-  if (error || !data) return null;
+  if (error) {
+    console.error("[jobs] getJobBySlug failed:", error.message);
+    return unavailable();
+  }
+  if (!data) return answered(null);
+
   const [job] = await attachCompanyLogos([data as Job]);
-  return job ?? null;
+  return answered(job ?? null);
 }

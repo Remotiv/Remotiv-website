@@ -962,6 +962,7 @@ function ApplicantDrawer({
   history,
   scoreDetail,
   historyLoading,
+  historyFailed,
   messages,
   messagesLoading,
   saving,
@@ -984,6 +985,8 @@ function ApplicantDrawer({
   history: StageHistoryRow[];
   scoreDetail: ApplicantScoreDetail | null;
   historyLoading: boolean;
+  /** The trail could not be READ. Distinct from "there is no trail". */
+  historyFailed: boolean;
   messages: CandidateMessage[];
   messagesLoading: boolean;
   saving: boolean;
@@ -1603,7 +1606,13 @@ function ApplicantDrawer({
 
             {/* Falls back to the application itself: rows created before the
                 history table existed have nothing seeded. */}
-            {!historyLoading && history.length === 0 && (
+            {historyFailed && (
+              <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
+                Couldn't load this applicant's activity just now — it hasn't been lost. Close the
+                panel and reopen it to try again.
+              </p>
+            )}
+            {!historyLoading && !historyFailed && history.length === 0 && (
               <div className="relative flex items-start gap-3">
                 <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
                 <div>
@@ -1902,6 +1911,7 @@ export function ApplicantsClient({
   const [savingId, setSavingId] = useState<string | null>(null);
   const [history, setHistory] = useState<StageHistoryRow[]>([]);
   const [historyLoading, setHistoryLoading] = useState(false);
+  const [historyFailed, setHistoryFailed] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
   const [scoreSaving, setScoreSaving] = useState(false);
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
@@ -2081,12 +2091,20 @@ export function ApplicantsClient({
     }
     let cancelled = false;
     setHistoryLoading(true);
+    setHistoryFailed(false);
     setHistory([]);
     fetchCompanyApplicant(openId)
-      .then((detail) => {
+      .then((read) => {
         if (cancelled) return;
-        setHistory(detail?.history ?? []);
-        setScoreDetail(detail?.scoreDetail ?? null);
+        // A failed read must not blank the trail. An applicant with a week of
+        // activity would render as one who has done nothing, and the drawer
+        // gives no hint that anything went wrong.
+        if (!read.ok) {
+          setHistoryFailed(true);
+          return;
+        }
+        setHistory(read.value?.history ?? []);
+        setScoreDetail(read.value?.scoreDetail ?? null);
       })
       .catch(() => {
         if (cancelled) return;
@@ -2162,8 +2180,10 @@ export function ApplicantsClient({
 
     // Pull the trail back so the new entry (and its author) is real, not
     // guessed client-side. Skipped if the drawer has since moved on.
-    const detail = await fetchCompanyApplicant(id);
-    if (openIdRef.current === id) setHistory(detail?.history ?? []);
+    // On a failed re-read the trail is left exactly as it was: stale beats
+    // blank, and the move itself already succeeded.
+    const read = await fetchCompanyApplicant(id);
+    if (read.ok && openIdRef.current === id) setHistory(read.value?.history ?? []);
   }
 
   /**
@@ -2215,8 +2235,9 @@ export function ApplicantsClient({
     }
 
     setToast("Score adjusted");
-    const detail = await fetchCompanyApplicant(id);
-    if (openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
+    const read = await fetchCompanyApplicant(id);
+    const detail = read.ok ? read.value : null;
+    if (read.ok && openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
     if (detail?.applicant) {
       setScoreOverrides((prev) => ({ ...prev, [id]: detail.applicant.score }));
     }
@@ -2260,8 +2281,9 @@ export function ApplicantsClient({
     }
 
     setToast("Reverted to the AI score");
-    const detail = await fetchCompanyApplicant(id);
-    if (openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
+    const read = await fetchCompanyApplicant(id);
+    const detail = read.ok ? read.value : null;
+    if (read.ok && openIdRef.current === id) setScoreDetail(detail?.scoreDetail ?? null);
     if (detail?.applicant) {
       setScoreOverrides((prev) => ({ ...prev, [id]: detail.applicant.score }));
     }
@@ -2806,6 +2828,7 @@ export function ApplicantsClient({
           history={history}
           scoreDetail={scoreDetail}
           historyLoading={historyLoading}
+          historyFailed={historyFailed}
           messages={messages}
           messagesLoading={messagesLoading}
           saving={savingId === openRow.id}

@@ -28,6 +28,7 @@ import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { enqueue } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -399,7 +400,7 @@ export async function fetchCompanyApplicants(
  */
 export async function fetchCompanyApplicant(
   applicationId: string,
-): Promise<CompanyApplicantDetail | null> {
+): Promise<Read<CompanyApplicantDetail | null>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
@@ -410,17 +411,20 @@ export async function fetchCompanyApplicant(
     .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
 
+  // `unavailable`, not null. Null is "no such applicant", and the drawer
+  // renders that as an empty activity trail — an applicant with a week of
+  // history looking like one who has done nothing.
   if (error) {
     console.error("[applicants] fetchCompanyApplicant failed:", error);
-    return null;
+    return unavailable();
   }
 
   const row = data as unknown as ApplicantQueryRow | null;
-  if (!row) return null;
+  if (!row) return answered(null);
 
   // The drawer is a read of one applicant, so the list's .in() never ran.
   // Checked here against the job they applied to.
-  if (!(await canAccessJob(ctx, row.job_id ?? ""))) return null;
+  if (!(await canAccessJob(ctx, row.job_id ?? ""))) return answered(null);
 
   // History is scoped by company_id too, not just application_id — the tenant
   // boundary shouldn't rest on the id lookup alone.
@@ -494,11 +498,11 @@ export async function fetchCompanyApplicant(
       }
     : null;
 
-  return {
+  return answered({
     applicant: toRow(row, sRow ?? undefined),
     history: (histData ?? []) as StageHistoryRow[],
     scoreDetail,
-  };
+  });
 }
 
 // ── Mutations ────────────────────────────────────────────────

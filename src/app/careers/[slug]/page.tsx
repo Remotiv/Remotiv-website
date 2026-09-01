@@ -14,8 +14,14 @@ type PageProps = { params: Promise<{ slug: string }> };
 
 export async function generateMetadata({ params }: PageProps): Promise<Metadata> {
   const { slug } = await params;
-  const data = await getCareersData(slug);
+  const read = await getCareersData(slug);
 
+  // "not found" is a claim about the company. A failed read is a claim about
+  // us, and must not be dressed as the other. Neither gets indexed.
+  if (!read.ok) {
+    return { title: "Careers — couldn't load", robots: { index: false, follow: false } };
+  }
+  const data = read.value;
   if (!data) {
     return { title: "Careers — not found", robots: { index: false, follow: false } };
   }
@@ -56,9 +62,35 @@ export async function generateMetadata({ params }: PageProps): Promise<Metadata>
  * FooterWrapper so the "Hiring powered by Remotiv · Privacy" line below is the
  * only one on the page.
  */
+/**
+ * Shown when the page could not be READ, never when the company is missing.
+ *
+ * This is a white-label surface: it names no company — we could not load one —
+ * and it names Remotiv nowhere either. Whoever's careers page this is, the
+ * visitor should not learn who hosts it from an error state.
+ */
+function CareersUnavailable() {
+  return (
+    <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 py-24 text-center">
+      <h1 className="font-heading text-2xl font-bold text-gray-900">This page didn't load</h1>
+      <p className="mt-3 text-sm leading-relaxed text-gray-600">
+        Something went wrong on the way here — the careers page is still there. Refresh, or try
+        again in a moment.
+      </p>
+    </main>
+  );
+}
+
 export default async function CareersPage({ params }: PageProps) {
   const { slug } = await params;
-  const data = await getCareersData(slug);
+  const read = await getCareersData(slug);
+
+  // A read failure is not a missing company. notFound() served both, so a live
+  // careers page told visitors it did not exist — and a 404 invites nobody to
+  // refresh.
+  if (!read.ok) return <CareersUnavailable />;
+
+  const data = read.value;
   if (!data) notFound();
 
   const { company, roles, categories } = data;

@@ -1,5 +1,6 @@
 import "server-only";
 import { LIST_SELECT, publiclyVisible } from "@/lib/jobs";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -161,7 +162,14 @@ type JobRow = {
  * usable identity. A paused or archived company must not keep a public hiring
  * page live.
  */
-export async function getCareersData(slug: string): Promise<CareersData | null> {
+/**
+ * The careers page's content, or the fact that we could not look.
+ *
+ * `Read<CareersData | null>`: the company lookup below used to answer a failed
+ * query and a deleted company identically, and the page turned both into a 404.
+ * A live careers page told visitors it did not exist.
+ */
+export async function getCareersData(slug: string): Promise<Read<CareersData | null>> {
   const service = createServiceClient();
 
   const { data: companyRow, error: companyError } = await service
@@ -170,16 +178,16 @@ export async function getCareersData(slug: string): Promise<CareersData | null> 
     .eq("slug", slug)
     .maybeSingle();
 
-  // A failed lookup is not the same fact as "no such company", but the page has
-  // only one way to say either. Logged so a transient outage is not silently
-  // read as a deleted company.
+  // A failed lookup is not the same fact as "no such company", and the page now
+  // has a way to say each. This is the one that could not be ASKED.
   if (companyError) {
     console.error("[careers] company lookup failed:", companyError.message);
-    return null;
+    return unavailable();
   }
 
+  // Asked and answered: no such company, or one that is no longer active.
   const company = companyRow as CompanyRow | null;
-  if (!company?.slug || company.status !== "active") return null;
+  if (!company?.slug || company.status !== "active") return answered(null);
 
   const { data: jobRows, error: jobsError } = await publiclyVisible(
     service.from("jobs").select(LIST_SELECT).eq("company_id", company.id),
@@ -231,7 +239,7 @@ export async function getCareersData(slug: string): Promise<CareersData | null> 
   const teamSize = (company.team_size ?? "").trim() || null;
   const location = (company.location ?? "").trim() || null;
 
-  return {
+  return answered({
     company: {
       id: company.id,
       slug: company.slug,
@@ -246,7 +254,7 @@ export async function getCareersData(slug: string): Promise<CareersData | null> 
     },
     roles,
     categories,
-  };
+  });
 }
 
 /** The bare host, for display — the design shows "acme.com", not the scheme. */

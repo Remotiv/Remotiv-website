@@ -66,11 +66,17 @@ export async function GET(request: NextRequest) {
   // description load. Bypasses the list query and delegates to lib/jobs.
   const idParam = searchParams.get("id");
   if (idParam !== null) {
-    const job = await getJobById(idParam);
-    if (!job) {
+    const read = await getJobById(idParam);
+    // 503, not 404: the caller is the /jobs detail panel, and telling it the
+    // role is gone when the lookup merely failed makes it render "not found"
+    // over a role that is still live. A 503 is retryable and says so.
+    if (!read.ok) {
+      return NextResponse.json({ error: "Unavailable." }, { status: 503 });
+    }
+    if (!read.value) {
       return NextResponse.json({ error: "Not found." }, { status: 404 });
     }
-    return NextResponse.json(toPublicDetailJob(job));
+    return NextResponse.json(toPublicDetailJob(read.value));
   }
 
   const category = trimmedParam(searchParams.get("category"));

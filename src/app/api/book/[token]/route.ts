@@ -108,7 +108,11 @@ async function loadContext(row: BookingRow) {
 
 export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
   const { token } = await params;
-  const row = await findBookingByToken(token);
+  const read = await findBookingByToken(token);
+  // 503, never 404: "this link isn't valid" about a link that IS valid
+  // makes a candidate give up rather than retry.
+  if (!read.ok) return fail(503, "lookup_failed");
+  const row = read.value;
   // Same answer for a bad token and a missing one — a prober learns nothing
   // about which tokens exist.
   if (!row) return fail(404, "not_found");
@@ -242,7 +246,15 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const candidateTimezone = (body?.timezone ?? "").trim();
   if (!isValidTimeZone(candidateTimezone)) return fail(400, "bad_timezone");
 
-  const row = await findBookingByToken(token);
+  const read = await findBookingByToken(token);
+
+  // 503, never 404: "this link isn't valid" about a link that IS valid
+
+  // makes a candidate give up rather than retry.
+
+  if (!read.ok) return fail(503, "lookup_failed");
+
+  const row = read.value;
   if (!row) return fail(404, "not_found");
   if (isExpired(row)) return fail(410, "expired");
   if (row.status === "booked") return fail(409, "already_booked");
@@ -262,7 +274,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     jobId: row.job_id,
     durationMinutes: row.duration_minutes,
   });
-  if (!availability.ok) return fail(503, "unavailable");
+  if (!availability.ok) return fail(503, "lookup_failed");
 
   const match = availability.slots.find((s) => Date.parse(s.startIso) === startMs);
   if (!match) return fail(409, "slot_taken");
@@ -390,7 +402,15 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
   const candidateTimezone = (body?.timezone ?? "").trim();
   if (candidateTimezone && !isValidTimeZone(candidateTimezone)) return fail(400, "bad_timezone");
 
-  const row = await findBookingByToken(token);
+  const read = await findBookingByToken(token);
+
+  // 503, never 404: "this link isn't valid" about a link that IS valid
+
+  // makes a candidate give up rather than retry.
+
+  if (!read.ok) return fail(503, "lookup_failed");
+
+  const row = read.value;
   if (!row) return fail(404, "not_found");
   if (row.status !== "booked") return fail(409, "not_booked");
 
@@ -402,7 +422,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     jobId: row.job_id,
     durationMinutes: row.duration_minutes,
   });
-  if (!availability.ok) return fail(503, "unavailable");
+  if (!availability.ok) return fail(503, "lookup_failed");
 
   const match = availability.slots.find((s) => Date.parse(s.startIso) === startMs);
   if (!match) return fail(409, "slot_taken");
@@ -479,7 +499,15 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
   const { token } = await params;
   const body = (await request.json().catch(() => null)) as { reason?: string } | null;
 
-  const row = await findBookingByToken(token);
+  const read = await findBookingByToken(token);
+
+  // 503, never 404: "this link isn't valid" about a link that IS valid
+
+  // makes a candidate give up rather than retry.
+
+  if (!read.ok) return fail(503, "lookup_failed");
+
+  const row = read.value;
   if (!row) return fail(404, "not_found");
   if (row.status === "cancelled") return fail(409, "already_cancelled");
   if (row.status !== "booked") return fail(409, "not_booked");

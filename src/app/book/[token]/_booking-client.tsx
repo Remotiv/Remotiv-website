@@ -188,6 +188,16 @@ const ERROR_COPY: Record<string, string> = {
   bad_timezone: "That timezone wasn't recognised. Pick one from the list.",
   calendar_failed: "We couldn't put that on the interviewer's calendar. Try another time.",
   unavailable: "Times aren't available right now. Try again shortly.",
+  /*
+   * NOT `not_found`, and deliberately not folded into `unavailable` above —
+   * that one is about the interviewer having no slots, which would be a second
+   * wrong answer. This is the lookup itself failing, and it is the one message
+   * on this page where getting the tone wrong costs someone an interview: told
+   * their link is invalid, a candidate concludes the process is over and stops.
+   * So it says plainly that the link is fine.
+   */
+  lookup_failed:
+    "We couldn't check your link just now — that's on us, not your link. Refresh the page, or try again in a minute.",
   network: "Something went wrong. Check your connection and try again.",
 };
 
