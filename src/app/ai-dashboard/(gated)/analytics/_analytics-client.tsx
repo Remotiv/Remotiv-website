@@ -45,11 +45,30 @@ export function AnalyticsClient({ initial }: { initial: AnalyticsResult }) {
   const [data, setData] = useState(initial);
   const [range, setRange] = useState<AnalyticsRange>("90d");
   const [pending, startTransition] = useTransition();
+  const [failed, setFailed] = useState(false);
 
   function changeRange(next: AnalyticsRange) {
     setRange(next);
+    setFailed(false);
     startTransition(async () => {
-      setData(await fetchAnalytics(next));
+      /*
+       * Caught here rather than left to the boundary.
+       *
+       * fetchAnalytics throws when a paged read fails, which is the point — the
+       * figures are aggregates and a short read makes all of them wrong. But an
+       * error escaping an async transition is framework behaviour we would be
+       * relying on untested, and the last time this codebase relied on an
+       * unhandled rejection finding its way somewhere useful, the sign-in button
+       * sat on "Signing in…" for good. So the failure is handled explicitly, and
+       * the previously loaded range stays on screen rather than the page being
+       * replaced.
+       */
+      try {
+        setData(await fetchAnalytics(next));
+      } catch (err) {
+        console.error("[analytics] range change failed:", err);
+        setFailed(true);
+      }
     });
   }
 
@@ -87,6 +106,15 @@ export function AnalyticsClient({ initial }: { initial: AnalyticsResult }) {
           ))}
         </select>
       </div>
+
+      {failed && (
+        <p
+          role="alert"
+          className="mb-[22px] rounded-[14px] border border-red-200 bg-red-50 px-4 py-3 text-[13.5px] text-red-700"
+        >
+          Couldn't load that range — the figures below are still the previous one. Please try again.
+        </p>
+      )}
 
       <InsightStrip data={data} />
 

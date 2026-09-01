@@ -75,7 +75,11 @@ async function loadApplications(
     if (jobIds) q = q.in("job_id", jobIds);
     if (since) q = q.gte("created_at", since);
     const { data, error } = await q;
-    if (error) break;
+    if (error) {
+      throw new Error(`[analytics] applications failed at rows ${from}-${from + PAGE - 1}`, {
+        cause: error,
+      });
+    }
     const batch = (data ?? []) as AppRow[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
@@ -127,6 +131,19 @@ const EMPTY: AnalyticsResult = {
   jobs: [],
 };
 
+/**
+ * ── Why the paged reads throw ────────────────────────────────
+ *
+ * The three loops above used to `break` on error and carry on with the pages
+ * they already had. Every figure on this page is an aggregate over those rows —
+ * the source breakdown, the funnel, the score-agreement chart — so a short read
+ * did not produce a broken page. It produced a complete-looking one whose every
+ * number was computed over a truncated dataset.
+ *
+ * The platform analytics page was fixed on the argument that a figure which
+ * does not reconcile discredits every other figure beside it. That argument is
+ * stronger here, not weaker: this is the page customers actually see.
+ */
 export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<AnalyticsResult> {
   const ctx = await getCompanyContext();
   const scope = await getJobScope(ctx);
@@ -290,7 +307,11 @@ async function buildFunnel(
       if (ids) q = q.in("application_id", ids);
       if (since) q = q.gte("created_at", since);
       const { data, error } = await q;
-      if (error) break;
+      if (error) {
+        throw new Error(`[analytics] stage history failed at rows ${from}-${from + PAGE - 1}`, {
+          cause: error,
+        });
+      }
       const batch = (data ?? []) as typeof rows;
       rows.push(...batch);
       if (batch.length < PAGE) break;
@@ -568,7 +589,14 @@ async function buildAgreement(
       .range(from, from + PAGE - 1);
     if (jobIds) q = q.in("job_id", jobIds);
     const { data, error } = await q;
-    if (error) break;
+    if (error) {
+      throw new Error(
+        `[analytics] AI/human score agreement failed at rows ${from}-${from + PAGE - 1}`,
+        {
+          cause: error,
+        },
+      );
+    }
     const batch = (data ?? []) as typeof rows;
     rows.push(...batch);
     if (batch.length < PAGE) break;
