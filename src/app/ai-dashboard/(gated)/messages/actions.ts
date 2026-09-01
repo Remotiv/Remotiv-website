@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
@@ -272,7 +273,7 @@ function applyTab<T extends { eq: (c: string, v: unknown) => T; neq: (c: string,
  * Six HEAD counts, company-scoped, so nothing depends on which page the user
  * happens to be looking at. all = written + automatic + scheduled exactly.
  */
-export async function fetchMessageAggregates(): Promise<MessageAggregates> {
+export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
@@ -283,12 +284,16 @@ export async function fetchMessageAggregates(): Promise<MessageAggregates> {
    * counts is exactly how a tab ends up disagreeing with what is under it.
    */
   const scope = await getJobScope(ctx);
-  const allowedApps = await scopedApplicationIds(ctx, scope);
+  // Not absorbed here. Every one of these figures is a claim to the reader,
+  // and an uncounted zero used to be indistinguishable from a counted one.
+  const scoped = await scopedApplicationIds(ctx, scope);
+  if (!scoped.ok) return unavailable();
+  const allowedApps = scoped.value;
   if (allowedApps !== null && allowedApps.length === 0) {
-    return {
+    return answered({
       all: 0, written: 0, automatic: 0, scheduled: 0,
       sent: 0, failed: 0, sentThisWeek: 0,
-    };
+    });
   }
 
   const base = () => {
@@ -313,7 +318,7 @@ export async function fetchMessageAggregates(): Promise<MessageAggregates> {
     base().eq("status", "sent").gte("sent_at", weekAgo),
   ]);
 
-  return {
+  return answered({
     all: all.count ?? 0,
     written: written.count ?? 0,
     automatic: automatic.count ?? 0,
@@ -321,7 +326,7 @@ export async function fetchMessageAggregates(): Promise<MessageAggregates> {
     sent: sent.count ?? 0,
     failed: failed.count ?? 0,
     sentThisWeek: thisWeek.count ?? 0,
-  };
+  });
 }
 
 /**
@@ -336,14 +341,18 @@ export async function fetchMessages(input: {
   jobId: string;
   search: string;
   page: number;
-}): Promise<MessagePage> {
+}): Promise<Read<MessagePage>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
   const scope = await getJobScope(ctx);
-  const allowedApps = await scopedApplicationIds(ctx, scope);
+  // "No messages" is a statement about their history. It must not be made on
+  // an allow-list we could not read.
+  const scoped = await scopedApplicationIds(ctx, scope);
+  if (!scoped.ok) return unavailable();
+  const allowedApps = scoped.value;
   if (allowedApps !== null && allowedApps.length === 0) {
-    return { rows: [], matching: 0 };
+    return answered({ rows: [], matching: 0 });
   }
 
   const tab: MessageTab = input.tab;
@@ -418,10 +427,10 @@ export async function fetchMessages(input: {
       .range(from, from + MESSAGES_PAGE_SIZE - 1),
   ]);
 
-  return {
+  return answered({
     rows: await hydrate(service, (data ?? []) as unknown as LogRow[]),
     matching: count ?? 0,
-  };
+  });
 }
 
 /** The message trail for one applicant, for the drawer. Ownership-checked. */

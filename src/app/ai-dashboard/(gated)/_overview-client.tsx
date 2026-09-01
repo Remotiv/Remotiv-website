@@ -677,20 +677,28 @@ export function OverviewClient({
             </h3>
           </div>
           <div className="px-5 pb-[18px] pt-4">
-            {activity.length === 0 ? (
+            {/* One sentence rather than a title and body: this is a paragraph
+                inside a card, where a heading would read as a section title.
+                Same voice as the full-page failure states, different shape. */}
+            {!activity.ok ? (
+              <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
+                We couldn't load recent activity. Nothing's been lost — reload the page
+                to try again.
+              </p>
+            ) : activity.value.length === 0 ? (
               <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
                 Nothing has happened in {companyName} yet. Publishing a role and
                 the first applications will show up here.
               </p>
             ) : (
-              activity.map((item, i) => (
+              activity.value.map((item, i) => (
                 <div
                   key={item.id}
                   className={`relative flex gap-3 ${
-                    i === activity.length - 1 ? "" : "pb-4"
+                    i === activity.value.length - 1 ? "" : "pb-4"
                   }`}
                 >
-                  {i < activity.length - 1 && (
+                  {activity.ok && i < activity.value.length - 1 && (
                     <span
                       aria-hidden
                       className="absolute bottom-0 left-[5px] top-4 w-[1.5px] bg-[var(--ai-line)]"

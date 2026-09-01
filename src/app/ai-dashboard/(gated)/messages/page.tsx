@@ -13,6 +13,16 @@ import { MessagesClient } from "./_messages-client";
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Messages — Remotiv AI Interviews" };
 
+const EMPTY_AGGREGATES = {
+  all: 0,
+  written: 0,
+  automatic: 0,
+  scheduled: 0,
+  sent: 0,
+  failed: 0,
+  sentThisWeek: 0,
+};
+
 export default async function MessagesPage() {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
@@ -66,9 +76,12 @@ export default async function MessagesPage() {
     <MessagesClient
       companyName={ctx.company.name}
       replyToAddress={replyTo}
-      initialRows={first.rows}
-      initialMatching={first.matching}
-      initialAggregates={aggregates}
+      initialRows={first.ok ? first.value.rows : []}
+      initialMatching={first.ok ? first.value.matching : 0}
+      initialAggregates={aggregates.ok ? aggregates.value : EMPTY_AGGREGATES}
+      // Either read failing makes every figure here a claim we cannot support,
+      // so the client shows the failure state rather than an empty inbox.
+      initialFailed={!first.ok || !aggregates.ok}
       recipients={recipients}
       templates={templates}
       jobs={jobs}

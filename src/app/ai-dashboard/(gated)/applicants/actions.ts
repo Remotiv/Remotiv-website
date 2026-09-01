@@ -341,7 +341,7 @@ async function fetchScoreSummaries(
  */
 export async function fetchCompanyApplicants(
   query: CompanyApplicantQuery = {},
-): Promise<CompanyApplicantRow[]> {
+): Promise<Read<CompanyApplicantRow[]>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
@@ -354,7 +354,8 @@ export async function fetchCompanyApplicants(
    * call site: there is one query, so there is one place to get it wrong.
    */
   const scope = await getJobScope(ctx);
-  if (scope.scoped && scope.jobIds.length === 0) return [];
+  // An answer: assigned to no roles means no applicants to list.
+  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 
   // Range-paged: job_applications has hit the PostgREST 1000-row cap before,
   // and an unbounded select silently truncates rather than erroring.
@@ -382,8 +383,18 @@ export async function fetchCompanyApplicants(
       .range(from, from + PAGE - 1);
 
     if (error) {
+      /*
+       * NOTE: fetchCompanyApplicants (PLURAL) — the list. Not
+       * fetchCompanyApplicant (singular, the drawer detail) a few functions
+       * below; they differ by one letter and sit in the same file.
+       *
+       * An empty list is a claim about their pipeline. A failed search that
+       * returns [] renders `No applicants match "sarah"` and tells the reader
+       * to try a different spelling — so the copy itself directs the retype,
+       * and every retry fails identically.
+       */
       console.error("[applicants] fetchCompanyApplicants failed:", error);
-      return [];
+      return unavailable();
     }
 
     const batch = (data ?? []) as unknown as ApplicantQueryRow[];
@@ -396,7 +407,7 @@ export async function fetchCompanyApplicants(
     ctx.companyId,
     rows.map((r) => r.id),
   );
-  return rows.map((r) => toRow(r, scores.get(r.id)));
+  return answered(rows.map((r) => toRow(r, scores.get(r.id))));
 }
 
 /**

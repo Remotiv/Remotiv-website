@@ -54,7 +54,7 @@ const EMPTY: OverviewData = {
   pendingInvites: { ok: true, value: 0 },
   liveRoles: [],
   recentApplicants: [],
-  activity: [],
+  activity: { ok: true, value: [] },
 };
 
 type JobRow = {
@@ -153,9 +153,14 @@ export async function fetchOverview(): Promise<OverviewData> {
       .eq("company_id", ctx.companyId)
       .order("created_at", { ascending: false })
       .limit(12)
-      .then(({ data, error }) => {
-        if (error) console.error("[overview] history failed:", error);
-        return (data ?? []) as HistoryRow[];
+      .then(({ data, error }): Read<HistoryRow[]> => {
+        // "Nothing has happened in Acme yet" is a claim about their workspace.
+        // An empty array on a failed read made the feed say it on no evidence.
+        if (error) {
+          console.error("[overview] history failed:", error);
+          return unavailable();
+        }
+        return answered((data ?? []) as HistoryRow[]);
       }),
     service
       .from("company_members")
@@ -177,10 +182,14 @@ export async function fetchOverview(): Promise<OverviewData> {
   // The stage-history feed keys on application_id, so it is narrowed in
   // memory against the applications already scoped above rather than by a
   // second query.
+  // Unwrapped once. A failed history read yields no rows AND is carried to the
+  // feed as unknown, so it renders "we couldn't load this" rather than
+  // "nothing has happened in <company> yet".
+  const historyRows = history.ok ? history.value : [];
   const visibleAppIds = new Set(apps.map((a) => a.id));
   const scopedHistory = scope.scoped
-    ? history.filter((h) => h.application_id !== null && visibleAppIds.has(h.application_id))
-    : history;
+    ? historyRows.filter((h) => h.application_id !== null && visibleAppIds.has(h.application_id))
+    : historyRows;
 
   if (jobs.length === 0 && apps.length === 0) {
     return { ...EMPTY, pendingInvites: invites };
@@ -327,6 +336,6 @@ export async function fetchOverview(): Promise<OverviewData> {
     pendingInvites: invites,
     liveRoles,
     recentApplicants,
-    activity,
+    activity: history.ok ? answered(activity) : unavailable(),
   };
 }

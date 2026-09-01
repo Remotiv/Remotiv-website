@@ -1,3 +1,4 @@
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   type CompanyContext,
@@ -130,18 +131,31 @@ export async function canAccessJob(
  * tail, and a truncated allow-list hides messages rather than leaking them —
  * quiet either way, so it is paged rather than trusted to fit.
  *
- * An empty array is returned on a read failure, not a partial one. It is the
- * same direction the rest of this module fails in, made deterministic and
- * logged. Callers cannot distinguish it from "this member has no applications
- * to message about" — see the note on the console.error below, and the copy
- * that empty state renders.
+ * ── Two callers, two correct behaviours ─────────────────────
+ *
+ * A `Read` rather than a bare array, and the two consumers deliberately do
+ * DIFFERENT things with the same failure — which looks like a disagreement and
+ * is not:
+ *
+ *   the gated layout  → orElse(read, []) — fails CLOSED, exactly as before.
+ *                       It runs on every dashboard render, and throwing there
+ *                       would take the whole workspace away from a scoped
+ *                       recruiter because a badge query timed out.
+ *   the Messages page → propagates the unknown, because "no messages" is a
+ *                       claim it makes to the reader, and it was making that
+ *                       claim on evidence it did not have.
+ *
+ * That is the point of the type: the same failure can be absorbed where the
+ * consequence is a missing badge and surfaced where the consequence is telling
+ * someone their email history is empty.
  */
 export async function scopedApplicationIds(
   ctx: CompanyContext,
   scope: JobScope,
-): Promise<string[] | null> {
-  if (!scope.scoped) return null;
-  if (scope.jobIds.length === 0) return [];
+): Promise<Read<string[] | null>> {
+  // Both are answers: unrestricted, and restricted-to-nothing.
+  if (!scope.scoped) return answered(null);
+  if (scope.jobIds.length === 0) return answered([]);
 
   const service = createServiceClient();
   const out: string[] = [];
@@ -177,10 +191,10 @@ export async function scopedApplicationIds(
        */
       if (error) {
         console.error(
-          `[job-scope] application allow-list failed: jobs ${i}-${i + chunk.length - 1} of ${scope.jobIds.length}, rows ${from}-${from + PAGE - 1}. Returning an empty allow-list — message scoping is closed, not partial.`,
+          `[job-scope] application allow-list failed: jobs ${i}-${i + chunk.length - 1} of ${scope.jobIds.length}, rows ${from}-${from + PAGE - 1}.`,
           error,
         );
-        return [];
+        return unavailable();
       }
 
       const batch = (data ?? []) as { id: string }[];
@@ -188,7 +202,7 @@ export async function scopedApplicationIds(
       if (batch.length < PAGE) break;
     }
   }
-  return out;
+  return answered(out);
 }
 
 /** One row of a job's hiring team, as the UI renders it. */

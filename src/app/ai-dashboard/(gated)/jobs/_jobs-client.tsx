@@ -621,9 +621,12 @@ function JobDrawer({
 export function JobsClient({
   viewerRole,
   jobs: initialJobs,
+  loadFailed,
 }: {
   viewerRole: CompanyRole;
   jobs: CompanyJobRow[];
+  /** The roles could not be READ. Distinct from "this company has no roles". */
+  loadFailed: boolean;
 }) {
   const router = useRouter();
   const canManage = canCreateJobs(viewerRole);
@@ -997,6 +1000,17 @@ export function JobsClient({
   })();
 
   const emptyCopy = (() => {
+    /*
+     * Ahead of every absence state below, including the search one. A failed
+     * read knows nothing about the search term, so echoing it back would be a
+     * claim about the query rather than about us.
+     */
+    if (loadFailed) {
+      return {
+        title: "We couldn't load your roles",
+        text: "Your jobs are still there — this is a problem on our side. Reload the page to try again.",
+      };
+    }
     if (search.trim()) {
       return {
         title: `No jobs match “${search.trim()}”`,

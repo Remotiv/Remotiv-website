@@ -37,9 +37,13 @@ export default async function ApplicantsPage() {
   // ago" identically on this pass and on the hydrating one. Reading the clock
   // independently in both places is what made every applicant row a hydration
   // mismatch.
+  // Unwrapped once, here. The derived figures below are all claims about the
+  // pipeline, so on a failed read they are computed over [] and the client is
+  // told not to present them as facts.
+  const applicantRows = applicants.ok ? applicants.value : [];
   const now = Date.now();
   const since = now - WEEK_MS;
-  const newThisWeek = applicants.filter((r) => {
+  const newThisWeek = applicantRows.filter((r) => {
     const t = new Date(r.created_at).getTime();
     return !Number.isNaN(t) && t >= since;
   }).length;
@@ -48,13 +52,14 @@ export default async function ApplicantsPage() {
   // already have rather than a second query; applications whose job was
   // deleted carry a null job_id and simply don't count toward "open roles".
   const openRoles = new Set(
-    applicants.map((r) => r.job_id).filter((id): id is string => Boolean(id)),
+    applicantRows.map((r) => r.job_id).filter((id): id is string => Boolean(id)),
   ).size;
 
   return (
     <ApplicantsClient
       viewerRole={ctx.role}
-      applicants={applicants}
+      applicants={applicantRows}
+      loadFailed={!applicants.ok}
       newThisWeek={newThisWeek}
       openRoles={openRoles}
       companyName={ctx.company.name}

@@ -157,7 +157,14 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
    * caller may see. Null means unrestricted (owner/admin); an array is the
    * allow-list. Same helper the Messages page uses for the same reason.
    */
-  const appIds = await scopedApplicationIds(ctx, scope);
+  const scopedApps = await scopedApplicationIds(ctx, scope);
+  // Throws, like the paged reads in this file. Every figure on this page is an
+  // aggregate over the allowed set, so an allow-list we could not read makes
+  // all of them wrong in the same invisible way a truncated page did.
+  if (!scopedApps.ok) {
+    throw new Error("[analytics] application allow-list unavailable");
+  }
+  const appIds = scopedApps.value;
   const since = sinceIso(range);
 
   /** Every applicants query starts here, so scoping cannot be forgotten once. */

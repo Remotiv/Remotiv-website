@@ -83,5 +83,11 @@ export type OverviewData = {
 
   liveRoles: LiveRole[];
   recentApplicants: RecentApplicant[];
-  activity: ActivityItem[];
+  /**
+   * The merged feed, or the fact that we could not read its history.
+   *
+   * "Nothing has happened yet" is a claim about their workspace; an empty array
+   * on a failed read made the feed say it on no evidence.
+   */
+  activity: Read<ActivityItem[]>;
 };

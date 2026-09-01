@@ -6,6 +6,7 @@ import {
   getCompanyContext,
   loginRedirectFor,
 } from "../lib/company-guards";
+import { orElse } from "@/lib/supabase/read";
 import { getJobScope, scopedApplicationIds } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
@@ -74,7 +75,14 @@ export default async function GatedCompanyLayout({
   // seeing "128" beside an Applicants page showing 4 is the same class of bug
   // as a tab count disagreeing with its rows.
   const scope = await getJobScope(ctx);
-  const allowedApps = await scopedApplicationIds(ctx, scope);
+  /*
+   * orElse, deliberately. A failed allow-list read degrades to "closed" here —
+   * the same behaviour as before the type existed — because the consequence is
+   * one badge count, and taking the whole workspace away for that would be
+   * worse than the bug. The Messages page does NOT absorb it; see the note on
+   * scopedApplicationIds for why those two are not in disagreement.
+   */
+  const allowedApps = orElse(await scopedApplicationIds(ctx, scope), []);
   const noJobs = scope.scoped && scope.jobIds.length === 0;
 
   const [jobs, applicants, messages, interviews] =

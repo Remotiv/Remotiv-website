@@ -47,6 +47,7 @@ import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
 import { slugify, uniqueSlug } from "@/lib/slug";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -603,7 +604,7 @@ function revalidateJobSurfaces(): void {
 // ── Reads ────────────────────────────────────────────────────
 
 /** Every job owned by the viewer's company. Readable by any active member. */
-export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
+export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
@@ -616,7 +617,8 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
    * it, an unfiltered query. Returning [] is the same answer, safely.
    */
   const scope = await getJobScope(ctx);
-  if (scope.scoped && scope.jobIds.length === 0) return [];
+  // An answer: assigned to no roles means no roles to list.
+  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 
   const PAGE = 1000;
   const rows: Record<string, unknown>[] = [];
@@ -629,14 +631,17 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
 
     if (error) {
       console.error("[jobs] fetchCompanyJobs failed:", error);
-      return [];
+        // Not an empty workspace. Returning [] made a company with live roles
+        // see "No jobs yet — post your first role", which does not merely
+        // under-report: it invites a duplicate of a role they already have.
+        return unavailable();
     }
     const batch = (data ?? []) as Record<string, unknown>[];
     rows.push(...batch);
     if (batch.length < PAGE) break;
   }
 
-  if (rows.length === 0) return [];
+  if (rows.length === 0) return answered([]);
 
   // Applicant counts, one HEAD count per job in parallel. Counting per job
   // rather than fetching rows keeps the payload flat regardless of volume.
@@ -654,7 +659,8 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
     }),
   );
 
-  return rows.map((r, i) => ({
+  return answered(
+    rows.map((r, i) => ({
     id: r.id as string,
     title: (r.title as string) ?? "",
     location: (r.location as string) ?? "",
@@ -671,7 +677,8 @@ export async function fetchCompanyJobs(): Promise<CompanyJobRow[]> {
     created_at: (r.created_at as string) ?? "",
     archived_at: (r.archived_at as string | null) ?? null,
     applicant_count: counts[i],
-  }));
+    })),
+  );
 }
 
 // ── Mutations ────────────────────────────────────────────────

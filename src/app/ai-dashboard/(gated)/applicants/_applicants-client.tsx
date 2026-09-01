@@ -1754,6 +1754,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 export function ApplicantsClient({
   viewerRole,
   applicants: initialApplicants,
+  loadFailed,
   newThisWeek,
   openRoles,
   companyName,
@@ -1764,6 +1765,8 @@ export function ApplicantsClient({
 }: {
   viewerRole: CompanyRole;
   applicants: CompanyApplicantRow[];
+  /** The list could not be READ. Distinct from "this pipeline is empty". */
+  loadFailed: boolean;
   newThisWeek: number;
   openRoles: number;
   companyName: string;
@@ -2402,6 +2405,21 @@ export function ApplicantsClient({
   }
 
   const emptyCopy = (() => {
+    /*
+     * Ahead of the search state, and deliberately NOT echoing the query.
+     *
+     * `No applicants match "sarah"` is a claim about sarah, and its body tells
+     * the reader to try a different spelling — so the copy itself directs a
+     * retype that fails identically every time, until the recruiter concludes
+     * the candidate is not in the system. Naming the query at all invites
+     * re-examining it, so this says the search never ran.
+     */
+    if (loadFailed) {
+      return {
+        title: "We couldn't run that search",
+        text: "A different spelling won't help — this is on our side, not your query. Reload the page to try again.",
+      };
+    }
     if (search.trim()) {
       return {
         title: `No applicants match “${search.trim()}”`,

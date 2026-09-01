@@ -32,6 +32,38 @@
  * this type is wrapping a Supabase read.
  */
 
+/**
+ * ── Writing the copy for the unknown state ───────────────────
+ *
+ * You are reaching for this type because a surface is about to tell someone
+ * something it cannot support. Four rules, learned from the ones that got it
+ * wrong:
+ *
+ * 1. A FAILURE makes a claim about US; an ABSENCE makes a claim about their
+ *    workspace. "No applicants yet" is a fact about their company. "We couldn't
+ *    load…" is a fact about our system. A failure must never borrow an
+ *    absence's words.
+ *
+ * 2. SAY WHAT IS STILL TRUE. Each of these has a specific fear behind it — my
+ *    messages were deleted, I was removed from the job, the interview fell
+ *    through. Naming what survived is what stops the wrong conclusion.
+ *
+ * 3. ONE ACTION, AND MAKE IT CHEAP. Reload. Reopen. Never "contact support"
+ *    for something a refresh fixes.
+ *
+ * 4. NEVER EXPLAIN HOW THE FEATURE WORKS IN A FAILURE STATE. It reads as a
+ *    guarantee. "Every email sent to a candidate lands here" is the right thing
+ *    to tell a genuinely empty inbox — it teaches a new user what to expect.
+ *    Said over a read that failed, it is a promise the page is simultaneously
+ *    breaking, and it is what made a recruiter conclude their messages were
+ *    gone. Absence states TEACH; failure states APOLOGISE. Do not mix them.
+ *
+ * Sentence pattern: [what happened]. [what is still true] — [what to do].
+ * Render it as title + body where there is room, and as one sentence inline
+ * where a heading would read as a section title. Same voice either way: it is
+ * the same reader, the same fear, and the same remedy.
+ */
+
 export type Read<T> =
   | { ok: true; value: T }
   /**

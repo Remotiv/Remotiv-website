@@ -101,6 +101,7 @@ export function MessagesClient({
   companyName,
   replyToAddress,
   initialRows,
+  initialFailed,
   initialMatching,
   initialAggregates,
   recipients,
@@ -113,6 +114,8 @@ export function MessagesClient({
   companyName: string;
   replyToAddress: string | null;
   initialRows: MessageRow[];
+  /** The server's first read failed — show the failure state, not an empty inbox. */
+  initialFailed: boolean;
   initialMatching: number;
   initialAggregates: MessageAggregates;
   recipients: MessageRecipient[];
@@ -139,6 +142,8 @@ export function MessagesClient({
   const [search, setSearch] = useState("");
   const [page, setPage] = useState(0);
   const [loading, setLoading] = useState(false);
+  /** The list could not be READ. Distinct from "this inbox is empty". */
+  const [loadFailed, setLoadFailed] = useState(initialFailed);
 
   const [viewing, setViewing] = useState<MessageRow | null>(null);
   const [menuFor, setMenuFor] = useState<string | null>(null);
@@ -166,9 +171,20 @@ export function MessagesClient({
       setLoading(true);
       try {
         const result = await fetchMessages(next);
-        setRows(result.rows);
-        setMatching(result.matching);
+        // Not "no messages" — we do not know. Clearing the rows AND raising the
+        // flag together is deliberate: leaving the previous filter's rows on
+        // screen under a new filter would be a second wrong answer.
+        if (!result.ok) {
+          setLoadFailed(true);
+          setRows([]);
+          setMatching(0);
+          return;
+        }
+        setLoadFailed(false);
+        setRows(result.value.rows);
+        setMatching(result.value.matching);
       } catch {
+        setLoadFailed(true);
         setRows([]);
         setMatching(0);
       } finally {
@@ -195,7 +211,10 @@ export function MessagesClient({
 
   async function refreshAggregates() {
     try {
-      setAgg(await fetchMessageAggregates());
+      // A stale badge beats a wrong one: an unavailable read leaves the
+      // previous counts alone rather than zeroing them.
+      const next = await fetchMessageAggregates();
+      if (next.ok) setAgg(next.value);
     } catch {
       /* a stale badge is better than a crashed page */
     }
@@ -244,7 +263,21 @@ export function MessagesClient({
     await Promise.all([reload({ tab, jobId, search, page }), refreshAggregates()]);
   }
 
-  const emptyCopy = unassigned
+  /*
+   * The failure case comes FIRST, ahead of every absence state below it.
+   *
+   * `agg.all === 0` used to serve this case too, rendering "No messages yet —
+   * every email sent to a candidate lands here". That sentence is product
+   * education: exactly right for a genuinely new workspace, and a false
+   * guarantee over a read that failed. A recruiter who has been emailing
+   * candidates all week reads it and concludes the messages are gone.
+   */
+  const emptyCopy = loadFailed
+    ? {
+        title: "We couldn't load your messages",
+        text: "Nothing has been lost — this is a problem on our side. Reload the page to try again.",
+      }
+    : unassigned
     ? {
         title: "You haven't been assigned to any roles yet",
         text: "Messages follow the roles you're on. Ask an owner or admin to add you to a job's hiring team and its candidate emails will appear here.",
