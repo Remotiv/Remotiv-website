@@ -129,6 +129,12 @@ export async function canAccessJob(
  * than 1000 applications on its scoped jobs would otherwise silently lose the
  * tail, and a truncated allow-list hides messages rather than leaking them —
  * quiet either way, so it is paged rather than trusted to fit.
+ *
+ * An empty array is returned on a read failure, not a partial one. It is the
+ * same direction the rest of this module fails in, made deterministic and
+ * logged. Callers cannot distinguish it from "this member has no applications
+ * to message about" — see the note on the console.error below, and the copy
+ * that empty state renders.
  */
 export async function scopedApplicationIds(
   ctx: CompanyContext,
@@ -151,7 +157,32 @@ export async function scopedApplicationIds(
         .eq("company_id_snapshot", ctx.companyId)
         .in("job_id", chunk)
         .range(from, from + PAGE - 1);
-      if (error) break;
+
+      /*
+       * Abandon the WHOLE allow-list, and say which read failed.
+       *
+       * This used to `break`, which left the inner page loop only — a failure
+       * on chunk 2 of 5 carried on to chunk 3 and returned an allow-list
+       * missing an arbitrary middle. That is not a smaller answer, it is a
+       * different one, and it differed run to run.
+       *
+       * Unlike the paged reads on Overview and Analytics, this one is NOT
+       * converted to a throw. Those produce wrong numbers presented as right,
+       * with no safe reading. This produces a NARROWER authorization set, which
+       * the module already fails toward on purpose (see getJobScope) — and it
+       * runs in the gated layout, so throwing would take the entire dashboard
+       * away from a scoped recruiter because a message query timed out. That is
+       * worse than the bug. What was wrong here was silence and inconsistency,
+       * not the direction of the failure.
+       */
+      if (error) {
+        console.error(
+          `[job-scope] application allow-list failed: jobs ${i}-${i + chunk.length - 1} of ${scope.jobIds.length}, rows ${from}-${from + PAGE - 1}. Returning an empty allow-list — message scoping is closed, not partial.`,
+          error,
+        );
+        return [];
+      }
+
       const batch = (data ?? []) as { id: string }[];
       out.push(...batch.map((r) => r.id));
       if (batch.length < PAGE) break;
