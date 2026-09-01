@@ -3,6 +3,7 @@
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { PROMPT_VERSION as CV_PROMPT_VERSION } from "@/lib/ai/cv-scoring";
 import { PROMPT_VERSION as INTERVIEW_PROMPT_VERSION } from "@/lib/ai/interview-scoring";
+import { pageAll } from "@/lib/supabase/paging";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   buildCalibration,
@@ -44,7 +45,6 @@ import { type AnalyticsRange, type AnalyticsResult, RANGE_DAYS } from "./types";
  */
 
 /** PostgREST caps a response at 1000 rows and offers no aggregates. */
-const PAGE = 1000;
 
 /** Only ever count what an admin might plausibly read. Beyond this, stop. */
 const MAX_ROWS = 50_000;
@@ -57,48 +57,18 @@ const MAX_ROWS = 50_000;
  * filter predicate while the loop runs.
  */
 /**
- * Read every row matching a query, 1000 at a time, up to MAX_ROWS.
+ * The shared pager, bound to this page's scope and its row cap.
  *
- * ── Why a failed page throws ─────────────────────────────────
- *
- * It used to log and return the pages it already had. This page's whole claim
- * is that its arithmetic is inspectable — its own reconciliation tests open by
- * arguing that a figure which does not reconcile with the table beneath it
- * discredits every other figure on the page. A short read produced exactly
- * that: every cost, margin and calibration figure computed over a silently
- * truncated set, reconciling perfectly with each other and with nothing real.
- *
- * ── MAX_ROWS is a different thing, and it stays ──────────────
- *
- * The cap is deliberate: an admin page should not pull unbounded rows. But
- * hitting it truncates just as silently as an error did, so it now warns. That
- * warning goes to the server log, NOT to the reader — telling the reader would
- * mean threading a flag out of nine call sites and deciding where on the page
- * it appears, which is a design decision this change does not make. Until then
- * the cap is disclosed to whoever is on call, not to whoever is deciding.
+ * A binding, not an implementation — no loop, no error handling, nothing that
+ * can drift from src/lib/supabase/paging.ts. It exists so `cap: MAX_ROWS`
+ * cannot be forgotten at one of nine call sites, which is the same
+ * consistency-by-hand failure the consolidation removed.
  */
-async function pageAll<T>(
-  build: (from: number, to: number) => PromiseLike<{ data: unknown[] | null; error: unknown }>,
+function pagePlatform<T>(
+  build: (from: number, to: number) => PromiseLike<{ data: unknown; error: unknown }>,
   label: string,
 ): Promise<T[]> {
-  const out: T[] = [];
-  for (let from = 0; from < MAX_ROWS; from += PAGE) {
-    const { data, error } = await build(from, from + PAGE - 1);
-    if (error) {
-      throw new Error(`[platform-analytics] ${label} failed at rows ${from}-${from + PAGE - 1}`, {
-        cause: error,
-      });
-    }
-    const rows = (data ?? []) as T[];
-    out.push(...rows);
-    if (rows.length < PAGE) return out;
-  }
-  // Fell out of the loop still reading full pages: there is more than MAX_ROWS
-  // and every figure derived from this is computed over a prefix.
-  console.warn(
-    `[platform-analytics] ${label} hit the ${MAX_ROWS.toLocaleString("en-US")}-row cap — figures derived from it are truncated`,
-  );
-  return out;
+  return pageAll<T>(build, { scope: "platform-analytics", label, cap: MAX_ROWS });
 }
 
 /** Range start as an ISO instant, or null for all time. */
@@ -159,7 +129,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
 
   /* ── Companies and jobs ─────────────────────────────────── */
 
-  const companies = await pageAll<{
+  const companies = await pagePlatform<{
     id: string;
     name: string | null;
     is_internal: boolean | null;
@@ -170,7 +140,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     "companies",
   );
 
-  const jobs = await pageAll<{
+  const jobs = await pagePlatform<{
     id: string;
     company_id: string | null;
     category: string | null;
@@ -202,7 +172,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
 
   /* ── Calibration: ALL TIME, both scorers ────────────────── */
 
-  const cvScores = await pageAll<{
+  const cvScores = await pagePlatform<{
     company_id: string | null;
     job_id: string | null;
     overall_score: number | null;
@@ -230,7 +200,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
    * over the same table would double a read that is already the largest one on
    * the page.
    */
-  const sessions = await pageAll<{
+  const sessions = await pagePlatform<{
     id: string;
     job_id: string | null;
     company_id: string | null;
@@ -249,7 +219,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     if (s.company_id) companyBySession.set(s.id, s.company_id);
   }
 
-  const interviewScores = await pageAll<{
+  const interviewScores = await pagePlatform<{
     session_id: string | null;
     company_id: string | null;
     overall_score: number | null;
@@ -306,7 +276,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
 
   /* ── Cost: the SELECTED range ───────────────────────────── */
 
-  const usageRows = await pageAll<{
+  const usageRows = await pagePlatform<{
     company_id: string;
     type: string;
     quantity: number | null;
@@ -331,7 +301,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
    * fact rather than an estimate, so the line is honest; the footer says which
    * lines come from which source rather than implying one basis for all four.
    */
-  const answers = await pageAll<{
+  const answers = await pagePlatform<{
     session_id: string | null;
     duration_seconds: number | null;
     recorded_at: string | null;
@@ -373,7 +343,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
 
   /* ── Emails ─────────────────────────────────────────────── */
 
-  const emailLogs = await pageAll<{ company_id: string | null }>((from, to) => {
+  const emailLogs = await pagePlatform<{ company_id: string | null }>((from, to) => {
     let q = service
       .from("communication_logs")
       .select("company_id, created_at")
@@ -420,7 +390,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
     const ids = scoringOffJobs.map((j) => j.id);
     for (let i = 0; i < ids.length; i += 200) {
       const chunk = ids.slice(i, i + 200);
-      const apps = await pageAll<{ company_id_snapshot: string | null }>(
+      const apps = await pagePlatform<{ company_id_snapshot: string | null }>(
         (from, to) =>
           service
             .from("job_applications")
