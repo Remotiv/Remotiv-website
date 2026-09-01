@@ -523,12 +523,18 @@ export function OverviewClient({
         tintBg: "var(--ai-amber-tint)",
         tintFg: "var(--ai-amber-ink)",
       },
-    pendingInvites > 0 &&
+    // Only a COUNTED zero hides this card. An uncounted one is not evidence
+    // that nothing is pending, but it is not evidence that something is either,
+    // and this list is a queue of things to act on — see the note in
+    // overview-types.ts on why unknown stays silent here rather than becoming
+    // a card nobody can act on.
+    pendingInvites.ok &&
+      pendingInvites.value > 0 &&
       canTeam && {
         key: "invites",
-        tally: pendingInvites,
+        tally: pendingInvites.value,
         title: "Invites awaiting acceptance",
-        body: `${pendingInvites === 1 ? "One invite hasn't" : `${pendingInvites} invites haven't`} been accepted yet. Invite links expire after seven days — resend if it has gone stale.`,
+        body: `${pendingInvites.value === 1 ? "One invite hasn't" : `${pendingInvites.value} invites haven't`} been accepted yet. Invite links expire after seven days — resend if it has gone stale.`,
         cta: "Open team",
         href: "/ai-dashboard/team",
         icon: Mail,

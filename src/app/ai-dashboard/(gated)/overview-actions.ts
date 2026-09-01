@@ -1,6 +1,7 @@
 "use server";
 
 import { pageAll } from "@/lib/supabase/paging";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { getJobScope } from "@/app/ai-dashboard/lib/job-scope";
@@ -50,7 +51,7 @@ const EMPTY: OverviewData = {
   soleDraftId: null,
   soleDraftTitle: null,
   awaitingReview: 0,
-  pendingInvites: 0,
+  pendingInvites: { ok: true, value: 0 },
   liveRoles: [],
   recentApplicants: [],
   activity: [],
@@ -161,9 +162,15 @@ export async function fetchOverview(): Promise<OverviewData> {
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
       .eq("status", "invited")
-      .then(({ count, error }) => {
-        if (error) console.error("[overview] invites failed:", error);
-        return count ?? 0;
+      .then(({ count, error }): Read<number> => {
+        // Unknown, not zero. `pendingInvites > 0` gates the card, so a failed
+        // read used to be indistinguishable from "nothing pending" — and an
+        // invite that expires unnoticed costs someone a teammate.
+        if (error) {
+          console.error("[overview] invites failed:", error);
+          return unavailable();
+        }
+        return answered(count ?? 0);
       }),
   ]);
 

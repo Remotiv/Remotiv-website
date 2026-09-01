@@ -1811,8 +1811,11 @@ export function ApplicantsClient({
   useEffect(() => {
     let cancelled = false;
     countFlaggedApplicants(jobFilter === "all" ? {} : { jobId: jobFilter })
-      .then((n) => {
-        if (!cancelled) setFlaggedCount(n);
+      .then((read) => {
+        // null is what this component already uses for "no number to show", and
+        // it is what the .catch below has always set. A failed count now takes
+        // the same path instead of arriving as a confident 0.
+        if (!cancelled) setFlaggedCount(read.ok ? read.value : null);
       })
       .catch(() => {
         if (!cancelled) setFlaggedCount(null);

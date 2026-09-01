@@ -262,10 +262,13 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
  * WORTH_A_LOOK_STAGES exactly — a badge counting flags the list refuses to draw
  * is worse than no badge.
  */
-export async function countFlaggedApplicants(query: CompanyApplicantQuery = {}): Promise<number> {
+export async function countFlaggedApplicants(
+  query: CompanyApplicantQuery = {},
+): Promise<Read<number>> {
   const ctx = await getCompanyContext();
   const scope = await getJobScope(ctx);
-  if (scope.scoped && scope.jobIds.length === 0) return 0;
+  // An answer: on no jobs, nothing can be flagged.
+  if (scope.scoped && scope.jobIds.length === 0) return answered(0);
 
   const service = createServiceClient();
   let q = service
@@ -279,11 +282,14 @@ export async function countFlaggedApplicants(query: CompanyApplicantQuery = {}):
   if (query.jobId) q = q.eq("job_id", query.jobId);
 
   const { count, error } = await q;
+  // Zero is an answer — "nothing is flagged". A failed count is not that
+  // answer, and returning 0 for it made the two identical at the boundary even
+  // though the consumer happens to render them the same.
   if (error) {
     console.error("[applicants] countFlaggedApplicants failed:", error.message);
-    return 0;
+    return unavailable();
   }
-  return count ?? 0;
+  return answered(count ?? 0);
 }
 
 /**

@@ -1,4 +1,5 @@
 import type { PipelineStage } from "@/app/ai-dashboard/lib/applicant-types";
+import type { Read } from "@/lib/supabase/read";
 
 /**
  * Overview page types.
@@ -71,7 +72,14 @@ export type OverviewData = {
   /** Applications still sitting in the 'applied' stage. */
   awaitingReview: number;
   /** Invites sent but not yet accepted. */
-  pendingInvites: number;
+  /**
+   * Pending team invites, or the fact that we could not count them.
+   *
+   * A Read rather than a number because the card it feeds is gated on `> 0`:
+   * a failed count of 0 and a real 0 both hid the card, so nobody learned an
+   * invite was sitting unaccepted until it expired.
+   */
+  pendingInvites: Read<number>;
 
   liveRoles: LiveRole[];
   recentApplicants: RecentApplicant[];
