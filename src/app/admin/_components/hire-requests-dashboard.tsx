@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadFailed } from "./load-failed";
 import { useEffect, useMemo, useState } from "react";
 import {
   Building2,
@@ -83,10 +84,13 @@ export function HireRequestsDashboard({
   email,
   userRole,
   initialRequests,
+  loadFailed,
 }: {
   email: string;
   userRole: UserRole;
   initialRequests: HireRequest[];
+  /** The read failed. Distinct from "there are no requests". */
+  loadFailed: boolean;
 }) {
   const [requests, setRequests] = useState<HireRequest[]>(initialRequests);
   const [search, setSearch] = useState("");
@@ -212,7 +216,9 @@ export function HireRequestsDashboard({
 
         {/* List */}
         <div className="flex flex-col gap-3">
-          {pageItems.length === 0 ? (
+          {loadFailed ? (
+            <LoadFailed what="hire requests" />
+          ) : pageItems.length === 0 ? (
             <div className="rounded-2xl border border-dashed border-gray-200 bg-white py-14 text-center">
               <p className="text-sm font-medium text-gray-600">
                 {requests.length === 0

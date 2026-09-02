@@ -38,7 +38,8 @@ export default async function AdminHireRequestsPage() {
     <HireRequestsDashboard
       email={userEmail}
       userRole={userRole}
-      initialRequests={requests}
+      initialRequests={requests.ok ? requests.value : []}
+      loadFailed={!requests.ok}
     />
   );
 }

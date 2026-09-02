@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import type { InviteStatus } from "@/lib/claim-status";
@@ -83,7 +84,7 @@ type MutationResult<T = undefined> =
   | { success: true; data: T }
   | { success: false; error: string };
 
-export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]> {
+export async function fetchRemoteTalentProfiles(): Promise<Read<RemoteTalentProfile[]>> {
   await requireAdmin();
   const supabase = createServiceClient();
   const { data, error } = await supabase
@@ -93,7 +94,7 @@ export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]
 
   if (error) {
     console.error("[hire_remote_profiles] read failed:", error);
-    return [];
+    return unavailable();
   }
 
   const rows = ((data ?? []) as Array<Record<string, unknown>>).map(normaliseRow);
@@ -103,7 +104,8 @@ export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]
   // map. Rows without photo_path keep photo_url=null; the dashboard's
   // Avatar component falls back to initials in that case.
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL?.replace(/\/$/, "");
-  return rows.map((row) => {
+  return answered(
+    rows.map((row) => {
     if (!row.photo_path || !base) {
       return { ...row, photo_url: null };
     }
@@ -111,7 +113,8 @@ export async function fetchRemoteTalentProfiles(): Promise<RemoteTalentProfile[]
       ...row,
       photo_url: `${base}/storage/v1/object/public/talent_photos/${row.photo_path}`,
     };
-  });
+    }),
+  );
 }
 
 export async function updateRemoteTalentStatus(

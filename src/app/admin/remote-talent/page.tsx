@@ -35,7 +35,8 @@ export default async function AdminRemoteTalentPage({
     <RemoteTalentDashboard
       email={userEmail}
       userRole={userRole}
-      initialProfiles={profiles}
+      initialProfiles={profiles.ok ? profiles.value : []}
+      loadFailed={!profiles.ok}
       initialOpenId={openId ?? null}
       initialSearch={search ?? ""}
     />

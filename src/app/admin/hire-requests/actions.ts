@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
 
@@ -67,7 +68,7 @@ async function requireAdmin(): Promise<UserRole> {
 
 // ── Reads ────────────────────────────────────────────────────
 
-export async function fetchHireRequests(): Promise<HireRequest[]> {
+export async function fetchHireRequests(): Promise<Read<HireRequest[]>> {
   await requireAdmin();
   const supabase = createServiceClient();
 
@@ -80,10 +81,10 @@ export async function fetchHireRequests(): Promise<HireRequest[]> {
 
   if (error) {
     console.error("[hire_requests] read failed:", error);
-    return [];
+    return unavailable();
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+  return answered(((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.id as string,
     full_name: (r.full_name as string) ?? "",
     email: (r.email as string) ?? "",
@@ -98,7 +99,7 @@ export async function fetchHireRequests(): Promise<HireRequest[]> {
     candidate_rate: (r.candidate_rate as string | null) ?? null,
     status: ((r.status as HireRequestStatus) ?? "new"),
     created_at: (r.created_at as string) ?? "",
-  }));
+  })));
 }
 
 // ── Mutations ────────────────────────────────────────────────

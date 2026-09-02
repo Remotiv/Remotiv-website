@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadFailed } from "./load-failed";
 import { useEffect, useMemo, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
@@ -544,12 +545,15 @@ export function ContactsDashboard({
   userRole,
   initialInquiries,
   initialBookings,
+  loadFailed,
   initialTab = "inquiries",
 }: {
   email: string;
   userRole: UserRole;
   initialInquiries: Inquiry[];
   initialBookings: Inquiry[];
+  /** Per tab: the two reads fail independently. Distinct from an empty inbox. */
+  loadFailed: { inquiries: boolean; bookings: boolean };
   initialTab?: Tab;
 }) {
   const isSuperAdmin = userRole === "super_admin";
@@ -808,7 +812,9 @@ export function ContactsDashboard({
 
         {/* Mobile card list — replaces the wide desktop table on <lg */}
         <div className="lg:hidden">
-          {filtered.length === 0 ? (
+          {loadFailed[tab === "bookings" ? "bookings" : "inquiries"] ? (
+            <LoadFailed what={tab === "bookings" ? "bookings" : "inquiries"} />
+          ) : filtered.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white px-6 py-16 text-center">
               <MessageSquare className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
               <p className="font-heading text-sm font-semibold text-gray-700">
@@ -860,7 +866,9 @@ export function ContactsDashboard({
               </tr>
             </thead>
             <tbody>
-              {filtered.length === 0 ? (
+              {loadFailed[tab === "bookings" ? "bookings" : "inquiries"] ? (
+            <LoadFailed what={tab === "bookings" ? "bookings" : "inquiries"} />
+          ) : filtered.length === 0 ? (
                 <tr>
                   <td colSpan={tab === "inquiries" ? 8 : 9} className="px-6 py-16 text-center text-sm text-gray-400">
                     <p className="font-semibold text-gray-700">

@@ -1,5 +1,6 @@
 "use client";
 
+import { LoadFailed } from "./load-failed";
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Image from "next/image";
 import { useRouter } from "next/navigation";
@@ -1101,12 +1102,15 @@ export function RemoteTalentDashboard({
   email,
   userRole,
   initialProfiles,
+  loadFailed,
   initialOpenId,
   initialSearch,
 }: {
   email: string;
   userRole: UserRole;
   initialProfiles: RemoteTalentProfile[];
+  /** The read failed. Distinct from "there are no profiles". */
+  loadFailed: boolean;
   initialOpenId: string | null;
   initialSearch: string;
 }) {

@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
 
@@ -65,7 +66,7 @@ async function requireAdmin(): Promise<UserRole> {
 
 // ── Reads ────────────────────────────────────────────────────
 
-export async function fetchContactSubmissions(): Promise<Inquiry[]> {
+export async function fetchContactSubmissions(): Promise<Read<Inquiry[]>> {
   await requireAdmin();
   const supabase = createServiceClient();
 
@@ -76,10 +77,10 @@ export async function fetchContactSubmissions(): Promise<Inquiry[]> {
 
   if (error) {
     console.error("[contact_submissions] read failed:", error);
-    return [];
+    return unavailable();
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+  return answered(((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.id as string,
     name: (r.name as string) ?? "",
     email: (r.email as string) ?? "",
@@ -89,10 +90,10 @@ export async function fetchContactSubmissions(): Promise<Inquiry[]> {
     status: ((r.status as InquiryStatus) ?? "new"),
     admin_notes: (r.admin_notes as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
-  }));
+  })));
 }
 
-export async function fetchBookings(): Promise<Inquiry[]> {
+export async function fetchBookings(): Promise<Read<Inquiry[]>> {
   await requireAdmin();
   const supabase = createServiceClient();
 
@@ -103,10 +104,10 @@ export async function fetchBookings(): Promise<Inquiry[]> {
 
   if (error) {
     console.error("[bookings] read failed:", error);
-    return [];
+    return unavailable();
   }
 
-  return ((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
+  return answered(((data ?? []) as Array<Record<string, unknown>>).map((r) => ({
     id: r.id as string,
     name: (r.full_name as string) ?? "",
     email: (r.email as string) ?? "",
@@ -118,7 +119,7 @@ export async function fetchBookings(): Promise<Inquiry[]> {
     status: ((r.status as InquiryStatus) ?? "new"),
     admin_notes: (r.admin_notes as string | null) ?? null,
     created_at: (r.created_at as string) ?? "",
-  }));
+  })));
 }
 
 // ── Mutations ────────────────────────────────────────────────

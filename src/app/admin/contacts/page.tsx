@@ -49,8 +49,11 @@ export default async function AdminContactsPage({
     <ContactsDashboard
       email={userEmail}
       userRole={userRole}
-      initialInquiries={inquiries}
-      initialBookings={bookings}
+      initialInquiries={inquiries.ok ? inquiries.value : []}
+      initialBookings={bookings.ok ? bookings.value : []}
+      // Per tab, not one flag: the two reads fail independently, and a failed
+      // bookings read must not put an error over a working inquiries tab.
+      loadFailed={{ inquiries: !inquiries.ok, bookings: !bookings.ok }}
       initialTab={initialTab}
     />
   );
