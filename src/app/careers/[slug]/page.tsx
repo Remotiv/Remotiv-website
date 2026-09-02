@@ -93,7 +93,7 @@ export default async function CareersPage({ params }: PageProps) {
   const data = read.value;
   if (!data) notFound();
 
-  const { company, roles, categories } = data;
+  const { company, roles, categories, rolesUnavailable } = data;
   const host = company.website ? displayHost(company.website) : null;
   const href = company.website ? websiteHref(company.website) : null;
   const count = roles.length;
@@ -240,7 +240,21 @@ export default async function CareersPage({ params }: PageProps) {
       <main>
         <section className="roles">
           <div className="wrap">
-            {count === 0 ? (
+            {rolesUnavailable ? (
+              /*
+               * Ahead of the empty state, which claims something about the
+               * company. This claims something about us, names no company —
+               * the masthead above already does — and names Remotiv nowhere.
+               */
+              <div className="card empty">
+                <div className="mark">{mark}</div>
+                <h3>We couldn&apos;t load the open roles</h3>
+                <p>
+                  They&apos;re still there — this is a problem on our side. Reload the page to try
+                  again.
+                </p>
+              </div>
+            ) : count === 0 ? (
               <div className="card empty">
                 <div className="mark">{mark}</div>
                 <h3>No open roles right now</h3>

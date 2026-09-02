@@ -38,11 +38,13 @@ export async function generateMetadata({
   searchParams: SearchParams;
 }): Promise<Metadata> {
   const { company: slug } = await searchParams;
-  const company = await resolveCompanySlug(slug);
+  const read = await resolveCompanySlug(slug);
 
-  // Unknown slug → this IS the full list, so it inherits the layout's
-  // indexable metadata untouched.
-  if (!company) return {};
+  // Unknown slug, or a lookup we could not run — either way there is no company
+  // to brand the metadata with, and the full list's own metadata is correct for
+  // both. The PAGE still tells the two apart; only the <head> cannot.
+  if (!read.ok || !read.value) return {};
+  const company = read.value;
 
   const path = `/jobs?company=${encodeURIComponent(company.slug)}`;
   const title = `Jobs at ${company.name} — Remotiv`;
@@ -64,11 +66,28 @@ export default async function JobsPage({
   searchParams: SearchParams;
 }) {
   const { company: slug } = await searchParams;
-  const company = await resolveCompanySlug(slug);
+  const companyRead = await resolveCompanySlug(slug);
 
-  const initialJobs = company
-    ? await fetchCompanyJobs(company.id)
-    : await getInitialJobs();
+  /*
+   * A failed slug lookup does NOT fall through to the unfiltered board.
+   *
+   * That was the old behaviour, and it is the one over-reporting failure in
+   * this family: someone who asked for one company's roles was silently shown
+   * every company's, with ?company=… still in the address bar. Showing the
+   * failure state is the honest answer to "we don't know whose board this is".
+   */
+  if (!companyRead.ok) {
+    return <JobsClient initialJobs={[]} company={null} loadFailed />;
+  }
+  const company = companyRead.value;
 
-  return <JobsClient initialJobs={initialJobs} company={company} />;
+  const jobs = company ? await fetchCompanyJobs(company.id) : await getInitialJobs();
+
+  return (
+    <JobsClient
+      initialJobs={jobs.ok ? jobs.value : []}
+      company={company}
+      loadFailed={!jobs.ok}
+    />
+  );
 }

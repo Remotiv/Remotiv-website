@@ -1,4 +1,5 @@
 import "server-only";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { attachCompanyLogos, LIST_SELECT, publiclyVisible, type Job } from "@/lib/jobs";
 
@@ -30,9 +31,10 @@ export type CompanyFilter = {
  */
 export async function resolveCompanySlug(
   slug: string | undefined,
-): Promise<CompanyFilter | null> {
+): Promise<Read<CompanyFilter | null>> {
   const trimmed = (slug ?? "").trim();
-  if (!trimmed || trimmed.length > 200) return null;
+  // Answers, both: no slug asked for, and a slug too long to be one.
+  if (!trimmed || trimmed.length > 200) return answered(null);
 
   const supabase = createServiceClient();
   const { data, error } = await supabase
@@ -45,11 +47,28 @@ export async function resolveCompanySlug(
     .eq("status", "active")
     .maybeSingle();
 
-  if (error || !data) return null;
+  /*
+   * A failed lookup must NOT degrade to "no filter".
+   *
+   * Returning null here sent the page down the getInitialJobs branch — the
+   * UNFILTERED board — so a visitor who asked for one company's roles was
+   * silently shown every company's, with ?company=… still in the address bar.
+   * Every other read in this family under-reports on failure; this one
+   * over-reports, which is the harder one to notice.
+   */
+  if (error) {
+    console.error("[jobs] resolveCompanySlug failed:", error.message);
+    return unavailable();
+  }
 
-  const row = data as { id: string; name: string | null; slug: string | null };
-  if (!row.slug) return null;
-  return { id: row.id, name: (row.name ?? "").trim() || "This company", slug: row.slug };
+  // Asked and answered: no such company, or one with no slug to brand with.
+  const row = data as { id: string; name: string | null; slug: string | null } | null;
+  if (!row?.slug) return answered(null);
+  return answered({
+    id: row.id,
+    name: (row.name ?? "").trim() || "This company",
+    slug: row.slug,
+  });
 }
 
 /**
@@ -63,7 +82,7 @@ export async function resolveCompanySlug(
  * Ordering matches getInitialJobs so a filtered list and the full list present
  * the same job in the same relative position.
  */
-export async function fetchCompanyJobs(companyId: string): Promise<Job[]> {
+export async function fetchCompanyJobs(companyId: string): Promise<Read<Job[]>> {
   const supabase = createServiceClient();
   const { data, error } = await publiclyVisible(
     supabase.from("jobs").select(LIST_SELECT).eq("company_id", companyId),
@@ -72,8 +91,11 @@ export async function fetchCompanyJobs(companyId: string): Promise<Job[]> {
     .order("created_at", { ascending: false })
     .limit(100);
 
-  // Same contract as getInitialJobs: never crash the page on a transient
-  // Supabase error, fall back to an empty list.
-  if (error) return [];
-  return attachCompanyLogos((data ?? []) as unknown as Job[]);
+  // Same contract as getInitialJobs, which now means the same THREE answers:
+  // these roles, no roles, or we could not look.
+  if (error) {
+    console.error("[jobs] fetchCompanyJobs failed:", error.message);
+    return unavailable();
+  }
+  return answered(await attachCompanyLogos((data ?? []) as unknown as Job[]));
 }

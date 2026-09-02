@@ -228,7 +228,26 @@ export async function POST(request: NextRequest) {
   }
 
   // STAGE 2: Claude ranking
-  const ranked = await rankWithClaude(query, candidates);
+  const rankedRead = await rankWithClaude(query, candidates);
+
+  /*
+   * A failed ranking is NEVER cached, and never returns 200.
+   *
+   * This is the priority fix in this change. rankWithClaude used to return []
+   * on a Claude timeout or parse failure, and the line below wrote that empty
+   * array into the cache under the query key. Every later visitor searching the
+   * same thing was then served "No matches found" straight from cache, with no
+   * Claude call to correct it — a transient failure memoised as a permanent
+   * fact about the talent pool, getting worse rather than better with time.
+   *
+   * 503 routes the client to its existing ErrorState ("Something went wrong —
+   * we couldn't complete your search"), which was always the honest copy for
+   * this case and which the 200-with-empty-results path never reached.
+   */
+  if (!rankedRead.ok) {
+    return NextResponse.json({ error: "ranking_unavailable" }, { status: 503 });
+  }
+  const ranked = rankedRead.value;
 
   // Cache + log the fresh search. Cached payload is user-agnostic (ids + % +
   // why) — saved/unlocked/contact are applied per-user below, never cached.

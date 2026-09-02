@@ -82,6 +82,11 @@ export type CareersRole = {
 export type CareersData = {
   company: CareersCompany;
   roles: CareersRole[];
+  /**
+   * The roles could not be READ. Distinct from "this company has no openings",
+   * which is what an empty `roles` array otherwise means.
+   */
+  rolesUnavailable: boolean;
   /** Distinct categories, in first-appearance order — drives the filter tabs. */
   categories: string[];
 };
@@ -196,9 +201,15 @@ export async function getCareersData(slug: string): Promise<Read<CareersData | n
     .order("created_at", { ascending: false })
     .limit(200);
 
-  // Roles are the page's subject, but a company with a masthead and no index is
-  // still a truthful page — it renders the empty state rather than a 500.
+  /*
+   * A company with a masthead and no index is still a truthful page — this is
+   * NOT a 500. But the empty state it used to render said "{company} isn't
+   * hiring at the moment", which is a claim about the company made to a
+   * candidate on evidence we do not have. The flag lets the page say the true
+   * thing instead.
+   */
   if (jobsError) console.error("[careers] jobs lookup failed:", jobsError.message);
+  const rolesUnavailable = Boolean(jobsError);
 
   const logoPath = (company.logo_path ?? "").trim();
   const logoUrl = logoPath
@@ -254,6 +265,7 @@ export async function getCareersData(slug: string): Promise<Read<CareersData | n
     },
     roles,
     categories,
+    rolesUnavailable,
   });
 }
 

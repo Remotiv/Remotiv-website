@@ -1,6 +1,6 @@
 "use client";
 
-import { ArrowLeft, Bookmark, Loader2, MapPin } from "lucide-react";
+import { ArrowLeft, Bookmark, Loader2, MapPin, RotateCw } from "lucide-react";
 import dynamic from "next/dynamic";
 import Link from "next/link";
 import { useSearchParams } from "next/navigation";
@@ -9,16 +9,16 @@ import { toggleSave, unlockCandidate } from "@/app/browse-talent/actions";
 import { Navbar } from "@/components/navbar";
 import {
   type CandidateProfile,
+  deriveType,
   type EnrichedMatch,
+  ensureHttpUrl,
   GithubIcon,
+  isAvailableNow,
   LinkedinIcon,
   LockedContactLink,
   ROLE_CONFIG,
   ScoreBadge,
   UnlockedContactLink,
-  deriveType,
-  ensureHttpUrl,
-  isAvailableNow,
 } from "./_shared";
 
 // Dynamic-imported on first paywall trigger — matches browse-talent's pattern
@@ -122,7 +122,12 @@ function LoadingSteps({ activeStep }: { activeStep: number }) {
 }
 
 function SkeletonBar({ className }: { className: string }) {
-  return <div aria-hidden="true" className={`motion-safe:animate-pulse rounded bg-black/[0.06] ${className}`} />;
+  return (
+    <div
+      aria-hidden="true"
+      className={`motion-safe:animate-pulse rounded bg-black/[0.06] ${className}`}
+    />
+  );
 }
 
 function SkeletonCard() {
@@ -294,7 +299,9 @@ function TalentCard({
         )}
 
         {bio && (
-          <p className="mb-3 line-clamp-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">{bio}</p>
+          <p className="mb-3 line-clamp-3 font-sans text-[0.82rem] leading-[1.65] text-[#777]">
+            {bio}
+          </p>
         )}
 
         {p.skills && p.skills.length > 0 && (
@@ -315,9 +322,7 @@ function TalentCard({
             <span className="rounded-full bg-remotiv-green/[0.12] px-2 py-[3px] text-[0.65rem] font-bold uppercase tracking-[0.08em] text-[#1d8c6b]">
               ✓ Unlocked
             </span>
-            {unlockNote && (
-              <span className="text-[0.7rem] text-[#1d8c6b]">{unlockNote}</span>
-            )}
+            {unlockNote && <span className="text-[0.7rem] text-[#1d8c6b]">{unlockNote}</span>}
             {effectiveContact.github && (
               <UnlockedContactLink
                 href={ensureHttpUrl(effectiveContact.github) ?? "#"}
@@ -346,13 +351,9 @@ function TalentCard({
                 Resume ✦
               </a>
             )}
-            {!effectiveContact.github &&
-              !effectiveContact.linkedin &&
-              !effectiveContact.cvUrl && (
-                <span className="text-[0.72rem] text-[#888]">
-                  No public contact links shared
-                </span>
-              )}
+            {!effectiveContact.github && !effectiveContact.linkedin && !effectiveContact.cvUrl && (
+              <span className="text-[0.72rem] text-[#888]">No public contact links shared</span>
+            )}
           </div>
         ) : (
           <div className="mt-3 flex flex-wrap gap-1.5">
@@ -442,9 +443,7 @@ function RateLimitState({
         <h3 className="mb-3 font-heading text-[1.3rem] font-bold text-[#111]">
           You&apos;re sending requests too quickly
         </h3>
-        <p className="mb-7 font-sans text-[#777]">
-          Please wait a minute and try again.
-        </p>
+        <p className="mb-7 font-sans text-[#777]">Please wait a minute and try again.</p>
         <div className="flex flex-wrap items-center justify-center gap-3">
           <Link
             href="/ai-matching"
@@ -514,12 +513,27 @@ function ErrorState() {
       <p className="mb-7 font-sans text-[#777]">
         We couldn&apos;t complete your search. Please try again in a moment.
       </p>
-      <Link
-        href="/ai-matching"
+      {/*
+        Re-runs the SAME query, which is already in the URL. The primary action
+        used to be "New Search", pointing at the form — and after a failure on
+        our side, sending someone to re-enter their criteria implies the
+        criteria were the problem. They were not. Starting over is still offered
+        below, demoted to what it is: a different thing to do, not the fix.
+      */}
+      <button
+        type="button"
+        onClick={() => window.location.reload()}
         className="inline-flex items-center gap-2 rounded-[14px] bg-remotiv-purple px-7 py-3 font-heading text-[0.9rem] font-semibold text-white transition-colors hover:bg-[#6a38e0]"
       >
-        <ArrowLeft className="size-4" /> New Search
-      </Link>
+        <RotateCw className="size-4" /> Try again
+      </button>
+      <p className="mt-5 font-sans text-[0.85rem] text-[#999]">
+        Or{" "}
+        <Link href="/ai-matching" className="font-medium text-remotiv-purple hover:underline">
+          start a new search
+        </Link>
+        .
+      </p>
     </div>
   );
 }
@@ -635,10 +649,7 @@ function ResultsContent() {
     })
       .then(async (res) => {
         if (lastFetchedQuery.current !== query) return;
-        const body = (await res.json().catch(() => null)) as
-          | ApiSuccess
-          | ApiRateLimit
-          | null;
+        const body = (await res.json().catch(() => null)) as ApiSuccess | ApiRateLimit | null;
         if (lastFetchedQuery.current !== query) return;
         if (res.status === 429 && body && "error" in body && body.error === "rate_limit") {
           // F10: presence of `limit` on the body discriminates daily-quota
@@ -669,19 +680,13 @@ function ResultsContent() {
         // Phase 5B: reflect real saved state from the DB. The API returns
         // `saved: boolean` per result based on saved_profiles for the current
         // user. Anonymous users always get saved: false (no DB lookup).
-        setShortlist(
-          new Set(
-            success.results.filter((r) => r.saved).map((r) => r.candidate_id),
-          ),
-        );
+        setShortlist(new Set(success.results.filter((r) => r.saved).map((r) => r.candidate_id)));
         // Phase 5C: reflect real unlock state. Same idea — server determines
         // unlocked-on-load; client tracks just-now-unlocked separately in the
         // Map. Reset the Map on every new search so stale entries from another
         // query don't bleed across queries.
         setUnlockedSet(
-          new Set(
-            success.results.filter((r) => r.unlocked).map((r) => r.candidate_id),
-          ),
+          new Set(success.results.filter((r) => r.unlocked).map((r) => r.candidate_id)),
         );
         setUnlockedContactData(new Map());
         setErrorState(success.results.length === 0 ? "empty" : "none");
@@ -823,9 +828,7 @@ function ResultsContent() {
     [tier, unlockedSet, unlockingIds],
   );
 
-  const visible = showOnlySaved
-    ? results.filter((r) => shortlist.has(r.candidate_id))
-    : results;
+  const visible = showOnlySaved ? results.filter((r) => shortlist.has(r.candidate_id)) : results;
 
   if (loading) {
     return <LoadingPanel query={query} />;
@@ -907,8 +910,7 @@ function ResultsContent() {
             const effectiveContact = cardUnlocked
               ? {
                   github: m.profile.github_url ?? null,
-                  linkedin:
-                    local?.linkedinUrl ?? m.profile.linkedin_url ?? null,
+                  linkedin: local?.linkedinUrl ?? m.profile.linkedin_url ?? null,
                   cvUrl: local?.cvUrl ?? m.profile.cv_url ?? null,
                 }
               : null;
@@ -921,9 +923,7 @@ function ResultsContent() {
                 isUnlocked={cardUnlocked}
                 isUnlocking={unlockingIds.has(m.candidate_id)}
                 effectiveContact={effectiveContact}
-                unlockNote={
-                  lastUnlockNote?.id === m.candidate_id ? lastUnlockNote.text : null
-                }
+                unlockNote={lastUnlockNote?.id === m.candidate_id ? lastUnlockNote.text : null}
                 onToggleSave={handleToggleSave}
                 onUnlock={handleUnlock}
                 onOpenProfile={setOpenProfileId}
@@ -988,11 +988,7 @@ function ResultsContent() {
             isSaving={savingIds.has(openMatch.candidate_id)}
             saved={shortlist.has(openMatch.candidate_id)}
             effectiveContact={effectiveContact}
-            unlockNote={
-              lastUnlockNote?.id === openMatch.candidate_id
-                ? lastUnlockNote.text
-                : null
-            }
+            unlockNote={lastUnlockNote?.id === openMatch.candidate_id ? lastUnlockNote.text : null}
             onClose={() => setOpenProfileId(null)}
             onToggleSave={handleToggleSave}
             onUnlock={handleUnlock}

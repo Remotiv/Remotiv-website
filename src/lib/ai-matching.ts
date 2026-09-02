@@ -9,6 +9,7 @@
  *   - ai_match_cache                 (9h ranked-result cache by normalized query)
  */
 
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAnthropic, AI_MATCHING_MODEL } from "@/lib/anthropic";
 
@@ -309,8 +310,9 @@ function candidateSummaryForPrompt(c: CandidateRow): string {
 export async function rankWithClaude(
   query: string,
   candidates: CandidateRow[],
-): Promise<MatchResult[]> {
-  if (candidates.length === 0) return [];
+): Promise<Read<MatchResult[]>> {
+  // An answer: nothing to rank means no matches, and Claude was never asked.
+  if (candidates.length === 0) return answered([]);
 
   const candidateBlocks = candidates
     .map((c, i) => `Candidate #${i + 1}\n${candidateSummaryForPrompt(c)}`)
@@ -340,21 +342,30 @@ export async function rankWithClaude(
 
     const parsed = parseMatchJson(text);
     if (!parsed) {
-      // Source fix for C1: return [] on Claude parse-fail rather than fabricated
-      // zero-scored cards. The route surfaces an EmptyState rather than a wall
-      // of "0% AI MATCH" cards that look broken. Logged for diagnostics.
-      console.error("[ai-matching] Claude returned non-JSON. Returning empty.", text.slice(0, 200));
-      return [];
+      /*
+       * `unavailable`, not [].
+       *
+       * Returning [] was right against the alternative it replaced — a wall of
+       * fabricated "0% AI MATCH" cards. But it made a ranking failure
+       * indistinguishable from a genuine no-match, so /ai-results told a
+       * visitor "No matches found — try broadening your search": a claim about
+       * their criteria, over a search that never ran.
+       *
+       * It also got CACHED. See the caller — setCached() wrote the empty array
+       * under the query key, so every later visitor searching the same thing
+       * was served the same wrong answer with no Claude call to correct it.
+       */
+      console.error("[ai-matching] Claude returned non-JSON.", text.slice(0, 200));
+      return unavailable();
     }
 
     // Filter to ids that actually exist in our candidate set (guard against
     // hallucinated uuids), preserve Claude's order, cap at TOP_N.
     const validIds = new Set(candidates.map((c) => c.id));
-    return parsed.filter((m) => validIds.has(m.candidate_id)).slice(0, TOP_N);
+    return answered(parsed.filter((m) => validIds.has(m.candidate_id)).slice(0, TOP_N));
   } catch (e) {
     // Same C1 source fix on auth/network/SDK throws. Caller sees [] →
-    // EmptyState. The error log gives ops a signal something's wrong.
-    console.error("[ai-matching] Claude call threw. Returning empty.", e);
-    return [];
+    console.error("[ai-matching] Claude call threw.", e);
+    return unavailable();
   }
 }

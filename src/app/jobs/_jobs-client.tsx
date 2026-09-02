@@ -61,10 +61,20 @@ function timeAgo(iso: string): string {
 export function JobsClient({
   initialJobs,
   company = null,
+  loadFailed = false,
 }: {
   initialJobs: Job[];
   /** Set when /jobs?company=<slug> resolved. Null = the full public list. */
   company?: { id: string; name: string; slug: string } | null;
+  /**
+   * The server's read failed — the roles, or the company the URL asked for.
+   *
+   * Replaces an inference this component used to make: "no filters AND no jobs
+   * → almost certainly a fetch error". A good instinct, and wrong in the
+   * inverse case, where a board with genuinely nothing live told the visitor
+   * the site was broken.
+   */
+  loadFailed?: boolean;
 }) {
   const [jobs, setJobs] = useState<Job[]>(initialJobs);
   const companyId = company?.id ?? null;
@@ -586,13 +596,14 @@ export function JobsClient({
                     </Link>
                   </p>
                 </div>
-              ) : (
-                // No filters AND no jobs → this is almost certainly a server
-                // fetch error during initial render (lib/jobs.ts swallows
-                // Supabase errors and returns []). Give the user a Retry that
-                // bypasses isFirstRender by directly invoking fetchJobs.
+              ) : loadFailed ? (
+                // Known, not inferred. Retry rather than "reload the page": it
+                // refetches in place, which is the cheaper action.
                 <div className="flex h-48 flex-col items-center justify-center gap-3 text-[0.9rem] text-[#666]">
-                  <p>Couldn&apos;t load positions.</p>
+                  <p className="font-semibold text-[#111]">We couldn&apos;t load these roles</p>
+                  <p className="text-[0.85rem]">
+                    They&apos;re still there — this is a problem on our side.
+                  </p>
                   <button
                     type="button"
                     onClick={() =>
@@ -604,6 +615,25 @@ export function JobsClient({
                   </button>
                   <p className="text-[0.85rem]">
                     Or{" "}
+                    <Link
+                      href="/join-as-talent"
+                      className="font-medium text-remotiv-purple hover:underline"
+                    >
+                      join our talent network
+                    </Link>{" "}
+                    to get matched.
+                  </p>
+                </div>
+              ) : (
+                /*
+                 * Genuinely nothing live. Unreachable before this change — the
+                 * inference above claimed every empty board as a fetch error,
+                 * so a site with no open roles told visitors it was broken.
+                 */
+                <div className="flex h-48 flex-col items-center justify-center gap-2 text-[0.9rem] text-[#666]">
+                  <p className="font-semibold text-[#111]">No roles are live right now</p>
+                  <p className="text-[0.85rem]">
+                    New roles are published here first — it&apos;s worth checking back. Or{" "}
                     <Link
                       href="/join-as-talent"
                       className="font-medium text-remotiv-purple hover:underline"

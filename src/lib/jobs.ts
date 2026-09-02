@@ -226,7 +226,16 @@ export function publiclyVisible<T>(query: T): T {
   return filterable.eq("status", "open").is("archived_at", null) as T;
 }
 
-export async function getInitialJobs(): Promise<Job[]> {
+/**
+ * The public board's first page of roles, or the fact that we could not look.
+ *
+ * The client already inferred this: "no filters AND no jobs" was treated as
+ * "almost certainly a server fetch error" and given a Retry. Good instinct,
+ * wrong in the inverse case — a board with genuinely nothing live told the
+ * visitor the site was broken. A Read makes the two knowable rather than
+ * guessed, and fixes the error in the direction nobody catalogued.
+ */
+export async function getInitialJobs(): Promise<Read<Job[]>> {
   const supabase = createServiceClient();
 
   const { data, error } = await publiclyVisible(
@@ -237,12 +246,11 @@ export async function getInitialJobs(): Promise<Job[]> {
     .limit(100);
 
   if (error) {
-    // Don't crash the page render on a transient Supabase error — fall back
-    // to an empty initial list and let the client refetch on mount take over.
-    return [];
+    console.error("[jobs] getInitialJobs failed:", error.message);
+    return unavailable();
   }
 
-  return attachCompanyLogos((data ?? []) as unknown as Job[]);
+  return answered(await attachCompanyLogos((data ?? []) as unknown as Job[]));
 }
 
 /**
