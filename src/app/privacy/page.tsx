@@ -118,7 +118,6 @@ export default function PrivacyPage() {
             Gulberg II, Lahore, Pakistan. For anything in this policy, write to <Mail />.
           </P>
 
-          {/* ── 1 ─────────────────────────────────────────────── */}
           <H2>1. What we collect, and where it comes from</H2>
 
           <H3>When you apply for a job</H3>
@@ -172,7 +171,6 @@ export default function PrivacyPage() {
             themselves.
           </P>
 
-          {/* ── 2 ─────────────────────────────────────────────── */}
           <H2>2. Where it is stored, and who can reach it</H2>
           <P>
             All of it is stored with Supabase, our database and file-storage provider, on
@@ -199,7 +197,6 @@ export default function PrivacyPage() {
             the service. Access of that kind to a CV or a recording is recorded.
           </P>
 
-          {/* ── 3 ─────────────────────────────────────────────── */}
           <H2>3. How long we keep it</H2>
           <P>
             Two automatic deletion jobs run every day and enforce the periods below. They are not a
@@ -243,7 +240,6 @@ export default function PrivacyPage() {
             do not currently apply an automatic expiry to them.
           </P>
 
-          {/* ── 4 ─────────────────────────────────────────────── */}
           <H2>4. Why we are allowed to process it</H2>
           <P>
             Data-protection law asks us to have a specific reason for each thing we do with your
@@ -295,7 +291,6 @@ export default function PrivacyPage() {
             </li>
           </UL>
 
-          {/* ── 13 ─────────────────────────────────────────────── */}
           <H2>5. Where in the world your data goes</H2>
           <P>
             Your data does not stay in your country. We are based in Pakistan; our systems and
@@ -324,7 +319,6 @@ export default function PrivacyPage() {
             more about a particular one, email <Mail />.
           </P>
 
-          {/* ── 12 ─────────────────────────────────────────────── */}
           <H2>6. Who else receives it</H2>
           <P>
             We do not sell personal data and we do not share it for advertising. We use the
@@ -365,14 +359,16 @@ export default function PrivacyPage() {
             <strong className="font-semibold text-[#111]">
               About the audio we send to OpenAI, plainly:
             </strong>{" "}
-            we send it under OpenAI&apos;s standard API terms. That means it is{" "}
-            <strong className="font-semibold text-[#111]">not used to train their models</strong>,
-            and OpenAI retains it only briefly for their own abuse monitoring before deleting it.
-            Our own six-month deletion covers our copy of your recording and transcript; it does not
-            reach theirs. Their handling is governed by their policy, not this one.
+            we send it under OpenAI&apos;s standard API terms. OpenAI{" "}
+            <strong className="font-semibold text-[#111]">
+              does not use API data to train its models by default
+            </strong>
+            , and under standard API retention data may be held for up to 30 days for abuse
+            monitoring, unless different retention controls apply to our account. Our own six-month
+            deletion covers our copy of your recording and transcript; it does not reach theirs.
+            Their handling is governed by their policy, not this one.
           </Callout>
 
-          {/* ── 5 ─────────────────────────────────────────────── */}
           <H2>7. How AI is used, exactly</H2>
           <P>
             We use AI to read and score applications. Specifically: the text of your CV is scored
@@ -396,7 +392,6 @@ export default function PrivacyPage() {
             whether you are flagged. It does not decide the outcome.
           </P>
 
-          {/* ── 6 ─────────────────────────────────────────────── */}
           <H2>8. Your choices, and what actually happens</H2>
 
           <H3>Unsubscribing from emails</H3>
@@ -424,7 +419,6 @@ export default function PrivacyPage() {
             address above is how you exercise any of them with us.
           </P>
 
-          {/* ── 7 ─────────────────────────────────────────────── */}
           <H2>9. When a company is hiring through us</H2>
           <P>
             If you applied through a careers page carrying a company&apos;s branding, both that
@@ -435,15 +429,14 @@ export default function PrivacyPage() {
             you want to reach us, use <Mail />.
           </P>
 
-          {/* ── 8 ─────────────────────────────────────────────── */}
           <H2>10. Security</H2>
           <P>
             Data is encrypted in transit. CVs and interview recordings are held in private storage
             and reachable only through short-lived, individually generated links. Access by a
-            company or by Remotiv staff is recorded. only its own candidates.
+            company or by Remotiv staff is recorded. Using the hiring product requires an account,
+            and each company can see only its own candidates.
           </P>
 
-          {/* ── 9 ─────────────────────────────────────────────── */}
           <H2>11. Children</H2>
           <P>
             Remotiv is a service for working professionals and is not intended for anyone under 16.
@@ -451,7 +444,6 @@ export default function PrivacyPage() {
             and we will delete it.
           </P>
 
-          {/* ── 10 ────────────────────────────────────────────── */}
           <H2>12. Changes to this policy</H2>
           <P>
             If we change what we collect, how long we keep it, or who receives it, we will update
