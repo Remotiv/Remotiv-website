@@ -34,8 +34,7 @@ import {
   Trash2,
   AlertTriangle,
   ChevronRight,
-  type LucideIcon,
-} from "lucide-react";
+  type LucideIcon, RotateCw, } from "lucide-react";
 import { TopNav } from "./top-nav";
 import dynamic from "next/dynamic";
 import type { AddToBatchSnapshot } from "./add-to-batch-modal";
@@ -58,6 +57,7 @@ import {
   type TalentProfile,
   type TalentStatus,
 } from "@/app/admin/talent/actions";
+import { type Read, unavailable } from "@/lib/supabase/read";
 import { type UserRole } from "@/app/admin/lib/roles";
 import { friendlyError } from "@/app/admin/lib/errors";
 import { getAvatarUrl } from "@/lib/avatars";
@@ -68,6 +68,17 @@ import {
   type InviteMetrics,
   type InviteStatus,
 } from "@/lib/claim-status";
+
+/**
+ * How a badge renders when the status could not be READ.
+ *
+ * Kept local rather than added to INVITE_STATUS_COLOR/LABEL in lib: those are
+ * Record<InviteStatus, …> shared with the remote-talent dashboard, and
+ * "unknown" is not an invite status — it is the absence of one. Same muted
+ * palette as not_invited on purpose, with a label that says what it is.
+ */
+const UNKNOWN_INVITE_COLOR = { bg: "#f5f5f5", text: "#999", border: "#e5e5e5" };
+const UNKNOWN_INVITE_LABEL = "Status unavailable";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -303,15 +314,15 @@ function ProfileCard({
   canApprove: boolean;
   isSelected: boolean;
   onToggleSelect: (id: string) => void;
-  inviteStatus: InviteStatus;
+  inviteStatus: InviteStatus | null;
   sentCount: number;
   lastSentAt: string | null;
   onSendInvite: (id: string) => void;
   onView: () => void;
   onApprove: () => void;
 }) {
-  const inviteColor = INVITE_STATUS_COLOR[inviteStatus];
-  const inviteLabel = INVITE_STATUS_LABEL[inviteStatus];
+  const inviteColor = inviteStatus ? INVITE_STATUS_COLOR[inviteStatus] : UNKNOWN_INVITE_COLOR;
+  const inviteLabel = inviteStatus ? INVITE_STATUS_LABEL[inviteStatus] : UNKNOWN_INVITE_LABEL;
   const showSendButton =
     inviteStatus === "not_invited" || inviteStatus === "expired";
   const showResendButton =
@@ -521,7 +532,7 @@ function ProfileDrawer({
 }: {
   profile: TalentProfile;
   isSuperAdmin: boolean;
-  inviteStatus: InviteStatus;
+  inviteStatus: InviteStatus | null;
   sentCount: number;
   lastSentAt: string | null;
   onSendInvite: (id: string) => void;
@@ -854,16 +865,16 @@ function ProfileDrawer({
             <div className="mb-2 flex items-center gap-2">
               <span
                 style={{
-                  background: INVITE_STATUS_COLOR[inviteStatus].bg,
-                  color: INVITE_STATUS_COLOR[inviteStatus].text,
-                  border: `1px solid ${INVITE_STATUS_COLOR[inviteStatus].border}`,
+                  background: (inviteStatus ? INVITE_STATUS_COLOR[inviteStatus] : UNKNOWN_INVITE_COLOR).bg,
+                  color: (inviteStatus ? INVITE_STATUS_COLOR[inviteStatus] : UNKNOWN_INVITE_COLOR).text,
+                  border: `1px solid ${(inviteStatus ? INVITE_STATUS_COLOR[inviteStatus] : UNKNOWN_INVITE_COLOR).border}`,
                   borderRadius: "99px",
                   fontSize: "10px",
                   fontWeight: 700,
                   padding: "2px 8px",
                 }}
               >
-                {INVITE_STATUS_LABEL[inviteStatus]}
+                {inviteStatus ? INVITE_STATUS_LABEL[inviteStatus] : UNKNOWN_INVITE_LABEL}
               </span>
               {profile.claimed_at && (
                 <span className="text-[10px] text-gray-400">
@@ -1002,20 +1013,107 @@ function DrawerKv({ label, value }: { label: string; value: string | null }) {
 
 // ── Sidebar pill helper ──────────────────────────────────────
 
+const STATUS_UNKNOWN_TITLE =
+  "Invite statuses couldn’t be loaded, so this filter can’t run — use Retry above the list";
+
+/**
+ * The invite-status read failed. Two shapes, same voice.
+ *
+ * NOT the shared <LoadFailed>: that replaces a list that failed to load, and
+ * this list loaded fine. What failed is a decoration on it — and, when one of
+ * the two status-defined claim filters is selected, the filter itself, which
+ * cannot run without it. So:
+ *
+ *   blocking = false → a bar above the list. Badges show "Status unavailable",
+ *                      the two filters are disabled, everything else works.
+ *   blocking = true  → replaces the list, because the list that WOULD render
+ *                      is built on a false map and is exactly the list of
+ *                      people the operator is about to re-invite.
+ *
+ * Retry re-runs the actual client fetch, not router.refresh(): the statuses
+ * are loaded client-side, and refreshing the server tree is the wrong lever.
+ */
+function InviteStatusesUnavailable({
+  blocking,
+  onRetry,
+  onShowAll,
+}: {
+  blocking: boolean;
+  onRetry: () => void;
+  onShowAll: () => void;
+}) {
+  if (!blocking) {
+    return (
+      <div
+        role="status"
+        className="mb-4 flex flex-wrap items-center justify-between gap-3 rounded-xl border border-amber-200 bg-amber-50 px-4 py-3 text-xs text-amber-900"
+      >
+        <span>
+          Invite statuses couldn&apos;t be loaded — badges read &ldquo;Status unavailable&rdquo;
+          and the two invite filters are off until they do.
+        </span>
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-full bg-amber-900 px-3 py-1.5 font-semibold text-white hover:opacity-85"
+        >
+          <RotateCw className="size-3" /> Retry
+        </button>
+      </div>
+    );
+  }
+  return (
+    <div
+      role="alert"
+      className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-14 text-center"
+    >
+      <p className="text-sm font-medium text-gray-700">Can&apos;t filter by invite status right now</p>
+      <p className="mt-1 max-w-md text-xs text-gray-400">
+        We couldn&apos;t load who&apos;s been invited, so this filter would show the wrong people. The
+        profiles are all still here.
+      </p>
+      <div className="mt-4 flex items-center gap-2">
+        <button
+          type="button"
+          onClick={onRetry}
+          className="inline-flex items-center gap-1.5 rounded-full bg-gray-900 px-4 py-2 text-xs font-semibold text-white hover:opacity-80"
+        >
+          <RotateCw className="size-3.5" /> Retry
+        </button>
+        <button
+          type="button"
+          onClick={onShowAll}
+          className="rounded-full border border-gray-200 bg-white px-4 py-2 text-xs font-semibold text-gray-700 hover:bg-gray-50"
+        >
+          Show all
+        </button>
+      </div>
+    </div>
+  );
+}
+
 function FilterPill({
   active,
   label,
   onClick,
+  disabled = false,
+  title,
 }: {
   active: boolean;
   label: string;
   onClick: () => void;
+  /** Cannot be selected right now; `title` says why. */
+  disabled?: boolean;
+  title?: string;
 }) {
   return (
     <button
       type="button"
       onClick={onClick}
-      className={`w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors ${
+      disabled={disabled}
+      title={title}
+      aria-disabled={disabled}
+      className={`w-full rounded-lg px-3 py-1.5 text-left text-xs font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
         active
           ? "bg-remotiv-purple text-white"
           : "border border-gray-100 bg-white text-gray-500 hover:border-remotiv-purple/30 hover:text-gray-700"
@@ -1157,7 +1255,7 @@ function FilterSheetGroup({
   onChange,
 }: {
   label: string;
-  options: ReadonlyArray<{ value: string; label: string }>;
+  options: ReadonlyArray<{ value: string; label: string; disabled?: boolean; title?: string }>;
   value: string;
   onChange: (next: string) => void;
 }) {
@@ -1172,7 +1270,10 @@ function FilterSheetGroup({
               key={opt.value}
               type="button"
               onClick={() => onChange(opt.value)}
-              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors ${
+              disabled={opt.disabled}
+              title={opt.title}
+              aria-disabled={opt.disabled}
+              className={`min-h-10 rounded-xl px-4 py-2 text-sm font-medium transition-colors disabled:cursor-not-allowed disabled:opacity-45 ${
                 active
                   ? "bg-remotiv-purple text-white"
                   : "border border-gray-200 bg-gray-50 text-gray-700 hover:bg-gray-100"
@@ -1228,7 +1329,23 @@ export function TalentDashboard({
   // sentCount, lastSentAt }. Existing badge + filter logic reads only .status
   // via inviteStatusFor; sentCount + lastSentAt are plumbed here for Phase 2
   // (rendering "Sent N× · last <date>") and don't yet have a consumer.
-  const [inviteStatuses, setInviteStatuses] = useState<Record<string, InviteMetrics>>({});
+  /*
+   * A Read, not a bare map. The map used to be empty both before the fetch
+   * resolved and after it FAILED, and every consumer read "empty" as "nobody
+   * has been invited". The claim filter turned that into a list of people to
+   * re-invite. Starts as an empty answer so nothing flickers during the load;
+   * flips to unknown only on a real failure.
+   */
+  const [inviteStatuses, setInviteStatuses] = useState<Read<Record<string, InviteMetrics>>>({
+    ok: true,
+    value: {},
+  });
+  const statusesUnknown = !inviteStatuses.ok;
+  // The two claim filters DEFINED in terms of invite status. With the status
+  // unknown, neither can be run honestly — see the render, where the list is
+  // replaced rather than filtered on a false map.
+  const claimFilterBlocked =
+    statusesUnknown && (filterClaim === "unclaimed" || filterClaim === "invited_not_accepted");
   const [selectedIds, setSelectedIds] = useState<Set<string>>(new Set());
   const [bulkSending, setBulkSending] = useState(false);
 
@@ -1295,6 +1412,8 @@ export function TalentDashboard({
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
       if (filterClaim !== "All") {
         const inv = inviteStatusFor(p);
+        // null = unknown. It matches neither status-defined option, so a
+        // blocked filter yields an empty list — and the render says why.
         // Claimed signal mirrors the public /browse-talent page (user_id), with
         // claimed_at OR'd in for robustness against legacy/either-field rows.
         const isClaimed = p.user_id != null || p.claimed_at != null;
@@ -1410,15 +1529,18 @@ export function TalentDashboard({
   }
 
   // ── Phase 2: claim invites ─────────────────────────────────
-  useEffect(() => {
+  const loadStatuses = useCallback(() => {
     if (profiles.length === 0) return;
-    const ids = profiles.map((p) => p.id);
-    fetchTalentInviteStatuses(ids)
+    fetchTalentInviteStatuses(profiles.map((p) => p.id))
       .then(setInviteStatuses)
-      .catch(() => {
-        // Silent fail — UI defaults to "not_invited" when the map is empty.
-      });
+      // A thrown action is a transport failure — also unknown, never "not
+      // invited". This used to swallow it and let every badge read as such.
+      .catch(() => setInviteStatuses(unavailable()));
   }, [profiles]);
+
+  useEffect(() => {
+    loadStatuses();
+  }, [loadStatuses]);
 
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
@@ -1510,9 +1632,18 @@ export function TalentDashboard({
     }
   }
 
-  function inviteStatusFor(profile: TalentProfile): InviteStatus {
+  /**
+   * The profile's invite status, or null when we could not read it.
+   *
+   * "claimed" is knowable from the profile row alone, so it survives an
+   * unknown map. Everything else needs the map, and with the map unknown the
+   * honest answer is null — never "not_invited", which is the false negative
+   * that told an operator to re-invite people who were already invited.
+   */
+  function inviteStatusFor(profile: TalentProfile): InviteStatus | null {
     if (profile.user_id != null || profile.claimed_at != null) return "claimed";
-    return inviteStatuses[profile.id]?.status ?? "not_invited";
+    if (!inviteStatuses.ok) return null;
+    return inviteStatuses.value[profile.id]?.status ?? "not_invited";
   }
 
   // Read sentCount + lastSentAt from the metrics map for a given profile.
@@ -1521,7 +1652,7 @@ export function TalentDashboard({
   function inviteMetricsFor(
     profile: TalentProfile,
   ): { sentCount: number; lastSentAt: string | null } {
-    const m = inviteStatuses[profile.id];
+    const m = inviteStatuses.ok ? inviteStatuses.value[profile.id] : undefined;
     return { sentCount: m?.sentCount ?? 0, lastSentAt: m?.lastSentAt ?? null };
   }
 
@@ -1617,8 +1748,8 @@ export function TalentDashboard({
                   [
                     { value: "All", label: "All" },
                     { value: "claimed", label: "Claimed" },
-                    { value: "unclaimed", label: "Unclaimed" },
-                    { value: "invited_not_accepted", label: "Invited – not accepted" },
+                    { value: "unclaimed", label: "Unclaimed", needsStatus: true },
+                    { value: "invited_not_accepted", label: "Invited – not accepted", needsStatus: true },
                   ] as const
                 ).map((opt) => (
                   <FilterPill
@@ -1626,6 +1757,11 @@ export function TalentDashboard({
                     label={opt.label}
                     active={filterClaim === opt.value}
                     onClick={() => setFilterClaim(opt.value)}
+                    // The two options DEFINED by invite status are off while it
+                    // is unknown — disabled with a reason, not hidden, so the
+                    // filter set looks the same on every load.
+                    disabled={"needsStatus" in opt && statusesUnknown}
+                    title={"needsStatus" in opt && statusesUnknown ? STATUS_UNKNOWN_TITLE : undefined}
                   />
                 ))}
               </FilterGroup>
@@ -1673,7 +1809,17 @@ export function TalentDashboard({
               </button>
             </div>
 
-            {filtered.length === 0 ? (
+            {statusesUnknown && !claimFilterBlocked && (
+
+              <InviteStatusesUnavailable blocking={false} onRetry={loadStatuses} onShowAll={() => setFilterClaim("All")} />
+
+            )}
+
+            {claimFilterBlocked ? (
+
+              <InviteStatusesUnavailable blocking onRetry={loadStatuses} onShowAll={() => setFilterClaim("All")} />
+
+            ) : filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-20 text-center">
                 <Briefcase className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
                 <p className="font-heading text-sm font-semibold text-gray-700">No talent matches your filters</p>
@@ -1792,8 +1938,18 @@ export function TalentDashboard({
             options={[
               { value: "All", label: "All" },
               { value: "claimed", label: "Claimed" },
-              { value: "unclaimed", label: "Unclaimed" },
-              { value: "invited_not_accepted", label: "Invited – not accepted" },
+              {
+                value: "unclaimed",
+                label: "Unclaimed",
+                disabled: statusesUnknown,
+                title: statusesUnknown ? STATUS_UNKNOWN_TITLE : undefined,
+              },
+              {
+                value: "invited_not_accepted",
+                label: "Invited – not accepted",
+                disabled: statusesUnknown,
+                title: statusesUnknown ? STATUS_UNKNOWN_TITLE : undefined,
+              },
             ]}
           />
           <FilterSheetGroup

@@ -2,6 +2,8 @@
 
 import { revalidatePath } from "next/cache";
 import { cookies } from "next/headers";
+import { pageAll } from "@/lib/supabase/paging";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimToNull } from "@/lib/validators";
@@ -335,58 +337,71 @@ export async function saveTalentNote(
 // without a second round trip.
 // ============================================================================
 
+/**
+ * Invite status for every talent profile, or the fact that we could not look.
+ *
+ * ── Whole set, or nothing ────────────────────────────────────
+ *
+ * This used to `return result` on a failed page — the pages it had already
+ * read. A failure on page 2 handed back page 1's statuses, so some invited
+ * profiles looked invited and the rest looked NOT invited, differently each
+ * run. And this map feeds a filter: "Unclaimed" is defined as not-claimed AND
+ * not-invited, so every invited-but-unaccepted profile whose status was
+ * missing dropped straight into "Unclaimed" — and the next thing an operator
+ * does with an Unclaimed list is invite everyone on it. Again.
+ *
+ * So a failed read is `unavailable`, never partial, and the dashboard knows
+ * the difference between "nobody has been invited" and "we could not check".
+ *
+ * Fetches ALL tokens and reduces in memory rather than passing the profile
+ * ids to a single .in() — a large .in() overflows the request URL and fails
+ * silently. Paged through the shared pager, which throws rather than
+ * truncating; the throw is caught HERE and turned into the unknown state,
+ * because this runs under a list that must keep rendering.
+ */
 export async function fetchTalentInviteStatuses(
   profileIds: string[],
-): Promise<Record<string, InviteMetrics>> {
+): Promise<Read<Record<string, InviteMetrics>>> {
   await requireAdmin();
-  if (profileIds.length === 0) return {};
+  // An answer: nothing to look up.
+  if (profileIds.length === 0) return answered({});
 
   const supabase = createServiceClient();
 
-  // Fetch ALL talent_profiles invite tokens and build the map in memory rather
-  // than passing the (up to ~1000-id) profile list to a single .in() — a large
-  // .in() overflows the request URL and silently fails, blanking every invite
-  // status. Range-page in 1000-row batches (PostgREST caps unbounded selects
-  // at 1000), ordered created_at desc so the first row per candidate is latest.
-  const PAGE = 1000;
-  let from = 0;
-  const result: Record<string, InviteMetrics> = {};
-  for (;;) {
-    const { data, error } = await supabase
-      .from("talent_claim_tokens")
-      .select("candidate_id, status, created_at")
-      .eq("source_table", "talent_profiles")
-      .order("created_at", { ascending: false })
-      .range(from, from + PAGE - 1);
-
-    if (error) {
-      console.error("[talent_claim_tokens] read failed:", error);
-      return result;
-    }
-
-    const batch = (data ?? []) as Array<{
-      candidate_id: string;
-      status: string;
-      created_at: string | null;
-    }>;
-    for (const row of batch) {
-      const existing = result[row.candidate_id];
-      if (!existing) {
-        // First row per candidate wins for status + lastSentAt because the
-        // query is ordered created_at desc (and pages walk newest-first).
-        result[row.candidate_id] = {
-          status: row.status as InviteStatus,
-          sentCount: 1,
-          lastSentAt: row.created_at,
-        };
-      } else {
-        existing.sentCount += 1;
-      }
-    }
-    if (batch.length < PAGE) break;
-    from += PAGE;
+  type TokenRow = { candidate_id: string; status: string; created_at: string | null };
+  let rows: TokenRow[];
+  try {
+    rows = await pageAll<TokenRow>(
+      (from, to) =>
+        supabase
+          .from("talent_claim_tokens")
+          .select("candidate_id, status, created_at")
+          .eq("source_table", "talent_profiles")
+          // Newest first, so the first row seen per candidate is the latest.
+          .order("created_at", { ascending: false })
+          .range(from, to),
+      { scope: "talent-invites", label: "claim tokens" },
+    );
+  } catch (err) {
+    console.error("[talent_claim_tokens] read failed:", err);
+    return unavailable();
   }
-  return result;
+
+  const result: Record<string, InviteMetrics> = {};
+  for (const row of rows) {
+    const existing = result[row.candidate_id];
+    if (!existing) {
+      // First row per candidate wins for status + lastSentAt (newest-first).
+      result[row.candidate_id] = {
+        status: row.status as InviteStatus,
+        sentCount: 1,
+        lastSentAt: row.created_at,
+      };
+    } else {
+      existing.sentCount += 1;
+    }
+  }
+  return answered(result);
 }
 
 export async function sendClaimInvites(
