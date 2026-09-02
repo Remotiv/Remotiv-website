@@ -332,6 +332,14 @@ export async function sendInterviewInvite(
         // The deadline the email already quoted, rendered identically so the
         // two channels cannot disagree about the date.
         deadline,
+        /*
+         * Who asked for this, carried so the dispatcher can tell an explicit
+         * re-send from an automatic one — and so the log row lands OUTSIDE the
+         * partial unique index that keeps automatic sends unique. Same value
+         * the email above records. The reminder enqueue deliberately omits it:
+         * nobody asked for that one.
+         */
+        sentByName: ctx.memberName,
       },
       companyId: ctx.companyId,
     });
