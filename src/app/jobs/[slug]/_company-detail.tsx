@@ -328,11 +328,11 @@ export function CompanyJobDetail({
           <span>
             © {new Date().getFullYear()} {company.name}
           </span>
-          {/* Legally load-bearing — no state may hide this line. "Privacy" is
-              text rather than a link because this app has no /privacy route; a
-              404 behind a legal notice is worse than no link. */}
+          {/* Legally load-bearing — no state may hide this line. "Privacy"
+              links to Remotiv's own policy, not a white-labelled one: Remotiv
+              is the processor. It was text while the route did not exist. */}
           <p className="pw">
-            Hiring powered by <Link href="/">Remotiv</Link> · Privacy
+            Hiring powered by <Link href="/">Remotiv</Link> · <Link href="/privacy">Privacy</Link>
           </p>
         </div>
       </footer>

@@ -44,6 +44,7 @@ const footerLinks: ReadonlyArray<{
     links: [
       { label: "About Us", href: "/about" },
       { label: "Contact", href: "/contact" },
+      { label: "Privacy Policy", href: "/privacy" },
     ],
   },
 ];

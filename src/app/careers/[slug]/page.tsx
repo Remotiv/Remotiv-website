@@ -300,12 +300,12 @@ export default async function CareersPage({ params }: PageProps) {
           </span>
           {/* Legally load-bearing — no state may hide this line. */}
           <p className="pw">
-            {/* The line is legally load-bearing and stays whole. "Privacy" is
-                TEXT, not a link, because this app has no /privacy route — a
-                404 behind a legal notice is worse than the design's stub, and
-                inventing the page is not this build's call. Flagged in the
-                report as a gap to close. */}
-            Hiring powered by <Link href="/">Remotiv</Link> · Privacy
+            {/* Legally load-bearing and stays whole. "Privacy" now links to
+                /privacy — Remotiv's policy, deliberately NOT white-labelled,
+                because Remotiv is the processor holding the data whoever the
+                candidate thinks they applied to. It was text while the route
+                did not exist. */}
+            Hiring powered by <Link href="/">Remotiv</Link> · <Link href="/privacy">Privacy</Link>
           </p>
         </div>
       </footer>
