@@ -141,8 +141,9 @@ export default function PrivacyPage() {
           <H3>When you record a video interview</H3>
           <P>
             We record video and audio of your answers, generate a written transcript of each one,
-            and store how long you spoke and when. We also record the moment you accept the consent
-            screen, so there is a record of what you agreed to and when.
+            and store how long you spoke and when. We also record the moment you acknowledge the
+            screen shown before recording starts, so there is a record of what you were told and
+            when.
           </P>
 
           <H3>When you contact us</H3>
@@ -260,9 +261,12 @@ export default function PrivacyPage() {
               decision described in section 7 is part of what makes this fair rather than automated.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Recording video interviews</strong> —
-              your consent, given on the screen before recording starts and recorded with a
-              timestamp. You can decline and simply not record.
+              <strong className="font-semibold text-[#111]">Recording video interviews</strong>
+              {" — "}
+              our legitimate interest in assessing candidates consistently. Before any recording
+              starts, we show you what is recorded, who will see it, how long it is kept, and that a
+              person makes the decision — and we record your acknowledgement of that, with a
+              timestamp.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Emailing you about a role</strong> — our
@@ -348,9 +352,14 @@ export default function PrivacyPage() {
               the participants.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Meta (WhatsApp)</strong> — where
-              WhatsApp messaging is enabled for a role, we send interview invitations through it,
-              which means Meta receives your first name and phone number along with the
+              {/* The separator is a string literal, not a bare space + dash: with a
+                  plain space here the formatter reshapes the line and JSX drops the
+                  space, rendering "Meta (WhatsApp)— where". The other five items in
+                  this list are unaffected; this one wraps differently. */}
+              <strong className="font-semibold text-[#111]">Meta (WhatsApp)</strong>
+              {" — "}
+              where WhatsApp messaging is enabled for a role, we send interview invitations through
+              it, which means Meta receives your first name and phone number along with the
               company&apos;s name.
             </li>
           </UL>
@@ -439,9 +448,10 @@ export default function PrivacyPage() {
 
           <H2>11. Children</H2>
           <P>
-            Remotiv is a service for working professionals and is not intended for anyone under 16.
-            We do not knowingly collect data from children. If you believe we have, email <Mail />{" "}
-            and we will delete it.
+            Remotiv is a service for working professionals. We do not ask your age and we have no
+            way to verify it, so we are not going to claim we prevent anyone under 16 from applying.
+            What we can say is that we do not knowingly collect data from children, and that if you
+            tell us we are holding a child&apos;s data we will delete it. Email <Mail />.
           </P>
 
           <H2>12. Changes to this policy</H2>

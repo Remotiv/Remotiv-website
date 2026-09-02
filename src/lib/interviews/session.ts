@@ -36,6 +36,14 @@ type SessionRow = {
   job_id: string | null;
   status: string;
   allow_rerecord: boolean | null;
+  /**
+   * When the candidate acknowledged the pre-recording screen — NOT a consent
+   * record in the legal sense. The lawful basis for recording is legitimate
+   * interests (see /privacy section 4); this column evidences that they were
+   * told what is recorded, who sees it and how long it is kept, before
+   * anything started. The name predates that decision; don't read the basis
+   * off it.
+   */
   consent_at: string | null;
   submitted_at: string | null;
   expires_at: string;

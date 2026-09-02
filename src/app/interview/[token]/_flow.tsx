@@ -1666,11 +1666,16 @@ function Consent({
           lead="You're being recorded"
           body={`Your video answers are saved and shared with ${companyName}'s hiring team.`}
         />
+        {/* Says what /privacy section 7 says. The acknowledgement on this screen
+            is the transparency the lawful basis for recording rests on, so it
+            cannot claim less than the policy. Kept to one line deliberately: it
+            sits beside three other rows, and a wall of text here is read by
+            nobody, which would defeat the point of showing it at all. */}
         <ConsentRow
           icon={<Lightbulb className="size-[15px]" strokeWidth={1.9} />}
           tint="bg-[var(--purple-tint)] text-[var(--purple)]"
-          lead="AI helps review, a person decides"
-          body="Answers are transcribed and reviewed with AI assistance. Every hiring decision is made by a human — nothing is automated."
+          lead="AI scores, a person decides"
+          body="Answers are transcribed and scored. The scores rank candidates and flag some for a closer look."
         />
         <ConsentRow
           icon={<Lock className="size-[15px]" strokeWidth={1.9} />}
