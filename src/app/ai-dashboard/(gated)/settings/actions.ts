@@ -17,6 +17,7 @@ import {
   COMPANY_FACT_MAX,
   COMPANY_INDUSTRIES,
 } from "@/app/ai-dashboard/lib/company-roles";
+import { BRAND_PRESETS, DEFAULT_PRESET } from "@/components/white-label/brand";
 import { COMPANY_LOGO_BUCKET } from "./constants";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -64,6 +65,7 @@ export async function updateCompanyProfile(input: {
   description: string;
   team_size: string;
   location: string;
+  brand_preset: string;
 }): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin");
 
@@ -131,6 +133,23 @@ export async function updateCompanyProfile(input: {
     ? input.industry
     : null;
 
+  /*
+   * The brand preset, narrowed the same way industry is: an unrecognised value
+   * falls back rather than being stored.
+   *
+   * It has to be narrowed HERE and not merely in the UI, because the column
+   * carries a CHECK constraint — an unexpected string would come back as a
+   * Postgres constraint error and be shown to a recruiter as raw database text.
+   * Falling back to the default turns that into the outcome they already had.
+   *
+   * Stored non-null even when it is the default. Null and "plum" render
+   * identically (see toPreset), so this is a no-op for the page, but it records
+   * that someone CHOSE plum rather than never having looked.
+   */
+  const brandPreset = BRAND_PRESETS.some((p) => p.id === input.brand_preset)
+    ? input.brand_preset
+    : DEFAULT_PRESET;
+
   const supabase = createServiceClient();
   const renamed = name !== ctx.company.name;
 
@@ -145,6 +164,7 @@ export async function updateCompanyProfile(input: {
       description: description || null,
       team_size: teamSize || null,
       location: location || null,
+      brand_preset: brandPreset,
     })
     .eq("id", ctx.companyId);
 
@@ -164,6 +184,13 @@ export async function updateCompanyProfile(input: {
 
   revalidatePath("/ai-dashboard/settings");
   revalidatePath("/ai-dashboard");
+  /*
+   * The public pages this profile feeds. The brand colour, the two rail facts
+   * and the description all render there, and without this a company would
+   * change its colour, follow the link in the card, and see the old one — the
+   * cache does not know the row moved.
+   */
+  if (ctx.company.slug) revalidatePath(`/careers/${ctx.company.slug}`);
   return { success: true, data: undefined };
 }
 

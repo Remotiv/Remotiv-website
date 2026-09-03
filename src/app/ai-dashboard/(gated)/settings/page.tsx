@@ -5,6 +5,7 @@ import { fetchCalendarConnections } from "./calendar-actions";
 import { fetchWorkingHours } from "./hours-actions";
 import { fetchTemplateRows } from "./template-actions";
 import { SettingsClient } from "./_settings-client";
+import { toPreset } from "@/components/white-label/brand";
 import { COMPANY_LOGO_BUCKET } from "./constants";
 
 export const dynamic = "force-dynamic";
@@ -50,7 +51,7 @@ export default async function SettingsPage() {
   // needed here and in the dispatcher.
   const { data: replyRow } = await service
     .from("companies")
-    .select("candidate_reply_email, team_size, location")
+    .select("candidate_reply_email, team_size, location, brand_preset")
     .eq("id", ctx.companyId)
     .maybeSingle();
   // team_size and location ride along on the SAME query for the same reason the
@@ -62,6 +63,7 @@ export default async function SettingsPage() {
     candidate_reply_email: string | null;
     team_size: string | null;
     location: string | null;
+    brand_preset: string | null;
   } | null;
   const candidateReplyEmail = profileRow?.candidate_reply_email ?? "";
 
@@ -83,6 +85,18 @@ export default async function SettingsPage() {
         description: ctx.company.description ?? "",
         team_size: profileRow?.team_size ?? "",
         location: profileRow?.location ?? "",
+        /*
+         * Narrowed to a real preset id BEFORE it reaches the form, so the
+         * picker always has exactly one swatch selected.
+         *
+         * Passing the raw null through would render five unselected swatches on
+         * every company that has never chosen — which is all of them — and the
+         * first save would then appear to do nothing, because null and "plum"
+         * look identical on the public page. The stored state is "not chosen";
+         * the rendered state has to be "plum", because that is what a visitor
+         * already sees.
+         */
+        brand_preset: toPreset(profileRow?.brand_preset),
         logoUrl,
       }}
       account={{ email: ctx.user.email }}

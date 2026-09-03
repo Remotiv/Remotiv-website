@@ -20,6 +20,7 @@ import {
   COMPANY_ROLE_LABELS,
   type CompanyRole,
 } from "@/app/ai-dashboard/lib/company-roles";
+import { BRAND_PRESETS, type BrandPreset } from "@/components/white-label/brand";
 import { LOGO_MAX_BYTES } from "./constants";
 import {
   removeCompanyLogo,
@@ -61,6 +62,11 @@ type CompanyForm = {
   /** Free text, both of them — see the placeholders below for the shape. */
   team_size: string;
   location: string;
+  /**
+   * Always a real preset id, never null — the page narrows it before it gets
+   * here so exactly one swatch is selected on first render.
+   */
+  brand_preset: BrandPreset;
 };
 type AccountForm = {
   email: string;
@@ -151,6 +157,7 @@ export function SettingsClient({
     description: company.description,
     team_size: company.team_size,
     location: company.location,
+    brand_preset: company.brand_preset,
   };
   const [coSaved, setCoSaved] = useState<CompanyForm>(initialCompanyForm);
   const [co, setCo] = useState<CompanyForm>(initialCompanyForm);
@@ -679,6 +686,85 @@ export function SettingsClient({
                 </p>
               </div>
             </div>
+              {/*
+                FIVE SWATCHES, NOT A COLOUR PICKER.
+
+                Every preset is derived by the same function and clears AA for
+                white text. The apply button is the one place a bad choice
+                actually costs an applicant, and a free hex field would let
+                someone pick #FFFF00 for it. The constraint is the feature, so
+                the hint states it rather than leaving it to be discovered.
+
+                It lives in THIS card, saved by the same footer as the fields
+                above, because it is a company profile field like the rest — a
+                second card with its own Save would split one profile across two
+                saves and two dirty states.
+              */}
+              <div className="mb-4">
+                <span className={LABEL_CLS}>Brand colour</span>
+                {/*
+                  REAL RADIOS, not buttons with role="radio".
+
+                  A native group gives arrow-key navigation, form semantics and
+                  the browser's own selected state; the ARIA version reimplements
+                  all three and gets the keyboard half wrong. The input is
+                  visually hidden rather than absent — `display:none` would take
+                  it out of the tab order and off the accessibility tree, which
+                  is the thing it exists for.
+                */}
+                <div className="flex flex-wrap gap-2.5">
+                  {BRAND_PRESETS.map((preset) => {
+                    const selected = co.brand_preset === preset.id;
+                    return (
+                      <label
+                        key={preset.id}
+                        className={`flex items-center gap-2.5 rounded-[11px] border px-3 py-2 text-[13px] font-semibold transition-colors has-[:focus-visible]:ring-[3px] has-[:focus-visible]:ring-remotiv-purple/[0.16] ${
+                          canEditCompany ? "cursor-pointer" : "cursor-not-allowed opacity-[0.55]"
+                        } ${
+                          selected
+                            ? "border-[var(--ai-t1)] bg-[var(--ai-inset)] text-[var(--ai-t1)]"
+                            : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:border-[var(--ai-t4)]"
+                        }`}
+                      >
+                        <input
+                          type="radio"
+                          name="brand-preset"
+                          value={preset.id}
+                          checked={selected}
+                          disabled={!canEditCompany}
+                          onChange={() => setCoField("brand_preset", preset.id)}
+                          className="sr-only"
+                        />
+                        {/* The tick sits INSIDE the swatch, and the name is
+                            beside it — selection is never signalled by colour
+                            alone, and a chip with no label is not something one
+                            colleague can describe to another. */}
+                        <span
+                          aria-hidden
+                          className="flex size-[22px] shrink-0 items-center justify-center rounded-full"
+                          style={{ background: preset.hex }}
+                        >
+                          {selected && <Check className="size-3 text-white" strokeWidth={3} />}
+                        </span>
+                        {preset.name}
+                      </label>
+                    );
+                  })}
+                </div>
+                <p className={HINT_CLS}>
+                  Used on your careers page and on every job post we host for you — the header,
+                  the headline panel and the Apply button. Five to choose from, all checked for
+                  legibility against white text.{" "}
+                  {company.slug && (
+                    <Link
+                      href={`/careers/${company.slug}`}
+                      className="font-semibold text-remotiv-purple underline underline-offset-2"
+                    >
+                      See your careers page
+                    </Link>
+                  )}
+                </p>
+              </div>
 
             <div className="mb-4">
               <label className={LABEL_CLS} htmlFor="co-reply">
