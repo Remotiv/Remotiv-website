@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
+import { cssUrl } from "@/components/white-label/company";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import { canonicalUrl } from "@/lib/seo";
 import { displayHost, getCareersData, websiteHref } from "./_data";
@@ -98,11 +99,25 @@ export default async function CareersPage({ params }: PageProps) {
   const href = company.website ? websiteHref(company.website) : null;
   const count = roles.length;
 
-  const mark = company.logoUrl ? (
-    // biome-ignore lint/performance/noImgElement: a Supabase public URL on a per-tenant bucket path — next/image would need every company's host allow-listed, and this is a 30px mark, already the page's only raster.
-    <img src={company.logoUrl} alt={`${company.name} logo`} decoding="async" />
-  ) : (
-    company.initials
+  /*
+   * The lettermark is ALWAYS rendered; the logo lays over it (see `.mark .logo`).
+   *
+   * Not a ternary any more. A logo that is slow or broken used to leave an
+   * empty brand-coloured tile, which the handoff explicitly rules out — the
+   * initials are the floor, and the logo is an improvement on it rather than a
+   * replacement for it.
+   *
+   * The overlay is decorative and aria-hidden: the initials beneath already
+   * carry the company name, and the company name itself is rendered as text
+   * beside every one of these marks.
+   */
+  const mark = (
+    <>
+      {company.initials}
+      {company.logoUrl && (
+        <span className="logo" aria-hidden style={{ backgroundImage: cssUrl(company.logoUrl) }} />
+      )}
+    </>
   );
 
   const jobPostingLd = {

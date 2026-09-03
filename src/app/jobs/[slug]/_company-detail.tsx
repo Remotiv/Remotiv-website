@@ -1,5 +1,5 @@
 import Link from "next/link";
-import { displayHost, websiteHref } from "@/components/white-label/company";
+import { cssUrl, displayHost, websiteHref } from "@/components/white-label/company";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import type { Job } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
@@ -87,11 +87,25 @@ export function CompanyJobDetail({
   const host = company.website ? displayHost(company.website) : null;
   const href = company.website ? websiteHref(company.website) : null;
 
-  const mark = company.logoUrl ? (
-    // biome-ignore lint/performance/noImgElement: a Supabase public URL on a per-tenant bucket path — next/image would need every company's host allow-listed, and these are 26–34px marks, the page's only raster.
-    <img src={company.logoUrl} alt={`${company.name} logo`} decoding="async" />
-  ) : (
-    company.initials
+  /*
+   * The lettermark is ALWAYS rendered; the logo lays over it (see `.mark .logo`).
+   *
+   * Not a ternary any more. A logo that is slow or broken used to leave an
+   * empty brand-coloured tile, which the handoff explicitly rules out — the
+   * initials are the floor, and the logo is an improvement on it rather than a
+   * replacement for it.
+   *
+   * The overlay is decorative and aria-hidden: the initials beneath already
+   * carry the company name, and the company name itself is rendered as text
+   * beside every one of these marks.
+   */
+  const mark = (
+    <>
+      {company.initials}
+      {company.logoUrl && (
+        <span className="logo" aria-hidden style={{ backgroundImage: cssUrl(company.logoUrl) }} />
+      )}
+    </>
   );
 
   const jobPostingLd = {
@@ -245,6 +259,23 @@ export function CompanyJobDetail({
                       for the facts to sit under. */}
                   {company.description && <p className="about">{company.description}</p>}
 
+                  {/*
+                    THE TRAILING SPACES ARE DELIBERATE — a knowing deviation
+                    from the handoff.
+
+                    `<span>Based in </span><b>Lahore</b>` concatenates to
+                    "Based inLahore" in textContent, which is what a screen
+                    reader announces and what anyone copying the card gets. The
+                    design's own HTML has the same defect; reproducing it
+                    faithfully would be inheriting a bug rather than matching an
+                    intent.
+
+                    Invisible on screen: `justify-content: space-between` has
+                    already pushed the two apart, so a trailing space inside the
+                    label collapses at the flex boundary and changes no measured
+                    width. If these ever look wrong, the fix is in the CSS, not
+                    here — do not strip them back out.
+                  */}
                   <ul className="facts">
                     {company.location && (
                       <li>
@@ -254,20 +285,20 @@ export function CompanyJobDetail({
                     )}
                     {company.teamSize && (
                       <li>
-                        <span>Team size</span>
+                        <span>Team size </span>
                         <b>{company.teamSize}</b>
                       </li>
                     )}
                     {host && href && (
                       <li>
-                        <span>Website</span>
+                        <span>Website </span>
                         <a href={href} target="_blank" rel="noopener noreferrer">
                           {host}
                         </a>
                       </li>
                     )}
                     <li>
-                      <span>Open roles</span>
+                      <span>Open roles </span>
                       <b>{company.otherRoles + 1}</b>
                     </li>
                   </ul>

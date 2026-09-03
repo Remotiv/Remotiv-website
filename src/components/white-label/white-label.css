@@ -252,6 +252,11 @@ body:has([data-wl-canvas]) > footer {
 /* Logo tile / lettermark. 30 × 30 is the base; the pages override the size,
    radius and font-size for their variants (26/6/12, 34/10/14, 44/10/17). */
 [data-wl-canvas] .mark {
+  /*
+   * Positioned so the logo can sit OVER the lettermark rather than instead of
+   * it — see the note on `.mark img` below.
+   */
+  position: relative;
   display: flex;
   align-items: center;
   justify-content: center;
@@ -268,11 +273,42 @@ body:has([data-wl-canvas]) > footer {
   overflow: hidden;
 }
 
-[data-wl-canvas] .mark img {
-  width: 100%;
-  height: 100%;
-  object-fit: cover;
-  display: block;
+/*
+ * ── The logo covers the lettermark, it does not replace it ───
+ *
+ * The handoff's rule is "no logo → lettermark, NEVER a blank square". The
+ * markup honoured that only when the URL was ABSENT: with a URL present the
+ * initials were not rendered at all, so a logo that was merely SLOW — or one
+ * that 404'd — left `background: var(--brand)` showing through with nothing on
+ * it. A blank coloured square, the one thing the rule forbids.
+ *
+ * Logos are served with `cache-control: no-cache`, so the browser revalidates
+ * on every load: measured 0.5s for a 304 and up to 1.4s on a miss. The tile was
+ * empty for the whole of that window, on every visit.
+ *
+ * ── Why a background-image and not an <img> ──────────────────
+ *
+ * Both put the logo over the initials. The difference is how they FAIL. A
+ * broken <img> paints the browser's broken-image glyph — verified in Chrome,
+ * where a 404 rendered the icon on top of the lettermark — and there is no CSS
+ * that can suppress it; hiding it needs an onError handler, which needs a
+ * client component on a page that is otherwise entirely server-rendered.
+ *
+ * A background-image that fails paints NOTHING. The lettermark underneath is
+ * simply revealed, which is exactly the design's rule, with no JavaScript and
+ * no error path to get wrong.
+ *
+ * The cost is React's automatic <img> preload, which a CSS background does not
+ * get. Acceptable: with the year-long cache now set at upload, repeat loads are
+ * served locally, and a first load that is marginally later still shows the
+ * lettermark rather than a blank tile while it waits.
+ */
+[data-wl-canvas] .mark .logo {
+  position: absolute;
+  inset: 0;
+  background-position: center;
+  background-repeat: no-repeat;
+  background-size: cover;
 }
 
 /* Measured height 53.09px = 28px padding + 2px border + 23.09px line box.

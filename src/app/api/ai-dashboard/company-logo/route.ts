@@ -72,7 +72,24 @@ export async function POST(request: Request) {
 
   const { error: uploadErr } = await service.storage
     .from(COMPANY_LOGO_BUCKET)
-    .upload(path, bytes, { contentType: mime, upsert: false });
+    .upload(path, bytes, {
+      contentType: mime,
+      upsert: false,
+      /*
+       * A year, and safe to be this aggressive because the path is immutable:
+       * `${companyId}/${randomUUID()}.${ext}` with `upsert: false`, so changing
+       * a logo writes a NEW object and repoints companies.logo_path. Nothing
+       * ever overwrites this URL, so nothing can go stale behind the cache.
+       *
+       * Without it Supabase serves `cache-control: no-cache` and the browser
+       * revalidates on every page load — measured 0.5s for a 304 and up to 1.4s
+       * on a miss, on a public page's above-the-fold logo.
+       *
+       * Applies to uploads from here on. Objects already in the bucket keep the
+       * metadata they were written with.
+       */
+      cacheControl: "31536000",
+    });
 
   if (uploadErr) {
     console.error("[ai-dashboard/company-logo] upload failed", uploadErr.message);

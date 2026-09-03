@@ -36,3 +36,48 @@ export function initialsOf(name: string): string {
     .join("");
   return (letters || name[0] || "?").toUpperCase();
 }
+
+/**
+ * A logo URL, safe to drop into a CSS `background-image` value.
+ *
+ * The URL is ours — `getPublicUrl` over a `${companyId}/${uuid}.${ext}` path —
+ * so nothing user-controlled reaches it today. Escaped anyway, because the
+ * value crosses from data into a STYLESHEET, where a stray quote or paren stops
+ * being a broken image and starts being a way to close the url() and write
+ * another declaration. Cheap here, and the guarantee about that path is not one
+ * this function can see.
+ *
+ * Returns undefined for anything unusable, so the caller renders no layer at
+ * all rather than `url("")` — which browsers resolve against the current
+ * document and re-request the page as an image.
+ */
+export function cssUrl(url: string | null | undefined): string | undefined {
+  const trimmed = (url ?? "").trim();
+  if (!trimmed) return undefined;
+  // Only http(s). A data: or javascript: value has no business here.
+  if (!/^https?:\/\//i.test(trimmed)) return undefined;
+  /*
+   * An explicit map, NOT encodeURIComponent — it leaves ( ) ' ! * ~ alone, so a
+   * regex handing it those characters silently passes them straight through and
+   * reads as protection it is not providing.
+   *
+   * Inside `url("…")` the characters that end the value are the double quote, a
+   * backslash, and a newline. All three are encoded here; the parens are
+   * encoded too because they end an UNQUOTED url() and it costs nothing to be
+   * correct for both forms.
+   */
+  const safe = trimmed.replace(
+    /["'()\\\n\r]/g,
+    (c) =>
+      ({
+        '"': "%22",
+        "'": "%27",
+        "(": "%28",
+        ")": "%29",
+        "\\": "%5C",
+        "\n": "%0A",
+        "\r": "%0D",
+      })[c] ?? c,
+  );
+  return `url("${safe}")`;
+}
