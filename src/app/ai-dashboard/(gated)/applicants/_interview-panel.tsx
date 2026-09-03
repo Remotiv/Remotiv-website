@@ -17,9 +17,16 @@ import type { InterviewPanelState } from "./interview-types";
  * The drawer's video-interview section.
  *
  * Sending is manual and explicit — nothing here fires on a stage change.
- * Re-sending is offered only where it is honest: an invite that expired or was
- * never opened. A SUBMITTED interview offers nothing, because submitted is
- * final and a button that produced a working link would contradict that.
+ *
+ * ── Two different acts, weighted differently ─────────────────
+ *
+ * Reviving a DEAD link — expired, cancelled, or never sent — is the ordinary
+ * case and gets the full-width button. Replacing a LIVE one is a deliberate
+ * act with a cost to the candidate, so it is a quiet text trigger with a
+ * confirm step that names the cost before it happens.
+ *
+ * A SUBMITTED interview offers neither, because submitted is final and a
+ * button that produced a working link would contradict that.
  */
 
 function fmt(iso: string | null): string {
@@ -68,6 +75,8 @@ export function InterviewPanel({
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  /** The confirm step for replacing a link that still works. */
+  const [reissuing, setReissuing] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -84,7 +93,7 @@ export function InterviewPanel({
     void load();
   }, [load]);
 
-  async function handleSend() {
+  async function handleSend(reissue = false) {
     setBusy(true);
     setError(null);
     let result: Awaited<ReturnType<typeof sendInterviewInvite>>;
@@ -106,6 +115,9 @@ export function InterviewPanel({
       result = { success: false, error: "Couldn't send — please try again." };
     }
     setBusy(false);
+    // Closed either way. On failure the reason renders below, and leaving the
+    // confirm open beneath it would state a consequence that did not happen.
+    setReissuing(false);
 
     if (!result.success) {
       // Shown in place, not as a toast: "add questions to this job first" is
@@ -113,7 +125,7 @@ export function InterviewPanel({
       setError(result.error);
       return;
     }
-    onToast("Interview sent");
+    onToast(reissue ? "New link sent" : "Interview sent");
     await load();
   }
 
@@ -215,6 +227,21 @@ export function InterviewPanel({
    * any interview already taken; it just cannot start a new one.
    */
   const canResend = !session || session.status === "expired" || session.status === "cancelled";
+
+  /*
+   * The third question, and the one the drawer used to get wrong by not asking
+   * it: may a LIVE invite be replaced?
+   *
+   * sendInterviewInvite has always said yes — it cancels the open session and
+   * mints a fresh one, and the reminder and expiry jobs both skip a superseded
+   * session by name. Only the client stopped offering it, which left `invited`
+   * with no way forward for the five days until the link expired: precisely
+   * the state a candidate sits in when the invitation did not reach them.
+   *
+   * Deliberately NOT folded into `canResend`. That one revives a dead link and
+   * costs nothing; this one destroys a working one.
+   */
+  const canReissue = session?.status === "invited" || session?.status === "started";
   const asyncOff = state !== null && !state.asyncEnabled;
 
   return (
@@ -287,6 +314,72 @@ export function InterviewPanel({
           {session.status === "submitted" ? "Watch the interview" : "See what's recorded so far"}
         </Link>
       )}
+
+      {canReissue &&
+        !asyncOff &&
+        session &&
+        (reissuing ? (
+          <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
+            {/*
+              NAME THE COST, do not gesture at it.
+
+              The `started` branch is blunt on purpose. A recruiter clicking
+              past a vague warning and costing a candidate three recorded
+              answers is the failure this sentence exists to prevent, and the
+              counts are what make it concrete — "you may lose progress" is
+              not a fact anyone can act on, "they have answered 2 of 5" is.
+            */}
+            <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+              {session.status === "started" ? (
+                <>
+                  They&apos;ve answered {session.answered} of {session.total}. A new link starts the
+                  interview again from the first question, and the link they&apos;re using stops
+                  working. What they&apos;ve recorded stays on this record, but they can&apos;t
+                  carry on from it.
+                </>
+              ) : (
+                <>
+                  Sends a fresh invitation by email and WhatsApp. The link
+                  {fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"}{" "}
+                  stops working straight away — they haven&apos;t started, so nothing is lost.
+                </>
+              )}
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void handleSend(true);
+                }}
+                className="rounded-[10px] bg-remotiv-purple px-3 py-1.5 text-[12.5px] font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "Sending…" : "Send it again"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setReissuing(false)}
+                className="rounded-[10px] px-3 py-1.5 text-[12.5px] font-semibold text-[var(--ai-t3)]"
+              >
+                Keep the current link
+              </button>
+            </div>
+          </div>
+        ) : (
+          /*
+           * Quiet by design — a text trigger, not a button. Re-sending over a
+           * working link is a deliberate act, so it should take a moment to
+           * find and a second click to do; the full-width control above stays
+           * reserved for the case where there is nothing live to destroy.
+           */
+          <button
+            type="button"
+            onClick={() => setReissuing(true)}
+            className="self-start text-[12.5px] font-semibold text-[var(--ai-t3)] transition-colors hover:text-remotiv-purple"
+          >
+            Send this invitation again
+          </button>
+        ))}
 
       {!session && !asyncOff && (
         <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No interview sent yet.</p>
@@ -402,7 +495,7 @@ export function InterviewPanel({
         on their plan. The greyed control plus the sentence names the setting
         and links straight to it, so the dead end is also the fix.
       */}
-      {canResend && asyncOff && (
+      {(canResend || canReissue) && asyncOff && (
         <p className="m-0 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
           Async video interviews are off for this job.{" "}
           {state?.jobId ? (
