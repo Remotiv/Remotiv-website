@@ -129,7 +129,7 @@ export default async function CareersPage({ params }: PageProps) {
   };
 
   return (
-    <WhiteLabelShell preset={company.preset}>
+    <WhiteLabelShell page="careers" preset={company.preset}>
       <header className="chead">
         <div className="wrap">
           <div className="cid">

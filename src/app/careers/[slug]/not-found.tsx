@@ -15,7 +15,7 @@ import "./careers.css";
  */
 export default function CareersNotFound() {
   return (
-    <WhiteLabelShell>
+    <WhiteLabelShell page="careers">
       <main>
         <section className="roles">
           <div className="wrap">

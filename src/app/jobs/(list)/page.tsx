@@ -1,8 +1,22 @@
+/*
+ * ── Why this page lives in a route group ─────────────────────
+ *
+ * `(list)` adds nothing to the URL — this is still /jobs. It exists so that the
+ * list's loading.tsx sits HERE and not at the /jobs segment, where Next wraps
+ * "page.js and any children below" in its Suspense boundary. At the segment
+ * level it also covered /jobs/[slug]: on a client-side navigation into a job
+ * page from outside /jobs, the list-shaped skeleton rendered first — outside
+ * any white-label canvas, so the site footer showed at display:block filling
+ * the bottom half of the viewport, with the previous page's scroll offset still
+ * applied. Measured: ~650ms of footer-first at scrollY 709 before the job
+ * page's own skeleton took over. Moving the list one level in removes that
+ * boundary from [slug] entirely; [slug] has its own loading.tsx.
+ */
 import type { Metadata } from "next";
 import { getInitialJobs } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
-import { JobsClient } from "./_jobs-client";
-import { fetchCompanyJobs, resolveCompanySlug } from "./company-filter";
+import { JobsClient } from "../_jobs-client";
+import { fetchCompanyJobs, resolveCompanySlug } from "../company-filter";
 
 // Without this, Next would statically prerender the page at BUILD TIME and
 // freeze the jobs list until the next deploy. The prior implementation (full

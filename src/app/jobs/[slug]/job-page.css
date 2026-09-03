@@ -268,9 +268,11 @@
   padding: 20px 0;
 }
 
-/* minmax(0,1fr) is mandatory — a bare 1fr has an auto minimum and refuses to
-   shrink, so a long unbroken string in the document column would push the rail
-   off the page. Below 1024 the right column is ABSENT, not reflowed below. */
+/* minmax(0, …) is mandatory on BOTH breakpoints — a bare fr has an `auto`
+   minimum and refuses to shrink, so a long unbroken string in the document
+   column would push the rail off the page. The 1024+ rule below used to be a
+   bare `1.65fr 1fr` under this very comment. Below 1024 the right column is
+   ABSENT, not reflowed below. */
 [data-wl-canvas][data-wl-page="job"] .body .grid {
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -279,7 +281,7 @@
 
 @media (min-width: 1024px) {
   [data-wl-canvas][data-wl-page="job"] .body .grid {
-    grid-template-columns: 1.65fr 1fr;
+    grid-template-columns: minmax(0, 1.65fr) minmax(0, 1fr);
     gap: 16px;
     align-items: start;
   }
@@ -703,4 +705,36 @@
 [data-wl-canvas][data-wl-page="job"] .toast.show {
   opacity: 1;
   transform: translateX(-50%) translateY(0);
+}
+
+/* ── loading skeleton (loading.tsx) ─────────────────────────── */
+
+/*
+ * Placeholder blocks for the job page's own loading state. Scoped to the job
+ * canvas like everything else here, and NEUTRAL by design: the surface hairline
+ * colour, never var(--brand) — the brand is data, and this renders before data.
+ * See loading.tsx for why the skeleton exists at all (the site footer used to
+ * fill the bottom half of the viewport while the page streamed).
+ */
+[data-wl-canvas][data-wl-page="job"] .wl-skel-block {
+  display: block;
+  background: var(--line-soft);
+  border-radius: 6px;
+  animation: wl-skel-pulse 1.4s ease-in-out infinite;
+}
+
+@keyframes wl-skel-pulse {
+  0%,
+  100% {
+    opacity: 1;
+  }
+  50% {
+    opacity: 0.45;
+  }
+}
+
+@media (prefers-reduced-motion: reduce) {
+  [data-wl-canvas][data-wl-page="job"] .wl-skel-block {
+    animation: none;
+  }
 }

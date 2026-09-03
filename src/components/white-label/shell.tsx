@@ -38,7 +38,7 @@ import "./white-label.css";
  * and cannot reach — that one is handled in footer-wrapper.tsx.
  */
 /**
- * Which white-label page this is.
+ * Which white-label page this is. REQUIRED on every page, not optional.
  *
  * ── Why this is not cosmetic ─────────────────────────────────
  *
@@ -49,20 +49,25 @@ import "./white-label.css";
  *
  * That would be harmless if only one stylesheet were ever loaded, and it isn't.
  * Measured: navigating from /careers/x to /jobs/y client-side leaves BOTH sheets
- * in the document — 15 `[data-wl-canvas] .rail` rules from careers were still
- * live on the job page. Careers' rail rules would then turn the job page's right
- * column into a two-column grid with negative margins and white borders.
+ * in the document.
  *
- * So each page's rules carry its own attribute ON THE SAME ELEMENT as
- * `data-wl-canvas`, making them (0,3,0) against the other page's (0,2,0). The
- * winner is decided by specificity rather than by which sheet loaded last, which
- * is not something a stylesheet should have to know.
+ * ── What the first version of this got wrong ─────────────────
  *
- * Omitted on careers, whose rules predate this and are already unprefixed —
- * they simply never match a page that is not careers, because the class names
- * they target don't appear there.
+ * It prefixed only the job page, and left careers on the bare [data-wl-canvas]
+ * "because careers' class names don't appear on the job page". Two things were
+ * false in that sentence. The names DO appear — `.rail` on both — and, more
+ * importantly, a prefix on one side is not a defence at all: specificity only
+ * decides between two rules that declare the SAME property. Careers' `.rail`
+ * set `margin: 52px -48px 0` and `border-top`; the job page's `.rail` set
+ * neither, so there was nothing to outrank them and they applied. The result at
+ * 2400px was the right column pulled 32px over the body text and two sidebar
+ * cards with different padding.
+ *
+ * So BOTH pages carry their attribute, and both sheets are scoped to it. Neither
+ * can reach the other no matter what property either one adds later, which is
+ * the only version of this that stays fixed.
  */
-type WhiteLabelPage = "job";
+type WhiteLabelPage = "job" | "careers";
 
 export function WhiteLabelShell({
   children,

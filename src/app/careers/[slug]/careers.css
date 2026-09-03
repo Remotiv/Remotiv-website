@@ -10,16 +10,33 @@
  * commented as such rather than corrected — see the rail.
  */
 
+/*
+ * ── Why every selector here carries [data-wl-page="careers"] ─
+ *
+ * These rules used to be scoped on [data-wl-canvas] alone, on the reasoning
+ * that careers' class names never appear on the job page. They do: `.rail`,
+ * `.panel`, `.top`, `.foot` are all reused there for different things, and a
+ * client-side navigation from /careers/x to /jobs/y leaves BOTH sheets in the
+ * document. Measured at 2400px: careers' `.rail { margin: 52px -48px 0 }` and
+ * its `.rail div` padding/borders landed on the job page's right column — 32px
+ * of overlap into the body text and two sidebar cards with different padding.
+ *
+ * The job page's own prefix could not stop it. Specificity only decides
+ * between rules that declare the SAME property; a property the job sheet never
+ * sets has nothing outranking it. Scoping both sides is the only arrangement
+ * where neither sheet can reach the other regardless of what either adds later.
+ */
+
 /* ── sticky header extras (careers-only controls) ───────────── */
 
-[data-wl-canvas] .hnav {
+[data-wl-canvas][data-wl-page="careers"] .hnav {
   display: flex;
   align-items: center;
   gap: 18px;
 }
 
 /* Hidden below 641 — the header keeps the name and the roles button only. */
-[data-wl-canvas] .wsite {
+[data-wl-canvas][data-wl-page="careers"] .wsite {
   display: none;
   align-items: center;
   gap: 6px;
@@ -30,22 +47,22 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .wsite {
+  [data-wl-canvas][data-wl-page="careers"] .wsite {
     display: inline-flex;
   }
 }
 
-[data-wl-canvas] .wsite:hover {
+[data-wl-canvas][data-wl-page="careers"] .wsite:hover {
   color: var(--t1);
 }
 
-[data-wl-canvas] .wsite svg {
+[data-wl-canvas][data-wl-page="careers"] .wsite svg {
   width: 12px;
   height: 12px;
   stroke-width: 2;
 }
 
-[data-wl-canvas] .tobtn {
+[data-wl-canvas][data-wl-page="careers"] .tobtn {
   display: inline-flex;
   align-items: center;
   gap: 7px;
@@ -58,32 +75,32 @@
   transition: 0.16s;
 }
 
-[data-wl-canvas] .tobtn:hover {
+[data-wl-canvas][data-wl-page="careers"] .tobtn:hover {
   background: var(--brand-tint);
   border-color: var(--brand);
   color: var(--brand-ink);
 }
 
-[data-wl-canvas] .tobtn b {
+[data-wl-canvas][data-wl-page="careers"] .tobtn b {
   font-weight: 700;
   font-variant-numeric: tabular-nums;
 }
 
 /* ── brand masthead ─────────────────────────────────────────── */
 
-[data-wl-canvas] .mast {
+[data-wl-canvas][data-wl-page="careers"] .mast {
   padding: 24px 0 0;
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .mast {
+  [data-wl-canvas][data-wl-page="careers"] .mast {
     padding: 28px 0 0;
   }
 }
 
 /* No bottom padding at ≥641 — the stat rail closes the panel. At 1440 the
    panel measures 1104 × 465.29, content box 1104 − 96 = 1008. */
-[data-wl-canvas] .panel {
+[data-wl-canvas][data-wl-page="careers"] .panel {
   position: relative;
   overflow: hidden;
   background: var(--brand);
@@ -93,29 +110,29 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .panel {
+  [data-wl-canvas][data-wl-page="careers"] .panel {
     padding: 44px 40px 0;
   }
 }
 
 @media (min-width: 1024px) {
-  [data-wl-canvas] .panel {
+  [data-wl-canvas][data-wl-page="careers"] .panel {
     padding: 56px 48px 0;
   }
 }
 
-[data-wl-canvas] .panel .top {
+[data-wl-canvas][data-wl-page="careers"] .panel .top {
   display: flex;
   align-items: center;
   justify-content: space-between;
   gap: 16px;
 }
 
-[data-wl-canvas] .panel .top .eyebrow {
+[data-wl-canvas][data-wl-page="careers"] .panel .top .eyebrow {
   color: rgba(255, 255, 255, 0.58);
 }
 
-[data-wl-canvas] .psite {
+[data-wl-canvas][data-wl-page="careers"] .psite {
   display: inline-flex;
   align-items: center;
   gap: 6px;
@@ -125,11 +142,11 @@
   transition: 0.16s;
 }
 
-[data-wl-canvas] .psite:hover {
+[data-wl-canvas][data-wl-page="careers"] .psite:hover {
   color: #fff;
 }
 
-[data-wl-canvas] .psite svg {
+[data-wl-canvas][data-wl-page="careers"] .psite svg {
   width: 12px;
   height: 12px;
   stroke-width: 2.2;
@@ -138,7 +155,7 @@
 /* --wl-h1-careers is the design's clamp(2.5rem,6.4vw,4.25rem) resolved against
    its 14px root — 35 → 59.5px. Ceiling at ≥929.7px viewport, floor at ≤546.9px;
    768 → 49.15px. Declared once in white-label.css so both pages agree. */
-[data-wl-canvas] .panel h1 {
+[data-wl-canvas][data-wl-page="careers"] .panel h1 {
   font-family: var(--font-display);
   font-size: var(--wl-h1-careers);
   font-weight: 800;
@@ -152,7 +169,7 @@
 
 /* Explicit colour, not inherited: the shared `p { color: var(--t2) }` beats
    inheriting white from the panel. Same trap the handoff flags in §3.2. */
-[data-wl-canvas] .panel .lede {
+[data-wl-canvas][data-wl-page="careers"] .panel .lede {
   font-size: 16px;
   line-height: 1.65;
   color: rgba(255, 255, 255, 0.76);
@@ -161,7 +178,7 @@
   text-wrap: pretty;
 }
 
-[data-wl-canvas] .panel .cta {
+[data-wl-canvas][data-wl-page="careers"] .panel .cta {
   display: flex;
   flex-wrap: wrap;
   gap: 12px;
@@ -174,7 +191,7 @@
    exactly panel-width. At 1440: rail 1104 × 108.84, four cells of 276 × 107.84.
    Fewer cells than columns is expected and correct — the design's own
    no-roles state renders three into this four-column grid. */
-[data-wl-canvas] .rail {
+[data-wl-canvas][data-wl-page="careers"] .rail {
   display: grid;
   grid-template-columns: repeat(2, minmax(0, 1fr));
   gap: 0;
@@ -183,55 +200,55 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .rail {
+  [data-wl-canvas][data-wl-page="careers"] .rail {
     margin: 44px -40px 0;
     grid-template-columns: repeat(4, minmax(0, 1fr));
   }
 }
 
 @media (min-width: 1024px) {
-  [data-wl-canvas] .rail {
+  [data-wl-canvas][data-wl-page="careers"] .rail {
     margin: 52px -48px 0;
   }
 }
 
-[data-wl-canvas] .rail div {
+[data-wl-canvas][data-wl-page="careers"] .rail div {
   padding: 18px 28px 22px;
   border-left: 1px solid rgba(255, 255, 255, 0.16);
   border-top: 1px solid rgba(255, 255, 255, 0.16);
 }
 
-[data-wl-canvas] .rail div:nth-child(-n + 2) {
+[data-wl-canvas][data-wl-page="careers"] .rail div:nth-child(-n + 2) {
   border-top: none;
 }
 
-[data-wl-canvas] .rail div:nth-child(2n + 1) {
+[data-wl-canvas][data-wl-page="careers"] .rail div:nth-child(2n + 1) {
   border-left: none;
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .rail div {
+  [data-wl-canvas][data-wl-page="careers"] .rail div {
     padding: 20px 26px 26px;
     border-top: none;
   }
 
-  [data-wl-canvas] .rail div:nth-child(2n + 1) {
+  [data-wl-canvas][data-wl-page="careers"] .rail div:nth-child(2n + 1) {
     border-left: 1px solid rgba(255, 255, 255, 0.16);
   }
 
-  [data-wl-canvas] .rail div:first-child {
+  [data-wl-canvas][data-wl-page="careers"] .rail div:first-child {
     border-left: none;
   }
 }
 
 @media (min-width: 1024px) {
-  [data-wl-canvas] .rail div {
+  [data-wl-canvas][data-wl-page="careers"] .rail div {
     padding: 22px 30px 30px;
   }
 }
 
 @media (min-width: 1281px) {
-  [data-wl-canvas] .rail div {
+  [data-wl-canvas][data-wl-page="careers"] .rail div {
     padding: 22px 38px 30px;
   }
 }
@@ -248,22 +265,22 @@
  * Cell 1's padding-left deliberately matches the panel's own padding at each
  * step (28 / 40 / 48) so the first stat value aligns to the h1's left edge.
  */
-[data-wl-canvas] .rail div:nth-child(2n + 1) {
+[data-wl-canvas][data-wl-page="careers"] .rail div:nth-child(2n + 1) {
   padding-left: 28px;
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .rail div:nth-child(2n + 1) {
+  [data-wl-canvas][data-wl-page="careers"] .rail div:nth-child(2n + 1) {
     padding-left: 26px;
   }
 
-  [data-wl-canvas] .rail div:first-child {
+  [data-wl-canvas][data-wl-page="careers"] .rail div:first-child {
     padding-left: 40px;
   }
 }
 
 @media (min-width: 1024px) {
-  [data-wl-canvas] .rail div:first-child {
+  [data-wl-canvas][data-wl-page="careers"] .rail div:first-child {
     padding-left: 48px;
   }
 }
@@ -283,7 +300,7 @@
  *
  * DO NOT LOWER, and the reason is now a measurement rather than an assertion.
  */
-[data-wl-canvas] .rail dt {
+[data-wl-canvas][data-wl-page="careers"] .rail dt {
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.13em;
@@ -291,7 +308,7 @@
   color: rgba(255, 255, 255, 0.88);
 }
 
-[data-wl-canvas] .rail dd {
+[data-wl-canvas][data-wl-page="careers"] .rail dd {
   font-family: var(--font-display);
   font-size: 17.5px;
   font-weight: 700;
@@ -301,7 +318,7 @@
   text-wrap: balance;
 }
 
-[data-wl-canvas] .rail dd .dot {
+[data-wl-canvas][data-wl-page="careers"] .rail dd .dot {
   display: inline-block;
   width: 7px;
   height: 7px;
@@ -313,17 +330,17 @@
 
 /* ── roles index ────────────────────────────────────────────── */
 
-[data-wl-canvas] .roles {
+[data-wl-canvas][data-wl-page="careers"] .roles {
   padding: 64px 0 0;
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .roles {
+  [data-wl-canvas][data-wl-page="careers"] .roles {
     padding: 80px 0 0;
   }
 }
 
-[data-wl-canvas] .rhead {
+[data-wl-canvas][data-wl-page="careers"] .rhead {
   display: flex;
   align-items: flex-end;
   justify-content: space-between;
@@ -333,7 +350,7 @@
 
 /* clamp(1.75rem,3.4vw,2.25rem) on a 14px root — 24.5 → 31.5px. Ceiling at
    ≥926.5px, floor at ≤720.6px; 768 → 26.11px. */
-[data-wl-canvas] .rhead h2 {
+[data-wl-canvas][data-wl-page="careers"] .rhead h2 {
   font-family: var(--font-display);
   font-size: var(--wl-h2-careers);
   font-weight: 800;
@@ -343,7 +360,7 @@
   color: var(--t1);
 }
 
-[data-wl-canvas] .fils {
+[data-wl-canvas][data-wl-page="careers"] .fils {
   display: flex;
   flex-wrap: wrap;
   gap: 22px;
@@ -351,7 +368,7 @@
 
 /* flex:0 0 auto and white-space:nowrap are BOTH required — a wrapped label puts
    the underline through the middle of the text. */
-[data-wl-canvas] .fil {
+[data-wl-canvas][data-wl-page="careers"] .fil {
   flex: 0 0 auto;
   white-space: nowrap;
   background: none;
@@ -364,53 +381,53 @@
   transition: 0.16s;
 }
 
-[data-wl-canvas] .fil:hover {
+[data-wl-canvas][data-wl-page="careers"] .fil:hover {
   color: var(--t1);
 }
 
-[data-wl-canvas] .fil.on {
+[data-wl-canvas][data-wl-page="careers"] .fil.on {
   color: var(--t1);
   border-bottom-color: var(--brand);
 }
 
-[data-wl-canvas] .fil b {
+[data-wl-canvas][data-wl-page="careers"] .fil b {
   font-weight: 600;
   color: var(--t4);
   margin-left: 6px;
   font-variant-numeric: tabular-nums;
 }
 
-[data-wl-canvas] .fil.on b {
+[data-wl-canvas][data-wl-page="careers"] .fil.on b {
   color: var(--brand);
 }
 
 /* ── groups and rows ────────────────────────────────────────── */
 
-[data-wl-canvas] .grp {
+[data-wl-canvas][data-wl-page="careers"] .grp {
   margin-top: 38px;
 }
 
-[data-wl-canvas] .glab {
+[data-wl-canvas][data-wl-page="careers"] .glab {
   display: flex;
   align-items: center;
   gap: 16px;
   margin-bottom: 4px;
 }
 
-[data-wl-canvas] .glab .rule {
+[data-wl-canvas][data-wl-page="careers"] .glab .rule {
   flex: 1;
   height: 1px;
   background: var(--line);
 }
 
-[data-wl-canvas] .rows {
+[data-wl-canvas][data-wl-page="careers"] .rows {
   display: flex;
   flex-direction: column;
 }
 
 /* Measured at 1440: 1104 × 115.73 (content-height — a two-line title grows it).
    Track math at 1440: 34 + 24 + [1fr] + 24 + [auto]. */
-[data-wl-canvas] .row {
+[data-wl-canvas][data-wl-page="careers"] .row {
   position: relative;
   display: grid;
   grid-template-columns: minmax(0, 1fr);
@@ -426,14 +443,14 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .row {
+  [data-wl-canvas][data-wl-page="careers"] .row {
     grid-template-columns: 34px minmax(0, 1fr) auto;
     gap: 24px;
     padding: 26px 20px;
   }
 }
 
-[data-wl-canvas] .row::before {
+[data-wl-canvas][data-wl-page="careers"] .row::before {
   content: "";
   position: absolute;
   left: 0;
@@ -447,22 +464,22 @@
 }
 
 /* One of only three shadows in the whole design. */
-[data-wl-canvas] .row:hover {
+[data-wl-canvas][data-wl-page="careers"] .row:hover {
   background: var(--surface);
   border-top-color: transparent;
   box-shadow: 0 4px 24px rgba(0, 0, 0, 0.07);
   color: inherit;
 }
 
-[data-wl-canvas] .row:hover::before {
+[data-wl-canvas][data-wl-page="careers"] .row:hover::before {
   opacity: 1;
 }
 
-[data-wl-canvas] .row:hover + .row {
+[data-wl-canvas][data-wl-page="careers"] .row:hover + .row {
   border-top-color: transparent;
 }
 
-[data-wl-canvas] .rnum {
+[data-wl-canvas][data-wl-page="careers"] .rnum {
   display: none;
   font-family: var(--font-display);
   font-size: 13px;
@@ -473,16 +490,16 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .rnum {
+  [data-wl-canvas][data-wl-page="careers"] .rnum {
     display: block;
   }
 }
 
-[data-wl-canvas] .row:hover .rnum {
+[data-wl-canvas][data-wl-page="careers"] .row:hover .rnum {
   color: var(--brand);
 }
 
-[data-wl-canvas] .rt {
+[data-wl-canvas][data-wl-page="careers"] .rt {
   font-family: var(--font-display);
   font-size: 22px;
   font-weight: 700;
@@ -497,16 +514,16 @@
 }
 
 @media (min-width: 1024px) {
-  [data-wl-canvas] .rt {
+  [data-wl-canvas][data-wl-page="careers"] .rt {
     font-size: 26px;
   }
 }
 
-[data-wl-canvas] .row:hover .rt {
+[data-wl-canvas][data-wl-page="careers"] .row:hover .rt {
   color: var(--brand);
 }
 
-[data-wl-canvas] .new {
+[data-wl-canvas][data-wl-page="careers"] .new {
   font-family: var(--font-body);
   font-size: 10px;
   font-weight: 700;
@@ -520,7 +537,7 @@
   top: -1px;
 }
 
-[data-wl-canvas] .rmeta {
+[data-wl-canvas][data-wl-page="careers"] .rmeta {
   display: flex;
   flex-wrap: wrap;
   align-items: center;
@@ -532,13 +549,13 @@
   color: var(--t3);
 }
 
-[data-wl-canvas] .rmeta li {
+[data-wl-canvas][data-wl-page="careers"] .rmeta li {
   display: flex;
   align-items: center;
   gap: 9px;
 }
 
-[data-wl-canvas] .rmeta li::after {
+[data-wl-canvas][data-wl-page="careers"] .rmeta li::after {
   content: "";
   width: 3px;
   height: 3px;
@@ -546,11 +563,11 @@
   background: var(--t4);
 }
 
-[data-wl-canvas] .rmeta li:last-child::after {
+[data-wl-canvas][data-wl-page="careers"] .rmeta li:last-child::after {
   display: none;
 }
 
-[data-wl-canvas] .rright {
+[data-wl-canvas][data-wl-page="careers"] .rright {
   display: flex;
   align-items: center;
   gap: 20px;
@@ -558,12 +575,12 @@
 }
 
 @media (min-width: 641px) {
-  [data-wl-canvas] .rright {
+  [data-wl-canvas][data-wl-page="careers"] .rright {
     justify-content: flex-end;
   }
 }
 
-[data-wl-canvas] .pay {
+[data-wl-canvas][data-wl-page="careers"] .pay {
   font-family: var(--font-display);
   font-size: 15.5px;
   font-weight: 700;
@@ -572,7 +589,7 @@
   white-space: nowrap;
 }
 
-[data-wl-canvas] .pay span {
+[data-wl-canvas][data-wl-page="careers"] .pay span {
   display: block;
   font-family: var(--font-body);
   font-size: 11.5px;
@@ -584,7 +601,7 @@
   text-align: right;
 }
 
-[data-wl-canvas] .rgo {
+[data-wl-canvas][data-wl-page="careers"] .rgo {
   width: 38px;
   height: 38px;
   border-radius: 50%;
@@ -597,31 +614,31 @@
   flex-shrink: 0;
 }
 
-[data-wl-canvas] .rgo svg {
+[data-wl-canvas][data-wl-page="careers"] .rgo svg {
   width: 15px;
   height: 15px;
   stroke-width: 2.2;
   transition: transform 0.2s;
 }
 
-[data-wl-canvas] .row:hover .rgo {
+[data-wl-canvas][data-wl-page="careers"] .row:hover .rgo {
   background: var(--brand);
   border-color: var(--brand);
   color: #fff;
 }
 
-[data-wl-canvas] .row:hover .rgo svg {
+[data-wl-canvas][data-wl-page="careers"] .row:hover .rgo svg {
   transform: translateX(2px);
 }
 
 /* ── empty state and closer ─────────────────────────────────── */
 
-[data-wl-canvas] .empty {
+[data-wl-canvas][data-wl-page="careers"] .empty {
   margin-top: 38px;
   padding: 40px;
 }
 
-[data-wl-canvas] .empty .mark {
+[data-wl-canvas][data-wl-page="careers"] .empty .mark {
   width: 44px;
   height: 44px;
   border-radius: var(--r-lg);
@@ -629,7 +646,7 @@
   margin-bottom: 18px;
 }
 
-[data-wl-canvas] .empty h3 {
+[data-wl-canvas][data-wl-page="careers"] .empty h3 {
   font-family: var(--font-display);
   font-size: 26px;
   font-weight: 800;
@@ -638,7 +655,7 @@
   color: var(--t1);
 }
 
-[data-wl-canvas] .empty p {
+[data-wl-canvas][data-wl-page="careers"] .empty p {
   font-size: 14px;
   line-height: 1.7;
   color: var(--t2);
@@ -646,12 +663,12 @@
   max-width: 56ch;
 }
 
-[data-wl-canvas] .empty .btn {
+[data-wl-canvas][data-wl-page="careers"] .empty .btn {
   margin-top: 22px;
 }
 
 /* last row → closer = margin-top 56 + padding-top 36 + 1px border = 93px */
-[data-wl-canvas] .closer {
+[data-wl-canvas][data-wl-page="careers"] .closer {
   margin-top: 56px;
   padding-top: 36px;
   border-top: 1px solid var(--line);
@@ -662,7 +679,7 @@
   flex-wrap: wrap;
 }
 
-[data-wl-canvas] .closer h3 {
+[data-wl-canvas][data-wl-page="careers"] .closer h3 {
   font-family: var(--font-display);
   font-size: 24px;
   font-weight: 800;
@@ -671,7 +688,7 @@
   color: var(--t1);
 }
 
-[data-wl-canvas] .closer p {
+[data-wl-canvas][data-wl-page="careers"] .closer p {
   font-size: 14px;
   line-height: 1.7;
   color: var(--t2);
@@ -682,6 +699,6 @@
 /* closer → footer = margin-top 64 + 1px border + padding-top 24 = 89px.
    The shared .foot rule carries the border and padding; only the careers
    margin-top is here, because the job page uses 56. */
-[data-wl-canvas] .foot {
+[data-wl-canvas][data-wl-page="careers"] .foot {
   margin-top: 64px;
 }
