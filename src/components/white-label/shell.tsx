@@ -1,3 +1,4 @@
+import { type BrandPreset, brandTokens, DEFAULT_PRESET } from "./brand";
 import "./white-label.css";
 
 /**
@@ -66,12 +67,27 @@ type WhiteLabelPage = "job";
 export function WhiteLabelShell({
   children,
   page,
+  preset = DEFAULT_PRESET,
 }: {
   children: React.ReactNode;
   page?: WhiteLabelPage;
+  /**
+   * The company's chosen brand. Defaults to Plum, which is what every company
+   * that has never set one renders as — and what the CSS fallback already is.
+   */
+  preset?: BrandPreset;
 }) {
+  /*
+   * INLINE, on the same element the tokens are scoped to.
+   *
+   * An inline style beats `[data-wl-canvas]`'s specificity, so the literals in
+   * white-label.css keep doing their job — they are the frame if this element
+   * ever renders without a style — while these override them for the four
+   * non-default presets. Server-rendered, so the correct brand is in the HTML
+   * and there is no repaint to see.
+   */
   return (
-    <div data-wl-canvas data-wl-page={page}>
+    <div data-wl-canvas data-wl-page={page} style={brandTokens(preset) as React.CSSProperties}>
       {children}
     </div>
   );

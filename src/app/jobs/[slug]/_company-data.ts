@@ -1,4 +1,5 @@
 import "server-only";
+import { type BrandPreset, toPreset } from "@/components/white-label/brand";
 import { initialsOf } from "@/components/white-label/company";
 import { publiclyVisible } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -16,6 +17,8 @@ const COMPANY_LOGO_BUCKET = "company-logos";
  */
 export type JobCompany = {
   name: string;
+  /** The company's colour, already narrowed — null and unknown both mean Plum. */
+  preset: BrandPreset;
   /** Null when the company has no slug, which is what gates the careers links. */
   slug: string | null;
   website: string | null;
@@ -35,6 +38,7 @@ type CompanyRow = {
   team_size: string | null;
   location: string | null;
   logo_path: string | null;
+  brand_preset: string | null;
   status: string;
 };
 
@@ -56,7 +60,9 @@ export async function getJobCompany(companyId: string, jobId: string): Promise<J
 
     const { data: row, error } = await service
       .from("companies")
-      .select("name, slug, website, description, team_size, location, logo_path, status")
+      .select(
+        "name, slug, website, description, team_size, location, logo_path, brand_preset, status",
+      )
       .eq("id", companyId)
       .maybeSingle();
 
@@ -93,6 +99,7 @@ export async function getJobCompany(companyId: string, jobId: string): Promise<J
         ? (service.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(logoPath).data.publicUrl ?? null)
         : null,
       initials: initialsOf(name),
+      preset: toPreset(company.brand_preset),
       otherRoles: count ?? 0,
     };
   } catch (err) {

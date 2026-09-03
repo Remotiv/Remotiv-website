@@ -108,7 +108,7 @@ export function CompanyJobDetail({
   };
 
   return (
-    <WhiteLabelShell page="job">
+    <WhiteLabelShell page="job" preset={company.preset}>
       <header className="chead">
         <div className="wrap">
           <div className="cid">

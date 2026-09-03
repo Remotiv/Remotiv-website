@@ -1,4 +1,5 @@
 import "server-only";
+import { type BrandPreset, toPreset } from "@/components/white-label/brand";
 import { LIST_SELECT, publiclyVisible } from "@/lib/jobs";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -27,6 +28,8 @@ const NEW_ROLE_DAYS = 7;
 
 export type CareersCompany = {
   id: string;
+  /** The company's colour, already narrowed — null and unknown both mean Plum. */
+  preset: BrandPreset;
   slug: string;
   name: string;
   /** First word, for the closer and the header link. */
@@ -142,6 +145,7 @@ type CompanyRow = {
   logo_path: string | null;
   team_size: string | null;
   location: string | null;
+  brand_preset: string | null;
   status: string;
 };
 
@@ -179,7 +183,9 @@ export async function getCareersData(slug: string): Promise<Read<CareersData | n
 
   const { data: companyRow, error: companyError } = await service
     .from("companies")
-    .select("id, slug, name, website, description, logo_path, team_size, location, status")
+    .select(
+      "id, slug, name, website, description, logo_path, team_size, location, brand_preset, status",
+    )
     .eq("slug", slug)
     .maybeSingle();
 
@@ -262,6 +268,7 @@ export async function getCareersData(slug: string): Promise<Read<CareersData | n
       initials: initialsOf(trimmedName),
       teamSize,
       location,
+      preset: toPreset(company.brand_preset),
     },
     roles,
     categories,

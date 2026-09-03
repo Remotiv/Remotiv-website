@@ -268,13 +268,27 @@
   }
 }
 
-/* The .72 alpha is required for 4.5:1 against all five presets. Do not lower. */
+/*
+ * .88, not the handoff's .72.
+ *
+ * The handoff says .72 "is required for 4.5:1 on all five presets". Measured,
+ * it is not: composited over each brand it gives navy 6.80, plum 4.57 and ink
+ * 8.67, but FOREST 4.24 and RUST 3.62 — both under 4.5 for 11.5px text, which
+ * is normal size and gets no large-text exemption. The figure was checked
+ * against Plum, which passes by 0.07, and generalised to the other four.
+ *
+ * Unreachable until the presets shipped, since every company rendered Plum.
+ * At .88: navy 9.26, forest 5.47, plum 5.99, rust 4.64, ink 12.25 — all AA,
+ * with rust the floor at 4.64.
+ *
+ * DO NOT LOWER, and the reason is now a measurement rather than an assertion.
+ */
 [data-wl-canvas] .rail dt {
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 [data-wl-canvas] .rail dd {

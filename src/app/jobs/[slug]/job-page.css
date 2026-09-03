@@ -238,13 +238,18 @@
   }
 }
 
-/* The .72 alpha is required for 4.5:1 across all five presets. Do not lower. */
+/*
+ * .88, not the handoff's .72 — see the matching note in careers.css.
+ *
+ * Forest (4.24) and rust (3.62) fail 4.5:1 at .72; the handoff's claim was
+ * checked against Plum and generalised. .88 clears AA on all five.
+ */
 [data-wl-canvas][data-wl-page="job"] .mrail dt {
   font-size: 11.5px;
   font-weight: 700;
   letter-spacing: 0.13em;
   text-transform: uppercase;
-  color: rgba(255, 255, 255, 0.72);
+  color: rgba(255, 255, 255, 0.88);
 }
 
 [data-wl-canvas][data-wl-page="job"] .mrail dd {
