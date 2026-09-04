@@ -3,14 +3,34 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 
 /**
- * Share buttons and the toast they raise.
+ * Share controls and the toast they raise.
  *
- * A client component because two of the three actions need the browser —
- * clipboard access, and a popup for LinkedIn's composer. The reference's
- * buttons only raise a toast; these do the real thing and then say so.
+ * Shared by BOTH white-label surfaces — the job page and the careers page — so
+ * it lives beside the shell rather than under one route. It sat in
+ * jobs/[slug]/ while the job page was its only caller, and the note it carried
+ * said "if a second one appears, it moves up". One did.
  *
- * The toast lives here rather than at page level because this is its only
- * caller. If a second one appears, it moves up — not sideways into a copy.
+ * ── LinkedIn is an ANCHOR, not window.open ───────────────────
+ *
+ * It used to be `window.open(url, "_blank", "noopener,noreferrer")`. Passing a
+ * features string makes the browser open a POPUP rather than a tab, and the
+ * popup is where this broke: /sharing/share-offsite/ requires an authenticated
+ * session, and a popup does not reliably carry the profile the user is signed
+ * into. What they saw was LinkedIn's home page with nothing attached.
+ *
+ * The URL was never wrong. Opened directly in a signed-in tab the composer
+ * appears with the full preview, and the endpoint still forwards its `url`
+ * through the login redirect (verified: it 302s to /uas/login with the
+ * parameter intact). So this is a plain anchor — what the editorial job page
+ * always used, and what never had the problem.
+ *
+ * ── The other two do NOT share that mechanism ────────────────
+ *
+ * Copy uses `navigator.clipboard`; Email sets `window.location.href` to a
+ * mailto:. Neither opens a window, so neither could have had this bug, and each
+ * already handles its own failure: the clipboard call is wrapped and says so
+ * when refused, and a mailto: with no registered handler does nothing and
+ * leaves the page where it was.
  */
 
 const ICONS = {
@@ -82,19 +102,14 @@ export function ShareRole({ url, subject }: { url: string; subject: string }) {
   return (
     <>
       <div className="share">
-        <button
-          type="button"
-          onClick={() => {
-            window.open(
-              `https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`,
-              "_blank",
-              "noopener,noreferrer",
-            );
-          }}
+        <a
+          href={`https://www.linkedin.com/sharing/share-offsite/?url=${encodeURIComponent(url)}`}
+          target="_blank"
+          rel="noopener noreferrer"
         >
           <ShareIcon kind="linkedin" />
           LinkedIn
-        </button>
+        </a>
         <button type="button" onClick={copy}>
           <ShareIcon kind="link" />
           Copy link

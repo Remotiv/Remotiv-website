@@ -1,12 +1,12 @@
 import Link from "next/link";
 import { cssUrl, displayHost, websiteHref } from "@/components/white-label/company";
+import { ShareRole } from "@/components/white-label/share";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import type { Job } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
 import ApplyButton from "./_apply-button";
 import type { JobCompany } from "./_company-data";
 import { fmtSalary, serializeJsonLd, splitLines, timeAgo, toPublicJob } from "./_format";
-import { ShareRole } from "./_share";
 import "./job-page.css";
 
 /**

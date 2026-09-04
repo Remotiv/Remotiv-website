@@ -2,6 +2,7 @@ import type { Metadata } from "next";
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { cssUrl } from "@/components/white-label/company";
+import { ShareRole } from "@/components/white-label/share";
 import { WhiteLabelShell } from "@/components/white-label/shell";
 import { canonicalUrl } from "@/lib/seo";
 import { displayHost, getCareersData, websiteHref } from "./_data";
@@ -301,6 +302,25 @@ export default async function CareersPage({ params }: PageProps) {
                       <Icon d={EXTERNAL} />
                     </a>
                   )}
+                </div>
+
+                {/*
+                  NOT IN THE HANDOFF — the design gives .share to the job page
+                  only, and this page had no share control at all. Added because
+                  the careers page is the link a company actually circulates:
+                  one URL that stays right as roles open and close, where a job
+                  link dies with the role.
+
+                  Same component and same styles as the job page, deliberately.
+                  A second, differently-built share row is how the two surfaces
+                  drift, which is the failure the shared sheet exists to stop.
+                */}
+                <div className="cshare">
+                  <p className="eyebrow">Share these roles</p>
+                  <ShareRole
+                    url={canonicalUrl(`/careers/${company.slug}`)}
+                    subject={`Open roles at ${company.name}`}
+                  />
                 </div>
               </>
             )}

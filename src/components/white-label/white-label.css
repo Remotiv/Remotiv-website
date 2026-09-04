@@ -459,3 +459,77 @@ body:has([data-wl-canvas]) > footer {
   color: var(--t1);
   text-decoration: underline;
 }
+
+/* ══════════════════════════════════════════════════════════════
+ * SHARE CONTROLS + TOAST
+ *
+ * Hoisted here from job-page.css when the careers page gained the same
+ * control. Both surfaces render <ShareRole>, so one definition serves both —
+ * the alternative was a second copy under careers.css, which is exactly the
+ * duplication the scoping fix on these two sheets exists to prevent.
+ *
+ * The pill rules match `button` AND `a`: LinkedIn is an anchor (a popup could
+ * not carry the user's LinkedIn session — see share.tsx), while Copy and Email
+ * are buttons because they act on the page rather than navigate.
+ * ══════════════════════════════════════════════════════════════ */
+
+[data-wl-canvas] .share {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 14px;
+}
+
+[data-wl-canvas] .share button,
+[data-wl-canvas] .share a {
+  display: inline-flex;
+  align-items: center;
+  gap: 7px;
+  font-size: 12.48px;
+  font-weight: 500;
+  color: var(--t2);
+  background: var(--page);
+  border: 1px solid var(--line);
+  border-radius: 999px;
+  padding: 6px 12px;
+  transition: 0.16s;
+}
+
+[data-wl-canvas] .share button,
+[data-wl-canvas] .share a:hover {
+  border-color: var(--brand);
+  color: var(--brand-ink);
+  background: var(--brand-tint);
+}
+
+/* Icons are inline 1.5px-stroke SVG — no emoji. */
+[data-wl-canvas] .share svg {
+  width: 13px;
+  height: 13px;
+  stroke-width: 1.9;
+}
+
+/* ── toast ──────────────────────────────────────────────────── */
+
+[data-wl-canvas] .toast {
+  position: fixed;
+  left: 50%;
+  bottom: 26px;
+  transform: translateX(-50%) translateY(14px);
+  z-index: 200;
+  background: var(--t1);
+  color: #fff;
+  font-size: 13px;
+  font-weight: 500;
+  padding: 11px 17px;
+  border-radius: var(--r-lg);
+  opacity: 0;
+  pointer-events: none;
+  transition: 0.24s;
+  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
+}
+
+[data-wl-canvas] .toast.show {
+  opacity: 1;
+  transform: translateX(-50%) translateY(0);
+}

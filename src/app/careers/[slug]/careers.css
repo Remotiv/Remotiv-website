@@ -702,3 +702,25 @@
 [data-wl-canvas][data-wl-page="careers"] .foot {
   margin-top: 64px;
 }
+
+/*
+ * The share row under the roles index.
+ *
+ * Careers-only: the job page puts .share inside its right-hand rail, which this
+ * page does not have, so only the WRAPPER lives here — the pills and the toast
+ * are the shared definitions in white-label.css and are not restyled.
+ */
+[data-wl-canvas][data-wl-page="careers"] .cshare {
+  margin-top: 40px;
+  padding-top: 26px;
+  border-top: 1px solid var(--line-soft);
+  /* The label sits 12px above the pills. Done with a gap on the wrapper rather
+     than a margin on `.cshare .eyebrow`, which would be a (0,4,0) selector
+     reaching under the shared `.eyebrow` rule — Biome flags the descending
+     specificity, and it is right: this page has no business restyling a shared
+     component from a deeper selector. */
+  display: flex;
+  flex-direction: column;
+  gap: 12px;
+  align-items: flex-start;
+}

@@ -537,40 +537,6 @@
   transform: translateX(3px);
 }
 
-[data-wl-canvas][data-wl-page="job"] .share {
-  display: flex;
-  flex-wrap: wrap;
-  gap: 8px;
-  margin-top: 14px;
-}
-
-[data-wl-canvas][data-wl-page="job"] .share button {
-  display: inline-flex;
-  align-items: center;
-  gap: 7px;
-  font-size: 12.48px;
-  font-weight: 500;
-  color: var(--t2);
-  background: var(--page);
-  border: 1px solid var(--line);
-  border-radius: 999px;
-  padding: 6px 12px;
-  transition: 0.16s;
-}
-
-[data-wl-canvas][data-wl-page="job"] .share button:hover {
-  border-color: var(--brand);
-  color: var(--brand-ink);
-  background: var(--brand-tint);
-}
-
-/* Icons are inline 1.5px-stroke SVG — no emoji. */
-[data-wl-canvas][data-wl-page="job"] .share svg {
-  width: 13px;
-  height: 13px;
-  stroke-width: 1.9;
-}
-
 /* ── closing card ───────────────────────────────────────────── */
 
 [data-wl-canvas][data-wl-page="job"] .close {
@@ -680,31 +646,6 @@
     align-items: flex-start;
     gap: 8px;
   }
-}
-
-/* ── toast ──────────────────────────────────────────────────── */
-
-[data-wl-canvas][data-wl-page="job"] .toast {
-  position: fixed;
-  left: 50%;
-  bottom: 26px;
-  transform: translateX(-50%) translateY(14px);
-  z-index: 200;
-  background: var(--t1);
-  color: #fff;
-  font-size: 13px;
-  font-weight: 500;
-  padding: 11px 17px;
-  border-radius: var(--r-lg);
-  opacity: 0;
-  pointer-events: none;
-  transition: 0.24s;
-  box-shadow: 0 12px 34px rgba(0, 0, 0, 0.22);
-}
-
-[data-wl-canvas][data-wl-page="job"] .toast.show {
-  opacity: 1;
-  transform: translateX(-50%) translateY(0);
 }
 
 /* ── loading skeleton (loading.tsx) ─────────────────────────── */
