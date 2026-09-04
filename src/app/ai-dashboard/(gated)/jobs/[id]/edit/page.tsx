@@ -45,6 +45,7 @@ type JobRow = {
   async_interview_enabled: boolean | null;
   async_interview_name: string | null;
   send_rejection_email: boolean | null;
+  listed_on_remotiv: boolean | null;
   /** Step 8. Null is meaningful — equal weighting, not a missing value. */
   cv_weight_requirements: number | null;
   cv_weight_experience: number | null;
@@ -78,7 +79,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
+      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", id)
     .maybeSingle();
@@ -163,6 +164,16 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
     async_interview_enabled: job.async_interview_enabled ?? EMPTY_JOB_INPUT.async_interview_enabled,
     async_interview_name: job.async_interview_name ?? "",
     send_rejection_email: job.send_rejection_email ?? false,
+    /*
+     * Seeded from the ROW, so an existing job opens showing what it actually
+     * is. Every job predating this column was backfilled to true — they are on
+     * the board today — and a company editing a live role must not find it
+     * silently opted out and re-save it off the board.
+     *
+     * `?? false` covers only a row with null in a NOT NULL column; it is not
+     * the default for NEW jobs, which comes from job-types.ts.
+     */
+    listed_on_remotiv: job.listed_on_remotiv ?? false,
     /*
      * Nullable by design, so `??` would be WRONG here — null is a meaningful
      * value (equal weighting / feature off), not a missing one to be defaulted.

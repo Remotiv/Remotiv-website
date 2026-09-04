@@ -215,6 +215,20 @@ export type CompanyJobInput = {
   send_rejection_email: boolean;
 
   /**
+   * List this role on remotiv.work/jobs, the shared public board.
+   *
+   * OFF for a new job, and that direction is the point: a company posting a
+   * role should not discover it on a board beside other companies' roles
+   * without having chosen that. It used to be automatic — every published job
+   * appeared there — which made a distribution decision on their behalf.
+   *
+   * Gates the BOARD ONLY. Their careers page and the job's own URL work either
+   * way; see listedOnRemotiv in lib/jobs.ts for the four surfaces this touches
+   * and the ones it deliberately does not.
+   */
+  listed_on_remotiv: boolean;
+
+  /**
    * Per-dimension CV weighting — wizard step 8.
    *
    * NULL MEANS EQUAL WEIGHTING, which is defined as *today's behaviour*: the
@@ -340,6 +354,9 @@ export const EMPTY_JOB_INPUT: CompanyJobInput = {
   // Off by default. An automated rejection carrying a company's name is
   // switched on deliberately, never inherited by accident.
   send_rejection_email: false,
+  // Off, for the same reason: appearing on someone else's board is a choice,
+  // not a side effect of publishing.
+  listed_on_remotiv: false,
   // Null across the board: equal weighting, i.e. the model's overall stands.
   cv_weight_requirements: null,
   cv_weight_experience: null,

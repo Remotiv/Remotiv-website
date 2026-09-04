@@ -20,7 +20,7 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id";
+  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id,listed_on_remotiv";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
@@ -128,6 +128,13 @@ export interface Job {
   status: string;
   created_at: string;
   /**
+   * Did the company choose to list this role on remotiv.work/jobs?
+   *
+   * FALSE by default. It gates the shared board only — never the company's own
+   * careers page and never the job's own URL. See listedOnRemotiv below.
+   */
+  listed_on_remotiv: boolean;
+  /**
    * Public URL of the owning company's logo, or null.
    *
    * DERIVED, not a column — attachCompanyLogos fills it after the row query.
@@ -221,9 +228,42 @@ type VisibilityFilterable = {
   is(column: string, value: null): VisibilityFilterable;
 };
 
+/** As above, for the boolean column — same TS2589 reasoning. */
+type ListingFilterable = {
+  eq(column: string, value: boolean): ListingFilterable;
+};
+
 export function publiclyVisible<T>(query: T): T {
   const filterable = query as VisibilityFilterable;
   return filterable.eq("status", "open").is("archived_at", null) as T;
+}
+
+/**
+ * Publicly visible AND on the shared Remotiv board.
+ *
+ * ── Why this is a second helper and not a line in the first ──
+ *
+ * publiclyVisible has fourteen callers and they do not all mean the same thing.
+ * Three of them serve the job's OWN url and the company's OWN careers page:
+ * getJobById, getJobBySlug, and the careers-page query. Folding the flag into
+ * publiclyVisible would have taken an unlisted role off the company's careers
+ * page and 404'd the link they had been circulating — turning "don't advertise
+ * this on your board" into "delete my hiring page", which nobody asked for.
+ *
+ * So the flag lives here, and only the four surfaces that ARE the Remotiv board
+ * use it:
+ *
+ *   getInitialJobs          the board itself
+ *   GET /api/jobs           the board's data source
+ *   sitemap.ts              no point indexing a role they did not list
+ *   talent dashboard        "latest jobs" — the board under another name
+ *
+ * Everything else keeps publiclyVisible unchanged. The distinction is not
+ * "public vs private"; it is "ours to advertise vs theirs to publish".
+ */
+export function listedOnRemotiv<T>(query: T): T {
+  const filterable = publiclyVisible(query) as ListingFilterable;
+  return filterable.eq("listed_on_remotiv", true) as T;
 }
 
 /**
@@ -238,7 +278,7 @@ export function publiclyVisible<T>(query: T): T {
 export async function getInitialJobs(): Promise<Read<Job[]>> {
   const supabase = createServiceClient();
 
-  const { data, error } = await publiclyVisible(
+  const { data, error } = await listedOnRemotiv(
     supabase.from("jobs").select(LIST_SELECT),
   )
     .order("display_order", { ascending: true, nullsFirst: false })

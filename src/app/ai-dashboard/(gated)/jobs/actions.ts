@@ -389,6 +389,9 @@ function buildPatch(
       async_interview_enabled: asyncOn,
       async_interview_name: interviewerName(input.async_interview_name, asyncOn),
       send_rejection_email: input.send_rejection_email === true,
+      // `=== true` so an absent field lands on FALSE, matching the column
+      // default. A client that predates this option must not opt itself in.
+      listed_on_remotiv: input.listed_on_remotiv === true,
       scoring_must_haves: namedList(input.scoring_must_haves, MUST_HAVE_MAX),
       interview_criteria: namedList(input.interview_criteria, INTERVIEW_CRITERIA_MAX),
       ...bookingPatch(input),

@@ -1,6 +1,6 @@
 import { redirect } from "next/navigation";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
-import { type Job, LIST_SELECT, publiclyVisible } from "@/lib/jobs";
+import { type Job, LIST_SELECT, listedOnRemotiv } from "@/lib/jobs";
 import { DashboardClient, type DashboardProfile } from "./_dashboard-client";
 import {
   computeCompleteness,
@@ -69,7 +69,7 @@ export default async function TalentDashboardPage({
         .select(REMOTE_COLUMNS)
         .eq("email", normalisedEmail)
         .maybeSingle(),
-      publiclyVisible(service.from("jobs").select(LIST_SELECT)).order(
+      listedOnRemotiv(service.from("jobs").select(LIST_SELECT)).order(
         "created_at",
         { ascending: false },
       ),

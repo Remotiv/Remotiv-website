@@ -99,37 +99,27 @@ const STEPS = [
     title: "Interview questions",
     desc: "What the candidate answers on camera, in their own time.",
   },
-  { n: 6, label: "Review", title: "Review", desc: "One last look before it goes live." },
 ] as const;
 
-/*
- * Interview questions were step 7 in the locked rail. Unlocking it in place
- * would have left a live step behind a locked one and put Review in the middle
- * of the flow, so it becomes step 5 and Review moves to 6. The three that stay
- * locked keep their order and renumber behind it.
- */
 /**
- * Steps 8 and 9, which sit AFTER the locked step 7 in the rail.
- *
- * Separate from STEPS so the rail can render 1–6, then the locked 7, then these
- * — the mock's order. Their panels are numbered 8 and 9 because that is the
- * product's step identity, not their position in the flow.
+ * How the AI reads what comes back. One group because they are one subject:
+ * what to score, how to weight it, and what to do with the result.
  */
-const LATE_STEPS = [
+const SCORING_STEPS = [
   {
-    n: 7,
+    n: 6,
     label: "AI scoring",
     title: "AI scoring criteria",
     desc: "Name the things that matter most. The scorer reports on each one.",
   },
   {
-    n: 8,
+    n: 7,
     label: "Answer weighting",
     title: "Answer weighting",
     desc: "Decide what counts most when the AI scores someone.",
   },
   {
-    n: 9,
+    n: 8,
     label: "Auto-shortlist",
     title: "Auto-shortlist",
     desc: "Flag the strongest applicants automatically. You still decide.",
@@ -137,22 +127,91 @@ const LATE_STEPS = [
 ] as const;
 
 /**
- * The order a person moves through. Now 1–9 with nothing skipped.
+ * Review, alone, last.
  *
- * Kept as an explicit list rather than collapsing back to `step + 1`: the
- * sequence and the step number agreeing is a property of today's rail, not a
- * rule, and the last two times a step was unlocked or moved it was this
- * indirection that made it a one-line change. positionOf and stepAt stay, so
- * the footer's "Step N of 9" and the Continue/Back walk keep working whatever
- * order the rail ends up in.
+ * ── Why it is its own group and not the tail of SCORING_STEPS ─
  *
- * Review stays mid-flow at 6 and Publish is on the last position, step 9.
+ * It used to be step 6, mid-flow, with three steps after it — a summary of
+ * everything, placed before three things that had not happened yet, with
+ * Publish sitting on Auto-shortlist rather than on the summary. Moving it to 9
+ * fixes the order; appending it to the scoring group would have made it read as
+ * a fourth scoring setting, which it is not.
+ *
+ * So the rail renders three blocks, with a hairline above this one: the role,
+ * then how it is scored, then the confirmation. Review is the only step that
+ * summarises rather than collects, and the only one carrying Publish. The
+ * separator says that before the label is read.
  */
-const SEQUENCE = [1, 2, 3, 4, 5, 6, 7, 8, 9] as const;
+const REVIEW_STEPS = [
+  { n: 9, label: "Review", title: "Review", desc: "One last look before it goes live." },
+] as const;
+
+/** Every step, in rail order. The list a new step gets added to. */
+const ALL_STEPS = [...STEPS, ...SCORING_STEPS, ...REVIEW_STEPS];
+
+/**
+ * The order a person moves through — now identical to the rail's own order.
+ *
+ * DERIVED from ALL_STEPS rather than written out. It was a hand-kept literal
+ * `[1,…,9]`, which is survivable, but the two counts beside it were not: the
+ * header said "5 steps" while the badge said "Step N of 9", on the same screen,
+ * because both were typed rather than counted. Anything that counts steps now
+ * counts them.
+ *
+ * positionOf and stepAt stay, so Continue/Back and the footer keep working
+ * whatever order the rail ends up in — that indirection is what made this
+ * reordering small.
+ */
+const SEQUENCE: number[] = ALL_STEPS.map((x) => x.n);
+
+/**
+ * One row of the left rail.
+ *
+ * Extracted when Review became a third group. The markup was already duplicated
+ * across the two existing blocks, and a third copy is how groups start
+ * disagreeing about their own states. `done` is by POSITION, not step number,
+ * so it stays correct if the rail is reordered again.
+ */
+function StepRow({
+  step,
+  current,
+  onGo,
+}: {
+  step: { n: number; label: string };
+  current: number;
+  onGo: (n: number) => void;
+}) {
+  const active = step.n === current;
+  const done = positionOf(step.n) < positionOf(current);
+  return (
+    <button
+      type="button"
+      onClick={() => onGo(step.n)}
+      /* `.step` + `.step.active` only. A completed step gets NO row treatment —
+         no background, border or shadow — which is what stops it looking like a
+         second active card. */
+      className={`${STEP_ROW} ${active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE}`}
+    >
+      {/* `.step.done` styles the CIRCLE ONLY; the digit stays. */}
+      <span
+        className={`${STEP_NUM} ${active ? STEP_NUM_ACTIVE : done ? STEP_NUM_DONE : STEP_NUM_IDLE}`}
+      >
+        {step.n}
+      </span>
+      {/* `.step.active .lab` and `.step.done .lab` are the only label overrides;
+         an untouched label stays at 62%. */}
+      <span
+        className={`${STEP_LAB} ${active ? "text-white" : done ? "text-white/70" : "text-white/[0.62]"}`}
+      >
+        {step.label}
+      </span>
+    </button>
+  );
+}
 
 /** 1-based position of a step in the working sequence. 0 when not in it. */
 function positionOf(step: number): number {
-  return SEQUENCE.indexOf(step as (typeof SEQUENCE)[number]) + 1;
+  return SEQUENCE.indexOf(step) + 1;
 }
 
 /** The step the Continue/Back buttons should move to, or null at either end. */
@@ -163,8 +222,8 @@ function stepAt(position: number): number | null {
 /** The step Publish lives on — the last unlocked one. */
 const FINAL_STEP = SEQUENCE[SEQUENCE.length - 1];
 
-/** Highest step number in the rail, for the "Step N of 9" badge. */
-const HIGHEST_STEP = 9;
+/** Highest step number in the rail, for the "Step N of M" badge. Counted. */
+const HIGHEST_STEP = Math.max(...ALL_STEPS.map((x) => x.n));
 
 /**
  * Competency suggestions for the interview builder.
@@ -940,9 +999,9 @@ export function WizardClient({
     return `${currencySymbol(state.salary_currency)} ${min || "—"} – ${max || "—"}`;
   }, [state.show_salary, state.salary_min, state.salary_max, state.salary_currency]);
 
-  // Steps 8 and 9 live in LATE_STEPS, so the lookup spans both tables rather
-  // than indexing STEPS by position — which would silently return Basics.
-  const meta = STEPS.find((x) => x.n === step) ?? LATE_STEPS.find((x) => x.n === step) ?? STEPS[0];
+  // One list, so a step added to any group is found without touching this.
+  // Indexing STEPS by position would silently return Basics for anything late.
+  const meta = ALL_STEPS.find((x) => x.n === step) ?? ALL_STEPS[0];
 
   return (
     <div className="flex min-h-full flex-col">
@@ -1015,10 +1074,12 @@ export function WizardClient({
                 {isEdit ? "Edit job" : "Post a job"}
               </h1>
               <p className="mb-3.5 text-xs text-white/50">
-                {isEdit ? "5 steps · edit any section" : "5 steps · ~4 min"}
+                {isEdit
+                  ? `${SEQUENCE.length} steps · edit any section`
+                  : `${SEQUENCE.length} steps · ~4 min`}
               </p>
 
-              {/* Lime progress bar — how far through the five steps the user is. */}
+              {/* Lime progress bar — how far through the rail the user is. */}
               <div className="mb-[18px] h-1 overflow-hidden rounded-[3px] bg-white/[0.12]">
                 <div
                   className="h-full rounded-[3px] bg-remotiv-lime transition-[width] duration-300 ease-out"
@@ -1028,71 +1089,32 @@ export function WizardClient({
                 />
               </div>
 
+              {/*
+                THREE GROUPS, and the hairline is the point.
+
+                1-5 collect the role, 6-8 set up how it is scored, 9 confirms.
+                Review used to be step 6 with three steps behind it, so the
+                summary described a state the user had not reached and Publish
+                sat on Auto-shortlist. It is last now, and separated: appending
+                it to the scoring block would have read as a fourth scoring
+                setting rather than the end of the flow.
+              */}
               <div>
-                {STEPS.map((s) => {
-                  const active = s.n === step;
-                  const done = positionOf(s.n) < positionOf(step);
-                  return (
-                    <button
-                      key={s.n}
-                      type="button"
-                      onClick={() => goTo(s.n)}
-                      /* `.step` + `.step.active` only. A completed step gets NO
-                       row treatment — no background, border or shadow — which
-                       is what stops it looking like a second active card. */
-                      className={`${STEP_ROW} ${active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE}`}
-                    >
-                      <span
-                        /* `.step.done` styles the CIRCLE ONLY. */
-                        className={`${STEP_NUM} ${
-                          active ? STEP_NUM_ACTIVE : done ? STEP_NUM_DONE : STEP_NUM_IDLE
-                        }`}
-                      >
-                        {/* Completing a step recolours the badge — the digit stays. */}
-                        {s.n}
-                      </span>
-                      <span
-                        /* `.step.active .lab` and `.step.done .lab` are the only
-                         label overrides; an untouched label stays at 62%. */
-                        className={`${STEP_LAB} ${
-                          active ? "text-white" : done ? "text-white/70" : "text-white/[0.62]"
-                        }`}
-                      >
-                        {s.label}
-                      </span>
-                    </button>
-                  );
-                })}
+                {STEPS.map((s) => (
+                  <StepRow key={s.n} step={s} current={step} onGo={goTo} />
+                ))}
               </div>
 
               <div>
-                {LATE_STEPS.map((s) => {
-                  const active = s.n === step;
-                  const done = positionOf(s.n) < positionOf(step);
-                  return (
-                    <button
-                      key={s.n}
-                      type="button"
-                      onClick={() => goTo(s.n)}
-                      className={`${STEP_ROW} ${active ? STEP_ROW_ACTIVE : STEP_ROW_IDLE}`}
-                    >
-                      <span
-                        className={`${STEP_NUM} ${
-                          active ? STEP_NUM_ACTIVE : done ? STEP_NUM_DONE : STEP_NUM_IDLE
-                        }`}
-                      >
-                        {s.n}
-                      </span>
-                      <span
-                        className={`${STEP_LAB} ${
-                          active ? "text-white" : done ? "text-white/70" : "text-white/[0.62]"
-                        }`}
-                      >
-                        {s.label}
-                      </span>
-                    </button>
-                  );
-                })}
+                {SCORING_STEPS.map((s) => (
+                  <StepRow key={s.n} step={s} current={step} onGo={goTo} />
+                ))}
+              </div>
+
+              <div className="mt-2 border-t border-white/[0.12] pt-2">
+                {REVIEW_STEPS.map((s) => (
+                  <StepRow key={s.n} step={s} current={step} onGo={goTo} />
+                ))}
               </div>
             </div>
           </div>
@@ -1816,7 +1838,7 @@ export function WizardClient({
                 </>
               )}
 
-              {step === 6 && (
+              {step === 9 && (
                 <>
                   <div className="mb-3 grid grid-cols-1 gap-3 min-[525px]:grid-cols-2">
                     <ReviewCard label="Role" onEdit={() => setStep(1)}>
@@ -1916,6 +1938,42 @@ export function WizardClient({
                         ones they&apos;re on. Add them from the job&apos;s drawer once it exists.
                       </p>
                     )}
+                  </div>
+
+                  {/*
+                    DISTRIBUTION — deliberately NOT inside "More options" below.
+                    That panel is collapsed by default, and an opt-in decision
+                    that puts a company's role on a board with other companies'
+                    roles is not something to hide behind a disclosure triangle.
+
+                    On Review because this is the screen where "where does this
+                    go?" is the actual question — it is not a detail of the job,
+                    it is what happens to it. Off by default: every published
+                    job used to appear on the board automatically, which decided
+                    this on the company's behalf.
+                  */}
+                  <div className="mt-3 rounded-[13px] border border-[var(--ai-line)] p-4">
+                    <p className="m-0 mb-3 text-[10px] font-semibold uppercase tracking-widest text-[var(--ai-t3)]">
+                      Where this role appears
+                    </p>
+                    <OptionRow
+                      title="List on the Remotiv job board"
+                      desc="Shows this role on remotiv.work/jobs, the public board we run — listed beside roles from other companies, with candidates arriving from Remotiv rather than from your own page."
+                      live
+                      on={state.listed_on_remotiv}
+                      onToggle={() => set("listed_on_remotiv", !state.listed_on_remotiv)}
+                    >
+                      {/* What stays true either way. Without this the toggle
+                          reads as "publish or don't", which is not what it
+                          does — the careers page and the job's own URL are
+                          unaffected, and a company turning it off should not
+                          fear it has hidden the role from its own candidates. */}
+                      <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+                        Your careers page and this role&apos;s own link work either way. Turning
+                        this off removes it from our board and from search results we submit — it
+                        does not unpublish the role.
+                      </p>
+                    </OptionRow>
                   </div>
 
                   <div className="mt-3 overflow-hidden rounded-[13px] border border-[var(--ai-line)]">
@@ -2086,7 +2144,7 @@ export function WizardClient({
                 </>
               )}
 
-              {step === 7 && (
+              {step === 6 && (
                 <ScoringCriteriaStep
                   state={state}
                   onChange={(next) => set("scoring_must_haves", next)}
@@ -2101,7 +2159,7 @@ export function WizardClient({
                 />
               )}
 
-              {step === 8 && (
+              {step === 7 && (
                 <WeightingStep
                   state={state}
                   onCvWeight={(key, stored) => setState((prev) => ({ ...prev, [key]: stored }))}
@@ -2134,7 +2192,7 @@ export function WizardClient({
                 />
               )}
 
-              {step === 9 && <AutoshortlistStep state={state} set={set} />}
+              {step === 8 && <AutoshortlistStep state={state} set={set} />}
             </div>
 
             <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-[26px] py-4">

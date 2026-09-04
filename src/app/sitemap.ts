@@ -1,5 +1,5 @@
 import type { MetadataRoute } from "next";
-import { publiclyVisible } from "@/lib/jobs";
+import { listedOnRemotiv } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
 
 const BASE_URL = "https://remotiv.work";
@@ -56,7 +56,9 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   try {
     // A non-visible job 404s on /jobs/[slug], so leaving it in the sitemap
     // would submit a dead URL to every crawler that reads this file.
-    const { data } = await publiclyVisible(supabase.from("jobs").select("id, slug, created_at"));
+    // Only board-listed roles are indexed. An unlisted job still has a working
+    // URL for the company to share — it is simply not advertised by us.
+    const { data } = await listedOnRemotiv(supabase.from("jobs").select("id, slug, created_at"));
     const rows = (data ?? []) as Array<{
       id: string;
       slug: string | null;
