@@ -1,5 +1,7 @@
+import { cookies, headers } from "next/headers";
 import { redirect } from "next/navigation";
 import { createServiceClient } from "@/lib/supabase/server";
+import { peekSession, RECOVER_ATTEMPTED_COOKIE } from "@/lib/supabase/session-cookie";
 import { AiShell } from "../_components/ai-shell";
 import {
   CompanyAccessDenied,
@@ -46,6 +48,34 @@ export default async function GatedCompanyLayout({
    * the catch could tell "signed out" from "wrong account"; now it is four
    * sequential round-trips buying nothing.
    */
+  /*
+   * ── Session recovery, ABOVE the gate ─────────────────────────
+   *
+   * peekSession reads the cookie without waking auth-js, so an expired token
+   * is noticed here rather than discovered inside getUser() — where auth-js
+   * would refresh it, fail to persist the result (a render cannot set
+   * cookies), and leave the browser holding a refresh token that has just been
+   * retired. That was the remaining hole: a cold return burned a rotation on
+   * every render until SessionRefresh mounted and rotated again.
+   *
+   * Expired → one redirect to the recover handler, which can write cookies.
+   * The latch cookie is the loop guard: if it is already present, the recover
+   * handler has had its one attempt for this navigation and the answer is
+   * login. Live or absent → fall through; getCompanyContext handles both as it
+   * always did, and a live token gives __loadSession nothing to refresh.
+   */
+  const cookieStore = await cookies();
+  const peek = await peekSession(cookieStore);
+  if (peek.state === "expired") {
+    if (cookieStore.get(RECOVER_ATTEMPTED_COOKIE)) {
+      redirect("/ai-dashboard/login");
+    }
+    // Set by proxy.ts for every /ai-dashboard request: path + query, so the
+    // user lands back on the exact page, filters included.
+    const returnTo = (await headers()).get("x-url") ?? "/ai-dashboard";
+    redirect(`/ai-dashboard/api/session/recover?next=${encodeURIComponent(returnTo)}`);
+  }
+
   let ctx: CompanyContext;
   try {
     ctx = await getCompanyContext();
