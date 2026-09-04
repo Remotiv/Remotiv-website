@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getJobBySlug, type Job } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getJobCompany } from "./_company-data";
+import { getJobCompany, isInternalCompany } from "./_company-data";
 import { CompanyJobDetail } from "./_company-detail";
 import { RemotivJobDetail } from "./_remotiv-detail";
 
@@ -124,5 +124,22 @@ export default async function JobDetailPage({ params }: PageProps) {
     return <CompanyJobDetail job={job} company={company} total={total} />;
   }
 
-  return <RemotivJobDetail job={job} total={total} thisWeek={thisWeek} />;
+  /*
+   * Reaching the editorial page does NOT by itself mean the role is Remotiv's.
+   *
+   * getJobCompany returns null for four different reasons (see its note), and
+   * only two of them — no company at all, or an internal one — mean Remotiv is
+   * the employer. The other two are a client whose company row is paused,
+   * archived or unreadable, and that client's job must not be handed Remotiv's
+   * hand-entered star rating on the way past.
+   *
+   * So the fact is computed HERE, where both halves are in scope, and passed
+   * down. The renderer has only the job, and `company_id === null` is no longer
+   * the whole answer to "is this ours?".
+   */
+  const remotivOwned = job.company_id === null || (await isInternalCompany(job.company_id));
+
+  return (
+    <RemotivJobDetail job={job} total={total} thisWeek={thisWeek} remotivOwned={remotivOwned} />
+  );
 }
