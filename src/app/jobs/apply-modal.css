@@ -3,6 +3,78 @@
  * styles leak into other routes, mirroring job-detail.css's `.jobpage` pattern.
  * Brand: purple #7E47FF, lime #D9F972, mint #49D7A7 / deep #1D9E75,
  * ink #241F38, amber #FBF0D9/#92660A, canvas #f8f4f1.
+*
+ * ── Which colours follow the tenant's brand, and which do not ─
+ *
+ * This modal is portalled to document.body, so it sits OUTSIDE
+ * [data-wl-canvas] and cannot inherit the white-label tokens. _apply-modal.tsx
+ * writes them onto `.applymodal` itself; when no preset is passed (the Remotiv
+ * editorial job page, or a job with no company) nothing is defined and every
+ * `var(…, FALLBACK)` below resolves to the literal it replaced. The unbranded
+ * rendering is therefore unchanged BY CONSTRUCTION, not by inspection.
+ *
+ * FOLLOWS THE BRAND — 15 purple declarations plus 6 purple-DERIVED literals.
+ * The six matter as much as the fifteen: leaving them behind would put a rust
+ * submit button above a lavender selected-option row.
+ *   #7e47ff  -> --brand       fills, focus ring, selected states, submit, CTA
+ *            -> --brand-ink   where it is TEXT ON WHITE (.ap-avatar,
+ *                             .ap-cv-change) — the same choice the design makes
+ *                             for .pco .mark, and measurably better: 8.46-17.15
+ *                             across presets vs 5.51-15.42 for --brand
+ *   #6a37ec  -> --brand-ink   .ap-submit:hover
+ *   #f3efff #eeedfe #faf8ff -> --brand-tint  (three near-identical tints unify
+ *                             to one; sub-1% shift on Remotiv purple)
+ *   #c9bffb  -> --brand-line  hover borders on option buttons
+ *
+ * DOES NOT FOLLOW THE BRAND. Status is not brand: a rust tick on a success
+ * panel reads as a warning, the same reason the error red stays red.
+ *   #dc2626 #fef2f2                          error
+ *   #fbf0d9 #f0d9a8 #92660a #b06a00          warning
+ *   #49d7a7 #1d9e75 #bfe9d8 #f1fbf7 #0a4a3a  success / CV attached
+ *   #241f38 #3a3550 #6a6478 #b3ad9f #9a9488  ink
+ *   #e3ddd5 #cfc9bf #ece6df #f0ebe4          hairlines
+ *   #0a66c2                                  LinkedIn's blue, and LinkedIn's alone
+ *
+ * ── The lime eyebrow, for whoever fixes it ───────────────────
+ *
+ * `.ap-eyebrow` is #D9F972 at 11px/700 uppercase on `.ap-head`, whose
+ * background is now var(--brand). It is left fixed deliberately, and the
+ * measured contrast says that is safe — it fails on the colour it already had
+ * and passes on every preset:
+ *
+ *   Remotiv purple #7E47FF   4.19  FAILS AA  <- today, unbranded, pre-existing
+ *   plum   #5B3FBF           6.10  AA
+ *   navy   #1F3A5F           9.70  AA
+ *   forest #1D6A4A           5.52  AA
+ *   rust   #B4451F           4.66  AA
+ *   ink    #24242B          13.03  AA
+ *
+ * So branding this modal did not introduce the problem and does not worsen it;
+ * the single failing case is the default. Fixing it means changing the eyebrow
+ * on the REMOTIV path only — white at ~.85 alpha clears it — which is a
+ * decision about Remotiv chrome rather than about tenants, and was deliberately
+ * left out of the change that added the tokens above.
+ *
+ * Two further pre-existing failures, logged and NOT folded in: the success tick
+ * #49d7a7 on white is 1.82, and #1d9e75 on white is 3.39. Both are icons beside
+ * their own text label.
+ *
+ * ── If you ever change the brand while the modal is OPEN ─────
+ *
+ * Don't, without reading this. `.ap-submit` has `transition: background .18s`,
+ * and an UNREGISTERED custom property is not interpolable — so when only the
+ * token changes, Chrome leaves the button's painted background stale while
+ * every untransitioned element (.ap-head, .ap-qnum) updates immediately.
+ * Reproduced here: forcing --brand to red repainted the header and left the
+ * submit button on the old colour until an unrelated reflow kicked it.
+ *
+ * The product never hits this: the tokens are on the portal root in the same
+ * commit that mounts the modal, so the first paint is already correct — the
+ * fresh-mount check has .ap-submit matching --brand exactly. It only bites if
+ * someone adds a live brand preview (a Settings swatch that recolours an open
+ * modal). If that day comes, the fix is `@property --brand { syntax: '<color>';
+ * inherits: true; initial-value: #7E47FF }`, which makes it interpolable — not
+ * removing the transition, which is part of the button's designed feel.
  */
 
 .applymodal {
@@ -44,7 +116,7 @@
 .applymodal .ap-head {
   position: relative;
   flex-shrink: 0;
-  background: #7e47ff;
+  background: var(--brand, #7e47ff);
   padding: 22px 22px 20px;
   color: #fff;
 }
@@ -107,7 +179,7 @@
   background: #fff;
   font-size: 20px;
   font-weight: 800;
-  color: #7e47ff;
+  color: var(--brand-ink, #7e47ff);
 }
 .applymodal .ap-jobtitle {
   font-size: 19px;
@@ -137,7 +209,7 @@
   height: 0;
   flex-shrink: 0;
   border-top: 2px dashed rgba(255, 255, 255, 0.45);
-  background: #7e47ff;
+  background: var(--brand, #7e47ff);
 }
 .applymodal .ap-perf span {
   position: absolute;
@@ -197,7 +269,7 @@
   color: #b3ad9f;
 }
 .applymodal .ap-input:focus {
-  border-color: #7e47ff;
+  border-color: var(--brand, #7e47ff);
   box-shadow: 0 0 0 3px rgba(126, 71, 255, 0.12);
 }
 .applymodal .ap-num {
@@ -228,8 +300,8 @@
   cursor: pointer;
 }
 .applymodal .ap-cv-empty:hover {
-  border-color: #7e47ff;
-  background: #faf8ff;
+  border-color: var(--brand, #7e47ff);
+  background: var(--brand-tint, #faf8ff);
 }
 .applymodal .ap-cv-empty.err {
   border-color: #dc2626;
@@ -264,7 +336,7 @@
   flex-shrink: 0;
   font-size: 12px;
   font-weight: 600;
-  color: #7e47ff;
+  color: var(--brand-ink, #7e47ff);
   text-decoration: underline;
 }
 .applymodal .ap-cv-check {
@@ -303,10 +375,10 @@
   align-items: center;
   justify-content: center;
   border-radius: 7px;
-  background: #eeedfe;
+  background: var(--brand-tint, #eeedfe);
   font-size: 13px;
   font-weight: 700;
-  color: #7e47ff;
+  color: var(--brand, #7e47ff);
 }
 .applymodal .ap-qbody {
   flex: 1;
@@ -355,12 +427,12 @@
   transition: all 0.15s;
 }
 .applymodal .ap-ynbtn:hover {
-  border-color: #c9bffb;
+  border-color: var(--brand-line, #c9bffb);
 }
 .applymodal .ap-ynbtn.on {
-  border-color: #7e47ff;
-  background: #f3efff;
-  color: #7e47ff;
+  border-color: var(--brand, #7e47ff);
+  background: var(--brand-tint, #f3efff);
+  color: var(--brand, #7e47ff);
 }
 
 /* multiple-choice options */
@@ -378,11 +450,11 @@
   transition: all 0.15s;
 }
 .applymodal .ap-opt:hover {
-  border-color: #c9bffb;
+  border-color: var(--brand-line, #c9bffb);
 }
 .applymodal .ap-opt.on {
-  border-color: #7e47ff;
-  background: #f3efff;
+  border-color: var(--brand, #7e47ff);
+  background: var(--brand-tint, #f3efff);
   font-weight: 600;
   color: #241f38;
 }
@@ -396,8 +468,8 @@
   transition: all 0.15s;
 }
 .applymodal .ap-opt.on .ap-radio {
-  border-color: #7e47ff;
-  background: #7e47ff;
+  border-color: var(--brand, #7e47ff);
+  background: var(--brand, #7e47ff);
   box-shadow: inset 0 0 0 3px #fff;
 }
 
@@ -446,7 +518,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 13px;
-  background: #7e47ff;
+  background: var(--brand, #7e47ff);
   padding: 13px;
   font-size: 14px;
   font-weight: 700;
@@ -455,7 +527,7 @@
   transition: background 0.18s, opacity 0.18s;
 }
 .applymodal .ap-submit:hover:not(:disabled) {
-  background: #6a37ec;
+  background: var(--brand-ink, #6a37ec);
 }
 .applymodal .ap-submit:disabled {
   opacity: 0.6;
@@ -495,7 +567,7 @@
 }
 .applymodal .ap-success-ic.purple {
   background: rgba(126, 71, 255, 0.1);
-  color: #7e47ff;
+  color: var(--brand, #7e47ff);
 }
 .applymodal .ap-success-title {
   font-size: 19px;
@@ -514,7 +586,7 @@
   align-items: center;
   justify-content: center;
   border-radius: 12px;
-  background: #7e47ff;
+  background: var(--brand, #7e47ff);
   padding: 12px 16px;
   font-size: 13.5px;
   font-weight: 700;

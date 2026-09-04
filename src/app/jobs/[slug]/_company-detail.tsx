@@ -159,7 +159,7 @@ export function CompanyJobDetail({
             <h1>{job.title}</h1>
 
             <div className="hact">
-              <ApplyButton job={applyJob} className="btn onbrand">
+              <ApplyButton job={applyJob} className="btn onbrand" preset={company.preset}>
                 <Icon d={ARROW} />
               </ApplyButton>
               <span className="meta">
@@ -329,7 +329,7 @@ export function CompanyJobDetail({
                 <h3>Interested in this role?</h3>
                 <p>Five minutes to apply. Every applicant hears back within a week.</p>
               </div>
-              <ApplyButton job={applyJob} className="btn">
+              <ApplyButton job={applyJob} className="btn" preset={company.preset}>
                 <Icon d={ARROW} />
               </ApplyButton>
             </div>
@@ -372,7 +372,7 @@ export function CompanyJobDetail({
           breakpoint so this cannot cover the Remotiv line. */}
       <div className="stick">
         <span className="st">{job.title}</span>
-        <ApplyButton job={applyJob} className="btn" label="Apply" />
+        <ApplyButton job={applyJob} className="btn" label="Apply" preset={company.preset} />
       </div>
 
       <script

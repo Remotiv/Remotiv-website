@@ -4,6 +4,7 @@ import { IconSend } from "@tabler/icons-react";
 import { useEffect, useState } from "react";
 import ApplyModal from "@/app/jobs/_apply-modal";
 import { captureAttribution } from "@/app/jobs/_attribution";
+import type { BrandPreset } from "@/components/white-label/brand";
 import type { Job } from "@/lib/jobs";
 
 // Thin client boundary so the server job page can open the existing
@@ -32,6 +33,7 @@ export default function ApplyButton({
   className: override,
   label = "Apply for this role",
   children,
+  preset,
 }: {
   job: Job;
   variant?: "hero" | "ticket";
@@ -46,6 +48,12 @@ export default function ApplyButton({
   label?: string;
   /** The white-label icon, so the design's arrow travels with its own stroke. */
   children?: React.ReactNode;
+  /**
+   * Passed straight through to the modal, which portals out of the canvas and
+   * so cannot inherit the brand. Only the white-label page supplies it; the
+   * Remotiv variants leave it undefined and the modal stays Remotiv purple.
+   */
+  preset?: BrandPreset;
 }) {
   const [open, setOpen] = useState(false);
   useCaptureAttribution();
@@ -72,7 +80,7 @@ export default function ApplyButton({
           </>
         )}
       </button>
-      {open && <ApplyModal job={job} onClose={() => setOpen(false)} />}
+      {open && <ApplyModal job={job} onClose={() => setOpen(false)} preset={preset} />}
     </>
   );
 }

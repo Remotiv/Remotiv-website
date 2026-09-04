@@ -12,6 +12,7 @@ import Link from "next/link";
 import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { attributionFields } from "@/app/jobs/_attribution";
+import { type BrandPreset, brandTokens } from "@/components/white-label/brand";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
 import "./apply-modal.css";
@@ -63,7 +64,24 @@ function isAnswered(q: ScreeningQuestion, ans: string | undefined): boolean {
 // "failed" a maximum or a no-threshold question. /api/apply is and remains the
 // only place answers are scored.
 
-export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => void }) {
+export default function ApplyModal({
+  job,
+  onClose,
+  preset,
+}: {
+  job: Job;
+  onClose: () => void;
+  /**
+   * The tenant's brand, when this modal was opened from a white-label job page.
+   *
+   * Absent on the Remotiv editorial page and on any job with no company, and
+   * that absence is the whole design: with no preset nothing is written below,
+   * no token is defined, and every `var(…, FALLBACK)` in apply-modal.css
+   * resolves to the literal it replaced. The unbranded rendering cannot drift,
+   * because there is no branded code path for it to drift through.
+   */
+  preset?: BrandPreset;
+}) {
   const questions = job.screening_questions ?? [];
 
   const [form, setForm] = useState(EMPTY_APPLY);
@@ -272,8 +290,20 @@ export default function ApplyModal({ job, onClose }: { job: Job; onClose: () => 
 
   if (!mounted) return null;
 
+  /*
+   * The tokens are written HERE, on the portal root, rather than on a new
+   * wrapper: this element already exists, and custom properties inherit down
+   * the DOM tree, so one style attribute reaches every rule inside.
+   *
+   * It has to be done in the DOM at all because the modal portals to
+   * document.body — it is outside [data-wl-canvas] and can inherit nothing
+   * from it, however the React tree above is arranged.
+   */
   return createPortal(
-    <div className="applymodal">
+    <div
+      className="applymodal"
+      style={preset ? (brandTokens(preset) as React.CSSProperties) : undefined}
+    >
       <div
         ref={modalRef}
         className="ap-modal"
