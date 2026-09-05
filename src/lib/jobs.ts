@@ -16,6 +16,7 @@
 // directly (createServiceClient pulls server-only `next/headers`), so the
 // client hits the API route which delegates here.
 
+import { cache } from "react";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -324,8 +325,23 @@ export async function getJobById(id: string): Promise<Read<Job | null>> {
 /**
  * Mirror of getJobById, matching on the human-readable slug instead of the
  * UUID. Same status gate, and the same three-state answer.
+ *
+ * ── Wrapped in cache(), and why that is load-bearing ─────────
+ *
+ * Three things resolve the same slug on one request: generateMetadata, the
+ * [slug] layout (which settles the 404 before anything streams), and the page.
+ * Before the layout existed this was already two identical queries; cache()
+ * makes all three one. It is React's per-request memo — AsyncLocalStorage
+ * scoped, gone at the end of the render, demonstrated earlier on
+ * getCompanyContext by counting executions — so it cannot serve one request's
+ * job to another.
+ *
+ * The memo also carries a FAILED answer. That is what keeps the three callers
+ * honest with each other: a lookup that could not be asked is `unavailable()`
+ * for metadata, layout and page alike, so a database blip cannot be a 404 in
+ * one place and a 200 in another.
  */
-export async function getJobBySlug(slug: string): Promise<Read<Job | null>> {
+export const getJobBySlug = cache(async (slug: string): Promise<Read<Job | null>> => {
   if (!slug || slug.trim().length === 0) return answered(null);
 
   const supabase = createServiceClient();
@@ -342,4 +358,4 @@ export async function getJobBySlug(slug: string): Promise<Read<Job | null>> {
 
   const [job] = await attachCompanyLogos([data as Job]);
   return answered(job ?? null);
-}
+});

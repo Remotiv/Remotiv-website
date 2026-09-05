@@ -5,6 +5,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { getJobCompany, isInternalCompany } from "./_company-data";
 import { CompanyJobDetail } from "./_company-detail";
 import { RemotivJobDetail } from "./_remotiv-detail";
+import { RoleUnavailable } from "./_unavailable";
 
 export const dynamic = "force-dynamic";
 
@@ -80,25 +81,6 @@ async function fetchCounts(jobId: string): Promise<{ total: number; thisWeek: nu
  * `client_id` jobs (the client portal) are not company jobs and take the
  * Remotiv path too — the white-label design is bound to the companies table.
  */
-/**
- * Shown when the role could not be READ, never when it is missing.
- *
- * Deliberately unbranded. This renders before the Remotiv/white-label branch,
- * so it cannot know whose page it is standing in for — anything naming a
- * company here would be wrong half the time.
- */
-function RoleUnavailable() {
-  return (
-    <main className="mx-auto flex min-h-[60vh] max-w-lg flex-col justify-center px-6 py-24 text-center">
-      <h1 className="font-heading text-2xl font-bold text-gray-900">This role didn't load</h1>
-      <p className="mt-3 text-sm leading-relaxed text-gray-600">
-        Something went wrong fetching it — the role itself is fine. Refresh the page, or try again
-        in a moment.
-      </p>
-    </main>
-  );
-}
-
 export default async function JobDetailPage({ params }: PageProps) {
   const { slug } = await params;
   const read = await getJobBySlug(slug);
@@ -110,6 +92,12 @@ export default async function JobDetailPage({ params }: PageProps) {
    * a live role told the reader it no longer existed — and nobody refreshes a
    * 404. The copy below names no company, because at this point we do not know
    * whose role it is: the white-label branch happens further down.
+   */
+  /*
+   * Both of these are decided in layout.tsx now, before the loading boundary
+   * has committed a status — that is where the real 404 comes from. They stay
+   * here as defence in depth: getJobBySlug is memoised per request, so this is
+   * the SAME answer the layout saw, and the two cannot disagree.
    */
   if (!read.ok) return <RoleUnavailable />;
 

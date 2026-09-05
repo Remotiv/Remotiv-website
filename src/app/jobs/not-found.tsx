@@ -1,6 +1,18 @@
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
 
+/**
+ * The job-page 404.
+ *
+ * Lives at the /jobs SEGMENT, not under [slug], and the position is the point.
+ * A not-found.tsx catches notFound() thrown by its segment's PAGE and nested
+ * layouts — never by its own layout, which renders above it (the hierarchy is
+ * layout → error → loading → not-found → page). The real 404 for a dead role is
+ * now thrown from [slug]/layout.tsx, before the loading boundary can commit a
+ * 200, so the file that renders it has to sit one level up. Under [slug] it
+ * was unreachable for exactly the case it was written for.
+ */
+
 export default function JobNotFound() {
   return (
     <>
@@ -14,8 +26,8 @@ export default function JobNotFound() {
             We couldn&apos;t find that job
           </h1>
           <p className="mt-3 text-base text-gray-600">
-            It may have been filled or closed, or the link is no longer valid.
-            Browse our open roles to find your next opportunity.
+            It may have been filled or closed, or the link is no longer valid. Browse our open roles
+            to find your next opportunity.
           </p>
           <Link
             href="/jobs"
