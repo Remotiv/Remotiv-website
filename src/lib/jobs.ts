@@ -30,6 +30,10 @@ const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12
 // client component cannot import a VALUE from here. Re-exported so server-side
 // callers keep a single import site and there is one implementation of the rule.
 export { resolveNumericMode, type NumericMode } from "@/lib/screening";
+// isRemotivOwned is in lib/job-ownership.ts for the SAME reason: the /jobs list
+// is a client component and cannot import a value from this module. Re-exported
+// so server-side callers keep one import site and there is one implementation.
+export { isRemotivOwned } from "@/lib/job-ownership";
 // The re-export above does not bind the name in this module's own scope, and
 // ScreeningQuestion below references it. Type-only, so nothing is emitted.
 import type { NumericMode } from "@/lib/screening";
@@ -138,11 +142,19 @@ export interface Job {
   /**
    * Public URL of the owning company's logo, or null.
    *
-   * DERIVED, not a column — attachCompanyLogos fills it after the row query.
+   * DERIVED, not a column — attachCompanyData fills it after the row query.
    * Null for Remotiv-owned jobs (company_id null), which keep the letter mark,
    * and for companies that have not uploaded one.
    */
   company_logo_url?: string | null;
+  /**
+   * Is the owning company Remotiv's own account?
+   *
+   * DERIVED like company_logo_url, from the same batch read. False for a job
+   * with no company at all — those are Remotiv-owned by a different route, and
+   * `isRemotivOwned` below is what combines the two into one answer.
+   */
+  company_is_internal?: boolean;
 }
 
 /**
@@ -157,38 +169,47 @@ export interface Job {
 const COMPANY_LOGO_BUCKET = "company-logos";
 
 /**
- * Attach each company-owned job's logo URL, without a per-row join.
+ * Attach the two company facts a public job row needs, without a per-row join.
+ *
+ * Was attachCompanyLogos. It now also carries `is_internal`, so the name had to
+ * move with it — a helper that silently decides ownership under a name about
+ * logos is how the next reader misses it.
  *
  * /jobs is the hottest page on the site and LIST_SELECT deliberately avoids
- * embeds for payload size, so this resolves the logos in ONE extra query keyed
- * on the DISTINCT company ids in the batch — at most a handful for a page of
- * 100 jobs, and an indexed primary-key lookup at that. A PostgREST embed would
- * ship the company row per job; a denormalised jobs.company_logo_path column
- * would remove the query but needs a migration, a backfill, and two write paths
- * kept in step forever, and goes stale silently when one is missed.
+ * embeds for payload size, so this resolves both in ONE extra query keyed on
+ * the DISTINCT company ids in the batch — at most a handful for a page of 100
+ * jobs, and an indexed primary-key lookup at that. Adding `is_internal` to the
+ * existing select costs nothing: same query, same rows, one more column.
  *
- * Never throws: a logo is decoration, and a storage or companies-table blip
- * must not take down the jobs list. On failure every row simply gets null and
- * falls back to the letter mark.
+ * Never throws: a logo is decoration, and a companies-table blip must not take
+ * down the jobs list. On failure every row gets a null logo AND
+ * `company_is_internal: false` — which hides the star rather than inventing
+ * one, the same direction isInternalCompany failed in before this replaced it.
  */
-export async function attachCompanyLogos<T extends { company_id: string | null }>(
+export async function attachCompanyData<T extends { company_id: string | null }>(
   rows: T[],
-): Promise<(T & { company_logo_url: string | null })[]> {
+): Promise<(T & { company_logo_url: string | null; company_is_internal: boolean })[]> {
   const ids = [...new Set(rows.map((r) => r.company_id).filter(Boolean))] as string[];
   if (ids.length === 0) {
-    return rows.map((r) => ({ ...r, company_logo_url: null }));
+    return rows.map((r) => ({ ...r, company_logo_url: null, company_is_internal: false }));
   }
 
   const supabase = createServiceClient();
   const byId = new Map<string, string>();
+  const internal = new Set<string>();
 
   try {
     const { data } = await supabase
       .from("companies")
-      .select("id, logo_path")
+      .select("id, logo_path, is_internal")
       .in("id", ids);
 
-    for (const row of (data ?? []) as { id: string; logo_path: string | null }[]) {
+    for (const row of (data ?? []) as {
+      id: string;
+      logo_path: string | null;
+      is_internal: boolean | null;
+    }[]) {
+      if (row.is_internal === true) internal.add(row.id);
       const path = (row.logo_path ?? "").trim();
       if (!path) continue;
       const url = supabase.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(path)
@@ -202,6 +223,7 @@ export async function attachCompanyLogos<T extends { company_id: string | null }
   return rows.map((r) => ({
     ...r,
     company_logo_url: (r.company_id && byId.get(r.company_id)) || null,
+    company_is_internal: Boolean(r.company_id && internal.has(r.company_id)),
   }));
 }
 
@@ -291,7 +313,7 @@ export async function getInitialJobs(): Promise<Read<Job[]>> {
     return unavailable();
   }
 
-  return answered(await attachCompanyLogos((data ?? []) as unknown as Job[]));
+  return answered(await attachCompanyData((data ?? []) as unknown as Job[]));
 }
 
 /**
@@ -318,7 +340,7 @@ export async function getJobById(id: string): Promise<Read<Job | null>> {
   }
   if (!data) return answered(null);
 
-  const [job] = await attachCompanyLogos([data as Job]);
+  const [job] = await attachCompanyData([data as Job]);
   return answered(job ?? null);
 }
 
@@ -356,6 +378,6 @@ export const getJobBySlug = cache(async (slug: string): Promise<Read<Job | null>
   }
   if (!data) return answered(null);
 
-  const [job] = await attachCompanyLogos([data as Job]);
+  const [job] = await attachCompanyData([data as Job]);
   return answered(job ?? null);
 });

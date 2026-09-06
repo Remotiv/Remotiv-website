@@ -25,7 +25,7 @@ import {
 } from "@tabler/icons-react";
 import type { CSSProperties } from "react";
 import { Navbar } from "@/components/navbar";
-import type { Job } from "@/lib/jobs";
+import { isRemotivOwned, type Job } from "@/lib/jobs";
 import { canonicalUrl } from "@/lib/seo";
 import ApplyButton from "./_apply-button";
 import { fmtSalary, serializeJsonLd, splitLines, timeAgo, toPublicJob } from "./_format";
@@ -126,59 +126,14 @@ function SectionBar({
   );
 }
 
-/**
- * Whether this job's star rating represents anything real.
- *
- * Company-posted jobs (company_id non-null) are stamped with a fixed
- * COMPANY_JOB_RATING at creation — there is no reviews or ratings system
- * anywhere in the product, so that number is a placeholder, not a measurement.
- * Publishing it tells candidates a company scored 4.5 out of something that
- * has never been scored.
- *
- * Deliberately ONE named predicate rather than an inline `company_id === null`
- * at each render site: when real ratings do arrive, this is the single place
- * that changes (likely to "has at least one review"), and neither renderer
- * needs unpicking. The twin of this function lives in the other public jobs
- * renderer — keep them in step, or hoist both to lib/jobs.ts.
- *
- * Remotiv's own jobs keep their rating, whichever internal tool posted them.
- * It is hand-entered (defaulting to 4.5) rather than derived from reviews, so
- * it is editorial rather than measured — but it is a figure about Remotiv, and
- * whether it appears should not depend on whether a role went through admin or
- * through the AI dashboard.
- *
- * That is why this takes a BOOLEAN rather than the job. `company_id === null`
- * used to be the whole test, and it silently dropped the star from every
- * Remotiv role posted in the dashboard, because those carry a company_id like
- * any other. The caller resolves ownership (no company, or an internal one) and
- * passes the answer; see the note at the call site in page.tsx for why a job
- * reaching this renderer is not sufficient evidence on its own.
- *
- * The twin of this predicate is in _jobs-client.tsx, the /jobs list, which is
- * still on `company_id === null` — a client component rendering many rows at
- * once, with no company lookup available to it. Until that is threaded the same
- * way, Remotiv's dashboard roles show a star on the detail page and none on the
- * card. Known, and narrower than the bug it replaces.
- */
-function hasPublicRating(remotivOwned: boolean): boolean {
-  return remotivOwned;
-}
-
 export function RemotivJobDetail({
   job,
   total,
   thisWeek,
-  remotivOwned,
 }: {
   job: Job;
   total: number;
   thisWeek: number;
-  /**
-   * Whether Remotiv is the employer — no company row, or an internal one.
-   * FALSE for a client whose company row is paused, archived or unreadable,
-   * which also lands on this renderer. Gates the star rating only.
-   */
-  remotivOwned: boolean;
 }) {
   const responsibilities = splitLines(job.responsibilities);
   const requirements = splitLines(job.requirements);
@@ -279,7 +234,7 @@ export function RemotivJobDetail({
               <span className="font-heading text-base font-bold">{job.company}</span>
               {/* Separator travels WITH the rating — hiding the rating alone
                   would leave two dividers back to back. */}
-              {hasPublicRating(remotivOwned) && (
+              {isRemotivOwned(job) && (
                 <>
                   <span className="h-[22px] w-px bg-white/25" />
                   <span className="inline-flex items-center gap-1 text-sm">

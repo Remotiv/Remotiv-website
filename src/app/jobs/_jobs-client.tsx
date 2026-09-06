@@ -6,6 +6,7 @@ import { memo, useCallback, useEffect, useMemo, useRef, useState } from "react";
 import { captureAttribution } from "@/app/jobs/_attribution";
 import { Navbar } from "@/components/navbar";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { isRemotivOwned } from "@/lib/job-ownership";
 import type { Job } from "@/lib/jobs";
 import { cn } from "@/lib/utils";
 import "./jobs.css";
@@ -905,30 +906,6 @@ function SearchField({
 // callback signatures from the parent. Without this, typing in the search
 // box re-rendered all ~100 cards per keystroke.
 /**
- * Whether this job's star rating represents anything real.
- *
- * Company-posted jobs (company_id non-null) are stamped with a fixed
- * COMPANY_JOB_RATING at creation — there is no reviews or ratings system
- * anywhere in the product, so that number is a placeholder, not a measurement.
- * Publishing it tells candidates a company scored 4.5 out of something that
- * has never been scored.
- *
- * Deliberately ONE named predicate rather than an inline `company_id === null`
- * at each render site: when real ratings do arrive, this is the single place
- * that changes (likely to "has at least one review"), and neither renderer
- * needs unpicking. The twin of this function lives in the other public jobs
- * renderer — keep them in step, or hoist both to lib/jobs.ts.
- *
- * Remotiv's own admin-posted jobs keep their rating. It is hand-entered in the
- * admin form (defaulting to 4.5) rather than derived from reviews, so it is
- * editorial rather than measured — see the audit note. Changing that is a
- * product decision, not this fix.
- */
-function hasPublicRating(job: { company_id: string | null }): boolean {
-  return job.company_id === null;
-}
-
-/**
  * The company's logo, or the letter fallback.
  *
  * FIXED SQUARE + object-contain. Logos arrive at any aspect ratio — a wide
@@ -938,9 +915,11 @@ function hasPublicRating(job: { company_id: string | null }): boolean {
  * a fixed box letterboxes instead: the mark shrinks to fit and the layout never
  * moves, whatever gets uploaded.
  *
- * Remotiv-owned jobs (company_id null) never reach the image branch — they have
- * no company and keep the letter, which is what the detail page has always
- * shown.
+ * Keys on the LOGO, never on ownership — which is why the star's move to
+ * isRemotivOwned left this alone. A job with no company (company_id null) has
+ * no logo to attach and keeps the letter; Remotiv's own dashboard-posted roles
+ * DO have one and show it, exactly as any other company's would. Both are
+ * right, and neither is asking "whose job is this".
  */
 function CompanyMark({ job }: { job: Job }) {
   const initial = (job.company ?? "").trim().charAt(0).toUpperCase() || "R";
@@ -1012,7 +991,7 @@ const JobCard = memo(function JobCard({
         <div className="mb-1 flex items-center gap-1.5 text-[0.82rem] text-remotiv-text-light">
           <CompanyMark job={job} />
           <span>{job.company}</span>
-          {hasPublicRating(job) && (
+          {isRemotivOwned(job) && (
             <>
               <Star className="size-3 fill-remotiv-green text-remotiv-green" />
               <span>{job.company_rating.toFixed(1)}</span>

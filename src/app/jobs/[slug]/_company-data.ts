@@ -128,39 +128,3 @@ export async function getJobCompany(companyId: string, jobId: string): Promise<J
     return null;
   }
 }
-
-/**
- * Is this company Remotiv's own account?
- *
- * A second, tiny read rather than a wider return type from getJobCompany.
- * That function answers one question — "which client owns this job, if any" —
- * and every one of its null paths means the same thing to its caller. Making it
- * report WHY it said null would push a four-case union through a call site that
- * branches on two, to serve a star rating.
- *
- * Only reached when getJobCompany already returned null for a job that HAS a
- * company_id, which is: paused, archived, missing, unreadable, or internal.
- * Rare by construction, and Remotiv's own roles are the common case among them.
- *
- * Fails CLOSED. An unreadable row returns false, so the rating is withheld
- * rather than invented — the same direction as every other guard in this file,
- * and the one that cannot show a client a number about Remotiv.
- */
-export async function isInternalCompany(companyId: string): Promise<boolean> {
-  try {
-    const { data, error } = await createServiceClient()
-      .from("companies")
-      .select("is_internal")
-      .eq("id", companyId)
-      .maybeSingle();
-
-    if (error) {
-      console.error("[job] internal-company check failed:", error.message);
-      return false;
-    }
-    return (data as { is_internal: boolean | null } | null)?.is_internal === true;
-  } catch (err) {
-    console.error("[job] internal-company check threw:", err);
-    return false;
-  }
-}

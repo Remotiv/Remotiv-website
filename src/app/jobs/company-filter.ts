@@ -1,7 +1,7 @@
 import "server-only";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
-import { attachCompanyLogos, LIST_SELECT, publiclyVisible, type Job } from "@/lib/jobs";
+import { attachCompanyData, LIST_SELECT, publiclyVisible, type Job } from "@/lib/jobs";
 
 /**
  * The company behind `/jobs?company=<slug>`.
@@ -97,5 +97,5 @@ export async function fetchCompanyJobs(companyId: string): Promise<Read<Job[]>> 
     console.error("[jobs] fetchCompanyJobs failed:", error.message);
     return unavailable();
   }
-  return answered(await attachCompanyLogos((data ?? []) as unknown as Job[]));
+  return answered(await attachCompanyData((data ?? []) as unknown as Job[]));
 }

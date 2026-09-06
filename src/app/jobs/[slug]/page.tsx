@@ -2,7 +2,7 @@ import type { Metadata } from "next";
 import { notFound } from "next/navigation";
 import { getJobBySlug, type Job } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
-import { getJobCompany, isInternalCompany } from "./_company-data";
+import { getJobCompany } from "./_company-data";
 import { CompanyJobDetail } from "./_company-detail";
 import { RemotivJobDetail } from "./_remotiv-detail";
 import { RoleUnavailable } from "./_unavailable";
@@ -113,21 +113,15 @@ export default async function JobDetailPage({ params }: PageProps) {
   }
 
   /*
-   * Reaching the editorial page does NOT by itself mean the role is Remotiv's.
+   * No ownership lookup here any more.
    *
-   * getJobCompany returns null for four different reasons (see its note), and
-   * only two of them — no company at all, or an internal one — mean Remotiv is
-   * the employer. The other two are a client whose company row is paused,
-   * archived or unreadable, and that client's job must not be handed Remotiv's
-   * hand-entered star rating on the way past.
-   *
-   * So the fact is computed HERE, where both halves are in scope, and passed
-   * down. The renderer has only the job, and `company_id === null` is no longer
-   * the whole answer to "is this ours?".
+   * This used to await isInternalCompany() to decide whether the star rating
+   * was Remotiv's to show, because the renderer had only the job and
+   * `company_id === null` was not the whole answer. The job row now carries
+   * `company_is_internal`, derived by attachCompanyData inside getJobBySlug
+   * from a query it was already making — so the renderer answers it itself with
+   * isRemotivOwned, the same predicate the /jobs list uses. One fewer round
+   * trip, and the two surfaces can no longer disagree.
    */
-  const remotivOwned = job.company_id === null || (await isInternalCompany(job.company_id));
-
-  return (
-    <RemotivJobDetail job={job} total={total} thisWeek={thisWeek} remotivOwned={remotivOwned} />
-  );
+  return <RemotivJobDetail job={job} total={total} thisWeek={thisWeek} />;
 }

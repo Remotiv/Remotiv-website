@@ -2,7 +2,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import {
-  attachCompanyLogos,
+  attachCompanyData,
   LIST_SELECT,
   getJobById,
   listedOnRemotiv,
@@ -126,7 +126,7 @@ export async function GET(request: NextRequest) {
 
   // Same enrichment the SSR list uses, so a card keeps its logo across a
   // refetch instead of flipping back to the letter on the first filter change.
-  const rows = await attachCompanyLogos(
+  const rows = await attachCompanyData(
     (data ?? []) as {
       company_id: string | null;
       client_id: string | null;
@@ -135,9 +135,13 @@ export async function GET(request: NextRequest) {
   );
 
   // LIST_SELECT (shared with the SSR list, out of scope here) still selects
-  // client_id and created_by; strip them before the response. company_id
-  // stays — _jobs-client.tsx re-applies the /jobs?company= scope with it and
-  // gates the star rating on it.
+  // client_id and created_by; strip them before the response. company_id stays
+  // — _jobs-client.tsx re-applies the /jobs?company= scope with it.
+  //
+  // company_is_internal, derived by attachCompanyData above, rides along too.
+  // The list's star gates on isRemotivOwned, which reads BOTH: a job with no
+  // company, or one whose company is Remotiv's own account. Dropping either
+  // from this payload puts the star back to disagreeing with the detail page.
   return NextResponse.json(
     rows.map(({ client_id, created_by, ...row }) => row),
   );
