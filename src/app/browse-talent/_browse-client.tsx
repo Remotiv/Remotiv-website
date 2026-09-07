@@ -284,7 +284,9 @@ function rowToCard(r: TalentRow): Card {
     linkedin: r.linkedin_url,
     email: r.email,
     phone: r.phone,
-    cvUrl: r.cv_url ?? r.cv_path ?? null,
+    // cv_path FIRST. The reverse ordering let a legacy dead public URL win over
+    // a live path on rows that have both — see lib/cv-path.ts.
+    cvUrl: r.cv_path ?? r.cv_url ?? null,
     photoUrl: (() => {
       const path = (r.photo_path ?? "").trim();
       if (!path) return null;

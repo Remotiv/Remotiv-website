@@ -672,19 +672,20 @@ export async function POST(request: NextRequest) {
       avatarUrl = getAvatarUrl(firstName, lastName);
     }
 
-    let cvUrl: string | null = null;
+    /*
+     * cv_path ONLY, and no getPublicUrl at all.
+     *
+     * Both branches used to call getPublicUrl on the `cvs` bucket and persist
+     * the result into cv_url. The bucket is private, so that URL 404s on click
+     * and every consumer signs cv_path instead. See lib/cv-path.ts for the
+     * column's remaining legacy role.
+     */
     let cvPath: string | null = null;
     if (cvUploadArgs) {
-      const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(cvUploadArgs.path);
-      cvUrl = cUrl.publicUrl;
       cvPath = cvUploadArgs.path;
     } else if (bridgeContext?.cvPath) {
-      // Bridge: inherit the source job_application's CV. Same "cvs" bucket;
-      // we just reference the existing object rather than uploading again.
-      const { data: cUrl } = supabase.storage
-        .from("cvs")
-        .getPublicUrl(bridgeContext.cvPath);
-      cvUrl = cUrl.publicUrl;
+      // Bridge: inherit the source job_application's CV. Same "cvs" bucket; we
+      // just reference the existing object rather than uploading again.
       cvPath = bridgeContext.cvPath;
     }
 
@@ -741,7 +742,7 @@ export async function POST(request: NextRequest) {
       salary_min: salaryMin,
       salary_max: salaryMax,
       avatar_url: avatarUrl,
-      cv_url: cvUrl,
+      cv_url: null,
       cv_path: cvPath,
       cv_text: strip(effectiveCvText),
       status: "pending",

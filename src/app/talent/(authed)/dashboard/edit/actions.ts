@@ -4,6 +4,7 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizePhone } from "@/lib/normalize";
 import { requireProfileOwner } from "@/app/talent/lib/profile-owner";
+import { resolveCvPath } from "@/lib/cv-path";
 
 type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
@@ -1800,17 +1801,9 @@ export async function updateRemotePortfolio(
   return { success: true, data: { portfolio: stored } };
 }
 
-function deriveExistingCvPath(
-  cvPath: string | null,
-  cvUrl: string | null,
-): string | null {
-  if (cvPath && cvPath.trim()) return cvPath.trim();
-  if (!cvUrl) return null;
-  // Verbatim regex from src/app/browse-talent/actions.ts deriveCvPathFromUrl.
-  const m = String(cvUrl).match(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-  );
-  return m ? m[1] : null;
+/** Two-argument shim over the shared rule — the call sites below pass columns. */
+function resolveCvPathFrom(cvPath: string | null, cvUrl: string | null): string | null {
+  return resolveCvPath({ cv_path: cvPath, cv_url: cvUrl });
 }
 
 function isPdfMagicBytes(bytes: Uint8Array): boolean {
@@ -1899,7 +1892,7 @@ export async function getOwnCvSignedUrl(
   if (error || !row) {
     return { success: false, error: "Profile not found." };
   }
-  const path = deriveExistingCvPath(
+  const path = resolveCvPathFrom(
     (row as { cv_path: string | null }).cv_path,
     (row as { cv_url: string | null }).cv_url,
   );
@@ -1919,7 +1912,7 @@ export async function getOwnCvSignedUrl(
 }
 
 type UploadCvResult =
-  | { success: true; data: { cvPath: string; cvUrl: string } }
+  | { success: true; data: { cvPath: string } }
   | { success: false; error: string };
 
 export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
@@ -2012,7 +2005,7 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
     .select("cv_path, cv_url")
     .eq("id", profileId)
     .maybeSingle();
-  const oldPath = deriveExistingCvPath(
+  const oldPath = resolveCvPathFrom(
     (existing as { cv_path: string | null } | null)?.cv_path ?? null,
     (existing as { cv_url: string | null } | null)?.cv_url ?? null,
   );
@@ -2028,14 +2021,17 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
     return { success: false, error: "Could not upload CV." };
   }
 
-  const { data: pub } = service.storage
-    .from(CV_BUCKET)
-    .getPublicUrl(storagePath);
-  const cvUrl = pub?.publicUrl ?? "";
-
+  /*
+   * cv_path ONLY, and no getPublicUrl at all.
+   *
+   * The `cvs` bucket is private, so the public URL this used to persist into
+   * cv_url 404s on click; cv_path is what every consumer signs. The column is
+   * legacy-only now (see lib/cv-path.ts). The DELETE path further down still
+   * clears BOTH, because a legacy row genuinely has a cv_url to clear.
+   */
   const { error: dbErr } = await service
     .from(sourceTable)
-    .update({ cv_path: storagePath, cv_url: cvUrl })
+    .update({ cv_path: storagePath })
     .eq("id", profileId);
   if (dbErr) {
     console.error("[uploadCv] DB update failed:", dbErr);
@@ -2072,7 +2068,7 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
   revalidatePath("/talent/dashboard");
   revalidatePath("/talent/dashboard/edit");
 
-  return { success: true, data: { cvPath: storagePath, cvUrl } };
+  return { success: true, data: { cvPath: storagePath } };
 }
 
 type RemoveCvResult =
@@ -2113,7 +2109,7 @@ export async function removeCv(input: {
     .select("cv_path, cv_url")
     .eq("id", profileId)
     .maybeSingle();
-  const oldPath = deriveExistingCvPath(
+  const oldPath = resolveCvPathFrom(
     (existing as { cv_path: string | null } | null)?.cv_path ?? null,
     (existing as { cv_url: string | null } | null)?.cv_url ?? null,
   );

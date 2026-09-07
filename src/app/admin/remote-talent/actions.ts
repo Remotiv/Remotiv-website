@@ -6,6 +6,7 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import type { InviteStatus } from "@/lib/claim-status";
+import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export type RemoteTalentStatus =
   | "pending"
@@ -66,6 +67,8 @@ export type RemoteTalentProfile = {
   languages: LanguageItem[];
 
   cv_url: string | null;
+  /** The live pointer. cv_url is legacy-only — see lib/cv-path.ts. */
+  cv_path: string | null;
   cv_text: string | null;
   photo_url: string | null;
   photo_path: string | null;
@@ -246,14 +249,6 @@ export async function deleteRemoteTalentProfile(
 const CV_BUCKET = "cvs";
 const CV_SIGNED_URL_TTL_SECONDS = 60 * 60;
 
-function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
-  if (!cvUrl) return null;
-  const match = String(cvUrl).match(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-  );
-  return match ? match[1] : null;
-}
-
 export type RemoteTalentCvSignedUrlResult =
   | { ok: true; url: string }
   | { ok: false; error: "not_authenticated" | "cv_missing" | "internal_error" };
@@ -357,6 +352,7 @@ function normaliseRow(r: Record<string, unknown>): RemoteTalentProfile {
     languages: Array.isArray(r.languages) ? (r.languages as LanguageItem[]) : [],
 
     cv_url: (r.cv_url as string | null) ?? null,
+    cv_path: (r.cv_path as string | null) ?? null,
     cv_text: (r.cv_text as string | null) ?? null,
     photo_url: (r.photo_url as string | null) ?? null,
     photo_path: (r.photo_path as string | null) ?? null,

@@ -333,7 +333,6 @@ export async function POST(request: NextRequest) {
     //    type. M10 removed DOC/DOCX from the allowlist; the magic-byte gate
     //    is the only signature defense and OLE/ZIP container checks weren't
     //    in place for those formats.
-    let cvUrl: string | null = null;
     let cvPath: string | null = null;
     if (cvFile && cvFile.size > 0) {
       if (cvFile.size > MAX_CV_BYTES) {
@@ -378,8 +377,8 @@ export async function POST(request: NextRequest) {
       }
       // H4: CV uploaded successfully — track so a later failure can clean it up.
       uploadedPaths.push({ bucket: "cvs", path });
-      const { data: cUrl } = supabase.storage.from("cvs").getPublicUrl(path);
-      cvUrl = cUrl.publicUrl;
+      // No getPublicUrl: the bucket is private, so the URL it returns 404s on
+      // click. cv_path is the only durable pointer — see lib/cv-path.ts.
       cvPath = path;
     }
 
@@ -482,7 +481,7 @@ export async function POST(request: NextRequest) {
         available_from_date: availableFromDate,
         languages: cleanLanguages,
 
-        cv_url: cvUrl,
+        cv_url: null,
         cv_path: cvPath,
         cv_text: strip(cvText),
         photo_url: photoUrl,

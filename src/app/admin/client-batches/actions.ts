@@ -486,6 +486,13 @@ export async function addCandidateToBatch(
       email,
       phone: trimToNull(candidate.phone),
       linkedin_url: trimToNull(candidate.linkedin_url),
+      /*
+       * KEPT, unlike the derived-URL writes that were removed elsewhere.
+       * This is not a fresh getPublicUrl — it copies forward whatever the
+       * SOURCE row already had. For a legacy source (cv_url set, cv_path null)
+       * that string is the only remaining pointer to the file, so dropping it
+       * here would lose the CV. New sources carry cv_path and pass null.
+       */
       cv_url: trimToNull(candidate.cv_url),
       cv_path: cvPath,
       location: trimToNull(candidate.location),
@@ -587,7 +594,6 @@ export async function updateBatchCandidate(
     email: string;
     phone: string;
     linkedin_url: string;
-    cv_url: string;
     location: string;
     university: string;
     position_applied: string;

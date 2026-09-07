@@ -43,17 +43,19 @@ import {
   type RemoteTalentStatus,
 } from "@/app/admin/remote-talent/actions";
 import { type UserRole } from "@/app/admin/lib/roles";
-import {
-  INVITE_STATUS_COLOR,
-  INVITE_STATUS_LABEL,
-  type InviteStatus,
-} from "@/lib/claim-status";
+import { INVITE_STATUS_COLOR, INVITE_STATUS_LABEL, type InviteStatus } from "@/lib/claim-status";
 import { TruncatedDescription } from "@/components/truncated-description";
 
 // ── Constants ────────────────────────────────────────────────
 
 const STATUS_FILTERS: Array<"All" | RemoteTalentStatus> = [
-  "All", "pending", "approved", "shortlisted", "placed", "paused", "archived",
+  "All",
+  "pending",
+  "approved",
+  "shortlisted",
+  "placed",
+  "paused",
+  "archived",
 ];
 
 const STATUS_LABELS: Record<string, string> = {
@@ -67,12 +69,12 @@ const STATUS_LABELS: Record<string, string> = {
 };
 
 const STATUS_BADGE: Record<RemoteTalentStatus, string> = {
-  pending:     "bg-amber-100 text-amber-700",
-  approved:    "bg-green-100 text-green-700",
+  pending: "bg-amber-100 text-amber-700",
+  approved: "bg-green-100 text-green-700",
   shortlisted: "bg-remotiv-purple/10 text-remotiv-purple",
-  placed:      "bg-blue-100 text-blue-700",
-  paused:      "bg-orange-100 text-orange-700",
-  archived:    "bg-gray-100 text-gray-500",
+  placed: "bg-blue-100 text-blue-700",
+  paused: "bg-orange-100 text-orange-700",
+  archived: "bg-gray-100 text-gray-500",
 };
 
 const AVAILABILITY_FILTERS = ["All", "Available Now", "Available Later"] as const;
@@ -130,13 +132,7 @@ function fmtAvailability(profile: RemoteTalentProfile): string {
 
 // ── Avatar ───────────────────────────────────────────────────
 
-function Avatar({
-  profile,
-  size,
-}: {
-  profile: RemoteTalentProfile;
-  size: number;
-}) {
+function Avatar({ profile, size }: { profile: RemoteTalentProfile; size: number }) {
   if (profile.photo_url) {
     return (
       <div
@@ -189,10 +185,8 @@ function ProfileCard({
   const extraSkills = Math.max(0, profile.skills.length - visibleSkills.length);
   const inviteColor = INVITE_STATUS_COLOR[inviteStatus];
   const inviteLabel = INVITE_STATUS_LABEL[inviteStatus];
-  const showSendButton =
-    inviteStatus === "not_invited" || inviteStatus === "expired";
-  const showResendButton =
-    inviteStatus === "pending" || inviteStatus === "opened";
+  const showSendButton = inviteStatus === "not_invited" || inviteStatus === "expired";
+  const showResendButton = inviteStatus === "pending" || inviteStatus === "opened";
 
   return (
     <div className="flex flex-col gap-4 rounded-2xl border border-black/[0.05] bg-white p-5 shadow-sm transition-shadow hover:shadow-md">
@@ -211,7 +205,9 @@ function ProfileCard({
               available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
             }`}
           >
-            <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+            <span
+              className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`}
+            />
             {available ? "Available" : "Later"}
           </span>
           {profile.hourly_rate != null && (
@@ -228,7 +224,9 @@ function ProfileCard({
                 Approved
               </span>
             )}
-            <span className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}>
+            <span
+              className={`rounded-full px-2 py-0.5 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}
+            >
               {STATUS_LABELS[profile.status] ?? profile.status}
             </span>
           </div>
@@ -239,7 +237,9 @@ function ProfileCard({
       <div className="flex items-start gap-3">
         <Avatar profile={profile} size={48} />
         <div className="min-w-0 flex-1">
-          <p className="truncate font-heading text-base font-bold text-gray-900">{fullName(profile)}</p>
+          <p className="truncate font-heading text-base font-bold text-gray-900">
+            {fullName(profile)}
+          </p>
           {profile.job_titles && (
             <p className="truncate text-xs text-gray-500">{profile.job_titles}</p>
           )}
@@ -341,10 +341,30 @@ type StageAction = {
 };
 
 const STAGE_ACTIONS: StageAction[] = [
-  { status: "shortlisted", label: "Shortlist",      icon: Star,        className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20" },
-  { status: "placed",      label: "Mark as Placed", icon: Trophy,      className: "bg-blue-50 text-blue-600 hover:bg-blue-100" },
-  { status: "paused",      label: "Pause",          icon: PauseCircle, className: "bg-orange-50 text-orange-700 hover:bg-orange-100" },
-  { status: "archived",    label: "Archive",        icon: Archive,     className: "bg-gray-100 text-gray-600 hover:bg-gray-200" },
+  {
+    status: "shortlisted",
+    label: "Shortlist",
+    icon: Star,
+    className: "bg-remotiv-purple/10 text-remotiv-purple hover:bg-remotiv-purple/20",
+  },
+  {
+    status: "placed",
+    label: "Mark as Placed",
+    icon: Trophy,
+    className: "bg-blue-50 text-blue-600 hover:bg-blue-100",
+  },
+  {
+    status: "paused",
+    label: "Pause",
+    icon: PauseCircle,
+    className: "bg-orange-50 text-orange-700 hover:bg-orange-100",
+  },
+  {
+    status: "archived",
+    label: "Archive",
+    icon: Archive,
+    className: "bg-gray-100 text-gray-600 hover:bg-gray-200",
+  },
 ];
 
 function ProfileDrawer({
@@ -416,11 +436,7 @@ function ProfileDrawer({
 
   async function handleSaveVerifications() {
     setSavingVerify(true);
-    const result = await updateRemoteTalentVerification(
-      profile.id,
-      idVerified,
-      phoneVerified,
-    );
+    const result = await updateRemoteTalentVerification(profile.id, idVerified, phoneVerified);
     setSavingVerify(false);
     if (result.success) {
       onToast("Verifications saved");
@@ -464,7 +480,9 @@ function ProfileDrawer({
           <div className="flex items-start gap-4">
             <Avatar profile={profile} size={80} />
             <div className="min-w-0 flex-1 pr-8">
-              <p className="truncate font-heading text-xl font-bold text-gray-900">{fullName(profile)}</p>
+              <p className="truncate font-heading text-xl font-bold text-gray-900">
+                {fullName(profile)}
+              </p>
               {profile.job_titles && (
                 <p className="truncate text-sm text-gray-500">{profile.job_titles}</p>
               )}
@@ -474,7 +492,9 @@ function ProfileDrawer({
                     available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
                   }`}
                 >
-                  <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+                  <span
+                    className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`}
+                  />
                   {available ? "Available" : "Later"}
                 </span>
                 {profile.approved_at && (
@@ -483,7 +503,9 @@ function ProfileDrawer({
                     Approved
                   </span>
                 )}
-                <span className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}>
+                <span
+                  className={`rounded-full px-2.5 py-1 text-[10px] font-semibold ${STATUS_BADGE[profile.status]}`}
+                >
                   {STATUS_LABELS[profile.status] ?? profile.status}
                 </span>
                 {verifBadges.map((v) => (
@@ -506,7 +528,10 @@ function ProfileDrawer({
           <DrawerSection title="Contact">
             <div className="flex flex-col gap-2 text-sm">
               {profile.email && (
-                <a href={`mailto:${profile.email}`} className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple">
+                <a
+                  href={`mailto:${profile.email}`}
+                  className="flex items-center gap-2 text-gray-700 hover:text-remotiv-purple"
+                >
                   <Mail className="size-3.5 text-gray-400" strokeWidth={2} />
                   {profile.email}
                 </a>
@@ -614,7 +639,9 @@ function ProfileDrawer({
                   >
                     <div className="flex items-start justify-between gap-3">
                       <div className="min-w-0">
-                        {e.title && <p className="font-semibold text-gray-800 text-sm">{e.title}</p>}
+                        {e.title && (
+                          <p className="font-semibold text-gray-800 text-sm">{e.title}</p>
+                        )}
                         {e.company && <p className="text-xs text-gray-500">{e.company}</p>}
                       </div>
                       {e.dates && <p className="shrink-0 text-[10px] text-gray-400">{e.dates}</p>}
@@ -658,7 +685,9 @@ function ProfileDrawer({
                   <div key={`${p.title}-${i}`} className="rounded-xl bg-gray-50 px-4 py-3">
                     <div className="flex items-start justify-between gap-2">
                       <div className="min-w-0">
-                        {p.title && <p className="font-semibold text-sm text-gray-800">{p.title}</p>}
+                        {p.title && (
+                          <p className="font-semibold text-sm text-gray-800">{p.title}</p>
+                        )}
                         {p.role && <p className="text-[11px] text-gray-500">{p.role}</p>}
                       </div>
                       {p.url && (
@@ -674,7 +703,9 @@ function ProfileDrawer({
                       )}
                     </div>
                     {p.description && (
-                      <p className="mt-1.5 text-xs leading-relaxed text-gray-600">{p.description}</p>
+                      <p className="mt-1.5 text-xs leading-relaxed text-gray-600">
+                        {p.description}
+                      </p>
                     )}
                   </div>
                 ))}
@@ -683,7 +714,8 @@ function ProfileDrawer({
           )}
 
           {/* CV */}
-          {profile.cv_url && (
+          {/* Either column: new rows have cv_path only, legacy rows cv_url only. */}
+          {(profile.cv_path || profile.cv_url) && (
             <DrawerSection title="CV">
               <div className="flex gap-2">
                 <a
@@ -716,7 +748,9 @@ function ProfileDrawer({
                   <CheckCircle className="size-4 text-[#1a9e73]" strokeWidth={2.5} />
                   Email Verified
                 </span>
-                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">Auto</span>
+                <span className="text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+                  Auto
+                </span>
               </div>
               <label className="flex cursor-pointer items-center justify-between rounded-xl border border-gray-100 bg-white px-3 py-2.5 transition-colors hover:bg-gray-50">
                 <span className="text-xs font-medium text-gray-700">ID Verified</span>
@@ -930,7 +964,9 @@ function FilterPill({
 function FilterGroup({ title, children }: { title: string; children: React.ReactNode }) {
   return (
     <div className="mb-5 last:mb-0">
-      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">{title}</p>
+      <p className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-gray-400">
+        {title}
+      </p>
       <div className="flex flex-col gap-1.5">{children}</div>
     </div>
   );
@@ -958,9 +994,7 @@ function RemoteTalentCardMobile({
   const visibleSkills = profile.skills.slice(0, 3);
   const extraSkills = Math.max(0, profile.skills.length - visibleSkills.length);
   const verifCount =
-    Number(profile.email_verified) +
-    Number(profile.id_verified) +
-    Number(profile.phone_verified);
+    Number(profile.email_verified) + Number(profile.id_verified) + Number(profile.phone_verified);
   const fullyVerified = verifCount >= 2;
 
   return (
@@ -983,9 +1017,7 @@ function RemoteTalentCardMobile({
             </span>
           </div>
           {profile.job_titles && (
-            <p className="mt-0.5 truncate text-xs text-gray-500">
-              {profile.job_titles}
-            </p>
+            <p className="mt-0.5 truncate text-xs text-gray-500">{profile.job_titles}</p>
           )}
           <p className="mt-1 flex items-center gap-1 text-[11px] text-gray-400">
             {(profile.city || profile.country) && (
@@ -1005,7 +1037,9 @@ function RemoteTalentCardMobile({
             available ? "bg-remotiv-green/10 text-[#1a9e73]" : "bg-gray-100 text-gray-400"
           }`}
         >
-          <span className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`} />
+          <span
+            className={`size-1.5 rounded-full ${available ? "bg-remotiv-green" : "bg-gray-400"}`}
+          />
           {available ? "Available" : "Later"}
         </span>
         {profile.hourly_rate != null && (
@@ -1182,8 +1216,8 @@ export function RemoteTalentDashboard({
     const q = search.trim().toLowerCase();
     return profiles.filter((p) => {
       if (filterStatus !== "All" && p.status !== filterStatus) return false;
-      if (filterAvailability === "Available Now"   && !isAvailableNow(p)) return false;
-      if (filterAvailability === "Available Later" &&  isAvailableNow(p)) return false;
+      if (filterAvailability === "Available Now" && !isAvailableNow(p)) return false;
+      if (filterAvailability === "Available Later" && isAvailableNow(p)) return false;
       if (filterWorkType !== "All" && (p.work_type ?? "") !== filterWorkType) return false;
       if (filterHours !== "All" && (p.hours_per_week ?? "") !== filterHours) return false;
       if (q) {
@@ -1196,16 +1230,18 @@ export function RemoteTalentDashboard({
           p.city ?? "",
           p.country ?? "",
           ...(p.skills ?? []),
-        ].join(" ").toLowerCase();
+        ]
+          .join(" ")
+          .toLowerCase();
         if (!blob.includes(q)) return false;
       }
       return true;
     });
   }, [profiles, search, filterStatus, filterAvailability, filterWorkType, filterHours]);
 
-  const totalCount     = profiles.length;
+  const totalCount = profiles.length;
   const availableCount = profiles.filter(isAvailableNow).length;
-  const pendingCount   = profiles.filter((p) => p.status === "pending").length;
+  const pendingCount = profiles.filter((p) => p.status === "pending").length;
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
@@ -1214,7 +1250,7 @@ export function RemoteTalentDashboard({
   }, [search, filterStatus, filterAvailability, filterWorkType, filterHours]);
   const pageItems = paginate(filtered, page);
 
-  const openProfile = openId ? profiles.find((p) => p.id === openId) ?? null : null;
+  const openProfile = openId ? (profiles.find((p) => p.id === openId) ?? null) : null;
 
   async function handleSetStatus(profile: RemoteTalentProfile, status: RemoteTalentStatus) {
     const optimisticPatch: Partial<RemoteTalentProfile> = { status };
@@ -1278,8 +1314,7 @@ export function RemoteTalentDashboard({
 
   const allIds = profiles.map((p) => p.id);
   const allSelected = allIds.length > 0 && allIds.every((id) => selectedIds.has(id));
-  const toggleSelectAll = () =>
-    setSelectedIds(allSelected ? new Set() : new Set(allIds));
+  const toggleSelectAll = () => setSelectedIds(allSelected ? new Set() : new Set(allIds));
   const toggleSelect = useCallback((id: string) => {
     setSelectedIds((prev) => {
       const next = new Set(prev);
@@ -1304,9 +1339,7 @@ export function RemoteTalentDashboard({
         if (result.success) {
           setToast("Claim invite sent");
           try {
-            const updated = await fetchRemoteInviteStatuses(
-              profiles.map((p) => p.id),
-            );
+            const updated = await fetchRemoteInviteStatuses(profiles.map((p) => p.id));
             setInviteStatuses(updated);
           } catch (refreshErr) {
             // Refresh failure shouldn't wipe the success toast — log only.
@@ -1332,9 +1365,7 @@ export function RemoteTalentDashboard({
         setToast(`Invites sent to ${result.sent} candidate(s)`);
         setSelectedIds(new Set());
         try {
-          const updated = await fetchRemoteInviteStatuses(
-            profiles.map((p) => p.id),
-          );
+          const updated = await fetchRemoteInviteStatuses(profiles.map((p) => p.id));
           setInviteStatuses(updated);
         } catch (refreshErr) {
           console.error("[handleBulkSendInvite] refresh failed:", refreshErr);
@@ -1479,18 +1510,14 @@ export function RemoteTalentDashboard({
               </label>
               {selectedIds.size > 0 && (
                 <>
-                  <span className="text-xs text-gray-500">
-                    {selectedIds.size} selected
-                  </span>
+                  <span className="text-xs text-gray-500">{selectedIds.size} selected</span>
                   <button
                     type="button"
                     onClick={handleBulkSendInvite}
                     disabled={bulkSending}
                     className="rounded-lg bg-[#7E47FF] px-3 py-1.5 text-xs font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
                   >
-                    {bulkSending
-                      ? "Sending..."
-                      : `Send Claim Email (${selectedIds.size})`}
+                    {bulkSending ? "Sending..." : `Send Claim Email (${selectedIds.size})`}
                   </button>
                   <button
                     type="button"
@@ -1506,8 +1533,12 @@ export function RemoteTalentDashboard({
             {filtered.length === 0 ? (
               <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-20 text-center">
                 <Briefcase className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
-                <p className="font-heading text-sm font-semibold text-gray-700">No remote talent matches your filters</p>
-                <p className="mt-1 text-xs text-gray-400">Try clearing a filter or broadening your search.</p>
+                <p className="font-heading text-sm font-semibold text-gray-700">
+                  No remote talent matches your filters
+                </p>
+                <p className="mt-1 text-xs text-gray-400">
+                  Try clearing a filter or broadening your search.
+                </p>
               </div>
             ) : (
               <>
@@ -1531,11 +1562,7 @@ export function RemoteTalentDashboard({
                 {/* Mobile card list */}
                 <div className="flex flex-col gap-3 lg:hidden">
                   {pageItems.map((p) => (
-                    <RemoteTalentCardMobile
-                      key={p.id}
-                      profile={p}
-                      onView={() => setOpenId(p.id)}
-                    />
+                    <RemoteTalentCardMobile key={p.id} profile={p} onView={() => setOpenId(p.id)} />
                   ))}
                 </div>
 
@@ -1551,9 +1578,7 @@ export function RemoteTalentDashboard({
       {/* Mobile filter bottom sheet — slides up from bottom on <lg */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
-          filterDrawerOpen
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0"
+          filterDrawerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={() => setFilterDrawerOpen(false)}
         aria-hidden="true"
@@ -1658,13 +1683,16 @@ export function RemoteTalentDashboard({
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-red-50">
                 <AlertTriangle className="size-7 text-red-500" strokeWidth={2} />
               </div>
-              <h3 id="delete-remote-talent-title" className="font-heading text-lg font-bold text-gray-900">Remove this talent?</h3>
+              <h3
+                id="delete-remote-talent-title"
+                className="font-heading text-lg font-bold text-gray-900"
+              >
+                Remove this talent?
+              </h3>
               <p className="mt-2 text-sm text-gray-500">
                 This permanently removes{" "}
-                <span className="font-semibold text-gray-700">
-                  {fullName(deleteTarget)}
-                </span>{" "}
-                from the remote talent network. This action cannot be undone.
+                <span className="font-semibold text-gray-700">{fullName(deleteTarget)}</span> from
+                the remote talent network. This action cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
@@ -1678,7 +1706,8 @@ export function RemoteTalentDashboard({
               <button
                 type="button"
                 onClick={() => deleteTarget && handleDelete(deleteTarget)}
-                disabled={deleting} aria-busy={deleting}
+                disabled={deleting}
+                aria-busy={deleting}
                 className="flex-1 rounded-xl bg-red-600 py-2.5 text-sm font-semibold text-white transition-opacity hover:bg-red-700 disabled:opacity-50"
               >
                 {deleting ? "Deleting…" : "Delete"}
@@ -1689,7 +1718,12 @@ export function RemoteTalentDashboard({
       )}
 
       {toast && (
-        <div role="status" aria-live="polite" aria-atomic="true" className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl">
+        <div
+          role="status"
+          aria-live="polite"
+          aria-atomic="true"
+          className="fixed bottom-6 right-6 z-50 flex items-center gap-2.5 rounded-xl bg-gray-900 px-4 py-3 text-sm font-medium text-white shadow-xl"
+        >
           {toast}
         </div>
       )}

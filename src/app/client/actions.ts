@@ -6,6 +6,7 @@ import { BATCH_STAGES } from "@/app/admin/_components/batch-stages";
 import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
 import { getClientContext } from "./lib/client-guards";
 import { notifyAllAdmins } from "@/lib/notifications";
+import { resolveCvPath } from "@/lib/cv-path";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -672,14 +673,8 @@ export async function getClientCvSignedUrl(
     }
   }
 
-  // Resolve cv_path (prefer cv_path; derive from cv_url for transition safety)
-  let cvPath = cand.cv_path;
-  if (!cvPath && cand.cv_url) {
-    const match = String(cand.cv_url).match(
-      /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-    );
-    cvPath = match ? match[1] : null;
-  }
+  // cv_path first, then a legacy public cv_url — one shared rule, see lib/cv-path.ts.
+  const cvPath = resolveCvPath(cand);
   if (!cvPath) {
     return { ok: false, error: "cv_missing" };
   }

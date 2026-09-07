@@ -3,6 +3,7 @@
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 // Hoisted from getCvSignedUrl so the shared signing helper (Phase 4 E2)
 // can reference the same TTL.
@@ -43,16 +44,6 @@ async function signCvUrlAndLog(params: {
       if (error) console.error("[signed_url_logs insert]", error);
     });
   return { ok: true, url: signed.signedUrl };
-}
-
-// Phase 4 E2: extracted from getCvSignedUrl's inline fallback. When cv_path
-// is missing, derive it from a legacy public cv_url string.
-function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
-  if (!cvUrl) return null;
-  const match = String(cvUrl).match(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-  );
-  return match ? match[1] : null;
 }
 
 export type UnlockResult =

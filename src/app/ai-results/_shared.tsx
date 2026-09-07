@@ -27,6 +27,7 @@ export type CandidateProfile = {
   email: string | null;
   phone: string | null;
   cv_url: string | null;
+  cv_path: string | null;
   github_url: string | null;
   linkedin_url: string | null;
   avatar_url: string | null;

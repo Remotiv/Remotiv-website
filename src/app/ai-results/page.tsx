@@ -911,7 +911,7 @@ function ResultsContent() {
               ? {
                   github: m.profile.github_url ?? null,
                   linkedin: local?.linkedinUrl ?? m.profile.linkedin_url ?? null,
-                  cvUrl: local?.cvUrl ?? m.profile.cv_url ?? null,
+                  cvUrl: local?.cvUrl ?? m.profile.cv_path ?? m.profile.cv_url ?? null,
                 }
               : null;
             return (
@@ -977,7 +977,7 @@ function ResultsContent() {
           ? {
               github: openMatch.profile.github_url ?? null,
               linkedin: local?.linkedinUrl ?? openMatch.profile.linkedin_url ?? null,
-              cvUrl: local?.cvUrl ?? openMatch.profile.cv_url ?? null,
+              cvUrl: local?.cvUrl ?? openMatch.profile.cv_path ?? openMatch.profile.cv_url ?? null,
             }
           : null;
         return (

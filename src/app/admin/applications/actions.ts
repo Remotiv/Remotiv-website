@@ -7,6 +7,7 @@ import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
 export type ApplicationSource = "job_application" | "manual_upload";
@@ -385,19 +386,6 @@ export async function moveApplicationToTalent(
 
 const CV_BUCKET = "cvs";
 const CV_SIGNED_URL_TTL_SECONDS = 60 * 60; // 1 hour — matches the canonical TTL in browse-talent/actions.ts
-
-/**
- * Extract a bucket-relative path from a legacy public URL string. Mirrors
- * `deriveCvPathFromUrl` in browse-talent/actions.ts — used as a fallback for
- * older job_applications rows that have only `cv_url` and no `cv_path`.
- */
-function deriveCvPathFromUrl(cvUrl: string | null | undefined): string | null {
-  if (!cvUrl) return null;
-  const match = String(cvUrl).match(
-    /^https?:\/\/[^/]+\/storage\/v1\/object\/public\/cvs\/(.+)$/,
-  );
-  return match ? match[1] : null;
-}
 
 export type ApplicationCvSignedUrlResult =
   | { ok: true; url: string }

@@ -10,7 +10,7 @@ import {
 export const dynamic = "force-dynamic";
 
 const TALENT_COLUMNS =
-  "id, first_name, last_name, email, phone, city, country, linkedin_url, job_title, role_category, years_experience, industry, summary, availability, work_type, salary_min, salary_max, avatar_url, cv_url, skills, experience, status, claimed_at, approved_at";
+  "id, first_name, last_name, email, phone, city, country, linkedin_url, job_title, role_category, years_experience, industry, summary, availability, work_type, salary_min, salary_max, avatar_url, cv_url, cv_path, skills, experience, status, claimed_at, approved_at";
 
 const REMOTE_COLUMNS =
   "id, first_name, last_name, email, phone, city, country, time_zone, linkedin_url, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, cv_path, skills, employment_history, education, languages, portfolio, status, claimed_at, approved_at, email_verified";

@@ -209,9 +209,6 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
 
-    const { data: urlData } = supabase.storage.from("cvs").getPublicUrl(path);
-    const cvUrl = urlData.publicUrl;
-
     // 3. Insert into client_batch_candidates. The source_type column is
     //    NOT NULL with a CHECK ('application' | 'talent'); a fresh CV
     //    upload doesn't fit either bucket cleanly, so we pick "application"
@@ -229,7 +226,10 @@ export async function POST(request: NextRequest) {
         email,
         phone,
         linkedin_url: linkedin,
-        cv_url: cvUrl,
+        // cv_url is NOT written. The `cvs` bucket is private, so getPublicUrl
+        // returns a URL that 404s, and every consumer signs cv_path instead.
+        // The column stays for rows written before the bucket was closed — see
+        // lib/cv-path.ts — but nothing new should join that set.
         cv_path: path,
         position_applied: position,
         stage: "-",

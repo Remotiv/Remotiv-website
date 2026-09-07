@@ -15,7 +15,7 @@ export const TALENT_SCORABLE_FIELDS: readonly string[] = [
   "salary_min",
   "salary_max",
   "avatar_url",
-  "cv_url",
+  "cv_path",
   "skills",
   "experience",
 ];
@@ -49,7 +49,7 @@ export const TALENT_HIGH_VALUE_FIELDS: readonly HighValueField[] = [
   { key: "summary", label: "a summary" },
   { key: "role_category", label: "your role category" },
   { key: "avatar_url", label: "a photo" },
-  { key: "cv_url", label: "your CV" },
+  { key: "cv_path", label: "your CV" },
   { key: "salary_min", label: "salary expectations" },
   { key: "skills", label: "skills" },
   { key: "linkedin_url", label: "your LinkedIn" },
@@ -68,6 +68,25 @@ export const REMOTE_HIGH_VALUE_FIELDS: readonly HighValueField[] = [
 ];
 
 export type SourceTable = "talent_profiles" | "hire_remote_profiles";
+
+/**
+ * Fields satisfied by ANY of several columns.
+ *
+ * A CV lives in `cv_path` on every row written since the `cvs` bucket was made
+ * private, and in `cv_url` alone on rows written before it. Scoring only one of
+ * them tells half the talent their profile is missing a CV they uploaded — the
+ * new ones if we score cv_url, the legacy ones if we score cv_path. So the key
+ * is cv_path and cv_url is accepted alongside it.
+ */
+const FIELD_ALIASES: Readonly<Record<string, readonly string[]>> = {
+  cv_path: ["cv_path", "cv_url"],
+};
+
+/** Is the field behind `key` filled, counting any column that satisfies it? */
+function isKeyFilled(row: Record<string, unknown>, key: string): boolean {
+  const columns = FIELD_ALIASES[key] ?? [key];
+  return columns.some((c) => isFieldFilled(row[c]));
+}
 
 export function isFieldFilled(value: unknown): boolean {
   if (value === null || value === undefined) return false;
@@ -89,7 +108,7 @@ export function computeCompleteness(
       : REMOTE_SCORABLE_FIELDS;
   let filled = 0;
   for (const key of fields) {
-    if (isFieldFilled(row[key])) filled += 1;
+    if (isKeyFilled(row, key)) filled += 1;
   }
   const total = fields.length;
   const pct = total === 0 ? 0 : Math.round((filled / total) * 100);
@@ -107,7 +126,7 @@ export function getMissingHighValueFields(
       : REMOTE_HIGH_VALUE_FIELDS;
   const missing: string[] = [];
   for (const { key, label } of candidates) {
-    if (!isFieldFilled(row[key])) {
+    if (!isKeyFilled(row, key)) {
       missing.push(label);
       if (missing.length >= max) break;
     }

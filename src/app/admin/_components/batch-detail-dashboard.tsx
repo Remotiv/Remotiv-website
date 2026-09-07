@@ -579,7 +579,6 @@ function CandidateDrawer({
       email: form.email,
       phone: form.phone ?? "",
       linkedin_url: form.linkedin_url ?? "",
-      cv_url: form.cv_url ?? "",
       location: form.location ?? "",
       university: form.university ?? "",
       position_applied: form.position_applied ?? "",
@@ -659,7 +658,6 @@ function CandidateDrawer({
               <Field label="Email"><input type="email" value={form.email} onChange={(e) => setField("email", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="Phone"><input value={form.phone ?? ""} onChange={(e) => setField("phone", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="LinkedIn URL" full><input type="url" value={form.linkedin_url ?? ""} onChange={(e) => setField("linkedin_url", e.target.value)} className={INPUT_CLS} /></Field>
-              <Field label="CV URL" full><input type="url" value={form.cv_url ?? ""} onChange={(e) => setField("cv_url", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="Location"><input value={form.location ?? ""} onChange={(e) => setField("location", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="University"><input value={form.university ?? ""} onChange={(e) => setField("university", e.target.value)} className={INPUT_CLS} /></Field>
               <Field label="Position Applied" full><input value={form.position_applied ?? ""} onChange={(e) => setField("position_applied", e.target.value)} className={INPUT_CLS} /></Field>

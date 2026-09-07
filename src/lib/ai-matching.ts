@@ -39,6 +39,8 @@ export interface CandidateRow {
   email: string | null;
   phone: string | null;
   cv_url: string | null;
+  /** The live pointer; cv_url is legacy-only. See lib/cv-path.ts. */
+  cv_path: string | null;
   github_url: string | null;
   linkedin_url: string | null;
   avatar_url: string | null;
@@ -196,7 +198,7 @@ export async function setCached(
 // ── 7. prefilterCandidates ───────────────────────────────────
 
 export const CANDIDATE_COLUMNS =
-  "id, first_name, last_name, email, phone, cv_url, job_title, role_category, skills, city, country, years_experience, summary, availability, work_type, github_url, linkedin_url, avatar_url, status, salary_min, salary_max";
+  "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, skills, city, country, years_experience, summary, availability, work_type, github_url, linkedin_url, avatar_url, status, salary_min, salary_max";
 
 export async function prefilterCandidates(
   query: string,
