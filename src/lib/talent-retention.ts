@@ -24,9 +24,15 @@ import { createHash, randomBytes } from "node:crypto";
  *
  * ── Scope ────────────────────────────────────────────────────
  *
- * `talent_profiles` ONLY. Company applicants' CVs expire 24 months from APPLY
- * on a stored `cv_delete_after` (see lib/cv-purge.ts) — different rule,
- * different basis, different table. Nothing here may touch job_applications.
+ * `talent_profiles` ONLY. An APPLICANT's CV expires 24 months from APPLY on a
+ * stored `cv_delete_after` (see lib/cv-purge.ts) — the same period on a fixed
+ * clock rather than a rolling one, because an applicant has no account and so
+ * has no observable activity to roll the window forward. Different table,
+ * different basis. Nothing here may touch job_applications.
+ *
+ * A person in both places is covered by both, independently. The two rows can
+ * name the same storage object, and neither purge deletes a file the other
+ * still points at — see lib/shared-storage-refs.ts.
  */
 
 /** Months of inactivity before a profile is deleted. */

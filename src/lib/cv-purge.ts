@@ -1,4 +1,5 @@
 import "server-only";
+import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -14,29 +15,34 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  * ══ THE SCOPE GUARD — read before changing any selector ═══════
  *
- * `company_id_snapshot` is what separates two entirely different kinds of row
- * that share one table:
+ * `.lte("cv_delete_after", now)`, and that is the whole of it. A null never
+ * satisfies a comparison in SQL, so a null cv_delete_after means KEEP FOREVER
+ * and is unreachable here. The date is read from the column and never computed:
+ * nothing in this file knows what "24 months" is, so no edit to a constant can
+ * widen what gets deleted. Changing the retention period is a backfill, done
+ * deliberately, with the rows visible before anything is removed.
  *
- *   NOT NULL — someone applied to a COMPANY's job through the product. Their
- *              CV is that company's hiring record, and it expires.
- *   NULL     — Remotiv's own: the talent pool, and applicants to Remotiv's own
- *              listings. These CVs ARE the marketplace. Purging one destroys
- *              inventory the business is built on. They must never be touched
- *              by this job, under any future change to it.
+ * ── The second guard, and why it is gone ─────────────────────
  *
- * The selector enforces that TWICE, independently:
+ * This selector also carried `.not("company_id_snapshot", "is", null)`, on the
+ * reasoning that a null snapshot marks a Remotiv-owned row — the talent pool,
+ * or an applicant to Remotiv's own listing — whose CV "IS the marketplace" and
+ * must never expire.
  *
- *   1. `.lte("cv_delete_after", now)` — a null never satisfies a comparison in
- *      SQL, so a null cv_delete_after means KEEP FOREVER and is unreachable
- *      here. The date is read from the column and never computed: nothing in
- *      this file knows what "24 months" is, so no edit to a constant can widen
- *      what gets deleted. Changing the retention period is a backfill, done
- *      deliberately, with the rows visible before anything is removed.
- *   2. `.not("company_id_snapshot", "is", null)` — redundant TODAY, because
- *      only company rows were backfilled with a date. It is here for the day
- *      someone backfills the column more broadly, or writes it in a new code
- *      path, and does not realise what else reads it. Either guard alone
- *      protects the talent pool; both must fail together to lose it.
+ * That reasoning does not survive contact with the person it is about. It made
+ * one promise to someone who applied to a client's job and a different, silent
+ * one to someone who applied to ours, and the difference was invisible to both.
+ * Applying to Remotiv is not consent to be held indefinitely. Every applicant
+ * now gets the same 24 months from the day they applied, /api/apply writes the
+ * date for every row it inserts, and the guard came off so those rows can
+ * actually be reached.
+ *
+ * What that guard was protecting is protected properly instead: a talent-pool
+ * profile is a separate row on its own rolling clock (lib/talent-retention.ts),
+ * and where the two rows name the SAME storage object — the bridge copies the
+ * path rather than re-uploading — findSharedPaths keeps the file alive for
+ * whichever row has not expired yet. The marketplace inventory is the profile,
+ * and nothing here deletes a profile.
  *
  * ── What is removed, and what is kept ────────────────────────
  *
@@ -95,6 +101,7 @@ export async function handleCvPurge(job: {
   const now = new Date().toISOString();
 
   let objectsRemoved = 0;
+  let objectsKept = 0;
   let rowsCleared = 0;
   let textOnly = 0;
   let truncated = false;
@@ -123,7 +130,6 @@ export async function handleCvPurge(job: {
       .select("id, cv_path, cv_text")
       // ── The scope guard. See the banner. ──
       .lte("cv_delete_after", now)
-      .not("company_id_snapshot", "is", null)
       /*
        * Idempotency, with no new column: a row is "already purged" precisely
        * when it holds neither a path nor extracted text. Once both are null
@@ -156,19 +162,47 @@ export async function handleCvPurge(job: {
       Boolean(r.cv_path),
     );
     const confirmed = new Set<string>();
+    const shared = new Set<string>();
+    const self = { table: "job_applications", ids: new Set(rows.map((r) => r.id)) };
 
     for (const batch of chunk(withPath, REMOVE_CHUNK)) {
       if (Date.now() - startedAt > BUDGET_MS) {
         truncated = true;
         break;
       }
+      const paths = [...new Set(batch.map((r) => r.cv_path))];
+
+      /*
+       * WHO ELSE HOLDS THESE KEYS — asked before anything is deleted.
+       *
+       * A bridged applicant's CV is one object with two rows naming it, and
+       * this job reaches it first for anyone who applied before joining the
+       * talent pool. Deleting it here would empty the profile's CV while the
+       * profile's own clock still has months to run.
+       *
+       * A failure to answer skips the batch whole rather than guessing. Both
+       * guesses lose data: "assume shared" clears rows and strands their files,
+       * "assume unshared" deletes a CV another row still advertises. These rows
+       * keep matching the selector and are retried next run.
+       */
+      let sharedHere: Set<string>;
+      try {
+        sharedHere = await findSharedPaths(service, "cv_path", paths, self);
+      } catch (err) {
+        console.error(
+          `[cv-purge] shared-reference check failed, batch skipped: ${(err as Error).message}`,
+        );
+        continue;
+      }
+      for (const path of sharedHere) shared.add(path);
+      objectsKept += sharedHere.size;
+
+      const removable = paths.filter((p) => !sharedHere.has(p));
+      if (removable.length === 0) continue;
+
       let outcome: Awaited<ReturnType<typeof removeObjects>>;
       try {
-        outcome = await removeObjects(
-          service,
-          CV_BUCKET,
-          batch.map((r) => r.cv_path),
-        );
+        outcome = await removeObjects(service, CV_BUCKET, removable);
       } catch (err) {
         // Storage unreachable. Leave every path intact so the next run retries
         // rather than clearing paths for objects that may still exist.
@@ -185,10 +219,26 @@ export async function handleCvPurge(job: {
     const cleared: string[] = [];
     const textCleared: string[] = [];
     for (const row of rows) {
-      // No path at all means there is nothing left in storage to lose, so the
-      // row is safe to finish. Absence is not failure.
-      if (!row.cv_path || confirmed.has(row.cv_path)) cleared.push(row.id);
-      else textCleared.push(row.id);
+      /*
+       * Three ways a row is finished, and they are not the same thing:
+       *
+       *   no path        — nothing left in storage to lose. Absence is not
+       *                    failure.
+       *   confirmed gone — the object was deleted.
+       *   shared         — the object was deliberately LEFT, because another
+       *                    row still names it. The application still expires:
+       *                    its cv_path and cv_text go, the company no longer
+       *                    holds the document, and the file survives only for
+       *                    the other row's own retention period.
+       *
+       * A failed delete is none of these and must hold the row back — clearing
+       * cv_path then would strand the file with nothing naming it.
+       */
+      if (!row.cv_path || confirmed.has(row.cv_path) || shared.has(row.cv_path)) {
+        cleared.push(row.id);
+      } else {
+        textCleared.push(row.id);
+      }
     }
 
     if (cleared.length > 0) {
@@ -215,6 +265,7 @@ export async function handleCvPurge(job: {
   console.log(
     `[cv-purge] job ${job.id}: objects=${objectsRemoved} rows=${rowsCleared} ` +
       `retrying=${textOnly}` +
+      (objectsKept > 0 ? ` kept=${objectsKept} (still referenced elsewhere)` : "") +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }

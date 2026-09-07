@@ -177,7 +177,7 @@ export const JOB_TYPES = {
   CALENDAR_SYNC: "calendar_sync",
   /** Retention — delete interview media past delete_after, and sweep orphans. */
   INTERVIEW_PURGE: "interview_purge",
-  /** Retention — delete company applicants' CVs past cv_delete_after. */
+  /** Retention — delete applicants' CVs past cv_delete_after. */
   CV_PURGE: "cv_purge",
   /** Retention — delete this table's own long-succeeded rows. */
   QUEUE_SWEEP: "queue_sweep",

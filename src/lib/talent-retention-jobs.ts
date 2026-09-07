@@ -1,5 +1,6 @@
 import "server-only";
 import { sendEmail } from "@/lib/email/send";
+import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
@@ -28,9 +29,17 @@ import {
  *
  * ══ SCOPE ════════════════════════════════════════════════════
  *
- * `talent_profiles` and nothing else. Company applicants' CVs are a different
- * rule on a different basis, handled by cv-purge against job_applications. No
- * future edit here may widen to that table.
+ * `talent_profiles` and nothing else. An APPLICANT's CV expires 24 months from
+ * the day they applied, on a stored date, handled by cv-purge against
+ * job_applications. Same period, different clock, different table. No future
+ * edit here may widen to that table.
+ *
+ * The purge does READ the other cv_path tables, through findSharedPaths, to
+ * learn which storage objects it must NOT delete. That is the opposite of
+ * widening scope, and it runs before anything is removed. One object is
+ * routinely named by both a profile and the application it was bridged from,
+ * and each of those rows has its own clock; whichever fires first leaves the
+ * file for the other.
  */
 
 const CV_BUCKET = "cvs";
@@ -43,6 +52,10 @@ function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
   for (let i = 0; i < items.length; i += size) out.push(items.slice(i, i + size));
   return out;
+}
+
+function unique(values: (string | null)[]): string[] {
+  return [...new Set(values.filter((v): v is string => Boolean(v)))];
 }
 
 type WarnRow = {
@@ -263,6 +276,7 @@ export async function handleTalentRetentionPurge(job: {
   );
 
   let objectsRemoved = 0;
+  let objectsKept = 0;
   let rowsDeleted = 0;
   let truncated = false;
   let offset = 0;
@@ -288,38 +302,83 @@ export async function handleTalentRetentionPurge(job: {
 
     /*
      * Files first, row second — the same ordering cv-purge uses and for the
-     * same reason. cv_path is the ONLY record of where the object lives:
+     * same reason. `cv_path` is the only record of where the object lives, so
      * deleting the row first strands the file permanently, with nothing left
      * pointing at it and no sweep that would find it. A row whose files failed
      * to delete keeps matching and is retried next run.
+     *
+     * It is not, however, the only record ANYWHERE: the same key is copied into
+     * other tables, and an object one of those still names must survive this
+     * profile. See findSharedPaths — that check runs before any remove.
      */
     const confirmed = new Set<string>();
+    const self = { table: "talent_profiles", ids: new Set(rows.map((r) => r.id)) };
+
     for (const batch of chunk(rows, REMOVE_CHUNK)) {
       if (Date.now() - startedAt > BUDGET_MS) {
         truncated = true;
         break;
       }
-      const cvs = batch.map((r) => r.cv_path).filter((p): p is string => Boolean(p));
-      const photos = batch.map((r) => r.photo_path).filter((p): p is string => Boolean(p));
+      const cvs = unique(batch.map((r) => r.cv_path));
+      const photos = unique(batch.map((r) => r.photo_path));
+
+      /*
+       * WHO ELSE HOLDS THESE KEYS. Asked before anything is deleted, and a
+       * failure to answer aborts the batch — see findSharedPaths. `self` covers
+       * the whole page, not this chunk: a second expiring profile is not a
+       * reason to keep the file, whichever chunk it landed in.
+       */
+      let sharedCvs: Set<string>;
+      let sharedPhotos: Set<string>;
       try {
+        sharedCvs = await findSharedPaths(service, "cv_path", cvs, self);
+        sharedPhotos = await findSharedPaths(service, "photo_path", photos, self);
+      } catch (err) {
+        /*
+         * Skip the batch whole. Neither guess is acceptable: "assume shared"
+         * deletes rows and strands their files, "assume unshared" deletes a CV
+         * another row still advertises. These profiles keep matching and are
+         * retried next run.
+         */
+        console.error(
+          `[talent-retention-purge] shared-reference check failed, batch skipped: ` +
+            `${(err as Error).message}`,
+        );
+        continue;
+      }
+
+      objectsKept += sharedCvs.size + sharedPhotos.size;
+
+      try {
+        const removableCvs = cvs.filter((p) => !sharedCvs.has(p));
+        const removablePhotos = photos.filter((p) => !sharedPhotos.has(p));
         const goneCvs =
-          cvs.length > 0
-            ? (await removeObjects(service, CV_BUCKET, cvs)).removed
+          removableCvs.length > 0
+            ? (await removeObjects(service, CV_BUCKET, removableCvs)).removed
             : new Set<string>();
         const gonePhotos =
-          photos.length > 0
-            ? (await removeObjects(service, PHOTO_BUCKET, photos)).removed
+          removablePhotos.length > 0
+            ? (await removeObjects(service, PHOTO_BUCKET, removablePhotos)).removed
             : new Set<string>();
         objectsRemoved += goneCvs.size + gonePhotos.size;
 
         /*
-         * A row is deletable only once BOTH of its files are confirmed gone.
-         * Deleting the row while an object survives strands that object with
-         * nothing pointing at it — the row was the only record of the path.
+         * A row is deletable once each of its files is accounted for: either
+         * confirmed gone, or deliberately left behind because another row still
+         * points at it.
+         *
+         * The distinction matters. An object we FAILED to delete must hold its
+         * row back — clearing the row would strand the file, with nothing left
+         * naming it and no sweep that would find it. A SHARED object is the
+         * opposite case: it is not stranded, because the row that shares it is
+         * still there, still pointing at it, and still carries its own retention
+         * clock. Holding the profile back for it would mean never deleting the
+         * profile at all.
          */
         for (const r of batch) {
-          const cvOk = !r.cv_path || goneCvs.has(r.cv_path);
-          const photoOk = !r.photo_path || gonePhotos.has(r.photo_path);
+          const cvOk = !r.cv_path || sharedCvs.has(r.cv_path) || goneCvs.has(r.cv_path);
+          const photoOk =
+            !r.photo_path || sharedPhotos.has(r.photo_path) || gonePhotos.has(r.photo_path);
           if (cvOk && photoOk) confirmed.add(r.id);
         }
       } catch (err) {
@@ -347,6 +406,7 @@ export async function handleTalentRetentionPurge(job: {
   console.log(
     `[talent-retention-purge] job ${job.id}: deleted ${rowsDeleted} profile(s), ` +
       `${objectsRemoved} object(s)` +
+      (objectsKept > 0 ? `, kept ${objectsKept} still referenced elsewhere` : "") +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }
