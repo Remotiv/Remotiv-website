@@ -10,6 +10,7 @@ import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
 import { handleQueueSweep } from "@/lib/queue-sweep";
 import { createServiceClient } from "@/lib/supabase/server";
+import { handleTalentRetentionPurge, handleTalentRetentionWarn } from "@/lib/talent-retention-jobs";
 import { handleWhatsAppMessage } from "@/lib/whatsapp/dispatch";
 
 /**
@@ -180,6 +181,16 @@ export const JOB_TYPES = {
   CV_PURGE: "cv_purge",
   /** Retention — delete this table's own long-succeeded rows. */
   QUEUE_SWEEP: "queue_sweep",
+  /**
+   * Retention — warn talent 30 days before their profile expires.
+   *
+   * Separate from the purge on purpose: the warning must be able to run and
+   * succeed on a day the purge refuses (see PURGE_CEILING). One job doing both
+   * would couple them.
+   */
+  TALENT_RETENTION_WARN: "talent_retention_warn",
+  /** Retention — delete talent profiles inactive 24 months, warned 30 days ago. */
+  TALENT_RETENTION_PURGE: "talent_retention_purge",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -240,6 +251,8 @@ registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
+registerHandler(JOB_TYPES.TALENT_RETENTION_WARN, handleTalentRetentionWarn);
+registerHandler(JOB_TYPES.TALENT_RETENTION_PURGE, handleTalentRetentionPurge);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -306,6 +319,8 @@ const RECURRING: readonly { type: string; intervalMs: number }[] = [
   // the same check — a second mechanism would be a second thing to notice had
   // stopped.
   { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
+  { type: JOB_TYPES.TALENT_RETENTION_WARN, intervalMs: PURGE_INTERVAL_MS },
+  { type: JOB_TYPES.TALENT_RETENTION_PURGE, intervalMs: PURGE_INTERVAL_MS },
   /*
    * The interview-expiry safety net: every overdue session expires even if its
    * per-session job was lost, dead-lettered or never enqueued.

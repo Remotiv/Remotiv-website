@@ -1,6 +1,7 @@
 import "server-only";
 
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { touchLastActive } from "@/lib/talent-activity";
 
 export type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
@@ -47,6 +48,15 @@ export async function requireProfileOwner(
   };
 
   if (typed.user_id && typed.user_id === user.id) {
+    /*
+     * Every self-serve save passes through here — all 20 exported actions in
+     * dashboard/edit/actions.ts call this before writing — so this is the one
+     * place that has to record "they updated their profile" for retention.
+     *
+     * Fire-and-forget: touchLastActive never throws and never blocks, because a
+     * retention clock must not be able to fail somebody's save.
+     */
+    void touchLastActive(profileId, sourceTable);
     return { userId: user.id, email: user.email };
   }
 
