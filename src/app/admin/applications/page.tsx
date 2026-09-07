@@ -18,7 +18,7 @@ async function fetchAllApplications(
 ): Promise<Record<string, unknown>[]> {
   const PAGE = 1000;
   const cols =
-    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, status, source, notes, created_at, screening_answers, job_title_snapshot, jobs(title)";
+    "id, job_id, first_name, last_name, email, phone, linkedin_url, cv_url, cv_path, status, source, notes, created_at, screening_answers, job_title_snapshot, jobs(title)";
   let from = 0;
   const all: Record<string, unknown>[] = [];
   for (;;) {
@@ -132,7 +132,9 @@ export default async function ApplicationsPage({
     email: a.email as string,
     phone: a.phone as string,
     linkedin_url: (a.linkedin_url as string | null) ?? null,
-    cv_url: a.cv_url as string,
+    // Both, so the CV gates can ask hasCv() — see the note on JobApplication.
+    cv_url: (a.cv_url as string | null) ?? null,
+    cv_path: (a.cv_path as string | null) ?? null,
     status: a.status as JobApplication["status"],
     source: ((a.source as JobApplication["source"]) ?? "job_application"),
     notes: (a.notes as string | null) ?? null,

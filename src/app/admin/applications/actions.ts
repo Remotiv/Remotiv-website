@@ -26,7 +26,15 @@ export type JobApplication = {
   email: string;
   phone: string;
   linkedin_url: string | null;
-  cv_url: string;
+  /*
+   * BOTH columns, because either one alone answers the wrong question. A row
+   * written since the `cvs` bucket went private has `cv_path` and a null
+   * `cv_url`; a legacy row has the reverse. Gating on `cv_url` alone reads as
+   * "no CV" for every application from the public apply form. Ask hasCv() from
+   * lib/cv-path.ts rather than either field directly.
+   */
+  cv_url: string | null;
+  cv_path: string | null;
   status: ApplicationStatus;
   source: ApplicationSource;
   notes: string | null;

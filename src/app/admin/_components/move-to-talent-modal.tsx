@@ -6,6 +6,7 @@ import {
   moveApplicationToTalent,
   type JobApplication,
 } from "@/app/admin/applications/actions";
+import { hasCv } from "@/lib/cv-path";
 import type { ExtractedTalentFields } from "@/lib/cv-extract";
 
 // ── Option sets ───────────────────────────────────────────────
@@ -254,7 +255,7 @@ function ApplicantCard({ app }: { app: JobApplication }) {
             </a>
           </p>
         )}
-        {app.cv_url && (
+        {hasCv(app) && (
           <p className="flex items-center gap-1.5">
             <span className="text-gray-400">CV:</span>
             <a

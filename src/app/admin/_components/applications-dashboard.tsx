@@ -27,6 +27,7 @@ import {
   Loader2,
   type LucideIcon,
 } from "lucide-react";
+import { hasCv } from "@/lib/cv-path";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
 import { TopNav } from "./top-nav";
 import dynamic from "next/dynamic";
@@ -667,7 +668,7 @@ function ApplicationCardMobile({
               LinkedIn
             </span>
           )}
-          {app.cv_url && (
+          {hasCv(app) && (
             <span className="inline-flex items-center gap-1 rounded-full bg-gray-100 px-2 py-0.5 text-[10px] font-semibold text-gray-600">
               <FileText className="size-2.5" strokeWidth={2.5} />
               CV
