@@ -15,34 +15,44 @@ import { createServiceClient } from "@/lib/supabase/server";
  *
  * ══ THE SCOPE GUARD — read before changing any selector ═══════
  *
- * `.lte("cv_delete_after", now)`, and that is the whole of it. A null never
- * satisfies a comparison in SQL, so a null cv_delete_after means KEEP FOREVER
- * and is unreachable here. The date is read from the column and never computed:
- * nothing in this file knows what "24 months" is, so no edit to a constant can
- * widen what gets deleted. Changing the retention period is a backfill, done
- * deliberately, with the rows visible before anything is removed.
+ * `company_id_snapshot` is what separates two entirely different kinds of row
+ * that share one table:
  *
- * ── The second guard, and why it is gone ─────────────────────
+ *   NOT NULL — someone applied to a COMPANY's job through the product. Their
+ *              CV is that company's hiring record, held on that company's
+ *              behalf, and it expires 24 months after they applied.
+ *   NULL     — Remotiv's own: the talent pool, and applicants to Remotiv's own
+ *              listings. These are KEPT until the person asks us to delete
+ *              them. Nothing in this file may touch them.
  *
- * This selector also carried `.not("company_id_snapshot", "is", null)`, on the
- * reasoning that a null snapshot marks a Remotiv-owned row — the talent pool,
- * or an applicant to Remotiv's own listing — whose CV "IS the marketplace" and
- * must never expire.
+ * The selector enforces that TWICE, independently:
  *
- * That reasoning does not survive contact with the person it is about. It made
- * one promise to someone who applied to a client's job and a different, silent
- * one to someone who applied to ours, and the difference was invisible to both.
- * Applying to Remotiv is not consent to be held indefinitely. Every applicant
- * now gets the same 24 months from the day they applied, /api/apply writes the
- * date for every row it inserts, and the guard came off so those rows can
- * actually be reached.
+ *   1. `.lte("cv_delete_after", now)` — a null never satisfies a comparison in
+ *      SQL, so a null cv_delete_after means KEEP FOREVER and is unreachable
+ *      here. The date is read from the column and never computed: nothing in
+ *      this file knows what "24 months" is, so no edit to a constant can widen
+ *      what gets deleted. Changing the retention period is a backfill, done
+ *      deliberately, with the rows visible before anything is removed.
+ *   2. `.not("company_id_snapshot", "is", null)` — redundant TODAY, because
+ *      /api/apply writes a date only for company rows. It is here for the day
+ *      someone backfills the column more broadly, or writes it in a new code
+ *      path, and does not realise what else reads it. Either guard alone
+ *      protects the Remotiv-owned rows; both must fail together to lose them.
  *
- * What that guard was protecting is protected properly instead: a talent-pool
- * profile is a separate row on its own rolling clock (lib/talent-retention.ts),
- * and where the two rows name the SAME storage object — the bridge copies the
- * path rather than re-uploading — findSharedPaths keeps the file alive for
- * whichever row has not expired yet. The marketplace inventory is the profile,
- * and nothing here deletes a profile.
+ * ── This job survived a decision that stopped the others ─────
+ *
+ * Both guards briefly came off, on the reasoning that applying to Remotiv is
+ * not consent to be held indefinitely. That was reversed: Remotiv keeps its own
+ * applicants' CVs and its talent-pool profiles until asked to delete them, and
+ * the talent-retention jobs are built but NOT SCHEDULED (see jobs-queue.ts).
+ *
+ * THIS job still runs, and the difference is whose data it is. A client
+ * company's applicants are not Remotiv's to keep: that CV was collected for
+ * that company's vacancy, the 24 months was set at the moment of applying, the
+ * date is already stored on ~every such row, and it is the one retention
+ * promise this product has actually been making. Switching it off would keep
+ * someone else's candidates' documents indefinitely on a decision they were
+ * never party to.
  *
  * ── What is removed, and what is kept ────────────────────────
  *
@@ -128,8 +138,9 @@ export async function handleCvPurge(job: {
     const { data, error } = await service
       .from("job_applications")
       .select("id, cv_path, cv_text")
-      // ── The scope guard. See the banner. ──
+      // ── The scope guard, both halves. See the banner. ──
       .lte("cv_delete_after", now)
+      .not("company_id_snapshot", "is", null)
       /*
        * Idempotency, with no new column: a row is "already purged" precisely
        * when it holds neither a path nor extracted text. Once both are null
@@ -175,10 +186,15 @@ export async function handleCvPurge(job: {
       /*
        * WHO ELSE HOLDS THESE KEYS — asked before anything is deleted.
        *
-       * A bridged applicant's CV is one object with two rows naming it, and
-       * this job reaches it first for anyone who applied before joining the
-       * talent pool. Deleting it here would empty the profile's CV while the
-       * profile's own clock still has months to run.
+       * A storage object is not owned by the row that names it: the same key is
+       * COPIED, never re-uploaded, into talent_profiles and onward into
+       * client_batch_candidates. Deleting one here because this row expired
+       * would empty a CV that another record still advertises.
+       *
+       * Not strictly reachable while the scope guard above holds — a client
+       * company's application is not a row anything copies from. It stays
+       * because that is an argument, and this is a check: it costs one indexed
+       * read per batch, and the guard has come off once already.
        *
        * A failure to answer skips the batch whole rather than guessing. Both
        * guesses lose data: "assume shared" clears rows and strands their files,

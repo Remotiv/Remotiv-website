@@ -8,27 +8,27 @@ import { Navbar } from "@/components/navbar";
  * ── Written from the code, not from a template ───────────────
  *
  * Every retention period, third party and storage claim below was read out of
- * the implementation, and the four jobs that enforce the periods — three that
- * delete, one that warns first — are real and run daily. That is the whole
- * point: a policy that misdescribes an enforced rule is worse than none,
- * because it is the document someone would be shown if they ever asked what we
- * did with their CV.
+ * the implementation. Two jobs delete on a schedule, and section 3 says so; the
+ * talent-retention jobs exist but are NOT scheduled, and section 3 says that
+ * too, in as many words. That is the whole point: a policy that misdescribes an
+ * enforced rule is worse than none, and a policy promising a deletion nobody
+ * implemented is worse still — it is the document someone would be shown if
+ * they ever asked what we did with their CV.
  *
  * If you change a retention constant, a bucket's visibility, or add a
  * processor, this page is part of that change. The specific things it commits
  * us to:
  *
- *   CV_RETENTION_MONTHS = 24        src/app/api/apply/route.ts — written for
- *                                   EVERY application, ours included. The
- *                                   "no expiry for Remotiv's own listings"
- *                                   carve-out is gone from both the code and
- *                                   the section below; do not reintroduce one
- *                                   without rewriting section 3.
+ *   CV_RETENTION_MONTHS = 24        src/app/api/apply/route.ts — company
+ *                                   applications ONLY. A Remotiv-owned row
+ *                                   gets a null date, which means keep, and
+ *                                   section 3 says so outright.
  *   RETENTION_MONTHS    = 6         src/lib/interviews/tokens.ts
- *   RETENTION_MONTHS    = 24        src/lib/talent-retention.ts (talent pool)
- *   WARN_BEFORE_DAYS    = 30        src/lib/talent-retention.ts
  *   cv-purge / interview-purge      scheduled every 24h by jobs-queue.ts
- *   talent-retention-warn / -purge  same schedule, same file
+ *   talent-retention-warn / -purge  BUILT AND NOT SCHEDULED. Nothing expires a
+ *                                   talent profile. If they are ever added back
+ *                                   to RECURRING, section 3's "no automatic
+ *                                   expiry" wording is part of that change.
  *   `cvs` + interview buckets       private; signed URLs; signed_url_logs
  *
  * NOT white-label. A company's careers page links here, and it still says
@@ -209,22 +209,22 @@ export default function PrivacyPage() {
 
           <H2>3. How long we keep it</H2>
           <P>
-            Automatic jobs run every day and enforce the periods below — three that delete, and one
-            that warns you first. They are not a statement of intent; they are code that deletes.
+            Two things here expire on their own. Nothing else does. The two that do are enforced by
+            jobs that run every day; they are not a statement of intent, they are code that deletes.
+            Everything else we keep until you ask us to remove it, and we would rather say that than
+            describe a deletion that does not happen.
           </P>
 
-          <H3>CVs you send with an application: 24 months from the day you apply</H3>
+          <H3>CVs sent to a company: 24 months from the day you apply</H3>
           <P>
-            When you apply for a role through Remotiv, an expiry date is set on your CV at the
-            moment you apply, 24 months out. When it passes, both the CV file and the extracted text
-            of it are deleted. This is every application, without exception — a role posted by a
-            company hiring through us, and a role posted by Remotiv itself. There is no way of
-            applying here that leaves your CV with no expiry date.
+            When you apply to a role posted by a company hiring through Remotiv, an expiry date is
+            set on your CV at the moment you apply, 24 months out. When it passes, both the CV file
+            and the extracted text of it are deleted.
           </P>
           <P>
             The application record itself is kept: your name, email, the role you applied for, the
-            stage you reached and the decisions made. Whoever was hiring keeps their hiring record;
-            they stop holding your document.
+            stage you reached and the decisions made. The company keeps its hiring record; it stops
+            holding your document.
           </P>
 
           <H3>Interview recordings: 6 months</H3>
@@ -234,49 +234,34 @@ export default function PrivacyPage() {
             were asked, how long you spoke and when, but not the recording or the transcript.
           </P>
 
-          <H3>Talent-pool profiles: 24 months from your last activity</H3>
-          <P>
-            If you join our talent pool, we keep your profile for 24 months from your last activity.
-            Activity means signing in to your dashboard, updating your profile, or clicking the link
-            in the reminder we send. Each of those starts the 24 months again from the day you do
-            it.
-          </P>
+          <H3>Talent-pool profiles, and CVs sent to Remotiv&apos;s own roles: no expiry date</H3>
           <Callout>
             <strong className="font-semibold text-[#111]">
-              Our own use of your profile does not extend how long we keep it.
+              We keep these until you ask us to delete them. There is no automatic expiry, no
+              reminder email, and no button in your account that deletes your data.
             </strong>{" "}
-            Being matched to a role, appearing in an employer&apos;s search, or having your profile
-            viewed does not count as activity. We hold your profile because you consented to it, and
-            if our using it renewed that consent, the consent would renew itself without you ever
-            doing anything.
+            If you are in our talent pool, or you applied to a role posted by Remotiv itself rather
+            than by a company hiring through us, nothing above reaches you. Your profile, your CV
+            and your photo stay until someone at Remotiv removes them, and the only way to start
+            that is to email <Mail />. We will confirm when it is done.
           </Callout>
           <P>
-            <strong className="font-semibold text-[#111]">
-              We warn you before deleting anything.
-            </strong>{" "}
-            Thirty days before a profile expires we email you. That email tells you the exact date,
-            says that your CV goes with the profile, and carries a one-click link that keeps it for
-            another 24 months — no password, nothing to fill in. Signing in or changing anything on
-            your profile does the same. If you would rather we did not keep it, do nothing: on the
-            date in that email we delete the profile, your CV and your photo, and you hear nothing
-            further from us. You can also ask us to delete it sooner at any time by emailing{" "}
-            <Mail />.
-          </P>
-          <H3>If you are in both: one rule, two clocks</H3>
-          <P>
-            Both of the above are 24 months, and they are counted from different days. An
-            application&apos;s CV expires 24 months after you applied — a fixed date, set once. A
-            talent-pool profile expires 24 months after you were last active — a date that moves
-            forward every time you use it. If you are in both places, most often because you applied
-            first and joined the pool afterwards, both apply, independently.
+            We are stating this plainly because the alternative is worse. A policy that promises a
+            deletion nobody has implemented is not a safeguard; it is a claim that happens to be
+            untrue, and it is the document you would be shown if you ever asked what we did with
+            your CV. So: we hold it, we hold it indefinitely, and asking is the way it stops.
           </P>
           <P>
-            Activity on your profile does not extend an application. That CV was sent to whoever was
-            hiring for that role, and it expires on its own date whatever you do here afterwards.
-            Where the same file is attached to both records, the file survives until the later of
-            the two dates: the first expiry ends that record&apos;s claim to it, and the last one
-            deletes it. Either way you can ask us to delete any of it sooner, at any time, by
-            emailing <Mail />.
+            Two consequences worth being explicit about. Time passing does not remove anything — a
+            profile you have not touched in years is still here. And deleting it is a manual request
+            handled by a person, not a self-service action, so it is not instant; write to <Mail />{" "}
+            and we will action it.
+          </P>
+          <P>
+            If you are in both places — most often because you applied to a company&apos;s role
+            first and joined the pool afterwards — the company&apos;s copy still expires on its own
+            24-month date. That is a separate record with a separate clock, and it goes whether or
+            not you ask. What stays is the profile and anything attached to it.
           </P>
 
           <H3>Everything else</H3>
@@ -336,10 +321,9 @@ export default function PrivacyPage() {
                 Keeping your CV in the Remotiv talent pool
               </strong>{" "}
               — your consent, given by joining the network so that we can match you to future roles.
-              You can withdraw it at any time by emailing <Mail />, and it also lapses on its own:
-              if you do not sign in, update your profile or answer our reminder for 24 months, we
-              delete it without waiting to be asked. Consent that is never revisited is not really
-              consent, so we ask again rather than assume.
+              That consent does not expire on its own and we do not currently ask you to renew it,
+              so withdrawing it is something you have to do: email <Mail /> and we delete your
+              profile and your CV. Until you do, we keep them.
             </li>
           </UL>
 

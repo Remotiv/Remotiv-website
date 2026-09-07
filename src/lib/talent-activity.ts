@@ -12,7 +12,11 @@ import { createServiceClient } from "@/lib/supabase/server";
  * basis is consent, and if our own use of a profile extended the period we may
  * hold it, the consent would renew itself without the person doing anything.
  *
- * See lib/talent-retention.ts for the rule this feeds.
+ * See lib/talent-retention.ts for the rule this feeds — a rule that is NOT in
+ * effect: nothing expires a profile today. This keeps writing anyway, because
+ * `last_active_at` is worth having whether or not anything reads it for
+ * retention, and because a clock that only starts recording the day it is
+ * switched on would treat every existing profile as freshly active.
  *
  * ── Never throws, never blocks ───────────────────────────────
  *

@@ -184,12 +184,18 @@ export const JOB_TYPES = {
   /**
    * Retention — warn talent 30 days before their profile expires.
    *
+   * NOT SCHEDULED. See the note in RECURRING; profiles do not expire today.
+   *
    * Separate from the purge on purpose: the warning must be able to run and
    * succeed on a day the purge refuses (see PURGE_CEILING). One job doing both
    * would couple them.
    */
   TALENT_RETENTION_WARN: "talent_retention_warn",
-  /** Retention — delete talent profiles inactive 24 months, warned 30 days ago. */
+  /**
+   * Retention — delete talent profiles inactive 24 months, warned 30 days ago.
+   *
+   * NOT SCHEDULED. See the note in RECURRING.
+   */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
 } as const;
 
@@ -251,6 +257,12 @@ registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
+/*
+ * Registered but NEVER SCHEDULED — see the note in RECURRING below, which is
+ * the only place either type can be enqueued from. These two lines are what
+ * keeps the mechanism referenced and buildable rather than drifting into dead
+ * code; they enqueue nothing on their own.
+ */
 registerHandler(JOB_TYPES.TALENT_RETENTION_WARN, handleTalentRetentionWarn);
 registerHandler(JOB_TYPES.TALENT_RETENTION_PURGE, handleTalentRetentionPurge);
 
@@ -319,8 +331,27 @@ const RECURRING: readonly { type: string; intervalMs: number }[] = [
   // the same check — a second mechanism would be a second thing to notice had
   // stopped.
   { type: JOB_TYPES.QUEUE_SWEEP, intervalMs: PURGE_INTERVAL_MS },
-  { type: JOB_TYPES.TALENT_RETENTION_WARN, intervalMs: PURGE_INTERVAL_MS },
-  { type: JOB_TYPES.TALENT_RETENTION_PURGE, intervalMs: PURGE_INTERVAL_MS },
+  /*
+   * ══ TALENT RETENTION IS DELIBERATELY ABSENT ═══════════════
+   *
+   * `talent_retention_warn` and `talent_retention_purge` are built, tested,
+   * registered below and NOT SCHEDULED. That is a decision, not an oversight or
+   * an unfinished branch: Remotiv keeps talent-pool profiles and their CVs
+   * until the person asks for them to be deleted. Nothing expires them.
+   *
+   * This list is the ONLY thing that enqueues either type — there is no admin
+   * trigger and no other caller — so removing these two entries is what stops
+   * them. It is also all it takes to start them: add the two lines back, and
+   * the mechanism runs as designed. Everything else it needs is intact — the
+   * columns (last_active_at, retention_warned_at, retention_keep_token_hash),
+   * the constants and email copy in lib/talent-retention.ts, the two handlers
+   * in lib/talent-retention-jobs.ts, the /talent/keep one-click route, and the
+   * activity writes in lib/talent-activity.ts.
+   *
+   * If you add them back, src/app/privacy/page.tsx is part of that change. It
+   * currently states there is no automatic expiry, and a policy that
+   * misdescribes an enforced rule is worse than one that admits we keep things.
+   */
   /*
    * The interview-expiry safety net: every overdue session expires even if its
    * per-session job was lost, dead-lettered or never enqueued.

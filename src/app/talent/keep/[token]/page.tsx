@@ -7,6 +7,14 @@ export const dynamic = "force-dynamic";
 /**
  * One click, from the retention warning email, to keep a profile.
  *
+ * ── Live, but unreachable in practice ────────────────────────
+ *
+ * No warning emails go out: the retention jobs are built and deliberately not
+ * scheduled (see jobs-queue.ts), so no keep tokens are being minted and every
+ * hit here lands on the "already done" branch. The route stays because it is
+ * the half of the mechanism a person interacts with, and because old links must
+ * keep resolving gracefully if the jobs are ever switched on and off again.
+ *
  * ── Why there is no login ────────────────────────────────────
  *
  * The warning has to make KEEPING the profile the easy action. Putting a

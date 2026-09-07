@@ -19,6 +19,18 @@ import {
 /**
  * The two talent-retention jobs: warn, then purge.
  *
+ * ══ NEITHER IS SCHEDULED ═════════════════════════════════════
+ *
+ * Both handlers are complete and registered, and nothing enqueues them. Remotiv
+ * keeps talent-pool profiles and their CVs until the person asks. See the note
+ * in jobs-queue.ts's RECURRING list — that list is the only enqueue path for
+ * these two types, so its two missing lines are the whole of the decision, and
+ * adding them back is the whole of reversing it.
+ *
+ * Kept whole rather than deleted because it is correct work and the columns it
+ * needs are already live. Read the rest of this file as a description of what
+ * it would do.
+ *
  * Structure follows lib/cv-purge.ts — budget-bounded loop, offset advanced by
  * the stuck count rather than a page size, database clears separated from
  * storage removes. What it does NOT follow is that job's central safety
@@ -29,17 +41,17 @@ import {
  *
  * ══ SCOPE ════════════════════════════════════════════════════
  *
- * `talent_profiles` and nothing else. An APPLICANT's CV expires 24 months from
- * the day they applied, on a stored date, handled by cv-purge against
- * job_applications. Same period, different clock, different table. No future
- * edit here may widen to that table.
+ * `talent_profiles` and nothing else. A CLIENT COMPANY's applicant has a CV
+ * that expires 24 months from the day they applied, on a stored date, handled
+ * by cv-purge against job_applications — a different table on a different
+ * basis, and the one retention job that does run. No future edit here may
+ * widen to that table.
  *
  * The purge does READ the other cv_path tables, through findSharedPaths, to
  * learn which storage objects it must NOT delete. That is the opposite of
  * widening scope, and it runs before anything is removed. One object is
- * routinely named by both a profile and the application it was bridged from,
- * and each of those rows has its own clock; whichever fires first leaves the
- * file for the other.
+ * routinely named by both a profile and the application it was bridged from;
+ * whichever expires first leaves the file for the other.
  */
 
 const CV_BUCKET = "cvs";

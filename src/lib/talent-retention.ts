@@ -4,6 +4,20 @@ import { createHash, randomBytes } from "node:crypto";
 /**
  * Talent-pool retention: the shared constants, the token, and the copy.
  *
+ * ══ NOT IN EFFECT — READ THIS FIRST ══════════════════════════
+ *
+ * Nothing here runs. Remotiv keeps talent-pool profiles and their CVs until the
+ * person asks us to delete them; there is no automatic expiry and no warning
+ * email going out. The two jobs that would enforce the rule below are written,
+ * registered and deliberately absent from the recurring schedule — the note in
+ * jobs-queue.ts's RECURRING list is the authoritative one, and that list is the
+ * only thing that can enqueue them.
+ *
+ * This file is kept intact so that turning it on is a two-line change rather
+ * than a rebuild. Everything below describes what WOULD happen, and what the
+ * design has to preserve if it ever does. src/app/privacy/page.tsx is part of
+ * that change: it currently tells people there is no automatic expiry.
+ *
  * ── The rule, and where it comes from ────────────────────────
  *
  * A talent profile is kept for 24 months from the person's LAST ACTIVITY, not
@@ -24,15 +38,16 @@ import { createHash, randomBytes } from "node:crypto";
  *
  * ── Scope ────────────────────────────────────────────────────
  *
- * `talent_profiles` ONLY. An APPLICANT's CV expires 24 months from APPLY on a
- * stored `cv_delete_after` (see lib/cv-purge.ts) — the same period on a fixed
- * clock rather than a rolling one, because an applicant has no account and so
- * has no observable activity to roll the window forward. Different table,
- * different basis. Nothing here may touch job_applications.
+ * `talent_profiles` ONLY. A CLIENT COMPANY's applicant has a CV that does still
+ * expire, 24 months from APPLY on a stored `cv_delete_after` (see
+ * lib/cv-purge.ts, which runs) — a fixed clock rather than a rolling one,
+ * because an applicant has no account and so has no observable activity to roll
+ * the window forward. Different table, different basis, different owner:
+ * that CV is held on the company's behalf, not kept as Remotiv's. Nothing here
+ * may touch job_applications.
  *
- * A person in both places is covered by both, independently. The two rows can
- * name the same storage object, and neither purge deletes a file the other
- * still points at — see lib/shared-storage-refs.ts.
+ * The two rows can name the same storage object, and neither purge deletes a
+ * file the other still points at — see lib/shared-storage-refs.ts.
  */
 
 /** Months of inactivity before a profile is deleted. */

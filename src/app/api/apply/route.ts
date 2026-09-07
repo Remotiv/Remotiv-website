@@ -660,28 +660,26 @@ export async function POST(request: NextRequest) {
       skills: row.skills.map(stripInvalidPgChars),
     }));
 
-    // CV retention. Set for EVERY application, whoever the job belongs to.
+    // CV retention. Set ONLY for company applications — a null
+    // company_id_snapshot is a Remotiv-owned row (talent pool, or an applicant
+    // to Remotiv's own listing), and a null date means keep forever. Those are
+    // kept until the person asks us to delete them; nothing expires them, and
+    // the talent-retention jobs that once would have are built but not
+    // scheduled (see jobs-queue.ts).
     //
-    // This used to be written only when company_id_snapshot was non-null, so an
-    // application to one of Remotiv's own listings got no date and was kept
-    // indefinitely. That difference was invisible to the applicant and is not
-    // one we can defend: applying to us is not consent to be held forever.
-    // cv-purge's matching company_id_snapshot guard came off with it.
-    //
-    // Not to be confused with the talent pool. A talent PROFILE is a separate
-    // row on a rolling 24-months-from-last-activity clock (lib/talent-retention)
-    // and nothing here touches it — including when the bridge copies this very
-    // cv_path onto it. Whichever row expires first leaves the shared file for
-    // the other; see lib/shared-storage-refs.ts.
+    // This branch is also the first half of cv-purge's two-part scope guard: it
+    // is why no Remotiv-owned row has a date for that job's second guard to
+    // have to catch. Writing a date here unconditionally would leave one clause
+    // in one selector between the pool and deletion. Don't.
     //
     // This is the only place the 24 months is computed; the purge reads the
     // stored column and never derives a date, so changing this constant affects
     // future applications and nothing already written. Pure arithmetic on a
     // value already in hand — it cannot throw.
     const CV_RETENTION_MONTHS = 24;
-    const cvDeleteAfter = new Date(
-      new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS),
-    ).toISOString();
+    const cvDeleteAfter = companyIdSnapshot
+      ? new Date(new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS)).toISOString()
+      : null;
 
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it
