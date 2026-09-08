@@ -126,6 +126,66 @@ const PAGE_SIZE = 20;
 /** "Review top 10" shows this many, best first. */
 const TOP_N = 10;
 
+/**
+ * How the list is ordered. "best" is the default and always has been.
+ *
+ * Plain component state, deliberately — the stage tab, the job filter and the
+ * "Review top" mode are all plain state too, and only `search` is seeded from
+ * the URL. A sort that survived a reload while the stage tab did not would be
+ * the odd one out.
+ */
+type SortMode = "best" | "newest";
+
+/**
+ * Best match: score descending, unscored last, newest first among unscored.
+ *
+ * ── The tail block ───────────────────────────────────────────
+ *
+ * `status === "scored"` is the whole test, so `pending`, `failed` and
+ * `skipped` are one undifferentiated group at the bottom. That is intentional
+ * — in all three cases there is no number, and ordering them against each
+ * other would invent a ranking out of an absence — but it does mean a brand
+ * new application sits below every scored one however weak or old those are.
+ * That is what the "Newest" mode exists to escape.
+ *
+ * ── Equal scores are NOT tie-broken here ─────────────────────
+ *
+ * Two rows on the same score return 0, and they hold their incoming order
+ * because Array.prototype.sort is stable and the fetch arrives
+ * `created_at desc` (see actions.ts, `.order("created_at", …)`). So equal
+ * scores read newest-first by a coincidence of two facts, not because this
+ * comparator says so. It is fine today. It breaks silently — no error, just a
+ * quietly wrong order — if that ORDER BY is ever changed or a caller sorts the
+ * rows before they get here. Add an explicit date tiebreak rather than
+ * re-deriving why it used to work.
+ */
+function compareByScore(a: CompanyApplicantRow, b: CompanyApplicantRow): number {
+  const sa = a.score.status === "scored" ? a.score.overall : null;
+  const sb = b.score.status === "scored" ? b.score.overall : null;
+  if (sa !== null && sb !== null) return sb - sa;
+  if (sa !== null) return -1;
+  if (sb !== null) return 1;
+  return compareByNewest(a, b);
+}
+
+/**
+ * Newest: date descending, and nothing else.
+ *
+ * No score term, not even as a tiebreak. The reason someone reaches for this
+ * mode is that a new unscored application is invisible under best-match, so a
+ * rule that let any score pull a row upward would defeat it.
+ */
+function compareByNewest(a: CompanyApplicantRow, b: CompanyApplicantRow): number {
+  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
+}
+
+/**
+ * Toolbar select. Shared by the job filter and the sort control so the two
+ * cannot drift — they sit side by side, where a 1px difference would show.
+ */
+const TOOLBAR_SELECT =
+  "min-w-0 cursor-pointer appearance-none truncate rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] py-2 pl-3 pr-[30px] text-[12.5px] font-semibold text-[var(--ai-t2)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.14]";
+
 const AVATAR_TINTS = [
   { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)" },
   { bg: "var(--ai-mint-tint)", fg: "var(--ai-mint-ink)" },
@@ -1896,6 +1956,7 @@ export function ApplicantsClient({
   }, [deepLinkId]);
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);
+  const [sort, setSort] = useState<SortMode>("best");
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(null);
   const [deleting, setDeleting] = useState(false);
@@ -1959,53 +2020,59 @@ export function ApplicantsClient({
     return [...seen.entries()];
   }, [rows]);
 
-  const filtered = useMemo(() => {
+  /** Everything the tabs, job filter, flag and search select — in no order. */
+  const matching = useMemo(() => {
     const q = search.trim().toLowerCase();
-    return (
-      rows
-        .filter((r) => {
-          if (tab !== "all" && stageOf(r) !== tab) return false;
-          if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
-          if (flaggedOnly && !showsWorthALook(r)) return false;
-          if (q) {
-            const blob = `${fullName(r)} ${r.email}`.toLowerCase();
-            if (!blob.includes(q)) return false;
-          }
-          return true;
-        })
-        // Ranking IS the feature: score desc, unscored last, then newest first
-        // among equals. `overall` is the human override when one exists.
-        .sort((a, b) => {
-          const sa = a.score.status === "scored" ? a.score.overall : null;
-          const sb = b.score.status === "scored" ? b.score.overall : null;
-          if (sa !== null && sb !== null) return sb - sa;
-          if (sa !== null) return -1;
-          if (sb !== null) return 1;
-          return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
-        })
-    );
+    return rows.filter((r) => {
+      if (tab !== "all" && stageOf(r) !== tab) return false;
+      if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
+      if (flaggedOnly && !showsWorthALook(r)) return false;
+      if (q) {
+        const blob = `${fullName(r)} ${r.email}`.toLowerCase();
+        if (!blob.includes(q)) return false;
+      }
+      return true;
+    });
   }, [rows, tab, jobFilter, search, flaggedOnly]);
+
+  /**
+   * The same set, ALWAYS in score order, whatever the display sort is.
+   *
+   * "Top match" and "Review top 10" are claims about the score and have to be
+   * computed from a score-ranked list. Reading them off the displayed order
+   * would make "Review top 10" show the ten most RECENT scored candidates the
+   * moment someone switches to Newest — a label asserting something the data
+   * behind it no longer says.
+   */
+  const byScore = useMemo(() => [...matching].sort(compareByScore), [matching]);
+
+  /** What the list actually renders. The only thing the sort control changes. */
+  const filtered = useMemo(
+    () => (sort === "newest" ? [...matching].sort(compareByNewest) : byScore),
+    [matching, byScore, sort],
+  );
 
   /**
    * The ids wearing a "Top match" chip: scored >= 90, best first, capped.
    * Computed over the WHOLE result set rather than the current page so a
-   * candidate doesn't gain or lose the chip by being paginated.
+   * candidate doesn't gain or lose the chip by being paginated — and off
+   * `byScore` rather than `filtered` so it cannot change with the sort either.
    */
   const topMatchIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const r of filtered) {
+    for (const r of byScore) {
       if (ids.size >= TOP_MATCH_MAX_CHIPS) break;
       if (r.score.status === "scored" && (r.score.overall ?? 0) >= TOP_MATCH_MIN_SCORE) {
         ids.add(r.id);
       }
     }
     return ids;
-  }, [filtered]);
+  }, [byScore]);
 
   /** Scored candidates only — "top 10" of a pending list would be arbitrary. */
   const topTen = useMemo(
-    () => filtered.filter((r) => r.score.status === "scored").slice(0, TOP_N),
-    [filtered],
+    () => byScore.filter((r) => r.score.status === "scored").slice(0, TOP_N),
+    [byScore],
   );
 
   /** What the list actually renders before paging. */
@@ -2023,7 +2090,7 @@ export function ApplicantsClient({
   // biome-ignore lint/correctness/useExhaustiveDependencies: resets on filter change, not on page change
   useEffect(() => {
     setPage(1);
-  }, [tab, jobFilter, search, topOnly, flaggedOnly]);
+  }, [tab, jobFilter, search, topOnly, flaggedOnly, sort]);
 
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
 
@@ -2597,14 +2664,36 @@ export function ApplicantsClient({
             </button>
           </div>
 
-          {/* Full-width on phones so the select + search stack under the tabs
-              instead of forcing the toolbar wider than the viewport. */}
-          <div className="flex w-full items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto">
+          {/* Full-width on phones so the selects + search stack under the tabs
+              instead of forcing the toolbar wider than the viewport.
+              `flex-wrap` because this cluster holds three controls now: on a
+              narrow screen search drops to its own line rather than being
+              squeezed to nothing between the two selects. */}
+          <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
+            {/*
+              A SELECT, not a segmented toggle, and that is the whole reason it
+              reads correctly here. A two-button Best/Newest control is the same
+              shape as the tab strip's buttons a few pixels to the left, so at a
+              glance it would read as two more tabs. A select is a shape this
+              toolbar has already taught — sitting beside the job filter, in the
+              cluster that answers "how is this list shaped" rather than the
+              strip that answers "which stage".
+            */}
+            <select
+              value={sort}
+              onChange={(e) => setSort(e.target.value as SortMode)}
+              aria-label="Sort applicants"
+              className={`${TOOLBAR_SELECT} shrink-0`}
+            >
+              <option value="best">Best match</option>
+              <option value="newest">Newest first</option>
+            </select>
+
             <select
               value={jobFilter}
               onChange={(e) => setJobFilter(e.target.value)}
               aria-label="Filter by job"
-              className="min-w-0 max-w-[45%] shrink cursor-pointer appearance-none truncate rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] py-2 pl-3 pr-[30px] text-[12.5px] font-semibold text-[var(--ai-t2)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.14] min-[630px]:max-w-none"
+              className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
             >
               <option value="all">All jobs</option>
               {jobOptions.map(([id, title]) => (
