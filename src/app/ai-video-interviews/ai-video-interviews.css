@@ -2217,3 +2217,529 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 4 of 13 · EVIDENCE
+   ============================================================
+   Criterion -> quoted evidence -> timestamp -> transcript. White ground under
+   section 3's cream: the only tinted surfaces here are the evidence inset and
+   the selected criterion row, and on a cream ground both would read as the
+   page rather than as a highlight.
+
+   Every class carries an .avi4- prefix, and so do the ids and the two state
+   classes. The delivered file used bare `is-in` / `is-flash` and bare `tx-*` /
+   `ev-*` / `d-*` ids; on a thirteen-section page those are collisions waiting.
+
+   The radius tokens deliberately avoid --r-rad-inner, which already means one
+   thing in section 2 and another in section 3, so a declaration copied between
+   sections silently changes shape. --r-rad-inset is a new name with one
+   meaning. Tokens are declared on .avi4-sec and nowhere else.
+
+   Gutters are 40 down to AND INCLUDING 640 — the site is px-5 sm:px-10 and
+   Tailwind's sm is min-width 640 — so the small query is max-width 639.98px,
+   never 639.9 and never 640. All small-screen rules live in that one block.
+   ============================================================ */
+.avi4-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-mint: #49d7a7;
+  --r-mint-ink: #04342c;
+  --r-purple: #7e47ff;
+  --r-lime: #d9f972;
+  --r-amber: #f5a524;
+  --r-body: #666666;
+  --r-body-strong: #3f3b37;
+  --r-quiet: #6e6862;
+  --r-sep: #bcb5ac;
+  --r-line: rgba(0, 0, 0, 0.08);
+  --r-line-ctl: rgba(0, 0, 0, 0.14);
+  --r-track: #efebe6;
+  --r-rad-card: 20px;
+  --r-rad-inset: 14px;
+  --r-rad-pill: 999px;
+  background: var(--r-white);
+  padding: 72px 40px;
+}
+.avi4-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+.avi4-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+/* Pseudo-element rather than a child: the dot is decoration, and an element
+   picked for the shape it draws is markup a screen reader has to step over. */
+.avi4-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi4-h2 {
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+.avi4-stick {
+  position: relative;
+  z-index: 0;
+  display: inline-block;
+  margin: 0 0.18em 0 0.04em;
+}
+.avi4-stick::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.12em;
+  right: -0.12em;
+  top: 0.12em;
+  bottom: 0.14em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+  border-radius: 3px;
+}
+.avi4-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+
+.avi4-viz {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 500px);
+  gap: 24px;
+  align-items: start;
+  margin-top: 48px;
+}
+.avi4-panel {
+  background: var(--r-white);
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  padding: 20px;
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+.avi4-phead {
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--r-line);
+}
+.avi4-ptitle {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi4-psub {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+/* Each phrase owns its own trailing separator and cannot be split from it, so
+   a wrapped line can never open on a dot. */
+.avi4-ph {
+  white-space: nowrap;
+}
+.avi4-sep {
+  color: var(--r-sep);
+}
+.avi4-pfoot {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+}
+
+/* Transcript turns. The speaker line and the utterance need no gap between
+   them: their two line boxes already sit tighter than the row pitch. */
+.avi4-turns {
+  margin-top: 12px;
+}
+.avi4-turn + .avi4-turn {
+  margin-top: 12px;
+}
+.avi4-who {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi4-who b {
+  font-weight: 700;
+  color: var(--r-ink);
+}
+.avi4-say {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+/* The evidence passage: an inset box pulled out by its own side padding so the
+   utterance keeps the same left edge as every other turn. */
+.avi4-turn--ev {
+  position: relative;
+  margin-left: -14px;
+  margin-right: -14px;
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi4-turn--ev::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 13px;
+  bottom: 13px;
+  width: 2px;
+  border-radius: 2px;
+  background: var(--r-purple);
+}
+/* "View in transcript" moves focus here as well as scrolling. The ring is what
+   survives when reduced motion suppresses the flash below, so it is the only
+   confirmation some users get that the jump happened. */
+.avi4-turn--ev:focus {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
+}
+.avi4-turn--ev.avi4-flash {
+  animation: avi4-evflash 0.9s ease;
+}
+@keyframes avi4-evflash {
+  0%,
+  100% {
+    box-shadow: 0 0 0 0 rgba(73, 215, 167, 0);
+  }
+  30% {
+    box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
+  }
+}
+
+/* The criteria rows are the one genuinely interactive control in the section,
+   so they take the 44px floor rather than the depicted-control height. */
+.avi4-crits {
+  margin-top: 12px;
+}
+.avi4-crow {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  width: 100%;
+  min-height: 44px;
+  padding: 8px 12px 8px 10px;
+  border: 0;
+  border-radius: var(--r-rad-inset);
+  background: transparent;
+  text-align: left;
+  cursor: pointer;
+  transition:
+    background 0.2s ease,
+    box-shadow 0.35s ease;
+}
+.avi4-crow::before {
+  content: "";
+  position: absolute;
+  left: 0;
+  top: 8px;
+  bottom: 8px;
+  width: 3px;
+  border-radius: 3px;
+  background: var(--r-purple);
+  opacity: 0;
+  transition: opacity 0.2s ease;
+}
+.avi4-crow:hover {
+  box-shadow: 0 6px 22px rgba(0, 0, 0, 0.06);
+}
+.avi4-crow:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
+}
+.avi4-crow[aria-pressed="true"] {
+  background: var(--r-cream);
+}
+.avi4-crow[aria-pressed="true"]::before {
+  opacity: 1;
+}
+.avi4-cname {
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: var(--r-body-strong);
+}
+.avi4-crow[aria-pressed="true"] .avi4-cname {
+  color: var(--r-ink);
+}
+.avi4-cscore {
+  font: 700 13.4px / 1 var(--font-sans);
+  color: var(--r-ink);
+}
+
+.avi4-detail {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+}
+.avi4-slabel {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi4-chead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.avi4-cbig {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi4-ring {
+  position: relative;
+  width: 76px;
+  height: 76px;
+}
+.avi4-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.avi4-ring circle {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.avi4-trk {
+  stroke: var(--r-track);
+}
+.avi4-val {
+  stroke: var(--r-mint);
+  stroke-dasharray: var(--c);
+  stroke-dashoffset: var(--off);
+}
+.avi4-ring b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 22px / 1 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-mint-ink);
+}
+.avi4-ring--amber .avi4-val {
+  stroke: var(--r-amber);
+}
+.avi4-ring--amber b {
+  color: #7a4e05;
+}
+.avi4-quote {
+  margin-top: 12px;
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi4-quote p {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+.avi4-evfoot {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 14px;
+  margin-top: 12px;
+}
+.avi4-stamp {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi4-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 44px;
+  padding: 0 15px;
+  border: 1px solid var(--r-line-ctl);
+  border-radius: var(--r-rad-pill);
+  background: transparent;
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  white-space: nowrap;
+  cursor: pointer;
+  transition:
+    border-color 0.2s ease,
+    background 0.2s ease;
+}
+.avi4-ghost:hover {
+  border-color: rgba(17, 17, 17, 0.38);
+  background: rgba(0, 0, 0, 0.03);
+}
+.avi4-ghost:focus-visible {
+  outline: none;
+  box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
+}
+.avi4-ghost::after {
+  content: "";
+  display: block;
+  width: 9px;
+  height: 9px;
+  border: 1.5px solid var(--r-ink);
+  border-radius: 1px;
+  border-left-color: transparent;
+  border-bottom-color: transparent;
+  transform: rotate(45deg) scale(0.92);
+}
+.avi4-caveat {
+  margin-top: 12px;
+  font: 400 12.4px / 1.6 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+.avi4-disc {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+.avi4-disc b {
+  font-weight: 500;
+  color: var(--r-body-strong);
+}
+
+.avi4-viz[data-reveal].avi4-in .avi4-panel {
+  opacity: 1;
+  transform: none;
+}
+.avi4-viz[data-reveal].avi4-in .avi4-val {
+  stroke-dashoffset: var(--off);
+}
+/* Nothing is hidden without script: the whole reveal, including the ring's
+   start offset, lives behind scripting: enabled, so with JS off the section
+   renders at its end state. */
+@media (scripting: enabled) {
+  .avi4-viz[data-reveal] .avi4-panel {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi4-viz[data-reveal] .avi4-panel--crit {
+    transition-delay: 0.12s;
+  }
+  .avi4-viz[data-reveal] .avi4-val {
+    stroke-dashoffset: var(--c);
+    transition: stroke-dashoffset 0.95s cubic-bezier(0.22, 0.7, 0.2, 1);
+  }
+  .avi4-viz[data-reveal].avi4-in .avi4-val {
+    transition-delay: calc(0.3s + var(--i) * 0.09s);
+  }
+}
+
+@media (max-width: 1180px) {
+  .avi4-viz {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+    margin-top: 40px;
+  }
+}
+@media (max-width: 900px) {
+  .avi4-chead {
+    align-items: start;
+  }
+}
+@media (max-width: 639.98px) {
+  .avi4-sec {
+    padding: 56px 20px;
+  }
+  .avi4-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi4-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi4-viz {
+    margin-top: 32px;
+  }
+  .avi4-panel {
+    padding: 16px;
+  }
+  .avi4-turns {
+    margin-top: 11px;
+  }
+  .avi4-turn + .avi4-turn {
+    margin-top: 11px;
+  }
+  .avi4-phead {
+    padding-bottom: 11px;
+  }
+  .avi4-pfoot,
+  .avi4-crits,
+  .avi4-detail,
+  .avi4-chead,
+  .avi4-quote,
+  .avi4-evfoot,
+  .avi4-caveat,
+  .avi4-disc {
+    margin-top: 11px;
+  }
+  .avi4-pfoot,
+  .avi4-detail,
+  .avi4-disc {
+    padding-top: 11px;
+  }
+  .avi4-crow {
+    padding: 9px 10px;
+  }
+  .avi4-crow::before {
+    top: 9px;
+    bottom: 9px;
+  }
+  .avi4-evfoot {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 11px;
+    justify-items: start;
+  }
+}
+/* Covers the reveal AND every hover transition in the section: a row that
+   still animates its background under reduced motion is the half of this rule
+   that gets forgotten. */
+@media (prefers-reduced-motion: reduce) {
+  .avi4-viz[data-reveal] .avi4-panel {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .avi4-viz[data-reveal] .avi4-val {
+    stroke-dashoffset: var(--off);
+    transition: none;
+  }
+  .avi4-crow,
+  .avi4-crow::before,
+  .avi4-ghost {
+    transition: none;
+  }
+  .avi4-turn--ev.avi4-flash {
+    animation: none;
+  }
+}

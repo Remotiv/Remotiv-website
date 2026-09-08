@@ -47,6 +47,50 @@ setTimeout(function(){v.forEach(function(e){
 if(!e.classList.contains("avi3-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
+// Section 4 carries its own observer for the same reason section 3 does, plus
+// the criterion switcher. Everything the switcher needs is read back off the
+// buttons, so the copy has exactly one home — the AVI4_CRITERIA array below.
+//
+// "View in transcript" both scrolls and moves focus: below 1180 the panels
+// stack and the passage is off screen, so a highlight on its own is a change
+// the reader never sees. Focus goes to the passage rather than staying on the
+// button so keyboard and screen-reader users land in the same place as the
+// scroll, which is what the tabindex of -1 on each evidence turn is for.
+const SECTION4_SCRIPT = `(function(){
+var sec=document.querySelector(".avi4-sec");if(!sec)return;
+var ring=sec.querySelector("#avi4-d-ring"),val=ring.querySelector(".avi4-val");
+var crows=[].slice.call(sec.querySelectorAll(".avi4-crow"));
+var txs=[].slice.call(sec.querySelectorAll(".avi4-turns"));
+var cur="c2";
+function select(b){
+var id=b.dataset.c;if(id===cur)return;cur=id;
+crows.forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
+txs.forEach(function(t){t.hidden=(t.id!=="avi4-tx-"+id)});
+sec.querySelector("#avi4-d-name").textContent=b.querySelector(".avi4-cname").textContent;
+sec.querySelector("#avi4-d-score").textContent=b.querySelector(".avi4-cscore").textContent;
+sec.querySelector("#avi4-d-quote").textContent=b.dataset.quote;
+sec.querySelector("#avi4-d-time").textContent=b.dataset.time;
+ring.classList.toggle("avi4-ring--amber",b.dataset.band==="amber");
+val.style.setProperty("--off",b.dataset.off);
+}
+crows.forEach(function(b){b.addEventListener("click",function(){select(b)})});
+sec.querySelector("#avi4-d-jump").addEventListener("click",function(){
+var ev=sec.querySelector("#avi4-ev-"+cur);if(!ev)return;
+var rm=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
+if(ev.scrollIntoView)ev.scrollIntoView({block:"center",behavior:rm?"auto":"smooth"});
+ev.focus({preventScroll:true});
+ev.classList.remove("avi4-flash");void ev.offsetWidth;ev.classList.add("avi4-flash");
+});
+var v=document.querySelectorAll(".avi4-viz[data-reveal]");
+var s=function(e){e.classList.add("avi4-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi4-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -112,6 +156,175 @@ const CRITERIA = [
   { label: "Distributed systems in production", score: 92, tone: "mint" },
   { label: "Python · async services", score: 88, tone: "mint" },
   { label: "Leading engineers", score: 74, tone: "amber" },
+];
+
+// A separator is decoration, so it is a span marked aria-hidden rather than an
+// element picked for the glyph it renders. Each phrase owns its trailing
+// separator inside an .avi4-ph, so a wrapped line can never open on a dot.
+const SEP = (
+  <span className="avi4-sep" aria-hidden="true">
+    {" · "}
+  </span>
+);
+
+// Section 4. The switcher reads name, score, quote, timestamp and ring offset
+// back off the buttons, so this array is the only copy of any of it.
+// Offsets are C x (1 - score/100) with C = 2(pi)r for r=33.
+const RING_C_LG = "207.345";
+const AVI4_CRITERIA = [
+  {
+    id: "c1",
+    name: "Distributed systems trade-offs",
+    score: 88,
+    off: "24.881",
+    band: "",
+    time: "07:14",
+    quote:
+      '"The trade-off is that you stop being able to say “it happened” and start saying “it will have happened”, so anything reading that data has to tolerate being a few seconds behind."',
+  },
+  {
+    id: "c2",
+    name: "Handling production incidents",
+    score: 76,
+    off: "49.763",
+    band: "amber",
+    time: "11:36",
+    quote:
+      '"First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why."',
+  },
+  {
+    id: "c3",
+    name: "Communicating with non-engineers",
+    score: 71,
+    off: "60.130",
+    band: "amber",
+    time: "16:02",
+    quote:
+      '"What broke, who it touched, what we’d already done, and when we’d know more. I try not to use the word “queue” in those."',
+  },
+  {
+    id: "c4",
+    name: "Mentoring and code review",
+    score: 83,
+    off: "35.249",
+    band: "",
+    time: "21:18",
+    quote:
+      '"I stopped leaving line comments for a while and left one comment at the top instead, saying what I’d look at first and why."',
+  },
+];
+
+// The section is served with the second criterion selected; the inline script
+// takes over from the first click.
+const AVI4_SELECTED = AVI4_CRITERIA[1];
+
+type Avi4Turn = { who: string; time: string; say: string; ev?: boolean };
+
+const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
+  {
+    id: "c1",
+    turns: [
+      {
+        who: "Interviewer",
+        time: "06:58",
+        say: "You mentioned the events pipeline started out synchronous. What made you move it?",
+      },
+      {
+        who: "Priya Nair",
+        time: "07:06",
+        say: "Checkout was waiting on three downstream calls it didn't need to wait on. Our p95 was about 1.4 seconds and most of that was us being polite to services that could have been told later.",
+      },
+      {
+        who: "Priya Nair",
+        time: "07:14",
+        ev: true,
+        say: 'So we put a queue in front of the ones that weren\'t on the critical path — notifications, the CRM sync, the loyalty ledger. The trade-off is that you stop being able to say "it happened" and start saying "it will have happened", so anything reading that data has to tolerate being a few seconds behind. We were fine with that everywhere except the ledger, which we left synchronous, because finance reconciles it daily and I didn\'t want to be explaining a gap.',
+      },
+      {
+        who: "Interviewer",
+        time: "07:52",
+        say: "How did you decide where that line was?",
+      },
+    ],
+  },
+  {
+    id: "c2",
+    turns: [
+      {
+        who: "Interviewer",
+        time: "11:20",
+        say: "Tell me about the last production issue you were personally on the hook for.",
+      },
+      {
+        who: "Priya Nair",
+        time: "11:28",
+        say: "About six weeks ago we started dropping payment webhooks. Only around two percent, so nobody noticed for a day and a half — it came in as a support ticket, not an alert, which is its own problem.",
+      },
+      {
+        who: "Priya Nair",
+        time: "11:36",
+        ev: true,
+        say: "I took the page around eleven at night. First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why. Then I pulled the diff — someone had tightened a retry policy two days earlier, and anything over two seconds was being dropped instead of requeued. We replayed about four thousand events out of the dead-letter queue the next morning.",
+      },
+      {
+        who: "Priya Nair",
+        time: "12:04",
+        say: "We added an alert on dead-letter depth after that, which we should have had already. I'll be honest though, we never did a proper write-up. It was quarter end and it slipped.",
+      },
+    ],
+  },
+  {
+    id: "c3",
+    turns: [
+      {
+        who: "Interviewer",
+        time: "15:44",
+        say: "How do you explain something like that outage to people who aren't engineers?",
+      },
+      {
+        who: "Priya Nair",
+        time: "15:52",
+        say: "It depends who's asking. Support wants to know what to tell customers. Finance wants to know whether the numbers are wrong.",
+      },
+      {
+        who: "Priya Nair",
+        time: "16:02",
+        ev: true,
+        say: "For the webhook one I wrote two paragraphs in the channel: what broke, who it touched, what we'd already done, and when we'd know more. I try not to use the word \"queue\" in those. It's harder than it sounds — I've had feedback before that I go too deep too fast when someone asks a simple question.",
+      },
+      {
+        who: "Interviewer",
+        time: "16:31",
+        say: "Has anyone pushed back on you about that?",
+      },
+    ],
+  },
+  {
+    id: "c4",
+    turns: [
+      {
+        who: "Interviewer",
+        time: "21:02",
+        say: "You've had junior engineers on your team. What does your code review actually look like?",
+      },
+      {
+        who: "Priya Nair",
+        time: "21:10",
+        say: 'I try to separate "this is wrong" from "this isn\'t how I\'d have written it", and only block on the first one.',
+      },
+      {
+        who: "Priya Nair",
+        time: "21:18",
+        ev: true,
+        say: "With the two juniors last year I stopped leaving line comments for a while and left one comment at the top instead, saying what I'd look at first and why. It's slower for me. But they came back having made a change of their own rather than typing in exactly what I'd written, and after a couple of months I was reviewing their work the same way I review anyone's.",
+      },
+      {
+        who: "Interviewer",
+        time: "21:58",
+        say: "Did that change how you onboard people now?",
+      },
+    ],
+  },
 ];
 
 // Sections 1 to 3 of 13. Sections 4-13 are still to design; per the handoff
@@ -617,6 +830,154 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi4-sec">
+          <div className="avi4-wrap">
+            <header>
+              <p className="avi4-eyebrow">Evidence</p>
+              <h2 className="avi4-h2">
+                Every score points to the <span className="avi4-stick">words</span> behind it.
+              </h2>
+              <p className="avi4-lede">
+                Remotiv scores what a candidate said, then shows you the evidence behind the score.
+                Each criterion links back to the relevant part of the interview transcript, so your
+                team can verify the AI's reasoning for themselves.
+              </p>
+            </header>
+
+            <div className="avi4-viz" data-reveal>
+              <div className="avi4-panel">
+                <div className="avi4-phead">
+                  <p className="avi4-ptitle">Interview transcript</p>
+                  <p className="avi4-psub">
+                    <span className="avi4-ph">Priya Nair{SEP}</span>
+                    <span className="avi4-ph">Senior Backend Engineer{SEP}</span>
+                    <span className="avi4-ph">26 Aug{SEP}</span>
+                    34 min
+                  </p>
+                </div>
+
+                {AVI4_TRANSCRIPT.map((block) => (
+                  <div
+                    key={block.id}
+                    className="avi4-turns"
+                    id={`avi4-tx-${block.id}`}
+                    hidden={block.id !== AVI4_SELECTED.id}
+                  >
+                    {block.turns.map((turn) => (
+                      <article
+                        key={turn.time}
+                        className={turn.ev ? "avi4-turn avi4-turn--ev" : "avi4-turn"}
+                        id={turn.ev ? `avi4-ev-${block.id}` : undefined}
+                        tabIndex={turn.ev ? -1 : undefined}
+                      >
+                        <p className="avi4-who">
+                          <span className="avi4-ph">
+                            <b>{turn.who}</b>
+                            {SEP}
+                          </span>
+                          {turn.time}
+                        </p>
+                        <p className="avi4-say">{turn.say}</p>
+                      </article>
+                    ))}
+                  </div>
+                ))}
+
+                <p className="avi4-pfoot">
+                  The highlighted passage is the evidence for the selected criterion. Selecting
+                  another criterion moves the highlight.
+                </p>
+              </div>
+
+              <div className="avi4-panel avi4-panel--crit">
+                <div className="avi4-phead">
+                  <p className="avi4-ptitle">Interview criteria</p>
+                  <p className="avi4-psub">
+                    <span className="avi4-ph">Scored from the transcript{SEP}</span>
+                    four criteria for this role
+                  </p>
+                </div>
+
+                <ul className="avi4-crits">
+                  {AVI4_CRITERIA.map((c) => (
+                    <li key={c.id}>
+                      <button
+                        className="avi4-crow"
+                        type="button"
+                        aria-pressed={c.id === AVI4_SELECTED.id}
+                        data-c={c.id}
+                        data-off={c.off}
+                        data-band={c.band}
+                        data-time={c.time}
+                        data-quote={c.quote}
+                      >
+                        <span className="avi4-cname">{c.name}</span>
+                        <span className="avi4-cscore">{c.score}</span>
+                      </button>
+                    </li>
+                  ))}
+                </ul>
+
+                <div className="avi4-detail">
+                  <p className="avi4-slabel">Selected criterion</p>
+                  <div className="avi4-chead">
+                    <p className="avi4-cbig" id="avi4-d-name">
+                      {AVI4_SELECTED.name}
+                    </p>
+                    <div
+                      className={
+                        AVI4_SELECTED.band === "amber" ? "avi4-ring avi4-ring--amber" : "avi4-ring"
+                      }
+                      id="avi4-d-ring"
+                    >
+                      <svg viewBox="0 0 76 76" aria-hidden="true">
+                        <circle className="avi4-trk" cx="38" cy="38" r="33" />
+                        <circle
+                          className="avi4-val"
+                          cx="38"
+                          cy="38"
+                          r="33"
+                          style={
+                            {
+                              "--c": RING_C_LG,
+                              "--off": AVI4_SELECTED.off,
+                              "--i": 0,
+                            } as CSSPropertiesWithVars
+                          }
+                        />
+                      </svg>
+                      <b id="avi4-d-score">{AVI4_SELECTED.score}</b>
+                    </div>
+                  </div>
+                  <blockquote className="avi4-quote">
+                    <p id="avi4-d-quote">{AVI4_SELECTED.quote}</p>
+                  </blockquote>
+                  <div className="avi4-evfoot">
+                    <p className="avi4-stamp">
+                      <span className="avi4-ph">
+                        <span id="avi4-d-time">{AVI4_SELECTED.time}</span>
+                        {SEP}
+                      </span>
+                      Priya Nair
+                    </p>
+                    <button className="avi4-ghost" type="button" id="avi4-d-jump">
+                      View in transcript
+                    </button>
+                  </div>
+                  <p className="avi4-caveat">
+                    The quote is the passage this criterion was scored from. The timestamp points to
+                    that moment in the recording.
+                  </p>
+                  <p className="avi4-disc">
+                    <b>Recommendation only.</b> Scored from the transcript text — no face, voice or
+                    accent analysis. A person decides.
+                  </p>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -630,6 +991,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 3 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION3_REVEAL_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 4 entrance observer and criterion switcher
+        dangerouslySetInnerHTML={{ __html: SECTION4_SCRIPT }}
       />
     </>
   );
