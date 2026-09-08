@@ -2743,3 +2743,392 @@
     animation: none;
   }
 }
+
+/* ============================================================
+   SECTION 6 - HUMAN DECISION
+
+   There is no section 5. It was cut because section 4 already makes its
+   argument, so the prefix here is avi6- and the numbering is not a mistake.
+
+   Sections 3 and 4 are both light and both dense. This one is the pause
+   between them and whatever follows: one card, no second interface to read.
+   Ground alternates back to the dark slab, which is section 2's treatment.
+
+   THE EYEBROW IS MINT HERE, NOT PURPLE - DO NOT "CORRECT" IT.
+   The eyebrow sits on the slab rather than on white. Against #141020 the
+   section-label purple #7e47ff measures 3.76:1 and fails AA; the mint
+   measures 10.28:1. Both figures are fixed by the two hex values in this
+   file and cannot drift.
+
+   Tokens live on .avi6-sec, never :root. This block cannot be merged with
+   .avi2-sec above it: that section resolves --r-rad-card to 24px against
+   the 20px this page's contract requires, so sharing the scope would
+   silently reshape every card here.
+   ============================================================ */
+.avi6-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-slab: #141020;
+  --r-mint: #49d7a7;
+  --r-purple: #7e47ff;
+  --r-amber: #f5a524;
+  --r-body-strong: #3f3b37;
+  /* Small-meta grey. This is a floor, not a starting point - do not lighten
+     it to compensate for the smaller type. */
+  --r-quiet: #6e6862;
+  --r-sep: #bcb5ac;
+  --on-dark: rgba(255, 255, 255, 0.74);
+  --r-line: rgba(0, 0, 0, 0.08);
+  --r-line-ctl: rgba(0, 0, 0, 0.14);
+  --r-track: #efebe6;
+  --r-rad-slab: 24px;
+  --r-rad-card: 20px;
+  --r-rad-inset: 14px;
+  --r-rad-pill: 999px;
+
+  background: var(--r-white);
+  /* 48px top is a deliberate exception to this page's 72px standard, and the
+     only reason for it is that the ground stopped alternating.
+
+     Section 6 is the only section that follows a section of the same colour.
+     Every other boundary on this page has a cream/white change landing in the
+     middle of the 144px gap, which visually splits it into 72 ending one band
+     and 72 starting the next. Section 6 sits white-on-white after section 4,
+     so the seam is gone and the same 144px reads as one undivided void. It is
+     worse again because the gap lands on a full-width dark slab rather than an
+     11px eyebrow, and a heavy mass at the end of a long run makes the run read
+     longer.
+
+     The mobile block takes the same cut for the same reason: 56 -> 40, which
+     leaves 96px there against 120 here. Bottom padding is untouched in both,
+     because it meets the #111111 footer - that boundary still has a seam, and
+     a seam wants the full value.
+
+     If section 6 ever returns to cream, both go back to the 72 / 56 standard. */
+  padding: 48px 40px 72px;
+}
+.avi6-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+/* The slab fills the capped wrapper, so the wrapper carries the cap and the
+   gutter and the slab carries only its own surface. Shadow depth is picked
+   from the ground: this one sits on section 4's white, the card sits on the slab
+   and takes the deeper one. */
+.avi6-slab {
+  padding: 30px 24px 28px;
+  border-radius: var(--r-rad-slab);
+  background: var(--r-slab);
+  box-shadow: 0 30px 70px rgba(20, 16, 32, 0.24);
+}
+
+/* ---------- header beside the still ---------- */
+.avi6-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+.avi6-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-mint);
+}
+/* The dot is decoration, so it is drawn rather than marked up. An element
+   picked for the shape it renders is markup doing a stylesheet's job. */
+.avi6-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+/* Measure lives on the text, never on the grid track. */
+.avi6-h2 {
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: #fff;
+  text-wrap: balance;
+}
+.avi6-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--on-dark);
+  text-wrap: pretty;
+}
+
+/* ---------- the still ---------- */
+.avi6-card {
+  max-width: 520px;
+  background: var(--r-white);
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  padding: 20px;
+  box-shadow: 0 22px 48px rgba(0, 0, 0, 0.34);
+}
+.avi6-split {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 24px;
+  align-items: start;
+}
+.avi6-slabel {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi6-slabel--quiet {
+  color: var(--r-quiet);
+}
+/* The ring is a genuinely fixed-size object, so its track is a bare px value
+   rather than a minmax - it has nothing to negotiate. */
+.avi6-ident {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 76px;
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+}
+.avi6-name {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi6-ring {
+  position: relative;
+  width: 76px;
+  height: 76px;
+}
+.avi6-ring svg {
+  width: 100%;
+  height: 100%;
+  transform: rotate(-90deg);
+}
+.avi6-ring circle {
+  fill: none;
+  stroke-width: 5;
+  stroke-linecap: round;
+}
+.avi6-trk {
+  stroke: var(--r-track);
+}
+/* stroke-dashoffset, never a transform: scaleX squashes the cap and has
+   latched at zero before now, leaving the arc invisible. */
+.avi6-val {
+  stroke: var(--r-amber);
+  stroke-dasharray: var(--c);
+  stroke-dashoffset: var(--off);
+}
+.avi6-ring b {
+  position: absolute;
+  inset: 0;
+  display: grid;
+  place-items: center;
+  font: 700 22px / 1 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: #7a4e05;
+}
+.avi6-flag {
+  margin-top: 12px;
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: var(--r-body-strong);
+}
+.avi6-only {
+  margin-top: 12px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+
+/* ---------- the human half: an internal rule, not a second card ---------- */
+.avi6-human {
+  border-left: 1px solid var(--r-line);
+  padding-left: 20px;
+}
+/* Depicted controls inside a product still. They carry no hover, no focus
+   ring and no tab stop because nothing here advances a real candidate, which
+   is also why the contract's 44px interactive floor does not apply and the
+   34px ghost height does. If any of these ever becomes live, it has to grow
+   to 44px in the same change. */
+.avi6-ctls {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  margin-top: 12px;
+}
+.avi6-ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid var(--r-line-ctl);
+  border-radius: var(--r-rad-pill);
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  white-space: nowrap;
+}
+.avi6-hint {
+  margin-top: 12px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+
+/* ---------- the override ---------- */
+/* The smallest element on the section and the one carrying its point, so it
+   takes the inset box rather than a third hairline. */
+.avi6-over {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+  margin-top: 12px;
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi6-olab {
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: var(--r-body-strong);
+}
+.avi6-onum {
+  display: flex;
+  align-items: baseline;
+  gap: 8px;
+  margin-top: 8px;
+  font: 800 20px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+}
+.avi6-was {
+  color: var(--r-quiet);
+}
+.avi6-arrow {
+  font-weight: 400;
+  color: var(--r-sep);
+}
+.avi6-kept {
+  font: 400 12.4px / 1.6 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+
+/* ---------- reveal ---------- */
+.avi6-aside[data-reveal].avi6-in .avi6-card {
+  opacity: 1;
+  transform: none;
+}
+.avi6-aside[data-reveal].avi6-in .avi6-val {
+  stroke-dashoffset: var(--off);
+}
+/* Nothing is hidden without script: every hiding rule, including the ring's
+   start offset, lives behind scripting: enabled, so with JS off the section
+   renders at its end state. */
+@media (scripting: enabled) {
+  .avi6-aside[data-reveal] .avi6-card {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi6-aside[data-reveal] .avi6-val {
+    stroke-dashoffset: var(--c);
+    transition: stroke-dashoffset 0.95s cubic-bezier(0.22, 0.7, 0.2, 1);
+  }
+  .avi6-aside[data-reveal].avi6-in .avi6-val {
+    transition-delay: calc(0.3s + var(--i) * 0.09s);
+  }
+}
+
+/* ---------- responsive - 1180 / 639.98 ---------- */
+/* No 900 tier: nothing here is a multi-column card grid, so the section
+   would have nothing to say at that width. Skipping a tier is allowed;
+   inventing one is not. */
+@media (max-width: 1180px) {
+  /* Once the two columns stack, this gap is the only thing between the lede
+     and the card, so it is a vertical rhythm value rather than the 48px
+     column gutter it overrides. */
+  .avi6-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 20px;
+  }
+  /* The gap goes to zero because the rule below replaces it: keeping both
+     would double the space between the two halves. */
+  .avi6-split {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 0;
+  }
+  .avi6-human {
+    border-left: 0;
+    padding-left: 0;
+    margin-top: 20px;
+    padding-top: 20px;
+    border-top: 1px solid var(--r-line);
+  }
+}
+@media (max-width: 639.98px) {
+  .avi6-sec {
+    padding: 40px 20px 56px;
+  }
+  .avi6-slab {
+    padding: 24px 20px 26px;
+    border-radius: var(--r-rad-card);
+  }
+  .avi6-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi6-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi6-card {
+    max-width: none;
+    padding: 17px 16px;
+  }
+  .avi6-ident,
+  .avi6-flag,
+  .avi6-only,
+  .avi6-ctls,
+  .avi6-hint,
+  .avi6-over {
+    margin-top: 11px;
+  }
+  .avi6-human {
+    margin-top: 16px;
+    padding-top: 16px;
+  }
+  .avi6-over {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 11px;
+  }
+}
+/* Covers the reveal and the ring. There is no hover transition in this
+   section to cover - the three controls are depicted, so they declare no
+   hover state at all. If one is ever given a hover, it belongs in this
+   block in the same change: a control that still animates its border under
+   reduced motion is the half of this rule that gets forgotten. */
+@media (prefers-reduced-motion: reduce) {
+  .avi6-aside[data-reveal] .avi6-card {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+  .avi6-aside[data-reveal] .avi6-val {
+    stroke-dashoffset: var(--off);
+    transition: none;
+  }
+}

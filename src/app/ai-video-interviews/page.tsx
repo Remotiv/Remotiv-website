@@ -91,6 +91,20 @@ setTimeout(function(){v.forEach(function(e){
 if(!e.classList.contains("avi4-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
+// Section 6 carries its own observer for the same reason sections 3 and 4 do:
+// so the constants above stay byte-identical to what already shipped. There is
+// nothing to switch here, so this is the reveal and nothing else.
+const SECTION6_SCRIPT = `(function(){
+var a=document.querySelectorAll(".avi6-aside[data-reveal]");
+var s=function(e){e.classList.add("avi6-in")};
+if(!("IntersectionObserver" in window)){a.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+a.forEach(function(e){o.observe(e)});
+setTimeout(function(){a.forEach(function(e){
+if(!e.classList.contains("avi6-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -978,6 +992,82 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi6-sec">
+          <div className="avi6-wrap">
+            <div className="avi6-slab">
+              <div className="avi6-grid">
+                <header>
+                  <p className="avi6-eyebrow">Human decision</p>
+                  <h2 className="avi6-h2">Recommendations, never decisions.</h2>
+                  <p className="avi6-lede">
+                    Remotiv ranks and scores candidates, but it never moves or rejects anyone
+                    automatically. Your team makes every stage change and can override any score —
+                    with the AI&apos;s original kept for reference.
+                  </p>
+                </header>
+
+                <div className="avi6-aside" data-reveal>
+                  <div className="avi6-card">
+                    <div className="avi6-split">
+                      <div>
+                        <p className="avi6-slabel">AI recommendation</p>
+                        <div className="avi6-ident">
+                          <p className="avi6-name">Priya Nair</p>
+                          <div className="avi6-ring">
+                            <svg viewBox="0 0 76 76" aria-hidden="true">
+                              <circle className="avi6-trk" cx="38" cy="38" r="33" />
+                              <circle
+                                className="avi6-val"
+                                cx="38"
+                                cy="38"
+                                r="33"
+                                style={
+                                  {
+                                    "--c": RING_C_LG,
+                                    "--off": "49.763",
+                                    "--i": 0,
+                                  } as CSSPropertiesWithVars
+                                }
+                              />
+                            </svg>
+                            <b>76</b>
+                          </div>
+                        </div>
+                        <p className="avi6-flag">Flagged for shortlist</p>
+                        <p className="avi6-only">Recommendation only</p>
+                      </div>
+
+                      <div className="avi6-human">
+                        <p className="avi6-slabel avi6-slabel--quiet">Your team decides</p>
+                        <div className="avi6-ctls">
+                          <span className="avi6-ghost">Advance</span>
+                          <span className="avi6-ghost">Hold</span>
+                          <span className="avi6-ghost">Reject</span>
+                        </div>
+                        <p className="avi6-hint">No stage changes until someone makes one.</p>
+                      </div>
+                    </div>
+
+                    <div className="avi6-over">
+                      <div>
+                        <p className="avi6-olab">Recruiter override</p>
+                        <p className="avi6-onum">
+                          <span className="avi6-was">76</span>
+                          <span className="avi6-arrow" aria-hidden="true">
+                            →
+                          </span>
+                          <span>82</span>
+                        </p>
+                      </div>
+                      <p className="avi6-kept">Original AI score: 76 retained</p>
+                    </div>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -995,6 +1085,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 4 entrance observer and criterion switcher
         dangerouslySetInnerHTML={{ __html: SECTION4_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 6 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION6_SCRIPT }}
       />
     </>
   );
