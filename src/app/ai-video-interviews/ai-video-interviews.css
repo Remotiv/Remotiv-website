@@ -647,10 +647,13 @@
   .avi-hero {
     padding-bottom: 64px;
   }
+  /* Must not exceed the clamp's 2rem floor above it: the clamp bottoms out at
+     32 from ~941 down, so anything larger here made the headline grow as the
+     viewport shrank — bigger on a phone than on a tablet. */
   .avi-hero h1 {
     margin-top: 18px;
     max-width: none;
-    font-size: 34px;
+    font-size: 32px;
     line-height: 1.1;
     letter-spacing: -0.03em;
   }
@@ -1362,6 +1365,16 @@
   .avi2-g3,
   .avi2-artrow {
     grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+  /* .avi2-rrow is itself a .avi2-g3, so it collapses to two tracks here and the
+     desktop 3 / 4 placement would open an implicit third one — zero-width, but
+     still carrying a live 24px gap, which shortened the rule and flattened the
+     emphasis segment to nothing. Re-place both segments inside the two tracks. */
+  .avi2-rrow .avi2-s1 {
+    grid-column: 1 / 2;
+  }
+  .avi2-rrow .avi2-s2 {
+    grid-column: 2 / 3;
   }
   .avi2-fragcol {
     grid-column: 1 / 3;
