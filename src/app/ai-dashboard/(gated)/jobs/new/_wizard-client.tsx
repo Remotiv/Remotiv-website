@@ -64,12 +64,18 @@ import {
   PREP_SECONDS_MIN,
   QUESTION_TEXT_MAX,
 } from "@/lib/interviews/types";
+import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
 import type { ScreeningQuestion } from "@/lib/jobs";
 // Value import MUST come from lib/screening, not lib/jobs: this is a client
 // component and lib/jobs pulls in next/headers via getInitialJobs.
 import { type NumericMode, resolveNumericMode } from "@/lib/screening";
 import { HiringTeamSection } from "../_hiring-team";
-import { createCompanyJob, estimateAutoshortlistReach, updateCompanyJob } from "../actions";
+import {
+  createCompanyJob,
+  estimateAutoshortlistReach,
+  proposeJobDescriptionSplit,
+  updateCompanyJob,
+} from "../actions";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -621,6 +627,129 @@ export function WizardClient({
   const [moreOpen, setMoreOpen] = useState(false);
 
   /**
+   * Step 2 is ONE box now, and this is it.
+   *
+   * `state.description/responsibilities/requirements` are still the source of
+   * truth for everything downstream — the preview, the submit, the three
+   * database columns, the CV scorer's three labelled prompt sections. The box
+   * is the editing surface; the effect below keeps the columns in step with it.
+   *
+   * Seeded from the existing columns so an EDIT opens with the job's real text
+   * rather than an empty box, merged in the same shape the parser splits back
+   * out. Its own state rather than derived on every render, because the
+   * recruiter's line breaks are theirs — round-tripping the columns through a
+   * join on each keystroke would rewrite their spacing as they typed.
+   */
+  const [jdBox, setJdBox] = useState(() => mergeJobText(initialState ?? EMPTY_JOB_INPUT));
+
+  /*
+   * The box is authoritative for the three columns whenever it changes.
+   *
+   * `over_threshold` and `no_headings` deliberately write the WHOLE box to
+   * description and clear the other two: those outcomes mean the parser could
+   * not read the structure, and writing a split it does not stand behind is
+   * precisely the silent misfiling this project exists to stop. An empty
+   * requirements column is visible in the scorecard (the dimension is marked
+   * unstated and dropped from the overall); a wrongly-populated one is not
+   * visible anywhere.
+   *
+   * When the model succeeds it rewrites the BOX, so this effect re-runs, the
+   * parse comes back "split", and the columns fill. The model never writes a
+   * column directly — the text on screen is always what gets stored.
+   */
+  useEffect(() => {
+    const parsed = parseJobDescription(jdBox);
+    const confident = parsed.outcome === "split";
+    setState((prev) => {
+      const description = confident ? parsed.description : jdBox.trim();
+      const responsibilities = confident ? parsed.responsibilities.join("\n") : "";
+      const requirements = confident ? parsed.requirements.join("\n") : "";
+      if (
+        prev.description === description &&
+        prev.responsibilities === responsibilities &&
+        prev.requirements === requirements
+      ) {
+        return prev;
+      }
+      return { ...prev, description, responsibilities, requirements };
+    });
+  }, [jdBox]);
+
+  /** A split is in flight. Shown, never blocking. */
+  const [jdSplitting, setJdSplitting] = useState(false);
+
+  /**
+   * The box text we have already sent. One call per distinct paste, not one per
+   * keystroke and not one per visit to the step.
+   */
+  const jdAskedFor = useRef<string | null>(null);
+
+  /**
+   * Whether a save has been attempted. Set once and never cleared.
+   *
+   * From that moment the server owns the split: createCompanyJob and
+   * updateCompanyJob both run splitIfNeeded on the way in. A model result
+   * landing here afterwards could only rewrite the box to a split the database
+   * does not have — the form and the job would disagree, and on the edit page
+   * the next Save would write the form's version over the server's. Not
+   * cleared on failure either: the retry goes through the server too, so there
+   * is never a reason to apply one here again.
+   */
+  const jdSubmitStarted = useRef(false);
+
+  /**
+   * Ask the model when the parser could not read the structure, and write the
+   * answer straight into the box as headings.
+   *
+   * ── Nothing here can stop the recruiter ──────────────────────
+   *
+   * No cards, no confirmation, no gate. On success the box gains two ordinary
+   * lines of text they can edit like anything else they typed. On any failure
+   * the box is left exactly as they wrote it and they carry on — the whole
+   * thing then behaves as if this function did not exist.
+   *
+   * Blur rather than keystroke: a person mid-sentence has not finished the
+   * thought, and a call per pause is waste for a result that changes with the
+   * next word. `jdAskedFor` holds the text we sent, so one paste is one call.
+   */
+  async function askForSplit(): Promise<void> {
+    const box = jdBox;
+    if (!box.trim() || jdAskedFor.current === box) return;
+    if (!needsModelSplit(parseJobDescription(box))) return;
+
+    jdAskedFor.current = box;
+    setJdSplitting(true);
+    try {
+      const { groups, failure } = await proposeJobDescriptionSplit(box);
+      if (groups && !jdSubmitStarted.current) {
+        /*
+         * Only if the box is still the one we asked about, and only if nothing
+         * has been saved yet. Applying a split built on text the recruiter has
+         * since edited would rearrange sentences they had already moved on
+         * from; applying one after a save would leave the form showing a split
+         * the job does not have.
+         */
+        setJdBox((current) => (current === box ? applyGroups(box, groups) : current));
+      } else if (!groups) {
+        /*
+         * SAY WHY. The action returns one of eight named reasons — no key, a
+         * timeout, a response that was not a valid partition, a caller outside
+         * a workspace — and all of them look identical on screen, because they
+         * all leave the box alone. That is right for the recruiter and useless
+         * for anyone debugging it.
+         */
+        console.warn(`[jd_split] no proposal (${failure ?? "unknown"}) — box left as written`);
+      }
+    } catch (err) {
+      // The action is written not to throw, so reaching here means the call
+      // itself failed — transport, or an action this build does not recognise.
+      console.warn("[jd_split] call failed — box left as written:", err);
+    } finally {
+      setJdSplitting(false);
+    }
+  }
+
+  /**
    * The answer type each question had WHEN THE PAGE LOADED.
    *
    * Captured once from the prefill, so the type-change warning compares against
@@ -696,7 +825,7 @@ export function WizardClient({
       else if (!state.location.trim()) next.location = "Where is this role based?";
     }
     if (target === 2) {
-      if (!state.description.trim()) {
+      if (!jdBox.trim()) {
         next.description = "Add a short overview so candidates know what they're applying to.";
       }
     }
@@ -919,6 +1048,8 @@ export function WizardClient({
 
   async function submit(status: CompanyJobInput["status"]) {
     if (inFlightRef.current) return;
+    // From here the server decides the split. See jdSubmitStarted.
+    jdSubmitStarted.current = true;
 
     // Drafts skip validation beyond a title — the point of a draft is that it
     // isn't finished yet. Publishing runs every gate.
@@ -1261,57 +1392,33 @@ export function WizardClient({
 
               {step === 2 && (
                 <>
-                  <div className="mb-4">
-                    <label htmlFor="w-about" className={LABEL_CLS}>
-                      About the role <span className="text-remotiv-purple">*</span>
-                    </label>
-                    <textarea
-                      id="w-about"
-                      value={state.description}
-                      onChange={(e) => set("description", e.target.value)}
-                      maxLength={JOB_TEXT_MAX}
-                      placeholder="A short overview of the role, the team, and why it matters."
-                      className={`${TEXTAREA_CLS} ${errors.description ? INPUT_ERR_CLS : ""}`}
-                    />
-                    {errors.description && (
-                      <p className="mt-1.5 text-xs text-[#C4362F]">{errors.description}</p>
-                    )}
-                    <CharCount
-                      value={state.description}
-                      hint="Markdown isn't supported — plain text only."
-                    />
-                  </div>
-                  <div className="mb-4">
-                    <label htmlFor="w-resp" className={LABEL_CLS}>
-                      Responsibilities
-                    </label>
-                    <textarea
-                      id="w-resp"
-                      value={state.responsibilities}
-                      onChange={(e) => set("responsibilities", e.target.value)}
-                      maxLength={JOB_TEXT_MAX}
-                      placeholder="One responsibility per line…"
-                      className={TEXTAREA_CLS}
-                    />
-                    <CharCount
-                      value={state.responsibilities}
-                      hint="One per line — these render as bullets on the public post."
-                    />
-                  </div>
-                  <div>
-                    <label htmlFor="w-reqs" className={LABEL_CLS}>
-                      Requirements
-                    </label>
-                    <textarea
-                      id="w-reqs"
-                      value={state.requirements}
-                      onChange={(e) => set("requirements", e.target.value)}
-                      maxLength={JOB_TEXT_MAX}
-                      placeholder="Must-have skills and experience, one per line…"
-                      className={TEXTAREA_CLS}
-                    />
-                    <CharCount value={state.requirements} />
-                  </div>
+                  <label htmlFor="w-jd" className={LABEL_CLS}>
+                    The job description <span className="text-remotiv-purple">*</span>
+                  </label>
+                  <textarea
+                    id="w-jd"
+                    value={jdBox}
+                    onChange={(e) => setJdBox(e.target.value)}
+                    onBlur={() => {
+                      void askForSplit();
+                    }}
+                    maxLength={JOB_TEXT_MAX}
+                    rows={16}
+                    placeholder={
+                      "Write the whole thing here — the overview, what they'll do, and what you're looking for.\n\n" +
+                      "Paste it however it comes. If it has no headings we'll add them for you."
+                    }
+                    className={`${TEXTAREA_CLS} min-h-[360px] ${errors.description ? INPUT_ERR_CLS : ""}`}
+                  />
+                  {errors.description && (
+                    <p className="mt-1.5 text-xs text-[#C4362F]">{errors.description}</p>
+                  )}
+                  {jdSplitting && (
+                    <p className="mt-2 text-[12.5px] text-[var(--ai-t3)]">
+                      Reading the structure&hellip;
+                    </p>
+                  )}
+                  <CharCount value={jdBox} hint="Markdown isn't supported — plain text only." />
                 </>
               )}
 

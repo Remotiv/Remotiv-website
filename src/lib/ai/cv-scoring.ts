@@ -177,6 +177,20 @@ export type DimensionScore = {
   reasoning: string;
   /** The CV span supporting THIS dimension. Empty when none survived. */
   quote: string;
+  /**
+   * The job stated NOTHING for this dimension to be judged against.
+   *
+   * The four dimensions are fixed so scores stay comparable across jobs, and
+   * the model must return all four — so when `requirements` is blank it is
+   * still asked to score `requirements_match`, against a section that reads
+   * "Requirements: (not specified)". Whatever number that produces is invented,
+   * and before this flag existed it carried full `cv_weight_requirements`
+   * weight into the overall.
+   *
+   * Absent means applicable, so every scorecard written before this flag keeps
+   * its existing arithmetic rather than silently re-weighting.
+   */
+  unstated?: boolean;
 };
 
 /** A strength and the span that proves it — one object, never two arrays. */
@@ -288,7 +302,7 @@ const WEIGHT_BY_DIMENSION: Record<string, keyof CvWeights> = {
  */
 export function applyCvWeights(
   modelOverall: number,
-  dimensions: { dimension: string; score: number }[],
+  dimensions: { dimension: string; score: number; unstated?: boolean }[],
   weights: CvWeights | null | undefined,
 ): number {
   if (!weights) return modelOverall;
@@ -300,6 +314,22 @@ export function applyCvWeights(
   let weightedTotal = 0;
   let weightSum = 0;
   for (const d of dimensions) {
+    /*
+     * A dimension the job stated nothing for is excluded from the mean
+     * ENTIRELY — not down-weighted, not floored, not defaulted to 50.
+     *
+     * The model still had to return a number for it (all four are mandatory so
+     * scores stay comparable), and that number is an invention: it judged the
+     * CV against a section reading "(not specified)". Averaging an invention in
+     * at full weight moves every overall score for that job by an arbitrary
+     * amount, in an arbitrary direction. Dropping it means the overall is the
+     * weighted mean of what the employer actually asked for.
+     *
+     * See DimensionScore.unstated. The flag is stored on the scorecard rather
+     * than recomputed from the job, so cv-recompute reaches the same answer
+     * from the row alone.
+     */
+    if (d.unstated) continue;
     const column = WEIGHT_BY_DIMENSION[d.dimension];
     if (!column) continue; // A dimension we do not weight leaves the mean alone.
     const raw = weights[column];
@@ -1090,15 +1120,28 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   // the i-th strength-evidence entry — a positional join the model was never
   // told to maintain, which is how a real quote ended up attached to the wrong
   // strength. There is no longer any pairing step to get wrong.
+  /*
+   * Which dimensions the job gave the model nothing to judge against.
+   *
+   * Only requirements_match today: it is the one dimension backed by a single
+   * column that is routinely empty, and the one-box wizard's "keep it as one
+   * description" escape hatch makes an empty `requirements` a SUPPORTED choice
+   * rather than an oversight. The other three are backed by the description and
+   * responsibilities, which no path leaves blank.
+   */
+  const requirementsStated = (input.job.requirements ?? "").trim().length > 0;
+
   const dimensionScores: DimensionScore[] = parsed.dimension_scores.map((d) => {
+    const unstated = d.dimension === "requirements_match" && !requirementsStated;
     const [ok] = verifyEvidence([{ claim: d.dimension, quote: d.quote }], cvText).verified;
-    return ok
+    const verified = ok
       ? { ...d, quote: ok.quote }
       : {
           ...d,
           quote: "",
           reasoning: `${d.reasoning} (no verifiable CV quote)`.trim(),
         };
+    return unstated ? { ...verified, unstated: true } : verified;
   });
 
   // A strength IS a claim about the CV, so an unverifiable one is dropped

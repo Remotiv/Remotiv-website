@@ -31,6 +31,7 @@ import {
   MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
+import { proposeSplit } from "@/lib/ai/jd-split";
 import { parseRules } from "@/lib/calendar/availability";
 import {
   ANSWER_SECONDS_MAX,
@@ -43,6 +44,8 @@ import {
   QUESTION_TEXT_MAX,
   RUBRIC_MAX,
 } from "@/lib/interviews/types";
+import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
+import type { JdGroup } from "@/lib/jd/partition";
 import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
@@ -634,10 +637,10 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
 
     if (error) {
       console.error("[jobs] fetchCompanyJobs failed:", error);
-        // Not an empty workspace. Returning [] made a company with live roles
-        // see "No jobs yet — post your first role", which does not merely
-        // under-report: it invites a duplicate of a role they already have.
-        return unavailable();
+      // Not an empty workspace. Returning [] made a company with live roles
+      // see "No jobs yet — post your first role", which does not merely
+      // under-report: it invites a duplicate of a role they already have.
+      return unavailable();
     }
     const batch = (data ?? []) as Record<string, unknown>[];
     rows.push(...batch);
@@ -664,22 +667,22 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
 
   return answered(
     rows.map((r, i) => ({
-    id: r.id as string,
-    title: (r.title as string) ?? "",
-    location: (r.location as string) ?? "",
-    category: (r.category as string) ?? "",
-    experience_level: (r.experience_level as string) ?? "",
-    contract_type: (r.contract_type as string) ?? "",
-    work_type: (r.work_type as string) ?? "",
-    status: (r.status as JobStatus) ?? "open",
-    slug: (r.slug as string | null) ?? null,
-    salary_min: (r.salary_min as number | null) ?? null,
-    salary_max: (r.salary_max as number | null) ?? null,
-    salary_currency: (r.salary_currency as string | null) ?? null,
-    positions: (r.positions as number) ?? 1,
-    created_at: (r.created_at as string) ?? "",
-    archived_at: (r.archived_at as string | null) ?? null,
-    applicant_count: counts[i],
+      id: r.id as string,
+      title: (r.title as string) ?? "",
+      location: (r.location as string) ?? "",
+      category: (r.category as string) ?? "",
+      experience_level: (r.experience_level as string) ?? "",
+      contract_type: (r.contract_type as string) ?? "",
+      work_type: (r.work_type as string) ?? "",
+      status: (r.status as JobStatus) ?? "open",
+      slug: (r.slug as string | null) ?? null,
+      salary_min: (r.salary_min as number | null) ?? null,
+      salary_max: (r.salary_max as number | null) ?? null,
+      salary_currency: (r.salary_currency as string | null) ?? null,
+      positions: (r.positions as number) ?? 1,
+      created_at: (r.created_at as string) ?? "",
+      archived_at: (r.archived_at as string | null) ?? null,
+      applicant_count: counts[i],
     })),
   );
 }
@@ -814,12 +817,74 @@ function clampInt(raw: string, min: number, max: number, fallback: number): numb
   return Math.min(max, Math.max(min, n));
 }
 
+/**
+ * Split the job description before it is written, if it is not split already.
+ *
+ * ── Why this is on the server and not only in the wizard ─────
+ *
+ * The wizard also asks the model, on blur, and writes the answer into the box.
+ * That is a nicety: it lets the recruiter SEE the headings before publishing.
+ * It is not a mechanism you can depend on, because the call takes a couple of
+ * seconds and nothing stops them clicking Publish in that window — the header
+ * carries a Publish button on every step, so "paste, publish" is two clicks and
+ * about a second. Whichever way that race fell decided whether the job got
+ * three columns or one, for the same paste and the same clicks.
+ *
+ * Doing it here removes the race rather than narrowing it. Every write goes
+ * through create or update, both of which come here first, so the same text
+ * always produces the same job.
+ *
+ * ── The double path cannot produce two answers ───────────────
+ *
+ * `needsModelSplit` is the guard, and it is what makes the two paths one. It
+ * asks whether the text ARRIVING here is already split:
+ *
+ *   the wizard's call landed first → the columns hold headings, mergeJobText
+ *     rebuilds a box that parses as "split", and this returns untouched. No
+ *     second call, so no second opinion to disagree with the first.
+ *   the wizard's call did not land → the box is unsplit, and this is the only
+ *     call that happens.
+ *
+ * Exactly one split per job, whichever path got there. The client is
+ * additionally stopped from applying a late result once a submit has begun —
+ * see the wizard — so it cannot leave the form showing a split the database
+ * does not have.
+ *
+ * ── It cannot fail the save ──────────────────────────────────
+ *
+ * `proposeSplit` never throws and returns null on every failure. A null returns
+ * the input exactly as the recruiter wrote it and the job saves unsplit, which
+ * is what would have happened before any of this existed. The cost is up to
+ * TIMEOUT_MS of latency on the first save of an unsplit description, and none
+ * on any save after that.
+ */
+async function splitIfNeeded(input: CompanyJobInput): Promise<CompanyJobInput> {
+  const box = mergeJobText(input);
+  if (!box.trim() || !needsModelSplit(parseJobDescription(box))) return input;
+
+  const { groups, failure } = await proposeSplit(box);
+  if (!groups) {
+    console.warn(`[jd_split] server: no proposal (${failure}) — saving as written`);
+    return input;
+  }
+
+  const parsed = parseJobDescription(applyGroups(box, groups));
+  if (parsed.outcome !== "split") return input;
+
+  return {
+    ...input,
+    description: parsed.description,
+    responsibilities: parsed.responsibilities.join("\n"),
+    requirements: parsed.requirements.join("\n"),
+  };
+}
+
 export async function createCompanyJob(
   input: CompanyJobInput,
 ): Promise<MutationResult<{ id: string; slug: string | null }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
-  const built = buildPatch(input);
+  const built = buildPatch(await splitIfNeeded(input));
   if (!built.ok) return { success: false, error: built.error };
 
   const supabase = createServiceClient();
@@ -906,7 +971,7 @@ export async function updateCompanyJob(
 ): Promise<MutationResult<undefined>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
-  const built = buildPatch(input);
+  const built = buildPatch(await splitIfNeeded(input));
   if (!built.ok) return { success: false, error: built.error };
 
   const supabase = createServiceClient();
@@ -1387,4 +1452,34 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
 
   revalidateJobSurfaces();
   return { success: true, data: { id: copyId } };
+}
+
+/**
+ * Ask the model where a pasted job description's sections begin and end.
+ *
+ * ── Why this is an action and not a route ────────────────────
+ *
+ * It runs behind `getCompanyContext`, so it is a model call only a signed-in
+ * member of a workspace can make. An open endpoint that forwards arbitrary text
+ * to Anthropic on our key is a bill and an abuse surface; this is neither.
+ *
+ * ── It cannot fail loudly ────────────────────────────────────
+ *
+ * `proposeSplit` never throws — missing key, timeout, bad JSON and an invalid
+ * partition all come back as a `failure` string. This adds one more: a caller
+ * who is not in a workspace. Every one of them means the same thing to the
+ * screen, which falls back to asking the recruiter directly. Publishing a job
+ * never waits on this and never fails because of it.
+ */
+export async function proposeJobDescriptionSplit(box: string): Promise<{
+  groups: JdGroup[] | null;
+  failure: string | null;
+}> {
+  try {
+    await getCompanyContext();
+  } catch {
+    return { groups: null, failure: "not_in_workspace" };
+  }
+  const outcome = await proposeSplit(typeof box === "string" ? box : "");
+  return { groups: outcome.groups, failure: outcome.failure };
 }

@@ -191,17 +191,30 @@ export async function handleCvRecompute(job: {
   );
 }
 
-/** Pull `{dimension, score}` out of the stored jsonb, ignoring anything else. */
+/**
+ * Pull `{dimension, score, unstated}` out of the stored jsonb, ignoring
+ * anything else.
+ *
+ * `unstated` MUST come through. It is what tells applyCvWeights to leave a
+ * dimension out of the mean, and dropping it here would mean a re-weighting
+ * sweep silently reintroduced the invented requirements_match number that the
+ * original scoring run had correctly excluded — the recompute would disagree
+ * with the score it was recomputing, and only in one direction.
+ */
 function normaliseDimensions(
   raw: unknown,
-): { dimension: string; score: number }[] {
+): { dimension: string; score: number; unstated?: boolean }[] {
   if (!Array.isArray(raw)) return [];
-  const out: { dimension: string; score: number }[] = [];
+  const out: { dimension: string; score: number; unstated?: boolean }[] = [];
   for (const entry of raw) {
-    const d = entry as { dimension?: unknown; score?: unknown };
+    const d = entry as { dimension?: unknown; score?: unknown; unstated?: unknown };
     if (typeof d?.dimension !== "string") continue;
     if (typeof d?.score !== "number" || !Number.isFinite(d.score)) continue;
-    out.push({ dimension: d.dimension, score: d.score });
+    out.push(
+      d.unstated === true
+        ? { dimension: d.dimension, score: d.score, unstated: true }
+        : { dimension: d.dimension, score: d.score },
+    );
   }
   return out;
 }
