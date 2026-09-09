@@ -274,22 +274,28 @@ function isSuggestedCompetency(value: string): boolean {
 const INPUT_CLS =
   "w-full rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-[11px] text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
 /**
- * "Generate a draft", and its four states.
+ * "Generate a draft" — the panel, the two-step replace, and the helper line.
  *
  * ── Why the label never becomes "Regenerate" ─────────────────
  *
- * It does the same thing every time it is pressed, so it says the same thing.
- * A label that changes after the first success implies a different operation,
- * and invites the question of what happened to the draft it replaced — which is
- * exactly the question the confirmation below answers properly.
+ * It does the same thing every time it is pressed, so it says the same thing. A
+ * label that changes after the first success implies a different operation, and
+ * invites the question of what happened to the draft it replaced — which is
+ * exactly the question the replace confirmation answers properly.
+ *
+ * ── A panel, not a modal ─────────────────────────────────────
+ *
+ * It opens below the button, in the flow of the form. A modal would cover the
+ * title and location the recruiter is being asked to describe a candidate for,
+ * and cost a dismissal on the way out.
  *
  * ── Two steps, only when there is something to lose ──────────
  *
- * An empty box generates on the first press. A box with text asks first, inline
- * — no modal, and nothing is called until they choose, so a mis-click costs a
- * click rather than the paragraph they had just written. Appending instead was
- * the alternative and it is worse: two descriptions and two sets of headings in
- * one box, which the parser reads as a single long JD.
+ * An empty box opens the panel straight away. A box with text asks to replace
+ * first, inline, and nothing is called until they choose — a mis-click costs a
+ * click rather than the paragraph they just wrote. Appending instead was the
+ * alternative and it is worse: two descriptions and two sets of headings in one
+ * box, which the parser reads as a single long JD.
  *
  * No undo. It is a textarea and the browser's own undo already works; a bespoke
  * one would be a second mechanism to keep in sync with the real one.
@@ -300,8 +306,13 @@ function JdGenerateButton({
   generating,
   failed,
   confirming,
+  open,
+  wanted,
+  onWantedChange,
   onAsk,
-  onCancel,
+  onCancelReplace,
+  onOpen,
+  onClose,
   onGenerate,
 }: {
   ready: boolean;
@@ -309,8 +320,13 @@ function JdGenerateButton({
   generating: boolean;
   failed: boolean;
   confirming: boolean;
+  open: boolean;
+  wanted: string;
+  onWantedChange: (next: string) => void;
   onAsk: () => void;
-  onCancel: () => void;
+  onCancelReplace: () => void;
+  onOpen: () => void;
+  onClose: () => void;
   onGenerate: () => void;
 }) {
   const base =
@@ -322,18 +338,71 @@ function JdGenerateButton({
         <span className="text-[12.5px] text-[var(--ai-t2)]">Replace what&apos;s in the box?</span>
         <button
           type="button"
-          onClick={onGenerate}
+          onClick={onOpen}
           className={`${base} text-[var(--ai-t1)] hover:bg-[var(--ai-inset)]`}
         >
           Replace it
         </button>
         <button
           type="button"
-          onClick={onCancel}
+          onClick={onCancelReplace}
           className={`${base} text-[var(--ai-t3)] hover:bg-[var(--ai-inset)]`}
         >
           Cancel
         </button>
+      </div>
+    );
+  }
+
+  if (open) {
+    return (
+      <div className="mt-2.5 rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-3.5">
+        <label
+          htmlFor="w-jd-wanted"
+          className="block text-[13px] font-semibold text-[var(--ai-t1)]"
+        >
+          What are you looking for in a candidate?
+        </label>
+        <p className="m-0 mt-1 text-[12.5px] leading-snug text-[var(--ai-t2)]">
+          Anything you already know — must-have skills, tools, years, certifications, the kind of
+          person who does well on your team. We&apos;ll write the description around it.
+        </p>
+        <textarea
+          id="w-jd-wanted"
+          value={wanted}
+          onChange={(e) => onWantedChange(e.target.value)}
+          rows={4}
+          maxLength={JD_WANTED_MAX}
+          disabled={generating}
+          placeholder="e.g. Strong React and TypeScript. Has owned a design system. Comfortable working with designers directly."
+          className={`${INPUT_CLS} mt-2 resize-y leading-relaxed`}
+        />
+        {/*
+          Same weight as the label, and on its own line. In small grey type it
+          reads as a footnote, and the point is that it should be read BEFORE the
+          empty box has a chance to look like homework.
+        */}
+        <p className="m-0 mt-2 text-[12.5px] font-semibold text-[var(--ai-t2)]">
+          Optional — skip it and we&apos;ll write from the job title.
+        </p>
+        <div className="mt-2.5 flex flex-wrap gap-2">
+          <button
+            type="button"
+            disabled={generating}
+            onClick={onGenerate}
+            className={`${base} text-[var(--ai-t1)] hover:bg-[var(--ai-surface)]`}
+          >
+            {generating ? "Writing a draft…" : "Generate a draft"}
+          </button>
+          <button
+            type="button"
+            disabled={generating}
+            onClick={onClose}
+            className={`${base} text-[var(--ai-t3)] hover:bg-[var(--ai-surface)]`}
+          >
+            Cancel
+          </button>
+        </div>
       </div>
     );
   }
@@ -343,24 +412,31 @@ function JdGenerateButton({
       <button
         type="button"
         disabled={!ready || generating}
-        onClick={hasText ? onAsk : onGenerate}
+        onClick={hasText ? onAsk : onOpen}
         className={`${base} text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`}
       >
         {generating ? "Writing a draft…" : "Generate a draft"}
       </button>
+      <p className="mt-1.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
+        You can add your job requirements and use Generate a draft. AI will write the Job
+        Description for you.
+      </p>
       {!ready && (
-        <p className="mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
+        <p className="mt-1 text-[11.5px] text-[var(--ai-t3)]">
           Add a title and location on the previous step first.
         </p>
       )}
       {failed && ready && (
-        <p className="mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
+        <p className="mt-1 text-[11.5px] text-[var(--ai-t3)]">
           Couldn&apos;t write a draft just now. Try again, or write it yourself.
         </p>
       )}
     </div>
   );
 }
+
+/** Matches MAX_REQUIREMENTS_CHARS in lib/ai/jd-generate.ts. */
+const JD_WANTED_MAX = 2000;
 
 const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
@@ -782,6 +858,20 @@ export function WizardClient({
   /** Set when a draft could not be written, cleared the moment they retry. */
   const [jdGenerateFailed, setJdGenerateFailed] = useState(false);
 
+  /** The "what are you looking for" panel is open. */
+  const [jdBriefOpen, setJdBriefOpen] = useState(false);
+
+  /**
+   * What they typed into it.
+   *
+   * A PROMPT, NOT A DOCUMENT. It is never written to state, never reaches
+   * CompanyJobInput, and is cleared when the panel closes. The box is the
+   * source of truth for what the job says; keeping a second copy of "what they
+   * wanted" would go stale the moment they edited the box, and nothing could
+   * then say which of the two was right.
+   */
+  const [jdWanted, setJdWanted] = useState("");
+
   /**
    * The box text we have already sent. One call per distinct paste, not one per
    * keystroke and not one per visit to the step.
@@ -870,6 +960,7 @@ export function WizardClient({
     setJdConfirmReplace(false);
     setJdGenerateFailed(false);
     setJdGenerating(true);
+    const wanted = jdWanted;
     try {
       const { text, failure } = await generateJobDescriptionDraft({
         title: state.title,
@@ -881,11 +972,16 @@ export function WizardClient({
         // The form holds this as a string; buildPatch coerces it on save, and
         // the brief wants a number or nothing.
         positions: Number.parseInt(state.positions, 10) || null,
+        requirements: wanted.trim() || null,
       });
       if (text) {
         jdAskedFor.current = text;
         setJdBox(text);
         setErrors((prev) => ({ ...prev, description: "" }));
+        // The panel has done its job. Closing it clears the text with it —
+        // a second draft should be written from what they want NOW.
+        setJdBriefOpen(false);
+        setJdWanted("");
       } else {
         console.warn(`[jd_generate] no draft (${failure ?? "unknown"}) — box left alone`);
         setJdGenerateFailed(true);
@@ -1573,8 +1669,19 @@ export function WizardClient({
                     generating={jdGenerating}
                     failed={jdGenerateFailed}
                     confirming={jdConfirmReplace}
+                    open={jdBriefOpen}
+                    wanted={jdWanted}
+                    onWantedChange={setJdWanted}
                     onAsk={() => setJdConfirmReplace(true)}
-                    onCancel={() => setJdConfirmReplace(false)}
+                    onCancelReplace={() => setJdConfirmReplace(false)}
+                    onOpen={() => {
+                      setJdConfirmReplace(false);
+                      setJdBriefOpen(true);
+                    }}
+                    onClose={() => {
+                      setJdBriefOpen(false);
+                      setJdWanted("");
+                    }}
                     onGenerate={() => {
                       void generateDraft();
                     }}

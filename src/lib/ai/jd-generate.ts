@@ -84,6 +84,15 @@ const TARGET_WORDS_HIGH = 350;
 const MAX_TOKENS = 1_600;
 
 /**
+ * Cap on the recruiter's own notes.
+ *
+ * Generous — this is a few lines of "must have React, no degree needed", not a
+ * document. The cap exists so a paste of an entire other JD cannot dominate the
+ * prompt, not to discipline anyone's typing.
+ */
+const MAX_REQUIREMENTS_CHARS = 2_000;
+
+/**
  * Longer than the split's ceiling, and deliberately.
  *
  * The split returns a handful of numbers; this writes several hundred words, so
@@ -103,6 +112,25 @@ export type JdBrief = {
   contractType?: string | null;
   workType?: string | null;
   positions?: number | null;
+  /**
+   * What the recruiter says they are looking for, in their own words.
+   *
+   * ── A prompt, not a document ─────────────────────────────────
+   *
+   * Optional, and KEPT NOWHERE. It reaches this function, shapes one draft, and
+   * is gone. It is not a column, not part of CompanyJobInput, and not held in
+   * the wizard beyond the panel that collects it.
+   *
+   * That is deliberate. The box is the source of truth: the draft lands in it
+   * and the recruiter edits it from there. A stored copy of "what they wanted"
+   * would be a second record of the same thing, stale the moment they edit the
+   * box, and every question after that — which one does the scorer read, which
+   * one do we regenerate from, which one is right — has no good answer.
+   *
+   * The cost, which is real: close the panel and the text is unrecoverable. It
+   * is a prompt, and prompts are not saved.
+   */
+  requirements?: string | null;
 };
 
 export type JdGenerateFailure =
@@ -184,6 +212,29 @@ jurisdiction by another route, and you inferred it from a city rather than being
 told it. "Current registration with the relevant nursing body" says everything
 you actually know.
 
+═══ WHAT THE EMPLOYER TOLD YOU ═══
+
+The brief may carry a section headed "What the employer is looking for". That is
+the recruiter's own knowledge of the role, typed by them, and it OUTRANKS
+anything you would otherwise assume:
+
+  - Every essential they name belongs in the requirements section, in your own
+    words rather than copied verbatim.
+  - Where it contradicts a normal assumption about the role, THEY ARE RIGHT. If
+    they say no degree is needed, do not ask for one. If they say a specific
+    tool, that tool is in.
+  - If it describes duties rather than requirements, put those under the
+    responsibilities heading where they belong.
+
+It does NOT widen what you may invent. It tells you more about this employer; it
+does not license you to guess the rest. If they name React and TypeScript, write
+those — and do not add GraphQL, Kubernetes, a CI system or anything else they
+did not mention, however naturally it would sit beside them. Everything absent
+from that section is still unknown to you.
+
+If the section is missing or empty, write from the title alone, exactly as you
+would have.
+
 ═══ WHAT IS ALREADY ON THE PAGE ═══
 
 The fields in the brief below are displayed as structured information beside
@@ -216,6 +267,11 @@ function briefLines(brief: JdBrief): string {
   if (brief.workType) rows.push(`Work type: ${brief.workType}`);
   if (typeof brief.positions === "number" && brief.positions > 1) {
     rows.push(`Openings: ${brief.positions}`);
+  }
+
+  const wanted = (brief.requirements ?? "").trim().slice(0, MAX_REQUIREMENTS_CHARS);
+  if (wanted) {
+    rows.push("", "What the employer is looking for:", wanted);
   }
   return rows.join("\n");
 }

@@ -1513,6 +1513,8 @@ export async function generateJobDescriptionDraft(brief: JdBrief): Promise<{
     contractType: brief?.contractType ?? null,
     workType: brief?.workType ?? null,
     positions: typeof brief?.positions === "number" ? brief.positions : null,
+    // Passed through and never stored — see JdBrief.requirements.
+    requirements: typeof brief?.requirements === "string" ? brief.requirements : null,
   });
   return { text: outcome.text, failure: outcome.failure };
 }
