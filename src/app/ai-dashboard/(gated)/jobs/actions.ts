@@ -31,6 +31,7 @@ import {
   MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
+import { generateJobDescription, type JdBrief } from "@/lib/ai/jd-generate";
 import { proposeSplit } from "@/lib/ai/jd-split";
 import { parseRules } from "@/lib/calendar/availability";
 import {
@@ -1482,4 +1483,36 @@ export async function proposeJobDescriptionSplit(box: string): Promise<{
   }
   const outcome = await proposeSplit(typeof box === "string" ? box : "");
   return { groups: outcome.groups, failure: outcome.failure };
+}
+
+/**
+ * Write a first-draft job description from what step 1 already holds.
+ *
+ * Behind `getCompanyContext` for the same reason the split is: an open endpoint
+ * that generates text on our Anthropic key is a bill and an abuse surface.
+ *
+ * Never throws. `generateJobDescription` returns a named failure for every path
+ * — no key, timeout, empty, or a draft without usable headings — and this adds
+ * the one it cannot know about. All of them mean the same thing to the wizard:
+ * the box is left alone and the recruiter writes it themselves.
+ */
+export async function generateJobDescriptionDraft(brief: JdBrief): Promise<{
+  text: string | null;
+  failure: string | null;
+}> {
+  try {
+    await getCompanyContext();
+  } catch {
+    return { text: null, failure: "not_in_workspace" };
+  }
+  const outcome = await generateJobDescription({
+    title: typeof brief?.title === "string" ? brief.title : "",
+    location: typeof brief?.location === "string" ? brief.location : "",
+    category: brief?.category ?? null,
+    experienceLevel: brief?.experienceLevel ?? null,
+    contractType: brief?.contractType ?? null,
+    workType: brief?.workType ?? null,
+    positions: typeof brief?.positions === "number" ? brief.positions : null,
+  });
+  return { text: outcome.text, failure: outcome.failure };
 }

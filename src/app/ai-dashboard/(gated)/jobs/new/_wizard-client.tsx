@@ -73,6 +73,7 @@ import { HiringTeamSection } from "../_hiring-team";
 import {
   createCompanyJob,
   estimateAutoshortlistReach,
+  generateJobDescriptionDraft,
   proposeJobDescriptionSplit,
   updateCompanyJob,
 } from "../actions";
@@ -272,6 +273,95 @@ function isSuggestedCompetency(value: string): boolean {
 
 const INPUT_CLS =
   "w-full rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-[13px] py-[11px] text-sm text-[var(--ai-t1)] outline-none transition-colors focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
+/**
+ * "Generate a draft", and its four states.
+ *
+ * ── Why the label never becomes "Regenerate" ─────────────────
+ *
+ * It does the same thing every time it is pressed, so it says the same thing.
+ * A label that changes after the first success implies a different operation,
+ * and invites the question of what happened to the draft it replaced — which is
+ * exactly the question the confirmation below answers properly.
+ *
+ * ── Two steps, only when there is something to lose ──────────
+ *
+ * An empty box generates on the first press. A box with text asks first, inline
+ * — no modal, and nothing is called until they choose, so a mis-click costs a
+ * click rather than the paragraph they had just written. Appending instead was
+ * the alternative and it is worse: two descriptions and two sets of headings in
+ * one box, which the parser reads as a single long JD.
+ *
+ * No undo. It is a textarea and the browser's own undo already works; a bespoke
+ * one would be a second mechanism to keep in sync with the real one.
+ */
+function JdGenerateButton({
+  ready,
+  hasText,
+  generating,
+  failed,
+  confirming,
+  onAsk,
+  onCancel,
+  onGenerate,
+}: {
+  ready: boolean;
+  hasText: boolean;
+  generating: boolean;
+  failed: boolean;
+  confirming: boolean;
+  onAsk: () => void;
+  onCancel: () => void;
+  onGenerate: () => void;
+}) {
+  const base =
+    "rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-1.5 text-[12.5px] font-semibold transition-colors disabled:opacity-50";
+
+  if (confirming) {
+    return (
+      <div className="mt-2.5 flex flex-wrap items-center gap-2">
+        <span className="text-[12.5px] text-[var(--ai-t2)]">Replace what&apos;s in the box?</span>
+        <button
+          type="button"
+          onClick={onGenerate}
+          className={`${base} text-[var(--ai-t1)] hover:bg-[var(--ai-inset)]`}
+        >
+          Replace it
+        </button>
+        <button
+          type="button"
+          onClick={onCancel}
+          className={`${base} text-[var(--ai-t3)] hover:bg-[var(--ai-inset)]`}
+        >
+          Cancel
+        </button>
+      </div>
+    );
+  }
+
+  return (
+    <div className="mt-2.5">
+      <button
+        type="button"
+        disabled={!ready || generating}
+        onClick={hasText ? onAsk : onGenerate}
+        className={`${base} text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`}
+      >
+        {generating ? "Writing a draft…" : "Generate a draft"}
+      </button>
+      {!ready && (
+        <p className="mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
+          Add a title and location on the previous step first.
+        </p>
+      )}
+      {failed && ready && (
+        <p className="mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
+          Couldn&apos;t write a draft just now. Try again, or write it yourself.
+        </p>
+      )}
+    </div>
+  );
+}
+
 const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
 const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
@@ -678,6 +768,20 @@ export function WizardClient({
   /** A split is in flight. Shown, never blocking. */
   const [jdSplitting, setJdSplitting] = useState(false);
 
+  /** A draft is being written. */
+  const [jdGenerating, setJdGenerating] = useState(false);
+
+  /**
+   * The generate button is asking to confirm a replacement.
+   *
+   * Only reachable when the box has text. Nothing is called until they choose,
+   * so a mis-click costs a click and never costs the draft they had written.
+   */
+  const [jdConfirmReplace, setJdConfirmReplace] = useState(false);
+
+  /** Set when a draft could not be written, cleared the moment they retry. */
+  const [jdGenerateFailed, setJdGenerateFailed] = useState(false);
+
   /**
    * The box text we have already sent. One call per distinct paste, not one per
    * keystroke and not one per visit to the step.
@@ -746,6 +850,51 @@ export function WizardClient({
       console.warn("[jd_split] call failed — box left as written:", err);
     } finally {
       setJdSplitting(false);
+    }
+  }
+
+  /**
+   * Write a draft from step 1 and put it in the box.
+   *
+   * Replaces rather than appends. A box holding two descriptions and two sets
+   * of headings parses as one long JD and leaves the recruiter untangling it —
+   * worse than either outcome on its own, which is why the confirmation above
+   * exists instead.
+   *
+   * `jdAskedFor` is stamped with the result for the same reason the split
+   * stamps it: a generated draft already carries the two headings the parser
+   * reads, so blurring the box afterwards must not send it off to be split.
+   */
+  async function generateDraft(): Promise<void> {
+    if (jdGenerating) return;
+    setJdConfirmReplace(false);
+    setJdGenerateFailed(false);
+    setJdGenerating(true);
+    try {
+      const { text, failure } = await generateJobDescriptionDraft({
+        title: state.title,
+        location: state.location,
+        category: state.category,
+        experienceLevel: state.experience_level,
+        contractType: state.contract_type,
+        workType: state.work_type,
+        // The form holds this as a string; buildPatch coerces it on save, and
+        // the brief wants a number or nothing.
+        positions: Number.parseInt(state.positions, 10) || null,
+      });
+      if (text) {
+        jdAskedFor.current = text;
+        setJdBox(text);
+        setErrors((prev) => ({ ...prev, description: "" }));
+      } else {
+        console.warn(`[jd_generate] no draft (${failure ?? "unknown"}) — box left alone`);
+        setJdGenerateFailed(true);
+      }
+    } catch (err) {
+      console.warn("[jd_generate] call failed — box left alone:", err);
+      setJdGenerateFailed(true);
+    } finally {
+      setJdGenerating(false);
     }
   }
 
@@ -1418,6 +1567,18 @@ export function WizardClient({
                       Reading the structure&hellip;
                     </p>
                   )}
+                  <JdGenerateButton
+                    ready={Boolean(state.title.trim() && state.location.trim())}
+                    hasText={Boolean(jdBox.trim())}
+                    generating={jdGenerating}
+                    failed={jdGenerateFailed}
+                    confirming={jdConfirmReplace}
+                    onAsk={() => setJdConfirmReplace(true)}
+                    onCancel={() => setJdConfirmReplace(false)}
+                    onGenerate={() => {
+                      void generateDraft();
+                    }}
+                  />
                   <CharCount value={jdBox} hint="Markdown isn't supported — plain text only." />
                 </>
               )}

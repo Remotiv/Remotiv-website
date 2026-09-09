@@ -360,3 +360,35 @@ test("telemetry carries the decision and the shape, never the text", () => {
   assert.ok(!serialised.includes("Excel"), "telemetry must not carry JD text");
   assert.ok(!serialised.includes("Written English"), "telemetry must not carry JD text");
 });
+
+test("a generated draft needs no second call, however it opens", () => {
+  /*
+   * The property that keeps generation to ONE model call. The generator writes
+   * the two headings the parser already recognises, so the draft parses as
+   * "split" the moment it lands: the wizard's blur handler does not fire and
+   * splitIfNeeded no-ops on save.
+   *
+   * Both shapes are checked because the model writes both — sometimes with an
+   * explicit "About the role" heading, sometimes with the intro as bare prose.
+   */
+  const body = [
+    "What you'll do",
+    "Own the component library and decide when a pattern is ready to share",
+    "Ship features end to end, from design review through to production",
+    "",
+    "What we're looking for",
+    "Substantial experience building production React applications",
+    "Strong TypeScript, and opinions about where types earn their keep",
+  ].join("\n");
+
+  for (const draft of [
+    `About the role\nWe're hiring someone to own the customer-facing surface.\n\n${body}`,
+    `We're hiring someone to own the customer-facing surface.\n\n${body}`,
+  ]) {
+    const parsed = parseJobDescription(draft);
+    assert.equal(parsed.outcome, "split");
+    assert.equal(needsModelSplit(parsed), false, "a draft must never trigger a split");
+    assert.equal(parsed.responsibilities.length, 2);
+    assert.equal(parsed.requirements.length, 2);
+  }
+});
