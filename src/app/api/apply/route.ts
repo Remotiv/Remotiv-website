@@ -495,6 +495,17 @@ export async function POST(request: NextRequest) {
           experience_level: "Intermediate",
           language: "English",
           status: "closed",
+          /*
+           * Stated, not relied upon.
+           *
+           * A placeholder for a title an applicant typed is not a role anyone
+           * is advertising. It is already off the board because listedOnRemotiv
+           * composes publiclyVisible, which requires status "open" — but those
+           * two facts are unconnected, and anyone who ever makes these rows
+           * open would find "Manual Entry" on the public board. This is
+           * documentation that happens to be executable.
+           */
+          listed_on_remotiv: false,
         })
         .select("id")
         .single();

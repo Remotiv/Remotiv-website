@@ -1,9 +1,9 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { createServiceClient } from "@/lib/supabase/server";
-import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { trimRequired, trimToNull } from "@/lib/validators";
 
 export type Job = {
@@ -55,9 +55,7 @@ export type JobInput = {
   status: string;
 };
 
-type MutationResult<T = undefined> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+type MutationResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
 // Server-side cleanup of the screening-questions array — the single source of
 // truth before persistence. Drops invalid/empty questions, caps at 10, and
@@ -70,9 +68,7 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
     if (!raw || typeof raw !== "object") continue;
     const q = raw as Partial<ScreeningQuestion>;
 
-    const question = (typeof q.question === "string" ? q.question : "")
-      .trim()
-      .slice(0, 200);
+    const question = (typeof q.question === "string" ? q.question : "").trim().slice(0, 200);
     if (!question) continue; // drop empty-text questions
 
     const type = q.type;
@@ -94,18 +90,16 @@ function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
         .filter((o) => o.length > 0);
       if (options.length < 2) continue; // multiple requires >= 2 options
       const idx = Number.parseInt(String(q.ideal ?? "0"), 10);
-      const ideal = String(
-        Number.isInteger(idx) && idx >= 0 && idx < options.length ? idx : 0,
-      );
+      const ideal = String(Number.isInteger(idx) && idx >= 0 && idx < options.length ? idx : 0);
       cleaned.push({ id, question, type, ideal, options, essential });
     }
   }
   return cleaned;
 }
 
-function buildPatch(input: JobInput):
-  | { ok: true; patch: Record<string, unknown> }
-  | { ok: false; error: string } {
+function buildPatch(
+  input: JobInput,
+): { ok: true; patch: Record<string, unknown> } | { ok: false; error: string } {
   const title = trimRequired(input.title);
   if (!title) return { ok: false, error: "Job title is required." };
   const company = trimRequired(input.company);
@@ -160,9 +154,7 @@ function slugifyTitle(title: string): string {
     .replace(/^-+|-+$/g, "");
 }
 
-export async function createJob(
-  input: JobInput,
-): Promise<MutationResult<Job>> {
+export async function createJob(input: JobInput): Promise<MutationResult<Job>> {
   const ctx = await requireAdmin();
   const built = buildPatch(input);
   if (!built.ok) return { success: false, error: built.error };
@@ -188,8 +180,31 @@ export async function createJob(
 
   const { data, error } = await supabase
     .from("jobs")
-    // Admin-created jobs: stamp the acting admin; client_id null = Remotiv-owned.
-    .insert({ ...built.patch, slug: candidate, created_by: ctx.user.id, client_id: null })
+    /*
+     * Admin-created jobs: stamp the acting admin; client_id null = Remotiv-owned.
+     *
+     * `listed_on_remotiv` is stamped true for the same reason, and is not a
+     * form field. The flag answers "does this CLIENT company want their role on
+     * our board, or only on their own careers page?" — a question with no
+     * second party here. A toggle would be a control whose off position means
+     * "hide Remotiv's own role from Remotiv's own board", which nobody wants
+     * and someone would eventually leave off by accident.
+     *
+     * Stamped in the insert rather than as a column default: the default must
+     * stay false for the AI dashboard, where a company that never touches the
+     * toggle should not be opted on to our board.
+     *
+     * Without this the column took its default and every admin-posted role was
+     * filtered out of /jobs, /api/jobs, the talent dashboard's latest-jobs list
+     * AND the sitemap — so they were not being indexed either.
+     */
+    .insert({
+      ...built.patch,
+      slug: candidate,
+      created_by: ctx.user.id,
+      client_id: null,
+      listed_on_remotiv: true,
+    })
     .select()
     .single();
 
@@ -198,10 +213,7 @@ export async function createJob(
   return { success: true, data: data as Job };
 }
 
-export async function updateJob(
-  id: string,
-  input: JobInput,
-): Promise<MutationResult<Job>> {
+export async function updateJob(id: string, input: JobInput): Promise<MutationResult<Job>> {
   await requireAdmin();
   const built = buildPatch(input);
   if (!built.ok) return { success: false, error: built.error };
@@ -225,10 +237,7 @@ export async function updateJobStatus(
 ): Promise<MutationResult<undefined>> {
   await requireAdmin();
   const supabase = createServiceClient();
-  const { error } = await supabase
-    .from("jobs")
-    .update({ status })
-    .eq("id", id);
+  const { error } = await supabase.from("jobs").update({ status }).eq("id", id);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/jobs");
@@ -242,10 +251,7 @@ export async function updateJobDisplayOrder(
   await requireAdmin();
   const supabase = createServiceClient();
   const clean = value === null || !Number.isFinite(value) ? null : Math.trunc(value);
-  const { error } = await supabase
-    .from("jobs")
-    .update({ display_order: clean })
-    .eq("id", id);
+  const { error } = await supabase.from("jobs").update({ display_order: clean }).eq("id", id);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/jobs");
@@ -253,9 +259,7 @@ export async function updateJobDisplayOrder(
   return { success: true, data: undefined };
 }
 
-export async function deleteJob(
-  id: string,
-): Promise<MutationResult<undefined>> {
+export async function deleteJob(id: string): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
 
