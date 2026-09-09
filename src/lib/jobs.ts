@@ -21,19 +21,20 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
 export const LIST_SELECT =
-  "id,title,company,company_rating,location,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id,listed_on_remotiv";
+  "id,title,company,company_rating,location,country,city,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id,listed_on_remotiv";
 
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// NumericMode + resolveNumericMode live in lib/screening.ts, which has no
-// runtime imports — this module pulls in next/headers via getInitialJobs, so a
-// client component cannot import a VALUE from here. Re-exported so server-side
-// callers keep a single import site and there is one implementation of the rule.
-export { resolveNumericMode, type NumericMode } from "@/lib/screening";
 // isRemotivOwned is in lib/job-ownership.ts for the SAME reason: the /jobs list
 // is a client component and cannot import a value from this module. Re-exported
 // so server-side callers keep one import site and there is one implementation.
 export { isRemotivOwned } from "@/lib/job-ownership";
+// NumericMode + resolveNumericMode live in lib/screening.ts, which has no
+// runtime imports — this module pulls in next/headers via getInitialJobs, so a
+// client component cannot import a VALUE from here. Re-exported so server-side
+// callers keep a single import site and there is one implementation of the rule.
+export { type NumericMode, resolveNumericMode } from "@/lib/screening";
+
 // The re-export above does not bind the name in this module's own scope, and
 // ScreeningQuestion below references it. Type-only, so nothing is emitted.
 import type { NumericMode } from "@/lib/screening";
@@ -56,7 +57,6 @@ export type ScreeningQuestion = {
    */
   numeric_mode?: NumericMode;
 };
-
 
 // Frozen-at-apply-time snapshot of one screening answer, scored server-side in
 // /api/apply and stored in job_applications.screening_answers (jsonb). The
@@ -103,6 +103,9 @@ export interface Job {
   company: string;
   company_rating: number;
   location: string;
+  /** Split out of `location`. Null on rows written before the split. */
+  country: string | null;
+  city: string | null;
   salary_min: number | null;
   salary_max: number | null;
   salary_currency: string | null;
@@ -212,8 +215,7 @@ export async function attachCompanyData<T extends { company_id: string | null }>
       if (row.is_internal === true) internal.add(row.id);
       const path = (row.logo_path ?? "").trim();
       if (!path) continue;
-      const url = supabase.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(path)
-        .data.publicUrl;
+      const url = supabase.storage.from(COMPANY_LOGO_BUCKET).getPublicUrl(path).data.publicUrl;
       if (url) byId.set(row.id, url);
     }
   } catch {
@@ -301,9 +303,7 @@ export function listedOnRemotiv<T>(query: T): T {
 export async function getInitialJobs(): Promise<Read<Job[]>> {
   const supabase = createServiceClient();
 
-  const { data, error } = await listedOnRemotiv(
-    supabase.from("jobs").select(LIST_SELECT),
-  )
+  const { data, error } = await listedOnRemotiv(supabase.from("jobs").select(LIST_SELECT))
     .order("display_order", { ascending: true, nullsFirst: false })
     .order("created_at", { ascending: false })
     .limit(100);

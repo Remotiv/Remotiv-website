@@ -20,6 +20,8 @@ import type { ScreeningQuestion } from "@/lib/jobs";
  * "Other" is always LAST; everything before it is ordered by how often we
  * expect it to be picked.
  */
+import { DEFAULT_COUNTRY } from "@/lib/job-location";
+
 export const JOB_CATEGORIES = [
   "Engineering",
   "Design",
@@ -169,6 +171,10 @@ export type JobBookingHours = {
 export type CompanyJobInput = {
   title: string;
   location: string;
+  /** ISO country name. Blank on rows written before the split. */
+  country: string;
+  /** Optional even on new rows — a country-only role is normal. */
+  city: string;
   category: string;
   experience_level: string;
   contract_type: string;
@@ -330,6 +336,8 @@ export type CompanyJobInput = {
 export const EMPTY_JOB_INPUT: CompanyJobInput = {
   title: "",
   location: "",
+  country: DEFAULT_COUNTRY,
+  city: "",
   category: "Engineering",
   experience_level: "Expert",
   contract_type: "Full time",

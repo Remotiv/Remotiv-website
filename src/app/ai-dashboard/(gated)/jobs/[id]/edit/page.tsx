@@ -24,6 +24,8 @@ type JobRow = {
   company_id: string | null;
   title: string | null;
   location: string | null;
+  country: string | null;
+  city: string | null;
   category: string | null;
   experience_level: string | null;
   contract_type: string | null;
@@ -79,7 +81,7 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
   const { data } = await service
     .from("jobs")
     .select(
-      "id, company_id, title, location, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
+      "id, company_id, title, location, country, city, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", id)
     .maybeSingle();
@@ -137,6 +139,13 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
   const initialState: CompanyJobInput = {
     title: job.title ?? "",
     location: job.location ?? "",
+    /*
+     * Read from the columns, never parsed out of `location`. A row written
+     * before the split opens with both blank, and buildPatch then carries its
+     * old display string through untouched — see composeLocation.
+     */
+    country: job.country ?? "",
+    city: job.city ?? "",
     category: job.category ?? EMPTY_JOB_INPUT.category,
     experience_level: job.experience_level ?? EMPTY_JOB_INPUT.experience_level,
     contract_type: job.contract_type ?? EMPTY_JOB_INPUT.contract_type,

@@ -65,6 +65,7 @@ import {
   QUESTION_TEXT_MAX,
 } from "@/lib/interviews/types";
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
+import { COUNTRIES, composeLocation } from "@/lib/job-location";
 import type { ScreeningQuestion } from "@/lib/jobs";
 // Value import MUST come from lib/screening, not lib/jobs: this is a client
 // component and lib/jobs pulls in next/headers via getInitialJobs.
@@ -964,7 +965,10 @@ export function WizardClient({
     try {
       const { text, failure } = await generateJobDescriptionDraft({
         title: state.title,
-        location: state.location,
+        // The composed string, so the generator sees a place the way a reader
+        // would. composeLocation returns null before a country is picked, and
+        // the button is disabled until then.
+        location: composeLocation({ country: state.country, city: state.city }) ?? "",
         category: state.category,
         experienceLevel: state.experience_level,
         contractType: state.contract_type,
@@ -1067,7 +1071,7 @@ export function WizardClient({
 
     if (target === 1) {
       if (!state.title.trim()) next.title = "Add a job title to continue.";
-      else if (!state.location.trim()) next.location = "Where is this role based?";
+      else if (!state.country.trim()) next.location = "Which country is this role based in?";
     }
     if (target === 2) {
       if (!jdBox.trim()) {
@@ -1604,19 +1608,43 @@ export function WizardClient({
 
                   <div className="grid grid-cols-1 gap-3.5 min-[525px]:grid-cols-[1fr_108px]">
                     <div>
-                      <label htmlFor="w-location" className={LABEL_CLS}>
-                        Location <span className="text-remotiv-purple">*</span>
+                      <label htmlFor="w-country" className={LABEL_CLS}>
+                        Country <span className="text-remotiv-purple">*</span>
                       </label>
-                      <input
-                        id="w-location"
-                        value={state.location}
-                        onChange={(e) => set("location", e.target.value)}
-                        placeholder="e.g. Remote — Pakistan"
+                      {/*
+                        A native select, so the value is controlled by
+                        construction and browser type-ahead works — typing "ger"
+                        jumps to Germany. Full ISO list rather than a shortlist:
+                        a client hiring in the UAE is the ordinary case here,
+                        and a curated list would need a code change every time
+                        one is won somewhere new.
+                      */}
+                      <select
+                        id="w-country"
+                        value={state.country}
+                        onChange={(e) => set("country", e.target.value)}
                         className={`${INPUT_CLS} ${errors.location ? INPUT_ERR_CLS : ""}`}
-                      />
+                      >
+                        <option value="">Select a country</option>
+                        {COUNTRIES.map((c) => (
+                          <option key={c.code} value={c.name}>
+                            {c.name}
+                          </option>
+                        ))}
+                      </select>
                       {errors.location && (
                         <p className="mt-1.5 text-xs text-[#C4362F]">{errors.location}</p>
                       )}
+                      <label htmlFor="w-city" className={`${LABEL_CLS} mt-3`}>
+                        City <span className="font-normal text-[var(--ai-t3)]">(optional)</span>
+                      </label>
+                      <input
+                        id="w-city"
+                        value={state.city}
+                        onChange={(e) => set("city", e.target.value)}
+                        placeholder="e.g. Lahore"
+                        className={INPUT_CLS}
+                      />
                     </div>
                     <div>
                       <label htmlFor="w-openings" className={LABEL_CLS}>
@@ -1664,7 +1692,7 @@ export function WizardClient({
                     </p>
                   )}
                   <JdGenerateButton
-                    ready={Boolean(state.title.trim() && state.location.trim())}
+                    ready={Boolean(state.title.trim() && state.country.trim())}
                     hasText={Boolean(jdBox.trim())}
                     generating={jdGenerating}
                     failed={jdGenerateFailed}

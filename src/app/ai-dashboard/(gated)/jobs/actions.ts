@@ -47,6 +47,7 @@ import {
 } from "@/lib/interviews/types";
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
 import type { JdGroup } from "@/lib/jd/partition";
+import { composeLocation } from "@/lib/job-location";
 import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
@@ -299,7 +300,19 @@ function buildPatch(
 ): { ok: true; patch: Record<string, unknown> } | { ok: false; error: string } {
   const title = (input.title ?? "").trim();
   if (!title) return { ok: false, error: "Job title is required." };
-  const location = (input.location ?? "").trim();
+  /*
+   * `location` is COMPOSED from country + city when a country is given, and
+   * left exactly as it was when one is not.
+   *
+   * That second half is the whole protection for rows written before the split.
+   * Opening one for editing shows two blank inputs — we deliberately do not
+   * parse the old string back into them, because a wrong guess would silently
+   * rewrite a live job's display text on save. So a save that never touched the
+   * new inputs must carry the old string through untouched.
+   */
+  const country = (input.country ?? "").trim();
+  const city = (input.city ?? "").trim();
+  const location = composeLocation({ country, city }) ?? (input.location ?? "").trim();
   if (!location) return { ok: false, error: "Location is required." };
 
   /*
@@ -396,6 +409,8 @@ function buildPatch(
       // `=== true` so an absent field lands on FALSE, matching the column
       // default. A client that predates this option must not opt itself in.
       listed_on_remotiv: input.listed_on_remotiv === true,
+      country: country || null,
+      city: city || null,
       scoring_must_haves: namedList(input.scoring_must_haves, MUST_HAVE_MAX),
       interview_criteria: namedList(input.interview_criteria, INTERVIEW_CRITERIA_MAX),
       ...bookingPatch(input),

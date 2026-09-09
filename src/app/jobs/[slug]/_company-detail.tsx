@@ -8,6 +8,7 @@ import ApplyButton from "./_apply-button";
 import type { JobCompany } from "./_company-data";
 import { fmtSalary, serializeJsonLd, splitLines, timeAgo, toPublicJob } from "./_format";
 import "./job-page.css";
+import { jobLocationSchema } from "@/lib/job-location";
 
 /**
  * A COMPANY's job page — the approved white-label design.
@@ -116,8 +117,17 @@ export function CompanyJobDetail({
     datePosted: job.created_at,
     employmentType: job.contract_type,
     hiringOrganization: { "@type": "Organization", name: company.name, url: href ?? undefined },
-    jobLocationType: job.work_type === "Remote" ? "TELECOMMUTE" : undefined,
-    applicantLocationRequirements: { "@type": "Country", name: job.location },
+    /*
+     * Location, from the two columns rather than the display string.
+     *
+     * What this replaces asserted that `job.location` was a Country name — so
+     * Google was told "Lahore" and "Remote" are countries — and sent
+     * applicantLocationRequirements on on-site roles, where it means nothing,
+     * while omitting jobLocation, which is the field Google actually wants
+     * there. A row with neither column now emits neither key. See
+     * lib/job-location.ts.
+     */
+    ...jobLocationSchema({ workType: job.work_type, country: job.country, city: job.city }),
     url: shareUrl,
   };
 
