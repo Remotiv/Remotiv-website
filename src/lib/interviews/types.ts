@@ -23,6 +23,41 @@ export const DEFAULT_ANSWER_SECONDS = 120;
 export const MIN_QUESTIONS = 4;
 export const MAX_QUESTIONS = 6;
 
+/**
+ * How long the interview should take, and what that means in questions.
+ *
+ * ── Why duration and not a count ─────────────────────────────
+ *
+ * A recruiter has an opinion about "ten minutes". Nobody has an opinion about
+ * "five questions" — it is an implementation of a duration they were never
+ * asked for. So the panel asks for the duration and shows the count it derives,
+ * which keeps the derivation honest rather than hidden.
+ *
+ * ── Why these numbers are not live-interview numbers ─────────
+ *
+ * A candidate recording alone has no interviewer to react to, no follow-ups,
+ * and no way to recover a fumbled start except by spending their one take. That
+ * pulls in two directions at once: each ANSWER needs more room than the same
+ * question would need live, because there is no back-and-forth to draw the
+ * answer out — and the TOTAL has to be shorter, because unpaid asynchronous
+ * effort is a drop-off curve.
+ *
+ * 120s is the existing default and stays the middle. 60s is enough for a
+ * factual answer; 150s is where a structured "tell me about a time" answer
+ * lands without becoming a monologue. Six at 150s is fifteen minutes of
+ * recording plus retakes and setup — realistically half an evening — and
+ * MAX_QUESTIONS already stops anything longer being offered.
+ */
+export const INTERVIEW_LENGTHS = [
+  { id: "short", label: "About 5 minutes", questions: 4, answerSeconds: 60 },
+  { id: "standard", label: "About 10 minutes", questions: 5, answerSeconds: 120 },
+  { id: "depth", label: "About 15 minutes", questions: 6, answerSeconds: 150 },
+] as const;
+
+export type InterviewLengthId = (typeof INTERVIEW_LENGTHS)[number]["id"];
+
+export const DEFAULT_INTERVIEW_LENGTH: InterviewLengthId = "standard";
+
 /** Bounds the builder enforces and the candidate page trusts. */
 export const PREP_SECONDS_MIN = 5;
 export const PREP_SECONDS_MAX = 120;

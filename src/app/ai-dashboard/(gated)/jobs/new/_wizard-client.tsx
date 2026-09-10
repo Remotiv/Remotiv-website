@@ -56,7 +56,10 @@ import {
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
+  DEFAULT_INTERVIEW_LENGTH,
   EMPTY_QUESTION_INPUT,
+  INTERVIEW_LENGTHS,
+  type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
   MIN_QUESTIONS,
@@ -76,6 +79,7 @@ import {
   estimateAutoshortlistReach,
   generateJobDescriptionDraft,
   proposeJobDescriptionSplit,
+  suggestInterviewQuestions,
   updateCompanyJob,
 } from "../actions";
 
@@ -99,13 +103,28 @@ const STEPS = [
     n: 4,
     label: "Screening",
     title: "Screening",
-    desc: "Questions your AI recruiter asks every applicant.",
+    /*
+     * Not "questions your AI recruiter asks" — that was wrong twice. These are
+     * fields on the apply form; the candidate types the answers themselves at
+     * submit time. And nothing asks them: they are scored deterministically in
+     * /api/apply against the employer's stated ideal, with no model involved.
+     */
+    desc: "Questions every applicant answers when they apply.",
   },
   {
     n: 5,
     label: "Interview",
     title: "Interview questions",
-    desc: "What the candidate answers on camera, in their own time.",
+    /*
+     * "In their own time" reads as scheduling flexibility and never says that
+     * nobody is there. Naming the absent interviewer is the point.
+     *
+     * Deliberately echoes the candidate's own welcome screen, which already
+     * says "no scheduling, no call" (interview/[token]/_flow.tsx). Two surfaces
+     * describing the same thing should agree, and that one was the more
+     * accurate of the pair.
+     */
+    desc: "The candidate records their answers alone, with no interviewer on the call.",
   },
 ] as const;
 
@@ -438,6 +457,108 @@ function JdGenerateButton({
 
 /** Matches MAX_REQUIREMENTS_CHARS in lib/ai/jd-generate.ts. */
 const JD_WANTED_MAX = 2000;
+
+/**
+ * The offer on arriving at step 5, and the duration that sizes it.
+ *
+ * ── Duration, not a count ────────────────────────────────────
+ *
+ * A recruiter has an opinion about "ten minutes". Nobody has an opinion about
+ * "five questions" — that is an implementation of a duration nobody asked them
+ * for. So the select offers durations and the derived count is shown beside it,
+ * which keeps the derivation honest instead of hidden.
+ *
+ * ── Dismissible, and self-dismissing ─────────────────────────
+ *
+ * The X closes it for the session. It also only renders while the builder is
+ * empty, so accepting the offer or writing a question by hand both retire it
+ * without anyone having to decide anything.
+ */
+function QuestionSuggestPanel({
+  length,
+  onLengthChange,
+  generating,
+  failed,
+  ready,
+  onGenerate,
+  onDismiss,
+}: {
+  length: InterviewLengthId;
+  onLengthChange: (next: InterviewLengthId) => void;
+  generating: boolean;
+  failed: boolean;
+  ready: boolean;
+  onGenerate: () => void;
+  onDismiss: () => void;
+}) {
+  const preset = INTERVIEW_LENGTHS.find((l) => l.id === length) ?? INTERVIEW_LENGTHS[1];
+
+  return (
+    <div className="mb-3 rounded-[14px] border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t1)]">
+            Need help creating interview questions?
+          </p>
+          <p className="m-0 mt-1 text-[12.5px] leading-snug text-[var(--ai-t2)]">
+            Let AI suggest questions based on your job description.
+          </p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Close"
+          className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-surface)] hover:text-[var(--ai-t1)]"
+        >
+          <X className="size-[15px]" strokeWidth={2.2} />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2.5">
+        <div>
+          <label
+            htmlFor="w-qs-length"
+            className="mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]"
+          >
+            How long should the interview be?
+          </label>
+          <select
+            id="w-qs-length"
+            value={length}
+            disabled={generating}
+            onChange={(e) => onLengthChange(e.target.value as InterviewLengthId)}
+            className={INPUT_CLS}
+          >
+            {INTERVIEW_LENGTHS.map((l) => (
+              <option key={l.id} value={l.id}>
+                {l.label}
+              </option>
+            ))}
+          </select>
+        </div>
+        <button
+          type="button"
+          disabled={generating || !ready}
+          onClick={onGenerate}
+          className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[12.5px] font-semibold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+        >
+          {generating ? "Writing questions…" : "Suggest questions"}
+        </button>
+      </div>
+
+      <p className="m-0 mt-2 text-[11.5px] text-[var(--ai-t3)]">
+        {ready
+          ? `We'll suggest ${preset.questions} questions, about ${preset.answerSeconds} seconds each to answer. You can edit, reorder or delete any of them.`
+          : "Add a job description on the Description step first."}
+      </p>
+      {failed && (
+        <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
+          Couldn&apos;t write questions just now. Try again, or add your own below.
+        </p>
+      )}
+    </div>
+  );
+}
 
 const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
@@ -849,6 +970,19 @@ export function WizardClient({
   const [jdGenerating, setJdGenerating] = useState(false);
 
   /**
+   * Step 5's suggestion panel.
+   *
+   * Dismissed for the session rather than for ever — it is an offer, not a
+   * setting, and a recruiter who closed it on one job has said nothing about
+   * the next. It only appears while there are no questions yet, so accepting it
+   * or writing one by hand both make it go away without a decision.
+   */
+  const [qsPanelDismissed, setQsPanelDismissed] = useState(false);
+  const [qsLength, setQsLength] = useState<InterviewLengthId>(DEFAULT_INTERVIEW_LENGTH);
+  const [qsGenerating, setQsGenerating] = useState(false);
+  const [qsFailed, setQsFailed] = useState(false);
+
+  /**
    * The generate button is asking to confirm a replacement.
    *
    * Only reachable when the box has text. Nothing is called until they choose,
@@ -1254,6 +1388,56 @@ export function WizardClient({
       else next.delete(id);
       return next;
     });
+  }
+
+  /**
+   * Ask for questions and drop them into the builder as ordinary rows.
+   *
+   * They arrive UNMARKED — no badge, no "AI suggested" label. They are editable
+   * in exactly the same way as a hand-written question, so a marker would
+   * distinguish rows that behave identically, and would then have to answer
+   * whether editing or reordering clears it. The panel is the disclosure.
+   *
+   * The timings come from the chosen length, not from the model: prep stays at
+   * the builder's default and the answer window is whatever the duration
+   * implies. A failure leaves the step untouched.
+   */
+  async function generateQuestions(): Promise<void> {
+    if (qsGenerating) return;
+    setQsFailed(false);
+    setQsGenerating(true);
+    const preset = INTERVIEW_LENGTHS.find((l) => l.id === qsLength) ?? INTERVIEW_LENGTHS[1];
+    try {
+      const { questions, failure } = await suggestInterviewQuestions({
+        title: state.title,
+        description: state.description,
+        responsibilities: state.responsibilities,
+        requirements: state.requirements,
+        length: qsLength,
+      });
+      if (questions && questions.length > 0) {
+        set(
+          "interview_questions",
+          questions.slice(0, MAX_QUESTIONS).map((q) => ({
+            ...EMPTY_QUESTION_INPUT,
+            id: `new-${crypto.randomUUID()}`,
+            question: q.question,
+            competency: q.competency,
+            rubric: q.rubric,
+            answerSeconds: String(preset.answerSeconds),
+          })),
+        );
+        setQsPanelDismissed(true);
+      } else {
+        console.warn(`[interview_questions] none (${failure ?? "unknown"}) — step left as it was`);
+        setQsFailed(true);
+      }
+    } catch (err) {
+      console.warn("[interview_questions] call failed — step left as it was:", err);
+      setQsFailed(true);
+    } finally {
+      setQsGenerating(false);
+    }
   }
 
   function usesOtherCompetency(q: InterviewQuestionInput): boolean {
@@ -2012,6 +2196,20 @@ export function WizardClient({
 
               {step === 5 && (
                 <>
+                  {interviewQs.length === 0 && !qsPanelDismissed && (
+                    <QuestionSuggestPanel
+                      length={qsLength}
+                      onLengthChange={setQsLength}
+                      generating={qsGenerating}
+                      failed={qsFailed}
+                      ready={Boolean(state.description.trim() || state.requirements.trim())}
+                      onGenerate={() => {
+                        void generateQuestions();
+                      }}
+                      onDismiss={() => setQsPanelDismissed(true)}
+                    />
+                  )}
+
                   {interviewQs.length === 0 && (
                     <div className="mb-3 rounded-[14px] border border-dashed border-[var(--ai-line-strong)] bg-[var(--ai-inset)] px-4 py-5 text-center">
                       <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t2)]">

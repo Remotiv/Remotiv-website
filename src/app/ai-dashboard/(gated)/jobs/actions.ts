@@ -31,6 +31,7 @@ import {
   MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
 } from "@/app/ai-dashboard/lib/job-types";
+import { type GeneratedQuestion, generateInterviewQuestions } from "@/lib/ai/interview-questions";
 import { generateJobDescription, type JdBrief } from "@/lib/ai/jd-generate";
 import { proposeSplit } from "@/lib/ai/jd-split";
 import { parseRules } from "@/lib/calendar/availability";
@@ -38,6 +39,7 @@ import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
   COMPETENCY_MAX,
+  type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
   PREP_SECONDS_MAX,
@@ -1532,4 +1534,33 @@ export async function generateJobDescriptionDraft(brief: JdBrief): Promise<{
     requirements: typeof brief?.requirements === "string" ? brief.requirements : null,
   });
   return { text: outcome.text, failure: outcome.failure };
+}
+
+/**
+ * Propose interview questions from the job description the recruiter wrote.
+ *
+ * Behind `getCompanyContext` like the other two model calls. Never throws:
+ * `generateInterviewQuestions` names every failure and this adds the one it
+ * cannot know about. All of them leave step 5 exactly as it was.
+ */
+export async function suggestInterviewQuestions(input: {
+  title: string;
+  description: string;
+  responsibilities: string;
+  requirements: string;
+  length: InterviewLengthId;
+}): Promise<{ questions: GeneratedQuestion[] | null; failure: string | null }> {
+  try {
+    await getCompanyContext();
+  } catch {
+    return { questions: null, failure: "not_in_workspace" };
+  }
+  const outcome = await generateInterviewQuestions({
+    title: typeof input?.title === "string" ? input.title : "",
+    description: typeof input?.description === "string" ? input.description : "",
+    responsibilities: typeof input?.responsibilities === "string" ? input.responsibilities : "",
+    requirements: typeof input?.requirements === "string" ? input.requirements : "",
+    length: input?.length ?? "standard",
+  });
+  return { questions: outcome.questions, failure: outcome.failure };
 }
