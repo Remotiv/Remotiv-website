@@ -1,4 +1,5 @@
 import type { Metadata } from "next";
+import Image from "next/image";
 import { Navbar } from "@/components/navbar";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
 import "./ai-video-interviews.css";
@@ -103,6 +104,19 @@ if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
 a.forEach(function(e){o.observe(e)});
 setTimeout(function(){a.forEach(function(e){
 if(!e.classList.contains("avi6-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Section 7 carries its own observer for the same reason every section above
+// does: so the constants already shipped stay byte-identical.
+const SECTION7_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi7-visual[data-reveal]");
+var s=function(e){e.classList.add("avi7-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi7-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
 // Fixed sample data. The roster is international by design — the product sells
@@ -1068,6 +1082,84 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi7-sec">
+          <div className="avi7-wrap">
+            <div className="avi7-grid">
+              <header>
+                <p className="avi7-eyebrow">How you interview</p>
+                <h2 className="avi7-h2">You set the interview. Remotiv runs it.</h2>
+                <p className="avi7-lede">
+                  From the first async AI video screen to the deeper AI video interview, Remotiv
+                  runs each round against the criteria your hiring team set.
+                </p>
+
+                <div className="avi7-stages">
+                  <div className="avi7-stage">
+                    <h3>Async AI Video Screen</h3>
+                    <p className="avi7-meta">
+                      <span className="avi7-frag">Basic screening</span>{" "}
+                      <span className="avi7-frag">structured questions</span>{" "}
+                      <span className="avi7-frag">candidate&rsquo;s own time</span>
+                    </p>
+                  </div>
+                  <div className="avi7-stage">
+                    <h3>AI Video Interview</h3>
+                    <p className="avi7-meta">
+                      <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
+                      <span className="avi7-frag">adaptive follow-ups</span>{" "}
+                      <span className="avi7-frag">criteria-based scoring</span>
+                    </p>
+                  </div>
+                </div>
+
+                <p className="avi7-note">
+                  Both rounds happen on video and are evaluated from the interview transcript.
+                </p>
+              </header>
+
+              <div className="avi7-visual" data-reveal>
+                <div className="avi7-frame">
+                  <div className="avi7-tile avi7-tile--ai">
+                    <span className="avi7-mark">
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <circle cx="10" cy="7" r="3.1" fill="currentColor" stroke="none" />
+                        <path
+                          d="M4.2 16.6a5.8 5.8 0 0 1 11.6 0v.6H4.2Z"
+                          fill="currentColor"
+                          stroke="none"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  {/* fill inside a tile that aspect-ratio has already sized, so the
+                      photo reserves its box before it loads and contributes no layout
+                      shift. The widths in sizes track the tile, not the viewport: it
+                      is half the frame's inner width at every breakpoint. */}
+                  <div className="avi7-tile">
+                    <Image
+                      src="/team-avatars/candidate.webp"
+                      alt="A candidate answering questions on camera during an AI video interview"
+                      fill
+                      sizes="(max-width: 639.98px) 40vw, (max-width: 1180px) 27vw, 21vw"
+                      className="avi7-shot"
+                    />
+                  </div>
+                  <p className="avi7-plab">AI Interviewer</p>
+                  <p className="avi7-plab avi7-plab--quiet">Candidate</p>
+                  <div className="avi7-cap">
+                    <p className="avi7-olab">Question 4</p>
+                    <p className="avi7-oq">
+                      Tell me about a backend system you designed for scale.
+                    </p>
+                    <p className="avi7-olab">Follow-up</p>
+                    <p className="avi7-oq">How did you handle failures when traffic spiked?</p>
+                  </div>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1089,6 +1181,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 6 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION6_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 7 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION7_SCRIPT }}
       />
     </>
   );
