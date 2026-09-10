@@ -80,6 +80,7 @@ import {
   generateJobDescriptionDraft,
   proposeJobDescriptionSplit,
   suggestInterviewQuestions,
+  suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
 
@@ -459,20 +460,93 @@ function JdGenerateButton({
 const JD_WANTED_MAX = 2000;
 
 /**
- * The offer on arriving at step 5, and the duration that sizes it.
+ * The offer to generate, shared by steps 4 and 5.
+ *
+ * ── One shell, two steps ─────────────────────────────────────
+ *
+ * Both offer the same bargain in the same place — a dismissible card above an
+ * empty builder — and two copies of it would drift the first time either was
+ * touched. Step 5 passes a duration select through `children`; step 4 needs no
+ * extra control.
+ *
+ * ── Dismissible, and self-dismissing ─────────────────────────
+ *
+ * The X closes it for the session: it is an offer, not a setting, and a
+ * recruiter who closed it on one job has said nothing about the next. It also
+ * only renders while the builder is empty, so accepting the offer or writing a
+ * question by hand both retire it without anyone deciding anything.
+ */
+function SuggestPanel({
+  heading,
+  body,
+  action,
+  note,
+  notReady,
+  failure,
+  ready,
+  busy,
+  failed,
+  onAct,
+  onDismiss,
+  children,
+}: {
+  heading: string;
+  body: string;
+  action: string;
+  note: string;
+  notReady: string;
+  failure: string;
+  ready: boolean;
+  busy: boolean;
+  failed: boolean;
+  onAct: () => void;
+  onDismiss: () => void;
+  children?: React.ReactNode;
+}) {
+  return (
+    <div className="mb-3 rounded-[14px] border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-4">
+      <div className="flex items-start gap-3">
+        <div className="min-w-0 flex-1">
+          <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t1)]">{heading}</p>
+          <p className="m-0 mt-1 text-[12.5px] leading-snug text-[var(--ai-t2)]">{body}</p>
+        </div>
+        <button
+          type="button"
+          onClick={onDismiss}
+          aria-label="Close"
+          className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-surface)] hover:text-[var(--ai-t1)]"
+        >
+          <X className="size-[15px]" strokeWidth={2.2} />
+        </button>
+      </div>
+
+      <div className="mt-3 flex flex-wrap items-end gap-2.5">
+        {children}
+        <button
+          type="button"
+          disabled={busy || !ready}
+          onClick={onAct}
+          className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[12.5px] font-semibold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+        >
+          {action}
+        </button>
+      </div>
+
+      <p className="m-0 mt-2 text-[11.5px] text-[var(--ai-t3)]">{ready ? note : notReady}</p>
+      {failed && <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t3)]">{failure}</p>}
+    </div>
+  );
+}
+
+/**
+ * Step 5's offer: the shared shell plus the duration that sizes it.
  *
  * ── Duration, not a count ────────────────────────────────────
  *
  * A recruiter has an opinion about "ten minutes". Nobody has an opinion about
  * "five questions" — that is an implementation of a duration nobody asked them
- * for. So the select offers durations and the derived count is shown beside it,
- * which keeps the derivation honest instead of hidden.
- *
- * ── Dismissible, and self-dismissing ─────────────────────────
- *
- * The X closes it for the session. It also only renders while the builder is
- * empty, so accepting the offer or writing a question by hand both retire it
- * without anyone having to decide anything.
+ * for. So the select offers durations and the derived count is shown in the
+ * note beneath, which keeps the derivation honest instead of hidden.
  */
 function QuestionSuggestPanel({
   length,
@@ -494,69 +568,41 @@ function QuestionSuggestPanel({
   const preset = INTERVIEW_LENGTHS.find((l) => l.id === length) ?? INTERVIEW_LENGTHS[1];
 
   return (
-    <div className="mb-3 rounded-[14px] border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-4">
-      <div className="flex items-start gap-3">
-        <div className="min-w-0 flex-1">
-          <p className="m-0 text-[13.5px] font-semibold text-[var(--ai-t1)]">
-            Need help creating interview questions?
-          </p>
-          <p className="m-0 mt-1 text-[12.5px] leading-snug text-[var(--ai-t2)]">
-            Let AI suggest questions based on your job description.
-          </p>
-        </div>
-        <button
-          type="button"
-          onClick={onDismiss}
-          aria-label="Close"
-          className="-mr-1 -mt-1 shrink-0 rounded-lg p-1.5 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-surface)] hover:text-[var(--ai-t1)]"
+    <SuggestPanel
+      heading="Need help creating interview questions?"
+      body="Let AI suggest questions based on your job description."
+      action={generating ? "Writing questions…" : "Suggest questions"}
+      note={`We'll suggest ${preset.questions} questions, about ${preset.answerSeconds} seconds each to answer. You can edit, reorder or delete any of them.`}
+      notReady="Add a job description on the Description step first."
+      failure="Couldn't write questions just now. Try again, or add your own below."
+      ready={ready}
+      busy={generating}
+      failed={failed}
+      onAct={onGenerate}
+      onDismiss={onDismiss}
+    >
+      <div>
+        <label
+          htmlFor="w-qs-length"
+          className="mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]"
         >
-          <X className="size-[15px]" strokeWidth={2.2} />
-        </button>
-      </div>
-
-      <div className="mt-3 flex flex-wrap items-end gap-2.5">
-        <div>
-          <label
-            htmlFor="w-qs-length"
-            className="mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]"
-          >
-            How long should the interview be?
-          </label>
-          <select
-            id="w-qs-length"
-            value={length}
-            disabled={generating}
-            onChange={(e) => onLengthChange(e.target.value as InterviewLengthId)}
-            className={INPUT_CLS}
-          >
-            {INTERVIEW_LENGTHS.map((l) => (
-              <option key={l.id} value={l.id}>
-                {l.label}
-              </option>
-            ))}
-          </select>
-        </div>
-        <button
-          type="button"
-          disabled={generating || !ready}
-          onClick={onGenerate}
-          className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[12.5px] font-semibold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+          How long should the interview be?
+        </label>
+        <select
+          id="w-qs-length"
+          value={length}
+          disabled={generating}
+          onChange={(e) => onLengthChange(e.target.value as InterviewLengthId)}
+          className={INPUT_CLS}
         >
-          {generating ? "Writing questions…" : "Suggest questions"}
-        </button>
+          {INTERVIEW_LENGTHS.map((l) => (
+            <option key={l.id} value={l.id}>
+              {l.label}
+            </option>
+          ))}
+        </select>
       </div>
-
-      <p className="m-0 mt-2 text-[11.5px] text-[var(--ai-t3)]">
-        {ready
-          ? `We'll suggest ${preset.questions} questions, about ${preset.answerSeconds} seconds each to answer. You can edit, reorder or delete any of them.`
-          : "Add a job description on the Description step first."}
-      </p>
-      {failed && (
-        <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t3)]">
-          Couldn&apos;t write questions just now. Try again, or add your own below.
-        </p>
-      )}
-    </div>
+    </SuggestPanel>
   );
 }
 
@@ -977,6 +1023,10 @@ export function WizardClient({
    * the next. It only appears while there are no questions yet, so accepting it
    * or writing one by hand both make it go away without a decision.
    */
+  const [sqPanelDismissed, setSqPanelDismissed] = useState(false);
+  const [sqGenerating, setSqGenerating] = useState(false);
+  const [sqFailed, setSqFailed] = useState(false);
+
   const [qsPanelDismissed, setQsPanelDismissed] = useState(false);
   const [qsLength, setQsLength] = useState<InterviewLengthId>(DEFAULT_INTERVIEW_LENGTH);
   const [qsGenerating, setQsGenerating] = useState(false);
@@ -1388,6 +1438,39 @@ export function WizardClient({
       else next.delete(id);
       return next;
     });
+  }
+
+  /**
+   * Ask for screening questions and drop them into the builder.
+   *
+   * They arrive unmarked, like the video ones. What comes back is already
+   * coerced to a storable shape by the generator and is re-sanitised on save,
+   * so a recruiter never sees a question the server would quietly reshape.
+   */
+  async function generateScreening(): Promise<void> {
+    if (sqGenerating) return;
+    setSqFailed(false);
+    setSqGenerating(true);
+    try {
+      const { questions, failure } = await suggestScreeningQuestions({
+        title: state.title,
+        description: state.description,
+        responsibilities: state.responsibilities,
+        requirements: state.requirements,
+      });
+      if (questions && questions.length > 0) {
+        set("screening_questions", questions);
+        setSqPanelDismissed(true);
+      } else {
+        console.warn(`[screening_questions] none (${failure ?? "unknown"}) — step left as it was`);
+        setSqFailed(true);
+      }
+    } catch (err) {
+      console.warn("[screening_questions] call failed — step left as it was:", err);
+      setSqFailed(true);
+    } finally {
+      setSqGenerating(false);
+    }
   }
 
   /**
@@ -1997,6 +2080,24 @@ export function WizardClient({
 
               {step === 4 && (
                 <>
+                  {questions.length === 0 && !sqPanelDismissed && (
+                    <SuggestPanel
+                      heading="Need help creating screening questions?"
+                      body="Let AI suggest questions based on your job description."
+                      action={sqGenerating ? "Writing questions…" : "Suggest questions"}
+                      note="We'll suggest 5 short questions every applicant answers when they apply. You can edit or delete any of them."
+                      notReady="Add a job description on the Description step first."
+                      failure="Couldn't write questions just now. Try again, or add your own below."
+                      ready={Boolean(state.description.trim() || state.requirements.trim())}
+                      busy={sqGenerating}
+                      failed={sqFailed}
+                      onAct={() => {
+                        void generateScreening();
+                      }}
+                      onDismiss={() => setSqPanelDismissed(true)}
+                    />
+                  )}
+
                   {questions.map((q, i) => (
                     <div
                       key={q.id}

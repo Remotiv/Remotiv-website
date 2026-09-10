@@ -34,6 +34,7 @@ import {
 import { type GeneratedQuestion, generateInterviewQuestions } from "@/lib/ai/interview-questions";
 import { generateJobDescription, type JdBrief } from "@/lib/ai/jd-generate";
 import { proposeSplit } from "@/lib/ai/jd-split";
+import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
   ANSWER_SECONDS_MAX,
@@ -1561,6 +1562,36 @@ export async function suggestInterviewQuestions(input: {
     responsibilities: typeof input?.responsibilities === "string" ? input.responsibilities : "",
     requirements: typeof input?.requirements === "string" ? input.requirements : "",
     length: input?.length ?? "standard",
+  });
+  return { questions: outcome.questions, failure: outcome.failure };
+}
+
+/**
+ * Propose screening questions from the job description.
+ *
+ * Behind `getCompanyContext` like the other generators. Never throws, and every
+ * failure leaves step 4 exactly as it was.
+ *
+ * What comes back still passes through `sanitizeQuestions` on save like any
+ * hand-written question — the generator's own coercion is there so the
+ * recruiter never SEES a question the server would reshape, not instead of it.
+ */
+export async function suggestScreeningQuestions(input: {
+  title: string;
+  description: string;
+  responsibilities: string;
+  requirements: string;
+}): Promise<{ questions: ScreeningQuestion[] | null; failure: string | null }> {
+  try {
+    await getCompanyContext();
+  } catch {
+    return { questions: null, failure: "not_in_workspace" };
+  }
+  const outcome = await generateScreeningQuestions({
+    title: typeof input?.title === "string" ? input.title : "",
+    description: typeof input?.description === "string" ? input.description : "",
+    responsibilities: typeof input?.responsibilities === "string" ? input.responsibilities : "",
+    requirements: typeof input?.requirements === "string" ? input.requirements : "",
   });
   return { questions: outcome.questions, failure: outcome.failure };
 }
