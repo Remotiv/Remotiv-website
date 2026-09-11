@@ -30,10 +30,12 @@ import {
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
+  suggestCriteria,
 } from "@/app/ai-dashboard/lib/job-types";
 import { type GeneratedQuestion, generateInterviewQuestions } from "@/lib/ai/interview-questions";
 import { generateJobDescription, type JdBrief } from "@/lib/ai/jd-generate";
 import { proposeSplit } from "@/lib/ai/jd-split";
+import { generateScoringCriteria } from "@/lib/ai/scoring-criteria";
 import { generateScreeningQuestions } from "@/lib/ai/screening-questions";
 import { parseRules } from "@/lib/calendar/availability";
 import {
@@ -1594,4 +1596,70 @@ export async function suggestScreeningQuestions(input: {
     requirements: typeof input?.requirements === "string" ? input.requirements : "",
   });
   return { questions: outcome.questions, failure: outcome.failure };
+}
+
+/**
+ * Propose scoring criteria from the job description.
+ *
+ * Offered on step 6 only when `suggestCriteria` — the instant, no-call path —
+ * yields fewer than MUST_HAVE_MAX CV must-haves. On a tidily written job the
+ * heuristic already fills the step and there is nothing to call a model about.
+ *
+ * ── The floor ────────────────────────────────────────────────
+ *
+ * A result that offers FEWER CV must-haves than the heuristic already does is
+ * rejected whole, and the step keeps what it had.
+ *
+ * This never fired in forty panel-job generations across the 20-job corpus. It
+ * is here anyway: that corpus is one author's house style, and the guard is for
+ * the job description written by someone whose style we have not measured. It
+ * costs one array length.
+ *
+ * Note what it does NOT guard. The model returning three where the heuristic
+ * found one is the normal, wanted case, and the two lists rarely share wording
+ * — the heuristic selects whole lines that fit under MUST_HAVE_MAX_LENGTH, the
+ * model restates the ones that do not. So this compares COUNTS, which is the
+ * axis the panel exists to improve, and says nothing about which is better
+ * written. That judgement is the recruiter's, and they can see both.
+ */
+export async function suggestScoringCriteria(input: {
+  title: string;
+  description: string;
+  responsibilities: string;
+  requirements: string;
+}): Promise<{ cv: string[] | null; interview: string[] | null; failure: string | null }> {
+  try {
+    await getCompanyContext();
+  } catch {
+    return { cv: null, interview: null, failure: "not_in_workspace" };
+  }
+
+  const responsibilities =
+    typeof input?.responsibilities === "string" ? input.responsibilities : "";
+  const requirements = typeof input?.requirements === "string" ? input.requirements : "";
+
+  const outcome = await generateScoringCriteria({
+    title: typeof input?.title === "string" ? input.title : "",
+    description: typeof input?.description === "string" ? input.description : "",
+    responsibilities,
+    requirements,
+  });
+  if (outcome.failure) return { cv: null, interview: null, failure: outcome.failure };
+
+  /*
+   * Clamped to MUST_HAVE_MAX because the heuristic is uncapped: a job whose
+   * requirements yield six selectable lines cannot be matched by a generator
+   * that may return three, and comparing raw counts would reject every
+   * maxed-out result. Three against six is the best available answer; two
+   * against six is genuinely worse and is rejected.
+   */
+  const heuristic = suggestCriteria({ requirements, responsibilities, existing: [] });
+  if (outcome.cv.length < Math.min(heuristic.cv.length, MUST_HAVE_MAX)) {
+    console.warn(
+      `[scoring-criteria] below the heuristic floor: ${outcome.cv.length} < ${heuristic.cv.length}`,
+    );
+    return { cv: null, interview: null, failure: "below_heuristic" };
+  }
+
+  return { cv: outcome.cv, interview: outcome.interview, failure: null };
 }

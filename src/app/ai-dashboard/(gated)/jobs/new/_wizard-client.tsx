@@ -80,6 +80,7 @@ import {
   generateJobDescriptionDraft,
   proposeJobDescriptionSplit,
   suggestInterviewQuestions,
+  suggestScoringCriteria,
   suggestScreeningQuestions,
   updateCompanyJob,
 } from "../actions";
@@ -472,9 +473,17 @@ const JD_WANTED_MAX = 2000;
  * ── Dismissible, and self-dismissing ─────────────────────────
  *
  * The X closes it for the session: it is an offer, not a setting, and a
- * recruiter who closed it on one job has said nothing about the next. It also
- * only renders while the builder is empty, so accepting the offer or writing a
- * question by hand both retire it without anyone deciding anything.
+ * recruiter who closed it on one job has said nothing about the next. On steps
+ * 4 and 5 it also only renders while the builder is empty, so accepting the
+ * offer or writing a question by hand both retire it without anyone deciding
+ * anything.
+ *
+ * ── `confirm`, for a step where the offer destroys work ──────
+ *
+ * Step 6 is available even when the step is already filled, so its button can
+ * replace criteria the recruiter wrote. `confirm` swaps the button row for a
+ * "replace what's there?" row — the same two-step the JD draft uses on step 2,
+ * inline rather than a modal. Steps 4 and 5 pass nothing and are unchanged.
  */
 function SuggestPanel({
   heading,
@@ -488,6 +497,7 @@ function SuggestPanel({
   failed,
   onAct,
   onDismiss,
+  confirm,
   children,
 }: {
   heading: string;
@@ -501,8 +511,12 @@ function SuggestPanel({
   failed: boolean;
   onAct: () => void;
   onDismiss: () => void;
+  confirm?: { prompt: string; accept: string; onConfirm: () => void; onCancel: () => void } | null;
   children?: React.ReactNode;
 }) {
+  const confirmBtn =
+    "rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-1.5 text-[12.5px] font-semibold transition-colors hover:bg-[var(--ai-inset)]";
+
   return (
     <div className="mb-3 rounded-[14px] border border-[var(--ai-line-strong)] bg-[var(--ai-inset)] p-4">
       <div className="flex items-start gap-3">
@@ -520,17 +534,37 @@ function SuggestPanel({
         </button>
       </div>
 
-      <div className="mt-3 flex flex-wrap items-end gap-2.5">
-        {children}
-        <button
-          type="button"
-          disabled={busy || !ready}
-          onClick={onAct}
-          className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[12.5px] font-semibold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
-        >
-          {action}
-        </button>
-      </div>
+      {confirm ? (
+        <div className="mt-3 flex flex-wrap items-center gap-2">
+          <span className="text-[12.5px] text-[var(--ai-t2)]">{confirm.prompt}</span>
+          <button
+            type="button"
+            onClick={confirm.onConfirm}
+            className={`${confirmBtn} text-[var(--ai-t1)]`}
+          >
+            {confirm.accept}
+          </button>
+          <button
+            type="button"
+            onClick={confirm.onCancel}
+            className={`${confirmBtn} text-[var(--ai-t3)]`}
+          >
+            Cancel
+          </button>
+        </div>
+      ) : (
+        <div className="mt-3 flex flex-wrap items-end gap-2.5">
+          {children}
+          <button
+            type="button"
+            disabled={busy || !ready}
+            onClick={onAct}
+            className="rounded-[9px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[12.5px] font-semibold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+          >
+            {action}
+          </button>
+        </div>
+      )}
 
       <p className="m-0 mt-2 text-[11.5px] text-[var(--ai-t3)]">{ready ? note : notReady}</p>
       {failed && <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t3)]">{failure}</p>}
@@ -604,6 +638,34 @@ function QuestionSuggestPanel({
       </div>
     </SuggestPanel>
   );
+}
+
+/**
+ * What step 6 says when the criteria offer comes back with nothing to apply.
+ *
+ * `below_heuristic` is the one that matters. The floor in
+ * `suggestScoringCriteria` discards a result that is thinner than the criteria
+ * the recruiter already has — the call SUCCEEDED and we chose to keep theirs.
+ * Reporting that as "couldn't write criteria" would describe a deliberate,
+ * correct decision as a breakage, and send someone looking for a bug that is
+ * the feature working. Everything else genuinely did fail and shares one line,
+ * because the distinction between a timeout and a malformed response is ours to
+ * act on and not theirs.
+ */
+const FAILURE_COPY: Record<string, string> = {
+  below_heuristic:
+    "AI didn't beat the criteria already pulled from your description, so nothing was changed.",
+  default: "Couldn't write criteria just now — nothing was changed.",
+};
+
+/** "the 3 must-haves you have", "the 2 behavioural criteria you have", or both. */
+function replaceSummary(mustHaves: number, criteria: number): string {
+  const parts: string[] = [];
+  if (mustHaves > 0) parts.push(`${mustHaves} must-have${mustHaves === 1 ? "" : "s"}`);
+  if (criteria > 0) {
+    parts.push(`${criteria} behavioural criteri${criteria === 1 ? "on" : "a"}`);
+  }
+  return `the ${parts.join(" and ")} you have`;
 }
 
 const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
@@ -4014,6 +4076,22 @@ function ScoringCriteriaStep({
   const criteria = state.interview_criteria;
   const [draft, setDraft] = useState("");
   const [criteriaDraft, setCriteriaDraft] = useState("");
+  const [generating, setGenerating] = useState(false);
+  /*
+   * The failure REASON, not a boolean.
+   *
+   * "below_heuristic" is not a failure and must never be reported as one. The
+   * call succeeded, the floor in `suggestScoringCriteria` judged the result
+   * thinner than the suggestions the recruiter already has, and we kept theirs.
+   * Saying "couldn't write criteria" there would be a state that looks like a
+   * breakage and isn't — which is the failure mode this whole step has been
+   * corrected for twice already.
+   */
+  const [failure, setFailure] = useState<string | null>(null);
+  const [dismissed, setDismissed] = useState(false);
+  const [applied, setApplied] = useState(false);
+  const [confirming, setConfirming] = useState(false);
+  const [emptyCv, setEmptyCv] = useState(false);
   const full = items.length >= MUST_HAVE_MAX;
   const criteriaFull = criteria.length >= INTERVIEW_CRITERIA_MAX;
   const hasInterview = state.interview_questions.length > 0;
@@ -4075,6 +4153,75 @@ function ScoringCriteriaStep({
     seededRef,
   ]);
 
+  /*
+   * ── The offer is on every job, not just the ones that fall short ──
+   *
+   * It used to appear only when the heuristic found fewer than MUST_HAVE_MAX CV
+   * must-haves. That condition was defensible — the heuristic is the instant
+   * path, and on a tidy job it fills the step with no call at all — but it is
+   * invisible from the recruiter's side: the AI offer is there on one job and
+   * gone on the next, with nothing on screen explaining why, which reads as
+   * broken rather than as considered.
+   *
+   * And the premise was too generous to the heuristic. It selects whole lines
+   * under MUST_HAVE_MAX_LENGTH, so its three are whichever requirements HAPPEN
+   * to be short enough to use as-is — not the three most worth checking. A
+   * company should be able to ask for better ones even when three exist.
+   *
+   * What remains conditional is the COPY, not the availability: the card says
+   * something different when it is about to replace work.
+   */
+  const ready = Boolean(state.description.trim() || state.requirements.trim());
+  const hasCriteria = items.length > 0 || criteria.length > 0;
+  const showOffer = canPrefill && !dismissed && !applied;
+
+  async function generate() {
+    setConfirming(false);
+    setGenerating(true);
+    setFailure(null);
+    setEmptyCv(false);
+    try {
+      const result = await suggestScoringCriteria({
+        title: state.title,
+        description: state.description,
+        responsibilities: state.responsibilities,
+        requirements: state.requirements,
+      });
+      const { cv, interview } = result;
+      if (result.failure || !cv || !interview) {
+        console.warn(`[scoring_criteria] ${result.failure ?? "no_result"}`);
+        setFailure(result.failure ?? "no_result");
+        return;
+      }
+      /*
+       * ── Each list is replaced only if the model filled it ──
+       *
+       * The step 2 draft replaces ONE box, so "replace it" is unambiguous
+       * there. This replaces two lists, and a recruiter who hand-wrote
+       * behavioural criteria and gets back CV must-haves only would lose them
+       * as collateral to a blanket replace. So an empty list from the model
+       * means "no opinion", never "clear what you have".
+       *
+       * It also makes the empty-CV case fall out rather than needing a branch:
+       * `sales-marketing-intern` is a real job whose requirements are entirely
+       * dispositional — nothing a CV could evidence — and the model correctly
+       * returns interview criteria only. Three blank must-have slots under a
+       * card that promised suggestions is a worse empty state than the one the
+       * offer replaced, so the CV half is left alone and said out loud instead.
+       */
+      if (cv.length > 0) onChange(cv.slice(0, MUST_HAVE_MAX));
+      else setEmptyCv(true);
+      if (hasInterview && interview.length > 0) {
+        onChangeCriteria(interview.slice(0, INTERVIEW_CRITERIA_MAX));
+      }
+      // Retires the offer without dismissing it: the card is replaced by what
+      // it produced, which is the same self-retiring shape steps 4 and 5 use.
+      setApplied(true);
+    } finally {
+      setGenerating(false);
+    }
+  }
+
   function addCriterion(value: string) {
     const item = value.replace(/\s+/g, " ").trim().slice(0, MUST_HAVE_MAX_LENGTH);
     if (!item || criteriaFull) return;
@@ -4133,6 +4280,59 @@ function ScoringCriteriaStep({
           or lower a score.
         </p>
       </div>
+
+      {showOffer && (
+        <SuggestPanel
+          heading={
+            hasCriteria
+              ? "Want AI to suggest these instead?"
+              : "Need help creating scoring criteria?"
+          }
+          /*
+           * The reason to click a button that destroys work, stated rather than
+           * implied: what gets pulled from the description automatically is
+           * limited to requirements under MUST_HAVE_MAX_LENGTH, which is a fact
+           * about the cap and not a judgement about which criteria matter most.
+           *
+           * Phrased as what the AI can read rather than as where the criteria
+           * below came from. They are usually the pre-filled suggestions, but a
+           * recruiter may have typed their own, and the card cannot tell — so
+           * it does not claim to.
+           */
+          body={
+            hasCriteria
+              ? "AI can read the whole description, including requirements too long to use as they were written, and propose a different set from the ones below."
+              : "AI can read your job description and suggest what to check each candidate for."
+          }
+          action={generating ? "Writing criteria…" : "Suggest criteria"}
+          note="We'll suggest must-haves checked against the CV, and behavioural criteria checked against the interview. You can edit or delete any of them."
+          notReady="Add a job description on the Description step first."
+          failure={FAILURE_COPY[failure ?? ""] ?? FAILURE_COPY.default}
+          ready={ready}
+          busy={generating}
+          failed={failure !== null}
+          onAct={() => (hasCriteria ? setConfirming(true) : generate())}
+          onDismiss={() => setDismissed(true)}
+          confirm={
+            confirming
+              ? {
+                  prompt: `Replace ${replaceSummary(items.length, criteria.length)}?`,
+                  accept: items.length + criteria.length === 1 ? "Replace it" : "Replace them",
+                  onConfirm: generate,
+                  onCancel: () => setConfirming(false),
+                }
+              : null
+          }
+        />
+      )}
+
+      {emptyCv && (
+        <p className="mb-3 rounded-[13px] border border-dashed border-[var(--ai-line-strong)] px-3.5 py-3.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          Nothing in this job description is something a CV could evidence — it describes how
+          someone works rather than what they have done. The behavioural criteria below were filled
+          in instead. Add must-haves here in your own words if you want them.
+        </p>
+      )}
 
       <label htmlFor="must-have-input" className={LABEL_CLS}>
         Must-haves{" "}
