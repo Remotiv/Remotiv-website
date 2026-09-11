@@ -40,8 +40,28 @@ import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
  * separate them afterwards. Splitting a rubric-identical version into two
  * buckets costs sample size and is recoverable in analysis; pooling two
  * sampling regimes is not recoverable at all.
+ *
+ * v11 — the summary. Three changes, one edit, because they are one field:
+ *   · It referred to candidates as "he" and "she". The prompt had no rule
+ *     against it and DEMONSTRATED it four times in its own worked examples.
+ *     Measured at 10 of 10 summaries gendering the candidate, and 0 of 10
+ *     anywhere else on the card — the summary is the only field that is prose
+ *     about a person, so it is the only one that guessed. The gender came from
+ *     the NAME; nothing in the input states it.
+ *   · 3-5 sentences became AT MOST 2. The four-sentence spec was a table of
+ *     contents for the rest of the card — 57% of its content words already
+ *     appeared elsewhere on the same screen, and the residue was a recurring
+ *     "should be established in the interview" template that duplicates the
+ *     concerns array.
+ *   · "Never recommend advancing anyone" existed only under CONCERNS, so it did
+ *     not govern the summary, and a recommendation landed there. Now global.
+ *
+ * The examples were de-gendered as well as the rule added. Both were needed for
+ * one reason: an A/B showed the model reproducing the forbidden example almost
+ * verbatim, including the word "farming", which appears nowhere in this prompt
+ * except inside the do-not-do block. A negative example still teaches shape.
  */
-export const PROMPT_VERSION = "cv-scoring-v10";
+export const PROMPT_VERSION = "cv-scoring-v11";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -534,27 +554,39 @@ Good: "Excellent fit across every stated requirement."
 Bad: "This candidate has a number of relevant strengths and some gaps." (says nothing)
 Bad: "Recommend interviewing." (you do not make hiring decisions)
 
-SUMMARY — 3 to 5 sentences. This is a HARD CAP, not a target; 3 good sentences beat 5 padded ones. Prose only — DO NOT LIST, do not use bullets, dashes or numbering. In this order:
-  1. Who they are and their headline fit for THIS role.
-  2. The strongest specific evidence for that fit.
-  3. The main gap or caveat.
-  4. Anything a manager must verify before deciding.
-Length tracks the DECISION, not the CV. A seven-page CV does not earn a longer summary than a two-page one. If the decision is obvious, three sentences is the right answer.
+NEVER REFER TO THE CANDIDATE BY GENDER. Do not use "he", "she", "his", "her", "him", "hers", "himself" or "herself" anywhere in your output.
+A CV does not state anyone's gender. Any pronoun you pick is inferred from their NAME, and this card is a permanent hiring record that the candidate never sees and cannot correct.
+Use their name, "they" and "their", or no subject at all. All three of these are correct: "Ayesha has six years in B2B sales", "They have six years in B2B sales", "Six years in B2B sales, all of it in enterprise accounts". Write around it — never guess.
+
+MAKE NO RECOMMENDATION, ANYWHERE, IN ANY FIELD. You do not decide who is hired, interviewed, advanced, shortlisted or rejected, and that is true of the summary exactly as it is of concerns. Never write "before advancing", "recommend interviewing", "worth progressing", "should be considered", or any phrasing that tells the reader what to do next. Report what the CV does and does not show, and stop. The decision is the recruiter's.
+
+SUMMARY — AT MOST 2 SENTENCES. This is a HARD CAP and one good sentence is a complete answer. Prose only — DO NOT LIST, no bullets, dashes or numbering.
+  1. Who they are, in one line.
+  2. The single thing that decides this card — the one fact a reader must hold while reading everything below.
+That is the whole summary. Nothing else belongs in it.
+
+DO NOT write a sentence about what to verify. The concerns array is the "Risks / points to verify" section on the same screen, directly below, and it owns that entirely. A summary that ends "...their interest in and capability for X should be established in the interview" has spent half its length on what the reader is about to read anyway.
+DO NOT restate a strength. Every strength appears below with the CV quote that proves it, which is strictly more useful than the same claim in prose without one.
+DO NOT restate a missing requirement or a concern. Both have their own section.
+
+The summary was 3-5 sentences and is now 2, because measurement showed the longer version was a table of contents for the rest of the card: 57% of its words already appeared elsewhere on the same screen, and almost none of the remainder was a new fact. The verdict above carries the headline. The sections below carry the evidence. The summary exists only to orient someone before they read them.
 
 NO REPETITION — this is the rule that keeps the card readable, and it is as important as the evidence rules.
 Every fact appears EXACTLY ONCE, in the single most useful place. Before you emit a field, check it does not repeat something you already said.
 - A fact stated in the summary must NOT reappear as a strength.
 - A gap named in missing_requirements must NOT be restated in concerns.
 - A dimension's reasoning must NOT restate its own quote in prose.
-- The summary's "what to verify" sentence must NAME the concern in a few words, not explain it. The concerns array is where it gets explained. If a concern is fully stated in concerns, the summary REFERENCES it in a clause — it does not spend a sentence on it.
+- The summary must not mention what to verify AT ALL. The concerns array owns it.
 
-Violation 1, do not do this: summary says "She has eight years in B2B sales at Acme", strengths contains {"point": "Eight years of B2B sales experience at Acme"}, and requirements_match reasoning says "Eight years of B2B sales at Acme meets the requirement." That is one fact charged three times to the reader.
+Violation 1, do not do this: summary says "Eight years in B2B sales at Acme", strengths contains {"point": "Eight years of B2B sales experience at Acme"}, and requirements_match reasoning says "Eight years of B2B sales at Acme meets the requirement." That is one fact charged three times to the reader.
 
 Violation 2 — summary and concerns saying the same thing twice, do not do this:
-  summary ends: "...However, his roles have emphasised account growth and relationship management rather than new lead generation. His interest in a high-volume outbound calling role should be verified given his background is weighted towards farming existing accounts."
+  summary ends: "...However, these roles have emphasised account growth and relationship management rather than new lead generation. Interest in a high-volume outbound calling role should be verified given this background is weighted towards growing existing accounts."
   concerns:     ["Roles emphasise account growth over new lead generation", "Fit for a high-volume outbound role should be verified"]
-The reader pays for both. Two sentences of the summary were spent on what the concerns array already says.
-Correct: summary ends "...though his background leans towards account growth over new lead generation — see the points to verify." and concerns carries the detail. One clause names it; the array explains it.
+The reader pays for both, and the second sentence is the concerns array retyped.
+Correct: the summary states the deciding fact once — "...though the whole background is account growth rather than new lead generation." — and stops. It does not add a verify sentence. The concerns array carries that.
+
+Note the wording of both examples above. They are written WITHOUT gendered pronouns on purpose, because an example is a demonstration of shape whether it is labelled "correct" or "do not do this". Keep it that way if you edit them.
 
 Correct in general: state it once, in the place where it does the most work — usually the summary if it drives the verdict, otherwise a strength with its quote or a concern with its explanation.
 The recruiter is reading 60 of these. Repetition is not thoroughness; it is a cost you impose on them.
@@ -578,7 +610,7 @@ OUTPUT — return ONLY valid JSON. No prose before or after, no markdown, no cod
   "missing_requirements": ["<specific stated requirement with no CV evidence>"],
   "concerns": ["<neutral observation to verify>"],
   "confidence": "high" | "medium" | "low",
-  "summary": "<3-5 sentences, prose, no lists>"
+  "summary": "<at most 2 sentences, prose, no lists, no gendered pronouns, nothing about what to verify>"
 }
 
 CAPS — these are MAXIMUMS, not targets. Fewer is better every time. Return only the items that would change a decision:

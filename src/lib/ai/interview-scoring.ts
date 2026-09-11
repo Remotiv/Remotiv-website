@@ -75,7 +75,39 @@ import {
  * way and being able to say which version scored a given candidate is what
  * made those iterations safe.
  */
-export const PROMPT_VERSION = "interview-scoring-v5";
+/*
+ * ── v6: the session summary — what was actually wrong, and what was not ──
+ *
+ * A PRONOUN RULE, AS PREVENTION RATHER THAN REPAIR. Measured before changing
+ * anything: 12 rollups over six names, and ZERO gendered the candidate. It
+ * writes "the candidate" and "they" already — not because anything forbade the
+ * alternative, but because `summariseSession` never puts the candidate's NAME
+ * in the payload (only scores, strengths, concerns and, when the employer named
+ * criteria, transcripts), and the Rules block keeps the model reading
+ * per-answer data rather than a person.
+ *
+ * That is clean by construction, not by rule, and the construction is one edit
+ * from changing. A harness that added "Candidate: <name>" to the same prompt
+ * gendered 6 of 6 immediately. So the rule is cheap insurance against the day
+ * someone personalises this payload — it cost nothing measurable to add.
+ *
+ * THE LENGTH WAS LEFT ALONE, DELIBERATELY. The CV scorer's summary went from
+ * 3-5 sentences to 2 because measurement showed it was a table of contents for
+ * its own card. This one is NOT: 29-52% word overlap with the per-answer lists,
+ * and the residue is genuine cross-answer synthesis — "the strongest evidence
+ * sat in the discovery call example", "the weakest answers were ownership and
+ * collaboration". No per-answer block can say which answer was strongest, so
+ * that comparison exists nowhere else on the screen. 3-5 became 3-4 and the
+ * spec now points at the comparison as the reason the field exists.
+ *
+ * THE RECOMMENDATION GAP WAS REAL, and the prompt contradicted itself: the
+ * Rules said "Never recommend a decision" while the Summary spec asked for
+ * "what a human should check next". Three of six rollups produced "a hiring
+ * decision should probe...", "a hiring team should verify...". The fix names
+ * the distinction rather than repeating the ban — saying what is unevidenced is
+ * the job; telling the reader what to do next is not.
+ */
+export const PROMPT_VERSION = "interview-scoring-v6";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -243,13 +275,25 @@ Write a verdict and a summary.
 At most TWELVE words. A plain description of where this candidate stands on the evidence, not a recommendation. Never advise rejecting or hiring.
 
 ## Summary
-Three to five sentences. What the answers showed across the whole interview, where the strongest and weakest evidence sat, and what a human should check next.
+Three to four sentences. What the answers showed across the whole interview, and WHERE the strongest and weakest evidence sat.
+
+That cross-answer comparison is the only reason this summary exists. Every answer already carries its own score, reasoning, strengths and points to verify on the same screen, directly below. Naming which answer was strongest and which was thinnest is the one thing no answer can say about itself — so spend the sentences there, not on restating what an individual answer already says about itself.
+
+## NEVER REFER TO THE CANDIDATE BY GENDER
+Do not use "he", "she", "his", "her", "him", "hers", "himself" or "herself" anywhere in your output.
+Nothing you are given states anyone's gender. A name in a transcript is not a gender, and this card is a permanent hiring record the candidate never sees and cannot correct. Write "the candidate", "they", or no subject at all — which is what good writing here does anyway.
+
+## MAKE NO RECOMMENDATION, IN ANY FIELD
+You do not decide who is hired, interviewed, advanced, shortlisted or rejected.
+There is a real distinction here and it is the one to get right:
+  · SAYING WHAT IS UNEVIDENCED IS YOUR JOB. "No evidence was given for handling a difficult client" and "the collaboration answer described a process rather than an instance" are exactly what this summary is for.
+  · TELLING THE READER WHAT TO DO IS NOT. Never write "a hiring decision should probe...", "a hiring team should verify...", "a follow-up conversation should explore...", "worth progressing", "recommend interviewing", or any sentence whose subject is the reader's next action.
+Report the gap and stop. The recruiter decides what to do about it, and they are the one who knows what the rest of the process looks like.
 
 ## Rules
 - Use only what is given. Do not invent detail.
 - The verdict and summary are written from the per-answer scores, strengths and concerns — NOT from the transcripts. Transcripts are supplied only when the employer named interview criteria, and only so you can quote for those; never quote in the verdict or summary.
 - Do not repeat the same fact in both verdict and summary.
-- Never recommend a decision. Describe what the evidence supports and what remains unverified.
 - If most answers were skipped or scored poorly for lack of substance, say that plainly rather than writing around it.
 
 ## HOW THE CANDIDATE SPEAKS IS NEVER A FINDING
@@ -285,7 +329,7 @@ The speech rules in "HOW THE CANDIDATE SPEAKS IS NEVER A FINDING" bind this sect
 
 Return ONLY this JSON object, no prose, no code fence:
 
-{ "verdict": "at most twelve words", "summary": "three to five sentences", "confidence": "high" | "medium" | "low", "criteria": [{ "item": "the employer's criterion, verbatim", "status": "evidenced" | "not_found", "quote": "one contiguous verbatim transcript span, or empty string" }] }
+{ "verdict": "at most twelve words", "summary": "three to four sentences, no gendered pronouns, no recommendation", "confidence": "high" | "medium" | "low", "criteria": [{ "item": "the employer's criterion, verbatim", "status": "evidenced" | "not_found", "quote": "one contiguous verbatim transcript span, or empty string" }] }
 
 Omit "criteria" entirely when the employer named none.`;
 
