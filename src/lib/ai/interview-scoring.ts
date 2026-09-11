@@ -4,6 +4,7 @@ import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
+import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
 import {
   type Confidence,
   type EvidenceItem,
@@ -940,7 +941,13 @@ function resolveQuestionMeta(
       (liveRow?.question ?? "").trim(),
     competency: (liveRow?.competency ?? "").trim() || null,
     rubric: (liveRow?.rubric ?? "").trim() || null,
-    weight: liveRow?.weight && liveRow.weight > 0 ? liveRow.weight : 1,
+    /*
+     * Normal, not 1. This fallback was 1, which on the four stops {1,2,4,6} is
+     * LESS — so a question whose live row had gone missing was silently scored
+     * at half weight against its siblings. Same family as the other three
+     * stray 1s; see CV_WEIGHT_DEFAULT.
+     */
+    weight: liveRow?.weight && liveRow.weight > 0 ? liveRow.weight : CV_WEIGHT_DEFAULT,
   };
 }
 

@@ -6,6 +6,7 @@ import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
 import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
+import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
 
 /**
  * AI CV scoring (Step 4).
@@ -346,10 +347,23 @@ export function applyCvWeights(
   return clampScore(Math.round(weightedTotal / weightSum));
 }
 
-/** Weight assumed for a dimension the recruiter left unset. Mirrors
- *  CV_WEIGHT_DEFAULT in job-types.ts, duplicated so this module stays free of
- *  a UI import. */
-const CV_WEIGHT_FALLBACK = 3;
+/**
+ * Weight assumed for a dimension the recruiter left unset: Normal.
+ *
+ * This was 3, under a comment claiming it mirrored CV_WEIGHT_DEFAULT, which is
+ * 2. It never did. 3 is not even one of the four stops {1,2,4,6} — it sits
+ * between Normal and More — so an unset dimension was scored at one and a half
+ * times a Normal one, for no stated reason and with nothing on screen saying so.
+ *
+ * Now imported rather than restated, which is what let the two drift. Safe to
+ * import: lib/interviews/types.ts has no runtime imports of its own, so this
+ * module stays free of the UI surface the old comment was protecting against.
+ *
+ * Narrow blast radius, deliberately noted: when all four columns are null,
+ * `anySet` is false and this is never reached. It only applies to a row with
+ * some weights set and others null.
+ */
+const CV_WEIGHT_FALLBACK = CV_WEIGHT_DEFAULT;
 
 // ── Screening score ──────────────────────────────────────────
 

@@ -30,6 +30,7 @@ import {
   MUST_HAVE_MAX,
   MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
+  snapWeight,
   suggestCriteria,
 } from "@/app/ai-dashboard/lib/job-types";
 import { type GeneratedQuestion, generateInterviewQuestions } from "@/lib/ai/interview-questions";
@@ -773,7 +774,10 @@ async function syncInterviewQuestions(
       rubric: (q.rubric ?? "").trim().slice(0, RUBRIC_MAX),
       prep_seconds: clampInt(q.prepSeconds, PREP_SECONDS_MIN, PREP_SECONDS_MAX, 30),
       answer_seconds: clampInt(q.answerSeconds, ANSWER_SECONDS_MIN, ANSWER_SECONDS_MAX, 120),
-      weight: clampInt(q.weight, 1, 5, 1),
+      // Snapped to a stop, not clamped to a range — see snapWeight. The range
+      // here was 1-5 against stops of {1,2,4,6}, so "Most" was stored as 5 and
+      // reopened as Normal.
+      weight: snapWeight(q.weight),
       required: q.required !== false,
     }))
     // A blank row is someone who added a question and changed their mind, not
@@ -1250,7 +1254,10 @@ export async function fetchInterviewQuestions(jobId: string): Promise<InterviewQ
     rubric: q.rubric ?? "",
     prepSeconds: String(q.prep_seconds ?? 30),
     answerSeconds: String(q.answer_seconds ?? 120),
-    weight: String(q.weight ?? 1),
+    // Snapped on the way in as well as on the way out, so a legacy row at 3 or
+    // 5 opens on the stop the screen will render rather than on a value no
+    // button can represent.
+    weight: String(snapWeight(q.weight)),
     required: q.required !== false,
   }));
 }

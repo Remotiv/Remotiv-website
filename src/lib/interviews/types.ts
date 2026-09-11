@@ -24,6 +24,28 @@ export const MIN_QUESTIONS = 4;
 export const MAX_QUESTIONS = 6;
 
 /**
+ * Normal. What a question is worth until someone moves it.
+ *
+ * Re-exported from src/lib/weights.ts, which owns the four stops and every
+ * rule for reading them. It is NOT restated here — a restated copy of this
+ * number, four times over, is what produced the default-of-Less bug.
+ *
+ * `EMPTY_QUESTION_INPUT` used to start every question at 1, which on the stops
+ * {1,2,4,6} is LESS, a half weight, while step 7 tells the recruiter Normal is
+ * the baseline. Uniform weights hid it — every consumer divides by the total,
+ * so a constant factor cancels — and it surfaced only for recruiters who moved
+ * one, where a promotion to More landed at four times its neighbours instead of
+ * twice.
+ *
+ * Importing weights.ts does not violate this module's no-runtime-imports rule.
+ * The rule exists so the candidate page can import these shapes without pulling
+ * next/headers into its bundle, and weights.ts imports nothing at all.
+ */
+export { CV_WEIGHT_DEFAULT as DEFAULT_QUESTION_WEIGHT } from "@/lib/weights";
+
+import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
+
+/**
  * How long the interview should take, and what that means in questions.
  *
  * ── Why duration and not a count ─────────────────────────────
@@ -100,7 +122,7 @@ export const EMPTY_QUESTION_INPUT: InterviewQuestionInput = {
   rubric: "",
   prepSeconds: String(DEFAULT_PREP_SECONDS),
   answerSeconds: String(DEFAULT_ANSWER_SECONDS),
-  weight: "1",
+  weight: String(CV_WEIGHT_DEFAULT),
   required: true,
 };
 
