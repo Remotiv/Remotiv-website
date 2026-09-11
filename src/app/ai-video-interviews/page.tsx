@@ -667,12 +667,10 @@ export default function AIVideoInterviewsPage() {
                         </p>
                         <em>Systems design · 04:12 · transcript</em>
                       </div>
-                      {/* Load-bearing disclosure, not decoration. */}
+                      {/* The transcript-only disclosure that sat here was word for
+                          word section 4's, which is the section about scoring from
+                          a transcript. It says it there instead. */}
                       <div className="avi2-frag__foot">
-                        <p>
-                          <b>Recommendation only.</b> Transcript is the only input — no face, voice,
-                          or accent analysis.
-                        </p>
                         <button className="avi2-adjust" type="button">
                           <i />
                           Adjust
@@ -845,14 +843,100 @@ export default function AIVideoInterviewsPage() {
                 </div>
 
                 <div className="avi3-p__disc">
-                  <p>
-                    <b>Recommendation only.</b> CV text is the only input — no photo, name, or
-                    location weighting. A person decides who gets interviewed.
-                  </p>
+                  {/* Shortened, not deleted. "Recommendation only" and "a person
+                      decides" are section 6's and were said six times before it;
+                      the input/weighting claim is made nowhere else on the page. */}
+                  <p>CV text is the only input — no photo, name, or location weighting.</p>
                   <button className="avi3-ghost" type="button">
                     Open full scorecard
                     <i />
                   </button>
+                </div>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Reading order and prefix number deliberately do not match from here
+            down: the page runs 2, 3, 7, 4, 6. Section 2 lays out six numbered
+            stages, and the sections that expand them used to run 02, 04, 06,
+            03/05 — the interviews arrived after the scorecard they produce and
+            after the decision that follows. Moving this block ahead of section
+            4 puts the pipeline back in its own order. The avi7- prefix stays
+            avi7-: renaming would touch every rule and comment in the
+            stylesheet and change nothing a visitor sees. */}
+        <section className="avi7-sec">
+          <div className="avi7-wrap">
+            <div className="avi7-grid">
+              <header>
+                <p className="avi7-eyebrow">How you interview</p>
+                <h2 className="avi7-h2">You set the interview. Remotiv runs it.</h2>
+                <p className="avi7-lede">
+                  From the first async AI video screen to the deeper AI video interview, Remotiv
+                  runs each round against the criteria your hiring team set.
+                </p>
+
+                <div className="avi7-stages">
+                  <div className="avi7-stage">
+                    <h3>Async AI Video Screen</h3>
+                    <p className="avi7-meta">
+                      <span className="avi7-frag">Basic screening</span>{" "}
+                      <span className="avi7-frag">structured questions</span>{" "}
+                      <span className="avi7-frag">candidate&rsquo;s own time</span>
+                    </p>
+                  </div>
+                  <div className="avi7-stage">
+                    <h3>AI Video Interview</h3>
+                    <p className="avi7-meta">
+                      <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
+                      <span className="avi7-frag">adaptive follow-ups</span>{" "}
+                      <span className="avi7-frag">criteria-based scoring</span>
+                    </p>
+                  </div>
+                </div>
+
+                <p className="avi7-note">
+                  Both rounds happen on video and are evaluated from the interview transcript.
+                </p>
+              </header>
+
+              <div className="avi7-visual" data-reveal>
+                <div className="avi7-frame">
+                  <div className="avi7-tile avi7-tile--ai">
+                    <span className="avi7-mark">
+                      <svg viewBox="0 0 20 20" aria-hidden="true">
+                        <circle cx="10" cy="7" r="3.1" fill="currentColor" stroke="none" />
+                        <path
+                          d="M4.2 16.6a5.8 5.8 0 0 1 11.6 0v.6H4.2Z"
+                          fill="currentColor"
+                          stroke="none"
+                        />
+                      </svg>
+                    </span>
+                  </div>
+                  {/* fill inside a tile that aspect-ratio has already sized, so the
+                      photo reserves its box before it loads and contributes no layout
+                      shift. The widths in sizes track the tile, not the viewport: it
+                      is half the frame's inner width at every breakpoint. */}
+                  <div className="avi7-tile">
+                    <Image
+                      src="/team-avatars/candidate.webp"
+                      alt="A candidate answering questions on camera during an AI video interview"
+                      fill
+                      sizes="(max-width: 639.98px) 40vw, (max-width: 1180px) 27vw, 21vw"
+                      className="avi7-shot"
+                    />
+                  </div>
+                  <p className="avi7-plab">AI Interviewer</p>
+                  <p className="avi7-plab avi7-plab--quiet">Candidate</p>
+                  <div className="avi7-cap">
+                    <p className="avi7-olab">Question 4</p>
+                    <p className="avi7-oq">
+                      Tell me about a backend system you designed for scale.
+                    </p>
+                    <p className="avi7-olab">Follow-up</p>
+                    <p className="avi7-oq">How did you handle failures when traffic spiked?</p>
+                  </div>
                 </div>
               </div>
             </div>
@@ -997,9 +1081,11 @@ export default function AIVideoInterviewsPage() {
                     The quote is the passage this criterion was scored from. The timestamp points to
                     that moment in the recording.
                   </p>
+                  {/* Shortened, not deleted. This is the page's only statement
+                      that interview scoring ignores face, voice and accent, and
+                      section 4 is the section about scoring from a transcript. */}
                   <p className="avi4-disc">
-                    <b>Recommendation only.</b> Scored from the transcript text — no face, voice or
-                    accent analysis. A person decides.
+                    Scored from the transcript text — no face, voice or accent analysis.
                   </p>
                 </div>
               </div>
@@ -1076,84 +1162,6 @@ export default function AIVideoInterviewsPage() {
                       </div>
                       <p className="avi6-kept">Original AI score: 76 retained</p>
                     </div>
-                  </div>
-                </div>
-              </div>
-            </div>
-          </div>
-        </section>
-
-        <section className="avi7-sec">
-          <div className="avi7-wrap">
-            <div className="avi7-grid">
-              <header>
-                <p className="avi7-eyebrow">How you interview</p>
-                <h2 className="avi7-h2">You set the interview. Remotiv runs it.</h2>
-                <p className="avi7-lede">
-                  From the first async AI video screen to the deeper AI video interview, Remotiv
-                  runs each round against the criteria your hiring team set.
-                </p>
-
-                <div className="avi7-stages">
-                  <div className="avi7-stage">
-                    <h3>Async AI Video Screen</h3>
-                    <p className="avi7-meta">
-                      <span className="avi7-frag">Basic screening</span>{" "}
-                      <span className="avi7-frag">structured questions</span>{" "}
-                      <span className="avi7-frag">candidate&rsquo;s own time</span>
-                    </p>
-                  </div>
-                  <div className="avi7-stage">
-                    <h3>AI Video Interview</h3>
-                    <p className="avi7-meta">
-                      <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
-                      <span className="avi7-frag">adaptive follow-ups</span>{" "}
-                      <span className="avi7-frag">criteria-based scoring</span>
-                    </p>
-                  </div>
-                </div>
-
-                <p className="avi7-note">
-                  Both rounds happen on video and are evaluated from the interview transcript.
-                </p>
-              </header>
-
-              <div className="avi7-visual" data-reveal>
-                <div className="avi7-frame">
-                  <div className="avi7-tile avi7-tile--ai">
-                    <span className="avi7-mark">
-                      <svg viewBox="0 0 20 20" aria-hidden="true">
-                        <circle cx="10" cy="7" r="3.1" fill="currentColor" stroke="none" />
-                        <path
-                          d="M4.2 16.6a5.8 5.8 0 0 1 11.6 0v.6H4.2Z"
-                          fill="currentColor"
-                          stroke="none"
-                        />
-                      </svg>
-                    </span>
-                  </div>
-                  {/* fill inside a tile that aspect-ratio has already sized, so the
-                      photo reserves its box before it loads and contributes no layout
-                      shift. The widths in sizes track the tile, not the viewport: it
-                      is half the frame's inner width at every breakpoint. */}
-                  <div className="avi7-tile">
-                    <Image
-                      src="/team-avatars/candidate.webp"
-                      alt="A candidate answering questions on camera during an AI video interview"
-                      fill
-                      sizes="(max-width: 639.98px) 40vw, (max-width: 1180px) 27vw, 21vw"
-                      className="avi7-shot"
-                    />
-                  </div>
-                  <p className="avi7-plab">AI Interviewer</p>
-                  <p className="avi7-plab avi7-plab--quiet">Candidate</p>
-                  <div className="avi7-cap">
-                    <p className="avi7-olab">Question 4</p>
-                    <p className="avi7-oq">
-                      Tell me about a backend system you designed for scale.
-                    </p>
-                    <p className="avi7-olab">Follow-up</p>
-                    <p className="avi7-oq">How did you handle failures when traffic spiked?</p>
                   </div>
                 </div>
               </div>

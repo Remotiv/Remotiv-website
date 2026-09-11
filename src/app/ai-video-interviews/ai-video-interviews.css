@@ -1271,17 +1271,11 @@
 .avi2-frag__foot {
   display: flex;
   align-items: center;
+  /* Holds the button right. The disclosure paragraph used to do this with
+     flex: 1; it has gone to section 4, so the alignment is explicit now. */
+  justify-content: flex-end;
   gap: 12px;
   margin-top: 12px;
-}
-.avi2-frag__foot p {
-  flex: 1;
-  font: 400 12.6px / 1.5 var(--font-sans);
-  color: var(--r-quiet);
-}
-.avi2-frag__foot p b {
-  color: #3f3b37;
-  font-weight: 500;
 }
 .avi2-adjust {
   display: inline-flex;
@@ -2029,10 +2023,6 @@
   font: 400 12.6px / 1.5 var(--font-sans);
   color: var(--r-quiet);
 }
-.avi3-p__disc p b {
-  font-weight: 500;
-  color: #3f3b37;
-}
 .avi3-ghost {
   display: inline-flex;
   align-items: center;
@@ -2221,10 +2211,25 @@
 /* ============================================================
    SECTION 4 of 13 · EVIDENCE
    ============================================================
-   Criterion -> quoted evidence -> timestamp -> transcript. White ground under
-   section 3's cream: the only tinted surfaces here are the evidence inset and
-   the selected criterion row, and on a cream ground both would read as the
-   page rather than as a highlight.
+   Criterion -> quoted evidence -> timestamp -> transcript. Cream ground.
+
+   This shipped on white, under section 3's cream, and the reasoning was that
+   the two tinted surfaces here - the evidence inset and the selected criterion
+   row - would read as the page rather than as a highlight on a cream ground.
+   That turned out to be wrong, and section 3 is the proof: it sits on cream,
+   and its note insets and selected row are the same var(--r-cream). They read
+   as highlights because the white panel separates them from the ground. The
+   nesting does the work, not the absolute colour.
+
+   What white actually cost was the panels. .avi3-panel and .avi4-panel are the
+   same recipe - white fill, 1px var(--r-line), 0 2px 12px rgba(0,0,0,.05) - and
+   that shallow shadow has nothing to hold against a white ground, so section 4
+   read as an unedged field while section 3's identical panels read as cards.
+   Cream is the ground this recipe was drawn for.
+
+   The move is also forced by order: the page now runs 2, 3, 7, 4, 6, and with
+   section 7 on white this is the only assignment where no two adjacent grounds
+   match. See the section 7 header for the full alternation.
 
    Every class carries an .avi4- prefix, and so do the ids and the two state
    classes. The delivered file used bare `is-in` / `is-flash` and bare `tx-*` /
@@ -2258,7 +2263,7 @@
   --r-rad-card: 20px;
   --r-rad-inset: 14px;
   --r-rad-pill: 999px;
-  background: var(--r-white);
+  background: var(--r-cream);
   padding: 72px 40px;
 }
 .avi4-wrap {
@@ -2616,11 +2621,6 @@
   color: var(--r-quiet);
   text-wrap: pretty;
 }
-.avi4-disc b {
-  font-weight: 500;
-  color: var(--r-body-strong);
-}
-
 .avi4-viz[data-reveal].avi4-in .avi4-panel {
   opacity: 1;
   transform: none;
@@ -2788,25 +2788,21 @@
   --r-rad-pill: 999px;
 
   background: var(--r-white);
-  /* 48px top is a deliberate exception to this page's 72px standard, and the
-     only reason for it is that the ground stopped alternating.
+  /* Back on the page's 72 / 56 standard.
 
-     Section 6 is the only section that follows a section of the same colour.
-     Every other boundary on this page has a cream/white change landing in the
-     middle of the 144px gap, which visually splits it into 72 ending one band
-     and 72 starting the next. Section 6 sits white-on-white after section 4,
-     so the seam is gone and the same 144px reads as one undivided void. It is
-     worse again because the gap lands on a full-width dark slab rather than an
-     11px eyebrow, and a heavy mass at the end of a long run makes the run read
-     longer.
+     This carried a 48px top for a while. The reason was that section 6 was the
+     only section following a section of its own colour: section 4 was white,
+     so the seam vanished and the 144px gap read as one undivided void, and the
+     cut to 120 bought back the division. That note ended "if section 6 ever
+     returns to cream, both go back to the 72 / 56 standard".
 
-     The mobile block takes the same cut for the same reason: 56 -> 40, which
-     leaves 96px there against 120 here. Bottom padding is untouched in both,
-     because it meets the #111111 footer - that boundary still has a seam, and
-     a seam wants the full value.
+     The condition it was waiting for has happened from the other side. Section
+     4 is cream now, so this boundary has a cream/white change landing in the
+     middle of the gap like every other boundary here, and the compensation was
+     propping up a defect that no longer exists. Restored in both blocks.
 
-     If section 6 ever returns to cream, both go back to the 72 / 56 standard. */
-  padding: 48px 40px 72px;
+     Do not re-cut it without first checking what colour the section above is. */
+  padding: 72px 40px;
 }
 .avi6-wrap {
   max-width: 1400px;
@@ -3078,7 +3074,7 @@
 }
 @media (max-width: 639.98px) {
   .avi6-sec {
-    padding: 40px 20px 56px;
+    padding: 56px 20px;
   }
   .avi6-slab {
     padding: 24px 20px 26px;
@@ -3139,12 +3135,28 @@
    The prefix is avi7- and skips 5 for the same reason section 6 does: there
    is no section 5, it was cut. Not a numbering mistake.
 
+   It also no longer renders seventh. The page reads 2, 3, 7, 4, 6, because
+   section 2 numbers six stages and this block expands 03 and 05 - it has to
+   come before the scorecard those interviews produce. The prefix was left
+   alone: renaming it would touch every rule here and change nothing visible.
+
    Sections 3, 4 and 6 are all product interface - a ranked list, a
    transcript, a decision card. This one is the break, and it carries the
-   page's only photograph. Ground returns to cream so the full text scale is
-   legible again, and the white frame takes the contract's floating-visual
-   shadow rather than the shallow card one: a white object on cream is
-   floating, not inset.
+   page's only photograph.
+
+   Ground is white, between section 3's cream and section 4's. That is the
+   whole reason it is white: with this block sitting between two cream
+   sections, no other assignment keeps adjacent grounds apart. Perceived order
+   is cream, dark, cream, WHITE, cream, dark - "perceived" because sections 2
+   and 6 are white sections filled by a near-full-bleed dark slab.
+
+   This block survives a white ground where sections 3 and 4 would not. Their
+   panels carry the shallow card shadow (0 2px 12px rgba(0,0,0,.05)), which has
+   nothing to hold against white. .avi7-frame carries the contract's
+   floating-visual shadow, 0 22px 54px rgba(17,17,17,.09), roughly four times
+   the blur at nearly twice the alpha and offset far enough to cast a visible
+   band - and it is filled with a near-black tile and two cream insets, so it
+   reads as an object and not as the page. Do not swap it for the card shadow.
 
    Tokens live on .avi7-sec, never :root, and this block cannot be folded
    into .avi2-sec or .avi6-sec - both resolve at least one shared radius
@@ -3170,7 +3182,7 @@
   --r-rad-inset: 14px;
   --r-rad-pill: 999px;
 
-  background: var(--r-cream);
+  background: var(--r-white);
   padding: 72px 40px;
 }
 .avi7-wrap {
