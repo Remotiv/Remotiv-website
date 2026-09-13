@@ -119,6 +119,31 @@ setTimeout(function(){v.forEach(function(e){
 if(!e.classList.contains("avi7-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
+const SECTION8_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi8-sec [data-reveal]");
+var s=function(e){e.classList.add("avi8-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi8-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Section 8. The four steps are the candidate route as it actually runs in
+// src/app/interview/[token]/_flow.tsx, which is welcome, consent, tech check,
+// then record. The practice round between the check and the first question is
+// real and is deliberately not shown — it would cost a fifth step.
+const AVI8_STEPS = [
+  { name: "Invitation", line: "Sent by the hiring team, opened by link" },
+  { name: "Consent", line: "Agreed before any recording starts" },
+  {
+    name: "Setup check",
+    line: "Camera, microphone and connection must pass",
+  },
+  { name: "Interview", line: "Recorded for the hiring team to review" },
+];
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -1168,6 +1193,102 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi8-sec">
+          <div className="avi8-wrap">
+            <div className="avi8-grid">
+              <header className="avi8-copy">
+                <p className="avi8-eyebrow">Candidate experience</p>
+                <h2 className="avi8-h2">
+                  Great candidates shouldn&rsquo;t be limited by time zones.
+                </h2>
+                <p className="avi8-lede">
+                  A candidate in Lahore can interview for a company in New York without either side
+                  finding a shared hour. Remotiv captures the interview so the hiring team can
+                  review it when they&rsquo;re ready.
+                </p>
+              </header>
+
+              <div className="avi8-aside" data-reveal>
+                <figure className="avi8-frag">
+                  <div className="avi8-fhead">
+                    <p className="avi8-slabel">Setup check</p>
+                    <p className="avi8-time">
+                      <span className="avi8-ph">
+                        Lahore
+                        <span className="avi8-sep" aria-hidden="true">
+                          {" · "}
+                        </span>
+                      </span>
+                      21:40
+                    </p>
+                  </div>
+                  <ul className="avi8-checks">
+                    <li className="avi8-check">
+                      <svg className="avi8-ico" viewBox="0 0 22 22" aria-hidden="true">
+                        <rect x="2.5" y="6" width="12" height="10" rx="2.5" />
+                        <path d="M14.5 10.5 19.5 8v6l-5-2.5Z" />
+                      </svg>
+                      <span className="avi8-clab">Camera</span>
+                      <span className="avi8-cstate">
+                        <svg className="avi8-tick" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M3.2 8.4 6.5 11.7 12.8 5" />
+                        </svg>
+                        Ready
+                      </span>
+                    </li>
+                    <li className="avi8-check">
+                      <svg className="avi8-ico" viewBox="0 0 22 22" aria-hidden="true">
+                        <rect x="8.25" y="2.5" width="5.5" height="10" rx="2.75" />
+                        <path d="M5.5 10.5a5.5 5.5 0 0 0 11 0M11 16v3.5M8 19.5h6" />
+                      </svg>
+                      <span className="avi8-clab">Microphone</span>
+                      <span className="avi8-cstate">
+                        <svg className="avi8-tick" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M3.2 8.4 6.5 11.7 12.8 5" />
+                        </svg>
+                        Ready
+                      </span>
+                    </li>
+                    <li className="avi8-check">
+                      <svg className="avi8-ico" viewBox="0 0 22 22" aria-hidden="true">
+                        <path d="M2.5 8a12 12 0 0 1 17 0M5.8 11.4a7.4 7.4 0 0 1 10.4 0M9 14.8a2.8 2.8 0 0 1 4 0" />
+                        <circle cx="11" cy="18.2" r=".9" fill="currentColor" stroke="none" />
+                      </svg>
+                      <span className="avi8-clab">Connection</span>
+                      <span className="avi8-cstate">
+                        <svg className="avi8-tick" viewBox="0 0 16 16" aria-hidden="true">
+                          <path d="M3.2 8.4 6.5 11.7 12.8 5" />
+                        </svg>
+                        Stable
+                      </span>
+                    </li>
+                  </ul>
+                  <p className="avi8-note">All three pass before the interview can start.</p>
+                  {/* Depicted, not operable: a span rather than a button, so
+                      nothing here is focusable or announced as a control. */}
+                  <span className="avi8-ghost" aria-hidden="true">
+                    Start interview
+                  </span>
+                </figure>
+              </div>
+            </div>
+
+            <ol className="avi8-steps" data-reveal>
+              {AVI8_STEPS.map((s, i) => (
+                <li
+                  className="avi8-step"
+                  key={s.name}
+                  style={{ "--i": i } as CSSPropertiesWithVars}
+                >
+                  <span className="avi8-num">{i + 1}</span>
+                  <h3 className="avi8-sname">{s.name}</h3>
+                  <p className="avi8-sline">{s.line}</p>
+                </li>
+              ))}
+            </ol>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1193,6 +1314,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 7 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION7_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 8 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION8_SCRIPT }}
       />
     </>
   );

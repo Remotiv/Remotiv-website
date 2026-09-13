@@ -3470,3 +3470,382 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 8 - CANDIDATE EXPERIENCE
+
+   The prefix is avi8- and it renders last, so here the number and the
+   reading order agree again. They do not for section 7, which renders
+   fourth - that is explained in its own header and is not a mistake to
+   correct.
+
+   Ground is cream. The delivered file shipped this block on white with a
+   note that section 7 sat above it on cream; that stopped being true when
+   section 7 moved up to render fourth. What sits above this now is section
+   6, a white section filled by a near-full-bleed dark slab, so it reads
+   DARK - and the perceived run is cream, dark, cream, white, cream, dark,
+   CREAM. Cream is the only assignment that keeps this block off its
+   neighbour's ground.
+
+   Because the ground is cream, .avi8-frag keeps the system's white fill and
+   the SHALLOW card shadow, 0 2px 12px rgba(0,0,0,.05) - the same recipe
+   sections 3 and 4 use on cream, where a 1px border does the separating and
+   the fill is a lift rather than the edge. This is not section 7's floating
+   -visual shadow; that one exists to survive white-on-white and would read
+   as a slab here.
+
+   The checks inset stays cream inside the white card. Cream on cream would
+   be invisible, but the card is between them, which is the same nesting
+   section 3 uses for its note insets.
+
+   Two blocks only - header split, then the four-step flow - and the steps
+   are text on a hairline rather than cards. That is what keeps this section
+   in the same height band as sections 6 and 7 instead of the dense ones.
+
+   Tokens live on .avi8-sec, never :root.
+   ============================================================ */
+.avi8-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-mint: #49d7a7;
+  --r-purple: #7e47ff;
+  --r-body: #666666;
+  --r-body-strong: #3f3b37;
+  /* Small-meta grey. A floor, not a starting point. */
+  --r-quiet: #6e6862;
+  --r-sep: #bcb5ac;
+  --r-line: rgba(0, 0, 0, 0.08);
+  --r-line-ctl: rgba(0, 0, 0, 0.14);
+  --r-rad-card: 20px;
+  --r-rad-inset: 14px;
+  --r-rad-pill: 999px;
+
+  background: var(--r-cream);
+  padding: 72px 40px;
+}
+.avi8-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+.avi8-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 48px;
+  align-items: start;
+}
+
+/* ---------- header copy ---------- */
+.avi8-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi8-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi8-h2 {
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+.avi8-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+
+/* ---------- the fragment: one setup check, mid-flow ---------- */
+.avi8-frag {
+  max-width: 480px;
+  margin-left: auto;
+  padding: 20px;
+  border-radius: var(--r-rad-card);
+  border: 1px solid var(--r-line);
+  background: var(--r-white);
+  box-shadow: 0 2px 12px rgba(0, 0, 0, 0.05);
+}
+.avi8-fhead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+}
+.avi8-slabel {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+/* The candidate's own clock is this section's only geography cue - a local
+   time, not a map. */
+.avi8-time {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+/* Each phrase owns its trailing separator inside a nowrap span, so a wrapped
+   line can never open on a dot. */
+.avi8-ph {
+  white-space: nowrap;
+}
+.avi8-sep {
+  color: var(--r-sep);
+}
+/* The three checks are one unit, so they sit in a single inset box rather
+   than floating on the card - the card then reads head / state / action. */
+.avi8-checks {
+  margin-top: 12px;
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi8-check {
+  display: grid;
+  grid-template-columns: 22px minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  margin-top: 12px;
+}
+.avi8-check:first-child {
+  margin-top: 0;
+}
+.avi8-ico {
+  width: 22px;
+  height: 22px;
+  fill: none;
+  color: var(--r-body-strong);
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.avi8-clab {
+  font: 400 13.4px / 1.3 var(--font-sans);
+  color: var(--r-body-strong);
+}
+.avi8-cstate {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+  white-space: nowrap;
+}
+.avi8-tick {
+  width: 14px;
+  height: 14px;
+  fill: none;
+  color: var(--r-mint);
+  stroke: currentColor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.avi8-note {
+  margin-top: 12px;
+  font: 400 12.6px / 1.5 var(--font-sans);
+  color: var(--r-quiet);
+  text-wrap: pretty;
+}
+/* A depicted control inside a product still: the contract's 34px ghost. It is
+   not focusable and declares no hover, because it is a picture of a button
+   and not one. */
+.avi8-ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  margin-top: 12px;
+  padding: 0 15px;
+  border: 1px solid var(--r-line-ctl);
+  border-radius: var(--r-rad-pill);
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  white-space: nowrap;
+}
+
+/* ---------- the four-step flow ----------
+   A 4-up row is not one of the contract's standard column sets; it is the
+   3-up card row's idiom with one more track, and it steps 4 -> 2 -> 1 on the
+   same tiers. Steps are text on a hairline rather than cards, which is what
+   keeps the row cheap.
+   The hairline runs unbroken behind the whole row with a dot per step sitting
+   on it - four separate cell rules would read as four unrelated columns
+   rather than one flow. */
+.avi8-steps {
+  position: relative;
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 48px;
+  padding-top: 14px;
+}
+.avi8-steps::before {
+  content: "";
+  position: absolute;
+  inset: 0 0 auto;
+  height: 1px;
+  background: var(--r-line);
+}
+.avi8-step {
+  position: relative;
+}
+.avi8-step::before {
+  content: "";
+  position: absolute;
+  top: -17.5px;
+  left: 0;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi8-num {
+  display: block;
+  font: 800 20px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+}
+.avi8-sname {
+  margin-top: 12px;
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi8-sline {
+  margin-top: 12px;
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+
+/* ---------- reveal ---------- */
+.avi8-aside[data-reveal].avi8-in .avi8-frag,
+.avi8-steps[data-reveal].avi8-in .avi8-step {
+  opacity: 1;
+  transform: none;
+}
+/* Nothing is hidden without script: the only hiding rule lives behind
+   scripting: enabled, so with JS off the section renders at its end state. */
+@media (scripting: enabled) {
+  .avi8-aside[data-reveal] .avi8-frag,
+  .avi8-steps[data-reveal] .avi8-step {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi8-steps[data-reveal].avi8-in .avi8-step {
+    transition-delay: calc(var(--i) * 0.14s);
+  }
+}
+
+/* ---------- responsive - 1180 / 900 / 639.98 ---------- */
+@media (max-width: 1180px) {
+  .avi8-grid {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+  }
+  .avi8-frag {
+    margin-left: 0;
+  }
+  .avi8-steps {
+    gap: 20px;
+    margin-top: 40px;
+  }
+}
+@media (max-width: 900px) {
+  .avi8-steps {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 639.98px) {
+  .avi8-sec {
+    padding: 56px 20px;
+  }
+  .avi8-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi8-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi8-frag {
+    max-width: none;
+    padding: 17px 16px;
+  }
+  .avi8-checks,
+  .avi8-check,
+  .avi8-note,
+  .avi8-ghost {
+    margin-top: 11px;
+  }
+  .avi8-check:first-child {
+    margin-top: 0;
+  }
+  /* Stacked, the unbroken rule has nothing left to connect, so each step
+     carries its own rule and the dot moves onto it. The numeral moves into a
+     gutter beside the name rather than sitting on its own line - four stacked
+     blocks with a full-width numeral row is the single most expensive way to
+     spend height here. */
+  .avi8-steps {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 14px;
+    margin-top: 32px;
+    padding-top: 0;
+  }
+  .avi8-steps::before {
+    display: none;
+  }
+  .avi8-step {
+    display: grid;
+    grid-template-columns: 24px minmax(0, 1fr);
+    column-gap: 11px;
+    row-gap: 6px;
+    border-top: 1px solid var(--r-line);
+    padding-top: 14px;
+  }
+  .avi8-step::before {
+    top: -3.5px;
+  }
+  .avi8-sname {
+    margin-top: 0;
+  }
+  .avi8-sline {
+    grid-column: 2 / 3;
+    margin-top: 0;
+    font-size: 12.6px;
+    line-height: 1.5;
+    color: var(--r-quiet);
+  }
+}
+/* Covers the reveal, which is the only transition in the section. Nothing
+   here is interactive and nothing declares a hover state, so there is no
+   hover transition to neutralise. If one is ever added, it belongs in this
+   block in the same change. */
+@media (prefers-reduced-motion: reduce) {
+  .avi8-aside[data-reveal] .avi8-frag,
+  .avi8-steps[data-reveal] .avi8-step {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}
