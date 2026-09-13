@@ -3849,3 +3849,430 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 9 - AUTOMATION
+
+   The prefix is avi9- and it renders last, so here the number and the reading
+   order agree. They do not for section 7, which renders fourth - that is
+   explained in its own header and is not a mistake to correct.
+
+   Ground is white. Section 8 above it is cream, so white is what keeps the
+   two apart, and the perceived run over the whole page becomes cream, dark,
+   cream, white, cream, dark, cream, WHITE. "Perceived" because sections 2 and
+   6 are white sections filled by a near-full-bleed dark slab and read dark.
+
+   SHADOW - READ BEFORE CHANGING IT. .avi9-frag carries the contract's
+   floating-visual shadow, 0 22px 54px rgba(17, 17, 17, 0.09), and not the
+   shallow card shadow 0 2px 12px rgba(0, 0, 0, 0.05) that the cream sections
+   use. This is deliberate. Shadow depth follows the ground, not the element
+   type: on white the shallow card shadow has nothing to hold against, which
+   is the exact defect the full-page audit found in section 4 before that
+   block moved to cream. Section 7, the page's other white section, carries
+   the same floating shadow for the same reason and says so in its own header.
+   A later pass that lines this section up against the cream ones will be
+   tempted to "standardise" it downwards. Do not.
+
+   Cream still means what the system says it means - the inset surface, at
+   inset radius. It is used here for the chat ground inside the card, with a
+   white bubble on top of it, not as this section's ground.
+
+   SHAPE is not section 8's. A full-width header sits over a split body: the
+   five steps run as a vertical rail on the left, one fragment on the right.
+   Five steps laid across would have crowded at 900 and had nowhere to go at
+   375; rotated, the rail needs no template change at any width, which is why
+   there is no 900 tier below - the body is the only two-column layout here
+   and it collapses at 1180.
+
+   ONE FRAGMENT, not two. The invitation as the candidate receives it. Email
+   is carried by the delivery line under the message rather than by a second
+   mockup, which is what keeps 375 in the short-section band.
+
+   SENDER is the hiring company, not Remotiv - that is how the message
+   actually arrives - so the identity tile is a dark lettermark rather than a
+   mint avatar. Mint is Remotiv's accent and does not belong on someone
+   else's identity. Nothing here uses WhatsApp's own green; the channel is
+   named in text and drawn in the page's palette.
+
+   Tokens live on .avi9-sec, never :root.
+   ============================================================ */
+.avi9-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-slab: #141020;
+  --r-mint: #49d7a7;
+  --r-purple: #7e47ff;
+  --r-body: #666666;
+  --r-body-strong: #3f3b37;
+  /* Small-meta grey. A floor, not a starting point - do not lighten it to
+     compensate for the smaller type. */
+  --r-quiet: #6e6862;
+  --r-sep: #bcb5ac;
+  --r-line: rgba(0, 0, 0, 0.08);
+  --r-line-ctl: rgba(0, 0, 0, 0.14);
+  --r-rad-card: 20px;
+  --r-rad-inset: 14px;
+  --r-rad-btn: 12px;
+  --r-rad-pill: 999px;
+
+  background: var(--r-white);
+  padding: 72px 40px;
+}
+.avi9-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ---------- header copy, full width ---------- */
+.avi9-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi9-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi9-h2 {
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+.avi9-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+
+/* ---------- body split: step rail + the message fragment ---------- */
+/* The rail is shorter than the card, so centring splits the difference above
+   and below it instead of banking all of it underneath. This only means
+   anything while the two are side by side - see the 1180 tier, where the
+   alignment goes back to start. */
+.avi9-body {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 480px);
+  gap: 48px;
+  align-items: center;
+  margin-top: 48px;
+}
+
+/* ---------- the five-step flow, vertical ----------
+   One unbroken rule with a dot per step, as in section 8 - rotated, so the
+   sequence survives every width without a template change. Name and clause
+   sit on one row, which is what keeps five steps cheaper than four cards.
+   No child is explicitly placed, so the collapse to one column at 639.98
+   needs no grid-column reset. */
+.avi9-flow {
+  position: relative;
+  display: grid;
+  gap: 24px;
+  padding-left: 24px;
+}
+.avi9-flow::before {
+  content: "";
+  position: absolute;
+  left: 3px;
+  top: 10px;
+  bottom: 10px;
+  width: 1px;
+  background: var(--r-line);
+}
+.avi9-step {
+  position: relative;
+  display: grid;
+  grid-template-columns: minmax(0, 160px) minmax(0, 1fr);
+  gap: 14px;
+  align-items: baseline;
+}
+/* The dot is pulled back by exactly the rail's padding, so it centres on the
+   rule. Change one and change the other. */
+.avi9-step::before {
+  content: "";
+  position: absolute;
+  left: -24px;
+  top: 7px;
+  width: 7px;
+  height: 7px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi9-sname {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi9-sline {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+
+/* ---------- the fragment: the invitation as the candidate receives it ----------
+   Floating-visual recipe - white fill, 1px border, card radius, and the deep
+   floating shadow explained in this section's header. */
+.avi9-frag {
+  margin-left: auto;
+  padding: 20px;
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  background: var(--r-white);
+  box-shadow: 0 22px 54px rgba(17, 17, 17, 0.09);
+}
+.avi9-fhead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: baseline;
+}
+.avi9-slabel {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+/* This meta string sits in the auto track and must never wrap, so the
+   element-level nowrap already covers the separator inside it and a
+   per-phrase span would never bind. .avi9-deliv below can wrap, and does
+   carry one. */
+.avi9-chan {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+  white-space: nowrap;
+}
+/* A phrase keeps its own trailing separator, so a wrapped line can never
+   open on a middot. */
+.avi9-ph {
+  white-space: nowrap;
+}
+.avi9-sep {
+  color: var(--r-sep);
+}
+
+/* ---------- sender identity ---------- */
+.avi9-who {
+  display: grid;
+  grid-template-columns: 34px minmax(0, 1fr);
+  gap: 12px;
+  align-items: center;
+  margin-top: 12px;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--r-line);
+}
+/* A company lettermark tile, not a mint avatar - mint is Remotiv's accent and
+   this identity belongs to the hiring company. */
+.avi9-av {
+  width: 34px;
+  height: 34px;
+  border-radius: var(--r-rad-btn);
+  background: var(--r-slab);
+  font: 700 14px / 34px var(--font-heading);
+  letter-spacing: -0.02em;
+  text-align: center;
+  color: var(--r-white);
+}
+.avi9-wname {
+  display: block;
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+
+/* ---------- the thread ----------
+   The chat ground is the cream inset surface at inset radius; the incoming
+   bubble is white on it and takes the card border. The clipped top-left
+   corner is the tail. */
+.avi9-chat {
+  margin-top: 12px;
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi9-bub {
+  padding: 13px 14px;
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-inset);
+  border-top-left-radius: 4px;
+  background: var(--r-white);
+}
+.avi9-mtext {
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+/* Depicted control inside a product still: a span, so nothing here is
+   focusable, announced as a control, or hoverable. */
+.avi9-ghost {
+  display: inline-flex;
+  align-items: center;
+  height: 34px;
+  margin-top: 12px;
+  padding: 0 15px;
+  border: 1px solid var(--r-line-ctl);
+  border-radius: var(--r-rad-pill);
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  white-space: nowrap;
+}
+.avi9-stamp {
+  display: flex;
+  justify-content: flex-end;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi9-ticks {
+  width: 18px;
+  height: 12px;
+  flex: none;
+  fill: none;
+  color: var(--r-mint);
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* The second channel is stated here rather than drawn a second time. The
+   text sits in one span so the flex gap applies between the glyph and the
+   line, and not around the separator inside it. */
+.avi9-deliv {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  margin-top: 12px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+.avi9-tick {
+  width: 14px;
+  height: 14px;
+  flex: none;
+  fill: none;
+  color: var(--r-mint);
+  stroke: currentcolor;
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- reveal ---------- */
+.avi9-flow[data-reveal].avi9-in .avi9-step,
+.avi9-aside[data-reveal].avi9-in .avi9-frag {
+  opacity: 1;
+  transform: none;
+}
+@media (scripting: enabled) {
+  .avi9-flow[data-reveal] .avi9-step,
+  .avi9-aside[data-reveal] .avi9-frag {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi9-flow[data-reveal].avi9-in .avi9-step {
+    transition-delay: calc(var(--i) * 0.14s);
+  }
+}
+
+/* ---------- responsive - 1180 / 639.98 ----------
+   No 900 tier: the body is the only two-column layout in the section and it
+   collapses at 1180. */
+@media (max-width: 1180px) {
+  /* Single column from here down, so there is nothing to centre the rail
+     against and the centring above must be given back. */
+  .avi9-body {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 28px;
+    align-items: start;
+    margin-top: 40px;
+  }
+  /* At full width the clause track would otherwise stretch past its measure. */
+  .avi9-flow {
+    gap: 20px;
+    max-width: 600px;
+  }
+  .avi9-frag {
+    margin-left: 0;
+    max-width: 480px;
+  }
+}
+@media (max-width: 639.98px) {
+  .avi9-sec {
+    padding: 56px 20px;
+  }
+  .avi9-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi9-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi9-body {
+    margin-top: 32px;
+  }
+  /* The name column cannot hold "Candidate books" and a clause side by side
+     at this width, so the clause drops under the name and quietens. */
+  .avi9-flow {
+    gap: 14px;
+    padding-left: 22px;
+  }
+  .avi9-step {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 4px;
+  }
+  .avi9-step::before {
+    left: -22px;
+  }
+  .avi9-sline {
+    font-size: 12.6px;
+    line-height: 1.5;
+    color: var(--r-quiet);
+  }
+  .avi9-frag {
+    max-width: none;
+    padding: 17px 16px;
+  }
+  .avi9-who,
+  .avi9-chat,
+  .avi9-ghost,
+  .avi9-stamp,
+  .avi9-deliv {
+    margin-top: 11px;
+  }
+  .avi9-who {
+    padding-bottom: 11px;
+  }
+}
+/* Covers the reveal, which is the only transition in the section. The
+   controls here are depicted and the steps are text, so nothing declares a
+   hover state and there is no hover transition to neutralise. If one is ever
+   added, it belongs in this block in the same change. */
+@media (prefers-reduced-motion: reduce) {
+  .avi9-flow[data-reveal] .avi9-step,
+  .avi9-aside[data-reveal] .avi9-frag {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

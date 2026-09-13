@@ -144,6 +144,38 @@ const AVI8_STEPS = [
   { name: "Interview", line: "Recorded for the hiring team to review" },
 ];
 
+const SECTION9_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi9-sec [data-reveal]");
+var s=function(e){e.classList.add("avi9-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi9-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Section 9. Both channels are live: WhatsApp messaging and calendar booking
+// ship today. The candidate picks from availability the hiring team has already
+// set — never from an open calendar — which is why step three says "from your
+// team's availability" and there is no calendar grid anywhere in the section.
+const AVI9_STEPS = [
+  { name: "Invite", line: "Sent over WhatsApp and email" },
+  {
+    name: "Reminder",
+    line: "Follows automatically if there’s no response",
+  },
+  {
+    name: "Candidate books",
+    line: "Picks a slot from your team’s availability",
+  },
+  {
+    name: "Confirmation",
+    line: "Reaches both sides, and so does any reschedule",
+  },
+  { name: "Interview", line: "Goes ahead at the booked time" },
+];
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -1289,6 +1321,98 @@ export default function AIVideoInterviewsPage() {
             </ol>
           </div>
         </section>
+
+        <section className="avi9-sec">
+          <div className="avi9-wrap">
+            <header className="avi9-copy">
+              <p className="avi9-eyebrow">Automation</p>
+              <h2 className="avi9-h2">
+                From invitation to booked interview, without the back-and-forth.
+              </h2>
+              <p className="avi9-lede">
+                Remotiv sends invitations and reminders over WhatsApp and email, and candidates book
+                their own slot from your team&rsquo;s availability. Confirmations and any
+                rescheduling reach both sides automatically.
+              </p>
+            </header>
+
+            <div className="avi9-body">
+              <ol className="avi9-flow" data-reveal>
+                {AVI9_STEPS.map((s, i) => (
+                  <li
+                    className="avi9-step"
+                    key={s.name}
+                    style={{ "--i": i } as CSSPropertiesWithVars}
+                  >
+                    <h3 className="avi9-sname">{s.name}</h3>
+                    <p className="avi9-sline">{s.line}</p>
+                  </li>
+                ))}
+              </ol>
+
+              <div className="avi9-aside" data-reveal>
+                <figure className="avi9-frag">
+                  <div className="avi9-fhead">
+                    <p className="avi9-slabel">WhatsApp</p>
+                    <p className="avi9-chan">
+                      Tue
+                      <span className="avi9-sep" aria-hidden="true">
+                        {" · "}
+                      </span>
+                      09:02
+                    </p>
+                  </div>
+
+                  {/* The sender is the hiring company, not Remotiv. */}
+                  <div className="avi9-who">
+                    <span className="avi9-av" aria-hidden="true">
+                      V
+                    </span>
+                    <span>
+                      <span className="avi9-wname">Vantera</span>
+                    </span>
+                  </div>
+
+                  <div className="avi9-chat">
+                    <div className="avi9-bub">
+                      <p className="avi9-mtext">
+                        Hi Ayesha &mdash; we&rsquo;d like to interview you for Senior Backend
+                        Engineer. Choose a time for your 20-minute AI video interview.
+                      </p>
+                      {/* Depicted, not operable: a span rather than a button, so
+                          nothing here is focusable or announced as a control. */}
+                      <span className="avi9-ghost" aria-hidden="true">
+                        Choose a time
+                      </span>
+                      <p className="avi9-stamp">
+                        09:02
+                        <svg className="avi9-ticks" viewBox="0 0 18 12" aria-hidden="true">
+                          <path d="M1.5 6.6 4.4 9.5 9.6 3.2" />
+                          <path d="M8.2 6.6 11.1 9.5 16.3 3.2" />
+                        </svg>
+                      </p>
+                    </div>
+                  </div>
+
+                  <p className="avi9-deliv">
+                    <svg className="avi9-tick" viewBox="0 0 16 16" aria-hidden="true">
+                      <path d="M3.2 8.4 6.5 11.7 12.8 5" />
+                    </svg>
+                    <span>
+                      <span className="avi9-ph">
+                        Delivered
+                        <span className="avi9-sep" aria-hidden="true">
+                          {" · "}
+                        </span>
+                      </span>
+                      also sent by email
+                    </span>
+                  </p>
+                </figure>
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1318,6 +1442,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 8 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION8_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 9 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION9_SCRIPT }}
       />
     </>
   );
