@@ -89,9 +89,17 @@ export type AnalyticsResult = {
   sources: SourceRow[];
   /** False shows the "no tagged links yet" state rather than a Direct-only bar. */
   anyTaggedSource: boolean;
+  /**
+   * Null means nothing has been scored at all.
+   *
+   * `reviewed === 0` is the OTHER absence: plenty scored, nobody has opened one.
+   * The percentages are only meaningful when `reviewed > 0` — they are shares of
+   * the reviewed rows, never of everything scored.
+   */
   agreement: {
-    total: number;
-    acceptedPct: number;
+    scored: number;
+    reviewed: number;
+    agreedPct: number;
     upPct: number;
     downPct: number;
     avgChange: number | null;

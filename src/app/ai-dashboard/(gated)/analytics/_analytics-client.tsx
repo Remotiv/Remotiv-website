@@ -594,42 +594,69 @@ function Agreement({ data }: { data: AnalyticsResult }) {
       <p className={CARD_TITLE}>AI and human agreement</p>
       <p className={CARD_SUB}>How often a reviewer changes a score, and which way</p>
 
-      {!a ? (
+      {/*
+       * Two absences, two notes. No agreement object means nothing is scored;
+       * `reviewed === 0` means the scores exist and nobody has opened one. This
+       * card used to show a full green "100% accepted" bar for the second case,
+       * because an unreviewed row counted as agreement — a percentage about
+       * human judgement with no human in it.
+       */}
+      {!a || a.reviewed === 0 ? (
         <div className="flex flex-col items-center px-5 pb-[34px] pt-8 text-center">
           <span className="mb-[15px] flex size-[54px] items-center justify-center rounded-[17px] border border-[var(--ai-line)] bg-[var(--ai-inset)] text-[var(--ai-t4)]">
             <Lightbulb className="size-6" strokeWidth={1.8} />
           </span>
-          <h4 className="m-0 mb-[7px] font-heading text-[15.5px] font-extrabold tracking-[-0.02em]">
-            Nothing scored yet
+          <p className="m-0 mb-[7px] font-heading text-[30px] font-extrabold leading-none text-[var(--ai-t4)]">
+            —
+          </p>
+          <h4 className="m-0 mb-[7px] mt-2.5 font-heading text-[15.5px] font-extrabold tracking-[-0.02em]">
+            {a ? "No recruiter adjustments yet" : "Nothing scored yet"}
           </h4>
           <p className="m-0 max-w-[340px] text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
-            Once your team reviews a few AI-scored candidates, this shows how often you agreed with
-            the score and which way you moved it.
+            {a ? (
+              <>
+                {a.scored} {a.scored === 1 ? "candidate has" : "candidates have"} an AI score, and
+                nobody has changed one yet. This fills in once your team starts adjusting them —
+                until then there&apos;s no agreement to measure.
+              </>
+            ) : (
+              <>
+                Once your team reviews a few AI-scored candidates, this shows how often you agreed
+                with the score and which way you moved it.
+              </>
+            )}
           </p>
         </div>
       ) : (
         <>
           <div className="mb-4 flex items-baseline gap-2.5">
             <span className="font-heading text-[38px] font-extrabold leading-none tracking-[-0.05em] text-[#04342C]">
-              {a.acceptedPct}%
+              {a.agreedPct}%
             </span>
             <span className="text-[12.5px] font-semibold leading-tight text-[var(--ai-t3)]">
-              accepted
+              left
               <br />
               unchanged
             </span>
           </div>
           <div className="mb-3.5 flex h-[34px] gap-0.5 overflow-hidden rounded-[10px]">
-            <Segment pct={a.acceptedPct} bg="#49D7A7" fg="#04342C" />
+            <Segment pct={a.agreedPct} bg="#49D7A7" fg="#04342C" />
             <Segment pct={a.upPct} bg="#9886FE" fg="#fff" />
             <Segment pct={a.downPct} bg="#7E47FF" fg="#fff" />
           </div>
           <div className="flex flex-col gap-2.5">
-            <LegendRow colour="#49D7A7" label="Accepted as scored" value={a.acceptedPct} />
+            <LegendRow colour="#49D7A7" label="Reviewed and left as scored" value={a.agreedPct} />
             <LegendRow colour="#9886FE" label="Scored up by a human" value={a.upPct} />
             <LegendRow colour="#7E47FF" label="Scored down by a human" value={a.downPct} />
           </div>
           <p className="m-0 mt-4 border-t border-[var(--ai-line-soft)] pt-3.5 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+            {/* The denominator, stated. These are shares of the scores someone
+                actually reviewed, not of everything the model has scored. */}
+            Across{" "}
+            <b className="font-bold text-[var(--ai-t1)]">
+              {a.reviewed} reviewed of {a.scored} scored
+            </b>
+            .{" "}
             {a.avgChange !== null && (
               <>
                 Average change when overridden:{" "}

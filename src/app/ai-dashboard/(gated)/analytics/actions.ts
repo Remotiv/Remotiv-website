@@ -44,19 +44,25 @@ import {
 
 const PAGE = 1000;
 
-/** One application row, loaded once and shared by the funnel and by sources. */
+/** One application row, loaded once and shared by every builder on the page. */
 type AppRow = {
   id: string;
+  job_id: string | null;
   source_detail: string | null;
   pipeline_stage: string | null;
-  shortlist_flagged_at: string | null;
+  /** When they applied — the start of time-to-hire, and the job table's age. */
+  created_at: string;
 };
+
+/** One stage transition. Loaded once; the funnel and time-to-hire share it. */
+type HistoryRow = { application_id: string; to_stage: string; created_at: string };
 
 /**
  * Every application in scope and period, range-paged.
  *
- * Loaded ONCE. Both the funnel and the sources breakdown need the same rows,
- * and reading them twice would double the largest scan on the page for no gain.
+ * Loaded ONCE. The funnel, the sources breakdown and the job table all need the
+ * same rows, and reading them repeatedly would multiply the largest scan on the
+ * page for no gain.
  */
 async function loadApplications(
   service: ReturnType<typeof createServiceClient>,
@@ -68,7 +74,7 @@ async function loadApplications(
   for (let from = 0; ; from += PAGE) {
     let q = service
       .from("job_applications")
-      .select("id, source_detail, pipeline_stage, shortlist_flagged_at")
+      .select("id, job_id, source_detail, pipeline_stage, created_at")
       .eq("company_id_snapshot", companyId)
       .order("created_at", { ascending: false })
       .range(from, from + PAGE - 1);
@@ -103,6 +109,25 @@ const FUNNEL_ORDER = [
   "offer",
   "hired",
 ] as const;
+
+/**
+ * ── One definition of "reached shortlist" ────────────────────
+ *
+ * This page used to carry two. The funnel counted furthest-stage ≥ shortlisted,
+ * while the source breakdown and the job table counted current stage in
+ * {shortlisted…hired} OR a non-null `shortlist_flagged_at`. So the same
+ * candidate could be shortlisted in one card and not in the next.
+ *
+ * The funnel's definition wins, and `shortlist_flagged_at` is deliberately not
+ * part of it: that column is the AUTO-shortlist flag — the system's suggestion
+ * that somebody take a look — and counting a suggestion as a decision would
+ * report a shortlist rate for candidates no human has shortlisted.
+ */
+const SHORTLISTED_AT = FUNNEL_ORDER.indexOf("shortlisted");
+
+function reachedShortlist(furthest: Map<string, number>, id: string): boolean {
+  return (furthest.get(id) ?? 0) >= SHORTLISTED_AT;
+}
 
 const STAGE_LABEL: Record<string, string> = {
   applied: "Applied",
@@ -183,11 +208,29 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
 
   const applications = await loadApplications(service, ctx.companyId, jobIds, since);
 
-  const [funnel, sources, agreement, jobs, interview] = await Promise.all([
-    buildFunnel(service, ctx.companyId, applications, appIds, since),
-    buildSources(service, ctx.companyId, applications),
+  /*
+   * The two shared reads. Stage history decides how far every applicant got;
+   * the score map decides every average score on the page. Both used to be
+   * loaded inside the builders that needed them — history once, scores three
+   * times — which is how the page ended up with two shortlist definitions and
+   * an N+1 over jobs. Loaded here, every card answers from the same rows.
+   */
+  const [history, scores] = await Promise.all([
+    loadStageHistory(service, ctx.companyId, appIds, since),
+    scoreMap(
+      service,
+      ctx.companyId,
+      applications.map((a) => a.id),
+    ),
+  ]);
+  const furthest = furthestStage(applications, history);
+
+  const funnel = buildFunnel(applications, history, furthest);
+  const sources = buildSources(applications, furthest, scores);
+
+  const [agreement, jobs, interview] = await Promise.all([
     buildAgreement(service, ctx.companyId, jobIds),
-    buildJobHealth(service, ctx.companyId, jobIds, since),
+    buildJobHealth(service, ctx.companyId, jobIds, applications, furthest, scores),
     interviewCompletion(service, ctx.companyId, jobIds, since),
   ]);
 
@@ -196,12 +239,24 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
   const hired = funnel.find((f) => f.stage === "hired");
   const offer = funnel.find((f) => f.stage === "offer");
 
+  const hireDays = timeToHire(applications, history);
+
   const stats = [
     {
       key: "Time to hire",
-      // NOBODY HAS REACHED HIRED YET on this workspace, so this is the empty
-      // path in practice: an em-dash and a plain note, never a fabricated 0.
-      value: hired && hired.count > 0 ? String(Math.round(hired.avgDays ?? 0)) : null,
+      /*
+       * APPLY → HIRE, from timeToHire below.
+       *
+       * This used to read `hired.avgDays`, which is the funnel's wait AT the
+       * hired stage — the gap between being marked hired and whatever happened
+       * next. That is not time to hire, and it is not even a duration anyone
+       * wants: on this workspace one applicant was marked hired and moved again
+       * six seconds later, so the card read a confident "0d". The old comment
+       * here claimed it showed an em-dash because nobody was hired. It had
+       * stopped being true, and nothing caught it because the wrong number and
+       * the honest empty state look identical until someone reaches the stage.
+       */
+      value: hireDays === null ? null : String(Math.round(hireDays)),
       unit: "d",
       emptyLabel: "No hires yet",
       goodDirection: "down" as const,
@@ -239,9 +294,15 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
     },
     {
       key: "AI agreement",
-      value: agreement ? String(agreement.acceptedPct) : null,
+      /*
+       * Only once somebody has actually reviewed a score. A null agreement
+       * means nothing is scored; `reviewed === 0` means plenty is scored and
+       * nobody has looked — two different absences, two different notes, and
+       * neither of them a percentage.
+       */
+      value: agreement && agreement.reviewed > 0 ? String(agreement.agreedPct) : null,
       unit: "%",
-      emptyLabel: "Nothing scored yet",
+      emptyLabel: agreement ? "No recruiter adjustments yet" : "Nothing scored yet",
       goodDirection: "up" as const,
     },
   ];
@@ -269,34 +330,19 @@ export async function fetchAnalytics(range: AnalyticsRange = "90d"): Promise<Ana
 // ── Funnel ───────────────────────────────────────────────────
 
 /**
- * Stage counts and average wait.
+ * Every stage transition in scope and period, range-paged.
  *
- * COUNTS come from the applications themselves — see the furthest-reached
- * comment below for why counting transitions was wrong. DURATIONS come from
- * application_stage_history, range-paged: the wait at a stage is the gap
- * between its own transition and the next one for the same application, which
- * cannot be expressed as a PostgREST aggregate (they are disabled here anyway).
+ * Ordered by application then time so consecutive rows for one applicant are
+ * adjacent and a wait is a subtraction. Loaded once: the funnel's durations,
+ * the furthest-stage map and time-to-hire all read these same rows.
  */
-async function buildFunnel(
+async function loadStageHistory(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
-  applications: AppRow[],
   appIds: string[] | null,
   since: string | null,
-): Promise<FunnelStage[]> {
-  if (applications.length === 0) {
-    return FUNNEL_ORDER.map((stage) => ({
-      stage,
-      label: STAGE_LABEL[stage],
-      count: 0,
-      avgDays: null,
-      reached: false,
-    }));
-  }
-
-  // Rows for durations. Ordered by application then time so consecutive rows
-  // for one applicant are adjacent and the gap is a subtraction.
-  const rows: { application_id: string; to_stage: string; created_at: string }[] = [];
+): Promise<HistoryRow[]> {
+  const rows: HistoryRow[] = [];
   /*
    * One drain per id chunk for a scoped caller, one unfiltered drain otherwise.
    * `appIds ?? []` would be WRONG here — an empty .in() matches nothing, so an
@@ -319,30 +365,27 @@ async function buildFunnel(
           cause: error,
         });
       }
-      const batch = (data ?? []) as typeof rows;
+      const batch = (data ?? []) as HistoryRow[];
       rows.push(...batch);
       if (batch.length < PAGE) break;
     }
   }
-  // Chunked reads arrive per-chunk, so re-sort before the adjacency scan below
-  // relies on rows for one application being contiguous and in time order.
+  // Chunked reads arrive per-chunk, so re-sort before any scan relies on rows
+  // for one application being contiguous and in time order.
   rows.sort(
     (a, b) =>
       a.application_id.localeCompare(b.application_id) || a.created_at.localeCompare(b.created_at),
   );
+  return rows;
+}
 
-  const waits = new Map<string, number[]>();
-  for (let i = 0; i < rows.length - 1; i++) {
-    const a = rows[i];
-    const b = rows[i + 1];
-    if (a.application_id !== b.application_id) continue;
-    const days = (new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) / 86_400_000;
-    if (!Number.isFinite(days) || days < 0) continue;
-    const list = waits.get(a.to_stage) ?? [];
-    list.push(days);
-    waits.set(a.to_stage, list);
-  }
-
+/**
+ * How far each application actually got, as an index into FUNNEL_ORDER.
+ *
+ * Computed ONCE and handed to the funnel, the source breakdown and the job
+ * table, so "reached shortlist" cannot mean three things on one page.
+ */
+function furthestStage(applications: AppRow[], history: HistoryRow[]): Map<string, number> {
   /*
    * ── Counts come from APPLICATIONS, not transitions ──
    *
@@ -372,7 +415,7 @@ async function buildFunnel(
     // -1 is 'rejected' or an unknown value. Everyone applied, so floor at 0.
     furthest.set(app.id, current >= 0 ? current : 0);
   }
-  for (const row of rows) {
+  for (const row of history) {
     const at = FUNNEL_ORDER.indexOf(row.to_stage as (typeof FUNNEL_ORDER)[number]);
     if (at < 0) continue;
     const seen = furthest.get(row.application_id);
@@ -381,8 +424,35 @@ async function buildFunnel(
     if (seen === undefined) continue;
     if (at > seen) furthest.set(row.application_id, at);
   }
+  return furthest;
+}
 
-  const reached = [...furthest.values()];
+/**
+ * Stage counts and average wait.
+ *
+ * COUNTS come from the furthest-stage map. DURATIONS come from the history: the
+ * wait at a stage is the gap between its own transition and the next one for
+ * the same application, which cannot be expressed as a PostgREST aggregate
+ * (they are disabled here anyway).
+ */
+function buildFunnel(
+  applications: AppRow[],
+  history: HistoryRow[],
+  furthest: Map<string, number>,
+): FunnelStage[] {
+  const waits = new Map<string, number[]>();
+  for (let i = 0; i < history.length - 1; i++) {
+    const a = history[i];
+    const b = history[i + 1];
+    if (a.application_id !== b.application_id) continue;
+    const days = (new Date(b.created_at).getTime() - new Date(a.created_at).getTime()) / 86_400_000;
+    if (!Number.isFinite(days) || days < 0) continue;
+    const list = waits.get(a.to_stage) ?? [];
+    list.push(days);
+    waits.set(a.to_stage, list);
+  }
+
+  const reached = applications.map((a) => furthest.get(a.id) ?? 0);
   const counts = FUNNEL_ORDER.map((_s, i) => reached.filter((v) => v >= i).length);
 
   return FUNNEL_ORDER.map((stage, i) => {
@@ -397,6 +467,32 @@ async function buildFunnel(
       reached: counts[i] > 0,
     };
   });
+}
+
+/**
+ * Mean days from applying to being marked hired.
+ *
+ * The hire DATE is only knowable from stage history — an application sitting at
+ * pipeline_stage 'hired' with no transition row has no recorded moment it was
+ * hired, so it is excluded rather than dated from something else. First 'hired'
+ * row per application wins: a candidate moved out of Hired and back in was
+ * hired once, on the earlier date.
+ */
+function timeToHire(applications: AppRow[], history: HistoryRow[]): number | null {
+  const appliedAt = new Map(applications.map((a) => [a.id, a.created_at]));
+  const counted = new Set<string>();
+  const days: number[] = [];
+
+  for (const row of history) {
+    if (row.to_stage !== "hired" || counted.has(row.application_id)) continue;
+    const from = appliedAt.get(row.application_id);
+    if (from === undefined) continue;
+    counted.add(row.application_id);
+    const d = (new Date(row.created_at).getTime() - new Date(from).getTime()) / 86_400_000;
+    if (Number.isFinite(d) && d >= 0) days.push(d);
+  }
+
+  return days.length > 0 ? days.reduce((s, v) => s + v, 0) / days.length : null;
 }
 
 /**
@@ -477,36 +573,27 @@ async function interviewCompletion(
  * `source_detail`, NOT `source`: that column means job_application|manual_upload
  * and answers a different question entirely.
  *
- * Range-paged. Three numbers per source — volume, shortlist rate and average AI
- * score — need the per-application values, so this reads ids and folds them in
- * memory rather than issuing 3×N aggregates for an unknown N of sources.
+ * Folds the shared rows in memory. Three numbers per source — volume, shortlist
+ * rate and average AI score — all need per-application values, so grouping what
+ * is already loaded beats issuing 3×N aggregates for an unknown N of sources.
  */
-async function buildSources(
-  service: ReturnType<typeof createServiceClient>,
-  companyId: string,
+function buildSources(
   rows: AppRow[],
-): Promise<SourceRow[]> {
+  furthest: Map<string, number>,
+  scores: Map<string, number>,
+): SourceRow[] {
   if (rows.length === 0) return [];
 
-  const scores = await scoreMap(
-    service,
-    companyId,
-    rows.map((r) => r.id),
-  );
-
-  const SHORTLISTED = new Set(["shortlisted", "interview", "offer", "hired"]);
   const buckets = new Map<
     string,
     { apps: number; short: number; scoreSum: number; scoreN: number }
   >();
 
   for (const r of rows) {
-    // No detail means nothing tagged it — that is Direct, and saying so is the
-    // honest reading rather than dropping the row.
-    const key = (r.source_detail ?? "").trim().toLowerCase() || "direct";
+    const key = sourceKey(r.source_detail);
     const b = buckets.get(key) ?? { apps: 0, short: 0, scoreSum: 0, scoreN: 0 };
     b.apps++;
-    if (SHORTLISTED.has(r.pipeline_stage ?? "") || r.shortlist_flagged_at) b.short++;
+    if (reachedShortlist(furthest, r.id)) b.short++;
     const s = scores.get(r.id);
     if (typeof s === "number") {
       b.scoreSum += s;
@@ -529,6 +616,75 @@ async function buildSources(
     .slice(0, 8);
 }
 
+/**
+ * Referrer → canonical source key.
+ *
+ * ── Why this table exists ────────────────────────────────────
+ *
+ * SOURCE_LABELS keys on a BRAND ("linkedin"). What actually lands in
+ * `source_detail` is a host ("linkedin.com") or an Android package
+ * ("com.linkedin.android"), so the lookup below never matched: every real
+ * referrer fell through to `unknown: true` and rendered as raw mono text, and
+ * LinkedIn arrived split three ways — linkedin.com, com.linkedin.android and
+ * lnkd.in — that were never added together.
+ *
+ * Exact hosts only, deliberately. Substring-matching a brand out of a hostname
+ * would fold linkedin.com.phishing.example into LinkedIn, and an attacker-set
+ * referrer is not something to be clever with. Anything unlisted keeps its raw
+ * host and stays flagged unknown, which is the honest rendering.
+ */
+const SOURCE_ALIASES: Record<string, string> = {
+  "linkedin.com": "linkedin",
+  "lnkd.in": "linkedin",
+  "com.linkedin.android": "linkedin",
+  "facebook.com": "facebook",
+  "m.facebook.com": "facebook",
+  "l.facebook.com": "facebook",
+  "com.facebook.katana": "facebook",
+  "instagram.com": "instagram",
+  "l.instagram.com": "instagram",
+  "com.instagram.android": "instagram",
+  "x.com": "x",
+  "twitter.com": "x",
+  "t.co": "x",
+  "whatsapp.com": "whatsapp",
+  "web.whatsapp.com": "whatsapp",
+  "com.whatsapp": "whatsapp",
+  "t.me": "telegram",
+  "telegram.org": "telegram",
+  "org.telegram.messenger": "telegram",
+  "youtube.com": "youtube",
+  "m.youtube.com": "youtube",
+  "reddit.com": "reddit",
+  "old.reddit.com": "reddit",
+  "google.com": "google",
+  "news.google.com": "google",
+  "bing.com": "bing",
+  "duckduckgo.com": "duckduckgo",
+  "search.brave.com": "brave",
+  "chatgpt.com": "chatgpt",
+  "chat.openai.com": "chatgpt",
+  "indeed.com": "indeed",
+  "glassdoor.com": "glassdoor",
+  "mail.google.com": "email",
+  "outlook.live.com": "email",
+  "outlook.office.com": "email",
+};
+
+/** Normalise one stored referrer to the key the label table is written in. */
+function sourceKey(raw: string | null): string {
+  const host = (raw ?? "")
+    .trim()
+    .toLowerCase()
+    .replace(/^[a-z]+:\/\//, "")
+    .replace(/^www\./, "")
+    .replace(/[/?#].*$/, "");
+  // No detail means nothing tagged it — that is Direct, and saying so is the
+  // honest reading rather than dropping the row.
+  if (!host) return "direct";
+  return SOURCE_ALIASES[host] ?? host;
+}
+
 const SOURCE_LABELS: Record<string, string> = {
   direct: "Direct",
   linkedin: "LinkedIn",
@@ -538,6 +694,10 @@ const SOURCE_LABELS: Record<string, string> = {
   x: "X",
   email: "Email",
   google: "Google",
+  bing: "Bing",
+  duckduckgo: "DuckDuckGo",
+  brave: "Brave Search",
+  chatgpt: "ChatGPT",
   search: "Search",
   indeed: "Indeed",
   glassdoor: "Glassdoor",
@@ -547,7 +707,23 @@ const SOURCE_LABELS: Record<string, string> = {
   job_board: "Job board",
 };
 
-/** application_id → shown score. Chunked; the .in() list travels in the URL. */
+/**
+ * application_id → shown score. Chunked; the .in() list travels in the URL.
+ *
+ * ── Throws, for the reason b79e0d4 gives ─────────────────────
+ *
+ * This read used to discard its error: `const { data } = await q`, then
+ * `data ?? []`. A failed chunk contributed no scores, so every application in
+ * it looked UNSCORED — and this map is the input to every average score on the
+ * page, the per-source rings and the job table alike. The averages stayed
+ * plausible and said nothing about being computed over a subset.
+ *
+ * That is the same defect "The page customers see was the one still lying"
+ * (b79e0d4) fixed for the three range-paged reads above; this chunked one was
+ * missed because it fails differently — it does not stop short, it quietly
+ * thins the corpus. Same consequence, so the same answer: throw, and let the
+ * client keep the previous range on screen rather than render a wrong number.
+ */
 async function scoreMap(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
@@ -555,12 +731,15 @@ async function scoreMap(
 ): Promise<Map<string, number>> {
   const out = new Map<string, number>();
   for (let i = 0; i < ids.length; i += 200) {
-    const { data } = await service
+    const { data, error } = await service
       .from("application_scores")
       .select("application_id, overall_score, human_adjusted_score")
       .eq("company_id", companyId)
       .eq("status", "scored")
       .in("application_id", ids.slice(i, i + 200));
+    if (error) {
+      throw new Error(`[analytics] scores failed at rows ${i}-${i + 199}`, { cause: error });
+    }
     for (const r of (data ?? []) as {
       application_id: string;
       overall_score: number | null;
@@ -580,17 +759,35 @@ async function scoreMap(
  *
  * Deliberately NOT called accuracy: an override is signal about where the model
  * reads candidates high or low, not an error to be counted against it.
+ *
+ * ── The denominator is REVIEWED rows, not scored rows ────────
+ *
+ * This used to count a null `human_adjusted_score` as agreement, which put
+ * "nobody has opened this candidate yet" and "a human read the score and agreed
+ * with it" in the same bucket. With nothing reviewed, every scored row landed in
+ * that bucket and the card rendered a full green bar reading "100% accepted
+ * unchanged" — the most confident number on the page, produced by nobody having
+ * clicked anything.
+ *
+ * A human has touched a row only when `adjusted_at` is set, so that is the
+ * denominator. `reviewed === 0` returns the counts with no percentages and the
+ * card says so, the same restraint the rest of the page already shows for a
+ * stage nobody has reached.
  */
 async function buildAgreement(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   jobIds: string[] | null,
 ): Promise<AnalyticsResult["agreement"]> {
-  const rows: { overall_score: number | null; human_adjusted_score: number | null }[] = [];
+  const rows: {
+    overall_score: number | null;
+    human_adjusted_score: number | null;
+    adjusted_at: string | null;
+  }[] = [];
   for (let from = 0; ; from += PAGE) {
     let q = service
       .from("application_scores")
-      .select("overall_score, human_adjusted_score")
+      .select("overall_score, human_adjusted_score, adjusted_at")
       .eq("company_id", companyId)
       .eq("status", "scored")
       .range(from, from + PAGE - 1);
@@ -608,44 +805,75 @@ async function buildAgreement(
     rows.push(...batch);
     if (batch.length < PAGE) break;
   }
+  // Null means nothing is scored at all, which is a different absence from
+  // "scored, nobody reviewed it" and gets its own note on the card.
   if (rows.length === 0) return null;
 
-  let accepted = 0;
+  let reviewed = 0;
+  let agreed = 0;
   let up = 0;
-  let down = 0;
   let delta = 0;
   let overridden = 0;
 
   for (const r of rows) {
+    if (!r.adjusted_at) continue;
+    reviewed++;
     const ai = r.overall_score;
     const human = r.human_adjusted_score;
+    // Reviewed and left alone, or reviewed and set to the same number: both are
+    // a person agreeing. Only a different number is an override.
     if (typeof human !== "number" || typeof ai !== "number" || human === ai) {
-      accepted++;
+      agreed++;
       continue;
     }
     overridden++;
     delta += human - ai;
     if (human > ai) up++;
-    else down++;
   }
 
-  const total = rows.length;
+  if (reviewed === 0) {
+    return {
+      scored: rows.length,
+      reviewed: 0,
+      agreedPct: 0,
+      upPct: 0,
+      downPct: 0,
+      avgChange: null,
+    };
+  }
+
+  const agreedPct = Math.round((agreed / reviewed) * 100);
+  const upPct = Math.round((up / reviewed) * 100);
   return {
-    total,
-    acceptedPct: Math.round((accepted / total) * 100),
-    upPct: Math.round((up / total) * 100),
-    downPct: Math.round((down / total) * 100),
+    scored: rows.length,
+    reviewed,
+    agreedPct,
+    upPct,
+    // The remainder, so three independently rounded shares cannot sum to 101
+    // and overflow the stacked bar.
+    downPct: 100 - agreedPct - upPct,
     avgChange: overridden > 0 ? Math.round((delta / overridden) * 10) / 10 : null,
   };
 }
 
 // ── Job health ───────────────────────────────────────────────
 
+/**
+ * Per-role volume, score and shortlist rate.
+ *
+ * Groups the applications already loaded rather than issuing one query per job.
+ * The old shape was an N+1 — a job query, then an application read and a score
+ * read for every row — and the per-job read was capped at PAGE with no paging,
+ * so a role with more than a thousand applicants was silently truncated on a
+ * page whose entire argument is that truncated aggregates are wrong numbers.
+ */
 async function buildJobHealth(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   jobIds: string[] | null,
-  since: string | null,
+  applications: AppRow[],
+  furthest: Map<string, number>,
+  scores: Map<string, number>,
 ): Promise<JobHealthRow[]> {
   let jq = service
     .from("jobs")
@@ -658,41 +886,29 @@ async function buildJobHealth(
   const list = (jobRows ?? []) as { id: string; title: string | null }[];
   if (list.length === 0) return [];
 
+  const byJob = new Map<string, AppRow[]>();
+  for (const app of applications) {
+    if (!app.job_id) continue;
+    const bucket = byJob.get(app.job_id);
+    if (bucket) bucket.push(app);
+    else byJob.set(app.job_id, [app]);
+  }
+
   const rows: JobHealthRow[] = [];
   for (const job of list) {
-    let aq = service
-      .from("job_applications")
-      .select("id, pipeline_stage, shortlist_flagged_at, created_at")
-      .eq("company_id_snapshot", companyId)
-      .eq("job_id", job.id)
-      .order("created_at", { ascending: true })
-      .limit(PAGE);
-    if (since) aq = aq.gte("created_at", since);
-    const { data } = await aq;
-    const apps = (data ?? []) as {
-      id: string;
-      pipeline_stage: string | null;
-      shortlist_flagged_at: string | null;
-      created_at: string;
-    }[];
-    if (apps.length === 0) continue;
+    const apps = byJob.get(job.id);
+    if (!apps || apps.length === 0) continue;
 
-    const scores = await scoreMap(
-      service,
-      companyId,
-      apps.map((a) => a.id),
-    );
-    const scored = [...scores.values()];
+    const scored = apps.map((a) => scores.get(a.id)).filter((s): s is number => s !== undefined);
     const avgScore =
       scored.length > 0 ? Math.round(scored.reduce((s, v) => s + v, 0) / scored.length) : null;
 
-    const SHORTLISTED = new Set(["shortlisted", "interview", "offer", "hired"]);
-    const short = apps.filter(
-      (a) => SHORTLISTED.has(a.pipeline_stage ?? "") || a.shortlist_flagged_at,
-    ).length;
-    const oldestDays = Math.floor(
-      (Date.now() - new Date(apps[0].created_at).getTime()) / 86_400_000,
+    const short = apps.filter((a) => reachedShortlist(furthest, a.id)).length;
+    const oldest = apps.reduce(
+      (min, a) => (a.created_at < min ? a.created_at : min),
+      apps[0].created_at,
     );
+    const oldestDays = Math.floor((Date.now() - new Date(oldest).getTime()) / 86_400_000);
     const shortlistPct = Math.round((short / apps.length) * 100);
 
     rows.push({
