@@ -4276,3 +4276,350 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 10 - HIRING ANALYTICS
+
+   Renders last, after section 9, so here the number and the reading order
+   agree. They do not for section 7, which renders fourth - that is explained
+   in its own header and is not a mistake to correct.
+
+   GROUND IS WHITE, AND SO IS SECTION 9 ABOVE IT. Every other boundary on this
+   page changes perceived ground; this one does not. The run becomes cream,
+   dark, cream, white, cream, dark, cream, white, WHITE. That was approved with
+   the condition known. What separates the two sections here is the object, not
+   the ground: section 9 ends on a text delivery line and section 10 opens on a
+   bordered, shadowed panel, with 144px of clear white between them. If a later
+   pass decides the boundary does not read, the fix is this section's ground -
+   not a rule, and not a shadow deepened past the one the contract specifies.
+
+   SHADOW - READ BEFORE CHANGING IT. .avi10-panel carries the contract's
+   floating-visual shadow, 0 22px 54px rgba(17, 17, 17, 0.09), not the shallow
+   card shadow 0 2px 12px rgba(0, 0, 0, 0.05) the cream sections use. Shadow
+   depth follows the ground, not the element type: on white the shallow shadow
+   has nothing to hold against, which is the defect the full-page audit found
+   in section 4 before that block moved to cream. Sections 7 and 9, the page's
+   other two white sections, carry the same floating shadow for the same reason
+   and say so in their own headers. This is the third. Do not standardise it
+   downwards.
+
+   ONE PANEL, NOT FOUR CARDS. The lede claims the dashboard reports an absence
+   rather than a guess, so the section shows the dashboard doing it. The four
+   values are cream inset tiles inside the panel and the disclosure is the
+   panel's own footer, which is why the internal pitch is the contract's
+   card-internal 12px rather than the 24px page-level grid gap - these tiles
+   are panel contents, not a card row.
+
+   THE EM-DASH IS A VALUE, NOT A GAP. Both em-dash tiles typeset the dash in
+   the same family, size, weight and ink as the two numbers, in the same slot.
+   They are a finished state - no skeleton, no placeholder grey, no dimming.
+   Anything that makes them look like they are still loading defeats the
+   section. Each carries its own visually-hidden text so a screen reader is
+   told there is no value rather than reading a stray dash.
+
+   Tokens live on .avi10-sec, never :root.
+   ============================================================ */
+.avi10-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-purple: #7e47ff;
+  --r-lime: #d9f972;
+  --r-body: #666666;
+  --r-body-strong: #3f3b37;
+  /* Small-meta grey. A floor, not a starting point - do not lighten it to
+     compensate for the smaller type. */
+  --r-quiet: #6e6862;
+  --r-sep: #bcb5ac;
+  --r-line: rgba(0, 0, 0, 0.08);
+  --r-line-ctl: rgba(0, 0, 0, 0.14);
+  --r-rad-card: 20px;
+  --r-rad-inset: 14px;
+  --r-rad-pill: 999px;
+
+  background: var(--r-white);
+  padding: 72px 40px;
+}
+.avi10-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+/* The em-dash tiles carry their absence in text for a screen reader, since a
+   dash announced on its own says nothing. */
+.avi10-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+
+/* ---------- header copy, full width ---------- */
+.avi10-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi10-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi10-h2 {
+  position: relative;
+  z-index: 0;
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+/* The site's highlighter, one word per heading, painted behind the glyphs. */
+.avi10-hl {
+  position: relative;
+  z-index: 0;
+}
+.avi10-hl::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.1em;
+  right: -0.1em;
+  top: 0.14em;
+  bottom: 0.06em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+}
+.avi10-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+
+/* ---------- the product still ---------- */
+.avi10-panel {
+  margin-top: 48px;
+  padding: 20px;
+  border: 1px solid var(--r-line);
+  border-radius: var(--r-rad-card);
+  background: var(--r-white);
+  box-shadow: 0 22px 54px rgba(17, 17, 17, 0.09);
+}
+.avi10-phead {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) auto;
+  gap: 14px;
+  align-items: center;
+  padding-bottom: 12px;
+  border-bottom: 1px solid var(--r-line);
+}
+.avi10-ptitle {
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-ink);
+}
+.avi10-sep {
+  color: var(--r-sep);
+}
+.avi10-pmeta {
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
+}
+/* A depicted control inside a product still - explicit height, zero vertical
+   padding, not focusable, and it declares no hover because it is not one. */
+.avi10-ghost {
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  height: 34px;
+  padding: 0 15px;
+  border: 1px solid var(--r-line-ctl);
+  border-radius: var(--r-rad-pill);
+  font: 500 12.8px / 1 var(--font-sans);
+  color: var(--r-ink);
+  white-space: nowrap;
+}
+.avi10-gico {
+  flex: none;
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: currentColor;
+  stroke-width: 1.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+
+/* ---------- the four values ----------
+   A 4-up row is not one of the contract's standard column sets. It steps 4 to
+   2 at the M tier and 1 at the S tier, and no child carries an explicit
+   grid-column outside the S block, so no collapse can orphan a track. */
+.avi10-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 12px;
+  margin-top: 12px;
+}
+.avi10-tile {
+  padding: 13px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-cream);
+}
+.avi10-tname {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-quiet);
+}
+.avi10-val {
+  margin-top: 12px;
+  font: 800 20px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+}
+/* The line under a value is the evidence for it, not chrome, so it takes the
+   body ink rather than the quiet meta grey at the same size. */
+.avi10-state {
+  margin-top: 12px;
+  font: 400 12.6px / 1.4 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+
+/* ---------- the panel's own footer: why an em-dash is an answer ---------- */
+.avi10-note {
+  margin-top: 12px;
+  padding-top: 12px;
+  border-top: 1px solid var(--r-line);
+}
+.avi10-nlabel {
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-quiet);
+}
+.avi10-ntext {
+  margin-top: 12px;
+  max-width: 640px;
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-body-strong);
+  text-wrap: pretty;
+}
+
+/* ---------- reveal ---------- */
+.avi10-panelo[data-reveal].avi10-in .avi10-panel,
+.avi10-panelo[data-reveal].avi10-in .avi10-tile {
+  opacity: 1;
+  transform: none;
+}
+@media (scripting: enabled) {
+  .avi10-panelo[data-reveal] .avi10-panel,
+  .avi10-panelo[data-reveal] .avi10-tile {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi10-panelo[data-reveal].avi10-in .avi10-tile {
+    transition-delay: calc(0.12s + var(--i) * 0.14s);
+  }
+}
+
+/* ---------- responsive - 1180 / 900 / 639.98 ---------- */
+@media (max-width: 1180px) {
+  .avi10-panel {
+    margin-top: 40px;
+  }
+}
+@media (max-width: 900px) {
+  .avi10-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}
+@media (max-width: 639.98px) {
+  .avi10-sec {
+    padding: 56px 20px;
+  }
+  .avi10-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi10-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi10-panel {
+    margin-top: 32px;
+    padding: 17px 16px;
+  }
+  .avi10-phead {
+    padding-bottom: 11px;
+  }
+  .avi10-cards {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 11px;
+  }
+  /* One tile per row, so the value takes the whole right edge and only the
+     state line needs a second row. Four full-height tiles stacked would have
+     pushed 375 past the band the short sections on this page sit in. */
+  .avi10-tile {
+    display: grid;
+    grid-template-columns: minmax(0, 1fr) auto;
+    gap: 0 14px;
+    align-items: baseline;
+  }
+  .avi10-tname {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .avi10-val {
+    grid-column: 2;
+    grid-row: 1;
+    margin-top: 0;
+    text-align: right;
+  }
+  .avi10-state {
+    grid-column: 1 / 3;
+    grid-row: 2;
+    margin-top: 11px;
+  }
+  .avi10-note {
+    margin-top: 11px;
+    padding-top: 11px;
+  }
+  .avi10-ntext {
+    margin-top: 11px;
+    max-width: none;
+  }
+}
+/* Covers the reveal, which is the only transition in the section. Nothing here
+   is interactive - four read-only values, one depicted control and two lines of
+   text - so no rule declares a hover state and there is no hover transition to
+   neutralise. If one is ever added, it belongs in this block in the same
+   change. */
+@media (prefers-reduced-motion: reduce) {
+  .avi10-panelo[data-reveal] .avi10-panel,
+  .avi10-panelo[data-reveal] .avi10-tile {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

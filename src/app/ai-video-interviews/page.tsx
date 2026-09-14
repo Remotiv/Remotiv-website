@@ -176,6 +176,41 @@ const AVI9_STEPS = [
   { name: "Interview", line: "Goes ahead at the booked time" },
 ];
 
+const SECTION10_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi10-sec [data-reveal]");
+var s=function(e){e.classList.add("avi10-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi10-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Section 10. Every figure is the live product's own value, read from the
+// analytics dashboard after f6eef5f: 24% completion over 21 invitations, 22
+// days from the one completed hire, and two metrics the workspace has no
+// evidence for yet. The two em-dashes are the finished state the dashboard
+// actually renders, not a placeholder for a number to be filled in later.
+const AVI10_TILES = [
+  {
+    name: "Interview completion",
+    value: "24%",
+    state: "5 of 21 invitations completed",
+  },
+  { name: "Time to hire", value: "22d", state: "From 1 completed hire" },
+  {
+    name: "AI–Human agreement",
+    value: null,
+    state: "No recruiter adjustments yet",
+  },
+  {
+    name: "Hiring bottleneck",
+    value: null,
+    state: "Not enough stage movement to identify",
+  },
+];
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -1413,6 +1448,76 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi10-sec">
+          <div className="avi10-wrap">
+            <header>
+              <p className="avi10-eyebrow">Hiring analytics</p>
+              <h2 className="avi10-h2">
+                See what the data says &mdash; and when it doesn&rsquo;t say{" "}
+                <span className="avi10-hl">enough</span> yet.
+              </h2>
+              <p className="avi10-lede">
+                Remotiv tracks interview activity and hiring movement, but it doesn&rsquo;t turn
+                missing data into confident-looking metrics. When there isn&rsquo;t enough evidence
+                for a conclusion, the dashboard says so.
+              </p>
+            </header>
+
+            <div className="avi10-panelo" data-reveal>
+              <figure className="avi10-panel">
+                <div className="avi10-phead">
+                  <h3 className="avi10-ptitle">
+                    Analytics
+                    <span className="avi10-sep" aria-hidden="true">
+                      {" · "}
+                    </span>
+                    <span className="avi10-pmeta">Vantera workspace</span>
+                  </h3>
+                  {/* Depicted, not operable: a span rather than a button, so
+                      nothing here is focusable or announced as a control. */}
+                  <span className="avi10-ghost" aria-hidden="true">
+                    All time
+                    <svg className="avi10-gico" viewBox="0 0 9 9" aria-hidden="true">
+                      <path d="M1.4 3.2 4.5 6.3 7.6 3.2" />
+                    </svg>
+                  </span>
+                </div>
+
+                <div className="avi10-cards">
+                  {AVI10_TILES.map((t, i) => (
+                    <div
+                      className="avi10-tile"
+                      key={t.name}
+                      style={{ "--i": i } as CSSPropertiesWithVars}
+                    >
+                      <p className="avi10-tname">{t.name}</p>
+                      <p className="avi10-val">
+                        {t.value ?? (
+                          <>
+                            <span aria-hidden="true">&mdash;</span>
+                            <span className="avi10-sr">No value reported</span>
+                          </>
+                        )}
+                      </p>
+                      <p className="avi10-state">{t.state}</p>
+                    </div>
+                  ))}
+                </div>
+
+                <figcaption className="avi10-note">
+                  <p className="avi10-nlabel">When a number appears</p>
+                  <p className="avi10-ntext">
+                    A metric is reported once this workspace&rsquo;s own activity supports it.
+                    Nothing here is modelled, benchmarked against other companies or estimated to
+                    fill a gap &mdash; where the evidence isn&rsquo;t there yet, Remotiv prints an
+                    em-dash instead of a number it can&rsquo;t stand behind.
+                  </p>
+                </figcaption>
+              </figure>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1446,6 +1551,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 9 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION9_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 10 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION10_SCRIPT }}
       />
     </>
   );
