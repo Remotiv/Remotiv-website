@@ -135,12 +135,13 @@ export async function handleInterviewExpiry(job: {
  * letter and in the admin queue panel — a sweep and a single-session expiry are
  * different work and should not have to be told apart by reading a payload.
  *
- * ── REQUIRES A CONSTRAINT CHANGE BEFORE IT CAN RUN ───────────
+ * ── The constraint carries it ────────────────────────────────
  *
- * background_jobs_type_check does not list 'interview_expiry_sweep'. Until the
- * ALTER in the report is applied, enqueue() returns a CHECK violation, the job
- * row is never created, and this handler is never reached. The registration is
- * correct and inert until then — see the report.
+ * 'interview_expiry_sweep' has been in background_jobs_type_check since
+ * 2026-09-15, confirmed against the live database. This comment used to say the
+ * opposite — that enqueue() would fail a CHECK until an ALTER ran — and the
+ * checked-in schema.sql still reflects that older state. It is a stale dump;
+ * JOB_TYPES in jobs-queue.ts is the mirror kept in step by hand.
  *
  * Takes no payload. The work is defined entirely by the sessions table.
  */

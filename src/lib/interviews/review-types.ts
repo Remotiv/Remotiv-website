@@ -10,6 +10,8 @@
  * what stops a path reaching the client by accident rather than by review.
  */
 
+import type { InterviewKind } from "./types";
+
 export type InterviewStatus = "invited" | "started" | "submitted" | "expired" | "cancelled";
 
 export type TranscriptState =
@@ -39,6 +41,8 @@ export type InterviewRow = {
   candidateEmail: string;
   candidateLink: CandidateLink;
   jobTitle: string;
+  /** async or live. Shown on every row so the two options are never confused. */
+  kind: InterviewKind;
   status: InterviewStatus;
   answered: number;
   totalQuestions: number;
@@ -213,6 +217,7 @@ export type InterviewSessionDetail = {
   candidateLink: CandidateLink;
   jobTitle: string;
   stage: string;
+  kind: InterviewKind;
   status: InterviewStatus;
   answers: InterviewAnswerView[];
   totalQuestions: number;

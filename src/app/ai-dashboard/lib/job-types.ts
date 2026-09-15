@@ -197,9 +197,14 @@ export type CompanyJobInput = {
    * columns existed and a job created by a client that omits them both land on
    * the same behaviour.
    *
-   * Only ai_cv_scoring_enabled is read by shipped code today (the /api/apply →
-   * ai_cv_score path). The other four are stored now and consumed when video
-   * interviews ship; the wizard labels them as such rather than pretending.
+   * Three of the five are read by shipped code:
+   *   · ai_cv_scoring_enabled — the /api/apply → ai_cv_score path.
+   *   · async_interview_enabled — gates sendInterviewInvite, server-side, from
+   *     the live job row (applicants/interview-actions.ts).
+   *   · allow_rerecord — frozen onto interview_sessions at invite and read by
+   *     resolveSessionByToken to decide whether Re-record is offered.
+   * measure_relevancy and avatar_interview_enabled are stored and unread; the
+   * wizard labels them as such rather than pretending.
    */
   allow_rerecord: boolean;
   ai_cv_scoring_enabled: boolean;

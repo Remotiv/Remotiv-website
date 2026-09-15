@@ -18,6 +18,7 @@ import {
   RETENTION_MONTHS,
   SESSION_EXPIRY_DAYS,
 } from "@/lib/interviews/tokens";
+import { type InterviewKind, readInterviewKind } from "@/lib/interviews/types";
 import type {
   InterviewPanelState,
   InterviewSessionSummary,
@@ -165,6 +166,10 @@ export async function sendInterviewInvite(
     .select("id, status, submitted_at")
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
+    // Per (application, KIND). A job may run both options, and without this
+    // an AI Video Interview invite for a shortlisted candidate would cancel
+    // the async interview they had already been sent — or the reverse.
+    .eq("kind", "async")
     .in("status", ["invited", "started", "submitted"])
     .order("created_at", { ascending: false })
     .limit(1);
@@ -208,6 +213,11 @@ export async function sendInterviewInvite(
       job_id: app.job_id,
       token_hash: tokenHash,
       status: "invited",
+      // Named, never defaulted. The column's default backfills rows that
+      // predate it and is due to be dropped; a writer that omits kind must
+      // fail a NOT NULL at that point rather than silently mint an async
+      // session for the wrong option.
+      kind: "async",
       // Snapshotted from the job so a later toggle can't retroactively let
       // someone re-record an interview they were invited to under other rules.
       allow_rerecord: settings.allowRerecord,
@@ -486,6 +496,13 @@ async function readJobInterviewSettings(
  */
 export async function fetchInterviewPanel(
   applicationId: string,
+  /**
+   * Required, not defaulted. The drawer's panel IS the async panel today and
+   * passes "async"; a live panel passes "live". A default here would be the
+   * one place a caller could forget the kind and still get an answer — the
+   * wrong session, for a job running both options.
+   */
+  kind: InterviewKind,
 ): Promise<InterviewPanelState> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
@@ -521,15 +538,20 @@ export async function fetchInterviewPanel(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, status, expires_at, submitted_at, started_at, invited_by_name, created_at, questions_snapshot",
+      "id, kind, status, expires_at, submitted_at, started_at, invited_by_name, created_at, questions_snapshot",
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
+    // The newest session OF THIS KIND. Without the filter a job running both
+    // options would show whichever invite went out last, under the wrong
+    // heading.
+    .eq("kind", kind)
     .order("created_at", { ascending: false })
     .limit(1);
 
   const row = ((data ?? []) as {
     id: string;
+    kind: string;
     status: string;
     expires_at: string;
     submitted_at: string | null;
@@ -582,6 +604,7 @@ export async function fetchInterviewPanel(
 
   const session: InterviewSessionSummary = {
     id: row.id,
+    kind: readInterviewKind(row.kind, row.id),
     // Expiry is derived, not read: a session nothing has swept is still
     // expired once the deadline passes.
     status:

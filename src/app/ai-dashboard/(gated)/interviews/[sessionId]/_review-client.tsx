@@ -32,6 +32,7 @@ import type {
   ScoredEvidence,
   SessionCriterion,
 } from "@/lib/interviews/review-types";
+import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import {
   addInterviewNote,
   adjustAnswerScore,
@@ -197,6 +198,10 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
             </h1>
             <p className="m-0 mt-1 flex flex-wrap items-center gap-2 text-[13px] text-[var(--ai-t3)]">
               <span className="truncate">{session.jobTitle}</span>
+              <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
+              {/* Which option this session is, in the header where the reader
+                  looks first — never to be mistaken for the other kind. */}
+              <span>{INTERVIEW_KIND_LABELS[session.kind]}</span>
               <span className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />
               <span>{headerWhen(session)}</span>
               {session.candidateLink !== "linked" && (

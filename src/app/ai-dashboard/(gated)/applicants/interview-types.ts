@@ -5,8 +5,12 @@
  * export there is compiled into a server action, so a type cannot live in it.
  */
 
+import type { InterviewKind } from "@/lib/interviews/types";
+
 export type InterviewSessionSummary = {
   id: string;
+  /** Which option this is — async or AI Video Interview. Labelled in the panel. */
+  kind: InterviewKind;
   /** The interview's own score, shown BESIDE the CV score — never merged with
    *  it. They measure different things and a blended number would hide that. */
   score: number | null;

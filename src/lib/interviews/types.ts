@@ -17,6 +17,44 @@ export type SessionStatus = (typeof SESSION_STATUSES)[number];
 export const TRANSCRIPT_STATUSES = ["pending", "done", "failed", "skipped"] as const;
 export type TranscriptStatus = (typeof TRANSCRIPT_STATUSES)[number];
 
+/**
+ * Which interview option a session is. `interview_sessions.kind`, set at
+ * invite and never changed — a trigger refuses the UPDATE (migration 017).
+ *
+ *   async  the shipped one-way recording: one video per pre-set question
+ *   live   AI Video Interview: a real-time conversation with an AI interviewer
+ *
+ * A job may run both, so this cannot be read off the job. Every writer names
+ * the kind explicitly — the column's default exists to backfill the rows that
+ * predate it, not to fill in for a writer that forgot, and it is scheduled to
+ * be dropped once every writer supplies one (see the 017 migration notes).
+ */
+export const INTERVIEW_KINDS = ["async", "live"] as const;
+export type InterviewKind = (typeof INTERVIEW_KINDS)[number];
+
+/** What each kind is called wherever a session is listed or headed. */
+export const INTERVIEW_KIND_LABELS: Record<InterviewKind, string> = {
+  async: "Async Video Interview",
+  live: "AI Video Interview",
+};
+
+/**
+ * Narrow a stored kind for display.
+ *
+ * The column is NOT NULL with a CHECK on exactly these two values, so anything
+ * else is unreachable through the database. It is still handled rather than
+ * cast, because a cast is how an impossible value becomes an invisible one:
+ * the fallback is logged with the session id, so a bad row is a line in the
+ * log and one mislabelled card, not a page that fails to render.
+ */
+export function readInterviewKind(raw: unknown, sessionId: string): InterviewKind {
+  if (raw === "async" || raw === "live") return raw;
+  console.error(
+    `[interviews] session ${sessionId} has kind ${JSON.stringify(raw)} — shown as async`,
+  );
+  return "async";
+}
+
 /** Defaults the question builder starts from. */
 export const DEFAULT_PREP_SECONDS = 30;
 export const DEFAULT_ANSWER_SECONDS = 120;

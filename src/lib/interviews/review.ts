@@ -6,6 +6,7 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { readInterviewKind } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
 import { findQuoteStart } from "./quote-timestamps";
 import type {
@@ -98,6 +99,7 @@ type SessionRow = {
   id: string;
   application_id: string | null;
   job_id: string | null;
+  kind: string;
   status: string;
   started_at: string | null;
   submitted_at: string | null;
@@ -156,7 +158,7 @@ export async function listInterviewSessions(
     let q = service
       .from("interview_sessions")
       .select(
-        "id, application_id, job_id, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
+        "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
       )
       .eq("company_id", ctx.companyId)
       .order("created_at", { ascending: false })
@@ -203,6 +205,7 @@ export async function listInterviewSessions(
       candidateEmail: who.email,
       candidateLink: who.link,
       jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
+      kind: readInterviewKind(s.kind, s.id),
       status,
       answered: stats?.answered ?? 0,
       totalQuestions: total,
@@ -372,7 +375,7 @@ export async function loadInterviewSession(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, application_id, job_id, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
+      "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
     )
     .eq("id", sessionId)
     .eq("company_id", ctx.companyId)
@@ -494,6 +497,7 @@ export async function loadInterviewSession(
     candidateLink: who.link,
     jobTitle: (row.job_id ? jobs.get(row.job_id) : null) ?? "This role",
     stage: (appRow as { pipeline_stage: string | null } | null)?.pipeline_stage ?? "applied",
+    kind: readInterviewKind(row.kind, row.id),
     status,
     answers,
     totalQuestions,

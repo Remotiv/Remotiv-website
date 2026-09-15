@@ -153,10 +153,10 @@ export const JOB_TYPES = {
   /**
    * Step 6 — the periodic safety net for the above.
    *
-   * NOT YET IN background_jobs_type_check. Enqueuing one fails with a CHECK
-   * violation until the ALTER is applied; see the report. Listed here because
-   * this object is the authoritative mirror of the constraint and the two are
-   * kept in step by hand.
+   * In background_jobs_type_check since the retention work of 2026-09-15,
+   * confirmed against the live constraint (pg_get_constraintdef). The
+   * checked-in schema.sql predates that ALTER and still lists ten types — it
+   * is a stale dump, not the authority. This object is.
    */
   INTERVIEW_EXPIRY_SWEEP: "interview_expiry_sweep",
   /**

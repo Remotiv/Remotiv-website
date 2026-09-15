@@ -1,6 +1,6 @@
 import "server-only";
-import { createServiceClient } from "@/lib/supabase/server";
 import { skipJob } from "@/lib/job-skip";
+import { createServiceClient } from "@/lib/supabase/server";
 import { INTERVIEW_BUCKET } from "./session";
 
 /**
@@ -27,7 +27,12 @@ import { INTERVIEW_BUCKET } from "./session";
  * video rather than a blank panel. Replaying the dead job later fills it in.
  */
 
-/** Whisper's own ceiling. A longer answer is chunked rather than refused. */
+/**
+ * Whisper's own ceiling. A file over it is marked `failed` and NOT retried —
+ * nothing here chunks. This comment used to say the opposite, and the gap
+ * between a comment and its code is how a 30MB recording gets a shrug instead
+ * of a transcript. See the size check below: it is a terminal markFailed.
+ */
 const WHISPER_MAX_BYTES = 25 * 1024 * 1024;
 
 const SIGNED_URL_TTL_SECONDS = 10 * 60;
@@ -83,9 +88,7 @@ export async function handleTranscribe(job: {
   if (!apiKey) {
     // Deliberately BEFORE any state write: the row stays 'pending' so a replay
     // after the key is configured picks it up as ordinary work.
-    throw new Error(
-      "transcribe: OPENAI_API_KEY is not configured — cannot transcribe.",
-    );
+    throw new Error("transcribe: OPENAI_API_KEY is not configured — cannot transcribe.");
   }
 
   const { data: signed } = await service.storage

@@ -22,6 +22,7 @@ import {
   type InterviewStatus,
   type InterviewTab,
 } from "@/lib/interviews/review-types";
+import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import { fetchInterviewList, setInterviewArchived } from "./actions";
 
 /**
@@ -519,8 +520,13 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
 
       {/* Kept on mobile: stacked, "which role is this for" is the first thing
           a reviewer needs, and the column header is hidden down there. */}
-      <span className="truncate text-[13px] text-[var(--ai-t2)]">
-        {row.jobTitle}
+      <span className="min-w-0">
+        <span className="block truncate text-[13px] text-[var(--ai-t2)]">{row.jobTitle}</span>
+        {/* Which option. A list that can hold both kinds must say which each
+            row is — the status pill alone reads the same for either. */}
+        <span className="block truncate text-[11.5px] text-[var(--ai-t3)]">
+          {INTERVIEW_KIND_LABELS[row.kind]}
+        </span>
       </span>
 
       <span className="justify-self-start">

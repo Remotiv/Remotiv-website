@@ -4,6 +4,7 @@ import { CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react"
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
+import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import {
   type BookingPanel,
   cancelBookingAsRecruiter,
@@ -80,7 +81,9 @@ export function InterviewPanel({
 
   const load = useCallback(async () => {
     try {
-      setState(await fetchInterviewPanel(applicationId));
+      // This panel is the async one. A live panel passes "live" — the kind is
+      // required on the server so neither can forget to say which.
+      setState(await fetchInterviewPanel(applicationId, "async"));
     } catch {
       setState(null);
     } finally {
@@ -254,6 +257,11 @@ export function InterviewPanel({
             >
               <StateIcon className="size-3" strokeWidth={2.2} />
               {badge.label}
+            </span>
+            {/* Which option this is. Once a job can run both, a card that
+                says only "Submitted" does not say what was submitted. */}
+            <span className="text-[11.5px] font-semibold text-[var(--ai-t3)]">
+              {INTERVIEW_KIND_LABELS[session.kind]}
             </span>
             {session.total > 0 && session.status !== "submitted" && (
               <span className="text-[11.5px] font-semibold text-[var(--ai-t3)]">
