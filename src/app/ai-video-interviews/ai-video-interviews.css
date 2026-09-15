@@ -4623,3 +4623,285 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 11 - SECURITY & RESPONSIBLE AI
+
+   Renders last, after section 10, so here the number and the reading order
+   agree. They do not for section 7, which renders fourth - that is explained
+   in its own header and is not a mistake to correct.
+
+   GROUND IS CREAM, and sections 9 and 10 above it are both white. The page
+   runs cream, dark, cream, white, cream, dark, cream, white, white, CREAM.
+   Cream restores the alternation the 9-to-10 boundary gave up and puts a
+   ground change under the last boundary on the page.
+
+   THE CARDS ARE PURPLE, NOT THE CONTRACT'S WHITE PANEL. DO NOT "CORRECT"
+   THIS. A later pass comparing this section against the others will find
+   .avi11-card diverging from the contract's light-ground card recipe - white
+   fill, dark ink, rgba(0, 0, 0, 0.08) border, 0 2px 12px rgba(0, 0, 0, 0.05)
+   shadow. That is deliberate and was specified: these four cards reuse the
+   homepage's own card, so the fill (#9886fe), the border alpha (0.07), the
+   shadow (0 2px 16px rgba(0, 0, 0, 0.06)), the white numeral and the white
+   icon tile all come from the homepage rather than from the contract. What
+   does NOT come from the homepage is the type: title and body take the
+   contract's 15 / 1.26 and 13.4 / 1.6, not the homepage's 16.8 and 14.08.
+   The 20px radius is the contract's, and matches the homepage anyway.
+
+   THE WHITE-ON-PURPLE CONTRAST IS KNOWN AND ACCEPTED. Measured against
+   #9886fe: card title and numeral 2.93:1, card body 2.42:1. Both are below
+   AA. This was raised, decided and accepted as the cost of reusing the
+   homepage card, so it is a documented decision rather than an oversight.
+   Do not lighten the fill or darken the ink to "fix" it - that silently
+   breaks the match with the homepage, which is the whole point of the
+   exception. If the decision is ever revisited, revisit the exception, not
+   the two colours.
+
+   NO STICKY STACK. The homepage cards pin and pile as you scroll. That was
+   built here first and measured: four cards need a 132px lip budget plus a
+   hold row under the last card before any of them can pin, because a sticky
+   element is clamped to its containing block's content box. Without that room
+   the last card pinned short of its offset and covered the card beneath it;
+   with it, the section grew past its height budget and the pile still only
+   completed as the section left the viewport. The effect needs the homepage
+   section's full height. An offset stack that never moves is the mechanism's
+   appearance without the mechanism, so the cards sit in a plain row and the
+   only motion is the page's own entry reveal, ordered 01 to 04.
+
+   Tokens live on .avi11-sec, never :root.
+   ============================================================ */
+.avi11-sec {
+  --r-cream: #f8f4f1;
+  --r-white: #ffffff;
+  --r-ink: #111111;
+  --r-purple: #7e47ff;
+  --r-lime: #d9f972;
+  --r-body: #666666;
+  /* The homepage card purple. A new name rather than a redefinition of
+     --r-purple, which is still this section's accent ink on the eyebrow. */
+  --r-purple-soft: #9886fe;
+  --r-on-card: rgba(255, 255, 255, 0.8);
+  --r-rad-card: 20px;
+  --r-rad-pill: 999px;
+  /* The icon tile's radius is a homepage value the contract's radius
+     vocabulary does not carry, so it gets its own name rather than bending
+     --r-rad-inset, which means 14px everywhere else on this page. */
+  --r-rad-tile: 10px;
+
+  background: var(--r-cream);
+  padding: 72px 40px;
+}
+.avi11-wrap {
+  max-width: 1400px;
+  margin: 0 auto;
+}
+
+/* ---------- header copy ---------- */
+.avi11-eyebrow {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 700 11px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  color: var(--r-purple);
+}
+.avi11-eyebrow::before {
+  content: "";
+  display: block;
+  width: 6px;
+  height: 6px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-purple);
+}
+.avi11-h2 {
+  position: relative;
+  z-index: 0;
+  margin-top: 16px;
+  max-width: 600px;
+  font: 800 32px / 1.12 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-ink);
+  text-wrap: balance;
+}
+/* The site's highlighter, one word per heading, painted behind the glyphs. */
+.avi11-hl {
+  position: relative;
+  z-index: 0;
+}
+.avi11-hl::before {
+  content: "";
+  position: absolute;
+  z-index: -1;
+  left: -0.1em;
+  right: -0.1em;
+  top: 0.14em;
+  bottom: 0.06em;
+  background: var(--r-lime);
+  transform: rotate(-1.2deg);
+}
+.avi11-lede {
+  margin-top: 20px;
+  max-width: 520px;
+  font: 400 15.6px / 1.7 var(--font-sans);
+  color: var(--r-body);
+  text-wrap: pretty;
+}
+
+/* ---------- the four claims ---------- */
+.avi11-cards {
+  display: grid;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  gap: 24px;
+  margin-top: 48px;
+}
+.avi11-card {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) 36px;
+  gap: 12px;
+  align-content: start;
+  padding: 20px;
+  border: 1px solid rgba(0, 0, 0, 0.07);
+  border-radius: var(--r-rad-card);
+  background: var(--r-purple-soft);
+  box-shadow: 0 2px 16px rgba(0, 0, 0, 0.06);
+}
+/* The numerals are real markup, never a CSS counter: Sora's figures are
+   tabular and decimal-leading-zero draws the two digits over each other. */
+.avi11-num {
+  grid-column: 1;
+  grid-row: 1;
+  align-self: center;
+  font: 800 24px / 1 var(--font-heading);
+  letter-spacing: -0.03em;
+  color: var(--r-white);
+}
+.avi11-tile {
+  grid-column: 2;
+  grid-row: 1;
+  display: grid;
+  place-items: center;
+  width: 36px;
+  height: 36px;
+  border-radius: var(--r-rad-tile);
+  background: rgba(255, 255, 255, 0.15);
+}
+.avi11-tico {
+  width: 16px;
+  height: 16px;
+  fill: none;
+  stroke: var(--r-white);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.avi11-ctitle {
+  grid-column: 1 / 3;
+  grid-row: 2;
+  font: 700 15px / 1.26 var(--font-heading);
+  letter-spacing: -0.02em;
+  color: var(--r-white);
+  text-wrap: pretty;
+}
+.avi11-ctext {
+  grid-column: 1 / 3;
+  grid-row: 3;
+  font: 400 13.4px / 1.6 var(--font-sans);
+  color: var(--r-on-card);
+  text-wrap: pretty;
+}
+
+/* ---------- reveal ---------- */
+.avi11-cards[data-reveal].avi11-in .avi11-card {
+  opacity: 1;
+  transform: none;
+}
+@media (scripting: enabled) {
+  .avi11-cards[data-reveal] .avi11-card {
+    opacity: 0;
+    transform: translateY(10px);
+    transition:
+      opacity 0.7s ease,
+      transform 0.7s ease;
+  }
+  .avi11-cards[data-reveal].avi11-in .avi11-card {
+    transition-delay: calc(var(--i) * 0.14s);
+  }
+}
+
+/* ---------- responsive - 1180 / 900 / 639.98 ---------- */
+/* The 4-to-2 step is taken at the L tier rather than the M tier, which is
+   where section 10's four-up row takes it. The difference is what the cell
+   holds: section 10's tiles hold a label and a figure, which stay legible in
+   a narrow column, while these hold a whole sentence. Held four-up to the
+   bottom of the M tier the longest of the four claims wraps to five lines
+   against two or three for its neighbours, so the row loses its common
+   baseline and the cards stop reading as one set. Measured before the step
+   was moved; re-measure before moving it back. */
+@media (max-width: 1180px) {
+  .avi11-cards {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+    gap: 20px;
+    margin-top: 40px;
+  }
+}
+@media (max-width: 639.98px) {
+  .avi11-sec {
+    padding: 56px 20px;
+  }
+  .avi11-h2 {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 24px;
+    line-height: 1.16;
+  }
+  .avi11-lede {
+    margin-top: 14px;
+    max-width: none;
+    font-size: 15px;
+  }
+  .avi11-cards {
+    grid-template-columns: minmax(0, 1fr);
+    margin-top: 32px;
+  }
+  /* The numeral, the title and the tile share the top row so four stacked
+     cards stay inside the band the short sections on this page sit in. The
+     claim keeps the card's full measure below them. Every child of the card
+     is reassigned here, because the card's own template goes from two
+     columns to three. */
+  .avi11-card {
+    grid-template-columns: auto minmax(0, 1fr) 36px;
+    gap: 11px 12px;
+    padding: 16px;
+  }
+  .avi11-num {
+    grid-column: 1;
+    grid-row: 1;
+  }
+  .avi11-ctitle {
+    grid-column: 2;
+    grid-row: 1;
+    align-self: center;
+  }
+  .avi11-tile {
+    grid-column: 3;
+    grid-row: 1;
+  }
+  .avi11-ctext {
+    grid-column: 1 / 4;
+    grid-row: 2;
+  }
+}
+/* Covers the reveal, which is the only transition in the section. Nothing
+   here is interactive - four read-only cards - so no rule declares a hover
+   state and there is no hover transition to neutralise. The homepage card
+   this one borrows its fill from carries a hover shadow; that did not come
+   across, and if it is ever added it belongs in this block in the same
+   change. */
+@media (prefers-reduced-motion: reduce) {
+  .avi11-cards[data-reveal] .avi11-card {
+    opacity: 1;
+    transform: none;
+    transition: none;
+  }
+}

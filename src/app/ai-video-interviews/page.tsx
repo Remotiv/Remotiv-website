@@ -211,6 +211,66 @@ const AVI10_TILES = [
   },
 ];
 
+const SECTION11_SCRIPT = `(function(){
+var v=document.querySelectorAll(".avi11-sec [data-reveal]");
+var s=function(e){e.classList.add("avi11-in")};
+if(!("IntersectionObserver" in window)){v.forEach(s);return}
+var o=new IntersectionObserver(function(es){es.forEach(function(e){
+if(e.isIntersecting){s(e.target);o.unobserve(e.target)}})},{threshold:.1});
+v.forEach(function(e){o.observe(e)});
+setTimeout(function(){v.forEach(function(e){
+if(!e.classList.contains("avi11-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
+})();`;
+
+// Section 11. Four claims, each one a thing the code does today and nothing
+// more. Consent gates the recorder in src/app/interview/[token]/_flow.tsx;
+// recordings live in a private bucket and play back through signed URLs with
+// a five-minute TTL; a session is gated per hiring team and every signed URL
+// is written to signed_url_logs; the six-month purge in src/lib/interviews
+// deletes the video and the transcript.
+//
+// "Remotiv automatically removes ITS recordings" — that word is load-bearing
+// and must not be edited out. The purge reaches Remotiv's own copies. It does
+// not reach the transcription provider's copy, and the privacy policy is
+// explicit about that. Widening the sentence would make the page claim more
+// than the product delivers.
+const AVI11_CARDS = [
+  {
+    num: "01",
+    title: "Consent first",
+    line: "Recording only begins after the candidate explicitly agrees.",
+    icon: <path d="M3.6 8.4 6.5 11.3 12.4 5" />,
+  },
+  {
+    num: "02",
+    title: "Private recordings",
+    line: "Recordings are stored privately and played back through links that expire after five minutes.",
+    icon: (
+      <>
+        <circle cx="8" cy="8" r="5.4" />
+        <path d="M8 4.9V8l2.3 1.5" />
+      </>
+    ),
+  },
+  {
+    num: "03",
+    title: "Controlled access",
+    line: "Only the relevant hiring team can open an interview, and every view is logged.",
+    icon: <path d="M3.4 4.6h9.2M3.4 8h9.2M3.4 11.4h5.6" />,
+  },
+  {
+    num: "04",
+    title: "Deleted after six months",
+    line: "Remotiv automatically removes its recordings and transcripts after six months.",
+    icon: (
+      <>
+        <circle cx="8" cy="8" r="5.4" />
+        <path d="M5.5 8h5" />
+      </>
+    ),
+  },
+];
+
 // Fixed sample data. The roster is international by design — the product sells
 // worldwide and a single-country list misrepresents it. Ring dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
@@ -1518,6 +1578,43 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        <section className="avi11-sec">
+          <div className="avi11-wrap">
+            <header>
+              <p className="avi11-eyebrow">Security &amp; responsible AI</p>
+              <h2 className="avi11-h2">
+                Candidate data stays <span className="avi11-hl">protected</span> throughout the
+                interview.
+              </h2>
+              <p className="avi11-lede">
+                Candidates know when they&rsquo;re being recorded, who will see their answers, and
+                how long their interview data is kept.
+              </p>
+            </header>
+
+            <div className="avi11-cards" data-reveal>
+              {AVI11_CARDS.map((c, i) => (
+                <article
+                  className="avi11-card"
+                  key={c.num}
+                  style={{ "--i": i } as CSSPropertiesWithVars}
+                >
+                  <p className="avi11-num" aria-hidden="true">
+                    {c.num}
+                  </p>
+                  <span className="avi11-tile" aria-hidden="true">
+                    <svg className="avi11-tico" viewBox="0 0 16 16" aria-hidden="true">
+                      {c.icon}
+                    </svg>
+                  </span>
+                  <h3 className="avi11-ctitle">{c.title}</h3>
+                  <p className="avi11-ctext">{c.line}</p>
+                </article>
+              ))}
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1555,6 +1652,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 10 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION10_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 11 entrance observer
+        dangerouslySetInnerHTML={{ __html: SECTION11_SCRIPT }}
       />
     </>
   );
