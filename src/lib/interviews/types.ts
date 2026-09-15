@@ -39,6 +39,147 @@ export const INTERVIEW_KIND_LABELS: Record<InterviewKind, string> = {
 };
 
 /**
+ * The frozen settings of one live interview — `interview_sessions.live_settings`.
+ *
+ * Written once at invite by buildLiveSettings (lib/interviews/live-settings.ts)
+ * and never updated: a later job edit must not change an interview already in
+ * flight. NOT NULL for a live session and NULL for an async one, enforced by a
+ * CHECK (migration 018).
+ *
+ * Field names are snake_case because this snapshot IS the payload sent to the
+ * provider, and matching the wire shape means no translation layer that could
+ * send something other than what was frozen.
+ *
+ * The rules TEXT lives in the server-only module, not here. This module is
+ * imported by the candidate page, so anything in it ships in the candidate's
+ * bundle — and the follow-up rules describe what triggers a follow-up and
+ * forbid revealing what a good answer contains. That is mark-scheme-adjacent
+ * and must not reach the person being marked. The numbers are here because the
+ * consent screen already tells the candidate there may be up to two follow-ups.
+ */
+export type LiveSettings = {
+  /** Snapshot format. Bump when a reader could misread an older row. */
+  v: 1;
+  interviewer_name: string;
+  language: string;
+  max_follow_ups_per_base_question: number;
+  max_session_seconds: number;
+  /** Groups rows by which rules governed them. */
+  follow_up_rules_version: string;
+  /**
+   * The rules VERBATIM, not just the version above.
+   *
+   * A constant can be edited in place without anyone bumping its version — this
+   * codebase has been bitten by exactly that drift more than once. Storing the
+   * text means the row says what the provider was actually told, whatever the
+   * constant says later.
+   */
+  follow_up_rules: {
+    when: string;
+    scope: string;
+    never: string[];
+  };
+};
+
+/** The current snapshot format. A row written under an older `v` is refused. */
+export const LIVE_SETTINGS_VERSION = 1;
+
+/** Locked: at most 2 follow-ups per base question, the same for every candidate. */
+export const MAX_FOLLOW_UPS_PER_BASE_QUESTION = 2;
+
+/** Ceiling on one live conversation. 30 minutes. */
+export const MAX_SESSION_SECONDS = 1800;
+
+/** Sanity ceiling on the stored name. The product cap is enforced on write. */
+const LIVE_INTERVIEWER_NAME_CEILING = 200;
+
+function nonEmptyString(value: unknown, max: number): string | null {
+  if (typeof value !== "string") return null;
+  const text = value.trim();
+  if (!text || text.length > max) return null;
+  return text;
+}
+
+/**
+ * Narrow a stored live_settings blob, or return null.
+ *
+ * Postgres can only promise this is a jsonb object (migration 018). Everything
+ * about its SHAPE is checked here, because the alternative — Array.isArray and
+ * then a cast, which is how questions_snapshot is read — accepts a row missing
+ * every field it claims to have.
+ *
+ * Returns null rather than throwing, and LOGS THE SESSION ID, so a malformed
+ * row is a line in the log naming the row to look at, not a page that fails to
+ * render for everyone.
+ *
+ * The interviewer name is checked for sanity only, not against the product's
+ * 60-character cap: that cap lives in the dashboard's job types, importing it
+ * here would close a cycle, and restating the number is the drift this file
+ * warns about elsewhere. buildLiveSettings enforces it on the way in.
+ */
+export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings | null {
+  const bad = (why: string): null => {
+    console.error(`[interviews] session ${sessionId} live_settings ${why}`);
+    return null;
+  };
+
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("is not an object");
+  const o = raw as Record<string, unknown>;
+
+  if (o.v !== LIVE_SETTINGS_VERSION) return bad(`has version ${JSON.stringify(o.v)}`);
+
+  const interviewerName = nonEmptyString(o.interviewer_name, LIVE_INTERVIEWER_NAME_CEILING);
+  if (!interviewerName) return bad("has no usable interviewer_name");
+
+  const language = nonEmptyString(o.language, 32);
+  if (!language) return bad("has no usable language");
+
+  const followUps = o.max_follow_ups_per_base_question;
+  if (
+    typeof followUps !== "number" ||
+    !Number.isInteger(followUps) ||
+    followUps < 0 ||
+    followUps > MAX_FOLLOW_UPS_PER_BASE_QUESTION
+  ) {
+    return bad(`has max_follow_ups_per_base_question ${JSON.stringify(followUps)}`);
+  }
+
+  const seconds = o.max_session_seconds;
+  if (typeof seconds !== "number" || !Number.isInteger(seconds) || seconds <= 0) {
+    return bad(`has max_session_seconds ${JSON.stringify(seconds)}`);
+  }
+
+  const rulesVersion = nonEmptyString(o.follow_up_rules_version, 64);
+  if (!rulesVersion) return bad("has no follow_up_rules_version");
+
+  const rules = o.follow_up_rules;
+  if (!rules || typeof rules !== "object" || Array.isArray(rules)) {
+    return bad("has no follow_up_rules object");
+  }
+  const r = rules as Record<string, unknown>;
+  const when = nonEmptyString(r.when, 2000);
+  const scope = nonEmptyString(r.scope, 2000);
+  if (!when || !scope) return bad("has follow_up_rules missing when/scope");
+  if (!Array.isArray(r.never)) return bad("has follow_up_rules.never that is not an array");
+  const never: string[] = [];
+  for (const entry of r.never) {
+    const line = nonEmptyString(entry, 2000);
+    if (!line) return bad("has an unusable line in follow_up_rules.never");
+    never.push(line);
+  }
+
+  return {
+    v: LIVE_SETTINGS_VERSION,
+    interviewer_name: interviewerName,
+    language,
+    max_follow_ups_per_base_question: followUps,
+    max_session_seconds: seconds,
+    follow_up_rules_version: rulesVersion,
+    follow_up_rules: { when, scope, never },
+  };
+}
+
+/**
  * Narrow a stored kind for display.
  *
  * The column is NOT NULL with a CHECK on exactly these two values, so anything
