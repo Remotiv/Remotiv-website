@@ -17,12 +17,11 @@ import "./ai-video-interviews.css";
 // and shares of this URL showed the homepage's title, description, image and
 // an og:url of https://remotiv.work. Setting the objects replaces them.
 //
-// No share image, deliberately. The root opengraph-image and twitter-image
-// render the homepage's "Hire Top 1% Senior Engineering Talent" card, which is
-// the wrong preview for this page, and this page has no image of its own yet.
-// Leaving `images` unset gives no image rather than the wrong one; the Twitter
-// card is "summary" for the same reason, since summary_large_image with no
-// image renders an empty frame. Add an image here once a real asset exists.
+// The share image is this route's own opengraph-image.tsx and twitter-image.tsx,
+// the homepage card's pattern with this page's copy. File-based images take
+// priority over the metadata object, so `images` is deliberately left unset
+// here. Without those files this page would show no image, not the homepage's
+// "Hire Top 1% Senior Engineering Talent" card.
 //
 // The description says only what ships: the Async Video Interview, scored
 // from the transcript with evidence per score. The conversational interview
@@ -51,7 +50,7 @@ export const metadata: Metadata = {
     type: "website",
   },
   twitter: {
-    card: "summary",
+    card: "summary_large_image",
     title: AVI_TITLE,
     description: AVI_DESCRIPTION,
     creator: "@remotiv",
