@@ -1,5 +1,8 @@
 import type { Metadata } from "next";
 import Image from "next/image";
+import Link from "next/link";
+import { redirect } from "next/navigation";
+import { submitContact } from "@/app/contact/actions";
 import { Navbar } from "@/components/navbar";
 import type { CSSPropertiesWithVars } from "@/lib/css-types";
 import "./ai-video-interviews.css";
@@ -507,6 +510,120 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
   },
 ];
 
+// Section 12b. Ported from the FAQ on /services/dedicated-team — same four-row
+// accordion, same ARIA, new questions. Answer 4 is the one that carries weight:
+// the follow-up behaviour is the product's differentiator and the sentence
+// describes what the model actually does, which is re-prompt on a thin answer.
+// It does not claim the follow-up is scored separately, because it is not.
+const AVI12_FAQS = [
+  {
+    q: "What is an AI video interview?",
+    a: "Remotiv combines structured video interviews with AI-assisted evaluation, transcripts and evidence-backed scorecards so recruiters can review candidates consistently.",
+  },
+  {
+    q: "Does AI make the hiring decision?",
+    a: "No. Remotiv helps evaluate and organise candidate evidence. Your hiring team decides who moves forward.",
+  },
+  {
+    q: "Can recruiters review the original interview?",
+    a: "Yes. Recruiters can review the candidate's recorded answers, transcript and the evidence behind each interview score.",
+  },
+  {
+    q: "Does the AI ask follow-up questions?",
+    a: "Yes. Your hiring team writes the questions for the role, and the AI follows up based on what the candidate actually said — so a thin answer gets a second question rather than passing unnoticed.",
+  },
+];
+
+// The original card's three ticks are "We respond within 24 hours", "No
+// retainer fees — pay only when you hire" and "100% confidential — your data
+// stays private". Only the first survives the move: the second describes the
+// hiring service's pricing and is simply untrue of this product, and the third
+// is the banned encryption line wearing a different hat. The two replacements
+// are claims section 11 already makes on this page and the code backs —
+// consent gates the recorder, and the six-month purge is real.
+const AVI12_CHECKS = [
+  "We respond within 24 hours",
+  "Consent before any recording starts",
+  "Recordings and transcripts deleted after six months",
+];
+
+// The inquiry card has no service dropdown; every submission from this page is
+// tagged with this constant so it can be told apart from the five other forms
+// in the admin inbox. 34 characters, inside submitContact's 50-char cap on the
+// service field — keep it that way if the wording ever changes.
+const AVI12_SERVICE = "AI Video Interviews — Early Access";
+
+// submitContact returns prose, not codes, and src/app/contact/actions.ts is
+// outside this task's scope, so the panel has to be chosen by matching those
+// strings. If its wording changes this falls through to the generic panel,
+// which is the safe direction to fail in.
+function avi12ErrorAnchor(message: string): string {
+  if (message.startsWith("Too many")) return "#avi12-e-rate";
+  if (message.endsWith("is required.") || message.startsWith("Please enter")) {
+    return "#avi12-e-input";
+  }
+  return "#avi12-e-server";
+}
+
+async function submitEarlyAccess(formData: FormData) {
+  "use server";
+  const read = (key: string) => String(formData.get(key) ?? "");
+  const result = await submitContact({
+    name: read("name"),
+    email: read("email"),
+    company: read("company"),
+    service: AVI12_SERVICE,
+    message: read("message"),
+    companyUrl: read("company_url"),
+  });
+  // Absolute path, not a bare fragment: redirect() resolves against the
+  // request, and a fragment-only value has no path for the router to land on.
+  redirect(
+    `/ai-video-interviews${result.success ? "#avi12-sent" : avi12ErrorAnchor(result.error)}`,
+  );
+}
+
+// Section 12. Two jobs: the accordion, and mirroring the URL fragment onto the
+// result panels so the post-submit state survives a soft navigation.
+//
+// Everything here is delegated or re-queried, and nothing holds a node
+// reference, for one measured reason: when the server action redirects, React
+// re-renders this subtree and REPLACES the card's DOM nodes. A listener bound
+// to the form, or a cached NodeList of the panels, is pointing at detached
+// elements from that moment on. The first version of this script bound
+// directly and went dead the instant the form was used once.
+//
+// The MutationObserver is what re-applies data-show after that replacement:
+// React hands back freshly server-rendered panels with the attribute gone, and
+// there is no event that fires when it does. It watches childList only, and
+// sync() only ever touches attributes, so it cannot retrigger itself.
+const SECTION12_SCRIPT = `(function(){
+function sync(){var h=location.hash.slice(1),hit=false;
+[].slice.call(document.querySelectorAll(".avi12-sent,.avi12-err")).forEach(function(p){
+if(p.id===h){p.setAttribute("data-show","");hit=true}else p.removeAttribute("data-show")});
+if(hit){var f=document.querySelector(".avi12-form");if(f)f.removeAttribute("data-busy")}
+return hit}
+document.addEventListener("click",function(e){
+var b=e.target&&e.target.closest?e.target.closest(".avi12-faq-btn"):null;
+if(!b)return;
+var it=b.closest(".avi12-faq-item"),was=it.getAttribute("data-open")==="true";
+[].slice.call(document.querySelectorAll(".avi12-faq-item")).forEach(function(o){
+var ob=o.querySelector(".avi12-faq-btn"),os=o.querySelector(".avi12-faq-sign"),on=(o===it)&&!was;
+o.setAttribute("data-open",on?"true":"false");
+if(ob)ob.setAttribute("aria-expanded",on?"true":"false");
+if(os)os.textContent=on?"\\u2212":"+"})});
+document.addEventListener("submit",function(e){
+var f=e.target;
+if(!f.classList||!f.classList.contains("avi12-form"))return;
+f.setAttribute("data-busy","");
+setTimeout(function(){var g=document.querySelector(".avi12-form");
+if(g)g.removeAttribute("data-busy")},8000)},true);
+addEventListener("hashchange",sync);
+addEventListener("popstate",sync);
+if(window.MutationObserver)new MutationObserver(sync).observe(document.body,{childList:true,subtree:true});
+sync();
+})();`;
+
 // Sections 1 to 3 of 13. Sections 4-13 are still to design; per the handoff
 // they should keep alternating cream and white rather than repeat either
 // treatment.
@@ -557,16 +674,18 @@ export default function AIVideoInterviewsPage() {
                   candidates, and turns every candidate into a recruiter-ready, evidence-backed
                   scorecard — all in one workflow. Your hiring team makes the final decision.
                 </p>
-                {/* The handoff points these at /early-access and /demo, but
-                    neither route exists. Both anchor to the early-access form
-                    planned for this same page — repoint them when it lands. */}
+                {/* The handoff pointed these at /early-access and /demo;
+                    neither route exists. The primary now resolves — section 12
+                    at the foot of this page owns id="early-access". The demo
+                    button goes to /book-a-meeting, the same route the navbar's
+                    global CTA uses. */}
                 <div className="avi-ctas">
                   <a className="avi-btn-primary" href="#early-access">
                     Join Early Access<em>→</em>
                   </a>
-                  <a className="avi-btn-secondary" href="#early-access">
+                  <Link className="avi-btn-secondary" href="/book-a-meeting">
                     Book a Demo
-                  </a>
+                  </Link>
                 </div>
                 {/* Each phrase owns its trailing middot so a separator can
                     never begin a wrapped line. Do not join these into one
@@ -1615,6 +1734,230 @@ export default function AIVideoInterviewsPage() {
             </div>
           </div>
         </section>
+
+        {/* Section 12a — the early-access card, ported from the "Send an
+            Inquiry" block that opens the closing pair on every service page.
+            Not imported: five inline copies of that card already exist across
+            the site and that is the established pattern here.
+
+            Inquiry first, FAQ last. That is the rendered order on all four
+            service pages; their source order reads the other way only because
+            both blocks sit in helpers declared above the component.
+
+            id="early-access" is what both hero buttons have been pointing at
+            since section 1 shipped. It resolves for the first time here. */}
+        <section className="avi12-cta" id="early-access">
+          <div className="avi12-cta-wrap">
+            <div className="avi12-card">
+              <div className="avi12-copy">
+                {/* the bullet is a literal character on all four originals,
+                    not a marker, so it is one here too */}
+                <span className="avi12-pill">• Early Access</span>
+                <h2 className="avi12-h2">Ready to spend less time on first-round screening?</h2>
+                <p className="avi12-lede">
+                  Join early access to see how Remotiv can fit into your hiring workflow.
+                </p>
+                <ul className="avi12-checks">
+                  {AVI12_CHECKS.map((item) => (
+                    <li className="avi12-check" key={item}>
+                      <span className="avi12-cico" aria-hidden="true">
+                        <svg viewBox="0 0 12 12" aria-hidden="true">
+                          <path d="M2 6l3 3 5-5" />
+                        </svg>
+                      </span>
+                      {item}
+                    </li>
+                  ))}
+                </ul>
+              </div>
+
+              <div className="avi12-panel">
+                <div className="avi12-sent" id="avi12-sent" role="status" aria-live="polite">
+                  <div className="avi12-sent-mark" aria-hidden="true">
+                    <svg viewBox="0 0 24 24" aria-hidden="true">
+                      <path d="M5 12l5 5L20 7" />
+                    </svg>
+                  </div>
+                  <h3 className="avi12-sent-h3">Inquiry Sent!</h3>
+                  <p className="avi12-sent-p">
+                    Thanks for reaching out. We&rsquo;ll get back to you within 24 hours.
+                  </p>
+                  {/* a link, not a button: moving the fragment off #avi12-sent
+                      is what brings the form back */}
+                  <a className="avi12-again" href="#early-access">
+                    Submit Another Inquiry →
+                  </a>
+                </div>
+
+                <form className="avi12-form" action={submitEarlyAccess}>
+                  <h3 className="avi12-form-h3">Send an Inquiry</h3>
+
+                  {/* Three server-rendered error panels rather than one with a
+                      dynamic message: this page is statically prerendered, so
+                      there is nowhere to put a runtime string. The action
+                      redirects to whichever fragment matches. */}
+                  <p className="avi12-err" id="avi12-e-input" role="alert" aria-live="assertive">
+                    Please check your name, work email and message, then try again.
+                  </p>
+                  <p className="avi12-err" id="avi12-e-rate" role="alert" aria-live="assertive">
+                    Too many submissions. Please wait a moment and try again.
+                  </p>
+                  <p className="avi12-err" id="avi12-e-server" role="alert" aria-live="assertive">
+                    We couldn&rsquo;t send your inquiry. Please try again or email us at{" "}
+                    <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>.
+                  </p>
+
+                  {/* Honeypot — hidden from humans, filled by bots. */}
+                  <input
+                    className="avi12-hp"
+                    type="text"
+                    name="company_url"
+                    tabIndex={-1}
+                    autoComplete="off"
+                    aria-hidden="true"
+                  />
+
+                  <div className="avi12-row">
+                    <div>
+                      <label className="avi12-label" htmlFor="avi12-name">
+                        Full Name{" "}
+                        <span className="avi12-req" aria-hidden="true">
+                          *
+                        </span>
+                      </label>
+                      <input
+                        className="avi12-input"
+                        id="avi12-name"
+                        name="name"
+                        type="text"
+                        required
+                        maxLength={100}
+                        placeholder="Your name"
+                      />
+                    </div>
+                    <div>
+                      <label className="avi12-label" htmlFor="avi12-company">
+                        Company{" "}
+                        <span className="avi12-req" aria-hidden="true">
+                          *
+                        </span>
+                      </label>
+                      <input
+                        className="avi12-input"
+                        id="avi12-company"
+                        name="company"
+                        type="text"
+                        required
+                        maxLength={100}
+                        placeholder="Company name"
+                      />
+                    </div>
+                  </div>
+
+                  <div className="avi12-field">
+                    <label className="avi12-label" htmlFor="avi12-email">
+                      Work Email{" "}
+                      <span className="avi12-req" aria-hidden="true">
+                        *
+                      </span>
+                    </label>
+                    <input
+                      className="avi12-input"
+                      id="avi12-email"
+                      name="email"
+                      type="email"
+                      required
+                      maxLength={254}
+                      placeholder="you@company.com"
+                    />
+                  </div>
+
+                  <div className="avi12-field">
+                    <label className="avi12-label" htmlFor="avi12-message">
+                      Message{" "}
+                      <span className="avi12-req" aria-hidden="true">
+                        *
+                      </span>
+                    </label>
+                    {/* no rows attribute: the originals size this from
+                        min-height alone, and rows=3 made it 92px rather than
+                        68px once the font steps up below the sm breakpoint */}
+                    <textarea
+                      className="avi12-input"
+                      id="avi12-message"
+                      name="message"
+                      required
+                      maxLength={5000}
+                      placeholder="Tell us about the role..."
+                    />
+                  </div>
+
+                  <button className="avi12-submit" type="submit">
+                    <span className="avi12-sub-idle">Send Inquiry →</span>
+                    <span className="avi12-sub-busy">Sending…</span>
+                  </button>
+                </form>
+              </div>
+            </div>
+          </div>
+        </section>
+
+        {/* Section 12b — FAQ, ported from the one on /services/dedicated-team,
+            where it is likewise the last section on the page. This section and
+            the card above it are deliberately outside
+            SECTION-4-DESIGN-CONTRACT.md; the long header comment above the
+            .avi12- rules in ai-video-interviews.css says why. */}
+        <section className="avi12-faq">
+          <div className="avi12-faq-wrap">
+            <div className="avi12-faq-intro">
+              {/* No eyebrow, and the same heading the four service pages use.
+                  Every other section on this page opens with an eyebrow; this
+                  one does not, because the block it is copying does not. */}
+              <h2 className="avi12-faq-h2">Questions We Hear Most</h2>
+              {/* the same sentence the four service pages carry under this
+                  heading — furniture, so it is ported rather than rewritten */}
+              <p className="avi12-faq-lede">
+                For any unanswered questions, reach out to our team. We&apos;ll respond as soon as
+                possible.
+              </p>
+            </div>
+
+            <div className="avi12-faq-col">
+              <div className="avi12-faq-list">
+                {AVI12_FAQS.map((f, i) => (
+                  <div className="avi12-faq-item" key={f.q} data-open={i === 0 ? "true" : "false"}>
+                    <button
+                      type="button"
+                      className="avi12-faq-btn"
+                      id={`avi12-faq-button-${i}`}
+                      aria-expanded={i === 0}
+                      aria-controls={`avi12-faq-panel-${i}`}
+                    >
+                      <span className="avi12-faq-q">{f.q}</span>
+                      <span className="avi12-faq-sign" aria-hidden="true">
+                        {i === 0 ? "−" : "+"}
+                      </span>
+                    </button>
+                    {/* <section> rather than the original's <div role="region">
+                        — a named section already has that role, and Biome
+                        rejects the explicit one. Same tree, one less attribute.
+                        The inner div is load-bearing: the 0fr -> 1fr panel
+                        needs one grid child to clip, not the text itself. */}
+                    <section
+                      className="avi12-faq-panel"
+                      id={`avi12-faq-panel-${i}`}
+                      aria-labelledby={`avi12-faq-button-${i}`}
+                    >
+                      <div>
+                        <p className="avi12-faq-a">{f.a}</p>
+                      </div>
+                    </section>
+                  </div>
+                ))}
+              </div>
+            </div>
+          </div>
+        </section>
       </main>
       {/* Entrance observer. Raw inline script rather than next/script so the
           page stays a server component — the same pattern as the JSON-LD in
@@ -1656,6 +1999,10 @@ export default function AIVideoInterviewsPage() {
       <script
         // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 11 entrance observer
         dangerouslySetInnerHTML={{ __html: SECTION11_SCRIPT }}
+      />
+      <script
+        // biome-ignore lint/security/noDangerouslySetInnerHtml: inline bootstrap script for the section 12 FAQ accordion and inquiry result panels
+        dangerouslySetInnerHTML={{ __html: SECTION12_SCRIPT }}
       />
     </>
   );

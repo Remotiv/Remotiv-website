@@ -4905,3 +4905,630 @@
     transition: none;
   }
 }
+
+/* ============================================================
+   SECTION 12 - EARLY ACCESS INQUIRY + FAQ
+
+   DELIBERATELY OUTSIDE SECTION-4-DESIGN-CONTRACT.md. DO NOT "STANDARDISE".
+
+   Sections 1-11 above follow the contract. This one does not, on purpose.
+   It is a port of the two blocks that close every service page - the
+   "Send an Inquiry" card and the "Questions We Hear Most" accordion - and
+   the page is meant to end the way those pages end. A visitor who arrives
+   here from /services/recruitment should meet the same furniture. Matching
+   the contract would break that match, so the contract loses here and only
+   here.
+
+   THE REFERENCE IS /services/*, NOT src/components/home/cta-inquiry.tsx.
+   Those two are not the same card. The homepage version overhangs the footer
+   by 140px, puts a lime button on the lime slab, and keeps its inputs at
+   12px at every width; the service pages have no overhang, use the purple
+   button, and step the inputs up to 16px below the sm breakpoint. The first
+   revision of this section copied the homepage and therefore did not match
+   the pages it sits beside. Check changes against /services/dedicated-team.
+
+   ORDER: inquiry first, FAQ last. Verified in the rendered DOM on all four
+   service pages - the FAQ is the final section in <main> on every one. The
+   source line numbers suggest the reverse, because both blocks live in
+   helper functions declared above the component that renders them.
+
+   The divergences are inherited, not invented. Every one of them is a value
+   measured off the live originals:
+     padding        80px/56px, not the contract's 72px/56px  (Tailwind py-20)
+     side gutters   40px desktop; 24px on the FAQ and 20px on the inquiry
+                    block below md. The two differ on the originals too
+                    (px-10 with max-md:px-6 and max-md:px-5 respectively)
+     wrapper cap    1100px (FAQ) and 900px (card), not 1400px
+     headings       clamp(1.8rem,3vw,2.6rem) and
+                    clamp(1.4rem,2.2vw,1.9rem) - viewport-scaled, not stepped
+     breakpoints    900px, 767.98px and 639.98px. The originals step at 900,
+                    768 (Tailwind md) and 640 (Tailwind sm); the contract
+                    forbids 768 and 640 by name. Written here as 767.98 and
+                    639.98 so the boundary is exclusive and no width falls
+                    between two rules - same steps, no half-pixel gap.
+     card fill      #c9ff85, which is remotiv-lime-card and not a contract
+                    token; --r-lime is #d9f972 and is a different colour
+     radii          22px card / 18px form panel / 10px control, not the
+                    contract's 24 / 14 / 12
+     button         44px tall, Sora 12px uppercase on purple - the contract
+                    says 58px, DM Sans 16/24
+     body greys     #444, #666, #777 and #111 at 75% opacity, not the
+                    contract's single --r-body #666666
+
+   ON THE CONTROL HEIGHTS: measured, not assumed. The submit button is 44px
+   and the inputs are 44px below the sm breakpoint and 36px above it, which is
+   what the four service pages do - their inputs are text-base sm:text-xs, so
+   they grow on small screens rather than shrink. An earlier revision of this
+   section copied the homepage card instead (40px button, 36px inputs at every
+   width) and a comment here claimed the sub-44px sizes had to stay for the
+   sake of matching. That was wrong: it was matching the wrong original. The
+   only control left under the floor is the input at >=640px, at 36px, which
+   is a mouse-width case rather than a touch one and is what the service pages
+   ship. Everything else clears 44px.
+
+   SIX PLACES THIS PORT DOES NOT COPY THE ORIGINAL, ALL DELIBERATE:
+
+   1. The original's padlock line under the submit button is gone. It makes
+      an unqualified claim about how candidate data is held; section 11 sits
+      directly above this one and was written without any such claim, because
+      the product does not make one. Repeating it would contradict the
+      section above it by 40px. Dropped, not softened. The literal string is
+      not reproduced here either, so grepping the repo for it stays honest.
+
+   2. The error copy names talent@remotiv.work. The original points at a
+      .com address that is not this site's domain and that disagrees with
+      the server error path of the very same form.
+
+   3. The answer panel animates grid-template-rows 0fr -> 1fr, not
+      max-height 0 -> 400px. The original's cap truncates any answer taller
+      than 400px silently, with no cue that text is missing. 0fr -> 1fr
+      resolves to the exact content height, so there is no cliff to fall off
+      at any width or any copy length. Same duration, same easing, same
+      look; only the failure mode differs.
+
+   4. A focus-visible ring on the accordion buttons. Three of the four live
+      copies have none, so keyboard focus is invisible on them.
+      /services/payroll is the one that gets it right and is the model here.
+
+   5. The original's avatar row and its "Trusted by 100+ companies worldwide"
+      line are gone. That is the card's only social-proof claim and this is a
+      pre-launch, noindexed page whose own copy asks people to join early
+      access; the avatars exist only to carry the line.
+
+   6. The original's two left-column buttons are gone. On the service pages
+      they are the block's call to action; here the hero already carries both
+      of them - "Join Early Access" points at this very section, and "Book a
+      Demo" at /book-a-meeting - and the card's own submit is what this block
+      is for. A third and fourth button inside the card would compete with
+      the form sitting next to them. Omitted on purpose, not overlooked.
+
+   Omissions 1 and 5 each delete whatever a trailing margin was separating,
+   so .avi12-submit and .avi12-checks zero that margin on :last-child rather
+   than leave the panel and the card centred against a gap. Omission 6 sits
+   mid-column and needs no such correction.
+   ============================================================ */
+
+.avi12-faq,
+.avi12-cta {
+  --a12-ink: #111111;
+  --a12-answer: #444444;
+  --a12-label: #444444;
+  --a12-muted: #666666;
+  --a12-faq-lede: #777777;
+  --a12-field-ink: #333333;
+  --a12-lime: #c9ff85;
+  --a12-field: #f5f5f5;
+  --a12-field-focus: #efefef;
+  --a12-purple: #7e47ff;
+  --a12-white: #ffffff;
+  /* the originals write these as bg-red-50 / text-red-700 / text-red-500, so
+     the tokens are taken rather than transcribed. Tailwind v4's red ramp is
+     not v3's - red-700 is #c10007 here, and hardcoding v3's #b91c1c put this
+     panel a visible step off the four pages it is copying. */
+  --a12-err-ink: var(--color-red-700);
+  --a12-err-bg: var(--color-red-50);
+  --a12-req: var(--color-red-500);
+  --a12-ok: #49d7a7;
+  --a12-rule: rgba(0, 0, 0, 0.1);
+  --a12-rule-soft: rgba(0, 0, 0, 0.06);
+  /* the ported radii, which are this project's Tailwind scale resolved:
+     --radius is 0.625rem, so 3xl = 22px, 2xl = 18px, lg = 10px */
+  --a12-rad-card: 22px;
+  --a12-rad-panel: 18px;
+  --a12-rad-control: 10px;
+  background: var(--a12-white);
+}
+
+/* ---------- 12b - the FAQ (renders second) ---------- */
+.avi12-faq {
+  box-sizing: border-box;
+  width: 100%;
+  border-top: 1px solid var(--a12-rule-soft);
+  padding: 80px 40px;
+}
+.avi12-faq-wrap {
+  display: flex;
+  flex-direction: row;
+  align-items: flex-start;
+  gap: 80px;
+  max-width: 1100px;
+  margin: 0 auto;
+}
+.avi12-faq-intro {
+  box-sizing: border-box;
+  flex: 0 0 35%;
+  max-width: 35%;
+}
+.avi12-faq-col {
+  box-sizing: border-box;
+  flex: 0 0 58%;
+  max-width: 58%;
+}
+.avi12-faq-h2 {
+  margin: 0 0 20px;
+  font-family: var(--font-heading);
+  font-size: clamp(1.8rem, 3vw, 2.6rem);
+  font-weight: 800;
+  line-height: 1.15;
+  color: var(--a12-ink);
+  text-wrap: pretty;
+}
+/* the same sentence, at the same size and colour, as all four service pages.
+   Site furniture rather than page copy, so it is ported verbatim. */
+.avi12-faq-lede {
+  margin: 0;
+  font: 400 0.95rem / 1.7 var(--font-sans);
+  color: var(--a12-faq-lede);
+}
+.avi12-faq-list {
+  border-top: 1px solid var(--a12-rule);
+}
+.avi12-faq-item {
+  border-bottom: 1px solid var(--a12-rule);
+}
+.avi12-faq-btn {
+  display: flex;
+  width: 100%;
+  align-items: center;
+  justify-content: space-between;
+  gap: 16px;
+  border: none;
+  background: transparent;
+  padding: 24px 0;
+  text-align: left;
+  cursor: pointer;
+}
+.avi12-faq-btn:focus-visible {
+  outline: 2px solid var(--a12-purple);
+  outline-offset: 2px;
+  border-radius: 4px;
+}
+.avi12-faq-q {
+  flex: 1;
+  font: 600 0.97rem / 1.4 var(--font-heading);
+  color: var(--a12-ink);
+}
+/* real glyph text, swapped by the script - not a CSS ::after content string,
+   which screen readers in browse mode will sometimes announce */
+.avi12-faq-sign {
+  width: 24px;
+  flex-shrink: 0;
+  text-align: center;
+  font: 300 1.4rem / 1 var(--font-sans);
+  color: var(--a12-ink);
+}
+/* 0fr -> 1fr resolves to the content's own height, so no answer can outgrow
+   the panel. See point 3 in the header comment. */
+.avi12-faq-panel {
+  display: grid;
+  grid-template-rows: 0fr;
+  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+}
+.avi12-faq-item[data-open="true"] .avi12-faq-panel {
+  grid-template-rows: 1fr;
+}
+.avi12-faq-panel > * {
+  overflow: hidden;
+  min-height: 0;
+}
+.avi12-faq-a {
+  margin: 0;
+  padding-bottom: 24px;
+  font: 400 0.9rem / 1.75 var(--font-sans);
+  color: var(--a12-answer);
+}
+
+/* ---------- 12a - the early-access card (renders first) ---------- */
+.avi12-cta {
+  padding: 80px 40px;
+  /* the sticky navbar is ~85px; the hero's two buttons both target this
+     section, so the heading has to clear it when the anchor is followed */
+  scroll-margin-top: 104px;
+}
+.avi12-cta-wrap {
+  max-width: 900px;
+  margin: 0 auto;
+}
+/* No negative margin here. The homepage card overhangs the dark footer by
+   140px because it is the last thing on that page; the service pages, where
+   the FAQ follows the inquiry block, give it none. This section follows the
+   service pages, so the overhang is gone along with the z-index stack that
+   existed only to lift the card above whatever it was hanging over. */
+.avi12-card {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  align-items: center;
+  gap: 56px;
+  border-radius: var(--a12-rad-card);
+  background: var(--a12-lime);
+  padding: 56px;
+}
+/* a plain block, as on the originals. Flex here blockified the pill, which
+   turned its inline-flex into flex and took away the line box the originals
+   put under it. */
+.avi12-copy {
+  min-width: 0;
+}
+.avi12-pill {
+  display: inline-flex;
+  align-items: center;
+  margin-bottom: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.45);
+  padding: 5px 14px;
+  font: 600 11px / 1.5 var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--a12-ink);
+}
+.avi12-h2 {
+  margin: 0 0 12px;
+  font-family: var(--font-heading);
+  font-size: clamp(1.4rem, 2.2vw, 1.9rem);
+  font-weight: 800;
+  line-height: 1.1;
+  letter-spacing: -0.02em;
+  color: var(--a12-ink);
+  text-wrap: pretty;
+}
+/* ink at 75% opacity, not black at 75% alpha: over the lime these are two
+   different colours, and the service pages use the former */
+.avi12-lede {
+  margin: 0 0 24px;
+  font: 400 13px / 1.75 var(--font-sans);
+  color: var(--a12-ink);
+  opacity: 0.75;
+}
+.avi12-checks {
+  display: flex;
+  flex-direction: column;
+  gap: 10px;
+  margin: 0 0 28px;
+  padding: 0;
+  list-style: none;
+}
+.avi12-check {
+  display: flex;
+  align-items: center;
+  gap: 8px;
+  font: 500 13px / 1.5 var(--font-sans);
+  color: var(--a12-ink);
+}
+.avi12-cico {
+  display: flex;
+  flex-shrink: 0;
+  align-items: center;
+  justify-content: center;
+  width: 18px;
+  height: 18px;
+  border-radius: 999px;
+  background: rgba(255, 255, 255, 0.5);
+}
+.avi12-cico svg {
+  width: 9px;
+  height: 9px;
+  fill: none;
+  stroke: var(--a12-ink);
+  stroke-width: 1.8;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+/* Omission 5 leaves this list ending the column, so the original's 28px below
+   it goes too - there it separates the list from the avatars, and with nothing
+   under it the card would centre against 28px of nothing. If the trust cluster
+   is reinstated, this rule stops applying on its own. */
+.avi12-checks:last-child {
+  margin-bottom: 0;
+}
+
+/* ---------- the form ---------- */
+/* the card is a two-column grid, so the form and the success panel have to
+   share one grid item rather than be two */
+.avi12-panel {
+  min-width: 0;
+}
+.avi12-form,
+.avi12-sent {
+  border-radius: var(--a12-rad-panel);
+  background: var(--a12-white);
+}
+.avi12-form {
+  padding: 28px;
+}
+.avi12-form-h3 {
+  margin: 0 0 16px;
+  font: 700 14px / 20px var(--font-heading);
+  color: var(--a12-ink);
+}
+.avi12-hp {
+  position: absolute;
+  left: -9999px;
+  width: 0;
+  height: 0;
+  opacity: 0;
+  pointer-events: none;
+}
+.avi12-row {
+  display: grid;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  gap: 10px;
+  margin-bottom: 10px;
+}
+.avi12-field {
+  margin-bottom: 10px;
+}
+.avi12-label {
+  display: block;
+  margin-bottom: 6px;
+  font: 600 10px / 1.5 var(--font-sans);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--a12-label);
+}
+/* aria-hidden in the markup: the input's own required attribute is what tells
+   a screen reader, so the glyph is decoration. The originals leave it exposed
+   and it gets read out as "star". */
+.avi12-req {
+  color: var(--a12-req);
+}
+/* The transparent border is not decoration - it is what the service pages use
+   to swap in a red border on an invalid field without the control changing
+   height. Kept so the box maths match even though this form flags errors in a
+   single message rather than per field. */
+.avi12-input {
+  box-sizing: border-box;
+  width: 100%;
+  border: 1px solid transparent;
+  border-radius: var(--a12-rad-control);
+  background: var(--a12-field);
+  padding: 9px 12px;
+  font: 400 12px / 16px var(--font-sans);
+  color: var(--a12-field-ink);
+  outline: none;
+  transition: background-color 0.15s;
+}
+.avi12-input:focus {
+  background: var(--a12-field-focus);
+}
+.avi12-input:focus-visible {
+  outline: 2px solid var(--a12-purple);
+  outline-offset: 1px;
+}
+textarea.avi12-input {
+  min-height: 68px;
+  resize: none;
+}
+/* Purple with white text, not lime with dark text. The homepage card puts a
+   lime button on a lime slab; all four service pages use the purple one, and
+   that is what this section matches. */
+.avi12-submit {
+  width: 100%;
+  border: none;
+  border-radius: var(--a12-rad-control);
+  background: var(--a12-purple);
+  padding: 14px 0;
+  font: 700 12px / 16px var(--font-heading);
+  letter-spacing: 0.06em;
+  text-transform: uppercase;
+  color: var(--a12-white);
+  cursor: pointer;
+  transition:
+    opacity 0.2s,
+    transform 0.2s;
+}
+/* The originals carry 10px under this button because the padlock line sits
+   there. That line is dropped here (see 1, above), so the button ends the
+   panel and the 10px would be dead space inside the card. */
+.avi12-submit:last-child {
+  margin-bottom: 0;
+}
+.avi12-submit:hover {
+  transform: translateY(-1px);
+}
+.avi12-submit:focus-visible {
+  outline: 2px solid var(--a12-purple);
+  outline-offset: 2px;
+}
+.avi12-submit:disabled {
+  opacity: 0.6;
+  cursor: not-allowed;
+  transform: none;
+}
+/* the submitting state. Two spans rather than one label the script rewrites:
+   React owns this subtree after hydration and will reconcile a textContent
+   edit away, but it leaves an attribute it never set alone. */
+.avi12-sub-busy {
+  display: none;
+}
+.avi12-form[data-busy] .avi12-sub-idle {
+  display: none;
+}
+.avi12-form[data-busy] .avi12-sub-busy {
+  display: inline;
+}
+.avi12-form[data-busy] .avi12-submit {
+  opacity: 0.6;
+  cursor: not-allowed;
+  pointer-events: none;
+  transform: none;
+}
+/* ---------- the post-submit states, in CSS only ----------
+   This page is a server component and has to stay one: it owns the route's
+   metadata, including the noindex. So there is no useState to hold "sent"
+   in. The server action redirects back here with a fragment, and :target
+   does the rest - no client component, no hydration, and the state survives
+   the soft navigation that the redirect performs once React has hydrated,
+   which a one-shot inline script would not.
+   Every panel is server-rendered on every load and hidden until it is the
+   target. "Send another inquiry" is a link back to #early-access, so
+   dismissing the success panel is the same mechanism in reverse.
+
+   [data-show] is the belt to :target's braces, and both halves are load-
+   bearing. Measured, not assumed:
+     - No JS: the form does a plain POST, the action answers with a real
+       redirect, the browser hard-navigates, and :target alone is enough.
+     - Hydrated: the same redirect becomes a soft navigation. Chrome does NOT
+       recompute :target for it - the fragment reads #avi12-e-input and the
+       panel still computes to display:none. Only [data-show] renders it.
+   Neither is redundant. Do not delete one thinking it covers the other. */
+.avi12-err,
+.avi12-sent {
+  display: none;
+}
+.avi12-err:target,
+.avi12-sent:target,
+.avi12-err[data-show],
+.avi12-sent[data-show] {
+  display: block;
+}
+.avi12-card:has(.avi12-sent:target) .avi12-form,
+.avi12-card:has(.avi12-sent[data-show]) .avi12-form {
+  display: none;
+}
+/* The redirect targets these panels directly, so the browser scrolls to them
+   rather than to the section. Same 104/88 offset as .avi12-cta, or the message
+   lands under the sticky navbar. */
+.avi12-err,
+.avi12-sent {
+  scroll-margin-top: 104px;
+}
+.avi12-err {
+  margin: 0 0 16px;
+  border-radius: var(--a12-rad-control);
+  background: var(--a12-err-bg);
+  padding: 12px 16px;
+  font: 400 14px / 20px var(--font-sans);
+  color: var(--a12-err-ink);
+}
+/* 28px from the panel plus 24px from the block inside it, as on the service
+   pages, where those are two separate elements */
+.avi12-sent {
+  padding: 52px 28px;
+  text-align: center;
+}
+/* a tinted disc with a stroked check, not the homepage's emoji glyph */
+.avi12-sent-mark {
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  width: 56px;
+  height: 56px;
+  margin: 0 auto 16px;
+  border-radius: 999px;
+  background: rgb(73 215 167 / 10%);
+}
+.avi12-sent-mark svg {
+  width: 28px;
+  height: 28px;
+  fill: none;
+  stroke: var(--a12-ok);
+  stroke-width: 2.5;
+  stroke-linecap: round;
+  stroke-linejoin: round;
+}
+.avi12-sent-h3 {
+  margin: 0 0 8px;
+  font: 700 16px / 24px var(--font-heading);
+  color: var(--a12-ink);
+}
+.avi12-sent-p {
+  margin: 0 0 24px;
+  font: 400 13px / 1.6 var(--font-sans);
+  color: var(--a12-muted);
+}
+/* A link, not a button: pointing the target back at #early-access is what
+   re-reveals the form. The original's reset button had useState behind it.
+   Styled as the service pages' dark pill so it reads the same. */
+.avi12-again {
+  display: inline-block;
+  border-radius: 999px;
+  background: var(--a12-ink);
+  padding: 14px 20px;
+  font: 500 14px / 20px var(--font-sans);
+  color: var(--a12-white);
+  text-decoration: none;
+  transition: opacity 0.2s;
+}
+.avi12-again:hover {
+  opacity: 0.88;
+}
+.avi12-again:focus-visible {
+  outline: 2px solid var(--a12-purple);
+  outline-offset: 2px;
+}
+
+/* ---------- responsive ----------
+   900 / 767.98 / 639.98. These are the originals' steps, not the contract's -
+   see the header comment. The FAQ column pair AND the card both stack at 900;
+   the two sections change padding at 767.98 (Tailwind md) and do not use the
+   same inline value - the FAQ is px-6 and the inquiry block px-5; and the
+   inputs grow at 639.98 (Tailwind sm). The name/company pair stays two-up all
+   the way down, which is what the service pages do. */
+@media (max-width: 900px) {
+  .avi12-faq-wrap {
+    flex-direction: column;
+    gap: 40px;
+  }
+  .avi12-faq-intro,
+  .avi12-faq-col {
+    flex: 1 1 auto;
+    max-width: 100%;
+  }
+  .avi12-card {
+    grid-template-columns: minmax(0, 1fr);
+    gap: 32px;
+    padding: 28px;
+  }
+}
+@media (max-width: 767.98px) {
+  .avi12-faq {
+    padding: 56px 24px;
+  }
+  .avi12-cta {
+    padding: 56px 20px;
+    scroll-margin-top: 88px;
+  }
+}
+/* 16px, not 12px, below the sm breakpoint. iOS Safari zooms the page on focus
+   for anything under 16px; the service pages step up here for that reason and
+   it is also what lifts the control to a 44px touch target. */
+@media (max-width: 639.98px) {
+  .avi12-input {
+    font: 400 16px / 24px var(--font-sans);
+  }
+}
+
+/* ---------- reduced motion ----------
+   Item 4 of the contract's motion rule is the one that gets forgotten: it is
+   not enough to stop the panel, every hover transition has to go too. None
+   of the four live FAQ copies guard any of this. */
+@media (prefers-reduced-motion: reduce) {
+  .avi12-faq-panel,
+  .avi12-input,
+  .avi12-submit {
+    transition: none;
+  }
+  .avi12-submit:hover {
+    transform: none;
+  }
+}
