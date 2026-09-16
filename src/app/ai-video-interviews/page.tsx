@@ -11,12 +11,51 @@ import "./ai-video-interviews.css";
 // the layouts on /about, /jobs and friends exist to host BreadcrumbList
 // JSON-LD alongside the metadata, and this page has none to host — it is
 // noindex, so structured data would have nothing to feed.
+//
+// Open Graph and Twitter are set here in full because metadata merges
+// shallowly: a page that sets neither inherits the homepage's objects whole,
+// and shares of this URL showed the homepage's title, description, image and
+// an og:url of https://remotiv.work. Setting the objects replaces them.
+//
+// No share image, deliberately. The root opengraph-image and twitter-image
+// render the homepage's "Hire Top 1% Senior Engineering Talent" card, which is
+// the wrong preview for this page, and this page has no image of its own yet.
+// Leaving `images` unset gives no image rather than the wrong one; the Twitter
+// card is "summary" for the same reason, since summary_large_image with no
+// image renders an empty frame. Add an image here once a real asset exists.
+//
+// The description says only what ships: the Async Video Interview, scored
+// from the transcript with evidence per score. The conversational interview
+// is named as in development, never as available.
+const AVI_TITLE = "AI Video Interviews — Remotiv";
+const AVI_DESCRIPTION =
+  "Screen candidates with Async Video Interviews, scored from the transcript with evidence behind every score. Conversational AI Video Interviews are in development.";
+
 export const metadata: Metadata = {
-  title: "AI Video Interviews — Remotiv",
-  description: "Screen candidates with structured, AI-assisted video interviews.",
+  title: AVI_TITLE,
+  description: AVI_DESCRIPTION,
+  // The root keywords ("Pakistan engineers", "staff augmentation", ...) describe
+  // the hiring marketplace, not this product. null drops the inherited tag
+  // rather than replacing it: search engines ignore meta keywords, so a
+  // page-specific list would add nothing.
+  keywords: null,
   // Canonical path is relative; Next.js resolves it against `metadataBase`
   // (set in src/app/layout.tsx).
   alternates: { canonical: "/ai-video-interviews" },
+  openGraph: {
+    title: AVI_TITLE,
+    description: AVI_DESCRIPTION,
+    url: "/ai-video-interviews",
+    siteName: "Remotiv",
+    locale: "en_US",
+    type: "website",
+  },
+  twitter: {
+    card: "summary",
+    title: AVI_TITLE,
+    description: AVI_DESCRIPTION,
+    creator: "@remotiv",
+  },
   // Deliberately noindex while this page is under construction.
   // REMOVE THIS, add navbar + footer links, and add the route to
   // sitemap.ts before launch.

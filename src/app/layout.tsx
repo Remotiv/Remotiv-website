@@ -1,4 +1,4 @@
-import type { Metadata } from "next";
+import type { Metadata, Viewport } from "next";
 import { DM_Sans, Sora } from "next/font/google";
 import { Analytics } from "@vercel/analytics/react";
 import { SpeedInsights } from "@vercel/speed-insights/next";
@@ -55,7 +55,6 @@ export const metadata: Metadata = {
     icon: "/favicon.ico",
     apple: "/apple-touch-icon.png",
   },
-  themeColor: "#7E47FF",
   robots: {
     index: true,
     follow: true,
@@ -65,6 +64,14 @@ export const metadata: Metadata = {
       "max-image-preview": "large",
     },
   },
+};
+
+// themeColor lives in the viewport export, not metadata: Next 16 no longer
+// reads it from metadata, so it warned on every static route and emitted no
+// theme-color tag at all. #7E47FF is the brand purple, --remotiv-purple in
+// globals.css and the first stop of the Open Graph image's gradient.
+export const viewport: Viewport = {
+  themeColor: "#7E47FF",
 };
 
 export default function RootLayout({
