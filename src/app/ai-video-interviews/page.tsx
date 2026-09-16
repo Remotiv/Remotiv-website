@@ -1348,8 +1348,8 @@ export default function AIVideoInterviewsPage() {
                       is half the frame's inner width at every breakpoint. */}
                   <div className="avi7-tile">
                     <Image
-                      src="/team-avatars/candidate.webp"
-                      alt="A candidate on camera in a preview of the upcoming Conversational AI Video Interview"
+                      src="/ai-video-interview.webp"
+                      alt="A smiling bearded man in a blue shirt, on camera as the candidate in a preview of the upcoming Conversational AI Video Interview"
                       fill
                       sizes="(max-width: 639.98px) 40vw, (max-width: 1180px) 27vw, 21vw"
                       className="avi7-shot"
