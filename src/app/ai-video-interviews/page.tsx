@@ -588,52 +588,96 @@ const AVI12_SERVICE = "AI Video Interviews — Early Access";
 // outside this task's scope, so the panel has to be chosen by matching those
 // strings. If its wording changes this falls through to the generic panel,
 // which is the safe direction to fail in.
-function avi12ErrorAnchor(message: string): string {
-  if (message.startsWith("Too many")) return "#avi12-e-rate";
+function avi12ErrorPanel(message: string): string {
+  if (message.startsWith("Too many")) return "avi12-e-rate";
   if (message.endsWith("is required.") || message.startsWith("Please enter")) {
-    return "#avi12-e-input";
+    return "avi12-e-input";
   }
-  return "#avi12-e-server";
+  return "avi12-e-server";
 }
 
 async function submitEarlyAccess(formData: FormData) {
   "use server";
   const read = (key: string) => String(formData.get(key) ?? "");
-  const result = await submitContact({
-    name: read("name"),
-    email: read("email"),
-    company: read("company"),
-    service: AVI12_SERVICE,
-    message: read("message"),
-    companyUrl: read("company_url"),
-  });
-  // Absolute path, not a bare fragment: redirect() resolves against the
-  // request, and a fragment-only value has no path for the router to land on.
-  redirect(
-    `/ai-video-interviews${result.success ? "#avi12-sent" : avi12ErrorAnchor(result.error)}`,
-  );
+  // A throw inside submitContact used to become a 500, which replaced the whole
+  // page with the app's error screen. It now lands on the server-error panel,
+  // with or without JavaScript. redirect() stays outside the try: it works by
+  // throwing, and a catch around it would swallow the redirect itself.
+  let panel: string;
+  try {
+    const result = await submitContact({
+      name: read("name"),
+      email: read("email"),
+      company: read("company"),
+      service: AVI12_SERVICE,
+      message: read("message"),
+      companyUrl: read("company_url"),
+    });
+    panel = result.success ? "avi12-sent" : avi12ErrorPanel(result.error);
+  } catch (error) {
+    console.error("[ai-video-interviews] submitContact threw:", error);
+    panel = "avi12-e-server";
+  }
+  // With JavaScript on, SECTION12_SCRIPT submits with fetch and adds
+  // avi12_js=1. fetch cannot read a redirect's fragment, so that request also
+  // gets the result in the query string, which response.url does expose. The
+  // script never navigates to that URL; it only reads it. A no-JS POST never
+  // carries the field, so its redirect is unchanged: a bare fragment for :target.
+  // Absolute path, not a bare fragment: redirect() resolves against the request.
+  const query = formData.get("avi12_js") === "1" ? `?avi12=${panel}` : "";
+  redirect(`/ai-video-interviews${query}#${panel}`);
 }
 
-// Section 12. Two jobs: the accordion, and mirroring the URL fragment onto the
-// result panels so the post-submit state survives a soft navigation.
+// Section 12. Three jobs: the accordion, the inquiry submit, and mirroring the
+// URL fragment onto the result panels.
 //
-// Everything here is delegated or re-queried, and nothing holds a node
-// reference, for one measured reason: when the server action redirects, React
-// re-renders this subtree and REPLACES the card's DOM nodes. A listener bound
-// to the form, or a cached NodeList of the panels, is pointing at detached
-// elements from that moment on. The first version of this script bound
-// directly and went dead the instant the form was used once.
+// THE SUBMIT IS OWNED HERE when JavaScript is on. A capture listener on the
+// document stops the submit event before React's root listener sees it, and
+// posts the form with fetch to the same URL a no-JS browser posts to - the
+// server action's own progressive-enhancement endpoint, not Next's private
+// action protocol. That buys four things React's path could not give:
+//   - a dropped connection or a 500 lands on the server-error panel, instead
+//     of throwing to the root error boundary and replacing the whole page;
+//   - busy lasts exactly as long as the request (cleared in finally), where
+//     an 8-second timer used to re-enable a still-pending submit, and React
+//     then queued the second one behind the first;
+//   - a submit while one is pending is dropped, so Enter cannot send twice;
+//   - the form is never re-rendered, so what the visitor typed survives an
+//     error. It is cleared on success only.
+// The action answers avi12_js=1 with ?avi12=<panel> as well as the fragment,
+// because fetch cannot read a fragment; the id is checked against RESULTS so a
+// response can only ever open a real panel.
 //
-// The MutationObserver is what re-applies data-show after that replacement:
-// React hands back freshly server-rendered panels with the attribute gone, and
-// there is no event that fires when it does. It watches childList only, and
-// sync() only ever touches attributes, so it cannot retrigger itself.
+// Focus moves to the panel that lands, and only after a submit this script
+// made. hashchange, popstate and the MutationObserver re-run sync() for any
+// other reason - "Submit Another", back, a cold load - without moving focus.
+//
+// Without JavaScript none of this runs: the form posts, the action redirects
+// to the fragment, and :target shows the panel. That is the architecture, and
+// a browser without fetch falls back to React's own action path the same way.
+//
+// data-show stays because Chrome does not recompute :target after a soft
+// navigation, which is what React's fallback path performs. Everything is
+// delegated or re-queried, and the MutationObserver re-applies data-show,
+// because that path REPLACES the card's DOM nodes. It watches childList only,
+// and sync() only touches attributes, so it cannot retrigger itself.
+//
+// The 30-second abort cannot know whether the request reached the server, so
+// it opens a panel that says to email rather than try again.
 const SECTION12_SCRIPT = `(function(){
+var RESULTS=["avi12-sent","avi12-e-input","avi12-e-rate","avi12-e-server"];
+var pending=false;
 function sync(){var h=location.hash.slice(1),hit=false;
 [].slice.call(document.querySelectorAll(".avi12-sent,.avi12-err")).forEach(function(p){
 if(p.id===h){p.setAttribute("data-show","");hit=true}else p.removeAttribute("data-show")});
-if(hit){var f=document.querySelector(".avi12-form");if(f)f.removeAttribute("data-busy")}
 return hit}
+function land(id){
+if(location.hash!=="#"+id)location.hash=id;
+sync();
+var p=document.getElementById(id);if(!p)return;
+p.setAttribute("tabindex","-1");
+p.addEventListener("blur",function(){p.removeAttribute("tabindex")},{once:true});
+p.focus()}
 document.addEventListener("click",function(e){
 var b=e.target&&e.target.closest?e.target.closest(".avi12-faq-btn"):null;
 if(!b)return;
@@ -646,9 +690,22 @@ if(os)os.textContent=on?"\\u2212":"+"})});
 document.addEventListener("submit",function(e){
 var f=e.target;
 if(!f.classList||!f.classList.contains("avi12-form"))return;
-f.setAttribute("data-busy","");
-setTimeout(function(){var g=document.querySelector(".avi12-form");
-if(g)g.removeAttribute("data-busy")},8000)},true);
+if(!window.fetch||!window.FormData||!window.Promise||!Promise.prototype.finally)return;
+e.preventDefault();e.stopImmediatePropagation();
+if(pending)return;
+pending=true;f.setAttribute("data-busy","");
+var body=new FormData(f),result="avi12-e-server";
+body.append("avi12_js","1");
+var ctl=window.AbortController?new AbortController():null;
+var timer=ctl?setTimeout(function(){ctl.abort()},30000):0;
+fetch(location.pathname,{method:"POST",body:body,credentials:"same-origin",signal:ctl?ctl.signal:undefined})
+.then(function(r){var m=/[?&]avi12=([a-z0-9-]+)/.exec(r.url);
+if(m&&RESULTS.indexOf(m[1])>-1)result=m[1]},
+function(err){if(err&&err.name==="AbortError")result="avi12-e-timeout"})
+.finally(function(){
+clearTimeout(timer);pending=false;f.removeAttribute("data-busy");
+if(result==="avi12-sent")f.reset();
+land(result)})},true);
 addEventListener("hashchange",sync);
 addEventListener("popstate",sync);
 if(window.MutationObserver)new MutationObserver(sync).observe(document.body,{childList:true,subtree:true});
@@ -1860,7 +1917,15 @@ export default function AIVideoInterviewsPage() {
               </div>
 
               <div className="avi12-panel">
-                <div className="avi12-sent" id="avi12-sent" role="status" aria-live="polite">
+                {/* Result panels take focus when a script-owned submit lands on
+                    them. They are NOT focusable in the markup: Chrome focuses a
+                    focusable fragment target on any hash navigation, so a
+                    tabIndex here moved focus on a cold load or a manual hash
+                    change as well. The script adds tabindex="-1" at the moment
+                    it lands a result and removes it on blur. They carry no
+                    live-region role: focus is what announces them, and a live
+                    region on a panel that also receives focus is read twice. */}
+                <div className="avi12-sent" id="avi12-sent">
                   <div className="avi12-sent-mark" aria-hidden="true">
                     <svg viewBox="0 0 24 24" aria-hidden="true">
                       <path d="M5 12l5 5L20 7" />
@@ -1880,22 +1945,38 @@ export default function AIVideoInterviewsPage() {
                 <form className="avi12-form" action={submitEarlyAccess}>
                   <h3 className="avi12-form-h3">Send an Inquiry</h3>
 
-                  {/* Three server-rendered error panels rather than one with a
-                      dynamic message: this page is statically prerendered, so
-                      there is nowhere to put a runtime string. The action
-                      redirects to whichever fragment matches. */}
-                  <p className="avi12-err" id="avi12-e-input" role="alert" aria-live="assertive">
+                  {/* Server-rendered error panels rather than one with a dynamic
+                      message: this page is statically prerendered, so there is
+                      nowhere to put a runtime string. The action redirects to
+                      whichever fragment matches. */}
+                  <p className="avi12-err" id="avi12-e-input">
                     Please check your name, work email and message, then try again.
                   </p>
-                  <p className="avi12-err" id="avi12-e-rate" role="alert" aria-live="assertive">
+                  <p className="avi12-err" id="avi12-e-rate">
                     Too many submissions. Please wait a moment and try again.
                   </p>
-                  <p className="avi12-err" id="avi12-e-server" role="alert" aria-live="assertive">
+                  <p className="avi12-err" id="avi12-e-server">
                     We couldn&rsquo;t send your inquiry. Please try again or email us at{" "}
                     <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>.
                   </p>
+                  {/* Opened only by the script's 30-second abort. A timed-out
+                      request may still have reached the server, so this one
+                      says not to send again. The server never redirects here. */}
+                  <p className="avi12-err" id="avi12-e-timeout">
+                    This is taking longer than it should, and your inquiry may already have reached
+                    us. Please don&rsquo;t send it again &mdash; email{" "}
+                    <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>
+                    {" and we’ll confirm."}
+                  </p>
 
-                  {/* Honeypot — hidden from humans, filled by bots. */}
+                  {/* Honeypot — hidden from humans, filled by bots. inert because
+                      tabIndex={-1} only keeps it out of the Tab order: after a
+                      rejected submit, Next's hash-scroll handler skipped the
+                      still-hidden error panel, walked to the next sibling and
+                      called focus() on this field, so a keyboard user typing
+                      next filled the trap and their inquiry was silently
+                      discarded as a bot's. An inert field cannot take focus and
+                      is still submitted, so bots still trip it. */}
                   <input
                     className="avi12-hp"
                     type="text"
@@ -1903,6 +1984,7 @@ export default function AIVideoInterviewsPage() {
                     tabIndex={-1}
                     autoComplete="off"
                     aria-hidden="true"
+                    inert
                   />
 
                   <div className="avi12-row">

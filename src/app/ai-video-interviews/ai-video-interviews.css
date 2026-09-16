@@ -5153,7 +5153,11 @@
      panel a visible step off the four pages it is copying. */
   --a12-err-ink: var(--color-red-700);
   --a12-err-bg: var(--color-red-50);
-  --a12-req: var(--color-red-500);
+  /* red-700, not the service pages' red-500: the asterisk is the only visual
+     sign a field is required, so 1.4.3 applies even though it is aria-hidden.
+     red-500 measured 3.81:1 on white; red-700 is 6.42:1 and is already this
+     form's error ink. The four service pages still use red-500 and still fail. */
+  --a12-req: var(--color-red-700);
   --a12-ok: #49d7a7;
   --a12-rule: rgba(0, 0, 0, 0.1);
   --a12-rule-soft: rgba(0, 0, 0, 0.06);
@@ -5543,9 +5547,13 @@ textarea.avi12-input {
    bearing. Measured, not assumed:
      - No JS: the form does a plain POST, the action answers with a real
        redirect, the browser hard-navigates, and :target alone is enough.
-     - Hydrated: the same redirect becomes a soft navigation. Chrome does NOT
-       recompute :target for it - the fragment reads #avi12-e-input and the
-       panel still computes to display:none. Only [data-show] renders it.
+       A cold load of a result fragment works the same way.
+     - JS on: SECTION12_SCRIPT owns the submit, reads the result and sets
+       location.hash itself, then re-applies [data-show]. If a browser lacks
+       fetch, React's action path runs instead, and its redirect is a soft
+       navigation for which Chrome does NOT recompute :target - the fragment
+       reads #avi12-e-input and the panel still computes to display:none.
+       Only [data-show] renders it there.
    Neither is redundant. Do not delete one thinking it covers the other. */
 .avi12-err,
 .avi12-sent {
@@ -5567,6 +5575,18 @@ textarea.avi12-input {
 .avi12-err,
 .avi12-sent {
   scroll-margin-top: 104px;
+}
+/* A landed result panel is focused by script so it is announced. Keyboard
+   users get the form's own purple ring; a mouse submit shows none, because
+   the panel is not a control. */
+.avi12-err:focus,
+.avi12-sent:focus {
+  outline: none;
+}
+.avi12-err:focus-visible,
+.avi12-sent:focus-visible {
+  outline: 2px solid var(--a12-purple);
+  outline-offset: 2px;
 }
 .avi12-err {
   margin: 0 0 16px;
