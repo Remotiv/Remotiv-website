@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { notifyAllAdmins } from "@/lib/notifications";
 import { sendEmail } from "@/lib/email/send";
@@ -158,20 +159,22 @@ export async function claimProfile(
     .eq("source_table", sourceTable)
     .in("status", ["pending", "opened"]);
 
-  notifyAllAdmins({
-    event_type: "profile_claimed",
-    title: "Profile claimed",
-    message: `${profile.email ?? user.email} claimed their ${
-      sourceTable === "talent_profiles" ? "Pakistan Talent" : "Remote Ready"
-    } profile`,
-    link:
-      sourceTable === "talent_profiles"
-        ? `/admin/talent?id=${profileId}`
-        : `/admin/remote-talent?id=${profileId}`,
-    metadata: { profile_id: profileId, source_table: sourceTable },
-  }).catch((err) => {
-    console.error("[claimProfile] notify error", err);
-  });
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "profile_claimed",
+      title: "Profile claimed",
+      message: `${profile.email ?? user.email} claimed their ${
+        sourceTable === "talent_profiles" ? "Pakistan Talent" : "Remote Ready"
+      } profile`,
+      link:
+        sourceTable === "talent_profiles"
+          ? `/admin/talent?id=${profileId}`
+          : `/admin/remote-talent?id=${profileId}`,
+      metadata: { profile_id: profileId, source_table: sourceTable },
+    }),
+  );
 
   sendEmail({
     to: user.email,

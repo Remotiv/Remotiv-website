@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -126,21 +127,22 @@ export async function submitBooking(data: BookingInput): Promise<Result> {
     return { success: false, error: GENERIC_ERROR };
   }
 
-  // Fire-and-forget — don't block the user response.
-  notifyAllAdmins({
-    event_type: "new_inquiry",
-    title: `New booking request from ${fullName}`,
-    message: `${service ?? "Discovery call"}${preferredTime ? ` · ${preferredTime}` : ""}${company ? ` · ${company}` : ""}`,
-    link: "/admin/contacts?tab=bookings",
-    metadata: {
-      kind: "booking",
-      email,
-      service,
-      preferred_time: preferredTime,
-    },
-  }).catch((err) => {
-    console.error("[submitBooking] notifyAllAdmins failed:", err);
-  });
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land — see submitContact.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "new_inquiry",
+      title: `New booking request from ${fullName}`,
+      message: `${service ?? "Discovery call"}${preferredTime ? ` · ${preferredTime}` : ""}${company ? ` · ${company}` : ""}`,
+      link: "/admin/contacts?tab=bookings",
+      metadata: {
+        kind: "booking",
+        email,
+        service,
+        preferred_time: preferredTime,
+      },
+    }),
+  );
 
   return { success: true };
 }

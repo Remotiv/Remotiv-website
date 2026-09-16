@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { notifyAllAdmins } from "@/lib/notifications";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -131,17 +132,23 @@ export async function submitContact(data: ContactInput): Promise<Result> {
     return { success: false, error: GENERIC_ERROR };
   }
 
-  // Fire-and-forget notification to all admins. Don't block the user
-  // response on the listUsers + insert round-trip.
-  notifyAllAdmins({
-    event_type: "new_inquiry",
-    title: `New inquiry from ${name}`,
-    message: `${service ?? "General inquiry"}${company ? ` · ${company}` : ""} — "${message.slice(0, 120)}${message.length > 120 ? "…" : ""}"`,
-    link: "/admin/contacts",
-    metadata: { kind: "inquiry", email, service },
-  }).catch((err) => {
-    console.error("[submitContact] notifyAllAdmins failed:", err);
-  });
+  // Notify admins once the response has been sent. This was a bare un-awaited
+  // call, and on Vercel the function can be frozen as soon as the response
+  // goes out, taking the pending promise with it: 4 of 11 recent inquiries
+  // produced no notification and two more arrived minutes late. after() hands
+  // the work to the platform's waitUntil, so the response still does not wait
+  // for the admin lookup and insert, but the invocation stays alive until the
+  // notification settles. notifyAllAdmins never throws and logs its own
+  // failures, so a failed notification cannot fail the submission.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "new_inquiry",
+      title: `New inquiry from ${name}`,
+      message: `${service ?? "General inquiry"}${company ? ` · ${company}` : ""} — "${message.slice(0, 120)}${message.length > 120 ? "…" : ""}"`,
+      link: "/admin/contacts",
+      metadata: { kind: "inquiry", email, service },
+    }),
+  );
 
   return { success: true };
 }

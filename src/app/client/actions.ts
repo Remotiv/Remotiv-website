@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { after } from "next/server";
 import { createClient as createAuthClient, createServiceClient } from "@/lib/supabase/server";
 import { BATCH_STAGES } from "@/app/admin/_components/batch-stages";
 import { isSuperAdminEmail, type UserRole } from "@/app/admin/lib/roles";
@@ -401,23 +402,24 @@ export async function saveClientFeedback(
       `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
     const decisionLabel = decisionLabels[decision] ?? decision;
 
-    // Fire-and-forget — don't block the client's response.
-    notifyAllAdmins({
-      event_type: "client_decision",
-      title: `Client ${decisionLabel} ${candidateName}`,
-      message: trimmed
-        ? `${client.company_name}: "${trimmed.slice(0, 100)}${trimmed.length > 100 ? "…" : ""}"`
-        : `${client.company_name} made a decision on this candidate.`,
-      link: `/admin/client-batches/${cand.batch_id}`,
-      metadata: {
-        candidate_id: candidateId,
-        decision,
-        client_id: client.id,
-        client_name: client.company_name,
-      },
-    }).catch((err) => {
-      console.error("[submitClientDecision] notifyAllAdmins failed:", err);
-    });
+    // After the response, kept alive by waitUntil. A bare un-awaited call can
+    // be frozen with the function on Vercel and never land.
+    after(() =>
+      notifyAllAdmins({
+        event_type: "client_decision",
+        title: `Client ${decisionLabel} ${candidateName}`,
+        message: trimmed
+          ? `${client.company_name}: "${trimmed.slice(0, 100)}${trimmed.length > 100 ? "…" : ""}"`
+          : `${client.company_name} made a decision on this candidate.`,
+        link: `/admin/client-batches/${cand.batch_id}`,
+        metadata: {
+          candidate_id: candidateId,
+          decision,
+          client_id: client.id,
+          client_name: client.company_name,
+        },
+      }),
+    );
   }
 
   revalidatePath("/client/dashboard");
@@ -479,20 +481,21 @@ export async function updateClientStage(
 
   const candidateName =
     `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
-  // Fire-and-forget — don't block the client's response.
-  notifyAllAdmins({
-    event_type: "stage_change",
-    title: `Stage changed for ${candidateName}`,
-    message: `${client.company_name} moved candidate to "${newStage}"`,
-    link: `/admin/client-batches/${cand.batch_id}`,
-    metadata: {
-      candidate_id: candidateId,
-      new_stage: newStage,
-      client_id: client.id,
-    },
-  }).catch((err) => {
-    console.error("[updateClientStage] notifyAllAdmins failed:", err);
-  });
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "stage_change",
+      title: `Stage changed for ${candidateName}`,
+      message: `${client.company_name} moved candidate to "${newStage}"`,
+      link: `/admin/client-batches/${cand.batch_id}`,
+      metadata: {
+        candidate_id: candidateId,
+        new_stage: newStage,
+        client_id: client.id,
+      },
+    }),
+  );
 
   revalidatePath("/client/dashboard");
   return { success: true, data: undefined };
@@ -600,16 +603,17 @@ export async function addCandidateNote(
 
   const candidateName =
     `${cand.first_name ?? ""} ${cand.last_name ?? ""}`.trim() || "a candidate";
-  // Fire-and-forget — don't block the client's response.
-  notifyAllAdmins({
-    event_type: "client_note",
-    title: `New note from ${client.company_name}`,
-    message: `On ${candidateName}: "${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}"`,
-    link: `/admin/client-batches/${cand.batch_id}`,
-    metadata: { candidate_id: candidateId, client_id: client.id },
-  }).catch((err) => {
-    console.error("[submitClientNote] notifyAllAdmins failed:", err);
-  });
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "client_note",
+      title: `New note from ${client.company_name}`,
+      message: `On ${candidateName}: "${trimmed.slice(0, 120)}${trimmed.length > 120 ? "…" : ""}"`,
+      link: `/admin/client-batches/${cand.batch_id}`,
+      metadata: { candidate_id: candidateId, client_id: client.id },
+    }),
+  );
 
   return { success: true, data: data as CandidateNote };
 }

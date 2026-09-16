@@ -1,6 +1,7 @@
 "use server";
 
 import { headers } from "next/headers";
+import { after } from "next/server";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { sendEmail } from "@/lib/email/send";
 import { renderHireRequestClientEmail } from "@/lib/email/templates/hire-request-client";
@@ -207,15 +208,17 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
     console.error("[submitHireRequest] team email failed:", err);
   });
 
-  notifyAllAdmins({
-    event_type: "new_inquiry",
-    title: `New hire request — ${candidateName}`,
-    message: `${fullName} from ${company} wants to hire ${candidateName} (${data.engagementType.replace("_", " ")}, ${budgetRange})`,
-    link: "/admin/hire-requests",
-    metadata: { kind: "hire_request", email, candidate_id: candidateId },
-  }).catch((err) => {
-    console.error("[submitHireRequest] notifyAllAdmins failed:", err);
-  });
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land — see submitContact.
+  after(() =>
+    notifyAllAdmins({
+      event_type: "new_inquiry",
+      title: `New hire request — ${candidateName}`,
+      message: `${fullName} from ${company} wants to hire ${candidateName} (${data.engagementType.replace("_", " ")}, ${budgetRange})`,
+      link: "/admin/hire-requests",
+      metadata: { kind: "hire_request", email, candidate_id: candidateId },
+    }),
+  );
 
   return { success: true };
 }
