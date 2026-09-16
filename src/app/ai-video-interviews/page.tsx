@@ -55,31 +55,38 @@ if(!e.classList.contains("avi3-in")&&e.getBoundingClientRect().top<innerHeight)s
 // the criterion switcher. Everything the switcher needs is read back off the
 // buttons, so the copy has exactly one home — the AVI4_CRITERIA array below.
 //
-// "View in transcript" both scrolls and moves focus: below 1180 the panels
-// stack and the passage is off screen, so a highlight on its own is a change
-// the reader never sees. Focus goes to the passage rather than staying on the
-// button so keyboard and screen-reader users land in the same place as the
-// scroll, which is what the tabindex of -1 on each evidence turn is for.
+// It mirrors the shipped review screen. A criterion carries a tick, not a
+// score — scores belong to answers, and the transcript shows the answer's.
+// The evidence is reached through a timestamp chip that seeks the recording,
+// as the product's chip does, so the chip moves the depicted player to that
+// moment. It also scrolls to and focuses the highlighted passage: below 1180
+// the panels stack and the passage is off screen, and focus lands keyboard and
+// screen-reader users where the scroll does, which is what the tabindex of -1
+// on each evidence turn is for.
 const SECTION4_SCRIPT = `(function(){
 var sec=document.querySelector(".avi4-sec");if(!sec)return;
-var ring=sec.querySelector("#avi4-d-ring"),val=ring.querySelector(".avi4-val");
 var crows=[].slice.call(sec.querySelectorAll(".avi4-crow"));
 var txs=[].slice.call(sec.querySelectorAll(".avi4-turns"));
-var cur="c2";
+var jump=sec.querySelector("#avi4-d-jump"),now=sec.querySelector("#avi4-p-now"),dur=sec.querySelector("#avi4-p-dur"),fill=sec.querySelector("#avi4-p-fill");
+var secs=function(t){var p=t.split(":");return (+p[0])*60+(+p[1])};
+var cur=crows.filter(function(x){return x.getAttribute("aria-pressed")==="true"})[0]||crows[0];
 function select(b){
-var id=b.dataset.c;if(id===cur)return;cur=id;
+if(b===cur)return;cur=b;var id=b.dataset.c;
 crows.forEach(function(x){x.setAttribute("aria-pressed",x===b?"true":"false")});
 txs.forEach(function(t){t.hidden=(t.id!=="avi4-tx-"+id)});
 sec.querySelector("#avi4-d-name").textContent=b.querySelector(".avi4-cname").textContent;
-sec.querySelector("#avi4-d-score").textContent=b.querySelector(".avi4-cscore").textContent;
 sec.querySelector("#avi4-d-quote").textContent=b.dataset.quote;
+sec.querySelector("#avi4-d-q").textContent=b.dataset.q;
 sec.querySelector("#avi4-d-time").textContent=b.dataset.time;
-ring.classList.toggle("avi4-ring--amber",b.dataset.band==="amber");
-val.style.setProperty("--off",b.dataset.off);
+jump.setAttribute("aria-label","Play "+b.dataset.q+" from "+b.dataset.time);
+now.textContent="0:00";dur.textContent=b.dataset.dur;fill.style.width="0%";
 }
 crows.forEach(function(b){b.addEventListener("click",function(){select(b)})});
-sec.querySelector("#avi4-d-jump").addEventListener("click",function(){
-var ev=sec.querySelector("#avi4-ev-"+cur);if(!ev)return;
+jump.addEventListener("click",function(){
+var b=cur,ev=sec.querySelector("#avi4-ev-"+b.dataset.c);
+now.textContent=b.dataset.time;
+fill.style.width=Math.min(100,secs(b.dataset.time)/secs(b.dataset.dur)*100).toFixed(1)+"%";
+if(!ev)return;
 var rm=window.matchMedia&&window.matchMedia("(prefers-reduced-motion: reduce)").matches;
 if(ev.scrollIntoView)ev.scrollIntoView({block:"center",behavior:rm?"auto":"smooth"});
 ev.focus({preventScroll:true});
@@ -158,15 +165,24 @@ setTimeout(function(){v.forEach(function(e){
 if(!e.classList.contains("avi9-in")&&e.getBoundingClientRect().top<innerHeight)s(e)})},2200);
 })();`;
 
-// Section 9. Both channels are live: WhatsApp messaging and calendar booking
-// ship today. The candidate picks from availability the hiring team has already
-// set — never from an open calendar — which is why step three says "from your
-// team's availability" and there is no calendar grid anywhere in the section.
+// Section 9. Two flows that ship today, kept in the order a candidate meets
+// them and never merged. The async video interview invite goes over WhatsApp
+// and email, and its one reminder is queued for 24 hours before the deadline
+// and skipped once the candidate has submitted. Booking is separate and
+// email-only: a team member sends the link, the candidate picks a slot the
+// host's calendar and working hours leave open — never an open calendar, so
+// there is no calendar grid anywhere in the section — and the confirmation
+// and any reschedule are emailed to both sides. WhatsApp carries no booking
+// message, which is why the depicted WhatsApp is the interview invite.
 const AVI9_STEPS = [
-  { name: "Invite", line: "Sent over WhatsApp and email" },
+  { name: "Invite", line: "Video interview, over WhatsApp and email" },
   {
     name: "Reminder",
-    line: "Follows automatically if there’s no response",
+    line: "The day before it closes, if they haven’t finished",
+  },
+  {
+    name: "Booking link",
+    line: "Emailed when your team wants to meet them",
   },
   {
     name: "Candidate books",
@@ -176,7 +192,6 @@ const AVI9_STEPS = [
     name: "Confirmation",
     line: "Reaches both sides, and so does any reschedule",
   },
-  { name: "Interview", line: "Goes ahead at the booked time" },
 ];
 
 const SECTION10_SCRIPT = `(function(){
@@ -192,9 +207,12 @@ if(!e.classList.contains("avi10-in")&&e.getBoundingClientRect().top<innerHeight)
 
 // Section 10. Every figure is the live product's own value, read from the
 // analytics dashboard after f6eef5f: 24% completion over 21 invitations, 22
-// days from the one completed hire, and two metrics the workspace has no
-// evidence for yet. The two em-dashes are the finished state the dashboard
-// actually renders, not a placeholder for a number to be filled in later.
+// days from the one completed hire, and a metric the workspace has no evidence
+// for yet. The em-dash is the finished state the dashboard actually renders,
+// not a placeholder for a number to be filled in later. Tile names are the
+// dashboard's own stat keys. A fourth "Hiring bottleneck" tile was dropped:
+// the dashboard has no such tile (the bottleneck is a note on its funnel), and
+// swapping in another real tile would mean printing a value nobody has read.
 const AVI10_TILES = [
   {
     name: "Interview completion",
@@ -203,14 +221,9 @@ const AVI10_TILES = [
   },
   { name: "Time to hire", value: "22d", state: "From 1 completed hire" },
   {
-    name: "AI–Human agreement",
+    name: "AI agreement",
     value: null,
     state: "No recruiter adjustments yet",
-  },
-  {
-    name: "Hiring bottleneck",
-    value: null,
-    state: "Not enough stage movement to identify",
   },
 ];
 
@@ -228,9 +241,14 @@ if(!e.classList.contains("avi11-in")&&e.getBoundingClientRect().top<innerHeight)
 // Section 11. Four claims, each one a thing the code does today and nothing
 // more. Consent gates the recorder in src/app/interview/[token]/_flow.tsx;
 // recordings live in a private bucket and play back through signed URLs with
-// a five-minute TTL; a session is gated per hiring team and every signed URL
-// is written to signed_url_logs; the six-month purge in src/lib/interviews
-// deletes the video and the transcript.
+// a five-minute TTL; a session opens only for the role's hiring team and the
+// workspace's owners and admins, and every playback URL a team member is
+// granted is written to signed_url_logs; the six-month purge in
+// src/lib/interviews deletes the video and the transcript.
+//
+// Card 03 names owners and admins on purpose: "only the relevant hiring team"
+// was exclusive and false. It says playback, not views, because transcript
+// and scorecard opens are not logged.
 //
 // "Remotiv automatically removes ITS recordings" — that word is load-bearing
 // and must not be edited out. The purge reaches Remotiv's own copies. It does
@@ -258,7 +276,7 @@ const AVI11_CARDS = [
   {
     num: "03",
     title: "Controlled access",
-    line: "Only the relevant hiring team can open an interview, and every view is logged.",
+    line: "Only the hiring team, owners and admins can open an interview. Team playback is logged.",
     icon: <path d="M3.4 4.6h9.2M3.4 8h9.2M3.4 11.4h5.6" />,
   },
   {
@@ -275,16 +293,19 @@ const AVI11_CARDS = [
 ];
 
 // Fixed sample data. The roster is international by design — the product sells
-// worldwide and a single-country list misrepresents it. Ring dash offsets are
+// worldwide and a single-country list misrepresents it. Rank 1 is Ayesha Karim,
+// the hero's "Ranked 1 of 128" and the same 128 applicants: two different
+// leaders of one result set was a contradiction. Lahore is her UTC+5. Ring
+// dash offsets are
 // precomputed as C x (1 - score/100) so the arc can never disagree with the
 // numeral drawn over it; C is 2(pi)r for r=19.
 const RING_C = "119.38";
 const RANKED = [
   {
     rank: 1,
-    initials: "MH",
-    name: "Marcus Hale",
-    meta: "6 yrs · London · applied 2 days ago",
+    initials: "AK",
+    name: "Ayesha Karim",
+    meta: "6 yrs · Lahore · applied 2 days ago",
     score: 88,
     off: "14.33",
     tone: "mint",
@@ -350,48 +371,53 @@ const SEP = (
   </span>
 );
 
-// Section 4. The switcher reads name, score, quote, timestamp and ring offset
-// back off the buttons, so this array is the only copy of any of it.
-// Offsets are C x (1 - score/100) with C = 2(pi)r for r=33.
+// Section 4. The switcher reads name, question, quote, timestamp and recording
+// length back off the buttons, so this array is the only copy of any of it.
+// A criterion has no score of its own in the product — it is found in the
+// transcript or it is not — so `score` here is the score of the ANSWER the
+// evidence sits in, and it is drawn on that answer's question row. Timestamps
+// and lengths are m:ss within that one answer's recording.
+// C = 2(pi)r for r=33. Section 6 draws its score ring with it; section 4's
+// ring is always closed, because it marks a criterion as found.
 const RING_C_LG = "207.345";
 const AVI4_CRITERIA = [
   {
     id: "c1",
     name: "Distributed systems trade-offs",
+    q: "Question 1",
     score: 88,
-    off: "24.881",
-    band: "",
-    time: "07:14",
+    time: "0:31",
+    dur: "1:34",
     quote:
       '"The trade-off is that you stop being able to say “it happened” and start saying “it will have happened”, so anything reading that data has to tolerate being a few seconds behind."',
   },
   {
     id: "c2",
     name: "Handling production incidents",
+    q: "Question 2",
     score: 76,
-    off: "49.763",
-    band: "amber",
-    time: "11:36",
+    time: "0:21",
+    dur: "1:41",
     quote:
       '"First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why."',
   },
   {
     id: "c3",
     name: "Communicating with non-engineers",
+    q: "Question 3",
     score: 71,
-    off: "60.130",
-    band: "amber",
-    time: "16:02",
+    time: "0:17",
+    dur: "0:58",
     quote:
       '"What broke, who it touched, what we’d already done, and when we’d know more. I try not to use the word “queue” in those."',
   },
   {
     id: "c4",
     name: "Mentoring and code review",
+    q: "Question 4",
     score: 83,
-    off: "35.249",
-    band: "",
-    time: "21:18",
+    time: "0:13",
+    dur: "1:12",
     quote:
       '"I stopped leaving line comments for a while and left one comment at the top instead, saying what I’d look at first and why."',
   },
@@ -401,32 +427,41 @@ const AVI4_CRITERIA = [
 // takes over from the first click.
 const AVI4_SELECTED = AVI4_CRITERIA[1];
 
-type Avi4Turn = { who: string; time: string; say: string; ev?: boolean };
+// Section 4 depicts the Async Video Interview that ships today, so each block
+// is one recorded answer to one fixed question the hiring team set for the
+// role — never a reply to what the candidate said. There is no interviewer in
+// an async interview, so the row above each answer is the question itself,
+// labelled the way the review screen labels it ("Question 2 of 5"). Every
+// answer is its own recording, so timestamps run from 0:00 within that answer,
+// in the review screen's m:ss form, and stay under the default two-minute
+// answer limit. The third row of each block is the candidate still talking;
+// an earlier version put a reactive follow-up there, which is the unbuilt
+// conversational interview.
+type Avi4Turn = { who: string; time?: string; say: string; ev?: boolean };
 
 const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
   {
     id: "c1",
     turns: [
       {
-        who: "Interviewer",
-        time: "06:58",
-        say: "You mentioned the events pipeline started out synchronous. What made you move it?",
+        who: "Question 1 of 5",
+        say: "When did you trade consistency for speed in a design? What did you give up?",
       },
       {
         who: "Priya Nair",
-        time: "07:06",
+        time: "0:06",
         say: "Checkout was waiting on three downstream calls it didn't need to wait on. Our p95 was about 1.4 seconds and most of that was us being polite to services that could have been told later.",
       },
       {
         who: "Priya Nair",
-        time: "07:14",
+        time: "0:31",
         ev: true,
         say: 'So we put a queue in front of the ones that weren\'t on the critical path — notifications, the CRM sync, the loyalty ledger. The trade-off is that you stop being able to say "it happened" and start saying "it will have happened", so anything reading that data has to tolerate being a few seconds behind. We were fine with that everywhere except the ledger, which we left synchronous, because finance reconciles it daily and I didn\'t want to be explaining a gap.',
       },
       {
-        who: "Interviewer",
-        time: "07:52",
-        say: "How did you decide where that line was?",
+        who: "Priya Nair",
+        time: "1:18",
+        say: "Nobody's asked us to change it since.",
       },
     ],
   },
@@ -434,24 +469,23 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
     id: "c2",
     turns: [
       {
-        who: "Interviewer",
-        time: "11:20",
-        say: "Tell me about the last production issue you were personally on the hook for.",
+        who: "Question 2 of 5",
+        say: "Tell us about the last production issue you were personally on the hook for.",
       },
       {
         who: "Priya Nair",
-        time: "11:28",
+        time: "0:05",
         say: "About six weeks ago we started dropping payment webhooks. Only around two percent, so nobody noticed for a day and a half — it came in as a support ticket, not an alert, which is its own problem.",
       },
       {
         who: "Priya Nair",
-        time: "11:36",
+        time: "0:21",
         ev: true,
         say: "I took the page around eleven at night. First thing was to stop the bleeding: I rolled the consumer back to the previous version and let the queue drain, so we stopped losing events while we worked out why. Then I pulled the diff — someone had tightened a retry policy two days earlier, and anything over two seconds was being dropped instead of requeued. We replayed about four thousand events out of the dead-letter queue the next morning.",
       },
       {
         who: "Priya Nair",
-        time: "12:04",
+        time: "1:02",
         say: "We added an alert on dead-letter depth after that, which we should have had already. I'll be honest though, we never did a proper write-up. It was quarter end and it slipped.",
       },
     ],
@@ -460,25 +494,24 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
     id: "c3",
     turns: [
       {
-        who: "Interviewer",
-        time: "15:44",
-        say: "How do you explain something like that outage to people who aren't engineers?",
+        who: "Question 3 of 5",
+        say: "How do you explain a technical problem to people who aren't engineers?",
       },
       {
         who: "Priya Nair",
-        time: "15:52",
+        time: "0:04",
         say: "It depends who's asking. Support wants to know what to tell customers. Finance wants to know whether the numbers are wrong.",
       },
       {
         who: "Priya Nair",
-        time: "16:02",
+        time: "0:17",
         ev: true,
         say: "For the webhook one I wrote two paragraphs in the channel: what broke, who it touched, what we'd already done, and when we'd know more. I try not to use the word \"queue\" in those. It's harder than it sounds — I've had feedback before that I go too deep too fast when someone asks a simple question.",
       },
       {
-        who: "Interviewer",
-        time: "16:31",
-        say: "Has anyone pushed back on you about that?",
+        who: "Priya Nair",
+        time: "0:49",
+        say: "Writing it down first is what helps most.",
       },
     ],
   },
@@ -486,38 +519,36 @@ const AVI4_TRANSCRIPT: { id: string; turns: Avi4Turn[] }[] = [
     id: "c4",
     turns: [
       {
-        who: "Interviewer",
-        time: "21:02",
-        say: "You've had junior engineers on your team. What does your code review actually look like?",
+        who: "Question 4 of 5",
+        say: "What does your code review look like when you work with junior engineers?",
       },
       {
         who: "Priya Nair",
-        time: "21:10",
+        time: "0:05",
         say: 'I try to separate "this is wrong" from "this isn\'t how I\'d have written it", and only block on the first one.',
       },
       {
         who: "Priya Nair",
-        time: "21:18",
+        time: "0:13",
         ev: true,
         say: "With the two juniors last year I stopped leaving line comments for a while and left one comment at the top instead, saying what I'd look at first and why. It's slower for me. But they came back having made a change of their own rather than typing in exactly what I'd written, and after a couple of months I was reviewing their work the same way I review anyone's.",
       },
       {
-        who: "Interviewer",
-        time: "21:58",
-        say: "Did that change how you onboard people now?",
+        who: "Priya Nair",
+        time: "1:04",
+        say: "I do the same with new starters now.",
       },
     ],
   },
 ];
 
 // Section 12b. Ported from the FAQ on /services/dedicated-team — same four-row
-// accordion, same ARIA, new questions. Answer 4 is the one that carries weight:
-// the follow-up behaviour is the product's differentiator and the sentence
-// describes what the model actually does, which is re-prompt on a thin answer.
-// It does not claim the follow-up is scored separately, because it is not.
+// accordion, same ARIA, new questions. Answer 4 is future tense and must stay
+// that way until the conversational interview ships: an earlier version said
+// the AI already follows up, and nothing in the product does.
 const AVI12_FAQS = [
   {
-    q: "What is an AI video interview?",
+    q: "What is an Async Video Interview?",
     a: "Remotiv combines structured video interviews with AI-assisted evaluation, transcripts and evidence-backed scorecards so recruiters can review candidates consistently.",
   },
   {
@@ -529,8 +560,8 @@ const AVI12_FAQS = [
     a: "Yes. Recruiters can review the candidate's recorded answers, transcript and the evidence behind each interview score.",
   },
   {
-    q: "Does the AI ask follow-up questions?",
-    a: "Yes. Your hiring team writes the questions for the role, and the AI follows up based on what the candidate actually said — so a thin answer gets a second question rather than passing unnoticed.",
+    q: "Will Remotiv support live AI interviews?",
+    a: "Yes. Conversational AI Video Interviews with adaptive follow-up questions are in development. They will be available separately from Remotiv's existing Async Video Interview.",
   },
 ];
 
@@ -758,10 +789,12 @@ export default function AIVideoInterviewsPage() {
                     <p>
                       <b>Recommendation only.</b> Your team can adjust or override any score.
                     </p>
-                    <button className="avi-sc-override" type="button">
+                    {/* Depicted, not operable: a span rather than a button, so
+                        nothing here is focusable or announced as a control. */}
+                    <span className="avi-sc-override" aria-hidden="true">
                       <i />
                       Adjust
-                    </button>
+                    </span>
                   </div>
                 </article>
               </div>
@@ -783,16 +816,22 @@ export default function AIVideoInterviewsPage() {
                     <i />
                     Inside Remotiv
                   </p>
+                  {/* One interview, not two: the technical round at stage 05 is
+                      the conversational AI Video Interview, which is in
+                      development. It stays on the rail marked as coming. */}
                   <h2>
-                    Two interviews happen before you spend a{" "}
+                    One interview happens before you spend a{" "}
                     <span className="avi2-stick">minute</span> of your week.
                   </h2>
                   <p className="avi2-lede">
-                    Applications arrive, get ranked, and every shortlisted candidate sits an
-                    introductory screen and a technical round on your team&apos;s own questions.
-                    Remotiv scores the transcripts. Then it stops.
+                    Applications arrive and get ranked, and the candidates you invite sit an Async
+                    Video Interview on your team&apos;s own questions. Remotiv scores the
+                    transcript. Then it stops.
                   </p>
                 </div>
+                {/* "02 of them interviews" counts the rail, which still shows
+                    both - stage 05 carries its own flag. Qualifying it here
+                    widened this column by 80px and took a line off the lede. */}
                 <div className="avi2-count">
                   <div>
                     <b>06</b>
@@ -816,7 +855,7 @@ export default function AIVideoInterviewsPage() {
                 >
                   <p className="avi2-plabel">
                     Rank, then the first interview
-                    <em>No one on your team has looked yet</em>
+                    <em>Your team only sends the invite</em>
                   </p>
                   {/* The rule is two segments: faint across 01-02, bright
                       under 03. Carries no meaning a screen reader can use. */}
@@ -848,7 +887,7 @@ export default function AIVideoInterviewsPage() {
                             Introductory
                           </p>
                         </div>
-                        <h3 className="avi2-st__t">Async video screening</h3>
+                        <h3 className="avi2-st__t">Async Video Interview</h3>
                         <p className="avi2-st__d">
                           Communication and fit, answered in the candidate&apos;s own hours.
                         </p>
@@ -886,10 +925,11 @@ export default function AIVideoInterviewsPage() {
                             <i />
                             Technical
                           </p>
+                          <p className="avi2-soon">Coming soon</p>
                         </div>
-                        <h3 className="avi2-st__t">AI video interview</h3>
+                        <h3 className="avi2-st__t">Conversational AI Video Interview</h3>
                         <p className="avi2-st__d">
-                          Your team&apos;s questions, asked the same way of every candidate.
+                          Follow-up questions on what the candidate says.
                         </p>
                       </div>
                     </li>
@@ -942,10 +982,12 @@ export default function AIVideoInterviewsPage() {
                           word section 4's, which is the section about scoring from
                           a transcript. It says it there instead. */}
                       <div className="avi2-frag__foot">
-                        <button className="avi2-adjust" type="button">
+                        {/* Depicted, not operable: a span rather than a button, so
+                            nothing here is focusable or announced as a control. */}
+                        <span className="avi2-adjust" aria-hidden="true">
                           <i />
                           Adjust
-                        </button>
+                        </span>
                       </div>
                     </div>
                   </div>
@@ -1045,7 +1087,7 @@ export default function AIVideoInterviewsPage() {
               <div className="avi3-panel avi3-panel--score">
                 <div className="avi3-p__head">
                   <div>
-                    <p className="avi3-p__ttl">Marcus Hale</p>
+                    <p className="avi3-p__ttl">Ayesha Karim</p>
                     <p className="avi3-p__sub">Rank 1 · Senior Backend Engineer</p>
                   </div>
                   <p className="avi3-chip avi3-chip--pp">
@@ -1114,14 +1156,21 @@ export default function AIVideoInterviewsPage() {
                 </div>
 
                 <div className="avi3-p__disc">
-                  {/* Shortened, not deleted. "Recommendation only" and "a person
-                      decides" are section 6's and were said six times before it;
-                      the input/weighting claim is made nowhere else on the page. */}
-                  <p>CV text is the only input — no photo, name, or location weighting.</p>
-                  <button className="avi3-ghost" type="button">
+                  {/* The claim here used to be that CV text is the only input.
+                      It is not: the scorer also reads location, years and
+                      screening answers, and the CV itself carries the name. What
+                      is true and specific is the evidence gate — every quote is
+                      checked against the CV, and a claim whose quote is not
+                      found there is dropped (verifyEvidence in cv-scoring). */}
+                  <p>
+                    Every claim quotes the CV, and a claim whose quote isn’t found there is dropped.
+                  </p>
+                  {/* Depicted, not operable: a span rather than a button, so
+                      nothing here is focusable or announced as a control. */}
+                  <span className="avi3-ghost" aria-hidden="true">
                     Open full scorecard
                     <i />
-                  </button>
+                  </span>
                 </div>
               </div>
             </div>
@@ -1142,14 +1191,19 @@ export default function AIVideoInterviewsPage() {
               <header>
                 <p className="avi7-eyebrow">How you interview</p>
                 <h2 className="avi7-h2">You set the interview. Remotiv runs it.</h2>
+                {/* Only the async screen ships. The second stage and the whole
+                    call mockup are the conversational AI Video Interview, which
+                    is in development, so both carry a "Coming soon" flag that is
+                    part of the design, not a footnote. Remove the flags only in
+                    the same change that ships the product. */}
                 <p className="avi7-lede">
-                  From the first async AI video screen to the deeper AI video interview, Remotiv
-                  runs each round against the criteria your hiring team set.
+                  Remotiv supports the Async Video Interview today, with Conversational AI Video
+                  Interviews and adaptive follow-ups in development.
                 </p>
 
                 <div className="avi7-stages">
                   <div className="avi7-stage">
-                    <h3>Async AI Video Screen</h3>
+                    <h3>Async Video Interview</h3>
                     <p className="avi7-meta">
                       <span className="avi7-frag">Basic screening</span>{" "}
                       <span className="avi7-frag">structured questions</span>{" "}
@@ -1157,7 +1211,10 @@ export default function AIVideoInterviewsPage() {
                     </p>
                   </div>
                   <div className="avi7-stage">
-                    <h3>AI Video Interview</h3>
+                    <h3>
+                      Conversational AI Video Interview{" "}
+                      <span className="avi7-soon">Coming soon</span>
+                    </h3>
                     <p className="avi7-meta">
                       <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
                       <span className="avi7-frag">adaptive follow-ups</span>{" "}
@@ -1167,12 +1224,17 @@ export default function AIVideoInterviewsPage() {
                 </div>
 
                 <p className="avi7-note">
-                  Both rounds happen on video and are evaluated from the interview transcript.
+                  Async Video Interviews are evaluated from the transcript, and conversational ones
+                  will be too.
                 </p>
               </header>
 
               <div className="avi7-visual" data-reveal>
                 <div className="avi7-frame">
+                  <p className="avi7-flag">
+                    <span className="avi7-soon avi7-soon--on-dark">Coming soon</span>
+                    <span>Not available yet</span>
+                  </p>
                   <div className="avi7-tile avi7-tile--ai">
                     <span className="avi7-mark">
                       <svg viewBox="0 0 20 20" aria-hidden="true">
@@ -1192,7 +1254,7 @@ export default function AIVideoInterviewsPage() {
                   <div className="avi7-tile">
                     <Image
                       src="/team-avatars/candidate.webp"
-                      alt="A candidate answering questions on camera during an AI video interview"
+                      alt="A candidate on camera in a preview of the upcoming Conversational AI Video Interview"
                       fill
                       sizes="(max-width: 639.98px) 40vw, (max-width: 1180px) 27vw, 21vw"
                       className="avi7-shot"
@@ -1222,9 +1284,9 @@ export default function AIVideoInterviewsPage() {
                 Every score points to the <span className="avi4-stick">words</span> behind it.
               </h2>
               <p className="avi4-lede">
-                Remotiv scores what a candidate said, then shows you the evidence behind the score.
-                Each criterion links back to the relevant part of the interview transcript, so your
-                team can verify the AI's reasoning for themselves.
+                Remotiv scores what a candidate said, then shows the evidence behind each criterion.
+                Every criterion includes the supporting transcript evidence and a timestamp that
+                plays the matching moment in the interview recording.
               </p>
             </header>
 
@@ -1236,7 +1298,7 @@ export default function AIVideoInterviewsPage() {
                     <span className="avi4-ph">Priya Nair{SEP}</span>
                     <span className="avi4-ph">Senior Backend Engineer{SEP}</span>
                     <span className="avi4-ph">26 Aug{SEP}</span>
-                    34 min
+                    Async
                   </p>
                 </div>
 
@@ -1249,7 +1311,7 @@ export default function AIVideoInterviewsPage() {
                   >
                     {block.turns.map((turn) => (
                       <article
-                        key={turn.time}
+                        key={turn.time ?? turn.who}
                         className={turn.ev ? "avi4-turn avi4-turn--ev" : "avi4-turn"}
                         id={turn.ev ? `avi4-ev-${block.id}` : undefined}
                         tabIndex={turn.ev ? -1 : undefined}
@@ -1259,7 +1321,8 @@ export default function AIVideoInterviewsPage() {
                             <b>{turn.who}</b>
                             {SEP}
                           </span>
-                          {turn.time}
+                          {turn.time ??
+                            `Scored ${AVI4_CRITERIA.find((c) => c.id === block.id)?.score}`}
                         </p>
                         <p className="avi4-say">{turn.say}</p>
                       </article>
@@ -1267,17 +1330,26 @@ export default function AIVideoInterviewsPage() {
                   </div>
                 ))}
 
-                <p className="avi4-pfoot">
-                  The highlighted passage is the evidence for the selected criterion. Selecting
-                  another criterion moves the highlight.
-                </p>
+                {/* Depicted, not operable: the product's player for the selected
+                    answer. The timestamp chip in the criteria panel moves it,
+                    which is the chip's real behaviour — it seeks the video. */}
+                <div className="avi4-player" aria-hidden="true">
+                  <span className="avi4-play" />
+                  <span className="avi4-ptrack">
+                    <i id="avi4-p-fill" />
+                  </span>
+                  <span className="avi4-ptime">
+                    <span id="avi4-p-now">0:00</span> /{" "}
+                    <span id="avi4-p-dur">{AVI4_SELECTED.dur}</span>
+                  </span>
+                </div>
               </div>
 
               <div className="avi4-panel avi4-panel--crit">
                 <div className="avi4-phead">
                   <p className="avi4-ptitle">Interview criteria</p>
                   <p className="avi4-psub">
-                    <span className="avi4-ph">Scored from the transcript{SEP}</span>
+                    <span className="avi4-ph">Found in the transcript{SEP}</span>
                     four criteria for this role
                   </p>
                 </div>
@@ -1290,13 +1362,18 @@ export default function AIVideoInterviewsPage() {
                         type="button"
                         aria-pressed={c.id === AVI4_SELECTED.id}
                         data-c={c.id}
-                        data-off={c.off}
-                        data-band={c.band}
+                        data-q={c.q}
                         data-time={c.time}
+                        data-dur={c.dur}
                         data-quote={c.quote}
                       >
                         <span className="avi4-cname">{c.name}</span>
-                        <span className="avi4-cscore">{c.score}</span>
+                        <span className="avi4-ctick" aria-hidden="true">
+                          <svg viewBox="0 0 16 16" aria-hidden="true">
+                            <path d="M3.6 8.4 6.6 11.3 12.4 5.2" />
+                          </svg>
+                        </span>
+                        <span className="avi4-sr">, found in the transcript</span>
                       </button>
                     </li>
                   ))}
@@ -1308,12 +1385,7 @@ export default function AIVideoInterviewsPage() {
                     <p className="avi4-cbig" id="avi4-d-name">
                       {AVI4_SELECTED.name}
                     </p>
-                    <div
-                      className={
-                        AVI4_SELECTED.band === "amber" ? "avi4-ring avi4-ring--amber" : "avi4-ring"
-                      }
-                      id="avi4-d-ring"
-                    >
+                    <div className="avi4-ring">
                       <svg viewBox="0 0 76 76" aria-hidden="true">
                         <circle className="avi4-trk" cx="38" cy="38" r="33" />
                         <circle
@@ -1324,13 +1396,18 @@ export default function AIVideoInterviewsPage() {
                           style={
                             {
                               "--c": RING_C_LG,
-                              "--off": AVI4_SELECTED.off,
+                              "--off": "0",
                               "--i": 0,
                             } as CSSPropertiesWithVars
                           }
                         />
                       </svg>
-                      <b id="avi4-d-score">{AVI4_SELECTED.score}</b>
+                      <span className="avi4-rtick" aria-hidden="true">
+                        <svg viewBox="0 0 24 24" aria-hidden="true">
+                          <path d="M5.5 12.6 10 17 18.6 7.6" />
+                        </svg>
+                      </span>
+                      <span className="avi4-sr">Found in the transcript</span>
                     </div>
                   </div>
                   <blockquote className="avi4-quote">
@@ -1339,18 +1416,23 @@ export default function AIVideoInterviewsPage() {
                   <div className="avi4-evfoot">
                     <p className="avi4-stamp">
                       <span className="avi4-ph">
-                        <span id="avi4-d-time">{AVI4_SELECTED.time}</span>
+                        <span id="avi4-d-q">{AVI4_SELECTED.q}</span>
                         {SEP}
                       </span>
                       Priya Nair
                     </p>
-                    <button className="avi4-ghost" type="button" id="avi4-d-jump">
-                      View in transcript
+                    <button
+                      className="avi4-ghost"
+                      type="button"
+                      id="avi4-d-jump"
+                      aria-label={`Play ${AVI4_SELECTED.q} from ${AVI4_SELECTED.time}`}
+                    >
+                      <span id="avi4-d-time">{AVI4_SELECTED.time}</span>
                     </button>
                   </div>
                   <p className="avi4-caveat">
-                    The quote is the passage this criterion was scored from. The timestamp points to
-                    that moment in the recording.
+                    The quote is the highlighted passage in the transcript. Its timestamp plays the
+                    recording from that moment.
                   </p>
                   {/* Shortened, not deleted. This is the page's only statement
                       that interview scoring ignores face, voice and accent, and
@@ -1544,9 +1626,9 @@ export default function AIVideoInterviewsPage() {
                 From invitation to booked interview, without the back-and-forth.
               </h2>
               <p className="avi9-lede">
-                Remotiv sends invitations and reminders over WhatsApp and email, and candidates book
-                their own slot from your team&rsquo;s availability. Confirmations and any
-                rescheduling reach both sides automatically.
+                Interview invitations and reminders go out over WhatsApp and email. Booking links
+                let candidates pick a slot from your team&rsquo;s availability, and confirmations
+                and any rescheduling reach both sides.
               </p>
             </header>
 
@@ -1589,14 +1671,20 @@ export default function AIVideoInterviewsPage() {
 
                   <div className="avi9-chat">
                     <div className="avi9-bub">
+                      {/* The async interview invite, the one message WhatsApp
+                          really carries alongside its reminder. Its variables are
+                          the template's own: first name, company, role, minutes
+                          (12 unless the job sets one) and deadline, which is five
+                          days after a Tuesday send. The wording itself lives in
+                          Meta, not this repo. */}
                       <p className="avi9-mtext">
-                        Hi Ayesha &mdash; we&rsquo;d like to interview you for Senior Backend
-                        Engineer. Choose a time for your 20-minute AI video interview.
+                        Hi Ayesha &mdash; we&rsquo;d like to invite you to a video interview for
+                        Senior Backend Engineer. It takes about 12 minutes. Please finish by Sunday.
                       </p>
                       {/* Depicted, not operable: a span rather than a button, so
                           nothing here is focusable or announced as a control. */}
                       <span className="avi9-ghost" aria-hidden="true">
-                        Choose a time
+                        Start interview
                       </span>
                       <p className="avi9-stamp">
                         09:02
@@ -1942,7 +2030,11 @@ export default function AIVideoInterviewsPage() {
                         — a named section already has that role, and Biome
                         rejects the explicit one. Same tree, one less attribute.
                         The inner div is load-bearing: the 0fr -> 1fr panel
-                        needs one grid child to clip, not the text itself. */}
+                        needs one grid child to clip, not the text itself.
+                        A collapsed panel is visibility:hidden in the CSS, so
+                        its answer and its region leave the accessibility tree;
+                        height 0 alone left all four readable and all four
+                        regions exposed as landmarks. */}
                     <section
                       className="avi12-faq-panel"
                       id={`avi12-faq-panel-${i}`}

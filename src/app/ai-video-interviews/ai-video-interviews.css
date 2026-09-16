@@ -449,10 +449,12 @@
   letter-spacing: -0.02em;
   color: var(--r-ink);
 }
+/* The quiet meta grey, 5.50:1 on the white card. The literal #7d7873 it
+   replaced measured 4.37:1. */
 .avi-sc-role {
   margin-top: 2px;
   font: 400 12.5px / 1.45 var(--font-sans);
-  color: #7d7873;
+  color: var(--r-quiet);
 }
 /* The overall score sits on a solid mint panel — same treatment as the app's
    headline metric. Literal 14px: --r-rad-btn is the button token. */
@@ -476,7 +478,9 @@
   letter-spacing: 0.14em;
   text-transform: uppercase;
   color: var(--r-mint-ink);
-  opacity: 0.72;
+  /* 0.86 composites to 5.54:1 on the mint panel. It was 0.72, which measured
+     4.01:1. Still lighter than the score above it, which is the point. */
+  opacity: 0.86;
 }
 .avi-sc-crit {
   display: grid;
@@ -568,6 +572,8 @@
   color: #3f3b37;
   font-weight: 500;
 }
+/* A depicted control inside the scorecard mockup: a span, not focusable, and
+   it declares no hover or cursor because it is not one. */
 .avi-sc-override {
   display: inline-flex;
   align-items: center;
@@ -578,14 +584,6 @@
   font: 500 12px / 1 var(--font-sans);
   color: var(--r-ink);
   background: transparent;
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-.avi-sc-override:hover {
-  border-color: rgba(17, 17, 17, 0.38);
-  background: rgba(0, 0, 0, 0.03);
 }
 .avi-sc-override i {
   display: block;
@@ -756,8 +754,7 @@
    but transitions. */
 @media (prefers-reduced-motion: reduce) {
   .avi-hero .avi-btn-primary,
-  .avi-hero .avi-btn-secondary,
-  .avi-hero .avi-sc-override {
+  .avi-hero .avi-btn-secondary {
     transition: none;
   }
 }
@@ -1058,10 +1055,13 @@
   color: var(--on-dark);
   text-wrap: pretty;
 }
+/* Wraps only when it must: stage 05's row carries the "Coming soon" flag as
+   well, which ran past the card at 320 and in the 901-960 three-up band. */
 .avi2-st__meta {
   display: flex;
+  flex-wrap: wrap;
   align-items: center;
-  gap: 10px;
+  gap: 8px 10px;
 }
 .avi2-badge {
   display: inline-flex;
@@ -1089,6 +1089,26 @@
   border-left: 5px solid currentColor;
   border-top: 2.6px solid transparent;
   border-bottom: 2.6px solid transparent;
+}
+
+/* Stage 05 is the conversational AI Video Interview, which is in
+   development. The flag is filled, not a text badge, so it cannot be read
+   as a second category label beside "Technical": ink pill, mint type, the
+   system's own pairing, inside the white card. Explicit height, zero
+   vertical padding, as for every control-shaped object in the contract.
+   Delete it only in the same change that ships the product. */
+.avi2-soon {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  padding: 0 8px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-slab);
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  color: var(--r-mint);
 }
 
 /* The two interviews — white cards. On ink, white IS the emphasis: no
@@ -1277,6 +1297,8 @@
   gap: 12px;
   margin-top: 12px;
 }
+/* A depicted control inside the scorecard fragment: a span, not focusable, and
+   it declares no hover or cursor because it is not one. */
 .avi2-adjust {
   display: inline-flex;
   align-items: center;
@@ -1288,15 +1310,7 @@
   font: 500 12.4px / 1 var(--font-sans);
   color: var(--r-ink);
   background: transparent;
-  cursor: pointer;
   white-space: nowrap;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-.avi2-adjust:hover {
-  border-color: rgba(17, 17, 17, 0.38);
-  background: rgba(0, 0, 0, 0.03);
 }
 .avi2-adjust i {
   display: block;
@@ -2023,6 +2037,8 @@
   font: 400 12.6px / 1.5 var(--font-sans);
   color: var(--r-quiet);
 }
+/* A depicted control inside the scorecard mockup: a span, not focusable, and
+   it declares no hover or cursor because it is not one. */
 .avi3-ghost {
   display: inline-flex;
   align-items: center;
@@ -2035,14 +2051,6 @@
   background: transparent;
   font: 500 12.8px / 1 var(--font-sans);
   color: var(--r-ink);
-  cursor: pointer;
-  transition:
-    border-color 0.2s ease,
-    background 0.2s ease;
-}
-.avi3-ghost:hover {
-  border-color: rgba(17, 17, 17, 0.38);
-  background: rgba(0, 0, 0, 0.03);
 }
 .avi3-ghost i {
   display: block;
@@ -2151,7 +2159,7 @@
     flex-wrap: wrap;
   }
   /* Kept at 9px rather than following the desktop 8px. The row is not ring-
-     driven here: at this width the meta line ("6 yrs · London · applied 2 days
+     driven here: at this width the meta line ("6 yrs · Lahore · applied 2 days
      ago") wraps to two lines, so the row measures ~70px and the padding is the
      only thing holding the text off the row edge. The .avi3-av and .avi3-mt
      overrides that sat here (34px / 11.6px and 11.8px) were deleted, not
@@ -2252,7 +2260,6 @@
   --r-mint-ink: #04342c;
   --r-purple: #7e47ff;
   --r-lime: #d9f972;
-  --r-amber: #f5a524;
   --r-body: #666666;
   --r-body-strong: #3f3b37;
   --r-quiet: #6e6862;
@@ -2359,12 +2366,59 @@
 .avi4-sep {
   color: var(--r-sep);
 }
-.avi4-pfoot {
+/* Screen-reader text: a tick says "found" to a sighted reader only. */
+.avi4-sr {
+  position: absolute;
+  width: 1px;
+  height: 1px;
+  margin: -1px;
+  padding: 0;
+  overflow: hidden;
+  clip-path: inset(50%);
+  white-space: nowrap;
+  border: 0;
+}
+/* The depicted player for the selected answer, in the slot the panel's footer
+   used. One text line high, so it takes the footer's height and no more. The
+   timestamp chip moves it - that is the product chip's behaviour, a seek. */
+.avi4-player {
+  display: grid;
+  grid-template-columns: auto minmax(0, 1fr) auto;
+  align-items: center;
+  gap: 10px;
   margin-top: 12px;
   padding-top: 12px;
   border-top: 1px solid var(--r-line);
   font: 400 12.6px / 1.5 var(--font-sans);
   color: var(--r-quiet);
+}
+.avi4-play {
+  width: 0;
+  height: 0;
+  border-left: 8px solid var(--r-ink);
+  border-top: 5px solid transparent;
+  border-bottom: 5px solid transparent;
+}
+.avi4-ptrack {
+  position: relative;
+  height: 4px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-track);
+  overflow: hidden;
+}
+.avi4-ptrack i {
+  position: absolute;
+  inset: 0 auto 0 0;
+  width: 0;
+  background: var(--r-purple);
+  transition: width 0.35s ease;
+}
+/* DM Sans has no tabular figures here, so the time's width moved the track
+   by up to 15px on every seek. Measured range 51.9-66.6px; the floor holds it. */
+.avi4-ptime {
+  min-width: 68px;
+  text-align: right;
+  white-space: nowrap;
 }
 
 /* Transcript turns. The speaker line and the utterance need no gap between
@@ -2408,7 +2462,7 @@
   border-radius: 2px;
   background: var(--r-purple);
 }
-/* "View in transcript" moves focus here as well as scrolling. The ring is what
+/* The timestamp chip moves focus here as well as scrolling. The ring is what
    survives when reduced motion suppresses the flash below, so it is the only
    confirmation some users get that the jump happened. */
 .avi4-turn--ev:focus {
@@ -2483,9 +2537,25 @@
 .avi4-crow[aria-pressed="true"] .avi4-cname {
   color: var(--r-ink);
 }
-.avi4-cscore {
-  font: 700 13.4px / 1 var(--font-sans);
-  color: var(--r-ink);
+/* A criterion is found or it is not, so the row carries a tick where it used
+   to carry a number. Mint disc, mint-ink tick: the system's pairing, and the
+   glyph clears 3:1 against its own disc. */
+.avi4-ctick {
+  display: grid;
+  place-items: center;
+  width: 18px;
+  height: 18px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-mint);
+}
+.avi4-ctick svg {
+  width: 12px;
+  height: 12px;
+  fill: none;
+  stroke: var(--r-mint-ink);
+  stroke-width: 2;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 
 .avi4-detail {
@@ -2516,7 +2586,9 @@
   width: 76px;
   height: 76px;
 }
-.avi4-ring svg {
+/* Child combinator: the tick inside the ring is an svg too, and must not be
+   rotated with the track. */
+.avi4-ring > svg {
   width: 100%;
   height: 100%;
   transform: rotate(-90deg);
@@ -2534,20 +2606,22 @@
   stroke-dasharray: var(--c);
   stroke-dashoffset: var(--off);
 }
-.avi4-ring b {
+/* The ring always closes: it marks the selected criterion as found, it is
+   not a score. The score lives on the answer, in the transcript. */
+.avi4-rtick {
   position: absolute;
   inset: 0;
   display: grid;
   place-items: center;
-  font: 700 22px / 1 var(--font-heading);
-  letter-spacing: -0.02em;
-  color: var(--r-mint-ink);
 }
-.avi4-ring--amber .avi4-val {
-  stroke: var(--r-amber);
-}
-.avi4-ring--amber b {
-  color: #7a4e05;
+.avi4-rtick svg {
+  width: 30px;
+  height: 30px;
+  fill: none;
+  stroke: var(--r-mint-ink);
+  stroke-width: 2.4;
+  stroke-linecap: round;
+  stroke-linejoin: round;
 }
 .avi4-quote {
   margin-top: 12px;
@@ -2596,16 +2670,16 @@
   outline: none;
   box-shadow: 0 0 0 3px rgba(73, 215, 167, 0.25);
 }
+/* The timestamp chip. The product writes it "0:21 ▸"; the play glyph is drawn
+   so it sits on the text's centre line at any size. */
 .avi4-ghost::after {
   content: "";
   display: block;
-  width: 9px;
-  height: 9px;
-  border: 1.5px solid var(--r-ink);
-  border-radius: 1px;
-  border-left-color: transparent;
-  border-bottom-color: transparent;
-  transform: rotate(45deg) scale(0.92);
+  width: 0;
+  height: 0;
+  border-left: 7px solid var(--r-ink);
+  border-top: 4.5px solid transparent;
+  border-bottom: 4.5px solid transparent;
 }
 .avi4-caveat {
   margin-top: 12px;
@@ -2693,7 +2767,7 @@
   .avi4-phead {
     padding-bottom: 11px;
   }
-  .avi4-pfoot,
+  .avi4-player,
   .avi4-crits,
   .avi4-detail,
   .avi4-chead,
@@ -2703,7 +2777,7 @@
   .avi4-disc {
     margin-top: 11px;
   }
-  .avi4-pfoot,
+  .avi4-player,
   .avi4-detail,
   .avi4-disc {
     padding-top: 11px;
@@ -2736,7 +2810,8 @@
   }
   .avi4-crow,
   .avi4-crow::before,
-  .avi4-ghost {
+  .avi4-ghost,
+  .avi4-ptrack i {
     transition: none;
   }
   .avi4-turn--ev.avi4-flash {
@@ -3263,6 +3338,46 @@
 .avi7-frag:not(:last-child)::after {
   content: " \00B7";
   color: var(--r-sep);
+}
+/* "Coming soon" flags. The AI Video Interview is in development, so the
+   second stage and the whole call mockup are marked as not yet available.
+   Filled pills rather than a text label: at 9.5px uppercase with no fill the
+   flag read as one more participant label. Explicit height, zero vertical
+   padding. Delete both flags in the same change that ships the product. */
+.avi7-soon {
+  display: inline-flex;
+  align-items: center;
+  height: 20px;
+  margin-left: 6px;
+  padding: 0 8px;
+  border-radius: var(--r-rad-pill);
+  background: var(--r-slab);
+  font: 700 9.5px / 1 var(--font-sans);
+  letter-spacing: 0.14em;
+  text-transform: uppercase;
+  white-space: nowrap;
+  vertical-align: middle;
+  color: var(--r-mint);
+}
+.avi7-soon--on-dark {
+  margin-left: 0;
+  background: var(--r-mint);
+  color: var(--r-slab);
+}
+/* The strip across the top of the mockup. It spans both tracks and sits
+   above both tiles, so nothing in the frame - the interviewer tile, the
+   follow-up line - can be read before it. */
+.avi7-flag {
+  grid-column: 1 / -1;
+  display: flex;
+  flex-wrap: wrap;
+  align-items: center;
+  gap: 6px 10px;
+  padding: 8px 14px;
+  border-radius: var(--r-rad-inset);
+  background: var(--r-slab);
+  font: 500 12.6px / 1.4 var(--font-sans);
+  color: var(--r-white);
 }
 .avi7-note {
   margin-top: 32px;
@@ -4464,13 +4579,15 @@
   stroke-linejoin: round;
 }
 
-/* ---------- the four values ----------
-   A 4-up row is not one of the contract's standard column sets. It steps 4 to
-   2 at the M tier and 1 at the S tier, and no child carries an explicit
-   grid-column outside the S block, so no collapse can orphan a track. */
+/* ---------- the three values ----------
+   Three tiles, the dashboard's own stat keys (a fourth, "Hiring bottleneck",
+   had no counterpart and was dropped). 3-up holds through the M tier - a 2-up
+   step would leave the third tile alone on a half-empty row - and goes to 1
+   at the S tier. No child carries an explicit grid-column outside the S
+   block, so no collapse can orphan a track. */
 .avi10-cards {
   display: grid;
-  grid-template-columns: repeat(4, minmax(0, 1fr));
+  grid-template-columns: repeat(3, minmax(0, 1fr));
   gap: 12px;
   margin-top: 12px;
 }
@@ -4491,12 +4608,14 @@
   letter-spacing: -0.03em;
   color: var(--r-ink);
 }
-/* The line under a value is the evidence for it, not chrome, so it takes the
-   body ink rather than the quiet meta grey at the same size. */
+/* The line under a value is a caption: the evidence behind the figure, not
+   something the dashboard renders. It reads third - name, value, caption - so
+   it is smaller than the value and set in the quiet meta grey, which is a
+   floor (5.03:1 on the cream tile), not a starting point. */
 .avi10-state {
-  margin-top: 12px;
-  font: 400 12.6px / 1.4 var(--font-sans);
-  color: var(--r-body-strong);
+  margin-top: 10px;
+  font: 400 11.6px / 1.4 var(--font-sans);
+  color: var(--r-quiet);
   text-wrap: pretty;
 }
 
@@ -4540,15 +4659,10 @@
   }
 }
 
-/* ---------- responsive - 1180 / 900 / 639.98 ---------- */
+/* ---------- responsive - 1180 / 639.98 (nothing changes at 900) ---------- */
 @media (max-width: 1180px) {
   .avi10-panel {
     margin-top: 40px;
-  }
-}
-@media (max-width: 900px) {
-  .avi10-cards {
-    grid-template-columns: repeat(2, minmax(0, 1fr));
   }
 }
 @media (max-width: 639.98px) {
@@ -4578,7 +4692,7 @@
     margin-top: 11px;
   }
   /* One tile per row, so the value takes the whole right edge and only the
-     state line needs a second row. Four full-height tiles stacked would have
+     state line needs a second row. Full-height tiles stacked would have
      pushed 375 past the band the short sections on this page sit in. */
   .avi10-tile {
     display: grid;
@@ -4611,7 +4725,7 @@
   }
 }
 /* Covers the reveal, which is the only transition in the section. Nothing here
-   is interactive - four read-only values, one depicted control and two lines of
+   is interactive - three read-only values, one depicted control and two lines of
    text - so no rule declares a hover state and there is no hover transition to
    neutralise. If one is ever added, it belongs in this block in the same
    change. */
@@ -4642,20 +4756,29 @@
    fill, dark ink, rgba(0, 0, 0, 0.08) border, 0 2px 12px rgba(0, 0, 0, 0.05)
    shadow. That is deliberate and was specified: these four cards reuse the
    homepage's own card, so the fill (#9886fe), the border alpha (0.07), the
-   shadow (0 2px 16px rgba(0, 0, 0, 0.06)), the white numeral and the white
-   icon tile all come from the homepage rather than from the contract. What
+   shadow (0 2px 16px rgba(0, 0, 0, 0.06)) and the white icon tile all come
+   from the homepage rather than from the contract. What
    does NOT come from the homepage is the type: title and body take the
    contract's 15 / 1.26 and 13.4 / 1.6, not the homepage's 16.8 and 14.08.
    The 20px radius is the contract's, and matches the homepage anyway.
 
-   THE WHITE-ON-PURPLE CONTRAST IS KNOWN AND ACCEPTED. Measured against
-   #9886fe: card title and numeral 2.93:1, card body 2.42:1. Both are below
-   AA. This was raised, decided and accepted as the cost of reusing the
-   homepage card, so it is a documented decision rather than an oversight.
-   Do not lighten the fill or darken the ink to "fix" it - that silently
-   breaks the match with the homepage, which is the whole point of the
-   exception. If the decision is ever revisited, revisit the exception, not
-   the two colours.
+   THE INK IS DARK, AND THAT IS NOW THE DECISION. DO NOT RETURN IT TO WHITE.
+   This section first shipped the homepage's white type on the purple fill
+   and a note here accepted the result: title and numeral 2.93:1, body
+   (white at 80%) 2.42:1, both below AA. That decision was revisited in the
+   final QA and reversed - a contrast failure outranks a visual match. The
+   approved fix (option B2) keeps the #9886fe fill and changes only the ink:
+   title and numeral #141020 at 6.38:1, body #1f1840 at 5.68:1, both AA with
+   room at the 13.4px body size. The white-ink options needed a darker fill
+   that is no longer the homepage purple, which is why the ink moved and the
+   fill did not.
+
+   So the homepage match is now PARTIAL, and deliberately so: fill, border,
+   shadow, radius and icon tile still match the homepage card; the type does
+   not. A later pass that finds white on the homepage card and dark ink here
+   should not "restore" the match - that brings back the failure. The icon
+   glyphs stay white: they are aria-hidden decoration inside a translucent
+   tile, not text.
 
    NO STICKY STACK. The homepage cards pin and pile as you scroll. That was
    built here first and measured: four cards need a 132px lip budget plus a
@@ -4680,7 +4803,9 @@
   /* The homepage card purple. A new name rather than a redefinition of
      --r-purple, which is still this section's accent ink on the eyebrow. */
   --r-purple-soft: #9886fe;
-  --r-on-card: rgba(255, 255, 255, 0.8);
+  /* Card ink on the #9886fe fill. See "THE INK IS DARK" above. */
+  --r-card-ink: #141020;
+  --r-card-body: #1f1840;
   --r-rad-card: 20px;
   --r-rad-pill: 999px;
   /* The icon tile's radius is a homepage value the contract's radius
@@ -4774,7 +4899,7 @@
   align-self: center;
   font: 800 24px / 1 var(--font-heading);
   letter-spacing: -0.03em;
-  color: var(--r-white);
+  color: var(--r-card-ink);
 }
 .avi11-tile {
   grid-column: 2;
@@ -4800,14 +4925,14 @@
   grid-row: 2;
   font: 700 15px / 1.26 var(--font-heading);
   letter-spacing: -0.02em;
-  color: var(--r-white);
+  color: var(--r-card-ink);
   text-wrap: pretty;
 }
 .avi11-ctext {
   grid-column: 1 / 3;
   grid-row: 3;
   font: 400 13.4px / 1.6 var(--font-sans);
-  color: var(--r-on-card);
+  color: var(--r-card-body);
   text-wrap: pretty;
 }
 
@@ -5014,7 +5139,8 @@
   --a12-answer: #444444;
   --a12-label: #444444;
   --a12-muted: #666666;
-  --a12-faq-lede: #777777;
+  /* #777777 was 4.48:1 on white, two hundredths short of AA; #767676 is 4.54. */
+  --a12-faq-lede: #767676;
   --a12-field-ink: #333333;
   --a12-lime: #c9ff85;
   --a12-field: #f5f5f5;
@@ -5119,13 +5245,36 @@
 }
 /* 0fr -> 1fr resolves to the content's own height, so no answer can outgrow
    the panel. See point 3 in the header comment. */
+/* A collapsed panel is also visibility:hidden, which takes the answer out of
+   the accessibility tree and its <section> out of the landmark list. Height 0
+   on its own left every answer readable and every region exposed. Visibility
+   is discrete, so it waits out the 0.3s close before hiding and switches on
+   at once when opening - the 0fr -> 1fr motion is unchanged either way. */
 .avi12-faq-panel {
   display: grid;
   grid-template-rows: 0fr;
-  transition: grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1);
+  visibility: hidden;
+  transition:
+    grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s linear 0.3s;
 }
 .avi12-faq-item[data-open="true"] .avi12-faq-panel {
   grid-template-rows: 1fr;
+  visibility: visible;
+  transition:
+    grid-template-rows 0.3s cubic-bezier(0.4, 0, 0.2, 1),
+    visibility 0s;
+}
+/* Without script the buttons cannot toggle anything, so every answer is open
+   and readable, and the +/- glyph, which would claim a state, is hidden. */
+@media (scripting: none) {
+  .avi12-faq-panel {
+    grid-template-rows: 1fr;
+    visibility: visible;
+  }
+  .avi12-faq-sign {
+    visibility: hidden;
+  }
 }
 .avi12-faq-panel > * {
   overflow: hidden;
@@ -5306,6 +5455,13 @@
   color: var(--a12-field-ink);
   outline: none;
   transition: background-color 0.15s;
+}
+/* Explicit placeholder ink. The preflight default is the text colour at 50%,
+   which measured 2.78:1 on the field. The muted grey is 5.27:1 on #f5f5f5 and
+   4.99:1 on the focused #efefef. */
+.avi12-input::placeholder {
+  color: var(--a12-muted);
+  opacity: 1;
 }
 .avi12-input:focus {
   background: var(--a12-field-focus);
