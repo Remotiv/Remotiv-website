@@ -18,10 +18,16 @@ import { INTERVIEW_BUCKET } from "./session";
  *
  * ── What is removed, and what is kept ────────────────────────
  *
- * REMOVED: the video object, and the transcript. The transcript is a verbatim
- * record of what the candidate said — deleting the video and keeping a
- * word-for-word copy of their speech would honour the letter of the promise
- * and break its plain meaning.
+ * REMOVED: the video object, the transcript, and the transcript's timed
+ * segments. The transcript is a verbatim record of what the candidate said —
+ * deleting the video and keeping a word-for-word copy of their speech would
+ * honour the letter of the promise and break its plain meaning.
+ *
+ * transcript_segments is the SAME words again, split by timestamp. It was
+ * missed when this purge was written: for every purged answer the transcript
+ * was cleared and a complete, timed copy of it stayed in the row. Anything that
+ * stores the candidate's words belongs in this list, and a new column holding
+ * them must be added here in the same change that adds the column.
  *
  * KEPT: the interview_answers row itself, with question_text, position,
  * duration_seconds and recorded_at. The hiring record survives the media: a
@@ -63,6 +69,7 @@ type AnswerRow = {
   session_id: string;
   video_path: string | null;
   transcript: string | null;
+  transcript_segments: unknown;
 };
 
 function chunk<T>(items: T[], size: number): T[][] {
@@ -182,19 +189,27 @@ export async function handleInterviewPurge(job: {
     const sessions = (data ?? []) as { id: string }[];
     if (sessions.length === 0) break;
 
-    for (const ids of chunk(sessions.map((s) => s.id), ID_CHUNK)) {
+    for (const ids of chunk(
+      sessions.map((s) => s.id),
+      ID_CHUNK,
+    )) {
       /*
        * The idempotency key, and there is no new column for it: a session is
        * "already purged" precisely when none of its answers still holds a
-       * video_path or a transcript. Once cleared, this selector stops
-       * matching, so a second run over the same session does no work and
-       * makes no storage calls.
+       * video_path, a transcript or transcript segments. Once cleared, this
+       * selector stops matching, so a second run over the same session does
+       * no work and makes no storage calls.
+       *
+       * Segments are in the selector, not just the update, because of every
+       * session purged before they were: those rows have no path and no
+       * transcript, so without this term they would never match again and
+       * their segments would be kept forever.
        */
       const { data: aData, error: aErr } = await service
         .from("interview_answers")
-        .select("id, session_id, video_path, transcript")
+        .select("id, session_id, video_path, transcript, transcript_segments")
         .in("session_id", ids)
-        .or("video_path.not.is.null,transcript.not.is.null");
+        .or("video_path.not.is.null,transcript.not.is.null,transcript_segments.not.is.null");
 
       if (aErr) throw new Error(`purge: answers: ${aErr.message}`);
       const answers = (aData ?? []) as AnswerRow[];
@@ -244,9 +259,9 @@ export async function handleInterviewPurge(job: {
          * record of where the object lives, so clearing it on a failed delete
          * would strand the file forever with nothing pointing at it.
          *
-         * So: the transcript is cleared for every due row unconditionally — it
-         * lives in the database, its deletion cannot fail, and the promise
-         * covers it. video_path is cleared ONLY for objects confirmed gone,
+         * So: the transcript and its segments are cleared for every due row
+         * unconditionally — they live in the database, their deletion cannot
+         * fail, and the promise covers them. video_path is cleared ONLY for objects confirmed gone,
          * which means either the remove() reported them or they were not in
          * storage to begin with. Anything else keeps its path and is picked up
          * on the next run, and the `or(...)` selector above still matches it
@@ -264,7 +279,7 @@ export async function handleInterviewPurge(job: {
         if (cleared.length > 0) {
           const { error } = await service
             .from("interview_answers")
-            .update({ video_path: null, transcript: null })
+            .update({ video_path: null, transcript: null, transcript_segments: null })
             .in("id", cleared);
           if (error) throw new Error(`purge: clear rows: ${error.message}`);
           rowsCleared += cleared.length;
@@ -272,7 +287,7 @@ export async function handleInterviewPurge(job: {
         if (transcriptOnly.length > 0) {
           const { error } = await service
             .from("interview_answers")
-            .update({ transcript: null })
+            .update({ transcript: null, transcript_segments: null })
             .in("id", transcriptOnly);
           if (error) throw new Error(`purge: clear transcripts: ${error.message}`);
           removalFailures += transcriptOnly.length;
