@@ -44,11 +44,13 @@ export const metadata: Metadata = {
     locale: "en_US",
     type: "website",
   },
+  // No title or description here on purpose. Next falls back to the resolved
+  // page title and description when the twitter block omits them, so leaving
+  // them out gives every route its own X card. Setting them explicitly pinned
+  // the homepage copy onto every route that doesn't define its own twitter
+  // block, because explicit values don't fall back.
   twitter: {
     card: "summary_large_image",
-    title: "Remotiv — Hire Top 1% Senior Engineering Talent",
-    description:
-      "Hire pre-vetted engineers, scale with staff augmentation, or build dedicated teams — without the usual delays.",
     creator: "@remotiv",
   },
   icons: {

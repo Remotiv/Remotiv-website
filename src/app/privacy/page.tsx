@@ -36,11 +36,23 @@ import { Navbar } from "@/components/navbar";
  * candidate thinks they are applying to.
  */
 
+// The openGraph block exists only to stop this route inheriting the root's
+// absolute url and claiming to be the homepage. title and description are left
+// out deliberately: Next falls back to the page's own, above. siteName, locale,
+// type and the image are restated because openGraph replaces the root's
+// wholesale rather than merging into it.
 export const metadata: Metadata = {
   title: "Privacy Policy — Remotiv",
   description:
     "What personal data Remotiv collects, where it is stored, how long it is kept, and who else receives it.",
   alternates: { canonical: "/privacy" },
+  openGraph: {
+    url: "/privacy",
+    siteName: "Remotiv",
+    locale: "en_US",
+    type: "website",
+    images: ["/opengraph-image"],
+  },
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
