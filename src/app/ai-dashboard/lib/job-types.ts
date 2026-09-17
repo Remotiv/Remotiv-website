@@ -197,20 +197,34 @@ export type CompanyJobInput = {
    * columns existed and a job created by a client that omits them both land on
    * the same behaviour.
    *
-   * Three of the five are read by shipped code:
+   * What reads each one:
    *   · ai_cv_scoring_enabled — the /api/apply → ai_cv_score path.
    *   · async_interview_enabled — gates sendInterviewInvite, server-side, from
    *     the live job row (applicants/interview-actions.ts).
    *   · allow_rerecord — frozen onto interview_sessions at invite and read by
    *     resolveSessionByToken to decide whether Re-record is offered.
-   * measure_relevancy and avatar_interview_enabled are stored and unread; the
-   * wizard labels them as such rather than pretending.
+   *   · avatar_interview_enabled — read by gateLiveInterviewInvite
+   *     (lib/interviews/live-settings.ts), the gate any AI Video Interview
+   *     send must pass. Nothing sends one yet, so the wizard still marks the
+   *     toggle "Not yet active".
+   * measure_relevancy is stored and unread; the wizard labels it as such.
    */
   allow_rerecord: boolean;
   ai_cv_scoring_enabled: boolean;
   measure_relevancy: boolean;
+  /**
+   * AI Video Interview — a live spoken interview with an AI interviewer. The
+   * "avatar" in the column name predates the product: Phase 1 has no avatar
+   * (a voice and an icon). The column is deliberately NOT renamed — that is a
+   * migration, plus every select and patch that names it, for no change in
+   * behaviour. Say "AI Video Interview" in anything a person reads.
+   */
   avatar_interview_enabled: boolean;
-  /** Meaningful only while avatar_interview_enabled — stored null otherwise. */
+  /**
+   * The name the AI interviewer introduces itself by. REQUIRED while
+   * avatar_interview_enabled is on — the wizard and buildPatch both refuse the
+   * toggle without it — and stored null otherwise.
+   */
   avatar_interviewer_name: string;
   async_interview_enabled: boolean;
   /** Meaningful only while async_interview_enabled — stored null otherwise. */

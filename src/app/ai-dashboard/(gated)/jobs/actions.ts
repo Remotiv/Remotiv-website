@@ -363,6 +363,24 @@ function buildPatch(
   const avatarOn = input.avatar_interview_enabled === true;
   const asyncOn = input.async_interview_enabled === true;
 
+  /*
+   * AI Video Interview needs a name for the interviewer, and the send gate
+   * (gateLiveInterviewInvite) refuses without one. Refused HERE, on every
+   * save and whatever the status, so the recruiter meets it in the form rather
+   * than as a dead end when sending. Not a publish-only rule like screening
+   * questions: a toggle that is on with no name isn't an unfinished draft,
+   * it's a setting that can never work, and a draft can be reopened without
+   * passing back through this form.
+   *
+   * The wizard checks the same thing first; this is the check that counts.
+   */
+  if (avatarOn && !interviewerName(input.avatar_interviewer_name, true)) {
+    return {
+      ok: false,
+      error: "Add an interviewer name for AI Video Interview, or switch it off.",
+    };
+  }
+
   const screeningQuestions = sanitizeQuestions(input.screening_questions);
   if (status === "open") {
     const unpublishable = assertPublishableQuestions(screeningQuestions);

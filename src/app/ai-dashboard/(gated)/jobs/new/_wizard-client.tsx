@@ -704,10 +704,12 @@ const STEP_LAB = "text-[13px] font-semibold";
  * candidate's page offers Re-record only when the second is on — so they carry
  * the live pill alongside AI CV scoring and automated rejections.
  *
- * Two remain stored-but-unread: relevancy scoring and the AI avatar. They stay
- * fully editable, because the company IS really saving the setting and a
- * disabled control would be the lie; the pill is what says the setting has no
- * effect yet.
+ * Two still change nothing: relevancy scoring, which is stored and unread, and
+ * AI Video Interview, which a send gate now reads but which nothing can send
+ * yet. They stay fully editable, because the company IS really saving the
+ * setting and a disabled control would be the lie; the pill is what says the
+ * setting has no effect yet. AI Video Interview moves to "Active now" in the
+ * same change that gives recruiters a way to send one — not before.
  *
  * The amber label no longer says "When interviews launch" — interviews HAVE
  * launched, which made that wording false for the two rows still wearing it.
@@ -763,6 +765,11 @@ const IDEAL_HINT: Record<ScreeningQuestion["type"], string> = {
 
 /** Per-question validation errors share a prefix so they can be cleared as a set. */
 const QUESTION_ERR_PREFIX = "question_";
+
+/** Focused by submit when AI Video Interview is on without a name. */
+const AI_VIDEO_INTERVIEWER_NAME_ID = "ai-video-interviewer-name";
+const AI_VIDEO_INTERVIEWER_NAME_ERROR =
+  "Add an interviewer name for AI Video Interview, or switch it off.";
 
 const QUESTION_IDEAL_ERROR: Record<ScreeningQuestion["type"], (n: number) => string> = {
   numeric: (n) =>
@@ -941,19 +948,36 @@ function InterviewerNameField({
   id,
   label,
   placeholder,
+  hint,
+  required,
+  error,
   value,
   onChange,
 }: {
   id: string;
   label: string;
   placeholder: string;
+  /**
+   * Per field, because the two names do different jobs. The async name is
+   * saved and read back by this form and by nothing else — the invite email,
+   * the candidate's page and the review page all name the company and the role
+   * instead — and its hint says so, because a truthful "Active now" pill over a
+   * false hint is worse than neither. The AI interviewer's name is what the
+   * interviewer introduces itself by, and the send gate refuses without it.
+   */
+  hint: string;
+  required?: boolean;
+  error?: string;
   value: string;
   onChange: (value: string) => void;
 }) {
+  const hintId = `${id}-hint`;
+  const errorId = `${id}-error`;
   return (
     <div className="mt-3 border-t border-[var(--ai-line-soft)] pt-3">
       <label className={LABEL_CLS} htmlFor={id}>
         {label}
+        {required && <span className="text-remotiv-purple"> *</span>}
       </label>
       <input
         id={id}
@@ -961,17 +985,18 @@ function InterviewerNameField({
         onChange={(e) => onChange(e.target.value)}
         placeholder={placeholder}
         maxLength={JOB_INTERVIEWER_NAME_MAX}
-        className={INPUT_CLS}
+        aria-required={required}
+        aria-invalid={error ? true : undefined}
+        aria-describedby={error ? `${errorId} ${hintId}` : hintId}
+        className={`${INPUT_CLS} ${error ? INPUT_ERR_CLS : ""}`}
       />
-      {/* NOT "shown to candidates" — neither name is. Both are saved and read
-          back by this form and by nothing else: the invite email, the
-          candidate's interview page and the review page all name the company
-          and the role instead. Said plainly here because the async toggle
-          above it now reads "Active now", and a truthful pill sitting over a
-          false hint is worse than neither. */}
-      <p className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
-        Saved with the job. Nothing shows it to candidates yet. Up to {JOB_INTERVIEWER_NAME_MAX}{" "}
-        characters.
+      {error && (
+        <p id={errorId} className="mt-1.5 text-xs text-[#C4362F]">
+          {error}
+        </p>
+      )}
+      <p id={hintId} className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
+        {hint} Up to {JOB_INTERVIEWER_NAME_MAX} characters.
       </p>
     </div>
   );
@@ -1644,6 +1669,23 @@ export function WizardClient({
       setErrors({ title: "Add a job title to save a draft." });
       setStep(1);
       showToast("Add a job title to save a draft");
+      return;
+    }
+
+    /*
+     * Drafts included. The send gate refuses AI Video Interview without an
+     * interviewer name, and buildPatch refuses to save that combination at any
+     * status — so it is caught here, where the field is, rather than as a
+     * server toast after the round trip. More options is collapsed by default,
+     * so it is opened and the field focused: an error on a hidden input is
+     * one nobody can find.
+     */
+    if (state.avatar_interview_enabled && !state.avatar_interviewer_name.trim()) {
+      setErrors({ avatar_interviewer_name: AI_VIDEO_INTERVIEWER_NAME_ERROR });
+      setStep(FINAL_STEP);
+      setMoreOpen(true);
+      showToast(AI_VIDEO_INTERVIEWER_NAME_ERROR);
+      requestAnimationFrame(() => document.getElementById(AI_VIDEO_INTERVIEWER_NAME_ID)?.focus());
       return;
     }
 
@@ -2808,18 +2850,26 @@ export function WizardClient({
                             onToggle={() => set("measure_relevancy", !state.measure_relevancy)}
                           />
 
+                          {/* Stored in avatar_interview_enabled; the column
+                              name is historical — Phase 1 has no avatar, and no
+                              copy here may promise one. Not "the first
+                              interview" either: a job can use this, async, or
+                              both, in no enforced order. */}
                           <OptionRow
-                            title="AI avatar video interview"
-                            desc="An AI avatar runs the first interview and records the answers."
+                            title="AI Video Interview"
+                            desc="A live spoken interview. Candidates answer out loud on camera while an AI interviewer asks this job's questions, and it can ask up to 2 follow-ups on an answer. Use it instead of the async screen, or as well."
                             on={state.avatar_interview_enabled}
                             onToggle={() =>
                               set("avatar_interview_enabled", !state.avatar_interview_enabled)
                             }
                           >
                             <InterviewerNameField
-                              id="avatar-interviewer-name"
-                              label="Avatar interviewer name"
+                              id={AI_VIDEO_INTERVIEWER_NAME_ID}
+                              label="Interviewer name"
                               placeholder="e.g. Aisha"
+                              hint="The name the AI interviewer introduces itself by. Required while this is on."
+                              required
+                              error={errors.avatar_interviewer_name}
                               value={state.avatar_interviewer_name}
                               onChange={(v) => set("avatar_interviewer_name", v)}
                             />
@@ -2858,6 +2908,7 @@ export function WizardClient({
                               id="async-interview-name"
                               label="Async interview name"
                               placeholder="e.g. First-round questions"
+                              hint="Saved with the job. Nothing shows it to candidates yet."
                               value={state.async_interview_name}
                               onChange={(v) => set("async_interview_name", v)}
                             />

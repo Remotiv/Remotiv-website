@@ -1,5 +1,6 @@
 import "server-only";
 import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
+import type { createServiceClient } from "@/lib/supabase/server";
 import {
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
@@ -71,7 +72,68 @@ export type BuildLiveSettingsResult =
   | { ok: false; error: string };
 
 /**
+ * THE gate on sending an AI Video Interview. The only way to obtain frozen live
+ * settings, and so the only way a live session can be created with them.
+ *
+ * ── Built before the thing it guards ─────────────────────────
+ *
+ * Nothing sends a live invite yet (Step 10). This exists now so that whoever
+ * builds that send path finds the gate already standing and cannot route
+ * around it: buildLiveSettings below is deliberately NOT exported, and a live
+ * session needs its output. Do not export it to "just build the snapshot" —
+ * that is exactly the skip this arrangement exists to prevent.
+ *
+ * Mirrors how async_interview_enabled gates sendInterviewInvite
+ * (applicants/interview-actions.ts):
+ *
+ *   · Re-read here, server-side, from the live job row. The caller passes an
+ *     id and nothing else; whatever the client believes about the toggle or
+ *     the name is neither asked for nor believed.
+ *   · `=== true`, not `!== false`: the column defaults to FALSE, so an absent
+ *     or null value must refuse.
+ *   · Scoped to the company as well as the id. The caller is expected to have
+ *     checked the application and the hiring team already; this does not rely
+ *     on it.
+ *
+ * The column is still called avatar_interview_enabled. The feature is AI Video
+ * Interview and has no avatar in Phase 1, but renaming the column would be a
+ * migration with no change in behaviour — see the note in job-types.ts.
+ *
+ * The wizard and the save action now refuse the toggle without a name, so the
+ * name refusal inside buildLiveSettings should be unreachable for any job
+ * saved since. It stays: rows written before that rule, or by any future
+ * writer that skips the wizard, still meet it here, before a candidate does.
+ */
+export async function gateLiveInterviewInvite(
+  service: ReturnType<typeof createServiceClient>,
+  input: { jobId: string; companyId: string },
+): Promise<BuildLiveSettingsResult> {
+  const { data } = await service
+    .from("jobs")
+    .select("avatar_interview_enabled, avatar_interviewer_name")
+    .eq("id", input.jobId)
+    .eq("company_id", input.companyId)
+    .maybeSingle();
+  const row = data as {
+    avatar_interview_enabled: boolean | null;
+    avatar_interviewer_name: string | null;
+  } | null;
+
+  if (!row) return { ok: false, error: "Job not found in your workspace." };
+  if (row.avatar_interview_enabled !== true) {
+    return {
+      ok: false,
+      error:
+        "AI Video Interviews are switched off for this job. Turn them on under More options in the job's settings, then send again.",
+    };
+  }
+  return buildLiveSettings({ interviewerName: row.avatar_interviewer_name });
+}
+
+/**
  * Freeze the settings for one live invite, or refuse and say why.
+ *
+ * Private to this module. Reach it through gateLiveInterviewInvite above.
  *
  * ── Refusing is the point ────────────────────────────────────
  *
@@ -91,14 +153,14 @@ export type BuildLiveSettingsResult =
  * The error text follows sendInterviewInvite's existing refusal for a job with
  * no questions: name the missing thing and where to fix it.
  *
- * ── TODO, not built yet ──────────────────────────────────────
+ * ── No longer a dead end ─────────────────────────────────────
  *
- * The wizard should make the interviewer name REQUIRED while the live toggle is
- * on. Until it does, this refusal is a dead end discovered at send time: the
- * recruiter is told to go back and fill in a field the form let them skip.
- * Deliberately not built with this change — see the Phase 1 scope.
+ * The wizard and createCompanyJob/updateCompanyJob now refuse to save the
+ * toggle on without a name, so a recruiter is told while they are in the form
+ * rather than at send time. This refusal remains the last line for rows that
+ * never went through that rule.
  */
-export function buildLiveSettings(input: {
+function buildLiveSettings(input: {
   /** jobs.avatar_interviewer_name, as stored. Null when never set. */
   interviewerName: string | null;
 }): BuildLiveSettingsResult {
