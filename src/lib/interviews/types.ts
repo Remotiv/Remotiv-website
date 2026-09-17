@@ -329,8 +329,12 @@ export type CandidateQuestion = {
 
 /** Everything the candidate page renders from. No ids that aren't needed. */
 export type CandidateSession = {
-  /** Terminal states are resolved server-side before the flow renders. */
-  state: "ready" | "submitted" | "expired" | "cancelled";
+  /**
+   * Terminal states are resolved server-side before the flow renders.
+   * `unavailable`: the session is not an async one, and this route has no
+   * screen for it yet (resolveSessionByToken).
+   */
+  state: "ready" | "submitted" | "expired" | "cancelled" | "unavailable";
   companyName: string;
   companyInitial: string;
   jobTitle: string;

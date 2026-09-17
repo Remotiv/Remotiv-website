@@ -705,11 +705,12 @@ const STEP_LAB = "text-[13px] font-semibold";
  * the live pill alongside AI CV scoring and automated rejections.
  *
  * Two still change nothing: relevancy scoring, which is stored and unread, and
- * AI Video Interview, which a send gate now reads but which nothing can send
- * yet. They stay fully editable, because the company IS really saving the
- * setting and a disabled control would be the lie; the pill is what says the
- * setting has no effect yet. AI Video Interview moves to "Active now" in the
- * same change that gives recruiters a way to send one — not before.
+ * AI Video Interview, whose send path exists but is limited to an allowlist
+ * that is empty in production (the candidate route has no live screen yet).
+ * They stay fully editable, because the company IS really saving the setting
+ * and a disabled control would be the lie; the pill is what says the setting
+ * has no effect yet. AI Video Interview moves to "Active now" in the same
+ * change that gives recruiters a way to send one — not before.
  *
  * The amber label no longer says "When interviews launch" — interviews HAVE
  * launched, which made that wording false for the two rows still wearing it.

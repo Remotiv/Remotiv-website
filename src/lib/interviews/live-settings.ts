@@ -1,6 +1,7 @@
 import "server-only";
 import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
 import type { createServiceClient } from "@/lib/supabase/server";
+import { liveInterviewsAvailableFor } from "./live-availability";
 import {
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
@@ -75,13 +76,21 @@ export type BuildLiveSettingsResult =
  * THE gate on sending an AI Video Interview. The only way to obtain frozen live
  * settings, and so the only way a live session can be created with them.
  *
- * ── Built before the thing it guards ─────────────────────────
+ * ── The only way through ─────────────────────────────────────
  *
- * Nothing sends a live invite yet (Step 10). This exists now so that whoever
- * builds that send path finds the gate already standing and cannot route
- * around it: buildLiveSettings below is deliberately NOT exported, and a live
- * session needs its output. Do not export it to "just build the snapshot" —
- * that is exactly the skip this arrangement exists to prevent.
+ * sendLiveInterviewInvite (applicants/interview-actions.ts) is the send path,
+ * and it gets its frozen settings from here. buildLiveSettings below is
+ * deliberately NOT exported, and a live session needs its output. Do not
+ * export it to "just build the snapshot" — that is exactly the skip this
+ * arrangement exists to prevent.
+ *
+ * ── In order ─────────────────────────────────────────────────
+ *
+ *   1. The company is on the AI Video Interview allowlist
+ *      (live-availability.ts). Checked before any database read, and here
+ *      rather than in the action, so no caller can pass the gate without it.
+ *   2. The job's toggle is on.
+ *   3. The job has an interviewer name.
  *
  * Mirrors how async_interview_enabled gates sendInterviewInvite
  * (applicants/interview-actions.ts):
@@ -108,6 +117,10 @@ export async function gateLiveInterviewInvite(
   service: ReturnType<typeof createServiceClient>,
   input: { jobId: string; companyId: string },
 ): Promise<BuildLiveSettingsResult> {
+  if (!liveInterviewsAvailableFor(input.companyId)) {
+    return { ok: false, error: "AI Video Interviews aren't available yet." };
+  }
+
   const { data } = await service
     .from("jobs")
     .select("avatar_interview_enabled, avatar_interviewer_name")

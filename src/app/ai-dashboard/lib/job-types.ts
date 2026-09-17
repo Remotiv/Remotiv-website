@@ -205,8 +205,9 @@ export type CompanyJobInput = {
    *     resolveSessionByToken to decide whether Re-record is offered.
    *   · avatar_interview_enabled — read by gateLiveInterviewInvite
    *     (lib/interviews/live-settings.ts), the gate any AI Video Interview
-   *     send must pass. Nothing sends one yet, so the wizard still marks the
-   *     toggle "Not yet active".
+   *     send must pass (sendLiveInterviewInvite). That send is limited to
+   *     the AI_VIDEO_INTERVIEW_COMPANY_IDS allowlist, empty in production, so
+   *     the wizard still marks the toggle "Not yet active".
    * measure_relevancy is stored and unread; the wizard labels it as such.
    */
   allow_rerecord: boolean;

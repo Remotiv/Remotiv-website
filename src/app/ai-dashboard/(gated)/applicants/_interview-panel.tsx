@@ -1,6 +1,6 @@
 "use client";
 
-import { CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react";
+import { AudioLines, CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
@@ -11,7 +11,11 @@ import {
   fetchBookingPanel,
   sendBookingLink,
 } from "./booking-actions";
-import { fetchInterviewPanel, sendInterviewInvite } from "./interview-actions";
+import {
+  fetchInterviewPanel,
+  sendInterviewInvite,
+  sendLiveInterviewInvite,
+} from "./interview-actions";
 import type { InterviewPanelState } from "./interview-types";
 
 /**
@@ -78,6 +82,8 @@ export function InterviewPanel({
   const [error, setError] = useState<string | null>(null);
   /** The confirm step for replacing a link that still works. */
   const [reissuing, setReissuing] = useState(false);
+  /** Whether the AI Video Interview section below is on screen — see LiveInterviewSection. */
+  const [liveShown, setLiveShown] = useState(false);
 
   const load = useCallback(async () => {
     try {
@@ -249,6 +255,11 @@ export function InterviewPanel({
 
   return (
     <div className="flex flex-col gap-2.5">
+      {/* Headed only when the AI Video Interview section is showing too. With
+          one option on screen there is nothing to tell apart, and production
+          shows exactly the drawer it showed before. */}
+      {liveShown && <p className={SECTION_LABEL}>{INTERVIEW_KIND_LABELS.async}</p>}
+
       {session && badge && (
         <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3.5 py-3">
           <div className="flex items-center gap-2.5">
@@ -403,9 +414,15 @@ export function InterviewPanel({
           className="flex w-full items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
         >
           <Video className="size-[15px]" strokeWidth={1.9} />
-          {busy ? "Sending…" : session ? "Send a new link" : "Send video interview"}
+          {busy ? "Sending…" : session ? "Send a new link" : "Send async video interview"}
         </button>
       )}
+
+      <LiveInterviewSection
+        applicationId={applicationId}
+        onToast={onToast}
+        onShownChange={setLiveShown}
+      />
 
       {booking?.status === "booked" && booking.scheduledStart && (
         <div className="rounded-xl border border-[var(--ai-line)] px-3.5 py-3">
@@ -520,6 +537,194 @@ export function InterviewPanel({
           )}{" "}
           to send one.
         </p>
+      )}
+
+      {error && (
+        <p className="m-0 rounded-xl bg-[var(--ai-danger-tint)] px-3.5 py-2.5 text-[12.5px] font-semibold leading-snug text-[var(--ai-danger)]">
+          {error}
+        </p>
+      )}
+    </div>
+  );
+}
+
+const SECTION_LABEL =
+  "m-0 text-[10px] font-extrabold uppercase tracking-[0.12em] text-[var(--ai-t3)]";
+
+/**
+ * The AI Video Interview send, beside the async one and clearly not it.
+ *
+ * ── Rendered only when the server says so ────────────────────
+ *
+ * The send button needs BOTH the company on the AI Video Interview allowlist
+ * (empty in production — the candidate route has no live screen yet) and the
+ * job's toggle on. Neither is decided here: fetchInterviewPanel reads both on
+ * the server, and sendLiveInterviewInvite re-checks them inside the gate.
+ *
+ * A live session that already exists is shown whatever the switches say, for
+ * the same reason the async panel shows one after its toggle is turned off:
+ * only the SEND is conditional. With neither, the section is not in the page.
+ *
+ * Hidden rather than disabled with a reason, unlike async-off. That note
+ * exists so a recruiter can find the switch; here there is no switch they
+ * could flip that would make it work, so a greyed button would be a dead end.
+ *
+ * Its own state, busy flag and error, so a failed live send never reads as a
+ * failed async one.
+ */
+function LiveInterviewSection({
+  applicationId,
+  onToast,
+  onShownChange,
+}: {
+  applicationId: string;
+  onToast: (message: string) => void;
+  onShownChange: (shown: boolean) => void;
+}) {
+  const [state, setState] = useState<InterviewPanelState | null>(null);
+  const [busy, setBusy] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+  const [reissuing, setReissuing] = useState(false);
+
+  const load = useCallback(async () => {
+    try {
+      setState(await fetchInterviewPanel(applicationId, "live"));
+    } catch (err) {
+      console.error("[applicants] fetchInterviewPanel(live) threw:", err);
+      setState(null);
+    }
+  }, [applicationId]);
+
+  useEffect(() => {
+    void load();
+  }, [load]);
+
+  const session = state?.session ?? null;
+  const canSend = Boolean(state?.liveAvailable && state.liveEnabled);
+  const shown = Boolean(session) || canSend;
+
+  useEffect(() => {
+    onShownChange(shown);
+  }, [shown, onShownChange]);
+
+  async function handleSend(reissue = false) {
+    setBusy(true);
+    setError(null);
+    let result: Awaited<ReturnType<typeof sendLiveInterviewInvite>>;
+    try {
+      result = await sendLiveInterviewInvite(applicationId);
+    } catch (err) {
+      // Logged for the same reason as handleSend above: a thrown action's
+      // message is replaced by a digest, and the digest needs this line.
+      console.error("[applicants] sendLiveInterviewInvite threw:", err);
+      result = { success: false, error: "Couldn't send — please try again." };
+    }
+    setBusy(false);
+    setReissuing(false);
+
+    if (!result.success) {
+      setError(result.error);
+      return;
+    }
+    onToast(reissue ? "New AI Video Interview link sent" : "AI Video Interview sent");
+    await load();
+  }
+
+  if (!shown) return null;
+
+  const badge = session ? (STATE[session.status] ?? STATE.invited) : null;
+  const StateIcon = badge?.icon ?? AudioLines;
+  const canResend = !session || session.status === "expired" || session.status === "cancelled";
+  const canReissue = session?.status === "invited" || session?.status === "started";
+
+  return (
+    <div className="mt-1.5 flex flex-col gap-2.5 border-t border-[var(--ai-line)] pt-3">
+      <p className={SECTION_LABEL}>{INTERVIEW_KIND_LABELS.live}</p>
+
+      {session && badge && (
+        <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3.5 py-3">
+          <span
+            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[11px] font-bold ${badge.cls}`}
+          >
+            <StateIcon className="size-3" strokeWidth={2.2} />
+            {badge.label}
+          </span>
+          <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+            {session.status === "submitted"
+              ? `Completed ${fmt(session.submittedAt)}.`
+              : session.status === "expired"
+                ? `The link expired on ${fmt(session.expiresAt)}.`
+                : session.status === "cancelled"
+                  ? "This AI Video Interview was replaced by a newer one."
+                  : `Sent ${fmt(session.sentAt)}${session.invitedByName ? ` by ${session.invitedByName}` : ""} · link works until ${fmt(session.expiresAt)}.`}
+          </p>
+        </div>
+      )}
+
+      {canSend &&
+        canReissue &&
+        session &&
+        (reissuing ? (
+          <div className="rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
+            <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+              {/* One string, so the space before "stops" cannot be lost to
+                  JSX whitespace rules — it was, in the first build. */}
+              {`Sends a fresh AI Video Interview invitation by email. The link${
+                fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"
+              } stops working straight away. Their async video interview isn't affected.`}
+            </p>
+            <div className="mt-2.5 flex flex-wrap gap-2">
+              <button
+                type="button"
+                disabled={busy}
+                onClick={() => {
+                  void handleSend(true);
+                }}
+                className="rounded-[10px] bg-remotiv-purple px-3 py-1.5 text-[12.5px] font-bold text-white disabled:opacity-50"
+              >
+                {busy ? "Sending…" : "Send it again"}
+              </button>
+              <button
+                type="button"
+                onClick={() => setReissuing(false)}
+                className="rounded-[10px] px-3 py-1.5 text-[12.5px] font-semibold text-[var(--ai-t3)]"
+              >
+                Keep the current link
+              </button>
+            </div>
+          </div>
+        ) : (
+          <button
+            type="button"
+            onClick={() => setReissuing(true)}
+            className="self-start text-[12.5px] font-semibold text-[var(--ai-t3)] transition-colors hover:text-remotiv-purple"
+          >
+            Send this AI Video Interview again
+          </button>
+        ))}
+
+      {canSend && !session && (
+        <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">
+          No AI Video Interview sent yet.
+        </p>
+      )}
+
+      {canSend && canResend && (
+        <button
+          type="button"
+          onClick={() => {
+            void handleSend();
+          }}
+          disabled={busy}
+          className="flex w-full items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <AudioLines className="size-[15px]" strokeWidth={1.9} />
+          {busy
+            ? "Sending…"
+            : session
+              ? "Send a new AI Video Interview link"
+              : "Send AI Video Interview"}
+        </button>
       )}
 
       {error && (

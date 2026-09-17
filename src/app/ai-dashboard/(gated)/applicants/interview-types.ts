@@ -44,6 +44,17 @@ export type InterviewPanelState = {
    * be rejected; the actual gate is re-read server-side inside the send.
    */
   asyncEnabled: boolean;
+  /**
+   * The job's AI Video Interview toggle (jobs.avatar_interview_enabled).
+   * Advisory, like asyncEnabled: the send re-reads it inside the gate.
+   */
+  liveEnabled: boolean;
+  /**
+   * Whether this company may send AI Video Interviews at all — the
+   * AI_VIDEO_INTERVIEW_COMPANY_IDS allowlist, decided on the server. False in
+   * production until launch, and the drawer renders no live send when it is.
+   */
+  liveAvailable: boolean;
   /** For the "turn it on" link. Null when the application has no job. */
   jobId: string | null;
 };

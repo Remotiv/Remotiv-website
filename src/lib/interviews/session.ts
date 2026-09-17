@@ -35,6 +35,8 @@ type SessionRow = {
   application_id: string | null;
   job_id: string | null;
   status: string;
+  /** 'async' or 'live' (migration 017). Anything but async is refused below. */
+  kind: string | null;
   allow_rerecord: boolean | null;
   /**
    * When the candidate acknowledged the pre-recording screen — NOT a consent
@@ -105,7 +107,7 @@ export async function resolveSessionByToken(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, company_id, application_id, job_id, status, allow_rerecord, consent_at, submitted_at, expires_at, questions_snapshot",
+      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, submitted_at, expires_at, questions_snapshot",
     )
     .eq("token_hash", hashSessionToken(rawToken))
     .maybeSingle();
@@ -130,7 +132,7 @@ export async function resolveSessionByToken(
   const job = jobRow as { title: string | null; allow_rerecord: boolean | null } | null;
 
   const expired = new Date(row.expires_at).getTime() < Date.now();
-  const state: CandidateSession["state"] =
+  const recordedState: CandidateSession["state"] =
     row.status === "cancelled"
       ? "cancelled"
       : row.status === "submitted"
@@ -138,6 +140,27 @@ export async function resolveSessionByToken(
         : expired || row.status === "expired"
           ? "expired"
           : "ready";
+
+  /*
+   * ── Only an ASYNC session may be opened here ──
+   *
+   * This page and every candidate API route (consent, upload-url, confirm,
+   * playback, submit) run the async recorder, and each refuses anything that
+   * is not "ready". Before this check a live session's link opened that
+   * recorder: the candidate could record async answers into an AI Video
+   * Interview, submit it, and have it scored with the async prompt.
+   *
+   * "Not async" rather than "is live", so an unknown or missing kind fails
+   * closed. Cancelled and expired still say so — those are true for any kind
+   * and give the candidate a route forward; a live session that would
+   * otherwise be ready (or submitted, which it cannot be yet) is unavailable.
+   *
+   * When the live screen exists, this becomes a branch to it, not a removal.
+   */
+  const state: CandidateSession["state"] =
+    row.kind !== "async" && (recordedState === "ready" || recordedState === "submitted")
+      ? "unavailable"
+      : recordedState;
 
   const questions = await loadCandidateQuestions(service, row);
 

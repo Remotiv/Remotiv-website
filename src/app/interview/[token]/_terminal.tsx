@@ -73,6 +73,7 @@ type TerminalKind =
   | "submitted"
   | "expired"
   | "cancelled"
+  | "unavailable"
   | "invalid"
   | "no-questions";
 
@@ -170,6 +171,33 @@ export function TerminalScreen({
           <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
             Check your email for a newer invitation — if there isn&apos;t one, reply to
             the original and their team can send a fresh link.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * An AI Video Interview link, before the live screen exists. Says what it is
+   * and that nothing was lost — a candidate who sees an error here assumes the
+   * fault, or the rejection, is theirs.
+   */
+  if (kind === "unavailable") {
+    return (
+      <div className="iv-card">
+        <div className="flex flex-col items-center px-1 pb-2 pt-3.5 text-center">
+          <span className="mb-[18px] flex size-[72px] items-center justify-center rounded-3xl bg-[var(--inset)] text-[var(--t3)]">
+            <Clock className="size-[34px]" strokeWidth={2.2} />
+          </span>
+          <h1 className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
+            This interview isn&apos;t open yet
+          </h1>
+          <p className="m-0 mb-1.5 text-sm leading-relaxed text-[var(--t2)]">
+            {company}&apos;s AI Video Interview can&apos;t be started from this link yet.
+          </p>
+          <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
+            Nothing has gone wrong on your side, and nothing has been recorded. Reply to the email
+            invitation and {company}&apos;s team will be in touch.
           </p>
         </div>
       </div>
