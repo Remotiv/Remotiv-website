@@ -176,15 +176,23 @@ export async function claimProfile(
     }),
   );
 
-  sendEmail({
-    to: user.email,
-    subject: claimSuccessSubject,
-    html: renderClaimSuccessEmail({
-      candidateName: profile.first_name?.trim() || user.email,
-      dashboardUrl: `${BASE_URL}/talent/dashboard`,
-    }),
-  }).catch((err) => {
-    console.error("[claimProfile] email error", err);
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land. sendEmail returns
+  // { ok, error } instead of throwing, so the result has to be checked; the
+  // .catch this replaced could never fire.
+  const claimantEmail = user.email;
+  after(async () => {
+    const result = await sendEmail({
+      to: claimantEmail,
+      subject: claimSuccessSubject,
+      html: renderClaimSuccessEmail({
+        candidateName: profile.first_name?.trim() || claimantEmail,
+        dashboardUrl: `${BASE_URL}/talent/dashboard`,
+      }),
+    });
+    if (!result.ok) {
+      console.error("[claimProfile] email error", result.error);
+    }
   });
 
   revalidatePath("/talent/dashboard");

@@ -172,40 +172,50 @@ export async function submitHireRequest(data: HireRequestInput): Promise<Result>
   const siteUrl = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv.work";
   const adminUrl = `${siteUrl}/admin/hire-requests`;
 
-  sendEmail({
-    to: email,
-    subject: `We received your request to hire ${candidateName}`,
-    html: renderHireRequestClientEmail({
-      fullName,
-      candidateName,
-      engagementType: data.engagementType,
-      budgetRange,
-      timeline: data.timeline,
-    }),
-  }).catch((err) => {
-    console.error("[submitHireRequest] client email failed:", err);
+  // After the response, kept alive by waitUntil. A bare un-awaited call can be
+  // frozen with the function on Vercel and never land — see submitContact.
+  // sendEmail returns { ok, error } instead of throwing, so the result has to
+  // be checked; the .catch this replaced could never fire.
+  after(async () => {
+    const result = await sendEmail({
+      to: email,
+      subject: `We received your request to hire ${candidateName}`,
+      html: renderHireRequestClientEmail({
+        fullName,
+        candidateName,
+        engagementType: data.engagementType,
+        budgetRange,
+        timeline: data.timeline,
+      }),
+    });
+    if (!result.ok) {
+      console.error("[submitHireRequest] client email failed:", result.error);
+    }
   });
 
-  sendEmail({
-    to: teamEmail,
-    replyTo: email,
-    subject: `New hire request — ${candidateName} from ${company}`,
-    html: renderHireRequestTeamEmail({
-      fullName,
-      email,
-      company,
-      notes,
-      candidateName,
-      candidateRate,
-      candidateId,
-      engagementType: data.engagementType,
-      budgetRange,
-      projectDescription,
-      timeline: data.timeline,
-      adminUrl,
-    }),
-  }).catch((err) => {
-    console.error("[submitHireRequest] team email failed:", err);
+  after(async () => {
+    const result = await sendEmail({
+      to: teamEmail,
+      replyTo: email,
+      subject: `New hire request — ${candidateName} from ${company}`,
+      html: renderHireRequestTeamEmail({
+        fullName,
+        email,
+        company,
+        notes,
+        candidateName,
+        candidateRate,
+        candidateId,
+        engagementType: data.engagementType,
+        budgetRange,
+        projectDescription,
+        timeline: data.timeline,
+        adminUrl,
+      }),
+    });
+    if (!result.ok) {
+      console.error("[submitHireRequest] team email failed:", result.error);
+    }
   });
 
   // After the response, kept alive by waitUntil. A bare un-awaited call can be
