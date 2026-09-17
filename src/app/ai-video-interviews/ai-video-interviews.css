@@ -596,12 +596,15 @@
   transform: rotate(45deg) scale(0.9);
 }
 
-/* ---------- RESPONSIVE ---------- */
-@media (max-width: 1280px) {
-  .avi-grid {
-    gap: 56px;
-  }
-}
+/* ---------- RESPONSIVE ----------
+   Contract breakpoints (1180 / 639.98) plus two documented exceptions below,
+   1023.98 and 767.98. Both were measured against their contract neighbour
+   and kept on purpose - do not "tidy" them to 900.
+
+   A 1280 step that narrowed the grid gap from 96 to 56 used to sit here. It
+   was removed after measuring 1181-1280 with and without it: the copy column
+   is capped at 520 and the card at 440, so the only thing that changed was the
+   invisible width of the button row. Nothing a visitor sees moved. */
 /* 1180, not 1023. The card track is a fixed 440 cap, so below this the copy
    column is crushed and the rank chip slides across the card. */
 @media (max-width: 1180px) {
@@ -623,7 +626,13 @@
 /* Below 1024 the headline drops to two lines and the clamp is heading for its
    2rem floor, so the type stops shrinking while the measure stays put and the
    block packs solid — 520 fills 94% at 900. Under here the cap has to widen,
-   not narrow; narrowing it further only moves the denominator. */
+   not narrow; narrowing it further only moves the denominator.
+
+   DOCUMENTED EXCEPTION TO THE CONTRACT'S 900. Moving this to 900 was measured:
+   between 901 and 1023 the lede went from 3 lines to 4, the trust line wrapped
+   onto a second line, the headline went from 3 lines to 4 at 1023, and the hero
+   grew 52-89px. This is a measure change inside the single-column layout, not a
+   layout state, so it cannot split the page at a contract boundary. */
 @media (max-width: 1023.98px) {
   .avi-hero h1,
   .avi-sub,
@@ -635,13 +644,17 @@
    track the navbar's — not a value from the handoff. <Navbar /> is px-14 with
    max-md:px-6, and Tailwind's md is 768px, so 56px down to 767.98 and 24px
    below that. There is no 1280 or 640 step in the navbar, so there is none
-   here either. */
+   here either. DOCUMENTED EXCEPTION: this is the navbar's breakpoint, not the
+   contract's, and it has to stay aligned with the navbar. */
 @media (max-width: 767.98px) {
   .avi-hero {
     --r-shell-pad: 24px;
   }
 }
-@media (max-width: 640px) {
+/* The small tier, at the contract's 639.98. This was max-width: 640px, which
+   put the hero in its mobile state at exactly 640 while sections 3-11 were
+   still desktop - the page was in two states at once at that width. */
+@media (max-width: 639.98px) {
   .avi-hero {
     padding-bottom: 64px;
   }
@@ -711,12 +724,13 @@
     right: -4px;
     top: -12px;
   }
+  /* No font sizes are raised in this block. The scorecard name (16 -> 16.5),
+     quote (13.5 -> 14) and footer (12 -> 12.5) used to step UP here, so text
+     grew as the viewport narrowed, which the contract forbids. They now keep
+     their desktop sizes, as section 2's copy of this card already does. */
   .avi-sc-top {
     padding: 20px 16px 14px;
     gap: 11px;
-  }
-  .avi-sc-name {
-    font-size: 16.5px;
   }
   .avi-sc-score {
     min-width: 62px;
@@ -735,15 +749,9 @@
     margin: 0 10px 10px;
     padding: 13px 14px;
   }
-  .avi-sc-ev-quote {
-    font-size: 14px;
-  }
   .avi-sc-foot {
     padding: 13px 16px;
     gap: 8px;
-  }
-  .avi-sc-foot p {
-    font-size: 12.5px;
   }
 }
 
@@ -854,11 +862,15 @@
   background: var(--r-mint);
 }
 /* Measure lives on the TEXT: 520px is the value that worked on the hero.
-   The clamp is vw-based — 2.3vw hits the 32px cap at 1392 and above. */
+   A FLAT 32px, stepping to 24 at 639.98, like sections 3-11. It used to be
+   clamp(1.55rem, 2.3vw, 2rem), which only reached 32 above ~1392 and read
+   27.16 at 1181 and 24.8 at 900 against a flat 32 either side. Measured at
+   every 10px from 320 to 1600: the flat size wraps to the same three balanced
+   lines the headline already had at 1370-1600, with no orphaned word. */
 .avi2-head h2 {
   margin-top: 16px;
   max-width: 520px;
-  font: 800 clamp(1.55rem, 2.3vw, 2rem) / 1.1 var(--font-heading);
+  font: 800 32px / 1.1 var(--font-heading);
   letter-spacing: -0.03em;
   color: #ffffff;
   text-wrap: balance;
@@ -1055,8 +1067,7 @@
   color: var(--on-dark);
   text-wrap: pretty;
 }
-/* Wraps only when it must: stage 05's row carries the "Coming soon" flag as
-   well, which ran past the card at 320 and in the 901-960 three-up band. */
+/* Wraps only when it must, so a longer badge can never run past the card. */
 .avi2-st__meta {
   display: flex;
   flex-wrap: wrap;
@@ -1089,26 +1100,6 @@
   border-left: 5px solid currentColor;
   border-top: 2.6px solid transparent;
   border-bottom: 2.6px solid transparent;
-}
-
-/* Stage 05 is the conversational AI Video Interview, which is in
-   development. The flag is filled, not a text badge, so it cannot be read
-   as a second category label beside "Technical": ink pill, mint type, the
-   system's own pairing, inside the white card. Explicit height, zero
-   vertical padding, as for every control-shaped object in the contract.
-   Delete it only in the same change that ships the product. */
-.avi2-soon {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  padding: 0 8px;
-  border-radius: var(--r-rad-pill);
-  background: var(--r-slab);
-  font: 700 9.5px / 1 var(--font-sans);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  color: var(--r-mint);
 }
 
 /* The two interviews — white cards. On ink, white IS the emphasis: no
@@ -1392,16 +1383,15 @@
     grid-column: 1 / 3;
   }
 }
-/* Gutters track the reference exactly: px-5 sm:px-10, where Tailwind's sm is
-   min-width 640. So 40px holds down to and including 640, 20px below it. The
-   rest of the section keeps its own max-width:640 breakpoint. */
+/* One small tier at the contract's 639.98. Gutters track the reference
+   exactly: px-5 sm:px-10, where Tailwind's sm is min-width 640, so 40px holds
+   down to and including 640 and 20px applies below it. The rest of this block
+   used to sit in a separate max-width: 640px query, which left the section
+   half-mobile at exactly 640 - mobile layout on desktop gutters - and mobile
+   while sections 3-11 were still desktop. */
 @media (max-width: 639.98px) {
   .avi2-sec {
     --r-pad: 20px;
-  }
-}
-@media (max-width: 640px) {
-  .avi2-sec {
     padding: 56px 0;
   }
   .avi2-slab {
@@ -1409,7 +1399,7 @@
     border-radius: 20px;
   }
   .avi2-head h2 {
-    font-size: 1.5rem;
+    font-size: 24px;
     line-height: 1.14;
     margin-top: 14px;
   }
@@ -1526,7 +1516,9 @@
    centred an 1100 container here and left 170px of dead page each side.
 
    Gutters are 40 down to AND INCLUDING 640 — the site is px-5 sm:px-10 and
-   Tailwind's sm is min-width 640 — so the small query is max-width 639.9px.
+   Tailwind's sm is min-width 640 — so the small query is max-width 639.98px,
+   the contract's value. (It was 639.9, which differed only at fractional
+   widths under zoom.)
 
    h2 is a FLAT 32px, never a clamp: a vw clamp capped at 32 only reads 32
    near 1440 and fell to 24.8 at 900, where it stopped matching the reference.
@@ -2130,8 +2122,8 @@
   }
 }
 /* The site is px-5 sm:px-10 and Tailwind's sm is min-width 640, so 40px gutters
-   hold AT 640 and 20px applies only below it — hence 639.9, not 640. */
-@media (max-width: 639.9px) {
+   hold AT 640 and 20px applies only below it — hence 639.98, not 640. */
+@media (max-width: 639.98px) {
   .avi3-sec {
     padding: 56px 20px;
   }
@@ -2359,8 +2351,15 @@
   color: var(--r-quiet);
 }
 /* Each phrase owns its own trailing separator and cannot be split from it, so
-   a wrapped line can never open on a dot. */
+   a wrapped line can never open on a dot. inline-block as well as nowrap: the
+   separator's space sits INSIDE the nowrap span and the next phrase follows
+   with no space between, so as plain inline spans there was no break
+   opportunity anywhere and "Priya Nair · Senior Backend Engineer · 26 Aug ·
+   Async" became one unbreakable 304px run. Below ~350px it pushed the page
+   21px wider than the viewport. An inline-block gives the line a break point
+   between phrases without splitting a phrase from its dot. */
 .avi4-ph {
+  display: inline-block;
   white-space: nowrap;
 }
 .avi4-sep {
@@ -3338,46 +3337,6 @@
 .avi7-frag:not(:last-child)::after {
   content: " \00B7";
   color: var(--r-sep);
-}
-/* "Coming soon" flags. The AI Video Interview is in development, so the
-   second stage and the whole call mockup are marked as not yet available.
-   Filled pills rather than a text label: at 9.5px uppercase with no fill the
-   flag read as one more participant label. Explicit height, zero vertical
-   padding. Delete both flags in the same change that ships the product. */
-.avi7-soon {
-  display: inline-flex;
-  align-items: center;
-  height: 20px;
-  margin-left: 6px;
-  padding: 0 8px;
-  border-radius: var(--r-rad-pill);
-  background: var(--r-slab);
-  font: 700 9.5px / 1 var(--font-sans);
-  letter-spacing: 0.14em;
-  text-transform: uppercase;
-  white-space: nowrap;
-  vertical-align: middle;
-  color: var(--r-mint);
-}
-.avi7-soon--on-dark {
-  margin-left: 0;
-  background: var(--r-mint);
-  color: var(--r-slab);
-}
-/* The strip across the top of the mockup. It spans both tracks and sits
-   above both tiles, so nothing in the frame - the interviewer tile, the
-   follow-up line - can be read before it. */
-.avi7-flag {
-  grid-column: 1 / -1;
-  display: flex;
-  flex-wrap: wrap;
-  align-items: center;
-  gap: 6px 10px;
-  padding: 8px 14px;
-  border-radius: var(--r-rad-inset);
-  background: var(--r-slab);
-  font: 500 12.6px / 1.4 var(--font-sans);
-  color: var(--r-white);
 }
 .avi7-note {
   margin-top: 32px;

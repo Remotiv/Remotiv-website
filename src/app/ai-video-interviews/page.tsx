@@ -55,6 +55,20 @@ export const metadata: Metadata = {
     description: AVI_DESCRIPTION,
     creator: "@remotiv",
   },
+  // LAUNCH BLOCKER — DO NOT REMOVE THE noindex UNTIL THIS IS RESOLVED.
+  //
+  // This section presents the Conversational AI Video Interview as available.
+  // It is not built. Step 10 is not started, there is no live-session writer,
+  // no conversation turns, and buildLiveSettings is never called.
+  //
+  // The Coming soon labels that made this honest were removed on 17 September 2026
+  // because the page is not launching yet and the feature is being built next.
+  //
+  // Before this page goes public, either the feature ships or the labels come
+  // back. Do not launch it as it stands.
+  //
+  // (On this page, that means section 2's stage 05 and section 7.)
+  //
   // Deliberately noindex while this page is under construction.
   // REMOVE THIS, add navbar + footer links, and add the route to
   // sitemap.ts before launch.
@@ -913,7 +927,7 @@ export default function AIVideoInterviewsPage() {
                   </p>
                   {/* One interview, not two: the technical round at stage 05 is
                       the conversational AI Video Interview, which is in
-                      development. It stays on the rail marked as coming. */}
+                      development. See the launch blocker above stage 05. */}
                   <h2>
                     One interview happens before you spend a{" "}
                     <span className="avi2-stick">minute</span> of your week.
@@ -924,9 +938,9 @@ export default function AIVideoInterviewsPage() {
                     transcript. Then it stops.
                   </p>
                 </div>
-                {/* "02 of them interviews" counts the rail, which still shows
-                    both - stage 05 carries its own flag. Qualifying it here
-                    widened this column by 80px and took a line off the lede. */}
+                {/* "02 of them interviews" counts the rail, which shows both.
+                    Qualifying it here widened this column by 80px and took a
+                    line off the lede. */}
                 <div className="avi2-count">
                   <div>
                     <b>06</b>
@@ -1012,6 +1026,17 @@ export default function AIVideoInterviewsPage() {
                       <h3 className="avi2-st__t">Evidence&#8209;backed scorecard</h3>
                       <p className="avi2-st__d">Every score carries the moment it came from.</p>
                     </li>
+                    {/* LAUNCH BLOCKER — DO NOT REMOVE THE noindex UNTIL THIS IS RESOLVED.
+
+                        This section presents the Conversational AI Video Interview as available.
+                        It is not built. Step 10 is not started, there is no live-session writer,
+                        no conversation turns, and buildLiveSettings is never called.
+
+                        The Coming soon labels that made this honest were removed on 17 September 2026
+                        because the page is not launching yet and the feature is being built next.
+
+                        Before this page goes public, either the feature ships or the labels come
+                        back. Do not launch it as it stands. */}
                     <li className="avi2-st avi2-st--key">
                       <div className="avi2-box">
                         <div className="avi2-st__meta">
@@ -1020,7 +1045,6 @@ export default function AIVideoInterviewsPage() {
                             <i />
                             Technical
                           </p>
-                          <p className="avi2-soon">Coming soon</p>
                         </div>
                         <h3 className="avi2-st__t">Conversational AI Video Interview</h3>
                         <p className="avi2-st__d">
@@ -1280,17 +1304,23 @@ export default function AIVideoInterviewsPage() {
             4 puts the pipeline back in its own order. The avi7- prefix stays
             avi7-: renaming would touch every rule and comment in the
             stylesheet and change nothing a visitor sees. */}
+        {/* LAUNCH BLOCKER — DO NOT REMOVE THE noindex UNTIL THIS IS RESOLVED.
+
+            This section presents the Conversational AI Video Interview as available.
+            It is not built. Step 10 is not started, there is no live-session writer,
+            no conversation turns, and buildLiveSettings is never called.
+
+            The Coming soon labels that made this honest were removed on 17 September 2026
+            because the page is not launching yet and the feature is being built next.
+
+            Before this page goes public, either the feature ships or the labels come
+            back. Do not launch it as it stands. */}
         <section className="avi7-sec">
           <div className="avi7-wrap">
             <div className="avi7-grid">
               <header>
                 <p className="avi7-eyebrow">How you interview</p>
                 <h2 className="avi7-h2">You set the interview. Remotiv runs it.</h2>
-                {/* Only the async screen ships. The second stage and the whole
-                    call mockup are the conversational AI Video Interview, which
-                    is in development, so both carry a "Coming soon" flag that is
-                    part of the design, not a footnote. Remove the flags only in
-                    the same change that ships the product. */}
                 <p className="avi7-lede">
                   Remotiv supports the Async Video Interview today, with Conversational AI Video
                   Interviews and adaptive follow-ups in development.
@@ -1306,10 +1336,7 @@ export default function AIVideoInterviewsPage() {
                     </p>
                   </div>
                   <div className="avi7-stage">
-                    <h3>
-                      Conversational AI Video Interview{" "}
-                      <span className="avi7-soon">Coming soon</span>
-                    </h3>
+                    <h3>Conversational AI Video Interview</h3>
                     <p className="avi7-meta">
                       <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
                       <span className="avi7-frag">adaptive follow-ups</span>{" "}
@@ -1326,10 +1353,6 @@ export default function AIVideoInterviewsPage() {
 
               <div className="avi7-visual" data-reveal>
                 <div className="avi7-frame">
-                  <p className="avi7-flag">
-                    <span className="avi7-soon avi7-soon--on-dark">Coming soon</span>
-                    <span>Not available yet</span>
-                  </p>
                   <div className="avi7-tile avi7-tile--ai">
                     <span className="avi7-mark">
                       <svg viewBox="0 0 20 20" aria-hidden="true">
