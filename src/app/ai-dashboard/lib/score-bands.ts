@@ -19,6 +19,22 @@ export function scoreBand(score: number): ScoreBand {
   return "lo";
 }
 
+/**
+ * Short label for a band, for a pill beside a score.
+ *
+ * Subordinate to `verdict` wherever both appear: the model's sentence is the
+ * considered answer, this is only which side of a threshold the number fell.
+ *
+ * "Needs review" rather than "weak" because this sits on a permanent hiring
+ * record. A 59 is a score the model had little to go on, not a judgement about
+ * a person, and the label should say what the recruiter does next.
+ */
+export const BAND_LABEL: Record<ScoreBand, string> = {
+  hi: "Strong",
+  mid: "Moderate",
+  lo: "Needs review",
+};
+
 /** Text colour, for a numeral on a light surface. */
 export const BAND_TEXT: Record<ScoreBand, string> = {
   hi: "text-[var(--ai-mint-ink)]",
