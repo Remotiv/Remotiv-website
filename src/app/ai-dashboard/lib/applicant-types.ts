@@ -182,6 +182,16 @@ export type ScoreDimensionRow = {
   reasoning: string;
   /** CV span supporting this dimension. Empty when none was verifiable. */
   quote?: string;
+  /**
+   * The job stated nothing for this dimension to be judged against, so `score`
+   * is the model's invention and was excluded from the overall.
+   *
+   * Rendered as "not scored" rather than as a number — see the drawer. Absent
+   * on every scorecard written before the flag existed, which is correct: those
+   * cards DID average the number in, and showing them as if they hadn't would
+   * misdescribe the overall sitting next to it.
+   */
+  unstated?: boolean;
 };
 
 /**

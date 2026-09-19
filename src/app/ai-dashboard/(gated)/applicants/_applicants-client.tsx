@@ -1412,12 +1412,47 @@ function ApplicantDrawer({
                   <DrawerLabel>Score breakdown</DrawerLabel>
                   <div className="mb-[22px] flex flex-col gap-3">
                     {scoreDetail.dimensions.map((d) => {
+                      const label = DIMENSION_LABEL[d.dimension] ?? d.dimension;
+
+                      /*
+                       * A dimension the job stated nothing for shows NO number
+                       * and NO bar.
+                       *
+                       * The model was still made to score it — all four are
+                       * mandatory so scores stay comparable between jobs — but
+                       * it judged the CV against an empty section, so the
+                       * number is an invention. It is excluded from the overall
+                       * (see applyCvWeights), and rendering it here would put a
+                       * figure on screen that the headline score deliberately
+                       * ignores. The reason is stated inline rather than in a
+                       * tooltip: three bars where every other job shows four
+                       * reads as a bug unless the fourth line says why.
+                       */
+                      if (d.unstated) {
+                        return (
+                          <div key={d.dimension}>
+                            <div className="flex items-baseline justify-between gap-3">
+                              <span className="text-[13px] font-bold text-[var(--ai-t3)]">
+                                {label}
+                              </span>
+                              <span className="text-[12px] font-semibold text-[var(--ai-t3)]">
+                                Not scored
+                              </span>
+                            </div>
+                            <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
+                              This job lists no requirements, so there was nothing to judge the CV
+                              against. It is left out of the overall score rather than guessed at.
+                            </p>
+                          </div>
+                        );
+                      }
+
                       const band = scoreBand(d.score);
                       return (
                         <div key={d.dimension}>
                           <div className="flex items-baseline justify-between gap-3">
                             <span className="text-[13px] font-bold text-[var(--ai-t1)]">
-                              {DIMENSION_LABEL[d.dimension] ?? d.dimension}
+                              {label}
                             </span>
                             <span
                               className="font-heading text-[13px] font-extrabold tabular-nums"
