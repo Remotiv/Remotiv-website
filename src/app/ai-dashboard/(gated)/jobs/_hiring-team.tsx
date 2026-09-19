@@ -1,11 +1,11 @@
 "use client";
 
-import { useCallback, useEffect, useState } from "react";
 import { Eye, Plus, Trash, UserRound } from "lucide-react";
+import { useCallback, useEffect, useState } from "react";
 import {
+  type JobTeamRole,
   TEAM_ROLE_LABELS,
   TEAM_ROLES,
-  type JobTeamRole,
 } from "@/app/ai-dashboard/lib/company-roles";
 import type { HiringTeamMember } from "@/app/ai-dashboard/lib/job-scope";
 import {
@@ -34,7 +34,13 @@ const SELECT_CLS =
 
 function initialsOf(name: string): string {
   const parts = name.trim().split(/\s+/).filter(Boolean);
-  return parts.slice(0, 2).map((w) => w[0]).join("").toUpperCase() || "?";
+  return (
+    parts
+      .slice(0, 2)
+      .map((w) => w[0])
+      .join("")
+      .toUpperCase() || "?"
+  );
 }
 
 export function HiringTeamSection({
@@ -58,10 +64,7 @@ export function HiringTeamSection({
 
   const load = useCallback(async () => {
     try {
-      const [team, members] = await Promise.all([
-        fetchHiringTeam(jobId),
-        fetchAssignableMembers(),
-      ]);
+      const [team, members] = await Promise.all([fetchHiringTeam(jobId), fetchAssignableMembers()]);
       setAssigned(team.assigned);
       setSiteWide(team.siteWide);
       setCanManage(team.canManage);
@@ -103,9 +106,7 @@ export function HiringTeamSection({
   }
 
   async function handleRole(memberId: string, teamRole: JobTeamRole) {
-    setAssigned((prev) =>
-      prev.map((a) => (a.memberId === memberId ? { ...a, teamRole } : a)),
-    );
+    setAssigned((prev) => prev.map((a) => (a.memberId === memberId ? { ...a, teamRole } : a)));
     const result = await updateHiringTeamRole({ jobId, memberId, teamRole });
     if (!result.success) {
       onToast?.(result.error);
@@ -278,8 +279,8 @@ export function HiringTeamSection({
         </p>
         <p className="m-0 mt-1.5 flex items-start gap-1.5 text-[11px] leading-relaxed text-[var(--ai-t4)]">
           <UserRound className="mt-px size-3 shrink-0" strokeWidth={2} />
-          The role beside each name describes what they do on this job. Being on
-          the list is what grants access, not which role is picked.
+          The role beside each name describes what they do on this job. Being on the list is what
+          grants access, not which role is picked.
         </p>
       </div>
     </div>

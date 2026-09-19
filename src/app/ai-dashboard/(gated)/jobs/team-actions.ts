@@ -1,25 +1,23 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
-import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
-  canManageHiringTeam,
   COMPANY_ROLE_LABELS,
   type CompanyRole,
+  canManageHiringTeam,
   isJobScopedRole,
   type JobTeamRole,
   TEAM_ROLES,
 } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, type HiringTeamMember } from "@/app/ai-dashboard/lib/job-scope";
 import { notifyCompanyMember } from "@/lib/notifications/company";
+import { createServiceClient } from "@/lib/supabase/server";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Shapes live in lib/job-scope.ts.
 
-type MutationResult<T = undefined> =
-  | { success: true; data: T }
-  | { success: false; error: string };
+type MutationResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
 
 /** Same message for not-found and not-yours, as everywhere else in the product. */
 const NOT_YOURS = "That job isn't in your workspace.";
@@ -35,8 +33,7 @@ const NOT_YOURS = "That job isn't in your workspace.";
 async function assertCanManage(
   jobId: string,
 ): Promise<
-  | { ok: true; ctx: Awaited<ReturnType<typeof getCompanyContext>> }
-  | { ok: false; error: string }
+  { ok: true; ctx: Awaited<ReturnType<typeof getCompanyContext>> } | { ok: false; error: string }
 > {
   const ctx = await getCompanyContext();
   if (!canManageHiringTeam(ctx.role)) {
@@ -100,9 +97,7 @@ export async function fetchHiringTeam(jobId: string): Promise<{
   ]);
 
   type Member = { id: string; name: string | null; email: string | null; role: CompanyRole };
-  const members = new Map(
-    ((memberRows ?? []) as Member[]).map((m) => [m.id, m]),
-  );
+  const members = new Map(((memberRows ?? []) as Member[]).map((m) => [m.id, m]));
 
   const assigned: HiringTeamMember[] = [];
   for (const row of (teamRows ?? []) as {
@@ -152,12 +147,14 @@ export async function fetchAssignableMembers(): Promise<
     .order("created_at", { ascending: true })
     .limit(500);
 
-  return ((data ?? []) as {
-    id: string;
-    name: string | null;
-    email: string | null;
-    role: CompanyRole;
-  }[]).map((m) => ({
+  return (
+    (data ?? []) as {
+      id: string;
+      name: string | null;
+      email: string | null;
+      role: CompanyRole;
+    }[]
+  ).map((m) => ({
     id: m.id,
     name: (m.name ?? "").trim() || (m.email ?? "").trim() || "Member",
     email: (m.email ?? "").trim(),

@@ -1,39 +1,35 @@
 "use client";
 
-import { useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   Briefcase,
   CheckCircle,
   ChevronRight,
-  PauseCircle,
-  Star,
-  XCircle,
-  Plus,
-  MoreHorizontal,
-  SlidersHorizontal,
-  X,
-  AlertTriangle,
-  MapPin,
   type LucideIcon,
+  MapPin,
+  MoreHorizontal,
+  PauseCircle,
+  Plus,
+  SlidersHorizontal,
+  Star,
+  X,
+  XCircle,
 } from "lucide-react";
-import { TopNav } from "./top-nav";
-import { JobOrderCell } from "./job-order-cell";
-import { PaginationControls, paginate } from "./pagination-controls";
+import { useEffect, useRef, useState } from "react";
 import {
   createJob,
-  updateJob,
-  updateJobStatus,
   deleteJob,
   type Job,
   type JobInput,
+  updateJob,
+  updateJobStatus,
 } from "@/app/admin/jobs/actions";
-import {
-  type UserRole,
-  canEdit,
-  canDelete,
-} from "@/app/admin/lib/roles";
+import { canDelete, canEdit, type UserRole } from "@/app/admin/lib/roles";
 import type { ScreeningQuestion } from "@/lib/jobs";
+import { JobOrderCell } from "./job-order-cell";
+import { PaginationControls, paginate } from "./pagination-controls";
 import { ScreeningQuestionBuilder } from "./screening-question-builder";
+import { TopNav } from "./top-nav";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -42,13 +38,10 @@ const EXPERIENCE_LEVELS = ["Entry", "Intermediate", "Expert"] as const;
 const CONTRACT_TYPES = ["Full time", "Part time", "Contract"] as const;
 const WORK_TYPES = ["Remote", "On-site", "Hybrid"] as const;
 
-const STATUS_META: Record<
-  Job["status"],
-  { label: string; badge: string; dot: string }
-> = {
-  open:    { label: "Open",    badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green" },
-  on_hold: { label: "On Hold", badge: "bg-amber-50 text-amber-600",      dot: "bg-amber-400"  },
-  closed:  { label: "Closed",  badge: "bg-gray-100 text-gray-500",       dot: "bg-gray-400"   },
+const STATUS_META: Record<Job["status"], { label: string; badge: string; dot: string }> = {
+  open: { label: "Open", badge: "bg-remotiv-green/10 text-[#1a9e73]", dot: "bg-remotiv-green" },
+  on_hold: { label: "On Hold", badge: "bg-amber-50 text-amber-600", dot: "bg-amber-400" },
+  closed: { label: "Closed", badge: "bg-gray-100 text-gray-500", dot: "bg-gray-400" },
 };
 
 type StatCardDef = {
@@ -83,8 +76,7 @@ const EMPTY_FORM: JobInput = {
 
 const INPUT_CLS =
   "w-full rounded-lg border border-gray-200 px-3.5 py-2.5 text-sm text-gray-800 outline-none transition-all focus:border-remotiv-purple focus:ring-2 focus:ring-remotiv-purple/20";
-const LABEL_CLS =
-  "mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
+const LABEL_CLS = "mb-1.5 block text-[10px] font-semibold uppercase tracking-widest text-gray-400";
 
 // ── Helpers ──────────────────────────────────────────────────
 
@@ -117,13 +109,7 @@ function timeAgo(iso: string): string {
  * three-dot menu actions (Put On Hold / Reopen / Close / Delete) live
  * inside that sheet on mobile.
  */
-function JobCardMobile({
-  job,
-  onClick,
-}: {
-  job: Job;
-  onClick: () => void;
-}) {
+function JobCardMobile({ job, onClick }: { job: Job; onClick: () => void }) {
   const meta = STATUS_META[job.status];
   return (
     <button
@@ -134,9 +120,7 @@ function JobCardMobile({
       <div className="p-4">
         <div className="flex items-start justify-between gap-3">
           <div className="min-w-0 flex-1">
-            <p className="truncate font-heading text-base font-bold text-gray-900">
-              {job.title}
-            </p>
+            <p className="truncate font-heading text-base font-bold text-gray-900">{job.title}</p>
             <p className="mt-0.5 truncate text-xs text-gray-500">
               {job.company} · {job.experience_level}
             </p>
@@ -266,8 +250,7 @@ export function JobsDashboard({
     setFilterWorkType("all");
   }
 
-  const activeFilterCount =
-    (filterStatus !== "all" ? 1 : 0) + (filterWorkType !== "all" ? 1 : 0);
+  const activeFilterCount = (filterStatus !== "all" ? 1 : 0) + (filterWorkType !== "all" ? 1 : 0);
 
   const filteredJobs = jobs.filter((j) => {
     if (filterStatus !== "all" && j.status !== filterStatus) return false;
@@ -280,7 +263,9 @@ export function JobsDashboard({
 
   useEffect(() => {
     if (openMenuId === null) return;
-    function close() { setOpenMenuId(null); }
+    function close() {
+      setOpenMenuId(null);
+    }
     document.addEventListener("click", close);
     return () => document.removeEventListener("click", close);
   }, [openMenuId]);
@@ -345,11 +330,17 @@ export function JobsDashboard({
     try {
       if (editingJob) {
         const result = await updateJob(editingJob.id, form);
-        if (!result.success) { setMutError(result.error); return; }
+        if (!result.success) {
+          setMutError(result.error);
+          return;
+        }
         setJobs((prev) => prev.map((j) => (j.id === editingJob.id ? result.data : j)));
       } else {
         const result = await createJob(form);
-        if (!result.success) { setMutError(result.error); return; }
+        if (!result.success) {
+          setMutError(result.error);
+          return;
+        }
         setJobs((prev) => [result.data, ...prev]);
       }
       closeModal();
@@ -382,10 +373,10 @@ export function JobsDashboard({
   }
 
   // ── Derived stats ─────────────────────────────────────────
-  const totalJobs    = jobs.length;
-  const openCount    = jobs.filter((j) => j.status === "open").length;
-  const onHoldCount  = jobs.filter((j) => j.status === "on_hold").length;
-  const closedCount  = jobs.filter((j) => j.status === "closed").length;
+  const totalJobs = jobs.length;
+  const openCount = jobs.filter((j) => j.status === "open").length;
+  const onHoldCount = jobs.filter((j) => j.status === "on_hold").length;
+  const closedCount = jobs.filter((j) => j.status === "closed").length;
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
@@ -395,14 +386,16 @@ export function JobsDashboard({
   const pageItems = paginate(filteredJobs, page);
 
   const updateDate = new Date().toLocaleDateString("en-GB", {
-    day: "2-digit", month: "short", year: "numeric",
+    day: "2-digit",
+    month: "short",
+    year: "numeric",
   });
 
   const STAT_CARDS: StatCardDef[] = [
-    { label: "Total Jobs",  value: totalJobs,   from: "#c084fc", to: "#7E47FF", icon: Briefcase   },
-    { label: "Open",        value: openCount,   from: "#6ee7c7", to: "#49D7A7", icon: CheckCircle },
-    { label: "On Hold",     value: onHoldCount, from: "#fdba74", to: "#f97316", icon: PauseCircle },
-    { label: "Closed",      value: closedCount, from: "#93c5fd", to: "#3b82f6", icon: XCircle     },
+    { label: "Total Jobs", value: totalJobs, from: "#c084fc", to: "#7E47FF", icon: Briefcase },
+    { label: "Open", value: openCount, from: "#6ee7c7", to: "#49D7A7", icon: CheckCircle },
+    { label: "On Hold", value: onHoldCount, from: "#fdba74", to: "#f97316", icon: PauseCircle },
+    { label: "Closed", value: closedCount, from: "#93c5fd", to: "#3b82f6", icon: XCircle },
   ];
 
   return (
@@ -471,9 +464,13 @@ export function JobsDashboard({
               <div className="pointer-events-none absolute -right-8 -top-8 size-32 rounded-full bg-white/10" />
               <div className="pointer-events-none absolute -bottom-4 right-8 size-16 rounded-full bg-white/10" />
               <Icon className="mb-3 size-6 opacity-90 lg:mb-4 lg:size-7" strokeWidth={1.8} />
-              <p className="font-heading text-3xl font-bold leading-none lg:text-[2.6rem]">{value}</p>
+              <p className="font-heading text-3xl font-bold leading-none lg:text-[2.6rem]">
+                {value}
+              </p>
               <p className="mt-1.5 text-xs font-medium opacity-80 lg:mt-2 lg:text-sm">{label}</p>
-              <p className="mt-2 hidden text-[11px] opacity-50 lg:mt-3 lg:block">Update: {updateDate}</p>
+              <p className="mt-2 hidden text-[11px] opacity-50 lg:mt-3 lg:block">
+                Update: {updateDate}
+              </p>
             </div>
           ))}
         </div>
@@ -483,7 +480,9 @@ export function JobsDashboard({
           {filteredJobs.length === 0 ? (
             <div className="flex flex-col items-center justify-center rounded-2xl border border-dashed border-gray-200 bg-white py-16 text-center">
               <Briefcase className="mb-3 size-8 text-gray-300" strokeWidth={1.5} />
-              <p className="font-heading text-sm font-semibold text-gray-700">No jobs match your filters</p>
+              <p className="font-heading text-sm font-semibold text-gray-700">
+                No jobs match your filters
+              </p>
               <p className="mt-1 text-xs text-gray-400">
                 {canEditJobs ? "Tap the + button to post a job." : "Try clearing a filter."}
               </p>
@@ -515,7 +514,16 @@ export function JobsDashboard({
                   <th className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400">
                     Order
                   </th>
-                  {["Title", "Company", "Category", "Location", "Salary", "Type", "Status", "Posted"].map((h) => (
+                  {[
+                    "Title",
+                    "Company",
+                    "Category",
+                    "Location",
+                    "Salary",
+                    "Type",
+                    "Status",
+                    "Posted",
+                  ].map((h) => (
                     <th
                       key={h}
                       className="px-6 py-3.5 text-left text-[10px] font-semibold uppercase tracking-widest text-gray-400"
@@ -529,9 +537,12 @@ export function JobsDashboard({
               <tbody>
                 {filteredJobs.length === 0 ? (
                   <tr>
-                    <td colSpan={canEditJobs || canDeleteJobs ? 10 : 9} className="px-6 py-12 text-center text-sm text-gray-400">
+                    <td
+                      colSpan={canEditJobs || canDeleteJobs ? 10 : 9}
+                      className="px-6 py-12 text-center text-sm text-gray-400"
+                    >
                       {jobs.length === 0
-                        ? `No jobs posted yet.${canEditJobs ? " Click \"New Job\" to get started." : ""}`
+                        ? `No jobs posted yet.${canEditJobs ? ' Click "New Job" to get started.' : ""}`
                         : "No jobs match the current filters."}
                     </td>
                   </tr>
@@ -539,7 +550,10 @@ export function JobsDashboard({
                   pageItems.map((job) => {
                     const meta = STATUS_META[job.status];
                     return (
-                      <tr key={job.id} className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60">
+                      <tr
+                        key={job.id}
+                        className="border-b border-gray-50 last:border-0 hover:bg-gray-50/60"
+                      >
                         <td className="px-6 py-4">
                           <JobOrderCell jobId={job.id} initial={job.display_order} />
                         </td>
@@ -550,7 +564,10 @@ export function JobsDashboard({
                         <td className="px-6 py-4">
                           <p className="text-gray-700">{job.company}</p>
                           <p className="flex items-center gap-1 text-xs text-gray-400">
-                            <Star className="size-3 fill-amber-400 text-amber-400" strokeWidth={0} />
+                            <Star
+                              className="size-3 fill-amber-400 text-amber-400"
+                              strokeWidth={0}
+                            />
                             {job.company_rating}
                           </p>
                         </td>
@@ -575,7 +592,9 @@ export function JobsDashboard({
                           </div>
                         </td>
                         <td className="px-6 py-4">
-                          <span className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${meta.badge}`}>
+                          <span
+                            className={`inline-flex items-center gap-1.5 rounded-full px-2.5 py-1 text-[10px] font-semibold uppercase tracking-wider ${meta.badge}`}
+                          >
                             <span className={`size-1.5 rounded-full ${meta.dot}`} />
                             {meta.label}
                           </span>
@@ -601,7 +620,11 @@ export function JobsDashboard({
                                   {canEditJobs && (
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); openEditModal(job); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        openEditModal(job);
+                                      }}
                                       className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
                                     >
                                       Edit
@@ -610,7 +633,11 @@ export function JobsDashboard({
                                   {canEditJobs && job.status !== "on_hold" && (
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "on_hold"); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        handleSetStatus(job, "on_hold");
+                                      }}
                                       className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
                                     >
                                       Put On Hold
@@ -619,7 +646,11 @@ export function JobsDashboard({
                                   {canEditJobs && job.status !== "open" && (
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "open"); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        handleSetStatus(job, "open");
+                                      }}
                                       className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
                                     >
                                       Reopen
@@ -628,7 +659,11 @@ export function JobsDashboard({
                                   {canEditJobs && job.status !== "closed" && (
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); handleSetStatus(job, "closed"); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        handleSetStatus(job, "closed");
+                                      }}
                                       className="w-full px-4 py-2.5 text-left text-sm text-gray-600 transition-colors hover:bg-gray-50"
                                     >
                                       Close
@@ -637,7 +672,11 @@ export function JobsDashboard({
                                   {canDeleteJobs && (
                                     <button
                                       type="button"
-                                      onClick={(e) => { e.stopPropagation(); setOpenMenuId(null); setConfirmDeleteId(job.id); }}
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        setConfirmDeleteId(job.id);
+                                      }}
                                       className="w-full px-4 py-2.5 text-left text-sm text-red-500 transition-colors hover:bg-red-50"
                                     >
                                       Delete
@@ -667,7 +706,9 @@ export function JobsDashboard({
       {showModal && (
         <div
           className="fixed inset-0 z-50 flex items-stretch justify-center bg-black/40 lg:items-center lg:p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) closeModal(); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) closeModal();
+          }}
         >
           <div className="flex h-full w-full max-w-full flex-col overflow-hidden bg-white shadow-xl lg:h-auto lg:max-h-[92vh] lg:max-w-lg lg:rounded-2xl">
             <div className="flex shrink-0 items-center justify-between border-b border-gray-100 px-4 py-4 lg:px-6 lg:py-5">
@@ -689,66 +730,174 @@ export function JobsDashboard({
                 <div className="flex flex-col gap-4">
                   {/* Title */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-title">Job Title</label>
-                    <input id="jb-title" type="text" required placeholder="e.g. Senior React Developer" className={INPUT_CLS} value={form.title} onChange={(e) => set("title", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-title">
+                      Job Title
+                    </label>
+                    <input
+                      id="jb-title"
+                      type="text"
+                      required
+                      placeholder="e.g. Senior React Developer"
+                      className={INPUT_CLS}
+                      value={form.title}
+                      onChange={(e) => set("title", e.target.value)}
+                    />
                   </div>
 
                   {/* Company + Rating + Positions */}
                   <div className="grid grid-cols-4 gap-3">
                     <div className="col-span-2">
-                      <label className={LABEL_CLS} htmlFor="jb-company">Company</label>
-                      <input id="jb-company" type="text" required placeholder="e.g. Cogent Labs" className={INPUT_CLS} value={form.company} onChange={(e) => set("company", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-company">
+                        Company
+                      </label>
+                      <input
+                        id="jb-company"
+                        type="text"
+                        required
+                        placeholder="e.g. Cogent Labs"
+                        className={INPUT_CLS}
+                        value={form.company}
+                        onChange={(e) => set("company", e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-rating">Rating</label>
-                      <input id="jb-rating" type="number" min="0" max="5" step="0.1" placeholder="4.5" className={INPUT_CLS} value={form.company_rating} onChange={(e) => set("company_rating", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-rating">
+                        Rating
+                      </label>
+                      <input
+                        id="jb-rating"
+                        type="number"
+                        min="0"
+                        max="5"
+                        step="0.1"
+                        placeholder="4.5"
+                        className={INPUT_CLS}
+                        value={form.company_rating}
+                        onChange={(e) => set("company_rating", e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-positions">No. of Positions</label>
-                      <input id="jb-positions" type="number" min="1" step="1" placeholder="1" className={INPUT_CLS} value={form.positions} onChange={(e) => set("positions", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-positions">
+                        No. of Positions
+                      </label>
+                      <input
+                        id="jb-positions"
+                        type="number"
+                        min="1"
+                        step="1"
+                        placeholder="1"
+                        className={INPUT_CLS}
+                        value={form.positions}
+                        onChange={(e) => set("positions", e.target.value)}
+                      />
                     </div>
                   </div>
 
                   {/* Display order */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-display-order">Display order (1 = first, blank = newest)</label>
-                    <input id="jb-display-order" type="number" min="1" step="1" placeholder="Blank = newest" className={INPUT_CLS} value={form.display_order} onChange={(e) => set("display_order", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-display-order">
+                      Display order (1 = first, blank = newest)
+                    </label>
+                    <input
+                      id="jb-display-order"
+                      type="number"
+                      min="1"
+                      step="1"
+                      placeholder="Blank = newest"
+                      className={INPUT_CLS}
+                      value={form.display_order}
+                      onChange={(e) => set("display_order", e.target.value)}
+                    />
                   </div>
 
                   {/* Category + Experience */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-cat">Category</label>
-                      <select id="jb-cat" className={INPUT_CLS} value={form.category} onChange={(e) => set("category", e.target.value)}>
-                        {CATEGORIES.map((c) => <option key={c} value={c}>{c}</option>)}
+                      <label className={LABEL_CLS} htmlFor="jb-cat">
+                        Category
+                      </label>
+                      <select
+                        id="jb-cat"
+                        className={INPUT_CLS}
+                        value={form.category}
+                        onChange={(e) => set("category", e.target.value)}
+                      >
+                        {CATEGORIES.map((c) => (
+                          <option key={c} value={c}>
+                            {c}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-exp">Experience</label>
-                      <select id="jb-exp" className={INPUT_CLS} value={form.experience_level} onChange={(e) => set("experience_level", e.target.value)}>
-                        {EXPERIENCE_LEVELS.map((l) => <option key={l} value={l}>{l}</option>)}
+                      <label className={LABEL_CLS} htmlFor="jb-exp">
+                        Experience
+                      </label>
+                      <select
+                        id="jb-exp"
+                        className={INPUT_CLS}
+                        value={form.experience_level}
+                        onChange={(e) => set("experience_level", e.target.value)}
+                      >
+                        {EXPERIENCE_LEVELS.map((l) => (
+                          <option key={l} value={l}>
+                            {l}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
 
                   {/* Location */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-loc">Location</label>
-                    <input id="jb-loc" type="text" required placeholder="e.g. Remote" className={INPUT_CLS} value={form.location} onChange={(e) => set("location", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-loc">
+                      Location
+                    </label>
+                    <input
+                      id="jb-loc"
+                      type="text"
+                      required
+                      placeholder="e.g. Remote"
+                      className={INPUT_CLS}
+                      value={form.location}
+                      onChange={(e) => set("location", e.target.value)}
+                    />
                   </div>
 
                   {/* Contract + Work type */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-contract">Contract Type</label>
-                      <select id="jb-contract" className={INPUT_CLS} value={form.contract_type} onChange={(e) => set("contract_type", e.target.value)}>
-                        {CONTRACT_TYPES.map((t) => <option key={t} value={t}>{t}</option>)}
+                      <label className={LABEL_CLS} htmlFor="jb-contract">
+                        Contract Type
+                      </label>
+                      <select
+                        id="jb-contract"
+                        className={INPUT_CLS}
+                        value={form.contract_type}
+                        onChange={(e) => set("contract_type", e.target.value)}
+                      >
+                        {CONTRACT_TYPES.map((t) => (
+                          <option key={t} value={t}>
+                            {t}
+                          </option>
+                        ))}
                       </select>
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-work">Work Type</label>
-                      <select id="jb-work" className={INPUT_CLS} value={form.work_type} onChange={(e) => set("work_type", e.target.value)}>
-                        {WORK_TYPES.map((w) => <option key={w} value={w}>{w}</option>)}
+                      <label className={LABEL_CLS} htmlFor="jb-work">
+                        Work Type
+                      </label>
+                      <select
+                        id="jb-work"
+                        className={INPUT_CLS}
+                        value={form.work_type}
+                        onChange={(e) => set("work_type", e.target.value)}
+                      >
+                        {WORK_TYPES.map((w) => (
+                          <option key={w} value={w}>
+                            {w}
+                          </option>
+                        ))}
                       </select>
                     </div>
                   </div>
@@ -756,16 +905,46 @@ export function JobsDashboard({
                   {/* Salary */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smin">{`Salary Min${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
-                      <input id="jb-smin" type="number" min="0" placeholder="e.g. 50000" className={INPUT_CLS} value={form.salary_min} onChange={(e) => set("salary_min", e.target.value)} />
+                      <label
+                        className={LABEL_CLS}
+                        htmlFor="jb-smin"
+                      >{`Salary Min${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
+                      <input
+                        id="jb-smin"
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 50000"
+                        className={INPUT_CLS}
+                        value={form.salary_min}
+                        onChange={(e) => set("salary_min", e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-smax">{`Salary Max${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
-                      <input id="jb-smax" type="number" min="0" placeholder="e.g. 80000" className={INPUT_CLS} value={form.salary_max} onChange={(e) => set("salary_max", e.target.value)} />
+                      <label
+                        className={LABEL_CLS}
+                        htmlFor="jb-smax"
+                      >{`Salary Max${form.salary_currency ? ` (${form.salary_currency})` : ""}`}</label>
+                      <input
+                        id="jb-smax"
+                        type="number"
+                        min="0"
+                        placeholder="e.g. 80000"
+                        className={INPUT_CLS}
+                        value={form.salary_max}
+                        onChange={(e) => set("salary_max", e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-salary-currency">Currency *</label>
-                      <select id="jb-salary-currency" required className={INPUT_CLS} value={form.salary_currency} onChange={(e) => set("salary_currency", e.target.value)}>
+                      <label className={LABEL_CLS} htmlFor="jb-salary-currency">
+                        Currency *
+                      </label>
+                      <select
+                        id="jb-salary-currency"
+                        required
+                        className={INPUT_CLS}
+                        value={form.salary_currency}
+                        onChange={(e) => set("salary_currency", e.target.value)}
+                      >
                         <option value="">Select currency</option>
                         <option value="USD">USD</option>
                         <option value="PKR">PKR</option>
@@ -776,12 +955,28 @@ export function JobsDashboard({
                   {/* Language + Status */}
                   <div className="grid grid-cols-2 gap-3">
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-lang">Language</label>
-                      <input id="jb-lang" type="text" placeholder="English" className={INPUT_CLS} value={form.language} onChange={(e) => set("language", e.target.value)} />
+                      <label className={LABEL_CLS} htmlFor="jb-lang">
+                        Language
+                      </label>
+                      <input
+                        id="jb-lang"
+                        type="text"
+                        placeholder="English"
+                        className={INPUT_CLS}
+                        value={form.language}
+                        onChange={(e) => set("language", e.target.value)}
+                      />
                     </div>
                     <div>
-                      <label className={LABEL_CLS} htmlFor="jb-status">Status</label>
-                      <select id="jb-status" className={INPUT_CLS} value={form.status} onChange={(e) => set("status", e.target.value)}>
+                      <label className={LABEL_CLS} htmlFor="jb-status">
+                        Status
+                      </label>
+                      <select
+                        id="jb-status"
+                        className={INPUT_CLS}
+                        value={form.status}
+                        onChange={(e) => set("status", e.target.value)}
+                      >
                         <option value="open">Open</option>
                         <option value="on_hold">On Hold</option>
                         <option value="closed">Closed</option>
@@ -791,20 +986,47 @@ export function JobsDashboard({
 
                   {/* Description */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-desc">Description</label>
-                    <textarea id="jb-desc" rows={4} placeholder="Describe the role, responsibilities, and requirements..." className={`${INPUT_CLS} resize-none`} value={form.description} onChange={(e) => set("description", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-desc">
+                      Description
+                    </label>
+                    <textarea
+                      id="jb-desc"
+                      rows={4}
+                      placeholder="Describe the role, responsibilities, and requirements..."
+                      className={`${INPUT_CLS} resize-none`}
+                      value={form.description}
+                      onChange={(e) => set("description", e.target.value)}
+                    />
                   </div>
 
                   {/* What you'll do */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-responsibilities">What you'll do</label>
-                    <textarea id="jb-responsibilities" rows={4} placeholder="One point per line — press Enter between points" className={`${INPUT_CLS} resize-none`} value={form.responsibilities} onChange={(e) => set("responsibilities", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-responsibilities">
+                      What you'll do
+                    </label>
+                    <textarea
+                      id="jb-responsibilities"
+                      rows={4}
+                      placeholder="One point per line — press Enter between points"
+                      className={`${INPUT_CLS} resize-none`}
+                      value={form.responsibilities}
+                      onChange={(e) => set("responsibilities", e.target.value)}
+                    />
                   </div>
 
                   {/* What we're looking for */}
                   <div>
-                    <label className={LABEL_CLS} htmlFor="jb-requirements">What we're looking for</label>
-                    <textarea id="jb-requirements" rows={4} placeholder="One point per line — press Enter between points" className={`${INPUT_CLS} resize-none`} value={form.requirements} onChange={(e) => set("requirements", e.target.value)} />
+                    <label className={LABEL_CLS} htmlFor="jb-requirements">
+                      What we're looking for
+                    </label>
+                    <textarea
+                      id="jb-requirements"
+                      rows={4}
+                      placeholder="One point per line — press Enter between points"
+                      className={`${INPUT_CLS} resize-none`}
+                      value={form.requirements}
+                      onChange={(e) => set("requirements", e.target.value)}
+                    />
                   </div>
 
                   <ScreeningQuestionBuilder
@@ -813,16 +1035,26 @@ export function JobsDashboard({
                   />
 
                   {mutError && (
-                    <p className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-500">{mutError}</p>
+                    <p className="rounded-lg bg-red-50 px-3.5 py-2.5 text-sm text-red-500">
+                      {mutError}
+                    </p>
                   )}
                 </div>
               </div>
 
               <div className="shrink-0 border-t border-gray-100 px-4 py-3 flex items-center justify-end gap-3 lg:px-6 lg:py-4">
-                <button type="button" onClick={closeModal} className="min-h-11 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
+                <button
+                  type="button"
+                  onClick={closeModal}
+                  className="min-h-11 rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+                >
                   Cancel
                 </button>
-                <button type="submit" disabled={mutating} className="min-h-11 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60">
+                <button
+                  type="submit"
+                  disabled={mutating}
+                  className="min-h-11 rounded-xl bg-remotiv-purple px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] disabled:cursor-not-allowed disabled:opacity-60"
+                >
                   {mutating ? "Saving…" : editingJob ? "Save Changes" : "Create Job"}
                 </button>
               </div>
@@ -834,9 +1066,7 @@ export function JobsDashboard({
       {/* ── Mobile filter bottom sheet ── */}
       <div
         className={`fixed inset-0 z-40 bg-black/50 transition-opacity duration-300 lg:hidden ${
-          filterDrawerOpen
-            ? "pointer-events-auto opacity-100"
-            : "pointer-events-none opacity-0"
+          filterDrawerOpen ? "pointer-events-auto opacity-100" : "pointer-events-none opacity-0"
         }`}
         onClick={() => setFilterDrawerOpen(false)}
         aria-hidden="true"
@@ -872,10 +1102,10 @@ export function JobsDashboard({
             value={filterStatus}
             onChange={(v) => setFilterStatus(v as "all" | Job["status"])}
             options={[
-              { value: "all",     label: "All" },
-              { value: "open",    label: "Open" },
+              { value: "all", label: "All" },
+              { value: "open", label: "Open" },
               { value: "on_hold", label: "On Hold" },
-              { value: "closed",  label: "Closed" },
+              { value: "closed", label: "Closed" },
             ]}
           />
           <FilterSheetGroup
@@ -883,10 +1113,10 @@ export function JobsDashboard({
             value={filterWorkType}
             onChange={setFilterWorkType}
             options={[
-              { value: "all",     label: "All" },
-              { value: "Remote",  label: "Remote" },
+              { value: "all", label: "All" },
+              { value: "Remote", label: "Remote" },
               { value: "On-site", label: "On-site" },
-              { value: "Hybrid",  label: "Hybrid" },
+              { value: "Hybrid", label: "Hybrid" },
             ]}
           />
         </div>
@@ -931,7 +1161,9 @@ export function JobsDashboard({
       {confirmDeleteId && (
         <div
           className="fixed inset-0 z-50 flex items-center justify-center bg-black/40 p-4"
-          onClick={(e) => { if (e.target === e.currentTarget) setConfirmDeleteId(null); }}
+          onClick={(e) => {
+            if (e.target === e.currentTarget) setConfirmDeleteId(null);
+          }}
         >
           <div
             role="dialog"
@@ -942,15 +1174,26 @@ export function JobsDashboard({
             <div className="mb-4 flex size-11 items-center justify-center rounded-full bg-red-50">
               <AlertTriangle className="size-5 text-red-500" strokeWidth={2} />
             </div>
-            <h2 id="delete-job-title" className="font-heading text-base font-bold text-[#111]">Delete job?</h2>
+            <h2 id="delete-job-title" className="font-heading text-base font-bold text-[#111]">
+              Delete job?
+            </h2>
             <p className="mt-2 text-sm text-gray-500">
-              This permanently deletes the job. Any candidate applications for it are kept in Applications, with the job title preserved. This action cannot be undone.
+              This permanently deletes the job. Any candidate applications for it are kept in
+              Applications, with the job title preserved. This action cannot be undone.
             </p>
             <div className="mt-6 flex items-center justify-end gap-3">
-              <button type="button" onClick={() => setConfirmDeleteId(null)} className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50">
+              <button
+                type="button"
+                onClick={() => setConfirmDeleteId(null)}
+                className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-medium text-gray-600 transition-colors hover:bg-gray-50"
+              >
                 Cancel
               </button>
-              <button type="button" onClick={handleConfirmDelete} className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700">
+              <button
+                type="button"
+                onClick={handleConfirmDelete}
+                className="rounded-xl bg-red-600 px-5 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-red-700"
+              >
                 Delete
               </button>
             </div>
