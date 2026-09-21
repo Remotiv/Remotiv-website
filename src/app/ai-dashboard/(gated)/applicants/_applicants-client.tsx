@@ -16,8 +16,8 @@ import {
   X,
   Zap,
 } from "lucide-react";
-import { useRouter, useSearchParams } from "next/navigation";
-import { useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import { usePathname, useRouter, useSearchParams } from "next/navigation";
+import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
@@ -39,6 +39,7 @@ import {
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
+import { BAND_LABEL, BAND_PILL, scoreBand as bandKey } from "@/app/ai-dashboard/lib/score-bands";
 import { InterviewPanel } from "./_interview-panel";
 import {
   adjustScore,
@@ -135,6 +136,26 @@ const TOP_N = 10;
  * the odd one out.
  */
 type SortMode = "best" | "newest";
+
+/**
+ * The applicant panel's tabs.
+ *
+ * Unlike SortMode these ARE in the URL, because the reason to send someone a
+ * link to this panel is usually a specific pane — "look at his Review" — and a
+ * link that always lands on Profile can't say that.
+ */
+const PANEL_TABS = [
+  { key: "profile", label: "Profile" },
+  { key: "review", label: "Review" },
+  { key: "comm", label: "Communication" },
+  { key: "interviews", label: "Interviews" },
+] as const;
+type PanelTab = (typeof PANEL_TABS)[number]["key"];
+
+/** Guards the URL: ?tab=nonsense falls back to Profile rather than a blank pane. */
+function isPanelTab(value: string | null): value is PanelTab {
+  return PANEL_TABS.some((t) => t.key === value);
+}
 
 /**
  * Best match: score descending, unscored last, newest first among unscored.
@@ -859,6 +880,13 @@ const ADJ_BTN =
 const ADJ_BTN_PRIMARY = `${ADJ_BTN} bg-remotiv-purple text-white hover:bg-[#6d38ec]`;
 const ADJ_BTN_QUIET = `${ADJ_BTN} border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`;
 
+/** Close, previous and next — the three square controls on the panel's dark hero. */
+const PANEL_ICON_BTN =
+  "flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.16] bg-white/[0.07] text-white/75 transition-colors hover:bg-white/[0.16] hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-white/[0.07] disabled:hover:text-white/75";
+
+const PANEL_TAB_BASE =
+  "rounded-[9px] px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors";
+
 /**
  * Human correction of an AI score.
  *
@@ -1040,6 +1068,10 @@ function ApplicantDrawer({
   onDismissFlag,
   dismissing,
   clock,
+  tab,
+  onTabChange,
+  position,
+  onStep,
 }: {
   row: CompanyApplicantRow;
   history: StageHistoryRow[];
@@ -1066,6 +1098,15 @@ function ApplicantDrawer({
   /** The id currently being dismissed, or null. */
   dismissing: string | null;
   clock: PageClock;
+  tab: PanelTab;
+  onTabChange: (tab: PanelTab) => void;
+  /**
+   * Where this applicant sits in the list as displayed, or null when the panel
+   * was deep-linked to someone the current filters exclude — prev/next then
+   * has no sequence to walk and hides itself.
+   */
+  position: { index: number; total: number } | null;
+  onStep: (delta: number) => void;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
@@ -1100,6 +1141,18 @@ function ApplicantDrawer({
    */
   const headerScore: ApplicantScore = scoreDetail ?? row.score;
 
+  /**
+   * Which side of a threshold the number fell — null when there is no number.
+   *
+   * Read from the shared score-bands module, not the local colour helper above:
+   * a band means the same thing on a CV as on an interview, and the label has
+   * to come from wherever the thresholds do or the two products drift.
+   */
+  const band =
+    headerScore.status === "scored" && headerScore.overall != null
+      ? bandKey(headerScore.overall)
+      : null;
+
   const location = [row.city, row.country].filter(Boolean).join(", ");
 
   /**
@@ -1132,207 +1185,212 @@ function ApplicantDrawer({
   );
 
   return (
-    <>
-      <button
-        type="button"
-        aria-label="Close applicant"
-        onClick={onClose}
-        className="fixed inset-0 z-[90] cursor-default bg-[rgba(20,16,32,0.42)] backdrop-blur-[4px]"
-      />
-      <div
-        ref={panelRef}
-        tabIndex={-1}
-        role="dialog"
-        aria-modal="true"
-        aria-label={`${name} — applicant detail`}
-        // var(--vh-full), not h-screen: vh resolves against the UNZOOMED
-        // viewport inside .ai-shell and would render 18% short.
-        className="fixed right-0 top-0 z-[95] flex h-[var(--vh-full)] w-full max-w-[452px] flex-col bg-[var(--ai-surface)] shadow-[-24px_0_70px_rgba(20,16,32,0.24)] outline-none"
-      >
-        {/* Dark hero — every <p> here carries an explicit colour, because the
-            design system's global `p { color:#444 }` beats inherited white. */}
-        <div className="shrink-0 bg-[var(--ai-sidebar)] px-[22px] pb-5 pt-[22px]">
-          <div className="mb-[18px] flex items-start justify-between gap-3">
-            <div className="flex min-w-0 items-center gap-[13px]">
-              <span
-                className="flex size-[50px] shrink-0 items-center justify-center rounded-full text-base font-bold"
-                style={{ background: tint.bg, color: tint.fg }}
-              >
-                {initials(row.first_name, row.last_name, row.email)}
-              </span>
-              <div className="min-w-0">
-                <p className="m-0 truncate font-heading text-[19px] font-extrabold leading-[1.15] tracking-[-0.028em] text-white">
-                  {name}
-                </p>
-                <p className="mt-1 truncate text-[12.5px] text-white/55">{row.email}</p>
-              </div>
-            </div>
-            <button
-              type="button"
-              onClick={onClose}
-              aria-label="Close"
-              className="flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.16] bg-white/[0.07] text-white/75 transition-colors hover:bg-white/[0.16] hover:text-white"
+    // var(--vh-full), not h-screen: vh resolves against the UNZOOMED
+    // viewport inside .ai-shell and would render 18% short. The width is a
+    // min() so the panel is a panel on a laptop and the whole screen on a
+    // phone, where 1100px of anything is not available.
+    <div
+      ref={panelRef}
+      tabIndex={-1}
+      role="dialog"
+      aria-modal="true"
+      aria-label={`${name} — applicant detail`}
+      className="fixed right-0 top-0 z-[95] flex h-[var(--vh-full)] w-full max-w-[min(96%,1100px)] flex-col bg-[var(--ai-surface)] shadow-[-24px_0_70px_rgba(20,16,32,0.24)] outline-none"
+    >
+      {/* Dark hero — every <p> here carries an explicit colour, because the
+          design system's global `p { color:#444 }` beats inherited white. */}
+      <div className="shrink-0 bg-[var(--ai-sidebar)] px-[22px] pb-5 pt-[22px]">
+        <div className="mb-[18px] flex items-start justify-between gap-3">
+          <div className="flex min-w-0 items-center gap-[13px]">
+            <span
+              className="flex size-[50px] shrink-0 items-center justify-center rounded-full text-base font-bold"
+              style={{ background: tint.bg, color: tint.fg }}
             >
+              {initials(row.first_name, row.last_name, row.email)}
+            </span>
+            <div className="min-w-0">
+              <p className="m-0 truncate font-heading text-[19px] font-extrabold leading-[1.15] tracking-[-0.028em] text-white">
+                {name}
+              </p>
+              <p className="mt-1 truncate text-[12.5px] text-white/55">{row.email}</p>
+            </div>
+          </div>
+          <div className="flex shrink-0 items-center gap-2">
+            {/* Stepping through a shortlist without closing is most of why a
+                wide panel beats a modal. Hidden, not disabled, when the panel
+                was deep-linked to someone outside the current filters: there
+                is no sequence to step through, and a dead arrow says less than
+                no arrow. */}
+            {position && (
+              <div className="flex items-center gap-1">
+                <button
+                  type="button"
+                  onClick={() => onStep(-1)}
+                  disabled={position.index === 0}
+                  aria-label="Previous applicant"
+                  className={PANEL_ICON_BTN}
+                >
+                  <ChevronLeft className="size-4" strokeWidth={2} />
+                </button>
+                <span className="px-1 text-[11.5px] tabular-nums text-white/55">
+                  {position.index + 1} of {position.total}
+                </span>
+                <button
+                  type="button"
+                  onClick={() => onStep(1)}
+                  disabled={position.index >= position.total - 1}
+                  aria-label="Next applicant"
+                  className={PANEL_ICON_BTN}
+                >
+                  <ChevronRight className="size-4" strokeWidth={2} />
+                </button>
+              </div>
+            )}
+            <button type="button" onClick={onClose} aria-label="Close" className={PANEL_ICON_BTN}>
               <X className="size-4" strokeWidth={2} />
             </button>
           </div>
-
-          {/* Score headline. Every <p> on this dark surface sets its own
-              colour — the DS's global `p { color:#444 }` beats inheritance.
-              Reads `headerScore`, NOT row.score: the list row was fetched when
-              the page loaded and goes stale the moment the worker scores
-              someone, which is the normal case. */}
-          {headerScore.status === "scored" && headerScore.overall != null ? (
-            <div className="flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
-              <DrawerScoreRing score={headerScore.overall} />
-              <div className="min-w-0">
-                <p className="m-0 text-[13px] font-bold text-white">
-                  {headerScore.adjusted ? "Adjusted score" : "AI score"}
-                  {/* NOT "completed": screening_score is the weighted share of
-                      thresholds MET (computeScreeningScore counts a.matched),
-                      so someone who answered everything but met nothing scores
-                      0%, not 100%. Labelled for what it measures, and tagged
-                      self-reported like the answers themselves. */}
-                  {scoreDetail?.screening_score != null && (
-                    <span className="ml-2 font-normal text-white/55">
-                      Self-reported thresholds met: {scoreDetail.screening_score}%
-                    </span>
-                  )}
-                </p>
-                {/* The verdict is the headline a recruiter reads first, so it
-                    sits directly under the score and above the confidence
-                    note. v1-v3 scorecards predate it and simply have none —
-                    the line is omitted rather than filled with a guess. */}
-                {scoreDetail?.verdict ? (
-                  <p className="m-0 mt-1.5 text-[13.5px] font-semibold leading-snug text-white">
-                    {scoreDetail.verdict}
-                  </p>
-                ) : null}
-                {/* When a human has overridden, the AI's own number stays on
-                    screen right beside theirs. Hiding it would leave nothing
-                    to calibrate against — the pair, and the gap between them,
-                    is the entire signal this feature exists to collect. */}
-                {headerScore.adjusted && headerScore.ai_overall != null ? (
-                  <p className="m-0 mt-1.5 text-xs leading-relaxed text-white/55">
-                    <span className="font-semibold text-white/80">
-                      AI scored {headerScore.ai_overall}
-                    </span>
-                    {adjustmentByline(scoreDetail, clock.local)}
-                  </p>
-                ) : (
-                  <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
-                    {headerScore.confidence
-                      ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
-                      : "Scored against this job's stated requirements."}
-                  </p>
-                )}
-              </div>
-            </div>
-          ) : (
-            /* Solid border for scoring-off, dashed for the rest — same
-               reasoning as PendingScore: dashed reads as "in progress", and
-               nothing is in progress on a job with scoring turned off. */
-            <div
-              className={`rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
-                isScoringOff(headerScore) ? "border-white/[0.14]" : "border-dashed border-white/20"
-              }`}
-            >
-              <b className="mb-[3px] block text-[13px] text-white">
-                {drawerScoreHeading(headerScore)}
-              </b>
-              <span className="text-xs leading-relaxed text-white/50">
-                {headerScore.error ?? "The breakdown appears here once this CV has been scored."}
-              </span>
-            </div>
-          )}
         </div>
 
-        {/* Light body */}
-        <div className="min-h-0 flex-1 overflow-y-auto px-[22px] pb-7 pt-[18px]">
-          {/* The banner sits ABOVE "Applied to…" — it is the reason this drawer
-              was opened, so it cannot be below the metadata. */}
-          {showsWorthALook(row) && (
-            <div className="mb-3.5 rounded-[13px] border border-remotiv-purple/25 border-l-[3px] border-l-remotiv-purple bg-remotiv-purple/[0.05] px-3.5 py-3">
-              <p className="m-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-remotiv-purple">
-                Worth a look
+        {headerScore.status === "scored" && headerScore.overall != null ? (
+          <div className="flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
+            <DrawerScoreRing score={headerScore.overall} />
+            <div className="min-w-0">
+              <p className="m-0 text-[13px] font-bold text-white">
+                {headerScore.adjusted ? "Adjusted score" : "AI score"}
+                {/* Deliberately quiet, and deliberately below the verdict: the
+                    model's sentence is the considered answer, this is only
+                    which side of a threshold the number fell. The two can
+                    disagree — an 81 reads "Strong" here while the verdict may
+                    be cautious — and when they do, the sentence wins. */}
+                {band && (
+                  <span
+                    className={`ml-2 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${BAND_PILL[band]}`}
+                  >
+                    {BAND_LABEL[band]}
+                  </span>
+                )}
+                {/* NOT "completed": screening_score is the weighted share of
+                    thresholds MET (computeScreeningScore counts a.matched),
+                    so someone who answered everything but met nothing scores
+                    0%, not 100%. Labelled for what it measures, and tagged
+                    self-reported like the answers themselves. */}
+                {scoreDetail?.screening_score != null && (
+                  <span className="ml-2 font-normal text-white/55">
+                    Self-reported thresholds met: {scoreDetail.screening_score}%
+                  </span>
+                )}
               </p>
-              <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
-                {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
-              </p>
-              <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
-                <button
-                  type="button"
-                  disabled={dismissing === row.id}
-                  onClick={() => onDismissFlag(row.id)}
-                  className="rounded-[9px] border border-remotiv-purple/40 bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/[0.08] disabled:opacity-40"
-                >
-                  {dismissing === row.id ? "Dismissing…" : "Dismiss"}
-                </button>
-                {/* Says what dismissal MEANS. Without this a recruiter has to
-                    guess whether they are silencing this person permanently. */}
-                <span className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-                  Clears the flag. A materially better score later flags them again.
-                </span>
-              </div>
+              {/* The verdict is the headline a recruiter reads first, so it
+                  sits directly under the score and above the confidence
+                  note. v1-v3 scorecards predate it and simply have none —
+                  the line is omitted rather than filled with a guess. */}
+              {scoreDetail?.verdict ? (
+                <p className="m-0 mt-1.5 text-[13.5px] font-semibold leading-snug text-white">
+                  {scoreDetail.verdict}
+                </p>
+              ) : null}
+              {/* When a human has overridden, the AI's own number stays on
+                  screen right beside theirs. Hiding it would leave nothing
+                  to calibrate against — the pair, and the gap between them,
+                  is the entire signal this feature exists to collect. */}
+              {headerScore.adjusted && headerScore.ai_overall != null ? (
+                <p className="m-0 mt-1.5 text-xs leading-relaxed text-white/55">
+                  <span className="font-semibold text-white/80">
+                    AI scored {headerScore.ai_overall}
+                  </span>
+                  {adjustmentByline(scoreDetail, clock.local)}
+                </p>
+              ) : (
+                <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
+                  {headerScore.confidence
+                    ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
+                    : "Scored against this job's stated requirements."}
+                </p>
+              )}
             </div>
-          )}
-          <p className="mb-3.5 text-[13px] leading-relaxed text-[var(--ai-t3)]">
-            Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
-            {applied.main}
-          </p>
+          </div>
+        ) : (
+          /* Solid border for scoring-off, dashed for the rest — same
+             reasoning as PendingScore: dashed reads as "in progress", and
+             nothing is in progress on a job with scoring turned off. */
+          <div
+            className={`rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
+              isScoringOff(headerScore) ? "border-white/[0.14]" : "border-dashed border-white/20"
+            }`}
+          >
+            <b className="mb-[3px] block text-[13px] text-white">
+              {drawerScoreHeading(headerScore)}
+            </b>
+            <span className="text-xs leading-relaxed text-white/50">
+              {headerScore.error ?? "The breakdown appears here once this CV has been scored."}
+            </span>
+          </div>
+        )}
+      </div>
 
-          <div className="mb-[22px] flex gap-[9px]">
-            {/* A real anchor, not window.open from an async handler — Safari
-                blocks the latter. The route signs and 302-redirects. */}
-            <a
-              href={`/api/cv/company-application/${row.id}`}
-              target="_blank"
-              rel="noopener noreferrer"
-              aria-disabled={!row.has_cv}
-              onClick={(e) => {
-                if (!row.has_cv) e.preventDefault();
-              }}
-              className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
-                row.has_cv
-                  ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
-                  : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
-              }`}
-            >
-              <File className="size-[15px]" strokeWidth={1.9} />
-              {cvLabel(row)}
-            </a>
-            {/* Opens the composer rather than handing off to the OS mail
-                client. A mailto: sends from the recruiter's own address, which
-                is the one thing the identity block exists to prevent — and it
-                leaves no record on the applicant. */}
+      {/* The flag banner sits above the tab strip, not inside a pane: it is
+          the reason the panel was opened, and a reader who lands on Profile
+          would never see it from behind a tab. */}
+      {/* The banner sits ABOVE "Applied to…" — it is the reason this drawer
+          was opened, so it cannot be below the metadata. */}
+      {showsWorthALook(row) && (
+        <div className="mb-3.5 rounded-[13px] border border-remotiv-purple/25 border-l-[3px] border-l-remotiv-purple bg-remotiv-purple/[0.05] px-3.5 py-3">
+          <p className="m-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-remotiv-purple">
+            Worth a look
+          </p>
+          <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+            {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
+          </p>
+          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <button
               type="button"
-              onClick={onEmail}
-              className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
+              disabled={dismissing === row.id}
+              onClick={() => onDismissFlag(row.id)}
+              className="rounded-[9px] border border-remotiv-purple/40 bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/[0.08] disabled:opacity-40"
             >
-              <Mail className="size-[15px]" strokeWidth={1.9} />
-              Email
+              {dismissing === row.id ? "Dismissing…" : "Dismiss"}
             </button>
+            {/* Says what dismissal MEANS. Without this a recruiter has to
+                guess whether they are silencing this person permanently. */}
+            <span className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
+              Clears the flag. A materially better score later flags them again.
+            </span>
           </div>
+        </div>
+      )}
 
-          {/* Says WHY the button is dead, rather than leaving a greyed control
-              to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
-          {row.cv_expired && (
-            <p className="mb-[22px] -mt-[14px] text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
-              CVs are deleted 24 months after the application. Everything else on this applicant is
-              unaffected.
-            </p>
-          )}
+      {/* Control strip. The stage select used to sit mid-scroll, where the
+          one edit a recruiter makes most often scrolled away from them. */}
+      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] py-3">
+        <div className="flex items-center gap-1 rounded-[11px] bg-[var(--ai-inset)] p-1">
+          {PANEL_TABS.map((t) => (
+            <button
+              key={t.key}
+              type="button"
+              onClick={() => onTabChange(t.key)}
+              aria-current={tab === t.key ? "page" : undefined}
+              className={`${PANEL_TAB_BASE} ${
+                tab === t.key
+                  ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
+                  : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
+              }`}
+            >
+              {t.label}
+            </button>
+          ))}
+        </div>
 
-          <DrawerLabel>Pipeline stage</DrawerLabel>
-          {/* `value` is driven by the optimistic row, so the select shows the
-              new stage immediately and snaps back if the write is rejected. */}
+        <div className="flex items-center gap-2.5">
+          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[var(--ai-t3)]">
+            Stage
+          </span>
           <select
             value={stage}
             disabled={saving}
             onChange={(e) => onStageChange(e.target.value as PipelineStage)}
             aria-label="Pipeline stage"
-            className="mb-[22px] w-full cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-3 pl-3.5 pr-[34px] text-sm font-bold text-[var(--ai-t1)] transition-colors hover:border-remotiv-purple focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
+            className="w-[196px] shrink-0 cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-3 pl-3.5 pr-[34px] text-sm font-bold text-[var(--ai-t1)] transition-colors hover:border-remotiv-purple focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
           >
             {PIPELINE_STAGES.map((s) => (
               <option key={s} value={s}>
@@ -1340,413 +1398,512 @@ function ApplicantDrawer({
               </option>
             ))}
           </select>
+        </div>
+      </div>
 
-          {row.screening_answers.length > 0 && (
-            <>
-              <DrawerLabel>Screening answers</DrawerLabel>
-              {/* Provenance stated ONCE here rather than repeated on every
-                  pill. The pills then stay short enough to sit inline beside
-                  the answer, and this line can say the thing a pill never
-                  could — that nobody verified any of it. */}
-              <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
-                Answered by the candidate at apply time and checked against the thresholds you set.
-                Self-reported — not verified by Remotiv.
+      {/* Light body. The panes UNMOUNT rather than hide: InterviewPanel fires
+          three fetches on mount, and a display:none pane would still pay for
+          all three on every open. */}
+      <div className="min-h-0 flex-1 overflow-y-auto px-[22px] pb-7 pt-[18px]">
+        {tab === "profile" && (
+          <div className="grid gap-x-9 min-[840px]:grid-cols-2 min-[840px]:items-start">
+            <div>
+              <p className="mb-3.5 text-[13px] leading-relaxed text-[var(--ai-t3)]">
+                Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
+                {applied.main}
               </p>
-              <div className="mb-[22px] flex flex-col gap-[9px]">
-                {row.screening_answers.map((a) => (
-                  <div
-                    key={a.question_id}
-                    className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
-                  >
-                    <p className="mb-1.5 text-xs leading-snug text-[var(--ai-t3)]">{a.question}</p>
-                    <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
-                      {a.answer_label || a.answer || "—"}
-                      {/* The snapshot's own `matched` flag, scored at apply
-                          time — never re-derived here.
 
-                          Deliberately NOT green. A mint success pill reads as
-                          "Remotiv verified this", and nobody did: it is the
-                          candidate's own number compared to the employer's
-                          threshold. Neutral slate for met, muted amber for
-                          below — distinguishable, but neither endorses.
-
-                          NO pill at all when `scored` is false: the employer
-                          asked for the number without setting a threshold, so
-                          there was nothing to pass or fail. `matched` is false
-                          on those rows and would render "Below threshold",
-                          which is not a weaker claim than the truth — it is a
-                          different and wrong one. Absent on every snapshot
-                          written before the mode existed, so `!== false` keeps
-                          those rendering exactly as they always did. */}
-                      {a.scored !== false && (
-                        <span
-                          className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
-                            a.matched
-                              ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
-                              : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
-                          }`}
-                        >
-                          {a.matched ? "Meets threshold" : "Below threshold"}
-                        </span>
-                      )}
-                    </p>
-                  </div>
-                ))}
+              <div className="mb-[22px] flex gap-[9px]">
+                {/* A real anchor, not window.open from an async handler — Safari
+                    blocks the latter. The route signs and 302-redirects. */}
+                <a
+                  href={`/api/cv/company-application/${row.id}`}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  aria-disabled={!row.has_cv}
+                  onClick={(e) => {
+                    if (!row.has_cv) e.preventDefault();
+                  }}
+                  className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
+                    row.has_cv
+                      ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
+                      : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
+                  }`}
+                >
+                  <File className="size-[15px]" strokeWidth={1.9} />
+                  {cvLabel(row)}
+                </a>
+                {/* Opens the composer rather than handing off to the OS mail
+                    client. A mailto: sends from the recruiter's own address, which
+                    is the one thing the identity block exists to prevent — and it
+                    leaves no record on the applicant. */}
+                <button
+                  type="button"
+                  onClick={onEmail}
+                  className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
+                >
+                  <Mail className="size-[15px]" strokeWidth={1.9} />
+                  Email
+                </button>
               </div>
-            </>
-          )}
 
-          {scoreDetail && scoreDetail.status === "scored" && (
-            <>
-              {scoreDetail.summary && (
+              {/* Says WHY the button is dead, rather than leaving a greyed control
+                  to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
+              {row.cv_expired && (
+                <p className="mb-[22px] -mt-[14px] text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+                  CVs are deleted 24 months after the application. Everything else on this applicant
+                  is unaffected.
+                </p>
+              )}
+
+              {row.screening_answers.length > 0 && (
                 <>
-                  <DrawerLabel>Summary</DrawerLabel>
-                  <p className="mb-[22px] text-[13px] leading-relaxed text-[var(--ai-t2)]">
-                    {scoreDetail.summary}
+                  <DrawerLabel>Screening answers</DrawerLabel>
+                  {/* Provenance stated ONCE here rather than repeated on every
+                      pill. The pills then stay short enough to sit inline beside
+                      the answer, and this line can say the thing a pill never
+                      could — that nobody verified any of it. */}
+                  <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
+                    Answered by the candidate at apply time and checked against the thresholds you
+                    set. Self-reported — not verified by Remotiv.
                   </p>
-                </>
-              )}
-
-              {scoreDetail.dimensions.length > 0 && (
-                <>
-                  <DrawerLabel>Score breakdown</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col gap-3">
-                    {scoreDetail.dimensions.map((d) => {
-                      const label = DIMENSION_LABEL[d.dimension] ?? d.dimension;
-
-                      /*
-                       * A dimension the job stated nothing for shows NO number
-                       * and NO bar.
-                       *
-                       * The model was still made to score it — all four are
-                       * mandatory so scores stay comparable between jobs — but
-                       * it judged the CV against an empty section, so the
-                       * number is an invention. It is excluded from the overall
-                       * (see applyCvWeights), and rendering it here would put a
-                       * figure on screen that the headline score deliberately
-                       * ignores. The reason is stated inline rather than in a
-                       * tooltip: three bars where every other job shows four
-                       * reads as a bug unless the fourth line says why.
-                       */
-                      if (d.unstated) {
-                        return (
-                          <div key={d.dimension}>
-                            <div className="flex items-baseline justify-between gap-3">
-                              <span className="text-[13px] font-bold text-[var(--ai-t3)]">
-                                {label}
-                              </span>
-                              <span className="text-[12px] font-semibold text-[var(--ai-t3)]">
-                                Not scored
-                              </span>
-                            </div>
-                            <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
-                              This job lists no requirements, so there was nothing to judge the CV
-                              against. It is left out of the overall score rather than guessed at.
-                            </p>
-                          </div>
-                        );
-                      }
-
-                      const band = scoreBand(d.score);
-                      return (
-                        <div key={d.dimension}>
-                          <div className="flex items-baseline justify-between gap-3">
-                            <span className="text-[13px] font-bold text-[var(--ai-t1)]">
-                              {label}
+                  <div className="mb-[22px] flex flex-col gap-[9px]">
+                    {row.screening_answers.map((a) => (
+                      <div
+                        key={a.question_id}
+                        className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
+                      >
+                        <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs leading-snug text-[var(--ai-t3)]">
+                          {a.question}
+                          {/* Sits on the question, not the answer: "required" is
+                              a property of what the employer asked, and an
+                              unmatched essential is what turns a below-threshold
+                              answer into a listed missing requirement. */}
+                          {a.essential && (
+                            <span className="shrink-0 rounded-full bg-[var(--ai-purple-tint)] px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
+                              Essential
                             </span>
-                            <span
-                              className="font-heading text-[13px] font-extrabold tabular-nums"
-                              style={{ color: band.ink }}
-                            >
-                              {d.score}
-                            </span>
-                          </div>
-                          <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
-                            <div
-                              className="h-full rounded-[3px]"
-                              style={{
-                                width: `${d.score}%`,
-                                background: band.stroke,
-                              }}
-                            />
-                          </div>
-                          {d.reasoning && (
-                            <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
-                              {d.reasoning}
-                            </p>
                           )}
-                          {d.quote && <EvidenceQuote quote={d.quote} />}
-                        </div>
-                      );
-                    })}
-                  </div>
-                </>
-              )}
-
-              {scoreDetail.strengths.length > 0 && (
-                <>
-                  <DrawerLabel>Strengths</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col gap-2.5">
-                    {/* Each strength carries its own quote — no pairing by
-                        position, which is what misattributed quotes in v1. */}
-                    {scoreDetail.strengths.map((str) => (
-                      <div key={str.point}>
-                        <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
-                          <Check
-                            className="mt-px size-3.5 shrink-0 text-remotiv-green"
-                            strokeWidth={2.6}
-                          />
-                          {str.point}
                         </p>
-                        {str.quote && <EvidenceQuote quote={str.quote} />}
+                        <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
+                          {a.answer_label || a.answer || "—"}
+                          {/* The snapshot's own `matched` flag, scored at apply
+                              time — never re-derived here.
+
+                              Deliberately NOT green. A mint success pill reads as
+                              "Remotiv verified this", and nobody did: it is the
+                              candidate's own number compared to the employer's
+                              threshold. Neutral slate for met, muted amber for
+                              below — distinguishable, but neither endorses.
+
+                              NO pill at all when `scored` is false: the employer
+                              asked for the number without setting a threshold, so
+                              there was nothing to pass or fail. `matched` is false
+                              on those rows and would render "Below threshold",
+                              which is not a weaker claim than the truth — it is a
+                              different and wrong one. Absent on every snapshot
+                              written before the mode existed, so `!== false` keeps
+                              those rendering exactly as they always did. */}
+                          {a.scored !== false && (
+                            <span
+                              className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
+                                a.matched
+                                  ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
+                                  : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+                              }`}
+                            >
+                              {a.matched ? "Meets threshold" : "Below threshold"}
+                            </span>
+                          )}
+                        </p>
                       </div>
                     ))}
                   </div>
                 </>
               )}
+            </div>
 
-              {/* Sits ABOVE missing requirements: it is the employer's own
-                  checklist, and reading "here is what you asked about" before
-                  "here is what the CV did not cover" is the order a recruiter
-                  thinks in. Renders nothing at all when the list is empty. */}
-              {scoreDetail.must_haves.length > 0 && (
+            <div>
+              {/* Each row is conditional, so `last:border-b-0` lands on whichever
+                  row actually renders last — a `{cond && …}` that resolves false
+                  produces no DOM node, so :last-child stays correct. */}
+              {hasDetails && (
                 <>
-                  <DrawerLabel>Your must-haves</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col gap-2.5">
-                    {scoreDetail.must_haves.map((mh) => (
-                      <CriterionRow
-                        key={mh.item}
-                        item={mh.item}
-                        status={mh.status}
-                        quote={mh.quote}
-                        absentLabel="Not found in this CV"
+                  <DrawerLabel>Details</DrawerLabel>
+                  <div className="mb-[22px] flex flex-col">
+                    {location && <DetailRow label="Location" value={location} />}
+                    {experienceText && <DetailRow label="Experience" value={experienceText} />}
+                    {row.notice_period && (
+                      <DetailRow label="Notice period" value={row.notice_period} />
+                    )}
+                    {row.availability && (
+                      <DetailRow label="Availability" value={row.availability} />
+                    )}
+                    {row.phone && <DetailRow label="Phone" value={row.phone} />}
+                    {row.linkedin_url && (
+                      <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
+                        <span className="text-[var(--ai-t3)]">LinkedIn</span>
+                        <a
+                          href={row.linkedin_url}
+                          target="_blank"
+                          rel="noopener noreferrer"
+                          className="inline-flex items-center gap-1 font-bold text-remotiv-purple hover:underline"
+                        >
+                          Profile
+                          <ExternalLink className="size-3" strokeWidth={2} />
+                        </a>
+                      </div>
+                    )}
+                  </div>
+                </>
+              )}
+
+              <DrawerLabel>Stage history</DrawerLabel>
+              <div className="flex flex-col gap-[14px]">
+                {history.map((h) => {
+                  const when = fmtApplied(h.created_at, clock);
+                  // The seeded first entry has no from_stage — it reads as plain
+                  // "Applied" rather than an arrow from nowhere.
+                  const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
+                  return (
+                    <div key={h.id} className="relative flex items-start gap-3">
+                      <span
+                        className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
                       />
-                    ))}
-                  </div>
-                </>
-              )}
+                      <div className="min-w-0">
+                        <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                          {h.from_stage
+                            ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
+                            : PIPELINE_STAGE_LABELS[h.to_stage]}
+                        </p>
+                        {h.note && (
+                          <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
+                            {h.note}
+                          </p>
+                        )}
+                        <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
+                          {meta || when.sub}
+                        </small>
+                      </div>
+                    </div>
+                  );
+                })}
 
-              {scoreDetail.missing_requirements.length > 0 && (
-                <>
-                  <DrawerLabel>Missing requirements</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col gap-2">
-                    {scoreDetail.missing_requirements.map((m) => (
-                      <p
-                        key={m}
-                        className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]"
-                      >
-                        <span
-                          aria-hidden
-                          className="mt-[7px] h-px w-2.5 shrink-0 bg-[var(--ai-t4)]"
-                        />
-                        {m}
+                {/* Falls back to the application itself: rows created before the
+                    history table existed have nothing seeded. */}
+                {historyFailed && (
+                  <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
+                    Couldn't load this applicant's activity just now — it hasn't been lost. Close
+                    the panel and reopen it to try again.
+                  </p>
+                )}
+                {!historyLoading && !historyFailed && history.length === 0 && (
+                  <div className="relative flex items-start gap-3">
+                    <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
+                    <div>
+                      <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                        Applied
                       </p>
-                    ))}
+                      <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
+                        {applied.main} · {applied.sub}
+                      </small>
+                    </div>
                   </div>
-                </>
-              )}
+                )}
 
-              {scoreDetail.concerns.length > 0 && (
-                <>
-                  <DrawerLabel>Risks / points to verify</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col gap-2">
-                    {scoreDetail.concerns.map((c) => (
-                      <p key={c} className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]">
-                        {c}
-                      </p>
-                    ))}
-                  </div>
-                </>
-              )}
-            </>
-          )}
+                {historyLoading && history.length === 0 && (
+                  <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+                )}
+              </div>
 
-          {/* Staleness + re-score, ABOVE the adjuster: if the card was judged
-              against criteria that have since changed, that has to be known
-              before anyone reads the breakdown or corrects the number. The
-              action sits in the banner rather than in a menu because the flag
-              and its remedy are the same thought. */}
-          {scoreDetail?.stale && (
-            <div className="mt-[22px] rounded-[13px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-4 py-3.5">
-              <p className="m-0 text-[13px] font-semibold text-[var(--ai-amber-ink)]">
-                Scored against older criteria
-              </p>
-              <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
-                This job&apos;s requirements or screening questions have changed since this CV was
-                scored, so the numbers below were judged against a different brief.
-              </p>
-              {canRescore && (
+              {/* Danger, last and visually separated — same placement and weight
+                  as the jobs drawer's. Opens a confirm rather than deleting on
+                  click; this is irreversible and takes the CV with it. */}
+              <div className="mt-7 border-t border-[var(--ai-line)] pt-5">
+                <DrawerLabel>Danger</DrawerLabel>
+                <button
+                  type="button"
+                  onClick={onDelete}
+                  className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ai-danger-tint)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-danger)] transition-opacity hover:opacity-80"
+                >
+                  <Trash className="size-3.5" strokeWidth={2} />
+                  Delete applicant
+                </button>
+                <p className="m-0 mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
+                  Permanently removes this applicant, their CV file, their AI scorecard and their
+                  pipeline history. This cannot be undone.
+                </p>
+              </div>
+            </div>
+          </div>
+        )}
+
+        {tab === "review" && (
+          <>
+            <div className="grid gap-x-9 min-[840px]:grid-cols-2 min-[840px]:items-start">
+              <div>
+                {scoreDetail && scoreDetail.status === "scored" && (
+                  <>
+                    {scoreDetail.summary && (
+                      <>
+                        <DrawerLabel>Summary</DrawerLabel>
+                        <p className="mb-[22px] text-[13px] leading-relaxed text-[var(--ai-t2)]">
+                          {scoreDetail.summary}
+                        </p>
+                      </>
+                    )}
+
+                    {scoreDetail.dimensions.length > 0 && (
+                      <>
+                        <DrawerLabel>Score breakdown</DrawerLabel>
+                        <div className="mb-[22px] flex flex-col gap-3">
+                          {scoreDetail.dimensions.map((d) => {
+                            const label = DIMENSION_LABEL[d.dimension] ?? d.dimension;
+
+                            /*
+                             * A dimension the job stated nothing for shows NO number
+                             * and NO bar.
+                             *
+                             * The model was still made to score it — all four are
+                             * mandatory so scores stay comparable between jobs — but
+                             * it judged the CV against an empty section, so the
+                             * number is an invention. It is excluded from the overall
+                             * (see applyCvWeights), and rendering it here would put a
+                             * figure on screen that the headline score deliberately
+                             * ignores. The reason is stated inline rather than in a
+                             * tooltip: three bars where every other job shows four
+                             * reads as a bug unless the fourth line says why.
+                             */
+                            if (d.unstated) {
+                              return (
+                                <div key={d.dimension}>
+                                  <div className="flex items-baseline justify-between gap-3">
+                                    <span className="text-[13px] font-bold text-[var(--ai-t3)]">
+                                      {label}
+                                    </span>
+                                    <span className="text-[12px] font-semibold text-[var(--ai-t3)]">
+                                      Not scored
+                                    </span>
+                                  </div>
+                                  <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
+                                    This job lists no requirements, so there was nothing to judge
+                                    the CV against. It is left out of the overall score rather than
+                                    guessed at.
+                                  </p>
+                                </div>
+                              );
+                            }
+
+                            const band = scoreBand(d.score);
+                            return (
+                              <div key={d.dimension}>
+                                <div className="flex items-baseline justify-between gap-3">
+                                  <span className="text-[13px] font-bold text-[var(--ai-t1)]">
+                                    {label}
+                                  </span>
+                                  <span
+                                    className="font-heading text-[13px] font-extrabold tabular-nums"
+                                    style={{ color: band.ink }}
+                                  >
+                                    {d.score}
+                                  </span>
+                                </div>
+                                <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
+                                  <div
+                                    className="h-full rounded-[3px]"
+                                    style={{
+                                      width: `${d.score}%`,
+                                      background: band.stroke,
+                                    }}
+                                  />
+                                </div>
+                                {d.reasoning && (
+                                  <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
+                                    {d.reasoning}
+                                  </p>
+                                )}
+                                {d.quote && <EvidenceQuote quote={d.quote} />}
+                              </div>
+                            );
+                          })}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+
+              <div>
+                {scoreDetail && scoreDetail.status === "scored" && (
+                  <>
+                    {scoreDetail.strengths.length > 0 && (
+                      <>
+                        <DrawerLabel>Strengths</DrawerLabel>
+                        <div className="mb-[22px] flex flex-col gap-2.5">
+                          {/* Each strength carries its own quote — no pairing by
+                              position, which is what misattributed quotes in v1. */}
+                          {scoreDetail.strengths.map((str) => (
+                            <div key={str.point}>
+                              <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
+                                <Check
+                                  className="mt-px size-3.5 shrink-0 text-remotiv-green"
+                                  strokeWidth={2.6}
+                                />
+                                {str.point}
+                              </p>
+                              {str.quote && <EvidenceQuote quote={str.quote} />}
+                            </div>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {/* Sits ABOVE missing requirements: it is the employer's own
+                        checklist, and reading "here is what you asked about" before
+                        "here is what the CV did not cover" is the order a recruiter
+                        thinks in. Renders nothing at all when the list is empty. */}
+                    {scoreDetail.must_haves.length > 0 && (
+                      <>
+                        <DrawerLabel>Your must-haves</DrawerLabel>
+                        <div className="mb-[22px] flex flex-col gap-2.5">
+                          {scoreDetail.must_haves.map((mh) => (
+                            <CriterionRow
+                              key={mh.item}
+                              item={mh.item}
+                              status={mh.status}
+                              quote={mh.quote}
+                              absentLabel="Not found in this CV"
+                            />
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {scoreDetail.missing_requirements.length > 0 && (
+                      <>
+                        <DrawerLabel>Missing requirements</DrawerLabel>
+                        <div className="mb-[22px] flex flex-col gap-2">
+                          {scoreDetail.missing_requirements.map((m) => (
+                            <p
+                              key={m}
+                              className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]"
+                            >
+                              <span
+                                aria-hidden
+                                className="mt-[7px] h-px w-2.5 shrink-0 bg-[var(--ai-t4)]"
+                              />
+                              {m}
+                            </p>
+                          ))}
+                        </div>
+                      </>
+                    )}
+
+                    {scoreDetail.concerns.length > 0 && (
+                      <>
+                        <DrawerLabel>Risks / points to verify</DrawerLabel>
+                        <div className="mb-[22px] flex flex-col gap-2">
+                          {scoreDetail.concerns.map((c) => (
+                            <p key={c} className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]">
+                              {c}
+                            </p>
+                          ))}
+                        </div>
+                      </>
+                    )}
+                  </>
+                )}
+              </div>
+            </div>
+
+            {/* Staleness + re-score, ABOVE the adjuster: if the card was judged
+                against criteria that have since changed, that has to be known
+                before anyone reads the breakdown or corrects the number. The
+                action sits in the banner rather than in a menu because the flag
+                and its remedy are the same thought. */}
+            {scoreDetail?.stale && (
+              <div className="mt-[22px] rounded-[13px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-4 py-3.5">
+                <p className="m-0 text-[13px] font-semibold text-[var(--ai-amber-ink)]">
+                  Scored against older criteria
+                </p>
+                <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-amber-ink)]">
+                  This job&apos;s requirements or screening questions have changed since this CV was
+                  scored, so the numbers below were judged against a different brief.
+                </p>
+                {canRescore && (
+                  <button
+                    type="button"
+                    onClick={onRescore}
+                    disabled={rescoring}
+                    className={`${ADJ_BTN_PRIMARY} mt-3`}
+                  >
+                    {rescoring ? "Queueing…" : "Re-score this applicant"}
+                  </button>
+                )}
+              </div>
+            )}
+
+            {/* Re-score is also available when the card is current — a recruiter
+                may simply want a second read. Hidden when the banner above is
+                already showing it, so the action never appears twice. */}
+            {scoreDetail && !scoreDetail.stale && canRescore && (
+              <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3">
+                <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
+                  Re-run the AI on this CV — costs about two cents.
+                </p>
                 <button
                   type="button"
                   onClick={onRescore}
                   disabled={rescoring}
-                  className={`${ADJ_BTN_PRIMARY} mt-3`}
+                  className={`${ADJ_BTN_QUIET} shrink-0`}
                 >
-                  {rescoring ? "Queueing…" : "Re-score this applicant"}
+                  {rescoring ? "Queueing…" : "Re-score"}
                 </button>
+              </div>
+            )}
+
+            {/* Sits after the breakdown on purpose: a reviewer should read what
+                the model concluded before overriding it. Rendered for any score
+                row, not just 'scored' — see ScoreAdjuster. */}
+            {scoreDetail && (
+              <ScoreAdjuster
+                detail={scoreDetail}
+                saving={scoreSaving}
+                onSave={onAdjustScore}
+                onClear={onClearAdjustment}
+                local={clock.local}
+              />
+            )}
+          </>
+        )}
+
+        {tab === "comm" && (
+          <>
+            <DrawerLabel>Messages</DrawerLabel>
+            <div className="mb-[22px] flex flex-col gap-2.5">
+              {messagesLoading && messages.length === 0 && (
+                <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
               )}
+              {!messagesLoading && messages.length === 0 && (
+                <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No messages sent yet.</p>
+              )}
+              {messages.map((m) => (
+                <MessageEntry key={m.id} message={m} />
+              ))}
             </div>
-          )}
+          </>
+        )}
 
-          {/* Re-score is also available when the card is current — a recruiter
-              may simply want a second read. Hidden when the banner above is
-              already showing it, so the action never appears twice. */}
-          {scoreDetail && !scoreDetail.stale && canRescore && (
-            <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3">
-              <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
-                Re-run the AI on this CV — costs about two cents.
-              </p>
-              <button
-                type="button"
-                onClick={onRescore}
-                disabled={rescoring}
-                className={`${ADJ_BTN_QUIET} shrink-0`}
-              >
-                {rescoring ? "Queueing…" : "Re-score"}
-              </button>
+        {tab === "interviews" && (
+          <>
+            <DrawerLabel>Video interview</DrawerLabel>
+            <div className="mb-[22px]">
+              <InterviewPanel applicationId={row.id} onToast={onToast} />
             </div>
-          )}
-
-          {/* Sits after the breakdown on purpose: a reviewer should read what
-              the model concluded before overriding it. Rendered for any score
-              row, not just 'scored' — see ScoreAdjuster. */}
-          {scoreDetail && (
-            <ScoreAdjuster
-              detail={scoreDetail}
-              saving={scoreSaving}
-              onSave={onAdjustScore}
-              onClear={onClearAdjustment}
-              local={clock.local}
-            />
-          )}
-
-          {/* Each row is conditional, so `last:border-b-0` lands on whichever
-              row actually renders last — a `{cond && …}` that resolves false
-              produces no DOM node, so :last-child stays correct. */}
-          {hasDetails && (
-            <>
-              <DrawerLabel>Details</DrawerLabel>
-              <div className="mb-[22px] flex flex-col">
-                {location && <DetailRow label="Location" value={location} />}
-                {experienceText && <DetailRow label="Experience" value={experienceText} />}
-                {row.notice_period && <DetailRow label="Notice period" value={row.notice_period} />}
-                {row.availability && <DetailRow label="Availability" value={row.availability} />}
-                {row.phone && <DetailRow label="Phone" value={row.phone} />}
-                {row.linkedin_url && (
-                  <div className="flex items-center justify-between border-b border-[var(--ai-line-soft)] py-[9px] text-[13.5px] last:border-b-0">
-                    <span className="text-[var(--ai-t3)]">LinkedIn</span>
-                    <a
-                      href={row.linkedin_url}
-                      target="_blank"
-                      rel="noopener noreferrer"
-                      className="inline-flex items-center gap-1 font-bold text-remotiv-purple hover:underline"
-                    >
-                      Profile
-                      <ExternalLink className="size-3" strokeWidth={2} />
-                    </a>
-                  </div>
-                )}
-              </div>
-            </>
-          )}
-
-          <DrawerLabel>Messages</DrawerLabel>
-          <div className="mb-[22px] flex flex-col gap-2.5">
-            {messagesLoading && messages.length === 0 && (
-              <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
-            )}
-            {!messagesLoading && messages.length === 0 && (
-              <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No messages sent yet.</p>
-            )}
-            {messages.map((m) => (
-              <MessageEntry key={m.id} message={m} />
-            ))}
-          </div>
-
-          <DrawerLabel>Video interview</DrawerLabel>
-          <div className="mb-[22px]">
-            <InterviewPanel applicationId={row.id} onToast={onToast} />
-          </div>
-
-          <DrawerLabel>Stage history</DrawerLabel>
-          <div className="flex flex-col gap-[14px]">
-            {history.map((h) => {
-              const when = fmtApplied(h.created_at, clock);
-              // The seeded first entry has no from_stage — it reads as plain
-              // "Applied" rather than an arrow from nowhere.
-              const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
-              return (
-                <div key={h.id} className="relative flex items-start gap-3">
-                  <span
-                    className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
-                  />
-                  <div className="min-w-0">
-                    <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                      {h.from_stage
-                        ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
-                        : PIPELINE_STAGE_LABELS[h.to_stage]}
-                    </p>
-                    {h.note && (
-                      <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
-                        {h.note}
-                      </p>
-                    )}
-                    <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                      {meta || when.sub}
-                    </small>
-                  </div>
-                </div>
-              );
-            })}
-
-            {/* Falls back to the application itself: rows created before the
-                history table existed have nothing seeded. */}
-            {historyFailed && (
-              <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
-                Couldn't load this applicant's activity just now — it hasn't been lost. Close the
-                panel and reopen it to try again.
-              </p>
-            )}
-            {!historyLoading && !historyFailed && history.length === 0 && (
-              <div className="relative flex items-start gap-3">
-                <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
-                <div>
-                  <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                    Applied
-                  </p>
-                  <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                    {applied.main} · {applied.sub}
-                  </small>
-                </div>
-              </div>
-            )}
-
-            {historyLoading && history.length === 0 && (
-              <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
-            )}
-          </div>
-
-          {/* Danger, last and visually separated — same placement and weight
-              as the jobs drawer's. Opens a confirm rather than deleting on
-              click; this is irreversible and takes the CV with it. */}
-          <div className="mt-7 border-t border-[var(--ai-line)] pt-5">
-            <DrawerLabel>Danger</DrawerLabel>
-            <button
-              type="button"
-              onClick={onDelete}
-              className="flex w-full items-center justify-center gap-1.5 rounded-xl bg-[var(--ai-danger-tint)] px-3 py-2.5 text-xs font-semibold text-[var(--ai-danger)] transition-opacity hover:opacity-80"
-            >
-              <Trash className="size-3.5" strokeWidth={2} />
-              Delete applicant
-            </button>
-            <p className="m-0 mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
-              Permanently removes this applicant, their CV file, their AI scorecard and their
-              pipeline history. This cannot be undone.
-            </p>
-          </div>
-        </div>
+          </>
+        )}
       </div>
-    </>
+    </div>
   );
 }
 
@@ -1989,6 +2146,68 @@ export function ApplicantsClient({
   useEffect(() => {
     if (deepLinkId) setOpenId(deepLinkId);
   }, [deepLinkId]);
+
+  /**
+   * Which pane the panel is showing. Seeded from ?tab= by the same effect
+   * pattern as openId, and held HERE rather than inside the panel: the panel is
+   * keyed by applicant id and remounts when prev/next moves, so panel-local tab
+   * state would drop the reader back to Profile on every step.
+   */
+  const deepLinkTab = searchParams.get("tab");
+  const [panelTab, setPanelTab] = useState<PanelTab>("profile");
+  useEffect(() => {
+    if (isPanelTab(deepLinkTab)) setPanelTab(deepLinkTab);
+  }, [deepLinkTab]);
+
+  /**
+   * The address bar follows the panel.
+   *
+   * ?applicant= was inbound-only before this: a deep link opened the right
+   * person, but opening one by clicking never wrote the URL, and closing left
+   * the param behind — so a reload reopened a panel the reader had shut. Both
+   * directions now go through here.
+   *
+   * `replace`, not `push`: stepping through twelve applicants should not put
+   * twelve entries in the history stack for Back to walk out of one at a time.
+   * `scroll: false` because the list behind is exactly where it was.
+   */
+  const pathname = usePathname();
+  const syncPanelUrl = useCallback(
+    (applicantId: string | null, tab: PanelTab) => {
+      const params = new URLSearchParams(searchParams.toString());
+      if (applicantId) {
+        params.set("applicant", applicantId);
+        params.set("tab", tab);
+      } else {
+        params.delete("applicant");
+        params.delete("tab");
+      }
+      const qs = params.toString();
+      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+    },
+    [router, pathname, searchParams],
+  );
+
+  const openApplicant = useCallback(
+    (id: string) => {
+      setOpenId(id);
+      syncPanelUrl(id, panelTab);
+    },
+    [syncPanelUrl, panelTab],
+  );
+
+  const closePanel = useCallback(() => {
+    setOpenId(null);
+    syncPanelUrl(null, panelTab);
+  }, [syncPanelUrl, panelTab]);
+
+  const selectPanelTab = useCallback(
+    (tab: PanelTab) => {
+      setPanelTab(tab);
+      if (openId) syncPanelUrl(openId, tab);
+    },
+    [syncPanelUrl, openId],
+  );
   /** "Review top 10" — a view mode over the same filtered set, not a filter. */
   const [topOnly, setTopOnly] = useState(false);
   const [sort, setSort] = useState<SortMode>("best");
@@ -2130,6 +2349,32 @@ export function ApplicantsClient({
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
 
   /**
+   * Where the open applicant sits in the sequence prev/next walks.
+   *
+   * `visible` rather than `rows`: stepping follows the order and the filters
+   * the list is actually showing, so "next" means the next person on screen
+   * rather than the next one in the unfiltered fetch.
+   *
+   * -1 when the panel was opened from a deep link to someone the current
+   * filters exclude — `rows` holds everyone, `visible` does not. The control
+   * hides itself in that case rather than stepping somewhere arbitrary.
+   */
+  const openIndex = openId ? visible.findIndex((r) => r.id === openId) : -1;
+
+  const stepApplicant = useCallback(
+    (delta: number) => {
+      const target = openIndex + delta;
+      const next = visible[target];
+      if (!next) return;
+      openApplicant(next.id);
+      // The dimmed list follows, so closing the panel doesn't leave the reader
+      // on a page that no longer holds the person they were just reading.
+      setPage(Math.floor(target / PAGE_SIZE) + 1);
+    },
+    [visible, openIndex, openApplicant],
+  );
+
+  /**
    * A deep link whose candidate isn't here.
    *
    * `openRow` is looked up in `rows`, so a missing id already fails safely —
@@ -2176,7 +2421,9 @@ export function ApplicantsClient({
 
     setApplicants((prev) => prev.filter((a) => a.id !== target.id));
     setDeleteTarget(null);
-    setOpenId(null);
+    // Not setOpenId(null): the id has to leave the URL too, or the dead-link
+    // guard below reports the applicant we just deleted as a broken link.
+    closePanel();
     setToast(`${fullName(target)} deleted`);
     router.refresh();
   }
@@ -2551,400 +2798,411 @@ export function ApplicantsClient({
 
   return (
     <PageContainer>
-      {/* Header — `items-end` per the mock so the buttons sit on the lede's
-          baseline; stacks above 525px so they never overlap the copy. */}
-      <div className="mb-5 flex flex-col items-start justify-between gap-4 min-[525px]:flex-row min-[525px]:items-end min-[525px]:gap-6">
-        <div>
-          <h1 className="font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
-            Applicants
-          </h1>
-          <p className="m-0 mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
-            {/* Deliberately future tense: AI scoring ships in Step 4, so
-                "already read every CV" would be a claim the product can't
-                currently back. The lime treatment is preserved either way. */}
-            {applicants.length === 0
-              ? "No one has applied yet. "
-              : `${applicants.length} ${applicants.length === 1 ? "person has" : "people have"} applied across your open roles. `}
-            Your AI recruiter will <LimeHighlight>read every CV</LimeHighlight> and put the best
-            ones first.
-          </p>
-        </div>
-
-        <div className="flex shrink-0 flex-wrap items-center gap-[9px]">
-          <button
-            type="button"
-            onClick={exportCsv}
-            disabled={paged.length === 0}
-            className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[var(--ai-line-strong)] disabled:hover:bg-[var(--ai-surface)] disabled:hover:text-[var(--ai-t2)]"
-          >
-            <Download className="size-[15px]" strokeWidth={1.9} />
-            Export page
-          </button>
-          {/* A view MODE, not a filter: it narrows whatever the tabs, job
-              filter and search already selected, so the two compose. Active
-              state is unmistakable — the button inverts to purple, says "Show
-              all", and a banner above the list states what is being shown. */}
-          <button
-            type="button"
-            onClick={() => {
-              if (!topOnly && topTen.length === 0) {
-                setToast("No applicants have been scored yet");
-                return;
-              }
-              setTopOnly((p) => !p);
-            }}
-            aria-pressed={topOnly}
-            className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-[17px] py-[11px] text-[13.5px] font-semibold transition-all ${
-              topOnly
-                ? "border border-remotiv-purple bg-remotiv-purple text-white shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
-                : "border border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white hover:border-remotiv-purple hover:bg-remotiv-purple hover:shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
-            }`}
-          >
-            <Zap className="size-[15px]" strokeWidth={1.9} />
-            {topOnly ? "Show all" : `Review top ${TOP_N}`}
-          </button>
-        </div>
-      </div>
-
-      {/* Dark hero strip */}
-      <DashboardHero
-        eyebrow="Total applicants"
-        value={applicants.length}
-        delta={newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null}
-        subline={`Across ${openRoles} open ${openRoles === 1 ? "role" : "roles"}`}
+      {/* The list dims and goes inert behind the panel rather than sitting
+          under a scrim. At 1100px the panel still leaves a strip of list
+          visible, and being able to see where you are in the queue is most of
+          why a wide panel beats a modal. `inert` and not just
+          pointer-events-none: without it Tab walks focus into a list nobody
+          can see. */}
+      <div
+        inert={openRow ? true : undefined}
+        className={`transition-opacity duration-200 ${openRow ? "pointer-events-none opacity-30" : ""}`}
       >
-        <div className="flex flex-wrap items-stretch min-[840px]:flex-nowrap">
-          {FUNNEL_STEPS.map((step, i) => {
-            const value = stageCounts[step.stage] ?? 0;
-            const pct = applicants.length > 0 ? Math.round((value / applicants.length) * 100) : 0;
-            return (
-              <div
-                key={step.stage}
-                className={`relative min-w-0 flex-1 px-5 ${i === 0 ? "min-[840px]:pl-0" : ""}`}
-              >
-                {i < FUNNEL_STEPS.length - 1 && (
-                  <span
-                    aria-hidden
-                    className="absolute right-0 top-1/2 hidden size-[7px] translate-x-1/2 -translate-y-1/2 rotate-45 border-r-[1.5px] border-t-[1.5px] border-white/[0.24] min-[840px]:block"
-                  />
-                )}
-                <div className="mb-[9px] flex items-center gap-[7px] whitespace-nowrap text-[11.5px] font-semibold text-white/55">
-                  <i
-                    className="size-[6px] shrink-0 rounded-full"
-                    style={{ background: step.dot }}
-                  />
-                  {PIPELINE_STAGE_LABELS[step.stage]}
-                </div>
-                <div className="mb-2.5 font-heading text-[26px] font-extrabold leading-none tracking-[-0.025em] text-white">
-                  {value}
-                </div>
-                <div className="h-1 overflow-hidden rounded-[3px] bg-white/10">
-                  <i
-                    className="block h-full origin-left rounded-[3px]"
-                    style={{ background: step.bar, width: `${pct}%` }}
-                  />
-                </div>
-                <p className="m-0 mt-2 text-[11px] text-white/[0.38]">{pct}% of total</p>
-              </div>
-            );
-          })}
-        </div>
-      </DashboardHero>
+        {/* Header — `items-end` per the mock so the buttons sit on the lede's
+            baseline; stacks above 525px so they never overlap the copy. */}
+        <div className="mb-5 flex flex-col items-start justify-between gap-4 min-[525px]:flex-row min-[525px]:items-end min-[525px]:gap-6">
+          <div>
+            <h1 className="font-heading text-[32px] font-extrabold leading-none tracking-[-0.035em]">
+              Applicants
+            </h1>
+            <p className="m-0 mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
+              {/* Deliberately future tense: AI scoring ships in Step 4, so
+                  "already read every CV" would be a claim the product can't
+                  currently back. The lime treatment is preserved either way. */}
+              {applicants.length === 0
+                ? "No one has applied yet. "
+                : `${applicants.length} ${applicants.length === 1 ? "person has" : "people have"} applied across your open roles. `}
+              Your AI recruiter will <LimeHighlight>read every CV</LimeHighlight> and put the best
+              ones first.
+            </p>
+          </div>
 
-      {/* Panel */}
-      <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
-        <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-          {/* The 5-tab strip is wider than a phone. It scrolls WITHIN itself
-              (max-w-full + overflow-x-auto) so it can never widen the page. */}
-          <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
-            <TabButton on={tab === "all"} count={applicants.length} onClick={() => setTab("all")}>
-              All
-            </TabButton>
-            {TAB_STAGES.map((s) => (
-              <TabButton
-                key={s}
-                on={tab === s}
-                count={stageCounts[s] ?? 0}
-                onClick={() => setTab(s)}
-              >
-                {PIPELINE_STAGE_LABELS[s]}
-              </TabButton>
-            ))}
-
-            {/* A FILTER, not a stage — it composes with whichever tab is on,
-                because "flagged, in Screening" is a question worth asking. Its
-                badge is the server aggregate, not filtered.length. */}
+          <div className="flex shrink-0 flex-wrap items-center gap-[9px]">
             <button
               type="button"
-              aria-pressed={flaggedOnly}
-              onClick={() => setFlaggedOnly((v) => !v)}
-              className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-[6px] text-[12.5px] font-semibold transition-colors ${
-                flaggedOnly
-                  ? "border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white"
-                  : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:text-[var(--ai-t1)]"
+              onClick={exportCsv}
+              disabled={paged.length === 0}
+              className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[var(--ai-line-strong)] disabled:hover:bg-[var(--ai-surface)] disabled:hover:text-[var(--ai-t2)]"
+            >
+              <Download className="size-[15px]" strokeWidth={1.9} />
+              Export page
+            </button>
+            {/* A view MODE, not a filter: it narrows whatever the tabs, job
+                filter and search already selected, so the two compose. Active
+                state is unmistakable — the button inverts to purple, says "Show
+                all", and a banner above the list states what is being shown. */}
+            <button
+              type="button"
+              onClick={() => {
+                if (!topOnly && topTen.length === 0) {
+                  setToast("No applicants have been scored yet");
+                  return;
+                }
+                setTopOnly((p) => !p);
+              }}
+              aria-pressed={topOnly}
+              className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-[17px] py-[11px] text-[13.5px] font-semibold transition-all ${
+                topOnly
+                  ? "border border-remotiv-purple bg-remotiv-purple text-white shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
+                  : "border border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white hover:border-remotiv-purple hover:bg-remotiv-purple hover:shadow-[0_10px_26px_rgba(126,71,255,0.34)]"
               }`}
             >
-              Flagged
-              {typeof flaggedCount === "number" && flaggedCount > 0 && (
-                <span
-                  className={`rounded-full px-[6px] py-px text-[10.5px] font-bold tabular-nums ${
-                    flaggedOnly
-                      ? "bg-white/20 text-white"
-                      : "bg-remotiv-purple/10 text-remotiv-purple"
-                  }`}
-                >
-                  {flaggedCount}
-                </span>
-              )}
+              <Zap className="size-[15px]" strokeWidth={1.9} />
+              {topOnly ? "Show all" : `Review top ${TOP_N}`}
             </button>
-          </div>
-
-          {/* Full-width on phones so the selects + search stack under the tabs
-              instead of forcing the toolbar wider than the viewport.
-              `flex-wrap` because this cluster holds three controls now: on a
-              narrow screen search drops to its own line rather than being
-              squeezed to nothing between the two selects. */}
-          <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
-            {/*
-              A SELECT, not a segmented toggle, and that is the whole reason it
-              reads correctly here. A two-button Best/Newest control is the same
-              shape as the tab strip's buttons a few pixels to the left, so at a
-              glance it would read as two more tabs. A select is a shape this
-              toolbar has already taught — sitting beside the job filter, in the
-              cluster that answers "how is this list shaped" rather than the
-              strip that answers "which stage".
-            */}
-            <select
-              value={sort}
-              onChange={(e) => setSort(e.target.value as SortMode)}
-              aria-label="Sort applicants"
-              className={`${TOOLBAR_SELECT} shrink-0`}
-            >
-              <option value="best">Best match</option>
-              <option value="newest">Newest first</option>
-            </select>
-
-            <select
-              value={jobFilter}
-              onChange={(e) => setJobFilter(e.target.value)}
-              aria-label="Filter by job"
-              className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
-            >
-              <option value="all">All jobs</option>
-              {jobOptions.map(([id, title]) => (
-                <option key={id} value={id}>
-                  {title}
-                </option>
-              ))}
-            </select>
-
-            <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
-              <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
-              <input
-                type="search"
-                aria-label="Search applicants"
-                placeholder="Search applicants…"
-                value={search}
-                onChange={(e) => setSearch(e.target.value)}
-                className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
-              />
-            </div>
           </div>
         </div>
 
-        {filtered.length === 0 && (
-          <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
-            <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
-              <Users className="size-7" strokeWidth={1.7} />
-            </div>
-            <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
-              {emptyCopy.title}
-            </h3>
-            <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-              {emptyCopy.text}
-            </p>
-          </div>
-        )}
-
-        {/* Stacked cards below the table breakpoint — the 7-column grid needs
-            960 design px, which simply doesn't exist on a phone. Squeezing it
-            would clip the candidate name; scrolling it sideways hides Job /
-            Score / Stage. Same data, same tap target, no horizontal scroll. */}
-        {topOnly && (
-          <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
-            <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
-              Showing the top {topTen.length} scored applicant
-              {topTen.length === 1 ? "" : "s"} of {filtered.length}.
-            </p>
-            <button
-              type="button"
-              onClick={() => setTopOnly(false)}
-              className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
-            >
-              Show all applicants
-            </button>
-          </div>
-        )}
-
-        {paged.length > 0 && (
-          <div data-twin-narrow className="min-[1049px]:hidden">
-            {paged.map((r, i) => (
-              <ApplicantCard
-                key={r.id}
-                row={r}
-                index={pageStart + i}
-                isTop={topMatchIds.has(r.id)}
-                selected={openId === r.id}
-                onOpen={() => setOpenId(r.id)}
-                clock={clock}
-              />
-            ))}
-          </div>
-        )}
-
-        {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
-            kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-        <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
-          <div className="min-w-[960px]">
-            <div
-              className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
-            >
-              <span>#</span>
-              <span>Candidate</span>
-              <span>Job</span>
-              <span>CV score</span>
-              <span>Stage</span>
-              <span>Applied</span>
-              <span />
-            </div>
-
-            {paged.map((r, i) => {
-              const tint = getTint(r.id);
-              const applied = fmtApplied(r.created_at, clock);
-              const stage = stageOf(r);
-              const pill = STAGE_PILL[stage];
-              const isTop = topMatchIds.has(r.id);
-              const rank = pageStart + i;
-
+        {/* Dark hero strip */}
+        <DashboardHero
+          eyebrow="Total applicants"
+          value={applicants.length}
+          delta={newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null}
+          subline={`Across ${openRoles} open ${openRoles === 1 ? "role" : "roles"}`}
+        >
+          <div className="flex flex-wrap items-stretch min-[840px]:flex-nowrap">
+            {FUNNEL_STEPS.map((step, i) => {
+              const value = stageCounts[step.stage] ?? 0;
+              const pct = applicants.length > 0 ? Math.round((value / applicants.length) * 100) : 0;
               return (
-                <button
-                  key={r.id}
-                  type="button"
-                  onClick={() => setOpenId(r.id)}
-                  className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                    openId === r.id
-                      ? "bg-[var(--ai-purple-tint)]"
-                      : showsWorthALook(r)
-                        ? "bg-remotiv-purple/[0.035]"
-                        : "bg-[var(--ai-surface)]"
-                  }`}
+                <div
+                  key={step.stage}
+                  className={`relative min-w-0 flex-1 px-5 ${i === 0 ? "min-[840px]:pl-0" : ""}`}
                 >
-                  {/* Always on for a flagged row — the accent is what makes a
-                        flag findable while scrolling, so it does not wait for a
-                        hover the way the default row's does. */}
-                  <span
-                    aria-hidden
-                    className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                      openId === r.id || showsWorthALook(r)
-                        ? "opacity-100"
-                        : "opacity-0 group-hover:opacity-100"
-                    }`}
-                  />
-                  <span
-                    className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                      isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
-                    }`}
-                  >
-                    {String(rank + 1).padStart(2, "0")}
-                  </span>
-
-                  <div className="flex min-w-0 items-center gap-3">
+                  {i < FUNNEL_STEPS.length - 1 && (
                     <span
-                      className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                      style={{
-                        background: tint.bg,
-                        color: tint.fg,
-                        boxShadow: isTop
-                          ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                          : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                      }}
-                    >
-                      {initials(r.first_name, r.last_name, r.email)}
-                    </span>
-                    <div className="min-w-0">
-                      {/* .nm is a flex container, so truncation lives on the
-                            INNER span — otherwise the Top-match flag clips. */}
-                      <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                        <span className="min-w-0 truncate">{fullName(r)}</span>
-                        {isTop && (
-                          <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                            Top match
-                          </span>
-                        )}
-                        {/* Display-only, exactly as ApplicantCard renders it.
-                            Passing onDismiss puts a <button> inside this row's
-                            <button>, which is invalid HTML: the parser closes
-                            the row early and reparents everything after the
-                            chip — reason, job, score, stage, date — as
-                            siblings. The server tree and the client tree then
-                            disagree, hydration fails, and React leaves the
-                            mangled server DOM orphaned below the page. Only
-                            FLAGGED rows carried the chip, which is why only
-                            they broke. Dismissal lives in the drawer's
-                            Worth-a-look banner, one click away on the row the
-                            reader is already pointing at. */}
-                        {showsWorthALook(r) && <WorthALookChip />}
-                      </p>
-                      {showsWorthALook(r) ? (
-                        <FlagReasonLine reason={r.shortlist.reason} />
-                      ) : (
-                        <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                          {r.email}
-                        </p>
-                      )}
-                    </div>
+                      aria-hidden
+                      className="absolute right-0 top-1/2 hidden size-[7px] translate-x-1/2 -translate-y-1/2 rotate-45 border-r-[1.5px] border-t-[1.5px] border-white/[0.24] min-[840px]:block"
+                    />
+                  )}
+                  <div className="mb-[9px] flex items-center gap-[7px] whitespace-nowrap text-[11.5px] font-semibold text-white/55">
+                    <i
+                      className="size-[6px] shrink-0 rounded-full"
+                      style={{ background: step.dot }}
+                    />
+                    {PIPELINE_STAGE_LABELS[step.stage]}
                   </div>
-
-                  <span className="justify-self-start max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                    {r.job_title}
-                  </span>
-
-                  <ScoreRing score={r.score} />
-
-                  <span
-                    className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                  >
-                    <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                    {PIPELINE_STAGE_LABELS[stage]}
-                  </span>
-
-                  <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                    {applied.main}
-                    <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                      {applied.sub}
-                    </small>
-                  </span>
-
-                  <span />
-                </button>
+                  <div className="mb-2.5 font-heading text-[26px] font-extrabold leading-none tracking-[-0.025em] text-white">
+                    {value}
+                  </div>
+                  <div className="h-1 overflow-hidden rounded-[3px] bg-white/10">
+                    <i
+                      className="block h-full origin-left rounded-[3px]"
+                      style={{ background: step.bar, width: `${pct}%` }}
+                    />
+                  </div>
+                  <p className="m-0 mt-2 text-[11px] text-white/[0.38]">{pct}% of total</p>
+                </div>
               );
             })}
           </div>
-        </div>
+        </DashboardHero>
 
-        <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
-          <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
-            Ranked by AI score once your recruiter has read each CV.
-          </p>
-          <Pagination
-            page={safePage}
-            pageCount={pageCount}
-            total={visible.length}
-            grandTotal={applicants.length}
-            rangeStart={visible.length === 0 ? 0 : pageStart + 1}
-            rangeEnd={pageStart + paged.length}
-            onPage={setPage}
-          />
+        {/* Panel */}
+        <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
+          <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
+            {/* The 5-tab strip is wider than a phone. It scrolls WITHIN itself
+                (max-w-full + overflow-x-auto) so it can never widen the page. */}
+            <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+              <TabButton on={tab === "all"} count={applicants.length} onClick={() => setTab("all")}>
+                All
+              </TabButton>
+              {TAB_STAGES.map((s) => (
+                <TabButton
+                  key={s}
+                  on={tab === s}
+                  count={stageCounts[s] ?? 0}
+                  onClick={() => setTab(s)}
+                >
+                  {PIPELINE_STAGE_LABELS[s]}
+                </TabButton>
+              ))}
+
+              {/* A FILTER, not a stage — it composes with whichever tab is on,
+                  because "flagged, in Screening" is a question worth asking. Its
+                  badge is the server aggregate, not filtered.length. */}
+              <button
+                type="button"
+                aria-pressed={flaggedOnly}
+                onClick={() => setFlaggedOnly((v) => !v)}
+                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-[6px] text-[12.5px] font-semibold transition-colors ${
+                  flaggedOnly
+                    ? "border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white"
+                    : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:text-[var(--ai-t1)]"
+                }`}
+              >
+                Flagged
+                {typeof flaggedCount === "number" && flaggedCount > 0 && (
+                  <span
+                    className={`rounded-full px-[6px] py-px text-[10.5px] font-bold tabular-nums ${
+                      flaggedOnly
+                        ? "bg-white/20 text-white"
+                        : "bg-remotiv-purple/10 text-remotiv-purple"
+                    }`}
+                  >
+                    {flaggedCount}
+                  </span>
+                )}
+              </button>
+            </div>
+
+            {/* Full-width on phones so the selects + search stack under the tabs
+                instead of forcing the toolbar wider than the viewport.
+                `flex-wrap` because this cluster holds three controls now: on a
+                narrow screen search drops to its own line rather than being
+                squeezed to nothing between the two selects. */}
+            <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
+              {/*
+                A SELECT, not a segmented toggle, and that is the whole reason it
+                reads correctly here. A two-button Best/Newest control is the same
+                shape as the tab strip's buttons a few pixels to the left, so at a
+                glance it would read as two more tabs. A select is a shape this
+                toolbar has already taught — sitting beside the job filter, in the
+                cluster that answers "how is this list shaped" rather than the
+                strip that answers "which stage".
+              */}
+              <select
+                value={sort}
+                onChange={(e) => setSort(e.target.value as SortMode)}
+                aria-label="Sort applicants"
+                className={`${TOOLBAR_SELECT} shrink-0`}
+              >
+                <option value="best">Best match</option>
+                <option value="newest">Newest first</option>
+              </select>
+
+              <select
+                value={jobFilter}
+                onChange={(e) => setJobFilter(e.target.value)}
+                aria-label="Filter by job"
+                className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
+              >
+                <option value="all">All jobs</option>
+                {jobOptions.map(([id, title]) => (
+                  <option key={id} value={id}>
+                    {title}
+                  </option>
+                ))}
+              </select>
+
+              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
+                <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
+                <input
+                  type="search"
+                  aria-label="Search applicants"
+                  placeholder="Search applicants…"
+                  value={search}
+                  onChange={(e) => setSearch(e.target.value)}
+                  className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
+                />
+              </div>
+            </div>
+          </div>
+
+          {filtered.length === 0 && (
+            <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
+              <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
+                <Users className="size-7" strokeWidth={1.7} />
+              </div>
+              <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
+                {emptyCopy.title}
+              </h3>
+              <p className="m-0 mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
+                {emptyCopy.text}
+              </p>
+            </div>
+          )}
+
+          {/* Stacked cards below the table breakpoint — the 7-column grid needs
+              960 design px, which simply doesn't exist on a phone. Squeezing it
+              would clip the candidate name; scrolling it sideways hides Job /
+              Score / Stage. Same data, same tap target, no horizontal scroll. */}
+          {topOnly && (
+            <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
+              <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
+                Showing the top {topTen.length} scored applicant
+                {topTen.length === 1 ? "" : "s"} of {filtered.length}.
+              </p>
+              <button
+                type="button"
+                onClick={() => setTopOnly(false)}
+                className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
+              >
+                Show all applicants
+              </button>
+            </div>
+          )}
+
+          {paged.length > 0 && (
+            <div data-twin-narrow className="min-[1049px]:hidden">
+              {paged.map((r, i) => (
+                <ApplicantCard
+                  key={r.id}
+                  row={r}
+                  index={pageStart + i}
+                  isTop={topMatchIds.has(r.id)}
+                  selected={openId === r.id}
+                  onOpen={() => openApplicant(r.id)}
+                  clock={clock}
+                />
+              ))}
+            </div>
+          )}
+
+          {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
+              kept as a belt-and-braces guard; at >=1049px the grid fits. */}
+          <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
+            <div className="min-w-[960px]">
+              <div
+                className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
+              >
+                <span>#</span>
+                <span>Candidate</span>
+                <span>Job</span>
+                <span>CV score</span>
+                <span>Stage</span>
+                <span>Applied</span>
+                <span />
+              </div>
+
+              {paged.map((r, i) => {
+                const tint = getTint(r.id);
+                const applied = fmtApplied(r.created_at, clock);
+                const stage = stageOf(r);
+                const pill = STAGE_PILL[stage];
+                const isTop = topMatchIds.has(r.id);
+                const rank = pageStart + i;
+
+                return (
+                  <button
+                    key={r.id}
+                    type="button"
+                    onClick={() => openApplicant(r.id)}
+                    className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                      openId === r.id
+                        ? "bg-[var(--ai-purple-tint)]"
+                        : showsWorthALook(r)
+                          ? "bg-remotiv-purple/[0.035]"
+                          : "bg-[var(--ai-surface)]"
+                    }`}
+                  >
+                    {/* Always on for a flagged row — the accent is what makes a
+                          flag findable while scrolling, so it does not wait for a
+                          hover the way the default row's does. */}
+                    <span
+                      aria-hidden
+                      className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
+                        openId === r.id || showsWorthALook(r)
+                          ? "opacity-100"
+                          : "opacity-0 group-hover:opacity-100"
+                      }`}
+                    />
+                    <span
+                      className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
+                        isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                      }`}
+                    >
+                      {String(rank + 1).padStart(2, "0")}
+                    </span>
+
+                    <div className="flex min-w-0 items-center gap-3">
+                      <span
+                        className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                        style={{
+                          background: tint.bg,
+                          color: tint.fg,
+                          boxShadow: isTop
+                            ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
+                            : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
+                        }}
+                      >
+                        {initials(r.first_name, r.last_name, r.email)}
+                      </span>
+                      <div className="min-w-0">
+                        {/* .nm is a flex container, so truncation lives on the
+                              INNER span — otherwise the Top-match flag clips. */}
+                        <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                          <span className="min-w-0 truncate">{fullName(r)}</span>
+                          {isTop && (
+                            <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
+                              Top match
+                            </span>
+                          )}
+                          {/* Display-only, exactly as ApplicantCard renders it.
+                              Passing onDismiss puts a <button> inside this row's
+                              <button>, which is invalid HTML: the parser closes
+                              the row early and reparents everything after the
+                              chip — reason, job, score, stage, date — as
+                              siblings. The server tree and the client tree then
+                              disagree, hydration fails, and React leaves the
+                              mangled server DOM orphaned below the page. Only
+                              FLAGGED rows carried the chip, which is why only
+                              they broke. Dismissal lives in the drawer's
+                              Worth-a-look banner, one click away on the row the
+                              reader is already pointing at. */}
+                          {showsWorthALook(r) && <WorthALookChip />}
+                        </p>
+                        {showsWorthALook(r) ? (
+                          <FlagReasonLine reason={r.shortlist.reason} />
+                        ) : (
+                          <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                            {r.email}
+                          </p>
+                        )}
+                      </div>
+                    </div>
+
+                    <span className="justify-self-start max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                      {r.job_title}
+                    </span>
+
+                    <ScoreRing score={r.score} />
+
+                    <span
+                      className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
+                    >
+                      <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
+                      {PIPELINE_STAGE_LABELS[stage]}
+                    </span>
+
+                    <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                      {applied.main}
+                      <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                        {applied.sub}
+                      </small>
+                    </span>
+
+                    <span />
+                  </button>
+                );
+              })}
+            </div>
+          </div>
+
+          <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
+            <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
+              Ranked by AI score once your recruiter has read each CV.
+            </p>
+            <Pagination
+              page={safePage}
+              pageCount={pageCount}
+              total={visible.length}
+              grandTotal={applicants.length}
+              rangeStart={visible.length === 0 ? 0 : pageStart + 1}
+              rangeEnd={pageStart + paged.length}
+              onPage={setPage}
+            />
+          </div>
         </div>
       </div>
 
@@ -2983,9 +3241,13 @@ export function ApplicantsClient({
           onRescore={() => {
             void handleRescore(openRow.id);
           }}
+          tab={panelTab}
+          onTabChange={selectPanelTab}
+          position={openIndex >= 0 ? { index: openIndex, total: visible.length } : null}
+          onStep={stepApplicant}
           onEmail={() => setComposerOpen(true)}
           onToast={setToast}
-          onClose={() => setOpenId(null)}
+          onClose={closePanel}
           onStageChange={(next) => {
             void handleStageChange(openRow.id, next);
           }}
