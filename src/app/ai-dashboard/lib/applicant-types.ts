@@ -232,11 +232,26 @@ export type ApplicantScoreDetail = ApplicantScore & {
   strengths: ScoreStrengthRow[];
   missing_requirements: string[];
   /**
-   * The job's named must-haves, one entry each, in the order the employer named
-   * them. EMPTY both for a job that named none and for a scorecard produced
-   * before v10 — indistinguishable, and treated the same: nothing is rendered.
+   * The job's named must-haves AS THIS CARD SAW THEM, one entry each, in the
+   * order the employer named them. Empty both for a job that named none and
+   * for a card written before the job named any — which is why the job's
+   * CURRENT count travels beside it.
    */
   must_haves: ScoreMustHaveRow[];
+  /**
+   * How many must-haves the job names TODAY — not how many this card judged.
+   *
+   * The pair is what makes an empty `must_haves` readable. Zero here means the
+   * job asks for none and the card is complete; non-zero against an empty
+   * `must_haves` means the card predates them and a re-score is what fills it
+   * in. Alone, the two cases are the same empty array.
+   *
+   * Deliberately NOT the same question as `stale`. A job's criteria_version
+   * moves for any criteria edit — a reworded requirement, a weight change —
+   * so a stale card may already carry every must-have the job names. This
+   * counts only the must-haves.
+   */
+  job_must_have_count: number;
   concerns: string[];
   summary: string | null;
   /** Deterministic screening result, 0-100. Null when the job asked nothing. */

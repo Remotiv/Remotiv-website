@@ -728,17 +728,17 @@ function VerdictStrip({
  *
  * ── The not-found treatment, and why it cannot read as failure ──
  *
- * Deliberately mirrors CriterionRow in the applicants drawer — the two answer
- * the same question about different sources and must not diverge in tone. No
- * red, no amber, no warning glyph: an unproven item gets a hollow ring, the
+ * No red, no amber, no warning glyph: an unproven item gets a hollow ring, the
  * same shape an unfilled checkbox uses, which says "nothing here" rather than
  * "this failed". The copy names the SOURCE ("Not found in the interview"), not
- * the person, and there is no count anywhere — a ratio is a score, and a score
- * invites comparing two candidates on something the prompt says caps nothing.
+ * the person, and there is no count on this strip — a ratio is a score, and a
+ * score invites comparing two candidates on something the prompt says caps
+ * nothing.
  *
- * Kept as its own small component rather than imported from the applicants
- * client: that module is ~2,700 lines and importing one row from it would pull
- * the whole applicants bundle into this route.
+ * The applicants drawer used to mirror this row exactly. Its must-haves
+ * checklist has since moved into the Evidence grid, which does carry a count
+ * and does mark an unevidenced item in amber, so the two have diverged on
+ * purpose rather than drifted.
  */
 function InterviewCriterionRow({
   criterion,

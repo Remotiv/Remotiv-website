@@ -1,15 +1,19 @@
 "use client";
 
 import {
+  AlertTriangle,
   Check,
+  ChevronDown,
   ChevronLeft,
   ChevronRight,
   Clock,
   Download,
   ExternalLink,
   File,
+  Flag,
   Mail,
   Minus,
+  RotateCcw,
   Search as SearchIcon,
   Trash,
   Users,
@@ -35,11 +39,17 @@ import {
   type PipelineStage,
   SCORE_FEEDBACK_MAX,
   SCORING_OFF_REASON,
+  type ScoreDimensionRow,
   type StageHistoryRow,
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
-import { BAND_LABEL, BAND_PILL, scoreBand as bandKey } from "@/app/ai-dashboard/lib/score-bands";
+import {
+  BAND_LABEL,
+  BAND_MATCH_LABEL,
+  BAND_PILL,
+  scoreBand as bandKey,
+} from "@/app/ai-dashboard/lib/score-bands";
 import { InterviewPanel } from "./_interview-panel";
 import {
   adjustScore,
@@ -322,6 +332,22 @@ function adjustmentByline(detail: ApplicantScoreDetail | null, local: boolean): 
   return "";
 }
 
+/**
+ * " Model v10 · scored 17 Sep 2026." — the terms the number was produced
+ * under, for the foot of the Review card.
+ *
+ * Either half is absent on older rows, so the separator follows what actually
+ * survived instead of being assumed.
+ */
+function scoreProvenance(detail: ApplicantScoreDetail | null, local: boolean): string {
+  if (!detail) return "";
+  const parts: string[] = [];
+  if (detail.ai_model) parts.push(`Model ${detail.ai_model}`);
+  const when = fmtDay(detail.scored_at, local);
+  if (when) parts.push(`scored ${when}`);
+  return parts.length > 0 ? ` ${parts.join(" · ")}.` : "";
+}
+
 /** Pipeline stage for a row — the real column, since Step 2d. */
 function stageOf(row: CompanyApplicantRow): PipelineStage {
   return row.pipeline_stage;
@@ -505,35 +531,88 @@ const DIMENSION_LABEL: Record<string, string> = {
   responsibilities_fit: "Responsibilities fit",
 };
 
-/** 74px ring for the drawer hero, on the dark surface. */
-function DrawerScoreRing({ score }: { score: number }) {
-  const C = 2 * Math.PI * 32;
+/**
+ * Colour for the confidence badge on the Review card.
+ *
+ * The design only draws the "high" case, and always in mint. Reusing mint for
+ * the other two would put a success colour on the words "Low confidence",
+ * which is the one reading that must not happen — so the other two bands take
+ * the tokens they already have elsewhere in the panel.
+ */
+const CONFIDENCE_BADGE: Record<string, { pill: string; dot: string }> = {
+  high: { pill: "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]", dot: "bg-remotiv-green" },
+  medium: {
+    pill: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
+    dot: "bg-[var(--ai-amber-dot)]",
+  },
+  low: { pill: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]", dot: "bg-[var(--ai-t3)]" },
+};
+
+/** The 3px separator between the header's identity facts. */
+function IdDot() {
+  return <span aria-hidden className="size-[3px] shrink-0 rounded-full bg-[var(--ai-t4)]" />;
+}
+
+/** 42px ring for the panel header. */
+function DrawerMiniRing({ score }: { score: number }) {
+  const C = 2 * Math.PI * 18;
   const band = scoreBand(score);
   return (
-    <span className="relative flex size-[74px] shrink-0 items-center justify-center">
-      <svg className="size-[74px] -rotate-90" viewBox="0 0 74 74" aria-hidden>
+    <span className="relative flex size-[42px] shrink-0 items-center justify-center">
+      <svg className="size-[42px] -rotate-90" viewBox="0 0 42 42" aria-hidden>
+        <circle cx="21" cy="21" r="18" fill="none" stroke="var(--ai-slate-tint)" strokeWidth="4" />
         <circle
-          cx="37"
-          cy="37"
-          r="32"
-          fill="none"
-          stroke="rgba(255,255,255,0.14)"
-          strokeWidth="6"
-        />
-        <circle
-          cx="37"
-          cy="37"
-          r="32"
+          cx="21"
+          cy="21"
+          r="18"
           fill="none"
           stroke={band.stroke}
-          strokeWidth="6"
+          strokeWidth="4"
           strokeLinecap="round"
           strokeDasharray={C.toFixed(2)}
           strokeDashoffset={(C * (1 - score / 100)).toFixed(2)}
         />
       </svg>
-      <span className="absolute font-heading text-[22px] font-extrabold tracking-[-0.03em] tabular-nums text-white">
+      <span className="absolute font-heading text-sm font-extrabold tracking-[-0.035em] tabular-nums text-[var(--ai-t1)]">
         {score}
+      </span>
+    </span>
+  );
+}
+
+/**
+ * 112px ring for the Review card, on the light surface.
+ *
+ * A separate component rather than a `dark` flag on one: the track colour, the
+ * numeral colour and the "out of 100" caption are most of what the thing is,
+ * so a shared shell would read as one component and behave as two.
+ */
+function ReviewScoreRing({ score }: { score: number }) {
+  const C = 2 * Math.PI * 49;
+  const band = scoreBand(score);
+  return (
+    <span className="relative flex size-[112px] shrink-0 items-center justify-center">
+      <svg className="size-[112px] -rotate-90" viewBox="0 0 112 112" aria-hidden>
+        <circle cx="56" cy="56" r="49" fill="none" stroke="var(--ai-slate-tint)" strokeWidth="9" />
+        <circle
+          cx="56"
+          cy="56"
+          r="49"
+          fill="none"
+          stroke={band.stroke}
+          strokeWidth="9"
+          strokeLinecap="round"
+          strokeDasharray={C.toFixed(2)}
+          strokeDashoffset={(C * (1 - score / 100)).toFixed(2)}
+        />
+      </svg>
+      <span className="absolute flex flex-col items-center gap-0.5">
+        <b className="font-heading text-[34px] font-extrabold leading-none tracking-[-0.045em] tabular-nums text-[var(--ai-t1)]">
+          {score}
+        </b>
+        <i className="text-[10.5px] font-bold uppercase not-italic tracking-[0.06em] text-[var(--ai-t3)]">
+          out of 100
+        </i>
       </span>
     </span>
   );
@@ -656,71 +735,6 @@ function Pagination({
  * The × is the first of three dismiss entry points and appears on row hover so
  * it is not a permanent invitation to clear the thing you just asked for.
  */
-/**
- * One employer criterion: what was asked, whether the source showed it, and the
- * words that prove it.
- *
- * ── Why "not found" cannot read as a failure ─────────────────
- *
- * The prompt is explicit that a not-found item caps nothing, floors nothing and
- * is never grounds for rejection. The UI has to agree, so four things are
- * deliberately absent and one is deliberately present:
- *
- *   · NO RED, and no amber. Both statuses sit on the same neutral surface; the
- *     only colour on the row is the mint check on an evidenced item. Red is the
- *     drawer's danger colour — it appears on delete — and borrowing it here
- *     would tell a recruiter this is a problem to act on.
- *   · NO WARNING ICON. A triangle or an ✗ reads as "wrong". The absent mark is
- *     a hollow ring — the same glyph an unfilled checkbox uses, which says
- *     "nothing here" rather than "this failed".
- *   · NO "MISSING", "FAILS", "LACKS". The copy is "Not found in this CV" /
- *     "…in the interview" — a statement about the DOCUMENT, not the person. A
- *     CV that does not mention something is a fact about the CV.
- *   · NO COUNT. There is no "1 of 3 met" line anywhere, because a ratio is a
- *     score, and the moment it exists someone compares two candidates on it.
- *
- * And present: the item is rendered in the employer's own words, at full
- * weight, whichever status it has — an item is not demoted for being unproven.
- */
-function CriterionRow({
-  item,
-  status,
-  quote,
-  absentLabel,
-  children,
-}: {
-  item: string;
-  status: "evidenced" | "not_found";
-  quote: string;
-  /** "Not found in this CV" or "Not found in the interview". */
-  absentLabel: string;
-  /** Optional trailing control — the interview side puts its seek button here. */
-  children?: React.ReactNode;
-}) {
-  const evidenced = status === "evidenced";
-  return (
-    <div className="flex gap-2.5">
-      {evidenced ? (
-        <Check className="mt-[3px] size-[14px] shrink-0 text-remotiv-green" strokeWidth={2.6} />
-      ) : (
-        <span
-          aria-hidden
-          className="mt-[4px] size-[12px] shrink-0 rounded-full border-[1.5px] border-[var(--ai-t4)]"
-        />
-      )}
-      <div className="min-w-0 flex-1">
-        <p className="m-0 text-[13px] leading-snug text-[var(--ai-t1)]">{item}</p>
-        {evidenced && quote ? (
-          <EvidenceQuote quote={quote} />
-        ) : (
-          <p className="m-0 mt-0.5 text-[12px] leading-snug text-[var(--ai-t3)]">{absentLabel}</p>
-        )}
-        {children}
-      </div>
-    </div>
-  );
-}
-
 /**
  * The flag, as a MARK. It takes no props and it never will.
  *
@@ -880,15 +894,27 @@ const ADJ_BTN =
 const ADJ_BTN_PRIMARY = `${ADJ_BTN} bg-remotiv-purple text-white hover:bg-[#6d38ec]`;
 const ADJ_BTN_QUIET = `${ADJ_BTN} border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]`;
 
-/** Close, previous and next — the three square controls on the panel's dark hero. */
+/** Close, previous and next — the three square controls in the panel header. */
 const PANEL_ICON_BTN =
-  "flex size-8 shrink-0 items-center justify-center rounded-[10px] border border-white/[0.16] bg-white/[0.07] text-white/75 transition-colors hover:bg-white/[0.16] hover:text-white disabled:cursor-not-allowed disabled:opacity-30 disabled:hover:bg-white/[0.07] disabled:hover:text-white/75";
-
-const PANEL_TAB_BASE =
-  "rounded-[9px] px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors";
+  "grid size-[30px] shrink-0 place-items-center rounded-[11px] border border-[var(--ai-line)] text-[var(--ai-t3)] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)] disabled:cursor-not-allowed disabled:opacity-40 disabled:hover:border-[var(--ai-line)] disabled:hover:bg-transparent disabled:hover:text-[var(--ai-t3)]";
 
 /**
- * Human correction of an AI score.
+ * An underline tab, not a pill in a tray. The 12px of padding is all below the
+ * text so the 2px rule lands on the header's own bottom border.
+ */
+const PANEL_TAB_BASE =
+  "relative whitespace-nowrap pb-3 text-[13px] font-bold transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t-sm";
+
+/** The design system's secondary button, for the Review card's action column. */
+const REVIEW_BTN_SEC =
+  "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-2.5 text-[13.5px] font-bold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40";
+
+/** The design's `.card` — the white panel every block in every pane sits in. */
+const CARD_SURFACE =
+  "rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]";
+
+/**
+ * Human correction of an AI score — the editor half.
  *
  * Available on ANY row that has a score record, including failed and skipped
  * ones — "the model couldn't read this CV but I did, and it's a 78" is a real
@@ -897,34 +923,29 @@ const PANEL_TAB_BASE =
  * The note is optional but pushed hard in the copy: two numbers say the model
  * was wrong, only the note says why, and why is the part a readout can never
  * reconstruct after the fact.
+ *
+ * Mounted only while open, and its fields seed from `detail` in the useState
+ * initialisers. That is why there is no `editing` flag and no effect keeping
+ * the inputs in step with the row: closing unmounts, and the next open re-seeds
+ * from whatever is showing by then. The open/closed bit lives in the drawer
+ * because the button that flips it is in the score card, not here.
  */
-function ScoreAdjuster({
+function ScoreAdjustForm({
   detail,
   saving,
   onSave,
-  onClear,
-  local,
+  onClose,
 }: {
   detail: ApplicantScoreDetail;
   saving: boolean;
   onSave: (score: number, feedback: string) => void;
-  onClear: () => void;
-  /** False until hydration; see PageClock. */
-  local: boolean;
+  onClose: () => void;
 }) {
-  const [editing, setEditing] = useState(false);
-  const [value, setValue] = useState("");
-  const [note, setNote] = useState("");
+  // Seeded from whatever is showing now, so a small correction is a small edit
+  // rather than a retype.
+  const [value, setValue] = useState(String(detail.overall ?? detail.ai_overall ?? 50));
+  const [note, setNote] = useState(detail.human_feedback ?? "");
   const [error, setError] = useState<string | null>(null);
-
-  function begin() {
-    // Seeded from whatever is showing now, so a small correction is a small
-    // edit rather than a retype.
-    setValue(String(detail.overall ?? detail.ai_overall ?? 50));
-    setNote(detail.human_feedback ?? "");
-    setError(null);
-    setEditing(true);
-  }
 
   function commit() {
     const parsed = Number.parseInt(value, 10);
@@ -932,60 +953,12 @@ function ScoreAdjuster({
       setError("Enter a whole number from 0 to 100.");
       return;
     }
-    setEditing(false);
+    onClose();
     onSave(parsed, note);
   }
 
-  if (!editing) {
-    return (
-      <div className="mt-[22px] rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3.5">
-        {detail.adjusted ? (
-          <>
-            <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
-              Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "—"}
-              <span className="font-normal text-[var(--ai-t3)]">
-                {adjustmentByline(detail, local)}
-              </span>
-            </p>
-            {detail.human_feedback && (
-              <p className="m-0 mt-2 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[13px] italic leading-relaxed text-[var(--ai-t2)]">
-                {detail.human_feedback}
-              </p>
-            )}
-            <div className="mt-3 flex flex-wrap gap-2">
-              <button type="button" onClick={begin} disabled={saving} className={ADJ_BTN_QUIET}>
-                Edit adjustment
-              </button>
-              <button type="button" onClick={onClear} disabled={saving} className={ADJ_BTN_QUIET}>
-                Revert to AI score
-              </button>
-            </div>
-          </>
-        ) : (
-          <>
-            <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
-              Disagree with this score?
-            </p>
-            <p className="m-0 mt-1 text-xs leading-relaxed text-[var(--ai-t3)]">
-              Corrections are how we find out where the AI reads candidates too high or too low. The
-              AI&apos;s own score is always kept.
-            </p>
-            <button
-              type="button"
-              onClick={begin}
-              disabled={saving}
-              className={`${ADJ_BTN_PRIMARY} mt-3`}
-            >
-              Adjust score
-            </button>
-          </>
-        )}
-      </div>
-    );
-  }
-
   return (
-    <div className="mt-[22px] rounded-[13px] border border-remotiv-purple bg-[var(--ai-purple-tint)] px-4 py-3.5">
+    <div className="mx-6 mb-[22px] rounded-2xl bg-[var(--ai-purple-tint)] px-[18px] py-4">
       <DrawerLabel>Your score</DrawerLabel>
       <div className="mt-1.5 flex items-center gap-3">
         <input
@@ -1030,14 +1003,326 @@ function ScoreAdjuster({
         <button type="button" onClick={commit} disabled={saving} className={ADJ_BTN_PRIMARY}>
           {saving ? "Saving…" : "Save adjustment"}
         </button>
-        <button
-          type="button"
-          onClick={() => setEditing(false)}
-          disabled={saving}
-          className={ADJ_BTN_QUIET}
-        >
+        <button type="button" onClick={onClose} disabled={saving} className={ADJ_BTN_QUIET}>
           Cancel
         </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * The standing record of a human override: the note, and the two ways back out.
+ *
+ * Separate from the form because it is not a transient state. An adjusted score
+ * carries this line for as long as the adjustment stands, so it cannot live
+ * inside a component that only exists while the editor is open.
+ */
+function AdjustmentRecord({
+  detail,
+  saving,
+  onEdit,
+  onClear,
+  local,
+}: {
+  detail: ApplicantScoreDetail;
+  saving: boolean;
+  onEdit: () => void;
+  onClear: () => void;
+  /** False until hydration; see PageClock. */
+  local: boolean;
+}) {
+  return (
+    <div className="mx-6 mb-[22px] rounded-2xl bg-[var(--ai-inset)] px-[18px] py-4">
+      <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
+        Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "—"}
+        <span className="font-normal text-[var(--ai-t3)]">{adjustmentByline(detail, local)}</span>
+      </p>
+      {detail.human_feedback && (
+        <p className="m-0 mt-2 border-l-2 border-[var(--ai-line-strong)] pl-2.5 text-[13px] italic leading-relaxed text-[var(--ai-t2)]">
+          {detail.human_feedback}
+        </p>
+      )}
+      <div className="mt-3 flex flex-wrap gap-2">
+        <button type="button" onClick={onEdit} disabled={saving} className={ADJ_BTN_QUIET}>
+          Edit adjustment
+        </button>
+        <button type="button" onClick={onClear} disabled={saving} className={ADJ_BTN_QUIET}>
+          Revert to AI score
+        </button>
+      </div>
+    </div>
+  );
+}
+
+/**
+ * A section heading with a rule running to a right-aligned sub-line.
+ *
+ * The sub-line is optional, and where the design put an invented one — the
+ * dimensions' "Weighted to 87 · model v4.2" — this renders nothing rather than
+ * a plausible number.
+ */
+function ReviewSubhead({ title, meta }: { title: string; meta?: string }) {
+  return (
+    <div className="mb-[13px] flex items-center gap-3">
+      <h2 className="m-0 whitespace-nowrap font-heading text-[15px] font-bold tracking-[-0.025em] text-[var(--ai-t1)]">
+        {title}
+      </h2>
+      <span aria-hidden className="h-px flex-1 bg-[var(--ai-line)]" />
+      {meta && <span className="shrink-0 text-[11px] font-medium text-[var(--ai-t3)]">{meta}</span>}
+    </div>
+  );
+}
+
+/**
+ * A dimension's supporting CV span, shown open.
+ *
+ * The toggle in EvidenceQuote exists because the lists can run to a dozen
+ * quotes; a scorecard has at most four dimensions, and a bar with no quote
+ * under it is just an assertion. So this one renders expanded and is styled as
+ * a quotation rather than as a disclosure.
+ */
+function DimQuote({ quote }: { quote: string }) {
+  return (
+    <figure className="m-0 mt-3 overflow-hidden rounded-[14px] border border-[var(--ai-line)] bg-[var(--ai-surface)]">
+      <blockquote className="relative m-0 py-[13px] pl-[42px] pr-4 text-[13px] font-medium leading-[1.65] text-[var(--ai-t1)]">
+        <span
+          aria-hidden
+          className="absolute left-[15px] top-[11px] font-heading text-[30px] font-extrabold leading-none text-remotiv-purple opacity-30"
+        >
+          &ldquo;
+        </span>
+        {quote}
+      </blockquote>
+    </figure>
+  );
+}
+
+/**
+ * One of Evidence's four boxes: a tinted badge, a real count, and its rows.
+ *
+ * The count is the length of the array being rendered, or evidenced-over-total
+ * on the must-haves — see the Must-haves block for why a ratio is on screen at
+ * all, given CriterionRow used to argue against exactly that.
+ */
+function EvidenceList({
+  label,
+  badge,
+  dot,
+  count,
+  children,
+}: {
+  label: string;
+  badge: string;
+  dot: string;
+  count: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <div className={`${CARD_SURFACE} px-5 py-[18px]`}>
+      <h3 className="m-0 mb-3 flex items-center gap-2 text-[13px] font-bold">
+        <span
+          className={`inline-flex shrink-0 items-center gap-[5px] whitespace-nowrap rounded-full px-2 py-[3px] text-[10.5px] font-bold ${badge}`}
+        >
+          <span aria-hidden className={`size-[5px] rounded-full ${dot}`} />
+          {label}
+        </span>
+        <em className="rounded-full bg-[var(--ai-slate-tint)] px-[7px] py-0.5 text-[10.5px] font-bold not-italic text-[var(--ai-t3)]">
+          {count}
+        </em>
+      </h3>
+      {children}
+    </div>
+  );
+}
+
+const EVIDENCE_ICON = "mt-px grid size-4 shrink-0 place-items-center rounded-full";
+
+/**
+ * One row inside an Evidence box.
+ *
+ * Carries what survived CriterionRow, which this replaces: the item is
+ * rendered in the employer's or the model's own words at full weight, and an
+ * absent one is described as absent from the DOCUMENT rather than as a failing
+ * of the person. What did not survive is that component's refusal of a count
+ * and of a warning mark — both are the design's call, and both are now here.
+ * The unmet mark is amber, not the red the missing-requirements rows use: a
+ * must-have the CV did not mention is a gap to ask about, not a rejection.
+ */
+function EvidenceRow({
+  tone,
+  children,
+}: {
+  tone: "ok" | "warn" | "danger";
+  children: React.ReactNode;
+}) {
+  return (
+    <div className="flex gap-2.5 py-[7px] text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+      {tone === "ok" && (
+        <span
+          className={`${EVIDENCE_ICON} bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]`}
+          aria-hidden
+        >
+          <Check className="size-2.5" strokeWidth={2.4} />
+        </span>
+      )}
+      {tone === "warn" && (
+        <span
+          className={`${EVIDENCE_ICON} bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]`}
+          aria-hidden
+        >
+          <AlertTriangle className="size-2.5" strokeWidth={2.4} />
+        </span>
+      )}
+      {tone === "danger" && (
+        <span
+          className={`${EVIDENCE_ICON} bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
+          aria-hidden
+        >
+          <X className="size-[9px]" strokeWidth={2.6} />
+        </span>
+      )}
+      <div className="min-w-0 flex-1">{children}</div>
+    </div>
+  );
+}
+
+/**
+ * What an Evidence box says when its list is empty.
+ *
+ * All four boxes render on every scored card, so an empty one has to say which
+ * kind of empty it is. For three of them that is unambiguous and worth stating:
+ * the scorer runs strengths, missing_requirements and concerns through a
+ * normaliser that always yields an array, so an empty one is the model
+ * reporting it found none — never a field the card is too old to have. "No
+ * gaps found" is a finding, and the box disappearing said nothing.
+ *
+ * Must-haves is the exception and passes its own text, because an empty array
+ * there has two possible causes and only the job's current count separates
+ * them.
+ */
+function EvidenceEmpty({ children }: { children: React.ReactNode }) {
+  return <p className="m-0 py-[7px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">{children}</p>;
+}
+
+/**
+ * The Summary card's sub-line.
+ *
+ * Genuine, which is why it survived when the design's other sub-lines did not:
+ * the screening answers are frozen at apply time, and the scorer is handed them
+ * as context beside the CV text, so the count on the row is the count the model
+ * actually read.
+ */
+function summarySource(answers: number): string {
+  if (answers === 0) return "Generated from the CV";
+  return `Generated from CV + ${answers} screening answer${answers === 1 ? "" : "s"}`;
+}
+
+/**
+ * The Scored dimensions sub-line — how many of them the overall is an average
+ * of, which is the one thing about the set a reader cannot see by looking.
+ *
+ * NOT the design's "Weighted to 87 · model v4.2". The weights are not stored on
+ * the scorecard, and the model and date are already in the card's disclaimer.
+ */
+function dimensionsMeta(detail: ApplicantScoreDetail): string {
+  const total = detail.dimensions.length;
+  const counted = detail.dimensions.filter((d) => !d.unstated).length;
+  if (counted === total) return `All ${total} averaged into the overall`;
+  return `${counted} of ${total} averaged into the overall`;
+}
+
+/**
+ * The Evidence sub-line. Counts what the JOB names today, not what the card
+ * judged — the line describes the bar being measured against, and a card that
+ * predates a must-have should still say the bar exists. Omitted for a job that
+ * names none, where there is no bar to describe.
+ */
+function evidenceMeta(detail: ApplicantScoreDetail): string | undefined {
+  const n = detail.job_must_have_count;
+  if (n === 0) return undefined;
+  return `Against the job's ${n} named must-have${n === 1 ? "" : "s"}`;
+}
+
+/** The count pill on Must-haves met, which is three different things. */
+function mustHaveCount(detail: ApplicantScoreDetail): string {
+  if (detail.must_haves.length > 0) {
+    const met = detail.must_haves.filter((m) => m.status === "evidenced").length;
+    return `${met} of ${detail.must_haves.length}`;
+  }
+  // No "0 of N" for a card that predates the list: nothing was judged and
+  // failed, the question was never put.
+  return detail.job_must_have_count === 0 ? "None" : "—";
+}
+
+/**
+ * One dimension: its name, a bar, the score out of 100, the reasoning, and the
+ * CV span behind it.
+ *
+ * The design put a weight under each name. Cut — the job carries weight columns
+ * but the scorecard does not record which weights produced it, so today's
+ * numbers set beside an older score would misdescribe the figure above them.
+ */
+function ScoredDimension({ dimension: d }: { dimension: ScoreDimensionRow }) {
+  const label = DIMENSION_LABEL[d.dimension] ?? d.dimension;
+
+  /*
+   * A dimension the job stated nothing for shows NO number and NO bar.
+   *
+   * The model was still made to score it — all four are mandatory so scores
+   * stay comparable between jobs — but it judged the CV against an empty
+   * section, so the number is an invention. It is excluded from the overall
+   * (see applyCvWeights), and rendering it here would put a figure on screen
+   * that the headline score deliberately ignores. The reason is stated inline
+   * rather than in a tooltip: three bars where every other job shows four
+   * reads as a bug unless the fourth line says why.
+   */
+  if (d.unstated) {
+    return (
+      <div className="border-t border-[var(--ai-line-soft)] px-[22px] py-[18px] first:border-t-0">
+        <div className="flex items-baseline justify-between gap-4">
+          <h4 className="m-0 text-[13px] font-bold text-[var(--ai-t3)]">{label}</h4>
+          <span className="text-[12px] font-semibold text-[var(--ai-t3)]">Not scored</span>
+        </div>
+        <p className="m-0 mt-3 text-[12.5px] leading-[1.65] text-[var(--ai-t3)] min-[840px]:pl-[216px]">
+          This job lists no requirements, so there was nothing to judge the CV against. It is left
+          out of the overall score rather than guessed at.
+        </p>
+      </div>
+    );
+  }
+
+  const band = scoreBand(d.score);
+  return (
+    <div className="border-t border-[var(--ai-line-soft)] px-[22px] py-[18px] first:border-t-0">
+      <div className="grid grid-cols-[minmax(0,1fr)_auto] items-center gap-x-4 gap-y-2.5 min-[840px]:grid-cols-[200px_minmax(0,1fr)_auto]">
+        <h4 className="m-0 text-[13px] font-bold tracking-[-0.01em] text-[var(--ai-t1)]">
+          {label}
+        </h4>
+        {/* Below the breakpoint there is no room for a 200px name column, so
+            the track drops to a full-width row under the name/score pair
+            rather than being dropped altogether. */}
+        <span className="order-last col-span-2 block h-2 overflow-hidden rounded-full bg-[var(--ai-slate-tint)] min-[840px]:order-none min-[840px]:col-span-1">
+          <span
+            className="block h-full rounded-full"
+            style={{ width: `${d.score}%`, background: band.stroke }}
+          />
+        </span>
+        <span
+          className="min-w-[62px] text-right font-heading text-[25px] font-extrabold leading-none tracking-[-0.03em] tabular-nums"
+          style={{ color: band.ink }}
+        >
+          {d.score}
+          <small className="ml-px text-[12px] font-bold tracking-normal text-[var(--ai-t3)]">
+            /100
+          </small>
+        </span>
+      </div>
+      <div className="min-[840px]:pl-[216px]">
+        {d.reasoning && (
+          <p className="m-0 mt-3 text-[12.5px] leading-[1.65] text-[var(--ai-t2)]">{d.reasoning}</p>
+        )}
+        {d.quote && <DimQuote quote={d.quote} />}
       </div>
     </div>
   );
@@ -1153,6 +1438,17 @@ function ApplicantDrawer({
       ? bandKey(headerScore.overall)
       : null;
 
+  /**
+   * Whether the adjuster is open. Lives here rather than inside the form
+   * because the button that opens it is in the score card, and the form is
+   * mounted only while true so its inputs seed from `scoreDetail` on mount.
+   *
+   * Resets per applicant, which is correct: the drawer is keyed on the row id,
+   * so stepping to the next candidate cannot leave a half-typed override for
+   * the previous one on screen.
+   */
+  const [adjusting, setAdjusting] = useState(false);
+
   const location = [row.city, row.country].filter(Boolean).join(", ");
 
   /**
@@ -1197,32 +1493,35 @@ function ApplicantDrawer({
       aria-label={`${name} — applicant detail`}
       className="fixed right-0 top-0 z-[95] flex h-[var(--vh-full)] w-full max-w-[min(96%,1100px)] flex-col bg-[var(--ai-surface)] shadow-[-24px_0_70px_rgba(20,16,32,0.24)] outline-none"
     >
-      {/* Dark hero — every <p> here carries an explicit colour, because the
-          design system's global `p { color:#444 }` beats inherited white. */}
-      <div className="shrink-0 bg-[var(--ai-sidebar)] px-[22px] pb-5 pt-[22px]">
-        <div className="mb-[18px] flex items-start justify-between gap-3">
-          <div className="flex min-w-0 items-center gap-[13px]">
-            <span
-              className="flex size-[50px] shrink-0 items-center justify-center rounded-full text-base font-bold"
-              style={{ background: tint.bg, color: tint.fg }}
-            >
-              {initials(row.first_name, row.last_name, row.email)}
-            </span>
-            <div className="min-w-0">
-              <p className="m-0 truncate font-heading text-[19px] font-extrabold leading-[1.15] tracking-[-0.028em] text-white">
-                {name}
-              </p>
-              <p className="mt-1 truncate text-[12.5px] text-white/55">{row.email}</p>
-            </div>
-          </div>
-          <div className="flex shrink-0 items-center gap-2">
-            {/* Stepping through a shortlist without closing is most of why a
-                wide panel beats a modal. Hidden, not disabled, when the panel
-                was deep-linked to someone outside the current filters: there
-                is no sequence to step through, and a dead arrow says less than
-                no arrow. */}
+      {/* Panel header. White, per the design: everything above the body is one
+          block — the back row, the identity row, and the tabs — so the tabs'
+          underline lands on the header's own bottom border.
+
+          Gutter is 22px, not the design's 30px. The body has always been 22 and
+          a 30px header would set the avatar 8px left of everything under it. */}
+      <header className="shrink-0 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] pt-4">
+        {/* Back, not an X. Closing the panel IS returning to the list, and the
+            list is still behind it — an arrow says where you land, an X only
+            says something goes away. The X stays at the right for the reader
+            who reads it as a dismissable overlay; both call onClose. */}
+        <div className="mb-3.5 flex items-center justify-between gap-3">
+          <button
+            type="button"
+            onClick={onClose}
+            className="-ml-1.5 flex items-center gap-2 rounded-[11px] py-1.5 pl-1.5 pr-2.5 text-[12.5px] font-semibold text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+          >
+            <ChevronLeft className="size-4" strokeWidth={1.6} />
+            Back to applicants
+          </button>
+
+          {/* Stepping through a shortlist without closing is most of why a
+              wide panel beats a modal. Hidden, not disabled, when the panel
+              was deep-linked to someone outside the current filters: there
+              is no sequence to step through, and a dead arrow says less than
+              no arrow. */}
+          <div className="flex items-center gap-1.5">
             {position && (
-              <div className="flex items-center gap-1">
+              <>
                 <button
                   type="button"
                   onClick={() => onStep(-1)}
@@ -1230,9 +1529,9 @@ function ApplicantDrawer({
                   aria-label="Previous applicant"
                   className={PANEL_ICON_BTN}
                 >
-                  <ChevronLeft className="size-4" strokeWidth={2} />
+                  <ChevronLeft className="size-[14px]" strokeWidth={1.6} />
                 </button>
-                <span className="px-1 text-[11.5px] tabular-nums text-white/55">
+                <span className="px-1.5 text-[11.5px] font-semibold tabular-nums text-[var(--ai-t3)]">
                   {position.index + 1} of {position.total}
                 </span>
                 <button
@@ -1242,128 +1541,124 @@ function ApplicantDrawer({
                   aria-label="Next applicant"
                   className={PANEL_ICON_BTN}
                 >
-                  <ChevronRight className="size-4" strokeWidth={2} />
+                  <ChevronRight className="size-[14px]" strokeWidth={1.6} />
                 </button>
-              </div>
+              </>
             )}
-            <button type="button" onClick={onClose} aria-label="Close" className={PANEL_ICON_BTN}>
-              <X className="size-4" strokeWidth={2} />
-            </button>
-          </div>
-        </div>
-
-        {headerScore.status === "scored" && headerScore.overall != null ? (
-          <div className="flex items-center gap-4 rounded-2xl border border-white/[0.14] bg-white/[0.06] px-4 py-[15px]">
-            <DrawerScoreRing score={headerScore.overall} />
-            <div className="min-w-0">
-              <p className="m-0 text-[13px] font-bold text-white">
-                {headerScore.adjusted ? "Adjusted score" : "AI score"}
-                {/* Deliberately quiet, and deliberately below the verdict: the
-                    model's sentence is the considered answer, this is only
-                    which side of a threshold the number fell. The two can
-                    disagree — an 81 reads "Strong" here while the verdict may
-                    be cautious — and when they do, the sentence wins. */}
-                {band && (
-                  <span
-                    className={`ml-2 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${BAND_PILL[band]}`}
-                  >
-                    {BAND_LABEL[band]}
-                  </span>
-                )}
-                {/* NOT "completed": screening_score is the weighted share of
-                    thresholds MET (computeScreeningScore counts a.matched),
-                    so someone who answered everything but met nothing scores
-                    0%, not 100%. Labelled for what it measures, and tagged
-                    self-reported like the answers themselves. */}
-                {scoreDetail?.screening_score != null && (
-                  <span className="ml-2 font-normal text-white/55">
-                    Self-reported thresholds met: {scoreDetail.screening_score}%
-                  </span>
-                )}
-              </p>
-              {/* The verdict is the headline a recruiter reads first, so it
-                  sits directly under the score and above the confidence
-                  note. v1-v3 scorecards predate it and simply have none —
-                  the line is omitted rather than filled with a guess. */}
-              {scoreDetail?.verdict ? (
-                <p className="m-0 mt-1.5 text-[13.5px] font-semibold leading-snug text-white">
-                  {scoreDetail.verdict}
-                </p>
-              ) : null}
-              {/* When a human has overridden, the AI's own number stays on
-                  screen right beside theirs. Hiding it would leave nothing
-                  to calibrate against — the pair, and the gap between them,
-                  is the entire signal this feature exists to collect. */}
-              {headerScore.adjusted && headerScore.ai_overall != null ? (
-                <p className="m-0 mt-1.5 text-xs leading-relaxed text-white/55">
-                  <span className="font-semibold text-white/80">
-                    AI scored {headerScore.ai_overall}
-                  </span>
-                  {adjustmentByline(scoreDetail, clock.local)}
-                </p>
-              ) : (
-                <p className="m-0 mt-1 text-xs leading-relaxed text-white/55">
-                  {headerScore.confidence
-                    ? `${CONFIDENCE_LABEL[headerScore.confidence]} — based on how much the CV actually showed.`
-                    : "Scored against this job's stated requirements."}
-                </p>
-              )}
-            </div>
-          </div>
-        ) : (
-          /* Solid border for scoring-off, dashed for the rest — same
-             reasoning as PendingScore: dashed reads as "in progress", and
-             nothing is in progress on a job with scoring turned off. */
-          <div
-            className={`rounded-2xl border bg-white/[0.06] px-4 py-[15px] text-center ${
-              isScoringOff(headerScore) ? "border-white/[0.14]" : "border-dashed border-white/20"
-            }`}
-          >
-            <b className="mb-[3px] block text-[13px] text-white">
-              {drawerScoreHeading(headerScore)}
-            </b>
-            <span className="text-xs leading-relaxed text-white/50">
-              {headerScore.error ?? "The breakdown appears here once this CV has been scored."}
-            </span>
-          </div>
-        )}
-      </div>
-
-      {/* The flag banner sits above the tab strip, not inside a pane: it is
-          the reason the panel was opened, and a reader who lands on Profile
-          would never see it from behind a tab. */}
-      {/* The banner sits ABOVE "Applied to…" — it is the reason this drawer
-          was opened, so it cannot be below the metadata. */}
-      {showsWorthALook(row) && (
-        <div className="mb-3.5 rounded-[13px] border border-remotiv-purple/25 border-l-[3px] border-l-remotiv-purple bg-remotiv-purple/[0.05] px-3.5 py-3">
-          <p className="m-0 text-[10px] font-extrabold uppercase tracking-[0.14em] text-remotiv-purple">
-            Worth a look
-          </p>
-          <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
-            {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
-          </p>
-          <div className="mt-2.5 flex flex-wrap items-center gap-x-3 gap-y-1.5">
             <button
               type="button"
-              disabled={dismissing === row.id}
-              onClick={() => onDismissFlag(row.id)}
-              className="rounded-[9px] border border-remotiv-purple/40 bg-[var(--ai-surface)] px-3 py-[6px] text-[12px] font-semibold text-remotiv-purple transition-colors hover:bg-remotiv-purple/[0.08] disabled:opacity-40"
+              onClick={onClose}
+              aria-label="Close"
+              className={`${PANEL_ICON_BTN} ml-1.5`}
             >
-              {dismissing === row.id ? "Dismissing…" : "Dismiss"}
+              <X className="size-[14px]" strokeWidth={1.6} />
             </button>
-            {/* Says what dismissal MEANS. Without this a recruiter has to
-                guess whether they are silencing this person permanently. */}
-            <span className="text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-              Clears the flag. A materially better score later flags them again.
-            </span>
           </div>
         </div>
-      )}
 
-      {/* Control strip. The stage select used to sit mid-scroll, where the
-          one edit a recruiter makes most often scrolled away from them. */}
-      <div className="flex shrink-0 flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-surface)] px-[22px] py-3">
-        <div className="flex items-center gap-1 rounded-[11px] bg-[var(--ai-inset)] p-1">
+        <div className="flex items-center gap-[15px] pb-4">
+          <span
+            className="grid size-[54px] shrink-0 place-items-center rounded-full font-heading text-[18px] font-extrabold shadow-[0_0_0_3px_rgba(126,71,255,0.1)]"
+            style={{ background: tint.bg, color: tint.fg }}
+          >
+            {initials(row.first_name, row.last_name, row.email)}
+          </span>
+          <div className="min-w-0">
+            <h2 className="m-0 truncate font-heading text-[21px] font-extrabold leading-[1.15] tracking-[-0.03em] text-[var(--ai-t1)]">
+              {name}
+            </h2>
+            {/* Email, then whichever of location and applied date exist. The
+                separators are joined to their following item so a missing
+                location does not leave a dot floating. */}
+            <div className="mt-1 flex items-center gap-[9px] text-[12.5px] font-medium text-[var(--ai-t3)]">
+              <b className="truncate font-semibold text-[var(--ai-t2)]">{row.email}</b>
+              {location && (
+                <>
+                  <IdDot />
+                  <span className="whitespace-nowrap">{location}</span>
+                </>
+              )}
+              <IdDot />
+              {/* The absolute date, not the list's "40d ago". A relative age
+                  earns its place in a column being scanned; here it is the one
+                  date on the record and the reader may be about to quote it. */}
+              <span className="whitespace-nowrap">
+                Applied {fmtDay(row.created_at, clock.local)}
+              </span>
+            </div>
+          </div>
+
+          <div className="flex-1" />
+
+          {/* Mini ring only. The full card lives on Review, where the reader
+              has the breakdown in front of them; this keeps the number
+              itself on screen from every tab. Absent rather than a dashed
+              placeholder when unscored — Review carries that explanation. */}
+          {band && headerScore.overall != null && (
+            <>
+              <div className="flex shrink-0 items-center gap-[11px]">
+                <DrawerMiniRing score={headerScore.overall} />
+                <div>
+                  <span className="block text-[12.5px] font-bold leading-[1.25] text-[var(--ai-t1)]">
+                    {BAND_MATCH_LABEL[band]}
+                  </span>
+                  {/* The design's second line here is rank. Cut — nothing
+                      computes it — so the slot closes up, except when a human
+                      has overridden: then the number beside it is not the
+                      AI's and the header has to say so. */}
+                  {headerScore.adjusted && (
+                    <span className="mt-0.5 block text-[11px] font-semibold text-[var(--ai-t3)]">
+                      Adjusted
+                    </span>
+                  )}
+                </div>
+              </div>
+              <span aria-hidden className="h-9 w-px shrink-0 bg-[var(--ai-line)]" />
+            </>
+          )}
+
+          {/* The stage select used to sit mid-scroll, where the one edit a
+              recruiter makes most often scrolled away from them.
+
+              Neutral, where the design tints it blue. That blue is the mock's
+              one stage showing through — there is no stage colour system to
+              read it from, and painting all six blue would make the dot mean
+              nothing. Shape, size and the leading dot match the design. */}
+          <div className="flex shrink-0 items-center gap-2.5">
+            <label
+              htmlFor="applicant-stage"
+              className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]"
+            >
+              Stage
+            </label>
+            <div className="relative">
+              <span
+                aria-hidden
+                className="pointer-events-none absolute left-[13px] top-1/2 size-[7px] -translate-y-1/2 rounded-full bg-[var(--ai-t3)]"
+              />
+              <select
+                id="applicant-stage"
+                value={stage}
+                disabled={saving}
+                onChange={(e) => onStageChange(e.target.value as PipelineStage)}
+                className="cursor-pointer appearance-none rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] py-[9px] pl-[30px] pr-[34px] text-[13px] font-bold text-[var(--ai-t1)] transition-colors hover:border-[var(--ai-line-strong)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
+              >
+                {PIPELINE_STAGES.map((s) => (
+                  <option key={s} value={s}>
+                    {PIPELINE_STAGE_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+              <ChevronDown
+                aria-hidden
+                className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t1)] opacity-55"
+                strokeWidth={1.8}
+              />
+            </div>
+          </div>
+        </div>
+
+        <div className="flex gap-[26px]">
           {PANEL_TABS.map((t) => (
             <button
               key={t.key}
@@ -1372,7 +1667,7 @@ function ApplicantDrawer({
               aria-current={tab === t.key ? "page" : undefined}
               className={`${PANEL_TAB_BASE} ${
                 tab === t.key
-                  ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
+                  ? "text-[var(--ai-t1)] after:bg-[var(--ai-sidebar)]"
                   : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
               }`}
             >
@@ -1380,94 +1675,121 @@ function ApplicantDrawer({
             </button>
           ))}
         </div>
+      </header>
 
-        <div className="flex items-center gap-2.5">
-          <span className="text-[10.5px] font-bold uppercase tracking-[0.1em] text-[var(--ai-t3)]">
-            Stage
-          </span>
-          <select
-            value={stage}
-            disabled={saving}
-            onChange={(e) => onStageChange(e.target.value as PipelineStage)}
-            aria-label="Pipeline stage"
-            className="w-[196px] shrink-0 cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-3 pl-3.5 pr-[34px] text-sm font-bold text-[var(--ai-t1)] transition-colors hover:border-remotiv-purple focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
-          >
-            {PIPELINE_STAGES.map((s) => (
-              <option key={s} value={s}>
-                {PIPELINE_STAGE_LABELS[s]}
-              </option>
-            ))}
-          </select>
-        </div>
-      </div>
+      {/* Inset body, white cards on top — the design's `.pbody{background:var(--inset)}`.
+          The contrast is what makes each section read as a card; on white the
+          card borders were the only thing separating a section from the page.
 
-      {/* Light body. The panes UNMOUNT rather than hide: InterviewPanel fires
-          three fetches on mount, and a display:none pane would still pay for
-          all three on every open. */}
-      <div className="min-h-0 flex-1 overflow-y-auto px-[22px] pb-7 pt-[18px]">
-        {tab === "profile" && (
-          <div className="grid gap-x-9 min-[840px]:grid-cols-2 min-[840px]:items-start">
-            <div>
-              <p className="mb-3.5 text-[13px] leading-relaxed text-[var(--ai-t3)]">
-                Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
-                {applied.main}
+          The panes UNMOUNT rather than hide: InterviewPanel fires three fetches
+          on mount, and a display:none pane would still pay for all three on
+          every open. */}
+      <div className="min-h-0 flex-1 overflow-y-auto bg-[var(--ai-inset)] px-[22px] pb-7 pt-[18px]">
+        {/* Top of the body rather than inside a pane: it is the reason the panel
+            was opened, and a reader who lands on Profile would never see it from
+            behind a tab. Inside the scroller, so it shares the inset the design
+            gives it — above it, the lime would sit in a white band of its own. */}
+        {showsWorthALook(row) && (
+          <div className="mb-5 flex items-center gap-3 rounded-2xl bg-remotiv-lime px-4 py-[13px]">
+            <span className="grid size-[30px] shrink-0 place-items-center rounded-full bg-[rgba(20,16,32,0.1)] text-[#2F3A00]">
+              <Flag className="size-[15px]" strokeWidth={2} />
+            </span>
+            <div className="min-w-0">
+              <b className="block font-heading text-[13px] font-bold text-[#2F3A00]">
+                Worth a look
+              </b>
+              {/* The design uses a second, lighter olive here. Held to one lime
+                  ink at reduced opacity instead — see the banner's colour note
+                  in the report: three olives would be three untokened hexes. */}
+              <p className="m-0 mt-0.5 text-xs leading-[1.5] text-[#2F3A00]/70">
+                {row.shortlist.reason?.trim() || "Met your auto-shortlist mark."}
               </p>
+            </div>
+            {/* Icon-only, per the design. The sentence that used to sit beside a
+                text button — that dismissing clears the flag rather than hiding
+                the person, and a materially better score re-flags them — has
+                nowhere to go in this layout, so it becomes the button's title. */}
+            <button
+              type="button"
+              disabled={dismissing === row.id}
+              onClick={() => onDismissFlag(row.id)}
+              aria-label="Dismiss flag"
+              title="Clears the flag. A materially better score later flags them again."
+              className="ml-auto grid size-[26px] shrink-0 place-items-center rounded-[9px] text-[#2F3A00]/70 transition-colors hover:bg-[rgba(20,16,32,0.1)] hover:text-[#2F3A00] disabled:opacity-40"
+            >
+              <X className="size-[13px]" strokeWidth={1.8} />
+            </button>
+          </div>
+        )}
 
-              <div className="mb-[22px] flex gap-[9px]">
-                {/* A real anchor, not window.open from an async handler — Safari
-                    blocks the latter. The route signs and 302-redirects. */}
-                <a
-                  href={`/api/cv/company-application/${row.id}`}
-                  target="_blank"
-                  rel="noopener noreferrer"
-                  aria-disabled={!row.has_cv}
-                  onClick={(e) => {
-                    if (!row.has_cv) e.preventDefault();
-                  }}
-                  className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
-                    row.has_cv
-                      ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
-                      : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
-                  }`}
-                >
-                  <File className="size-[15px]" strokeWidth={1.9} />
-                  {cvLabel(row)}
-                </a>
-                {/* Opens the composer rather than handing off to the OS mail
-                    client. A mailto: sends from the recruiter's own address, which
-                    is the one thing the identity block exists to prevent — and it
-                    leaves no record on the applicant. */}
-                <button
-                  type="button"
-                  onClick={onEmail}
-                  className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
-                >
-                  <Mail className="size-[15px]" strokeWidth={1.9} />
-                  Email
-                </button>
-              </div>
-
-              {/* Says WHY the button is dead, rather than leaving a greyed control
-                  to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
-              {row.cv_expired && (
-                <p className="mb-[22px] -mt-[14px] text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
-                  CVs are deleted 24 months after the application. Everything else on this applicant
-                  is unaffected.
+        {tab === "profile" && (
+          /* The design's `.two`: a 1.32fr/1fr grid of `.stack` columns, with
+             the same 20px between cards in both directions. */
+          <div className="grid gap-5 min-[840px]:grid-cols-[minmax(0,1.32fr)_minmax(0,1fr)] min-[840px]:items-start">
+            <div className="flex flex-col gap-5">
+              <PaneCard title="Application">
+                <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
+                  Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
+                  {applied.main}
                 </p>
-              )}
+
+                {/* The design's `.acts`: the actions sit under a hairline rather
+                    than floating below the fact they act on. */}
+                <div className="mt-4 flex gap-[9px] border-t border-[var(--ai-line-soft)] pt-4">
+                  {/* A real anchor, not window.open from an async handler — Safari
+                      blocks the latter. The route signs and 302-redirects. */}
+                  <a
+                    href={`/api/cv/company-application/${row.id}`}
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    aria-disabled={!row.has_cv}
+                    onClick={(e) => {
+                      if (!row.has_cv) e.preventDefault();
+                    }}
+                    className={`flex flex-1 items-center justify-center gap-[7px] rounded-xl px-3 py-[11px] text-[13px] font-bold transition-colors ${
+                      row.has_cv
+                        ? "bg-remotiv-purple text-white shadow-[0_6px_18px_rgba(126,71,255,0.3)] hover:bg-[var(--ai-purple-hover)]"
+                        : "cursor-not-allowed bg-[var(--ai-inset)] text-[var(--ai-t4)]"
+                    }`}
+                  >
+                    <File className="size-[15px]" strokeWidth={1.9} />
+                    {cvLabel(row)}
+                  </a>
+                  {/* Opens the composer rather than handing off to the OS mail
+                      client. A mailto: sends from the recruiter's own address, which
+                      is the one thing the identity block exists to prevent — and it
+                      leaves no record on the applicant. */}
+                  <button
+                    type="button"
+                    onClick={onEmail}
+                    className="flex flex-1 items-center justify-center gap-[7px] rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3 py-[11px] text-[13px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
+                  >
+                    <Mail className="size-[15px]" strokeWidth={1.9} />
+                    Email
+                  </button>
+                </div>
+
+                {/* Says WHY the button is dead, rather than leaving a greyed control
+                    to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
+                {row.cv_expired && (
+                  <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+                    CVs are deleted 24 months after the application. Everything else on this
+                    applicant is unaffected.
+                  </p>
+                )}
+              </PaneCard>
 
               {row.screening_answers.length > 0 && (
-                <>
-                  <DrawerLabel>Screening answers</DrawerLabel>
+                <PaneCard title="Screening questions">
                   {/* Provenance stated ONCE here rather than repeated on every
-                      pill. The pills then stay short enough to sit inline beside
-                      the answer, and this line can say the thing a pill never
-                      could — that nobody verified any of it. */}
+                    pill. The pills then stay short enough to sit inline beside
+                    the answer, and this line can say the thing a pill never
+                    could — that nobody verified any of it. */}
                   <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
                     Answered by the candidate at apply time and checked against the thresholds you
                     set. Self-reported — not verified by Remotiv.
                   </p>
-                  <div className="mb-[22px] flex flex-col gap-[9px]">
+                  <div className="flex flex-col gap-[9px]">
                     {row.screening_answers.map((a) => (
                       <div
                         key={a.question_id}
@@ -1476,9 +1798,9 @@ function ApplicantDrawer({
                         <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs leading-snug text-[var(--ai-t3)]">
                           {a.question}
                           {/* Sits on the question, not the answer: "required" is
-                              a property of what the employer asked, and an
-                              unmatched essential is what turns a below-threshold
-                              answer into a listed missing requirement. */}
+                            a property of what the employer asked, and an
+                            unmatched essential is what turns a below-threshold
+                            answer into a listed missing requirement. */}
                           {a.essential && (
                             <span className="shrink-0 rounded-full bg-[var(--ai-purple-tint)] px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
                               Essential
@@ -1488,22 +1810,22 @@ function ApplicantDrawer({
                         <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
                           {a.answer_label || a.answer || "—"}
                           {/* The snapshot's own `matched` flag, scored at apply
-                              time — never re-derived here.
+                            time — never re-derived here.
 
-                              Deliberately NOT green. A mint success pill reads as
-                              "Remotiv verified this", and nobody did: it is the
-                              candidate's own number compared to the employer's
-                              threshold. Neutral slate for met, muted amber for
-                              below — distinguishable, but neither endorses.
+                            Deliberately NOT green. A mint success pill reads as
+                            "Remotiv verified this", and nobody did: it is the
+                            candidate's own number compared to the employer's
+                            threshold. Neutral slate for met, muted amber for
+                            below — distinguishable, but neither endorses.
 
-                              NO pill at all when `scored` is false: the employer
-                              asked for the number without setting a threshold, so
-                              there was nothing to pass or fail. `matched` is false
-                              on those rows and would render "Below threshold",
-                              which is not a weaker claim than the truth — it is a
-                              different and wrong one. Absent on every snapshot
-                              written before the mode existed, so `!== false` keeps
-                              those rendering exactly as they always did. */}
+                            NO pill at all when `scored` is false: the employer
+                            asked for the number without setting a threshold, so
+                            there was nothing to pass or fail. `matched` is false
+                            on those rows and would render "Below threshold",
+                            which is not a weaker claim than the truth — it is a
+                            different and wrong one. Absent on every snapshot
+                            written before the mode existed, so `!== false` keeps
+                            those rendering exactly as they always did. */}
                           {a.scored !== false && (
                             <span
                               className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
@@ -1519,18 +1841,18 @@ function ApplicantDrawer({
                       </div>
                     ))}
                   </div>
-                </>
+                </PaneCard>
               )}
             </div>
 
-            <div>
-              {/* Each row is conditional, so `last:border-b-0` lands on whichever
-                  row actually renders last — a `{cond && …}` that resolves false
-                  produces no DOM node, so :last-child stays correct. */}
+            <div className="flex flex-col gap-5">
               {hasDetails && (
-                <>
-                  <DrawerLabel>Details</DrawerLabel>
-                  <div className="mb-[22px] flex flex-col">
+                <PaneCard title="Details">
+                  {/* Each row is conditional, so `last:border-b-0` lands on
+                      whichever row actually renders last — a `{cond && …}` that
+                      resolves false produces no DOM node, so :last-child stays
+                      correct. */}
+                  <div className="flex flex-col">
                     {location && <DetailRow label="Location" value={location} />}
                     {experienceText && <DetailRow label="Experience" value={experienceText} />}
                     {row.notice_period && (
@@ -1555,72 +1877,72 @@ function ApplicantDrawer({
                       </div>
                     )}
                   </div>
-                </>
+                </PaneCard>
               )}
 
-              <DrawerLabel>Stage history</DrawerLabel>
-              <div className="flex flex-col gap-[14px]">
-                {history.map((h) => {
-                  const when = fmtApplied(h.created_at, clock);
-                  // The seeded first entry has no from_stage — it reads as plain
-                  // "Applied" rather than an arrow from nowhere.
-                  const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
-                  return (
-                    <div key={h.id} className="relative flex items-start gap-3">
-                      <span
-                        className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
-                      />
-                      <div className="min-w-0">
-                        <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                          {h.from_stage
-                            ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
-                            : PIPELINE_STAGE_LABELS[h.to_stage]}
-                        </p>
-                        {h.note && (
-                          <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
-                            {h.note}
+              <PaneCard title="Stage history">
+                <div className="flex flex-col gap-[14px]">
+                  {history.map((h) => {
+                    const when = fmtApplied(h.created_at, clock);
+                    // The seeded first entry has no from_stage — it reads as plain
+                    // "Applied" rather than an arrow from nowhere.
+                    const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
+                    return (
+                      <div key={h.id} className="relative flex items-start gap-3">
+                        <span
+                          className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_1px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
+                        />
+                        <div className="min-w-0">
+                          <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                            {h.from_stage
+                              ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
+                              : PIPELINE_STAGE_LABELS[h.to_stage]}
                           </p>
-                        )}
+                          {h.note && (
+                            <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
+                              {h.note}
+                            </p>
+                          )}
+                          <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
+                            {meta || when.sub}
+                          </small>
+                        </div>
+                      </div>
+                    );
+                  })}
+
+                  {/* Falls back to the application itself: rows created before the
+                      history table existed have nothing seeded. */}
+                  {historyFailed && (
+                    <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
+                      Couldn't load this applicant's activity just now — it hasn't been lost. Close
+                      the panel and reopen it to try again.
+                    </p>
+                  )}
+                  {!historyLoading && !historyFailed && history.length === 0 && (
+                    <div className="relative flex items-start gap-3">
+                      <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_1px_rgba(20,16,32,0.1)]" />
+                      <div>
+                        <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+                          Applied
+                        </p>
                         <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                          {meta || when.sub}
+                          {applied.main} · {applied.sub}
                         </small>
                       </div>
                     </div>
-                  );
-                })}
+                  )}
 
-                {/* Falls back to the application itself: rows created before the
-                    history table existed have nothing seeded. */}
-                {historyFailed && (
-                  <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
-                    Couldn't load this applicant's activity just now — it hasn't been lost. Close
-                    the panel and reopen it to try again.
-                  </p>
-                )}
-                {!historyLoading && !historyFailed && history.length === 0 && (
-                  <div className="relative flex items-start gap-3">
-                    <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_3px_var(--ai-surface),0_0_0_4.5px_rgba(20,16,32,0.1)]" />
-                    <div>
-                      <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                        Applied
-                      </p>
-                      <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                        {applied.main} · {applied.sub}
-                      </small>
-                    </div>
-                  </div>
-                )}
+                  {historyLoading && history.length === 0 && (
+                    <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+                  )}
+                </div>
+              </PaneCard>
 
-                {historyLoading && history.length === 0 && (
-                  <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
-                )}
-              </div>
-
-              {/* Danger, last and visually separated — same placement and weight
-                  as the jobs drawer's. Opens a confirm rather than deleting on
-                  click; this is irreversible and takes the CV with it. */}
-              <div className="mt-7 border-t border-[var(--ai-line)] pt-5">
-                <DrawerLabel>Danger</DrawerLabel>
+              {/* Danger, last — same placement and weight as the jobs drawer's.
+                  Opens a confirm rather than deleting on click; this is
+                  irreversible and takes the CV with it. */}
+              <PaneCard title="Danger">
                 <button
                   type="button"
                   onClick={onDelete}
@@ -1633,194 +1955,328 @@ function ApplicantDrawer({
                   Permanently removes this applicant, their CV file, their AI scorecard and their
                   pipeline history. This cannot be undone.
                 </p>
-              </div>
+              </PaneCard>
             </div>
           </div>
         )}
 
         {tab === "review" && (
           <>
-            <div className="grid gap-x-9 min-[840px]:grid-cols-2 min-[840px]:items-start">
-              <div>
-                {scoreDetail && scoreDetail.status === "scored" && (
-                  <>
-                    {scoreDetail.summary && (
-                      <>
-                        <DrawerLabel>Summary</DrawerLabel>
-                        <p className="mb-[22px] text-[13px] leading-relaxed text-[var(--ai-t2)]">
-                          {scoreDetail.summary}
-                        </p>
-                      </>
+            {/* The score card. It leads Review because it is the answer the
+                rest of the tab is evidence for — the ring, the verdict, and
+                the terms under which the number was produced. */}
+            <div className="mb-7 rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
+              {headerScore.status === "scored" && headerScore.overall != null ? (
+                <div className="grid items-center gap-[30px] px-[26px] py-6 min-[840px]:grid-cols-[auto_minmax(0,1fr)_auto]">
+                  <div className="flex flex-col items-center gap-[11px]">
+                    <ReviewScoreRing score={headerScore.overall} />
+                    {/* Subordinate to the verdict beside it: the model's
+                        sentence is the considered answer, this is only which
+                        side of a threshold the number fell. When the two
+                        disagree — an 81 reads "Strong" while the verdict is
+                        cautious — the sentence wins. */}
+                    {band && (
+                      <span
+                        className={`whitespace-nowrap rounded-full px-[11px] py-1 text-[10.5px] font-bold uppercase tracking-[0.06em] ${BAND_PILL[band]}`}
+                      >
+                        {BAND_LABEL[band]}
+                      </span>
+                    )}
+                  </div>
+
+                  <div className="min-w-0">
+                    {/* v1-v3 scorecards predate the verdict and simply have
+                        none — the line is omitted rather than guessed at. */}
+                    {scoreDetail?.verdict ? (
+                      <h2 className="m-0 font-heading text-[19px] font-extrabold leading-[1.25] tracking-[-0.03em] text-[var(--ai-t1)]">
+                        {scoreDetail.verdict}
+                      </h2>
+                    ) : null}
+
+                    <div className="mt-[9px] flex items-start gap-[9px] text-[12.5px] leading-[1.55] text-[var(--ai-t2)]">
+                      {headerScore.confidence && (
+                        <span
+                          className={`mt-px inline-flex shrink-0 items-center gap-[5px] rounded-full px-[9px] py-[3px] text-[10.5px] font-bold ${CONFIDENCE_BADGE[headerScore.confidence]?.pill ?? ""}`}
+                        >
+                          <span
+                            className={`size-[5px] rounded-full ${CONFIDENCE_BADGE[headerScore.confidence]?.dot ?? ""}`}
+                          />
+                          {CONFIDENCE_LABEL[headerScore.confidence]}
+                        </span>
+                      )}
+                      <span>
+                        {headerScore.confidence
+                          ? "Based on how much the CV actually showed."
+                          : "Scored against this job's stated requirements."}
+                        {/* NOT "completed": screening_score is the weighted
+                            share of thresholds MET (computeScreeningScore
+                            counts a.matched), so someone who answered
+                            everything but met nothing scores 0%, not 100%. */}
+                        {scoreDetail?.screening_score != null && (
+                          <> Self-reported thresholds met: {scoreDetail.screening_score}%.</>
+                        )}
+                      </span>
+                    </div>
+
+                    {/* When a human has overridden, the AI's own number stays
+                        on screen beside theirs. Hiding it would leave nothing
+                        to calibrate against — the pair, and the gap between
+                        them, is the whole signal this feature collects. */}
+                    {headerScore.adjusted && headerScore.ai_overall != null && (
+                      <p className="m-0 mt-[9px] text-[12.5px] leading-[1.55] text-[var(--ai-t2)]">
+                        <span className="font-semibold text-[var(--ai-t1)]">
+                          AI scored {headerScore.ai_overall}
+                        </span>
+                        {adjustmentByline(scoreDetail, clock.local)}
+                      </p>
                     )}
 
-                    {scoreDetail.dimensions.length > 0 && (
+                    <p className="m-0 mt-[11px] max-w-[520px] border-t border-[var(--ai-line-soft)] pt-[11px] text-[11px] leading-[1.6] text-[var(--ai-t3)]">
+                      Scored from written application text only. Remotiv AI does not analyse face,
+                      voice or accent, and the score is advisory — a person decides.
+                      {scoreProvenance(scoreDetail, clock.local)}
+                    </p>
+                  </div>
+
+                  <div className="flex flex-col items-stretch gap-2">
+                    {/* Re-score is omitted when stale: the staleness banner
+                        further down carries the same action, and that is the
+                        one a reader should reach for — it says why re-scoring
+                        matters. Adjust is never omitted. */}
+                    {canRescore && !scoreDetail?.stale && (
                       <>
-                        <DrawerLabel>Score breakdown</DrawerLabel>
-                        <div className="mb-[22px] flex flex-col gap-3">
-                          {scoreDetail.dimensions.map((d) => {
-                            const label = DIMENSION_LABEL[d.dimension] ?? d.dimension;
-
-                            /*
-                             * A dimension the job stated nothing for shows NO number
-                             * and NO bar.
-                             *
-                             * The model was still made to score it — all four are
-                             * mandatory so scores stay comparable between jobs — but
-                             * it judged the CV against an empty section, so the
-                             * number is an invention. It is excluded from the overall
-                             * (see applyCvWeights), and rendering it here would put a
-                             * figure on screen that the headline score deliberately
-                             * ignores. The reason is stated inline rather than in a
-                             * tooltip: three bars where every other job shows four
-                             * reads as a bug unless the fourth line says why.
-                             */
-                            if (d.unstated) {
-                              return (
-                                <div key={d.dimension}>
-                                  <div className="flex items-baseline justify-between gap-3">
-                                    <span className="text-[13px] font-bold text-[var(--ai-t3)]">
-                                      {label}
-                                    </span>
-                                    <span className="text-[12px] font-semibold text-[var(--ai-t3)]">
-                                      Not scored
-                                    </span>
-                                  </div>
-                                  <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
-                                    This job lists no requirements, so there was nothing to judge
-                                    the CV against. It is left out of the overall score rather than
-                                    guessed at.
-                                  </p>
-                                </div>
-                              );
-                            }
-
-                            const band = scoreBand(d.score);
-                            return (
-                              <div key={d.dimension}>
-                                <div className="flex items-baseline justify-between gap-3">
-                                  <span className="text-[13px] font-bold text-[var(--ai-t1)]">
-                                    {label}
-                                  </span>
-                                  <span
-                                    className="font-heading text-[13px] font-extrabold tabular-nums"
-                                    style={{ color: band.ink }}
-                                  >
-                                    {d.score}
-                                  </span>
-                                </div>
-                                <div className="mt-1.5 h-[5px] overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.07)]">
-                                  <div
-                                    className="h-full rounded-[3px]"
-                                    style={{
-                                      width: `${d.score}%`,
-                                      background: band.stroke,
-                                    }}
-                                  />
-                                </div>
-                                {d.reasoning && (
-                                  <p className="m-0 mt-1.5 text-[12px] leading-snug text-[var(--ai-t3)]">
-                                    {d.reasoning}
-                                  </p>
-                                )}
-                                {d.quote && <EvidenceQuote quote={d.quote} />}
-                              </div>
-                            );
-                          })}
-                        </div>
+                        <button
+                          type="button"
+                          onClick={onRescore}
+                          disabled={rescoring}
+                          className={REVIEW_BTN_SEC}
+                        >
+                          <RotateCcw className="size-[14px]" strokeWidth={2} />
+                          {rescoring ? "Queueing…" : "Re-score"}
+                        </button>
+                        {/* The cost stays visible rather than becoming a
+                            tooltip — it is money, and a tooltip is invisible
+                            on a touch screen. */}
+                        <span className="text-center text-[11px] leading-[1.5] text-[var(--ai-t3)]">
+                          About two cents
+                        </span>
                       </>
                     )}
-                  </>
-                )}
-              </div>
-
-              <div>
-                {scoreDetail && scoreDetail.status === "scored" && (
-                  <>
-                    {scoreDetail.strengths.length > 0 && (
-                      <>
-                        <DrawerLabel>Strengths</DrawerLabel>
-                        <div className="mb-[22px] flex flex-col gap-2.5">
-                          {/* Each strength carries its own quote — no pairing by
-                              position, which is what misattributed quotes in v1. */}
-                          {scoreDetail.strengths.map((str) => (
-                            <div key={str.point}>
-                              <p className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]">
-                                <Check
-                                  className="mt-px size-3.5 shrink-0 text-remotiv-green"
-                                  strokeWidth={2.6}
-                                />
-                                {str.point}
-                              </p>
-                              {str.quote && <EvidenceQuote quote={str.quote} />}
-                            </div>
-                          ))}
-                        </div>
-                      </>
+                    {scoreDetail && !adjusting && (
+                      <button
+                        type="button"
+                        onClick={() => setAdjusting(true)}
+                        disabled={scoreSaving}
+                        className={REVIEW_BTN_SEC}
+                      >
+                        {scoreDetail.adjusted ? "Edit adjustment" : "Adjust score"}
+                      </button>
                     )}
+                  </div>
+                </div>
+              ) : (
+                /* Solid border for scoring-off, dashed for the rest — same
+                   reasoning as PendingScore: dashed reads as "in progress",
+                   and nothing is in progress on a job with scoring off. */
+                <div
+                  className={`m-px rounded-[19px] border px-[26px] py-7 text-center ${
+                    isScoringOff(headerScore)
+                      ? "border-transparent"
+                      : "border-dashed border-[var(--ai-line-strong)]"
+                  }`}
+                >
+                  <b className="mb-[3px] block text-[13px] text-[var(--ai-t1)]">
+                    {drawerScoreHeading(headerScore)}
+                  </b>
+                  <span className="text-xs leading-relaxed text-[var(--ai-t3)]">
+                    {headerScore.error ??
+                      "The breakdown appears here once this CV has been scored."}
+                  </span>
+                  {/* These rows get no ring and so no action column, but the
+                      judgement is still available to them — see
+                      ScoreAdjustForm. Without this the failed and skipped
+                      cards would have no way to reach the adjuster at all. */}
+                  {scoreDetail && !adjusting && (
+                    <button
+                      type="button"
+                      onClick={() => setAdjusting(true)}
+                      disabled={scoreSaving}
+                      className={`${ADJ_BTN_QUIET} mt-3.5`}
+                    >
+                      {scoreDetail.adjusted ? "Edit adjustment" : "Score it yourself"}
+                    </button>
+                  )}
+                </div>
+              )}
 
-                    {/* Sits ABOVE missing requirements: it is the employer's own
-                        checklist, and reading "here is what you asked about" before
-                        "here is what the CV did not cover" is the order a recruiter
-                        thinks in. Renders nothing at all when the list is empty. */}
-                    {scoreDetail.must_haves.length > 0 && (
-                      <>
-                        <DrawerLabel>Your must-haves</DrawerLabel>
-                        <div className="mb-[22px] flex flex-col gap-2.5">
-                          {scoreDetail.must_haves.map((mh) => (
-                            <CriterionRow
-                              key={mh.item}
-                              item={mh.item}
-                              status={mh.status}
-                              quote={mh.quote}
-                              absentLabel="Not found in this CV"
-                            />
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {scoreDetail.missing_requirements.length > 0 && (
-                      <>
-                        <DrawerLabel>Missing requirements</DrawerLabel>
-                        <div className="mb-[22px] flex flex-col gap-2">
-                          {scoreDetail.missing_requirements.map((m) => (
-                            <p
-                              key={m}
-                              className="m-0 flex gap-2 text-[13px] leading-snug text-[var(--ai-t2)]"
-                            >
-                              <span
-                                aria-hidden
-                                className="mt-[7px] h-px w-2.5 shrink-0 bg-[var(--ai-t4)]"
-                              />
-                              {m}
-                            </p>
-                          ))}
-                        </div>
-                      </>
-                    )}
-
-                    {scoreDetail.concerns.length > 0 && (
-                      <>
-                        <DrawerLabel>Risks / points to verify</DrawerLabel>
-                        <div className="mb-[22px] flex flex-col gap-2">
-                          {scoreDetail.concerns.map((c) => (
-                            <p key={c} className="m-0 text-[13px] leading-snug text-[var(--ai-t2)]">
-                              {c}
-                            </p>
-                          ))}
-                        </div>
-                      </>
-                    )}
-                  </>
-                )}
-              </div>
+              {/* The adjuster lives in the card the button that opens it sits
+                  in, not in a block of its own at the foot of the tab. The
+                  number being corrected and the field correcting it are one
+                  thought, and a reviewer should not have to scroll past the
+                  whole breakdown to find the form they just asked for. */}
+              {scoreDetail && adjusting && (
+                <ScoreAdjustForm
+                  detail={scoreDetail}
+                  saving={scoreSaving}
+                  onSave={onAdjustScore}
+                  onClose={() => setAdjusting(false)}
+                />
+              )}
+              {scoreDetail?.adjusted && !adjusting && (
+                <AdjustmentRecord
+                  detail={scoreDetail}
+                  saving={scoreSaving}
+                  onEdit={() => setAdjusting(true)}
+                  onClear={onClearAdjustment}
+                  local={clock.local}
+                />
+              )}
             </div>
 
-            {/* Staleness + re-score, ABOVE the adjuster: if the card was judged
-                against criteria that have since changed, that has to be known
-                before anyone reads the breakdown or corrects the number. The
-                action sits in the banner rather than in a menu because the flag
-                and its remedy are the same thought. */}
+            {scoreDetail?.status === "scored" && (
+              <>
+                {scoreDetail.summary && (
+                  <div className={`${CARD_SURFACE} mb-7 px-[22px] py-5`}>
+                    <div className="mb-3.5 flex items-center justify-between gap-4">
+                      <h3 className="m-0 whitespace-nowrap font-heading text-[15px] font-bold tracking-[-0.02em] text-[var(--ai-t1)]">
+                        Summary
+                      </h3>
+                      {/* Real, unlike most of the design's sub-lines. The
+                          answers are frozen at apply time and the scorer is
+                          handed them as context alongside the CV, so the count
+                          on the row is the count the model read. */}
+                      <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">
+                        {summarySource(row.screening_answers.length)}
+                      </span>
+                    </div>
+                    <p className="m-0 text-[13px] leading-[1.72] text-[var(--ai-t2)]">
+                      {scoreDetail.summary}
+                    </p>
+                  </div>
+                )}
+
+                {scoreDetail.dimensions.length > 0 && (
+                  <div className="mb-7">
+                    <ReviewSubhead title="Scored dimensions" meta={dimensionsMeta(scoreDetail)} />
+                    <div className={`${CARD_SURFACE} py-1`}>
+                      {scoreDetail.dimensions.map((d) => (
+                        <ScoredDimension key={d.dimension} dimension={d} />
+                      ))}
+                    </div>
+                  </div>
+                )}
+
+                <div className="mb-7">
+                  <ReviewSubhead title="Evidence" meta={evidenceMeta(scoreDetail)} />
+                  {/* All four boxes, always. An absent box used to mean "the
+                      model found none", which is a finding, and it read as
+                      missing UI — worst on the strongest candidates, where
+                      Missing requirements and Risks are empty precisely
+                      because there is nothing wrong. */}
+                  <div className="grid gap-4 min-[840px]:grid-cols-2">
+                    <EvidenceList
+                      label="Strengths"
+                      badge="bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]"
+                      dot="bg-remotiv-green"
+                      count={String(scoreDetail.strengths.length)}
+                    >
+                      {/* Each strength carries its own quote — no pairing
+                          by position, which is what misattributed quotes
+                          in v1. The quote stays behind its toggle, unlike
+                          the dimensions': a strong card runs to eight of
+                          these, and the design's supporting sentence is
+                          prose it wrote where ours is a verbatim CV span
+                          that would read as prose if set inline. */}
+                      {scoreDetail.strengths.map((str) => (
+                        <EvidenceRow key={str.point} tone="ok">
+                          {str.point}
+                          {str.quote && <EvidenceQuote quote={str.quote} />}
+                        </EvidenceRow>
+                      ))}
+                      {scoreDetail.strengths.length === 0 && (
+                        <EvidenceEmpty>
+                          Nothing in the CV was evidenced strongly enough to quote.
+                        </EvidenceEmpty>
+                      )}
+                    </EvidenceList>
+
+                    <EvidenceList
+                      label="Must-haves met"
+                      badge="bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]"
+                      dot="bg-remotiv-purple"
+                      count={mustHaveCount(scoreDetail)}
+                    >
+                      {scoreDetail.must_haves.map((mh) => (
+                        <EvidenceRow key={mh.item} tone={mh.status === "evidenced" ? "ok" : "warn"}>
+                          {mh.item}
+                          {mh.status === "not_found" && (
+                            <>
+                              {" — "}
+                              <b className="font-bold text-[var(--ai-t1)]">not evidenced</b>
+                            </>
+                          )}
+                          {mh.status === "evidenced" && mh.quote && (
+                            <EvidenceQuote quote={mh.quote} />
+                          )}
+                        </EvidenceRow>
+                      ))}
+                      {/* The one box whose empty state is not self-evident.
+                          Nothing on the card distinguishes "the job asks for
+                          none" from "written before the job asked" — only the
+                          job's count does, so it decides which is said. */}
+                      {scoreDetail.must_haves.length === 0 && (
+                        <EvidenceEmpty>
+                          {scoreDetail.job_must_have_count === 0
+                            ? "This job names no must-haves, so there was nothing to check the CV against."
+                            : `This score was written before the job named its ${scoreDetail.job_must_have_count === 1 ? "must-have" : `${scoreDetail.job_must_have_count} must-haves`}, so they were never checked. Re-scoring fills this in.`}
+                        </EvidenceEmpty>
+                      )}
+                    </EvidenceList>
+
+                    <EvidenceList
+                      label="Missing requirements"
+                      badge="bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]"
+                      dot="bg-[var(--ai-danger)]"
+                      count={String(scoreDetail.missing_requirements.length)}
+                    >
+                      {scoreDetail.missing_requirements.map((m) => (
+                        <EvidenceRow key={m} tone="danger">
+                          {m}
+                        </EvidenceRow>
+                      ))}
+                      {scoreDetail.missing_requirements.length === 0 && (
+                        <EvidenceEmpty>
+                          Every requirement the job states was evidenced somewhere in the CV.
+                        </EvidenceEmpty>
+                      )}
+                    </EvidenceList>
+
+                    <EvidenceList
+                      label="Risks to verify"
+                      badge="bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+                      dot="bg-[var(--ai-amber-dot)]"
+                      count={String(scoreDetail.concerns.length)}
+                    >
+                      {scoreDetail.concerns.map((c) => (
+                        <EvidenceRow key={c} tone="warn">
+                          {c}
+                        </EvidenceRow>
+                      ))}
+                      {scoreDetail.concerns.length === 0 && (
+                        <EvidenceEmpty>
+                          No contradictions or gaps were raised against the CV.
+                        </EvidenceEmpty>
+                      )}
+                    </EvidenceList>
+                  </div>
+                </div>
+              </>
+            )}
+
+            {/* Staleness + re-score. The action sits in the banner rather than
+                in a menu because the flag and its remedy are the same thought;
+                the card's Re-score is suppressed while this is on screen, so
+                there is one button and it is the one that says why. */}
             {scoreDetail?.stale && (
               <div className="mt-[22px] rounded-[13px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-4 py-3.5">
                 <p className="m-0 text-[13px] font-semibold text-[var(--ai-amber-ink)]">
@@ -1843,11 +2299,13 @@ function ApplicantDrawer({
               </div>
             )}
 
-            {/* Re-score is also available when the card is current — a recruiter
-                may simply want a second read. Hidden when the banner above is
-                already showing it, so the action never appears twice. */}
-            {scoreDetail && !scoreDetail.stale && canRescore && (
-              <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-4 py-3">
+            {/* The strip is now only for rows the card above cannot carry the
+                action for: failed, skipped and pending scorecards, which get
+                no action column because they get no ring. Scored rows take
+                the button in the card, stale ones take it in the banner — the
+                action never appears twice. */}
+            {scoreDetail && !scoreDetail.stale && canRescore && headerScore.status !== "scored" && (
+              <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3">
                 <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
                   Re-run the AI on this CV — costs about two cents.
                 </p>
@@ -1861,26 +2319,17 @@ function ApplicantDrawer({
                 </button>
               </div>
             )}
-
-            {/* Sits after the breakdown on purpose: a reviewer should read what
-                the model concluded before overriding it. Rendered for any score
-                row, not just 'scored' — see ScoreAdjuster. */}
-            {scoreDetail && (
-              <ScoreAdjuster
-                detail={scoreDetail}
-                saving={scoreSaving}
-                onSave={onAdjustScore}
-                onClear={onClearAdjustment}
-                local={clock.local}
-              />
-            )}
           </>
         )}
 
         {tab === "comm" && (
-          <>
-            <DrawerLabel>Messages</DrawerLabel>
-            <div className="mb-[22px] flex flex-col gap-2.5">
+          /* One card for the whole trail, as the design has it — the messages
+             are one continuous record, and a card each would read as four
+             unrelated events. The design's `.chead` carries a "New message"
+             button; there is no composer in this drawer, so the head is the
+             title alone rather than a control that does nothing. */
+          <PaneCard title="Messages sent">
+            <div className="flex flex-col gap-2.5">
               {messagesLoading && messages.length === 0 && (
                 <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
               )}
@@ -1891,16 +2340,19 @@ function ApplicantDrawer({
                 <MessageEntry key={m.id} message={m} />
               ))}
             </div>
-          </>
+          </PaneCard>
         )}
 
         {tab === "interviews" && (
-          <>
-            <DrawerLabel>Video interview</DrawerLabel>
-            <div className="mb-[22px]">
-              <InterviewPanel applicationId={row.id} onToast={onToast} />
-            </div>
-          </>
+          /* ONE card, not one per section. The design's Interviews pane is a
+             different feature — a results ring, the employer's criteria and
+             per-question transcripts — and its cards map onto nothing we hold.
+             Ours is a single decision taken in three places (async, live,
+             booking) whose boxes appear and vanish with the job's settings, so
+             a card per section would leave a page of empty heads. */
+          <PaneCard title="Video interview">
+            <InterviewPanel applicationId={row.id} onToast={onToast} />
+          </PaneCard>
         )}
       </div>
     </div>
@@ -1982,6 +2434,42 @@ function fmtMessageWhen(iso: string): string {
   const days = Math.round(abs / 86400000);
   const unit = hours < 24 ? `${hours}h` : `${days} day${days === 1 ? "" : "s"}`;
   return diff > 0 ? `in ${unit}` : `${unit} ago`;
+}
+
+/**
+ * One section of a pane: the design's `.card.cpad` with its `.chead`.
+ *
+ * Replaces DrawerLabel wherever a pane's sections became cards. The label was
+ * an uppercase rule-and-caption that worked on a white body; on the inset body
+ * the card's own edge does that job, and the design heads each card with a
+ * 15px Sora title instead.
+ *
+ * `meta` is the right-aligned sub-line the design puts beside some titles
+ * ("Answered 3 of 3 · 17 Sep"). Omitted rather than invented where we hold no
+ * equivalent fact — same rule as ReviewSubhead's.
+ */
+function PaneCard({
+  title,
+  meta,
+  children,
+}: {
+  title: string;
+  meta?: string;
+  children: React.ReactNode;
+}) {
+  return (
+    <section className={`${CARD_SURFACE} px-[22px] py-5`}>
+      <div className="mb-3.5 flex items-center justify-between gap-4">
+        <h3 className="m-0 whitespace-nowrap font-heading text-[15px] font-bold tracking-[-0.02em] text-[var(--ai-t1)]">
+          {title}
+        </h3>
+        {meta && (
+          <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">{meta}</span>
+        )}
+      </div>
+      {children}
+    </section>
+  );
 }
 
 function DrawerLabel({ children }: { children: React.ReactNode }) {

@@ -35,6 +35,20 @@ export const BAND_LABEL: Record<ScoreBand, string> = {
   lo: "Needs review",
 };
 
+/**
+ * The same three bands as a description rather than a label, for the applicant
+ * header where the band stands alone with no "match" or "score" word near it.
+ *
+ * A separate map and not `${BAND_LABEL[band]} match`, because the suffix only
+ * survives two of the three: "Needs review match" is not English. Any new band
+ * has to be phrased here by hand for the same reason.
+ */
+export const BAND_MATCH_LABEL: Record<ScoreBand, string> = {
+  hi: "Strong match",
+  mid: "Moderate match",
+  lo: "Needs review",
+};
+
 /** Text colour, for a numeral on a light surface. */
 export const BAND_TEXT: Record<ScoreBand, string> = {
   hi: "text-[var(--ai-mint-ink)]",

@@ -477,16 +477,26 @@ export async function fetchCompanyApplicant(
   // job's CURRENT one. Scoped by company like everything else — a job id alone
   // proves nothing, and this read must not become a way to probe another
   // tenant's jobs.
+  //
+  // The same read carries the job's CURRENT must-have count, which is what
+  // tells an empty must_haves array on the card ("this job asks for none")
+  // apart from a card written before the job named any. Same row, same scope,
+  // no extra round-trip.
   let jobCriteriaVersion: number | null = null;
+  let jobMustHaveCount = 0;
   if (row.job_id) {
     const { data: jobRow } = await service
       .from("jobs")
-      .select("criteria_version")
+      .select("criteria_version, scoring_must_haves")
       .eq("id", row.job_id)
       .eq("company_id", ctx.companyId)
       .maybeSingle();
-    const v = (jobRow as { criteria_version?: number | null } | null)?.criteria_version;
-    jobCriteriaVersion = typeof v === "number" ? v : null;
+    const job = jobRow as {
+      criteria_version?: number | null;
+      scoring_must_haves?: unknown;
+    } | null;
+    jobCriteriaVersion = typeof job?.criteria_version === "number" ? job.criteria_version : null;
+    jobMustHaveCount = Array.isArray(job?.scoring_must_haves) ? job.scoring_must_haves.length : 0;
   }
   // Both sides must be known before claiming staleness. A missing version on
   // either end means "we can't tell", and an unprovable warning beside a
@@ -503,6 +513,7 @@ export async function fetchCompanyApplicant(
         strengths: normaliseStrengths(sRow.strengths),
         missing_requirements: jsonArray(sRow.missing_requirements),
         must_haves: normaliseMustHaves(sRow.must_haves),
+        job_must_have_count: jobMustHaveCount,
         concerns: jsonArray(sRow.concerns),
         summary: (sRow.summary as string | null) ?? null,
         screening_score: (sRow.screening_score as number | null) ?? null,
