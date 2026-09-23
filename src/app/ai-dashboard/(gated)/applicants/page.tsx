@@ -58,6 +58,7 @@ export default async function ApplicantsPage() {
   return (
     <ApplicantsClient
       viewerRole={ctx.role}
+      viewerMemberId={ctx.memberId}
       applicants={applicantRows}
       loadFailed={!applicants.ok}
       newThisWeek={newThisWeek}

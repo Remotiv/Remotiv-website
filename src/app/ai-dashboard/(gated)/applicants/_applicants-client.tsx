@@ -31,8 +31,10 @@ import type {
   ManualTemplate,
 } from "@/app/ai-dashboard/(gated)/messages/types";
 import {
+  type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  COMMENT_MAX,
   type CompanyApplicantRow,
   PIPELINE_STAGE_LABELS,
   PIPELINE_STAGES,
@@ -52,13 +54,16 @@ import {
 } from "@/app/ai-dashboard/lib/score-bands";
 import { InterviewPanel } from "./_interview-panel";
 import {
+  addApplicationComment,
   adjustScore,
   clearScoreAdjustment,
   countFlaggedApplicants,
   deleteApplication,
+  deleteApplicationComment,
   dismissShortlistFlagAction,
   fetchCompanyApplicant,
   rescoreApplication,
+  updateApplicationComment,
   updateApplicationStage,
 } from "./actions";
 
@@ -159,6 +164,12 @@ const PANEL_TABS = [
   { key: "review", label: "Review" },
   { key: "comm", label: "Communication" },
   { key: "interviews", label: "Interviews" },
+  /* No count beside the label. Comments arrive with the rest of the detail,
+     which is fetched in an effect AFTER the tab strip has painted — so a number
+     here would appear a beat late on every open, which is the reason the list's
+     badges were left off. The pane's own head carries the count instead, where
+     it sits behind a loading state and lands with the thread it describes. */
+  { key: "comments", label: "Comments" },
 ] as const;
 type PanelTab = (typeof PANEL_TABS)[number]["key"];
 
@@ -1338,6 +1349,10 @@ function ApplicantDrawer({
   historyFailed,
   messages,
   messagesLoading,
+  comments,
+  commentsLoading,
+  viewerMemberId,
+  viewerRole,
   saving,
   scoreSaving,
   canRescore,
@@ -1366,6 +1381,12 @@ function ApplicantDrawer({
   historyFailed: boolean;
   messages: CandidateMessage[];
   messagesLoading: boolean;
+  comments: ApplicantComment[];
+  commentsLoading: boolean;
+  /** company_members.id of the viewer — decides whose Edit and Delete show. */
+  viewerMemberId: string;
+  /** Owner and admin may delete anyone's comment; everyone else only their own. */
+  viewerRole: CompanyRole;
   saving: boolean;
   scoreSaving: boolean;
   canRescore: boolean;
@@ -2354,6 +2375,17 @@ function ApplicantDrawer({
             <InterviewPanel applicationId={row.id} onToast={onToast} />
           </PaneCard>
         )}
+
+        {tab === "comments" && (
+          <CommentsPane
+            applicationId={row.id}
+            initial={comments}
+            loading={commentsLoading}
+            viewerMemberId={viewerMemberId}
+            viewerRole={viewerRole}
+            onToast={onToast}
+          />
+        )}
       </div>
     </div>
   );
@@ -2436,6 +2468,431 @@ function fmtMessageWhen(iso: string): string {
   return diff > 0 ? `in ${unit}` : `${unit} ago`;
 }
 
+// ── Comments ─────────────────────────────────────────────────
+
+const COMMENT_BTN =
+  "border-none bg-transparent p-0 text-[11px] font-bold text-[var(--ai-t3)] transition-colors disabled:opacity-40";
+const COMMENT_TEXTAREA =
+  "w-full resize-y rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-3 text-[13.5px] leading-relaxed text-[var(--ai-t1)] outline-none transition-colors placeholder:text-[var(--ai-t4)] hover:border-[var(--ai-t4)] focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]";
+const COMMENT_PRIMARY =
+  "inline-flex shrink-0 items-center rounded-full border border-remotiv-purple bg-remotiv-purple px-4 py-2 text-[12.5px] font-bold text-white transition-colors hover:bg-[var(--ai-purple-hover,#6D38F0)] disabled:cursor-not-allowed disabled:opacity-40";
+const COMMENT_GHOST =
+  "rounded-full border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-1.5 text-[12px] font-bold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white";
+
+type CommentsResult = { ok: true; comments: ApplicantComment[] } | { ok: false; error: string };
+
+/**
+ * The hiring team's thread. Composer at the top, then the conversation
+ * oldest-first, replies indented one level under their root.
+ *
+ * The server is the only source of the list: every mutation returns the whole
+ * thread and this replaces state with it wholesale. No optimistic insert —
+ * unlike a stage change, a comment has no local id to paint with, and a
+ * half-rendered one that then failed would be worse than a moment's wait.
+ */
+function CommentsPane({
+  applicationId,
+  initial,
+  loading,
+  viewerMemberId,
+  viewerRole,
+  onToast,
+}: {
+  applicationId: string;
+  initial: ApplicantComment[];
+  loading: boolean;
+  viewerMemberId: string;
+  viewerRole: CompanyRole;
+  onToast: (message: string) => void;
+}) {
+  const [comments, setComments] = useState(initial);
+  useEffect(() => {
+    setComments(initial);
+  }, [initial]);
+
+  const [draft, setDraft] = useState("");
+  const [replyTo, setReplyTo] = useState<string | null>(null);
+  const [replyDraft, setReplyDraft] = useState("");
+  const [editingId, setEditingId] = useState<string | null>(null);
+  const [editDraft, setEditDraft] = useState("");
+  const [busy, setBusy] = useState(false);
+
+  // Mirrors deleteApplicationComment's own test. The action re-checks it — this
+  // only decides whether to offer a button that would otherwise always fail.
+  const moderator = viewerRole === "owner" || viewerRole === "admin";
+
+  /** Roots in order, each with its replies. A reply always has its root: the
+      one-level FK cascades, and a root with replies tombstones rather than
+      going, so nothing can be orphaned underneath. */
+  const threads = useMemo(() => {
+    const byParent = new Map<string, ApplicantComment[]>();
+    for (const c of comments) {
+      if (!c.parentId) continue;
+      const seen = byParent.get(c.parentId);
+      if (seen) seen.push(c);
+      else byParent.set(c.parentId, [c]);
+    }
+    return comments
+      .filter((c) => c.parentId === null)
+      .map((root) => ({ root, replies: byParent.get(root.id) ?? [] }));
+  }, [comments]);
+
+  /** Tombstones hold a place, not a comment, so they are not counted. */
+  const liveCount = comments.filter((c) => c.deletedAt === null).length;
+
+  async function run(fn: () => Promise<CommentsResult>, success?: string) {
+    setBusy(true);
+    const res = await fn().catch(
+      (): CommentsResult => ({ ok: false, error: "Something went wrong. Please try again." }),
+    );
+    setBusy(false);
+    if (!res.ok) {
+      onToast(res.error);
+      return false;
+    }
+    setComments(res.comments);
+    if (success) onToast(success);
+    return true;
+  }
+
+  function beginEdit(c: ApplicantComment) {
+    setReplyTo(null);
+    setEditingId(c.id);
+    setEditDraft(c.body ?? "");
+  }
+
+  const actionsFor = (c: ApplicantComment, repliable: boolean, editLocked: boolean) => (
+    <CommentActions
+      repliable={repliable}
+      editLocked={editLocked}
+      mine={c.authorMemberId === viewerMemberId && viewerMemberId !== ""}
+      moderator={moderator}
+      busy={busy}
+      onReply={() => {
+        setEditingId(null);
+        setReplyTo(c.id);
+        setReplyDraft("");
+      }}
+      onEdit={() => beginEdit(c)}
+      onDelete={() => {
+        void run(() => deleteApplicationComment(applicationId, c.id), "Comment deleted");
+      }}
+    />
+  );
+
+  return (
+    <PaneCard title="Team comments" meta={liveCount > 0 ? `${liveCount}` : undefined}>
+      <textarea
+        value={draft}
+        maxLength={COMMENT_MAX}
+        onChange={(e) => setDraft(e.target.value)}
+        placeholder="What do you make of this candidate?"
+        className={`min-h-[96px] ${COMMENT_TEXTAREA}`}
+      />
+      <div className="mt-[11px] flex items-start justify-between gap-3">
+        {/* The disclosure sits ON the composer, not in a settings page nobody
+            opens. These are recorded opinions about a named person and they are
+            that person's data, so they come back in a subject access request.
+            People write differently when they know that, which is the point. */}
+        <span className="flex items-start gap-[7px] text-[11.5px] leading-snug text-[var(--ai-t3)]">
+          <Users className="mt-[2px] size-[13px] shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
+          <span>
+            Visible to everyone on this job&apos;s team. Comments are part of the candidate&apos;s
+            record and may be disclosed if they ask for their data.
+          </span>
+        </span>
+        <button
+          type="button"
+          disabled={busy || !draft.trim()}
+          onClick={() => {
+            void run(() => addApplicationComment(applicationId, draft)).then((ok) => {
+              if (ok) setDraft("");
+            });
+          }}
+          className={`${COMMENT_PRIMARY} shadow-[0_5px_16px_rgba(126,71,255,0.28)] disabled:shadow-none`}
+        >
+          Comment
+        </button>
+      </div>
+
+      {loading && comments.length === 0 && (
+        <div className="mt-4 h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+      )}
+
+      {!loading && comments.length === 0 && (
+        <p className="m-0 mt-3.5 border-t border-[var(--ai-line-soft)] pt-3.5 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
+          No comments yet. Comments are attributed and timestamped, and you can reply to one, or
+          edit and delete your own — your teammates&apos; stay as they wrote them.
+        </p>
+      )}
+
+      {threads.length > 0 && (
+        <div className="mt-4 flex flex-col gap-4 border-t border-[var(--ai-line-soft)] pt-4">
+          {threads.map(({ root, replies }) => (
+            <div key={root.id} className="flex flex-col gap-3">
+              {editingId === root.id ? (
+                <CommentEditor
+                  value={editDraft}
+                  busy={busy}
+                  onChange={setEditDraft}
+                  onCancel={() => setEditingId(null)}
+                  onSave={() => {
+                    void run(() =>
+                      updateApplicationComment(applicationId, root.id, editDraft),
+                    ).then((ok) => {
+                      if (ok) setEditingId(null);
+                    });
+                  }}
+                />
+              ) : (
+                <CommentEntry
+                  comment={root}
+                  actions={
+                    root.deletedAt === null ? actionsFor(root, true, replies.length > 0) : null
+                  }
+                />
+              )}
+
+              {(replies.length > 0 || replyTo === root.id) && (
+                /* Indented to clear the root's avatar, with a rule down the
+                   left so a long thread still reads as one exchange rather
+                   than as comments that happen to sit close together. */
+                <div className="ml-[34px] flex flex-col gap-3 border-l border-[var(--ai-line)] pl-3.5">
+                  {replies.map((r) =>
+                    editingId === r.id ? (
+                      <CommentEditor
+                        key={r.id}
+                        value={editDraft}
+                        busy={busy}
+                        onChange={setEditDraft}
+                        onCancel={() => setEditingId(null)}
+                        onSave={() => {
+                          void run(() =>
+                            updateApplicationComment(applicationId, r.id, editDraft),
+                          ).then((ok) => {
+                            if (ok) setEditingId(null);
+                          });
+                        }}
+                      />
+                    ) : (
+                      <CommentEntry
+                        key={r.id}
+                        comment={r}
+                        actions={r.deletedAt === null ? actionsFor(r, false, false) : null}
+                      />
+                    ),
+                  )}
+
+                  {replyTo === root.id && (
+                    <div className="flex flex-col gap-2">
+                      <textarea
+                        value={replyDraft}
+                        maxLength={COMMENT_MAX}
+                        onChange={(e) => setReplyDraft(e.target.value)}
+                        placeholder={`Reply to ${root.authorName}`}
+                        className={`min-h-[72px] ${COMMENT_TEXTAREA} text-[12.5px]`}
+                      />
+                      <div className="flex justify-end gap-2">
+                        <button
+                          type="button"
+                          onClick={() => setReplyTo(null)}
+                          className={COMMENT_GHOST}
+                        >
+                          Cancel
+                        </button>
+                        <button
+                          type="button"
+                          disabled={busy || !replyDraft.trim()}
+                          onClick={() => {
+                            void run(() =>
+                              addApplicationComment(applicationId, replyDraft, root.id),
+                            ).then((ok) => {
+                              if (ok) {
+                                setReplyTo(null);
+                                setReplyDraft("");
+                              }
+                            });
+                          }}
+                          className={`${COMMENT_PRIMARY} px-3.5 py-1.5 text-[12px]`}
+                        >
+                          Reply
+                        </button>
+                      </div>
+                    </div>
+                  )}
+                </div>
+              )}
+            </div>
+          ))}
+        </div>
+      )}
+    </PaneCard>
+  );
+}
+
+/**
+ * The reply/edit/delete row under one comment.
+ *
+ * Top-level rather than nested inside CommentsPane: a component declared in a
+ * render body is a new type on every pass, so React unmounts and remounts it —
+ * which would drop keyboard focus off these buttons whenever anything in the
+ * thread changed.
+ */
+function CommentActions({
+  repliable,
+  editLocked,
+  mine,
+  moderator,
+  busy,
+  onReply,
+  onEdit,
+  onDelete,
+}: {
+  /** Roots only — a reply has nothing that may hang off it. */
+  repliable: boolean;
+  /** A colleague has already answered this one. */
+  editLocked: boolean;
+  mine: boolean;
+  moderator: boolean;
+  busy: boolean;
+  onReply: () => void;
+  onEdit: () => void;
+  onDelete: () => void;
+}) {
+  return (
+    <span className="flex items-center gap-2">
+      {repliable && (
+        <button
+          type="button"
+          onClick={onReply}
+          className={`${COMMENT_BTN} hover:text-remotiv-purple`}
+        >
+          Reply
+        </button>
+      )}
+      {/* Editing closes once a colleague has answered: rewriting words someone
+          has already replied to would leave their reply answering something
+          that was never said. The action enforces it — this keeps the button
+          from offering what it cannot do, and says why to the one person who
+          would go looking for it. */}
+      {mine && !editLocked && (
+        <button
+          type="button"
+          onClick={onEdit}
+          className={`${COMMENT_BTN} hover:text-remotiv-purple`}
+        >
+          Edit
+        </button>
+      )}
+      {mine && editLocked && (
+        <small className="text-[11px] text-[var(--ai-t4)]">Replied to — editing closed</small>
+      )}
+      {(mine || moderator) && (
+        <button
+          type="button"
+          disabled={busy}
+          onClick={onDelete}
+          className={`${COMMENT_BTN} hover:text-[var(--ai-danger)]`}
+        >
+          Delete
+        </button>
+      )}
+    </span>
+  );
+}
+
+/**
+ * One comment, live or removed.
+ *
+ * A tombstone keeps the same two lines a live comment has — body then byline —
+ * so the thread's rhythm holds and a reply underneath still knows who it was
+ * answering. What it does NOT do is name who removed it: the row records the
+ * author and the time, not the hand that deleted, and a moderator's deletion
+ * attributed to the author would be a lie. "Removed" alone, in the passive, is
+ * the only claim the data supports.
+ */
+function CommentEntry({
+  comment,
+  actions,
+}: {
+  comment: ApplicantComment;
+  /** Null on a tombstone — there is nothing left to reply to, edit or delete. */
+  actions: React.ReactNode;
+}) {
+  const removed = comment.deletedAt !== null;
+  const edited = comment.updatedAt !== comment.createdAt && !removed;
+
+  return (
+    <div className="flex gap-2.5">
+      {removed ? (
+        <span className="mt-px size-6 shrink-0 rounded-full border border-dashed border-[var(--ai-line-strong)]" />
+      ) : (
+        <span className="mt-px flex size-6 shrink-0 items-center justify-center rounded-full bg-[var(--ai-mint-tint)] text-[9.5px] font-extrabold text-[var(--ai-mint-ink)]">
+          {msgInitials(comment.authorName)}
+        </span>
+      )}
+      <div className="min-w-0 flex-1">
+        {removed ? (
+          <p className="m-0 text-[12.5px] italic leading-relaxed text-[var(--ai-t4)]">
+            This comment was removed.
+          </p>
+        ) : (
+          <p className="m-0 whitespace-pre-wrap text-[12.5px] leading-relaxed text-[var(--ai-t2)]">
+            {comment.body}
+          </p>
+        )}
+        <div className="mt-[3px] flex flex-wrap items-center gap-x-2 gap-y-1">
+          <small className="text-[11px] text-[var(--ai-t4)]">
+            {comment.authorName} · {fmtMessageWhen(comment.createdAt)}
+            {/* An edit is disclosed rather than silent — words that changed
+                after a colleague read them should say so. */}
+            {edited ? " · edited" : ""}
+          </small>
+          {actions}
+        </div>
+      </div>
+    </div>
+  );
+}
+
+function CommentEditor({
+  value,
+  busy,
+  onChange,
+  onCancel,
+  onSave,
+}: {
+  value: string;
+  busy: boolean;
+  onChange: (next: string) => void;
+  onCancel: () => void;
+  onSave: () => void;
+}) {
+  return (
+    <div className="flex flex-col gap-2">
+      <textarea
+        value={value}
+        maxLength={COMMENT_MAX}
+        onChange={(e) => onChange(e.target.value)}
+        className="min-h-[80px] w-full resize-y rounded-xl border border-remotiv-purple bg-[var(--ai-surface)] px-3 py-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t1)] outline-none ring-[3px] ring-remotiv-purple/[0.16]"
+      />
+      <div className="flex justify-end gap-2">
+        <button type="button" onClick={onCancel} className={COMMENT_GHOST}>
+          Cancel
+        </button>
+        <button
+          type="button"
+          disabled={busy || !value.trim()}
+          onClick={onSave}
+          className={`${COMMENT_PRIMARY} px-3.5 py-1.5 text-[12px]`}
+        >
+          Save
+        </button>
+      </div>
+    </div>
+  );
+}
+
 /**
  * One section of a pane: the design's `.card.cpad` with its `.chead`.
  *
@@ -2493,6 +2950,7 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 
 export function ApplicantsClient({
   viewerRole,
+  viewerMemberId,
   applicants: initialApplicants,
   loadFailed,
   newThisWeek,
@@ -2504,6 +2962,12 @@ export function ApplicantsClient({
   renderedAt,
 }: {
   viewerRole: CompanyRole;
+  /**
+   * The viewer's own company_members.id, for deciding which comments carry an
+   * Edit and a Delete. Compared client-side only as a display rule — every
+   * mutation re-derives it server-side and puts it on the statement itself.
+   */
+  viewerMemberId: string;
   applicants: CompanyApplicantRow[];
   /** The list could not be READ. Distinct from "this pipeline is empty". */
   loadFailed: boolean;
@@ -2722,6 +3186,8 @@ export function ApplicantsClient({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
+  /** The team's thread, loaded with the rest of the detail. */
+  const [comments, setComments] = useState<ApplicantComment[]>([]);
   const [scoreSaving, setScoreSaving] = useState(false);
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, ApplicantScore>>({});
@@ -2930,12 +3396,14 @@ export function ApplicantsClient({
     if (!openId) {
       setHistory([]);
       setScoreDetail(null);
+      setComments([]);
       return;
     }
     let cancelled = false;
     setHistoryLoading(true);
     setHistoryFailed(false);
     setHistory([]);
+    setComments([]);
     fetchCompanyApplicant(openId)
       .then((read) => {
         if (cancelled) return;
@@ -2948,11 +3416,13 @@ export function ApplicantsClient({
         }
         setHistory(read.value?.history ?? []);
         setScoreDetail(read.value?.scoreDetail ?? null);
+        setComments(read.value?.comments ?? []);
       })
       .catch(() => {
         if (cancelled) return;
         setHistory([]);
         setScoreDetail(null);
+        setComments([]);
       })
       .finally(() => {
         if (!cancelled) setHistoryLoading(false);
@@ -3722,6 +4192,10 @@ export function ApplicantsClient({
           historyFailed={historyFailed}
           messages={messages}
           messagesLoading={messagesLoading}
+          comments={comments}
+          commentsLoading={historyLoading}
+          viewerMemberId={viewerMemberId}
+          viewerRole={viewerRole}
           saving={savingId === openRow.id}
           scoreSaving={scoreSaving}
           canRescore={canRescore}

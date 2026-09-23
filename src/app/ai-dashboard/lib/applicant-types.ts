@@ -290,12 +290,52 @@ export type StageHistoryRow = {
   created_at: string;
 };
 
+/**
+ * Ceiling on one team comment, matching the CHECK in migration 023. Generous
+ * enough for a paragraph of reasoning and short of an essay — the thread is a
+ * conversation, and the scorecard is where long-form assessment belongs.
+ */
+export const COMMENT_MAX = 5_000;
+
+/**
+ * One row of application_team_comments — the hiring team's thread, NOT
+ * application_comments, which is Remotiv's own internal note table.
+ *
+ * `body` is null exactly when `deletedAt` is set. A deleted comment that still
+ * has replies keeps its row so the replies have something to hang from, but it
+ * keeps none of its words; see the migration for why the text goes rather than
+ * a flag going on.
+ */
+export type ApplicantComment = {
+  id: string;
+  /** Null for a root. Roots are the only thing repliable — one level, no more. */
+  parentId: string | null;
+  /**
+   * company_members.id of the author, or null once that member is deleted.
+   * Compared against the viewer's own to decide whether Edit and Delete show.
+   */
+  authorMemberId: string | null;
+  /** Snapshotted at write time, so it survives the member row. */
+  authorName: string;
+  /** Null only for a tombstone. */
+  body: string | null;
+  deletedAt: string | null;
+  createdAt: string;
+  updatedAt: string;
+};
+
 /** An applicant plus their audit trail, for the detail drawer. */
 export type CompanyApplicantDetail = {
   applicant: CompanyApplicantRow;
   history: StageHistoryRow[];
   /** Full scorecard for the drawer. Null when never scored. */
   scoreDetail: ApplicantScoreDetail | null;
+  /**
+   * The team's comment thread, roots and replies together in one flat list
+   * ordered oldest-first. The pane nests them; the server does not, because a
+   * flat list is what every mutation returns and two shapes would drift.
+   */
+  comments: ApplicantComment[];
 };
 
 /** Filters accepted by fetchCompanyApplicants. */

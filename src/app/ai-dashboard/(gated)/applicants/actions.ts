@@ -2,8 +2,10 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  COMMENT_MAX,
   type CompanyApplicantDetail,
   type CompanyApplicantQuery,
   type CompanyApplicantRow,
@@ -530,6 +532,7 @@ export async function fetchCompanyApplicant(
     applicant: toRow(row, sRow ?? undefined),
     history: (histData ?? []) as StageHistoryRow[],
     scoreDetail,
+    comments: await readComments(service, ctx.companyId, applicationId),
   });
 }
 
@@ -1056,4 +1059,291 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
+}
+
+// ── Team comments ────────────────────────────────────────────
+//
+// The hiring team's thread on an applicant. Not application_comments, which is
+// Remotiv's own internal note table keyed on admin_id — the two audiences must
+// never cross, and nothing in this file reads that one.
+//
+// Every action re-gates through gateApplication, so a comment is readable and
+// writable by exactly the people who can open the applicant: same company
+// snapshot, same per-job hiring-team check. A recruiter who is not on the job
+// cannot see the applicant and cannot see the thread.
+//
+// Every role may write. The precedent is stage changes and score adjustments,
+// which hiring managers already make; a comments tab they could read but not
+// answer would push the conversation into Slack, where it stops being part of
+// the record.
+
+const COMMENT_COLUMNS =
+  "id, parent_id, author_member_id, author_name, body, deleted_at, created_at, updated_at";
+
+type CommentQueryRow = {
+  id: string;
+  parent_id: string | null;
+  author_member_id: string | null;
+  author_name: string | null;
+  body: string | null;
+  deleted_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+type CommentsResult = { ok: true; comments: ApplicantComment[] } | { ok: false; error: string };
+
+/** Same text for not-found and not-yours, so a probe can't confirm an id. */
+const NO_COMMENT = "That comment is no longer there.";
+
+/**
+ * Oldest-first, flat. The pane nests roots and replies; doing it here would
+ * mean two shapes of the same data, since every mutation returns this list.
+ *
+ * Scoped by company_id as well as application_id for the same reason the stage
+ * history is — the tenant boundary shouldn't rest on the id lookup alone.
+ */
+async function readComments(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  applicationId: string,
+): Promise<ApplicantComment[]> {
+  const { data, error } = await service
+    .from("application_team_comments")
+    .select(COMMENT_COLUMNS)
+    .eq("application_id", applicationId)
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: true });
+
+  if (error) {
+    console.error("[applicants] comment read failed:", error.message);
+    return [];
+  }
+
+  return ((data ?? []) as unknown as CommentQueryRow[]).map((c) => ({
+    id: c.id,
+    parentId: c.parent_id,
+    authorMemberId: c.author_member_id,
+    authorName: c.author_name ?? "Someone",
+    body: c.body,
+    deletedAt: c.deleted_at,
+    createdAt: c.created_at,
+    updatedAt: c.updated_at,
+  }));
+}
+
+/**
+ * The panel's chain, reused verbatim for every comment mutation: the company
+ * snapshot then the job. Returns the same not-found message on both failures.
+ */
+async function gateApplication(
+  applicationId: string,
+): Promise<{ ok: true; ctx: CompanyContext } | { ok: false; error: string }> {
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  const { data } = await service
+    .from("job_applications")
+    .select("id, job_id")
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId)
+    .maybeSingle();
+
+  const row = data as { id: string; job_id: string | null } | null;
+  if (!row) return { ok: false, error: "Applicant not found in your workspace." };
+  if (!(await canAccessJob(ctx, row.job_id ?? ""))) {
+    return { ok: false, error: "Applicant not found in your workspace." };
+  }
+  return { ok: true, ctx };
+}
+
+/** How many replies hang off a comment. Decides edit-lock and delete shape. */
+async function replyCount(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  commentId: string,
+): Promise<number> {
+  const { count } = await service
+    .from("application_team_comments")
+    .select("id", { count: "exact", head: true })
+    .eq("parent_id", commentId)
+    .eq("company_id", companyId);
+  return count ?? 0;
+}
+
+/**
+ * Post a comment, or a reply to one.
+ *
+ * `parentId` is validated against this application rather than trusted: an id
+ * from another applicant's thread would otherwise graft a reply across
+ * candidates. Depth is not sent by the caller at all — it is derived here, and
+ * the database rejects anything that disagrees (migration 023).
+ */
+export async function addApplicationComment(
+  applicationId: string,
+  body: string,
+  parentId?: string | null,
+): Promise<CommentsResult> {
+  const trimmed = body.trim();
+  if (!trimmed) return { ok: false, error: "Write something first." };
+  if (trimmed.length > COMMENT_MAX) {
+    return { ok: false, error: `Comments are limited to ${COMMENT_MAX} characters.` };
+  }
+
+  const gate = await gateApplication(applicationId);
+  if (!gate.ok) return gate;
+  const { ctx } = gate;
+  const service = createServiceClient();
+
+  // A reply's parent must be a root on THIS application. The database enforces
+  // the one-level rule; this enforces that the thread belongs here.
+  if (parentId) {
+    const { data: parent } = await service
+      .from("application_team_comments")
+      .select("id, parent_id")
+      .eq("id", parentId)
+      .eq("application_id", applicationId)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle();
+
+    const p = parent as { id: string; parent_id: string | null } | null;
+    if (!p) return { ok: false, error: NO_COMMENT };
+    if (p.parent_id !== null) {
+      return { ok: false, error: "You can only reply to a top-level comment." };
+    }
+  }
+
+  const { error } = await service.from("application_team_comments").insert({
+    application_id: applicationId,
+    company_id: ctx.companyId,
+    parent_id: parentId ?? null,
+    depth: parentId ? 1 : 0,
+    author_member_id: ctx.memberId,
+    author_name: ctx.memberName,
+    body: trimmed,
+  });
+
+  if (error) {
+    console.error("[applicants] comment insert failed:", error.message);
+    return { ok: false, error: "Couldn't save that comment. Please try again." };
+  }
+
+  return { ok: true, comments: await readComments(service, ctx.companyId, applicationId) };
+}
+
+/**
+ * Edit your OWN comment, while it has no replies.
+ *
+ * The author predicate is on the UPDATE itself rather than a read-then-write:
+ * two statements would leave a window where the row changed hands between the
+ * check and the write. Someone else's comment simply matches no row.
+ *
+ * The reply-lock above it IS a read-then-write, deliberately — it is a product
+ * rule, not a tenant boundary. The worst a race loses is an edit landing in the
+ * same instant as the first reply. Editing words a colleague has already
+ * answered is what the rule exists to prevent, and that is unaffected.
+ */
+export async function updateApplicationComment(
+  applicationId: string,
+  commentId: string,
+  body: string,
+): Promise<CommentsResult> {
+  const trimmed = body.trim();
+  if (!trimmed) return { ok: false, error: "A comment can't be empty." };
+  if (trimmed.length > COMMENT_MAX) {
+    return { ok: false, error: `Comments are limited to ${COMMENT_MAX} characters.` };
+  }
+
+  const gate = await gateApplication(applicationId);
+  if (!gate.ok) return gate;
+  const { ctx } = gate;
+  const service = createServiceClient();
+
+  if ((await replyCount(service, ctx.companyId, commentId)) > 0) {
+    return { ok: false, error: "This comment has replies, so it can no longer be edited." };
+  }
+
+  const { data, error } = await service
+    .from("application_team_comments")
+    .update({ body: trimmed, updated_at: new Date().toISOString() })
+    .eq("id", commentId)
+    .eq("application_id", applicationId)
+    .eq("company_id", ctx.companyId)
+    // Own comments only. Editing a colleague's words would make the attribution
+    // beneath them a lie.
+    .eq("author_member_id", ctx.memberId)
+    // A tombstone has no words to edit, and this stops an edit resurrecting one.
+    .is("deleted_at", null)
+    .select("id");
+
+  if (error) {
+    console.error("[applicants] comment update failed:", error.message);
+    return { ok: false, error: "Couldn't save that edit. Please try again." };
+  }
+  if ((data ?? []).length === 0) {
+    return { ok: false, error: "You can only edit your own comments." };
+  }
+
+  return { ok: true, comments: await readComments(service, ctx.companyId, applicationId) };
+}
+
+/**
+ * Delete a comment. Yours always; anyone's if you own or administer the
+ * company.
+ *
+ * That second case is not symmetry for its own sake. These are written opinions
+ * about a named person, and a company needs a way to remove a remark that
+ * should never have been made without going to a database console.
+ *
+ * A leaf is deleted outright. A comment with replies is tombstoned instead: the
+ * row survives so the replies still have a parent, and the words do not. That
+ * is the shape deleteApplication argues for a few functions above — never a
+ * flag on a row that still carries what the deletion was meant to remove.
+ */
+export async function deleteApplicationComment(
+  applicationId: string,
+  commentId: string,
+): Promise<CommentsResult> {
+  const gate = await gateApplication(applicationId);
+  if (!gate.ok) return gate;
+  const { ctx } = gate;
+  const service = createServiceClient();
+
+  const moderator = ctx.role === "owner" || ctx.role === "admin";
+  const hasReplies = (await replyCount(service, ctx.companyId, commentId)) > 0;
+
+  /**
+   * The scoping predicates, applied to whichever statement runs. Both branches
+   * narrow identically so they cannot drift; a moderator dropping the author
+   * predicate is the ONLY difference between them, and it is visible here
+   * rather than duplicated across two query chains.
+   */
+  const scoped = <T extends { eq(column: string, value: string): T }>(q: T): T => {
+    const s = q
+      .eq("id", commentId)
+      .eq("application_id", applicationId)
+      .eq("company_id", ctx.companyId);
+    return moderator ? s : s.eq("author_member_id", ctx.memberId);
+  };
+
+  const table = () => service.from("application_team_comments");
+
+  const { data, error } = hasReplies
+    ? await scoped(table().update({ body: null, deleted_at: new Date().toISOString() }))
+        .is("deleted_at", null)
+        .select("id")
+    : await scoped(table().delete()).select("id");
+
+  if (error) {
+    console.error("[applicants] comment delete failed:", error.message);
+    return { ok: false, error: "Couldn't delete that comment. Please try again." };
+  }
+  if ((data ?? []).length === 0) {
+    return {
+      ok: false,
+      error: moderator ? NO_COMMENT : "You can only delete your own comments.",
+    };
+  }
+
+  return { ok: true, comments: await readComments(service, ctx.companyId, applicationId) };
 }

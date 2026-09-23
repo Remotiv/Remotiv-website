@@ -23,6 +23,14 @@ import { Navbar } from "@/components/navbar";
  *                                   applications ONLY. A Remotiv-owned row
  *                                   gets a null date, which means keep, and
  *                                   section 3 says so outright.
+ *   application_team_comments       the hiring team's notes on an applicant,
+ *                                   expired by cv-purge on that SAME
+ *                                   cv_delete_after date, in a second pass with
+ *                                   its own selector. Sections 1 and 3 both
+ *                                   commit us to it. They are opinions recorded
+ *                                   about a named person, so they are that
+ *                                   person's data and come back in a subject
+ *                                   access request — section 1 says so.
  *   RETENTION_MONTHS    = 6         src/lib/interviews/tokens.ts
  *   cv-purge / interview-purge      scheduled every 24h by jobs-queue.ts
  *   talent-retention-warn / -purge  BUILT AND NOT SCHEDULED. Nothing expires a
@@ -159,6 +167,13 @@ export default function PrivacyPage() {
             the retention period ends.
           </Callout>
 
+          <P>
+            As they consider you, the hiring team at that company can write comments about your
+            application and reply to each other — their notes on you, stored alongside the
+            application. These are about you, so they are part of your record here: if you ask us
+            for a copy of what we hold, they are included.
+          </P>
+
           <H3>When you record a video interview</H3>
           <P>
             We record video and audio of your answers, generate a written transcript of each one,
@@ -237,6 +252,11 @@ export default function PrivacyPage() {
             The application record itself is kept: your name, email, the role you applied for, the
             stage you reached and the decisions made. The company keeps its hiring record; it stops
             holding your document.
+          </P>
+          <P>
+            The hiring team&apos;s comments on your application go on that same date. They were
+            written alongside the CV and they expire with it, rather than outlasting the document
+            they were written about.
           </P>
 
           <H3>Interview recordings: 6 months</H3>

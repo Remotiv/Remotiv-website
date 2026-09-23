@@ -60,6 +60,14 @@ import { createServiceClient } from "@/lib/supabase/server";
  * extracted into the database. Deleting the file while keeping a searchable
  * copy of every word in it would be a rename, not a deletion.
  *
+ * ALSO REMOVED: the hiring team's comments on the application
+ * (application_team_comments). Those are written opinions about a named person,
+ * disclosable to them on request, and they were written alongside the CV — so
+ * they expire with it rather than outliving it indefinitely. Nothing deletes an
+ * application on a schedule, so without this pass the cascade on that table
+ * would never fire and the notes would be kept forever. See the second loop
+ * below for why it cannot share the first one's selector.
+ *
  * KEPT: the job_applications row. Name, email, stage, screening answers and
  * decision history all survive. The company still knows who applied, when, and
  * what was decided; they no longer hold the document. Deleting the row would
@@ -278,9 +286,71 @@ export async function handleCvPurge(job: {
     if (truncated || rows.length < DB_PAGE) break;
   }
 
+  /*
+   * ── Second pass: the hiring team's comments ──────────────────
+   *
+   * A SEPARATE loop, and it must be. The loop above carries
+   * `or(cv_path.not.is.null, cv_text.not.is.null)` as its idempotency test, so
+   * an application stops matching the moment its CV is gone. Every application
+   * purged before this pass was written is already invisible to that selector,
+   * permanently — folding the comment delete in there would miss all of them,
+   * silently, and the miss would never surface because the rows it skips are
+   * exactly the rows it cannot see.
+   *
+   * This selector is idempotent on its own terms instead: a deleted comment
+   * stops matching it, so a second run over the same application reads nothing
+   * and deletes nothing. That also removes the need for the offset dance above
+   * — no row can fail and stay matching, because a failed delete throws.
+   *
+   * Both halves of the scope guard are restated against the parent, for the
+   * reason the banner gives: Remotiv's own pool keeps its comments exactly as
+   * it keeps its CVs.
+   *
+   * `!inner` is load-bearing. Without it PostgREST builds a LEFT join, the
+   * parent predicate stops restricting the top-level rows, and this deletes the
+   * comments on EVERY application in the table. Verified read-only against
+   * production before shipping: with the hint an impossible parent predicate
+   * matches 0 rows and the real selector agrees with a join-free count over the
+   * due ids; without it the same predicate matches the whole table.
+   */
+  let commentsDeleted = 0;
+  for (;;) {
+    if (Date.now() - startedAt > BUDGET_MS) {
+      truncated = true;
+      break;
+    }
+
+    const { data, error } = await service
+      .from("application_team_comments")
+      .select("id, job_applications!inner(cv_delete_after, company_id_snapshot)")
+      .lte("job_applications.cv_delete_after", now)
+      .not("job_applications.company_id_snapshot", "is", null)
+      .limit(DB_PAGE);
+
+    if (error) throw new Error(`cv purge: due comments: ${error.message}`);
+    const ids = ((data ?? []) as unknown as { id: string }[]).map((r) => r.id);
+    if (ids.length === 0) break;
+
+    /*
+     * Replies go with their root by the composite FK's ON DELETE CASCADE, so a
+     * batch that names a root and its reply deletes the reply twice over — the
+     * second is a no-op against a row already gone, not an error. The count is
+     * therefore rows NAMED, which can exceed rows that existed by the time the
+     * statement ran. It is a log line, not a receipt.
+     */
+    const { error: delErr } = await service
+      .from("application_team_comments")
+      .delete()
+      .in("id", ids);
+    if (delErr) throw new Error(`cv purge: delete comments: ${delErr.message}`);
+    commentsDeleted += ids.length;
+
+    if (ids.length < DB_PAGE) break;
+  }
+
   console.log(
     `[cv-purge] job ${job.id}: objects=${objectsRemoved} rows=${rowsCleared} ` +
-      `retrying=${textOnly}` +
+      `retrying=${textOnly} comments=${commentsDeleted}` +
       (objectsKept > 0 ? ` kept=${objectsKept} (still referenced elsewhere)` : "") +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
