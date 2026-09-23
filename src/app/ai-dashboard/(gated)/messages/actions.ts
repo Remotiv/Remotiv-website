@@ -24,6 +24,8 @@ import {
   renderTemplate,
 } from "@/lib/email/candidate/render";
 import {
+  APPLICATION_MESSAGE_CAP,
+  type ApplicationMessageRead,
   BODY_MAX,
   MESSAGES_PAGE_SIZE,
   SUBJECT_MAX,
@@ -436,14 +438,22 @@ export async function fetchMessages(input: {
 /** The message trail for one applicant, for the drawer. Ownership-checked. */
 export async function fetchApplicationMessages(
   applicationId: string,
-): Promise<MessageRow[]> {
+): Promise<ApplicationMessageRead> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
   // The drawer opens on one applicant, so the list's allow-list never ran.
-  if (!(await canSeeApplication(ctx, applicationId))) return [];
+  // Denied is `ok` with nothing in it: there is no failure to report, the
+  // reader simply may not see this person's mail.
+  if (!(await canSeeApplication(ctx, applicationId))) {
+    return { ok: true, rows: [], truncated: false };
+  }
 
-  const { data } = await service
+  // One row PAST the cap. Asking for exactly the cap and getting it back can't
+  // distinguish "there are this many" from "there are more", and a count query
+  // to settle it would be a second round-trip for a number we can read off the
+  // end of this one.
+  const { data, error } = await service
     .from("communication_logs")
     .select(
       "id, application_id, event, status, to_address, subject, body, scheduled_for, sent_at, sent_by_name, created_at",
@@ -452,9 +462,21 @@ export async function fetchApplicationMessages(
     .eq("application_id", applicationId)
     .neq("status", HIDDEN_STATUS)
     .order("created_at", { ascending: false })
-    .limit(50);
+    .limit(APPLICATION_MESSAGE_CAP + 1);
 
-  return hydrate(service, (data ?? []) as unknown as LogRow[]);
+  if (error) {
+    console.error("[messages] fetchApplicationMessages failed:", error.message);
+    return { ok: false, rows: [], truncated: false };
+  }
+
+  const logs = (data ?? []) as unknown as LogRow[];
+  const truncated = logs.length > APPLICATION_MESSAGE_CAP;
+
+  return {
+    ok: true,
+    rows: await hydrate(service, truncated ? logs.slice(0, APPLICATION_MESSAGE_CAP) : logs),
+    truncated,
+  };
 }
 
 /** Candidates this company can write to. Every role may email. */

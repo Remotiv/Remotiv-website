@@ -89,6 +89,32 @@ export type ManualTemplate = {
   label: string;
 };
 
+/**
+ * How many of one applicant's messages the drawer reads.
+ *
+ * The drawer's timeline merges these with stage history and comments, both of
+ * which are uncapped — so a cap that silently truncated would produce a feed
+ * showing every stage change beside a partial message trail, with nothing on
+ * screen to say so. Hence `truncated` below, and hence a cap high enough that
+ * reaching it is remarkable: the busiest applicant on record has nine.
+ */
+export const APPLICATION_MESSAGE_CAP = 200;
+
+/**
+ * One applicant's message trail, and what is known about how complete it is.
+ *
+ * `ok: false` is "the read failed", which is NOT the same as an empty `rows`.
+ * The previous shape returned a bare array and swallowed the query error, so a
+ * database failure and an applicant nobody has written to were indistinguishable
+ * — and the drawer rendered the reassuring one.
+ */
+export type ApplicationMessageRead = {
+  ok: boolean;
+  rows: MessageRow[];
+  /** More messages exist than were returned. */
+  truncated: boolean;
+};
+
 export const MESSAGES_PAGE_SIZE = 20;
 
 /** Server-side caps. Enforced in the action; the inputs mirror them. */

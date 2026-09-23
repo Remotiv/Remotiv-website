@@ -26,9 +26,10 @@ import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboa
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
 import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
-import type {
-  MessageRow as CandidateMessage,
-  ManualTemplate,
+import {
+  APPLICATION_MESSAGE_CAP,
+  type MessageRow as CandidateMessage,
+  type ManualTemplate,
 } from "@/app/ai-dashboard/(gated)/messages/types";
 import {
   type ApplicantComment,
@@ -161,6 +162,12 @@ type SortMode = "best" | "newest";
  */
 const PANEL_TABS = [
   { key: "profile", label: "Profile" },
+  /* Directly after Profile, and it REPLACES the stage-history card that used to
+     sit at the foot of it. Profile answers "who is this"; Timeline answers
+     "what has happened", which is the natural next question and was the last
+     thing on that pane anyway. Keeping both would have meant two renderings of
+     the same history — and the one on Profile had a bug (see appliedEvent). */
+  { key: "timeline", label: "Timeline" },
   { key: "review", label: "Review" },
   { key: "comm", label: "Communication" },
   { key: "interviews", label: "Interviews" },
@@ -1349,6 +1356,8 @@ function ApplicantDrawer({
   historyFailed,
   messages,
   messagesLoading,
+  messagesFailed,
+  messagesTruncated,
   comments,
   commentsLoading,
   viewerMemberId,
@@ -1381,6 +1390,10 @@ function ApplicantDrawer({
   historyFailed: boolean;
   messages: CandidateMessage[];
   messagesLoading: boolean;
+  /** The trail could not be READ. Distinct from "no messages were sent". */
+  messagesFailed: boolean;
+  /** More messages exist than were fetched — the feed says so rather than ending. */
+  messagesTruncated: boolean;
   comments: ApplicantComment[];
   commentsLoading: boolean;
   /** company_members.id of the viewer — decides whose Edit and Delete show. */
@@ -1901,64 +1914,13 @@ function ApplicantDrawer({
                 </PaneCard>
               )}
 
-              <PaneCard title="Stage history">
-                <div className="flex flex-col gap-[14px]">
-                  {history.map((h) => {
-                    const when = fmtApplied(h.created_at, clock);
-                    // The seeded first entry has no from_stage — it reads as plain
-                    // "Applied" rather than an arrow from nowhere.
-                    const meta = [h.changed_by_name, when.main].filter(Boolean).join(" · ");
-                    return (
-                      <div key={h.id} className="relative flex items-start gap-3">
-                        <span
-                          className={`z-[1] mt-[3px] size-[11px] shrink-0 rounded-full shadow-[0_0_0_1px_rgba(20,16,32,0.1)] ${STAGE_PILL[h.to_stage].dot}`}
-                        />
-                        <div className="min-w-0">
-                          <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                            {h.from_stage
-                              ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
-                              : PIPELINE_STAGE_LABELS[h.to_stage]}
-                          </p>
-                          {h.note && (
-                            <p className="m-0 mt-[3px] text-[12px] leading-snug text-[var(--ai-t2)]">
-                              {h.note}
-                            </p>
-                          )}
-                          <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                            {meta || when.sub}
-                          </small>
-                        </div>
-                      </div>
-                    );
-                  })}
-
-                  {/* Falls back to the application itself: rows created before the
-                      history table existed have nothing seeded. */}
-                  {historyFailed && (
-                    <p className="m-0 mb-3 text-[12.5px] leading-relaxed text-[var(--ai-danger)]">
-                      Couldn't load this applicant's activity just now — it hasn't been lost. Close
-                      the panel and reopen it to try again.
-                    </p>
-                  )}
-                  {!historyLoading && !historyFailed && history.length === 0 && (
-                    <div className="relative flex items-start gap-3">
-                      <span className="z-[1] mt-[3px] size-[11px] shrink-0 rounded-full bg-[var(--ai-t4)] shadow-[0_0_0_1px_rgba(20,16,32,0.1)]" />
-                      <div>
-                        <p className="m-0 text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-                          Applied
-                        </p>
-                        <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">
-                          {applied.main} · {applied.sub}
-                        </small>
-                      </div>
-                    </div>
-                  )}
-
-                  {historyLoading && history.length === 0 && (
-                    <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
-                  )}
-                </div>
-              </PaneCard>
+              {/* The stage-history card that used to sit here is now the
+                  Timeline tab, which shows the same rows merged with comments,
+                  messages and scoring. Two renderings of one history meant the
+                  synthesised "Applied" had to be right in both places, and here
+                  it was not: it appeared only when the history was EMPTY, so
+                  anyone moved even once had a card that never said when they
+                  applied. */}
 
               {/* Danger, last — same placement and weight as the jobs drawer's.
                   Opens a confirm rather than deleting on click; this is
@@ -2354,14 +2316,45 @@ function ApplicantDrawer({
               {messagesLoading && messages.length === 0 && (
                 <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
               )}
-              {!messagesLoading && messages.length === 0 && (
+              {/* A failed read is not an empty trail. Until the action reported
+                  its query error this pane said "No messages sent yet." on a
+                  database failure — the reassuring answer, and the wrong one. */}
+              {messagesFailed && (
+                <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-danger)]">
+                  Couldn't load this candidate's messages just now — nothing has been lost. Close
+                  the panel and reopen it to try again.
+                </p>
+              )}
+              {!messagesLoading && !messagesFailed && messages.length === 0 && (
                 <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No messages sent yet.</p>
               )}
               {messages.map((m) => (
                 <MessageEntry key={m.id} message={m} />
               ))}
+              {messagesTruncated && (
+                <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+                  Older messages aren't shown — this trail carries the most recent{" "}
+                  {APPLICATION_MESSAGE_CAP}.
+                </p>
+              )}
             </div>
           </PaneCard>
+        )}
+
+        {tab === "timeline" && (
+          <TimelinePane
+            row={row}
+            history={history}
+            historyLoading={historyLoading}
+            historyFailed={historyFailed}
+            scoreDetail={scoreDetail}
+            comments={comments}
+            messages={messages}
+            messagesLoading={messagesLoading}
+            messagesFailed={messagesFailed}
+            messagesTruncated={messagesTruncated}
+            clock={clock}
+          />
         )}
 
         {tab === "interviews" && (
@@ -2466,6 +2459,505 @@ function fmtMessageWhen(iso: string): string {
   const days = Math.round(abs / 86400000);
   const unit = hours < 24 ? `${hours}h` : `${days} day${days === 1 ? "" : "s"}`;
   return diff > 0 ? `in ${unit}` : `${unit} ago`;
+}
+
+// ── Timeline ─────────────────────────────────────────────────
+
+/**
+ * Where a timeline entry came from. Also its tie-break rank — see SOURCE_RANK.
+ */
+type TimelineSource = "applied" | "stage" | "score" | "message" | "comment";
+
+/**
+ * Order between two entries that resolve to the SAME instant.
+ *
+ * Only one causal pair is actually produced here: moving someone to `rejected`
+ * writes the history row and then fires the rejection email, back to back, in
+ * one action. Those two can land in the same millisecond, and the email is the
+ * consequence — so in a newest-first feed it belongs ABOVE the move. Higher
+ * rank sorts higher.
+ *
+ * The rest of the order is arbitrary but FIXED. A comment landing on the same
+ * instant as a stage change is coincidence, and there is no true answer for
+ * which came first; what matters is that the answer is the same on every render
+ * rather than falling out of whatever order the arrays happened to concatenate
+ * in. `applied` is lowest because nothing can precede it.
+ */
+const SOURCE_RANK: Record<TimelineSource, number> = {
+  applied: 0,
+  stage: 1,
+  score: 2,
+  message: 3,
+  comment: 4,
+};
+
+/**
+ * Who an entry is attributed to.
+ *
+ * Deliberately not "a person, possibly unnamed". Roughly half of what reaches
+ * this feed — every automatic email, every AI score — had no human behind it,
+ * and giving those a circle of initials would invent one. See TimelineAvatar.
+ */
+type TimelineActor = { kind: "person"; name: string } | { kind: "system"; icon: "score" | "mail" };
+
+type TimelineBadge = { label: string; cls: string };
+
+type TimelineEvent = {
+  id: string;
+  /**
+   * Epoch milliseconds, resolved ONCE when the entry is built and never
+   * re-derived inside the comparator.
+   *
+   * Not because ISO text sorts wrongly — for stamps in one format it does not,
+   * since the fractional digits compare correctly left to right. The reason is
+   * that sorting on raw stamps puts the FAILURE case inside the sort. An absent
+   * or unparseable stamp parses to NaN, every comparison involving NaN answers
+   * 0, and an inconsistent comparator does not merely misplace that one entry —
+   * it leaves the order of the whole feed undefined. Resolving up front lets
+   * instantOf return null and the builders drop the entry, so nothing that
+   * cannot be placed ever reaches the sort.
+   *
+   * It also puts the sources on one axis: "applied" is timed from a column on
+   * job_applications, scoring from application_scores.scored_at, and the rest
+   * from their own created_at.
+   */
+  at: number;
+  source: TimelineSource;
+  actor: TimelineActor;
+  title: string;
+  /** The entry's own words: a comment's body, a message's subject line. */
+  detail?: string;
+  /** Trailing meta after the stamp — "due in 2 days", "edited". */
+  suffix?: string;
+  badge?: TimelineBadge;
+  /** Tailwind class for the rail dot. */
+  dot: string;
+};
+
+/** Epoch ms, or null when the stamp is absent or unparseable. */
+function instantOf(iso: string | null): number | null {
+  if (!iso) return null;
+  const t = new Date(iso).getTime();
+  return Number.isNaN(t) ? null : t;
+}
+
+const TIMELINE_DOT_NEUTRAL = "bg-[var(--ai-t4)]";
+
+/**
+ * "Applied" — synthesised from job_applications.created_at, always.
+ *
+ * There is no row for it. application_stage_history is only ever written by a
+ * stage CHANGE, so the first entry any applicant has is their first move, and
+ * an applicant who has never been moved has none at all. The card this pane
+ * replaces synthesised "Applied" only when the history was empty, which meant
+ * anyone moved even once had a history that never said when they applied.
+ */
+function appliedEvent(row: CompanyApplicantRow): TimelineEvent | null {
+  const at = instantOf(row.created_at);
+  if (at === null) return null;
+  return {
+    id: `applied:${row.id}`,
+    at,
+    source: "applied",
+    actor: { kind: "person", name: fullName(row) },
+    title: "Applied",
+    dot: STAGE_PILL.applied.dot,
+  };
+}
+
+function stageEvents(history: StageHistoryRow[]): TimelineEvent[] {
+  const out: TimelineEvent[] = [];
+  for (const h of history) {
+    const at = instantOf(h.created_at);
+    if (at === null) continue;
+    out.push({
+      id: `stage:${h.id}`,
+      at,
+      source: "stage",
+      // changed_by_name is snapshotted on write and has never been null in
+      // practice; a stage change is always somebody's doing.
+      actor: { kind: "person", name: h.changed_by_name ?? "Someone" },
+      title: h.from_stage
+        ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
+        : `Moved to ${PIPELINE_STAGE_LABELS[h.to_stage]}`,
+      detail: h.note ?? undefined,
+      dot: STAGE_PILL[h.to_stage].dot,
+    });
+  }
+  return out;
+}
+
+/**
+ * Scoring, and the human adjustment of a score.
+ *
+ * scored_at is the model's own stamp and lands roughly 100ms BEFORE the row's
+ * created_at — well inside a second, so it cannot reorder this entry against
+ * anything from another source, and it is the closest thing the detail exposes
+ * to when the score entered the record.
+ *
+ * It is null on exactly the rows where overall_score is null (89 of 130 at the
+ * time of writing, correlation exact) — cards where scoring produced nothing.
+ * There is no event to show for those, so the guard costs nothing.
+ *
+ * NOTE: the adjustment branch is UNTESTED against real data. adjusted_at has
+ * never been set on any row in the database, so this has only ever been
+ * exercised by reading the code.
+ */
+function scoreEvents(detail: ApplicantScoreDetail | null): TimelineEvent[] {
+  if (!detail) return [];
+  const out: TimelineEvent[] = [];
+
+  const scored = instantOf(detail.scored_at);
+  // ai_overall, never `overall` — this entry records what the MODEL said at
+  // that moment, and `overall` carries a later human override. Showing the
+  // override here would date someone else's number to the model's timestamp.
+  if (scored !== null && detail.ai_overall !== null) {
+    out.push({
+      id: "score:ai",
+      at: scored,
+      source: "score",
+      actor: { kind: "system", icon: "score" },
+      title: `AI scored ${detail.ai_overall}`,
+      detail: detail.ai_model ? `Model ${detail.ai_model}` : undefined,
+      dot: TIMELINE_DOT_NEUTRAL,
+    });
+  }
+
+  const adjusted = instantOf(detail.adjusted_at);
+  if (adjusted !== null) {
+    out.push({
+      id: "score:adjusted",
+      at: adjusted,
+      source: "score",
+      actor: detail.adjusted_by_name
+        ? { kind: "person", name: detail.adjusted_by_name }
+        : { kind: "system", icon: "score" },
+      title:
+        detail.adjusted && detail.overall !== null
+          ? `Score adjusted to ${detail.overall}`
+          : "Score adjusted",
+      detail: detail.human_feedback ?? undefined,
+      dot: TIMELINE_DOT_NEUTRAL,
+    });
+  }
+
+  return out;
+}
+
+/**
+ * Comments, minus the tombstones.
+ *
+ * A tombstone earns its place in the Comments tab because a reply sits under it
+ * and needs to know what it was answering. Here there is no threading, so it
+ * would be a row saying "something was here" among rows that say what they are
+ * — and neither of its timestamps can be rendered honestly: created_at puts the
+ * removal notice BEFORE the reply it was removed after, and deleted_at makes it
+ * a deletion event that the table cannot attribute, since owners and admins may
+ * delete anyone's.
+ */
+function commentEvents(comments: ApplicantComment[]): TimelineEvent[] {
+  const out: TimelineEvent[] = [];
+  for (const c of comments) {
+    if (c.deletedAt !== null) continue;
+    const at = instantOf(c.createdAt);
+    if (at === null) continue;
+    out.push({
+      id: `comment:${c.id}`,
+      at,
+      source: "comment",
+      actor: { kind: "person", name: c.authorName },
+      title: c.parentId ? "Replied" : "Commented",
+      detail: c.body ?? undefined,
+      // The body on screen is the edited one, so the stamp beside it would
+      // otherwise date text that did not exist at that moment.
+      suffix: c.updatedAt !== c.createdAt ? "edited" : undefined,
+      dot: TIMELINE_DOT_NEUTRAL,
+    });
+  }
+  return out;
+}
+
+/**
+ * Messages, placed by when they were WRITTEN.
+ *
+ * createdAt throughout, including for something still queued. Placing a
+ * scheduled message at the instant it is due would put a future timestamp into
+ * a feed ordered by the past — it would sort above today's events and read as
+ * something that has already happened. The row says when it is due instead.
+ *
+ * Where a message actually left materially later than it was written, the meta
+ * says so rather than letting createdAt quietly stand in for both. The
+ * threshold keeps that off the ordinary row: across 204 sent messages the
+ * largest gap was 3.1 seconds and none exceeded a minute, so this is dormant
+ * until something is genuinely scheduled.
+ */
+const SENT_LAG_WORTH_SAYING_MS = 60_000;
+
+const MESSAGE_BADGE: Record<CandidateMessage["kind"], TimelineBadge | undefined> = {
+  written: undefined,
+  automatic: {
+    label: "Automatic",
+    cls: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
+  },
+  scheduled: {
+    label: "Scheduled",
+    cls: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
+  },
+  failed: {
+    label: "Failed",
+    cls: "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]",
+  },
+};
+
+function messageEvents(messages: CandidateMessage[], local: boolean): TimelineEvent[] {
+  const out: TimelineEvent[] = [];
+  for (const m of messages) {
+    const at = instantOf(m.createdAt);
+    if (at === null) continue;
+
+    const scheduled = m.kind === "scheduled";
+    const sent = instantOf(m.sentAt);
+    const lagged = sent !== null && sent - at > SENT_LAG_WORTH_SAYING_MS;
+
+    const suffix = scheduled
+      ? `due ${fmtMessageWhen(m.scheduledFor ?? m.createdAt)}`
+      : lagged
+        ? `sent ${fmtDay(m.sentAt, local) ?? ""}`.trim()
+        : undefined;
+
+    out.push({
+      id: `message:${m.id}`,
+      at,
+      source: "message",
+      actor:
+        m.kind === "automatic" || !m.sentByName
+          ? { kind: "system", icon: "mail" }
+          : { kind: "person", name: m.sentByName },
+      title: scheduled ? "Message scheduled" : m.kind === "failed" ? "Message failed" : "Emailed",
+      detail: m.subject || "(no subject)",
+      suffix,
+      badge: MESSAGE_BADGE[m.kind],
+      dot: TIMELINE_DOT_NEUTRAL,
+    });
+  }
+  return out;
+}
+
+/**
+ * Every source merged into one newest-first order.
+ *
+ * The comparator reads two numbers already resolved onto each entry and never
+ * reaches back into a field: `at` first, then SOURCE_RANK for a shared instant,
+ * then the id so that two entries from the same source at the same instant
+ * still order the same way twice running. Array.prototype.sort's stability
+ * would otherwise be resolving those, which means the answer would depend on
+ * the order the arrays were concatenated in.
+ */
+function buildTimeline(
+  row: CompanyApplicantRow,
+  history: StageHistoryRow[],
+  detail: ApplicantScoreDetail | null,
+  comments: ApplicantComment[],
+  messages: CandidateMessage[],
+  local: boolean,
+): TimelineEvent[] {
+  const applied = appliedEvent(row);
+  const events = [
+    ...(applied ? [applied] : []),
+    ...stageEvents(history),
+    ...scoreEvents(detail),
+    ...commentEvents(comments),
+    ...messageEvents(messages, local),
+  ];
+
+  return events.sort((a, b) => {
+    if (a.at !== b.at) return b.at - a.at;
+    const rank = SOURCE_RANK[b.source] - SOURCE_RANK[a.source];
+    return rank !== 0 ? rank : a.id.localeCompare(b.id);
+  });
+}
+
+/**
+ * A circle is a person. A rounded square is not.
+ *
+ * The shape carries the distinction before the colour or the glyph does, which
+ * matters because the two are adjacent in the same column: an automatic email
+ * and a colleague's comment sit one above the other, and initials on both would
+ * say a person sent both.
+ */
+function TimelineAvatar({ actor }: { actor: TimelineActor }) {
+  if (actor.kind === "system") {
+    const Icon = actor.icon === "score" ? Zap : Mail;
+    return (
+      <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]">
+        <Icon className="size-3.5" strokeWidth={2.2} />
+      </span>
+    );
+  }
+  const tint = getTint(actor.name);
+  return (
+    <span
+      className="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-extrabold"
+      style={{ background: tint.bg, color: tint.fg }}
+    >
+      {msgInitials(actor.name)}
+    </span>
+  );
+}
+
+/**
+ * "15d ago at 09:55". Deliberately not fmtApplied, which stops at the day.
+ *
+ * Day granularity is right on the Profile card, which is read for what changed
+ * rather than when. It is not right in a merged feed, where two events on one
+ * day used to render byline-identical and the order was carried by vertical
+ * position with nothing on screen corroborating it.
+ *
+ * Minute granularity, and the limit is worth stating rather than discovering:
+ * it separates events minutes apart, NOT seconds apart. The three consecutive
+ * stage changes in this workspace are six and eight seconds apart and still
+ * render "15d ago at 09:55" three times. Separating those needs seconds, which
+ * is audit-log precision and was not what this is for.
+ *
+ * `local` is threaded exactly as fmtApplied threads it, so the pre-hydration
+ * render and the hydrating render agree on the zone rather than differing by
+ * one. `at` needs no NaN branch: instantOf rejects an unplaceable stamp and
+ * every builder skips the row rather than pushing it.
+ */
+function fmtTimelineStamp(at: number, clock: PageClock): string {
+  const d = new Date(at);
+  const zone = clock.local ? {} : ({ timeZone: "UTC" } as const);
+  const time = d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    ...zone,
+  });
+  if (clock.now <= 0) {
+    const day = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", ...zone });
+    return `${day} at ${time}`;
+  }
+  const days = Math.floor((clock.now - at) / 86_400_000);
+  if (days < 1) return `Today at ${time}`;
+  if (days === 1) return `1d ago at ${time}`;
+  return `${days}d ago at ${time}`;
+}
+
+function TimelineRow({ event, clock }: { event: TimelineEvent; clock: PageClock }) {
+  const who = event.actor.kind === "person" ? event.actor.name : null;
+  const meta = [who, fmtTimelineStamp(event.at, clock), event.suffix].filter(Boolean).join(" · ");
+
+  return (
+    <div className="flex items-start gap-3">
+      <TimelineAvatar actor={event.actor} />
+      <div className="min-w-0 flex-1 pt-px">
+        <p className="m-0 flex items-center gap-[7px] text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
+          <span className={`size-[7px] shrink-0 rounded-full ${event.dot}`} aria-hidden="true" />
+          <span className="min-w-0 truncate">{event.title}</span>
+          {event.badge && (
+            <span
+              className={`shrink-0 rounded-[5px] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] ${event.badge.cls}`}
+            >
+              {event.badge.label}
+            </span>
+          )}
+        </p>
+        {event.detail && (
+          <p className="m-0 mt-[3px] whitespace-pre-wrap text-[12.5px] leading-snug text-[var(--ai-t2)]">
+            {event.detail}
+          </p>
+        )}
+        <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">{meta}</small>
+      </div>
+    </div>
+  );
+}
+
+const TIMELINE_NOTICE = "m-0 rounded-xl border px-3.5 py-2.5 text-[12px] leading-relaxed";
+
+/**
+ * The merged feed.
+ *
+ * Two incompleteness notices, in two different places, because they mean
+ * different things. A failed message read qualifies the WHOLE feed and cannot
+ * say how much is missing, so it sits at the top before anything is read. A
+ * truncated read knows exactly what it dropped — the oldest messages, since the
+ * cap takes the most recent — so it sits at the bottom, where those entries
+ * would have been.
+ */
+function TimelinePane({
+  row,
+  history,
+  historyLoading,
+  historyFailed,
+  scoreDetail,
+  comments,
+  messages,
+  messagesLoading,
+  messagesFailed,
+  messagesTruncated,
+  clock,
+}: {
+  row: CompanyApplicantRow;
+  history: StageHistoryRow[];
+  historyLoading: boolean;
+  historyFailed: boolean;
+  scoreDetail: ApplicantScoreDetail | null;
+  comments: ApplicantComment[];
+  messages: CandidateMessage[];
+  messagesLoading: boolean;
+  messagesFailed: boolean;
+  messagesTruncated: boolean;
+  clock: PageClock;
+}) {
+  const events = useMemo(
+    () => buildTimeline(row, history, scoreDetail, comments, messages, clock.local),
+    [row, history, scoreDetail, comments, messages, clock.local],
+  );
+
+  const loading = historyLoading || messagesLoading;
+
+  return (
+    <PaneCard title="Timeline">
+      <div className="flex flex-col gap-4">
+        {historyFailed && (
+          <p
+            className={`${TIMELINE_NOTICE} border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
+          >
+            This applicant's stage history and comments couldn't be loaded, so entries are missing
+            from this feed. Close the panel and reopen it to try again.
+          </p>
+        )}
+        {messagesFailed && (
+          <p
+            className={`${TIMELINE_NOTICE} border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
+          >
+            Messages couldn't be loaded, so any email sent to this candidate is missing from the
+            feed below. Everything else is here.
+          </p>
+        )}
+
+        {loading && events.length === 0 && (
+          <div className="flex flex-col gap-3">
+            <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+            <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+          </div>
+        )}
+
+        {events.map((e) => (
+          <TimelineRow key={e.id} event={e} clock={clock} />
+        ))}
+
+        {messagesTruncated && (
+          <p
+            className={`${TIMELINE_NOTICE} border-[var(--ai-line-strong)] bg-[var(--ai-inset)] text-[var(--ai-t2)]`}
+          >
+            Older messages aren't shown — this feed carries the most recent{" "}
+            {APPLICATION_MESSAGE_CAP}. Stage changes and comments above are complete.
+          </p>
+        )}
+      </div>
+    </PaneCard>
+  );
 }
 
 // ── Comments ─────────────────────────────────────────────────
@@ -3171,6 +3663,8 @@ export function ApplicantsClient({
   /** The open applicant's message trail, and the composer over it. */
   const [messages, setMessages] = useState<CandidateMessage[]>([]);
   const [messagesLoading, setMessagesLoading] = useState(false);
+  const [messagesFailed, setMessagesFailed] = useState(false);
+  const [messagesTruncated, setMessagesTruncated] = useState(false);
   const [composerOpen, setComposerOpen] = useState(false);
 
   /**
@@ -3438,17 +3932,26 @@ export function ApplicantsClient({
   useEffect(() => {
     if (!openId) {
       setMessages([]);
+      setMessagesFailed(false);
+      setMessagesTruncated(false);
       return;
     }
     let cancelled = false;
     setMessagesLoading(true);
+    setMessagesFailed(false);
+    setMessagesTruncated(false);
     setMessages([]);
     fetchApplicationMessages(openId)
-      .then((rows) => {
-        if (!cancelled) setMessages(rows);
+      .then((read) => {
+        if (cancelled) return;
+        setMessages(read.rows);
+        setMessagesFailed(!read.ok);
+        setMessagesTruncated(read.truncated);
       })
       .catch(() => {
-        if (!cancelled) setMessages([]);
+        if (cancelled) return;
+        setMessages([]);
+        setMessagesFailed(true);
       })
       .finally(() => {
         if (!cancelled) setMessagesLoading(false);
@@ -4192,6 +4695,8 @@ export function ApplicantsClient({
           historyFailed={historyFailed}
           messages={messages}
           messagesLoading={messagesLoading}
+          messagesFailed={messagesFailed}
+          messagesTruncated={messagesTruncated}
           comments={comments}
           commentsLoading={historyLoading}
           viewerMemberId={viewerMemberId}
@@ -4250,7 +4755,10 @@ export function ApplicantsClient({
             setToast("Email sent");
             setMessagesLoading(true);
             try {
-              setMessages(await fetchApplicationMessages(openRow.id));
+              const read = await fetchApplicationMessages(openRow.id);
+              setMessages(read.rows);
+              setMessagesFailed(!read.ok);
+              setMessagesTruncated(read.truncated);
             } catch {
               /* the send succeeded; a stale trail is not worth an error */
             } finally {
