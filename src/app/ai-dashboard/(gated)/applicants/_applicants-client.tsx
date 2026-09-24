@@ -2362,7 +2362,8 @@ function ApplicantDrawer({
         {tab === "interviews" && (
           /* No PaneCard here: the panel draws its own three sections, each with
              the design's subhead and its own card, because async, AI video and
-             the live call are three separate decisions with separate status. */
+             the call with your team are three separate decisions with separate
+             status. */
           <InterviewPanel applicationId={row.id} onToast={onToast} />
         )}
 
@@ -2463,16 +2464,20 @@ function fmtMessageWhen(iso: string): string {
 /**
  * Where a timeline entry came from. Also its tie-break rank — see SOURCE_RANK.
  */
-type TimelineSource = "applied" | "stage" | "score" | "message" | "comment";
+type TimelineSource = "applied" | "stage" | "score" | "shortlist" | "message" | "comment";
 
 /**
  * Order between two entries that resolve to the SAME instant.
  *
- * Only one causal pair is actually produced here: moving someone to `rejected`
- * writes the history row and then fires the rejection email, back to back, in
- * one action. Those two can land in the same millisecond, and the email is the
- * consequence — so in a newest-first feed it belongs ABOVE the move. Higher
- * rank sorts higher.
+ * Two causal pairs are produced here, and in both the consequence outranks its
+ * cause, because a newest-first feed puts the later thing on top.
+ *
+ * Moving someone to `rejected` writes the history row and then fires the
+ * rejection email, back to back, in one action; those two can land in the same
+ * millisecond. Auto-shortlisting is the weaker case: the flag is written by a
+ * score landing, but from its own `new Date()` rather than from `scored_at`, so
+ * it is strictly later in practice and the tie is theoretical. It is ranked
+ * anyway — a rank that only holds when observed is not a rank.
  *
  * The rest of the order is arbitrary but FIXED. A comment landing on the same
  * instant as a stage change is coincidence, and there is no true answer for
@@ -2484,8 +2489,9 @@ const SOURCE_RANK: Record<TimelineSource, number> = {
   applied: 0,
   stage: 1,
   score: 2,
-  message: 3,
-  comment: 4,
+  shortlist: 3,
+  message: 4,
+  comment: 5,
 };
 
 /**
@@ -2603,6 +2609,43 @@ function appliedEvent(row: CompanyApplicantRow): TimelineEvent | null {
         <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b>
       </>
     ),
+  };
+}
+
+/**
+ * "Auto-shortlisted" — from the flag on the row, not from a log.
+ *
+ * The reason is a sentence the server already wrote ("CV score 72 met the
+ * auto-shortlist threshold of 60.", flagReason in lib/interviews/shortlist.ts),
+ * so it goes in the excerpt verbatim. Both sources it can name — a CV score and
+ * an interview score — are the model's, which is why this is AI_ACTOR with the
+ * score icon rather than a new kind of system actor.
+ *
+ * ── This entry is not permanent, and that is the flag's doing ─
+ *
+ * Dismissing the flag nulls `shortlist_flagged_at` while deliberately KEEPING
+ * the reason (shortlist.ts:326), so a dismissed applicant has the sentence but
+ * no instant. Keying on the instant means the entry disappears when a recruiter
+ * dismisses it. That is the honest reading of the column — the feed can only
+ * say "is flagged", because nothing records "was flagged and then was not" —
+ * but it does mean this one line is a current state and not an audit record,
+ * unlike every other entry here.
+ */
+function shortlistEvent(row: CompanyApplicantRow): TimelineEvent | null {
+  const at = instantOf(row.shortlist.flaggedAt);
+  if (at === null) return null;
+  return {
+    id: `shortlist:${row.id}`,
+    at,
+    source: "shortlist",
+    actor: { kind: "system", icon: "score", name: AI_ACTOR },
+    what: (
+      <>
+        <Who name={AI_ACTOR} /> flagged the application as{" "}
+        <b className="font-bold text-[var(--ai-t1)]">worth a look</b>
+      </>
+    ),
+    excerpt: row.shortlist.reason ?? undefined,
   };
 }
 
@@ -2847,8 +2890,10 @@ function buildTimeline(
   local: boolean,
 ): TimelineEvent[] {
   const applied = appliedEvent(row);
+  const shortlisted = shortlistEvent(row);
   const events = [
     ...(applied ? [applied] : []),
+    ...(shortlisted ? [shortlisted] : []),
     ...stageEvents(history),
     ...scoreEvents(detail),
     ...commentEvents(comments),

@@ -2641,7 +2641,7 @@ export function WizardClient({
                     never recorded or shared.
                   </p>
 
-                  <LiveInterviewFields state={state} set={set} />
+                  <TeamCallFields state={state} set={set} />
                 </>
               )}
 
@@ -2898,7 +2898,7 @@ export function WizardClient({
                               interviews at all. */}
                           <OptionRow
                             title="Async video interview"
-                            desc="Candidates record answers in their own time, with no live call."
+                            desc="Candidates record answers in their own time, with no interviewer on the call."
                             live
                             on={state.async_interview_enabled}
                             onToggle={() =>
@@ -3561,12 +3561,21 @@ function ThresholdField({
 }
 
 /**
- * Live interview: how long, and optionally when.
+ * The call with your team: how long, and optionally when.
+ *
+ * ── Never "the live round" ───────────────────────────────────
+ *
+ * That is what this comment used to call it, and it contradicted the codebase:
+ * `InterviewKind` in lib/interviews/types.ts spends the word the other way —
+ * `live` THERE means AI Video Interview, a real-time conversation with no
+ * person in it. Two opposite referents for one word, in one product. So the
+ * heading names the counterparty instead: what makes this different is that a
+ * colleague turns up, not that it happens in real time. The AI one does too.
  *
  * ── Why this sits under the video questions, not beside them ──
  *
  * The questions above are the ASYNC round — recorded alone, no call to
- * schedule. This is the LIVE round a candidate books into a recruiter's diary.
+ * schedule. This is the meeting a candidate books into a recruiter's diary.
  * Two different products on one step, so the divider and the heading say which
  * is which rather than letting the reader assume the fields below configure
  * the fields above.
@@ -3591,7 +3600,7 @@ const BOOKING_DAYS = [
   { weekday: 0, label: "Sunday" },
 ];
 
-function LiveInterviewFields({
+function TeamCallFields({
   state,
   set,
 }: {
@@ -3662,11 +3671,12 @@ function LiveInterviewFields({
   return (
     <div className="mt-6 border-t border-[var(--ai-line)] pt-5">
       <p className="m-0 mb-[5px] font-heading text-[15px] font-extrabold tracking-[-0.02em] text-[var(--ai-t1)]">
-        Live interview
+        Call with your team
       </p>
       <p className="m-0 mb-4 text-xs leading-relaxed text-[var(--ai-t3)]">
-        Separate from the recorded questions above. When you send a booking link, this is the
-        meeting the candidate picks a time for.
+        A colleague meets the candidate. Separate from the recorded questions above, and from AI
+        Video Interview — those two have no one on the call. When you send a booking link, this is
+        the meeting the candidate picks a time for.
       </p>
 
       <span className="mb-[7px] block text-[11.5px] font-bold tracking-[0.01em] text-[var(--ai-t2)]">

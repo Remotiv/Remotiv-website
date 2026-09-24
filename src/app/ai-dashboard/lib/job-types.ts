@@ -312,7 +312,12 @@ export type CompanyJobInput = {
   interview_criteria: string[];
 
   /**
-   * How long a LIVE interview runs — 30 or 60 minutes.
+   * How long the call with your team runs — 30 or 60 minutes.
+   *
+   * Not "a LIVE interview", which is what this said and which `InterviewKind`
+   * in lib/interviews/types.ts spends on the opposite thing: `live` there is
+   * the AI Video Interview, which nobody attends and whose length this number
+   * does not govern.
    *
    * Governs the booking page a candidate is sent, not the async video round
    * above; the two are different products and a job may use either, both, or

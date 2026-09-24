@@ -25,7 +25,7 @@ import type { InterviewPanelState, InterviewSessionSummary } from "./interview-t
 
 /**
  * The drawer's Interviews pane — three sections, as the design has them:
- * async video, AI video, live call.
+ * async video, AI video, and the call with your team.
  *
  * Sending is manual and explicit — nothing here fires on a stage change.
  *
@@ -806,7 +806,7 @@ function Step({ label, value }: { label: string; value: string }) {
   );
 }
 
-/* ────────────────────────── 3. live call ───────────────────── */
+/* ─────────────────── 3. call with your team ────────────────── */
 
 const BOOKING_BADGE: Record<string, { label: string; cls: string; icon: typeof Check }> = {
   booked: {
@@ -931,7 +931,10 @@ function BookingSection({
 
   return (
     <section>
-      <SubHead title="Live call" badge={badge ? <StatusBadge {...badge} /> : undefined} />
+      {/* Matches the job wizard's heading for the same thing. NOT "Live call":
+          `InterviewKind.live` is the AI Video Interview above, so the word
+          would name both sections and distinguish neither. */}
+      <SubHead title="Call with your team" badge={badge ? <StatusBadge {...badge} /> : undefined} />
 
       <div className={`${CARD} ${CARD_PAD}`}>
         {loading ? (
