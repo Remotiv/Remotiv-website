@@ -4,6 +4,7 @@ import {
   Briefcase,
   ChartNoAxesColumn,
   LayoutGrid,
+  LifeBuoy,
   type LucideIcon,
   Mail,
   Settings,
@@ -18,13 +19,16 @@ import { COMPANY_ROLE_LABELS, type CompanyRole } from "@/app/ai-dashboard/lib/co
 
 type NavItem = {
   label: string;
-  href: string;
   icon: LucideIcon;
   /** Count badge. Rendered whenever defined — 0 is a real, meaningful value. */
   count?: number;
   /** Route not built yet: render inert instead of linking to a 404. */
   soon?: boolean;
-};
+} & (
+  | { href: string; opens?: never }
+  /** A row that opens a panel rather than navigating anywhere. */
+  | { href?: never; opens: "help" }
+);
 
 function primaryNav(
   // Undefined for a count that could not be read. NavItem.count is optional
@@ -49,6 +53,9 @@ function primaryNav(
 const WORKSPACE_NAV: ReadonlyArray<NavItem> = [
   { label: "Team", href: "/ai-dashboard/team", icon: UserRound },
   { label: "Settings", href: "/ai-dashboard/settings", icon: Settings },
+  // Not a route. The guides open over whatever page you are on, so reading one
+  // never costs you your filters or your place in a list.
+  { label: "Help", opens: "help", icon: LifeBuoy },
 ];
 
 function isActive(pathname: string, href: string): boolean {
@@ -59,17 +66,21 @@ function isActive(pathname: string, href: string): boolean {
 const LINK_BASE =
   "flex items-center gap-[11px] rounded-[10px] px-2.5 py-2.5 text-[13.5px] font-medium transition-colors";
 
+const INACTIVE_LINK = "text-white/60 hover:bg-white/[0.06] hover:text-white";
+
 function NavRow({
   item,
   pathname,
   onNavigate,
+  onOpenHelp,
 }: {
   item: NavItem;
   pathname: string;
   onNavigate?: () => void;
+  onOpenHelp: () => void;
 }) {
   const { label, href, icon: Icon, count, soon } = item;
-  const active = isActive(pathname, href);
+  const active = href ? isActive(pathname, href) : false;
 
   const badge =
     count === undefined ? null : (
@@ -103,15 +114,31 @@ function NavRow({
     );
   }
 
+  // Panel rows are buttons, not links: there is no URL to give them, and a
+  // link that navigates nowhere is worse for a screen reader than a button
+  // that says what it does.
+  if (!href) {
+    return (
+      <button
+        type="button"
+        onClick={() => {
+          onNavigate?.();
+          onOpenHelp();
+        }}
+        className={`${LINK_BASE} w-full text-left ${INACTIVE_LINK}`}
+      >
+        {inner}
+      </button>
+    );
+  }
+
   return (
     <Link
       href={href}
       onClick={onNavigate}
       aria-current={active ? "page" : undefined}
       className={`${LINK_BASE} ${
-        active
-          ? "bg-remotiv-purple font-semibold text-white"
-          : "text-white/60 hover:bg-white/[0.06] hover:text-white"
+        active ? "bg-remotiv-purple font-semibold text-white" : INACTIVE_LINK
       }`}
     >
       {inner}
@@ -133,6 +160,7 @@ function SidebarBody({
   interviewCount,
   pathname,
   onNavigate,
+  onOpenHelp,
 }: {
   companyName: string;
   companyLogoUrl: string | null;
@@ -143,6 +171,7 @@ function SidebarBody({
   interviewCount: number | undefined;
   pathname: string;
   onNavigate?: () => void;
+  onOpenHelp: () => void;
 }) {
   return (
     <>
@@ -174,7 +203,13 @@ function SidebarBody({
 
       <nav className="mb-1.5 flex flex-col gap-0.5">
         {primaryNav(jobCount, applicantCount, messageCount, interviewCount).map((item) => (
-          <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+          <NavRow
+            key={item.label}
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+            onOpenHelp={onOpenHelp}
+          />
         ))}
       </nav>
 
@@ -183,7 +218,13 @@ function SidebarBody({
           Workspace
         </div>
         {WORKSPACE_NAV.map((item) => (
-          <NavRow key={item.href} item={item} pathname={pathname} onNavigate={onNavigate} />
+          <NavRow
+            key={item.label}
+            item={item}
+            pathname={pathname}
+            onNavigate={onNavigate}
+            onOpenHelp={onOpenHelp}
+          />
         ))}
       </nav>
     </>
@@ -200,6 +241,7 @@ export function AiSidebar({
   interviewCount,
   mobileOpen,
   onClose,
+  onOpenHelp,
 }: {
   companyName: string;
   companyLogoUrl: string | null;
@@ -210,6 +252,7 @@ export function AiSidebar({
   interviewCount: number | undefined;
   mobileOpen: boolean;
   onClose: () => void;
+  onOpenHelp: () => void;
 }) {
   const pathname = usePathname();
 
@@ -226,6 +269,7 @@ export function AiSidebar({
           messageCount={messageCount}
           interviewCount={interviewCount}
           pathname={pathname}
+          onOpenHelp={onOpenHelp}
         />
       </aside>
 
@@ -261,6 +305,7 @@ export function AiSidebar({
           interviewCount={interviewCount}
           pathname={pathname}
           onNavigate={onClose}
+          onOpenHelp={onOpenHelp}
         />
       </aside>
     </>

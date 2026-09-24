@@ -28,6 +28,7 @@ import {
 } from "@/app/ai-dashboard/lib/company-roles";
 import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
 import {
   inviteMember,
   removeMember,
@@ -72,7 +73,7 @@ const ROLE_HINTS: Record<CompanyRole, string> = {
   admin:
     "Admins can invite members, change roles, and manage every job and applicant.",
   recruiter:
-    "Recruiters can post jobs and manage applicants, but can't change the team.",
+    "Recruiters can post jobs and manage applicants for the roles they're assigned to, but can't change the team.",
   hiring_manager:
     "Hiring managers only see the jobs and applicants assigned to them.",
 };
@@ -1142,10 +1143,13 @@ export function TeamClient({
   companyName,
   viewerRole,
   members: initialMembers,
+  showRoleAccessTip,
 }: {
   companyName: string;
   viewerRole: CompanyRole;
   members: TeamMemberRow[];
+  /** First visit for an owner or admin: explain who is scoped and who isn't. */
+  showRoleAccessTip: boolean;
 }) {
   const router = useRouter();
   const canManage = canManageTeam(viewerRole);
@@ -1351,6 +1355,11 @@ export function TeamClient({
           )}
         </div>
       </div>
+
+      {/* Leads the page, like the wizard's PromiseBox: it finishes the sentence
+          the lede starts. Light rather than dark ink, because the hero below is
+          already dark and two dark bands in a row read as one. */}
+      {showRoleAccessTip && <TipCard tipKey="team_role_access" />}
 
       <TeamHero
         activeCount={activeMembers.length}
