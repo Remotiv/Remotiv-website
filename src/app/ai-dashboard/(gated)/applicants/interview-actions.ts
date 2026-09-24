@@ -845,7 +845,7 @@ export async function fetchInterviewPanel(
   // The interview score, if one exists. Company-gated on its own column.
   const { data: scoreRow } = await service
     .from("interview_session_scores")
-    .select("status, overall_score, human_adjusted_score")
+    .select("status, overall_score, human_adjusted_score, verdict, summary")
     .eq("session_id", row.id)
     .eq("company_id", ctx.companyId)
     .maybeSingle();
@@ -853,6 +853,8 @@ export async function fetchInterviewPanel(
     status: string | null;
     overall_score: number | null;
     human_adjusted_score: number | null;
+    verdict: string | null;
+    summary: string | null;
   } | null;
 
   const { count: answered } = await service
@@ -900,6 +902,8 @@ export async function fetchInterviewPanel(
     total: total ?? 0,
     score: sc ? (sc.human_adjusted_score ?? sc.overall_score) : null,
     scoreStatus: sc?.status ?? null,
+    verdict: sc?.verdict ?? null,
+    summary: sc?.summary ?? null,
   };
 
   return { ...base, session };

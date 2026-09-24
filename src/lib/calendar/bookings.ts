@@ -114,13 +114,17 @@ export type BookingRow = {
   provider: string | null;
   expires_at: string | null;
   cancelled_at: string | null;
+  /** When the CANDIDATE picked the slot, not when the link was sent — that is
+   *  created_at. Nulled again on release, so a re-booked row carries the
+   *  latest choice rather than the first. */
+  booked_at: string | null;
   /** 'candidate' or 'recruiter' — see BookingActor. */
   cancelled_by: string | null;
   cancel_reason: string | null;
 };
 
 const ROW_COLUMNS =
-  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, cancelled_by, cancel_reason";
+  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, booked_at, cancelled_by, cancel_reason";
 
 /** Look a booking up by its RAW token. Hashes before querying — the raw value
  *  never reaches a query predicate. */

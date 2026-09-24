@@ -284,10 +284,19 @@ export async function sendBookingLink(
 export type BookingPanel = {
   status: string;
   scheduledStart: string | null;
+  /** The card renders a range, "14:00 – 14:45". Derivable from the start plus
+   *  durationMinutes, but read rather than computed: the stored end is what
+   *  the calendar invitation actually says. */
+  scheduledEnd: string | null;
   hostTimezone: string | null;
   candidateTimezone: string | null;
   meetingUrl: string | null;
   durationMinutes: number;
+  /** When the candidate chose the slot. Null on an invited-but-unbooked row. */
+  bookedAt: string | null;
+  /** 'google' today. Named on the card so the recruiter knows what "Join"
+   *  opens before clicking it. */
+  provider: string | null;
   canReschedule: boolean;
   canCancel: boolean;
   cancelledBy: string | null;
@@ -302,7 +311,7 @@ export async function fetchBookingPanel(applicationId: string): Promise<BookingP
   const { data } = await service
     .from("interview_bookings")
     .select(
-      "status, scheduled_start, host_timezone, candidate_timezone, meeting_url, duration_minutes, cancelled_by, cancel_reason, company_id, job_id, host_member_id, id, application_id, scheduled_end, meeting_mode, provider_event_id, provider, expires_at, cancelled_at",
+      "status, scheduled_start, host_timezone, candidate_timezone, meeting_url, duration_minutes, cancelled_by, cancel_reason, company_id, job_id, host_member_id, id, application_id, scheduled_end, meeting_mode, provider_event_id, provider, expires_at, cancelled_at, booked_at",
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -318,10 +327,13 @@ export async function fetchBookingPanel(applicationId: string): Promise<BookingP
   return {
     status: row.status,
     scheduledStart: row.scheduled_start,
+    scheduledEnd: row.scheduled_end,
     hostTimezone: row.host_timezone,
     candidateTimezone: row.candidate_timezone,
     meetingUrl: row.meeting_url,
     durationMinutes: row.duration_minutes,
+    bookedAt: row.booked_at,
+    provider: row.provider,
     // Server-decided, exactly as on the candidate's page.
     canReschedule: canReschedule(row),
     canCancel: canCancel(row),

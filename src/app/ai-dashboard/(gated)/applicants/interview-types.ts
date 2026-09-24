@@ -15,6 +15,12 @@ export type InterviewSessionSummary = {
    *  it. They measure different things and a blended number would hide that. */
   score: number | null;
   scoreStatus: string | null;
+  /** The model's one-line judgement, shown as the strip's heading. Null until
+   *  scored, and null on every session scored before verdicts were written. */
+  verdict: string | null;
+  /** The paragraph under it. Never trimmed here — a summary cut mid-sentence
+   *  reads as a rendering fault rather than as a summary. */
+  summary: string | null;
   /** invited | started | submitted | expired | cancelled. Expiry is derived. */
   status: string;
   expiresAt: string;

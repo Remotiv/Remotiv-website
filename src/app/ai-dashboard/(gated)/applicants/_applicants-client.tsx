@@ -2360,15 +2360,10 @@ function ApplicantDrawer({
         )}
 
         {tab === "interviews" && (
-          /* ONE card, not one per section. The design's Interviews pane is a
-             different feature — a results ring, the employer's criteria and
-             per-question transcripts — and its cards map onto nothing we hold.
-             Ours is a single decision taken in three places (async, live,
-             booking) whose boxes appear and vanish with the job's settings, so
-             a card per section would leave a page of empty heads. */
-          <PaneCard title="Video interview">
-            <InterviewPanel applicationId={row.id} onToast={onToast} />
-          </PaneCard>
+          /* No PaneCard here: the panel draws its own three sections, each with
+             the design's subhead and its own card, because async, AI video and
+             the live call are three separate decisions with separate status. */
+          <InterviewPanel applicationId={row.id} onToast={onToast} />
         )}
 
         {tab === "comments" && (
