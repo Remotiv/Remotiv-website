@@ -162,15 +162,17 @@ type SortMode = "best" | "newest";
  */
 const PANEL_TABS = [
   { key: "profile", label: "Profile" },
-  /* Directly after Profile, and it REPLACES the stage-history card that used to
-     sit at the foot of it. Profile answers "who is this"; Timeline answers
-     "what has happened", which is the natural next question and was the last
-     thing on that pane anyway. Keeping both would have meant two renderings of
-     the same history — and the one on Profile had a bug (see appliedEvent). */
-  { key: "timeline", label: "Timeline" },
   { key: "review", label: "Review" },
   { key: "comm", label: "Communication" },
   { key: "interviews", label: "Interviews" },
+  /* Fifth, where the design puts it — after the panes that answer "who is this
+     and how good are they" and before the team's own discussion.
+
+     It still REPLACES the stage-history card that used to sit at the foot of
+     Profile, which the design confirms: its Profile pane has no such card
+     either. Keeping both would have meant two renderings of one history, and
+     the one on Profile had a bug (see appliedEvent). */
+  { key: "timeline", label: "Timeline" },
   /* No count beside the label. Comments arrive with the rest of the detail,
      which is fetched in an effect AFTER the tab strip has painted — so a number
      here would appear a beat late on every open, which is the reason the list's
@@ -2497,8 +2499,15 @@ const SOURCE_RANK: Record<TimelineSource, number> = {
  * Deliberately not "a person, possibly unnamed". Roughly half of what reaches
  * this feed — every automatic email, every AI score — had no human behind it,
  * and giving those a circle of initials would invent one. See TimelineAvatar.
+ *
+ * A system actor carries a name too. It is not used for initials; it is what
+ * the sentence calls the thing that acted, so an automatic row reads "Remotiv
+ * AI scored the application" rather than beginning with a verb and leaving the
+ * actor to be guessed from an icon.
  */
-type TimelineActor = { kind: "person"; name: string } | { kind: "system"; icon: "score" | "mail" };
+type TimelineActor =
+  | { kind: "person"; name: string }
+  | { kind: "system"; icon: "score" | "mail"; name: string };
 
 type TimelineBadge = { label: string; cls: string };
 
@@ -2524,14 +2533,20 @@ type TimelineEvent = {
   at: number;
   source: TimelineSource;
   actor: TimelineActor;
-  title: string;
-  /** The entry's own words: a comment's body, a message's subject line. */
-  detail?: string;
-  /** Trailing meta after the stamp — "due in 2 days", "edited". */
+  /**
+   * The sentence, with the actor bolded inside it — "Sana Riaz moved the stage
+   * from Screening to Interview".
+   *
+   * A node rather than a string because the sentence embeds real stage pills
+   * and status badges mid-clause, and because prose is what stops three
+   * consecutive events by one person reading as the same label stamped three
+   * times. It carries no state; the comparator never looks at it.
+   */
+  what: React.ReactNode;
+  /** The entry's own words, in an inset box: a comment's body, a subject line. */
+  excerpt?: string;
+  /** Trailing muted clause — "due in 2 days", "edited". */
   suffix?: string;
-  badge?: TimelineBadge;
-  /** Tailwind class for the rail dot. */
-  dot: string;
 };
 
 /** Epoch ms, or null when the stamp is absent or unparseable. */
@@ -2541,7 +2556,33 @@ function instantOf(iso: string | null): number | null {
   return Number.isNaN(t) ? null : t;
 }
 
-const TIMELINE_DOT_NEUTRAL = "bg-[var(--ai-t4)]";
+/**
+ * What the two automatic actors are called in a sentence.
+ *
+ * Not the company name. "Remotiv" is what company_members holds for this
+ * workspace's owner, so using it here would make a human's stage change and a
+ * model's score read as the same actor.
+ */
+const AI_ACTOR = "Remotiv AI";
+const AUTO_ACTOR = "Automatic email";
+
+/** The actor's name, bolded inside the sentence. */
+function Who({ name }: { name: string }) {
+  return <b className="font-bold text-[var(--ai-t1)]">{name}</b>;
+}
+
+/** A real stage pill, rendered mid-sentence rather than described in words. */
+function TimelineStagePill({ stage }: { stage: PipelineStage }) {
+  const pill = STAGE_PILL[stage];
+  return (
+    <span
+      className={`mx-0.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-[3px] align-baseline text-[11px] font-bold ${pill.cls}`}
+    >
+      <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} aria-hidden="true" />
+      {PIPELINE_STAGE_LABELS[stage]}
+    </span>
+  );
+}
 
 /**
  * "Applied" — synthesised from job_applications.created_at, always.
@@ -2555,13 +2596,18 @@ const TIMELINE_DOT_NEUTRAL = "bg-[var(--ai-t4)]";
 function appliedEvent(row: CompanyApplicantRow): TimelineEvent | null {
   const at = instantOf(row.created_at);
   if (at === null) return null;
+  const name = fullName(row);
   return {
     id: `applied:${row.id}`,
     at,
     source: "applied",
-    actor: { kind: "person", name: fullName(row) },
-    title: "Applied",
-    dot: STAGE_PILL.applied.dot,
+    actor: { kind: "person", name },
+    what: (
+      <>
+        <Who name={name} /> applied to{" "}
+        <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b>
+      </>
+    ),
   };
 }
 
@@ -2570,18 +2616,25 @@ function stageEvents(history: StageHistoryRow[]): TimelineEvent[] {
   for (const h of history) {
     const at = instantOf(h.created_at);
     if (at === null) continue;
+    // changed_by_name is snapshotted on write and has never been null in
+    // practice; a stage change is always somebody's doing.
+    const name = h.changed_by_name ?? "Someone";
     out.push({
       id: `stage:${h.id}`,
       at,
       source: "stage",
-      // changed_by_name is snapshotted on write and has never been null in
-      // practice; a stage change is always somebody's doing.
-      actor: { kind: "person", name: h.changed_by_name ?? "Someone" },
-      title: h.from_stage
-        ? `${PIPELINE_STAGE_LABELS[h.from_stage]} → ${PIPELINE_STAGE_LABELS[h.to_stage]}`
-        : `Moved to ${PIPELINE_STAGE_LABELS[h.to_stage]}`,
-      detail: h.note ?? undefined,
-      dot: STAGE_PILL[h.to_stage].dot,
+      actor: { kind: "person", name },
+      what: h.from_stage ? (
+        <>
+          <Who name={name} /> moved the stage from <TimelineStagePill stage={h.from_stage} /> to{" "}
+          <TimelineStagePill stage={h.to_stage} />
+        </>
+      ) : (
+        <>
+          <Who name={name} /> moved the stage to <TimelineStagePill stage={h.to_stage} />
+        </>
+      ),
+      excerpt: h.note ?? undefined,
     });
   }
   return out;
@@ -2616,28 +2669,43 @@ function scoreEvents(detail: ApplicantScoreDetail | null): TimelineEvent[] {
       id: "score:ai",
       at: scored,
       source: "score",
-      actor: { kind: "system", icon: "score" },
-      title: `AI scored ${detail.ai_overall}`,
-      detail: detail.ai_model ? `Model ${detail.ai_model}` : undefined,
-      dot: TIMELINE_DOT_NEUTRAL,
+      actor: { kind: "system", icon: "score", name: AI_ACTOR },
+      what: (
+        <>
+          <Who name={AI_ACTOR} /> scored the application{" "}
+          <b className="font-bold text-[var(--ai-t1)]">{detail.ai_overall} / 100</b>
+        </>
+      ),
+      // The model that produced it, and nothing more. The design's second
+      // clause here named the inputs ("CV + 3 screening answers"); no column
+      // records what was actually fed at scored_at, and rebuilding it from the
+      // row as it stands today would describe this moment, not that one.
+      excerpt: detail.ai_model ? `Model ${detail.ai_model}` : undefined,
     });
   }
 
   const adjusted = instantOf(detail.adjusted_at);
   if (adjusted !== null) {
+    // An adjustment is always somebody's doing, so an unnamed one is an unknown
+    // person rather than the model — the same fallback stageEvents uses.
+    const name = detail.adjusted_by_name ?? "Someone";
     out.push({
       id: "score:adjusted",
       at: adjusted,
       source: "score",
-      actor: detail.adjusted_by_name
-        ? { kind: "person", name: detail.adjusted_by_name }
-        : { kind: "system", icon: "score" },
-      title:
-        detail.adjusted && detail.overall !== null
-          ? `Score adjusted to ${detail.overall}`
-          : "Score adjusted",
-      detail: detail.human_feedback ?? undefined,
-      dot: TIMELINE_DOT_NEUTRAL,
+      actor: { kind: "person", name },
+      what:
+        detail.adjusted && detail.overall !== null ? (
+          <>
+            <Who name={name} /> adjusted the score to{" "}
+            <b className="font-bold text-[var(--ai-t1)]">{detail.overall}</b>
+          </>
+        ) : (
+          <>
+            <Who name={name} /> adjusted the score
+          </>
+        ),
+      excerpt: detail.human_feedback ?? undefined,
     });
   }
 
@@ -2666,12 +2734,15 @@ function commentEvents(comments: ApplicantComment[]): TimelineEvent[] {
       at,
       source: "comment",
       actor: { kind: "person", name: c.authorName },
-      title: c.parentId ? "Replied" : "Commented",
-      detail: c.body ?? undefined,
+      what: (
+        <>
+          <Who name={c.authorName} /> {c.parentId ? "replied" : "commented"}
+        </>
+      ),
+      excerpt: c.body ?? undefined,
       // The body on screen is the edited one, so the stamp beside it would
       // otherwise date text that did not exist at that moment.
       suffix: c.updatedAt !== c.createdAt ? "edited" : undefined,
-      dot: TIMELINE_DOT_NEUTRAL,
     });
   }
   return out;
@@ -2693,20 +2764,17 @@ function commentEvents(comments: ApplicantComment[]): TimelineEvent[] {
  */
 const SENT_LAG_WORTH_SAYING_MS = 60_000;
 
-const MESSAGE_BADGE: Record<CandidateMessage["kind"], TimelineBadge | undefined> = {
-  written: undefined,
-  automatic: {
-    label: "Automatic",
-    cls: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
-  },
-  scheduled: {
-    label: "Scheduled",
-    cls: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
-  },
-  failed: {
-    label: "Failed",
-    cls: "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]",
-  },
+/**
+ * Only failure gets a badge now.
+ *
+ * The kind used to be one: Automatic, Scheduled, Failed. Two of those are now
+ * said by the sentence itself — an automatic message names "Automatic email" as
+ * its actor, and a queued one reads "scheduled" as its verb — so the badge was
+ * repeating the clause beside it. A failure is worth the second signal.
+ */
+const FAILED_BADGE: TimelineBadge = {
+  label: "Failed",
+  cls: "bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]",
 };
 
 function messageEvents(messages: CandidateMessage[], local: boolean): TimelineEvent[] {
@@ -2725,19 +2793,41 @@ function messageEvents(messages: CandidateMessage[], local: boolean): TimelineEv
         ? `sent ${fmtDay(m.sentAt, local) ?? ""}`.trim()
         : undefined;
 
+    // A manual message whose sender was never recorded is still a person's
+    // doing — it predates communication_logs.sent_by_name. Calling it automatic
+    // would be the one reading of it that is certainly wrong.
+    const automatic = m.kind === "automatic";
+    const name = automatic ? AUTO_ACTOR : (m.sentByName ?? "Someone");
+    const verb = scheduled
+      ? "scheduled a message"
+      : m.kind === "failed"
+        ? "failed to send"
+        : "sent a message";
+
     out.push({
       id: `message:${m.id}`,
       at,
       source: "message",
-      actor:
-        m.kind === "automatic" || !m.sentByName
-          ? { kind: "system", icon: "mail" }
-          : { kind: "person", name: m.sentByName },
-      title: scheduled ? "Message scheduled" : m.kind === "failed" ? "Message failed" : "Emailed",
-      detail: m.subject || "(no subject)",
+      actor: automatic
+        ? { kind: "system", icon: "mail", name: AUTO_ACTOR }
+        : { kind: "person", name },
+      what: (
+        <>
+          <Who name={name} /> {verb}
+          {m.kind === "failed" && (
+            <>
+              {" — "}
+              <span
+                className={`ml-0.5 inline-flex items-center rounded-[5px] px-[7px] py-0.5 align-baseline text-[9.5px] font-extrabold uppercase tracking-[0.06em] ${FAILED_BADGE.cls}`}
+              >
+                {FAILED_BADGE.label}
+              </span>
+            </>
+          )}
+        </>
+      ),
+      excerpt: `“${m.subject || "(no subject)"}”`,
       suffix,
-      badge: MESSAGE_BADGE[m.kind],
-      dot: TIMELINE_DOT_NEUTRAL,
     });
   }
   return out;
@@ -2780,24 +2870,30 @@ function buildTimeline(
 /**
  * A circle is a person. A rounded square is not.
  *
- * The shape carries the distinction before the colour or the glyph does, which
- * matters because the two are adjacent in the same column: an automatic email
- * and a colleague's comment sit one above the other, and initials on both would
- * say a person sent both.
+ * A deliberate divergence from the design, which gives every actor the same
+ * circle and separates the automatic ones by an ink fill and the letters "AI".
+ * That works in the design because its feed never puts an automatic message
+ * beside a human one — it attributes every message to a person and reserves the
+ * ink circle for scoring. Ours shows automatic mail too, so an automatic email
+ * and a colleague's comment sit one above the other in the same column, and a
+ * circle of initials on both would say a person sent both.
+ *
+ * The naming IS taken from the design: the sentence says who acted, which is
+ * the part an icon alone was leaving to be guessed.
  */
 function TimelineAvatar({ actor }: { actor: TimelineActor }) {
   if (actor.kind === "system") {
     const Icon = actor.icon === "score" ? Zap : Mail;
     return (
-      <span className="grid size-7 shrink-0 place-items-center rounded-[9px] bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]">
-        <Icon className="size-3.5" strokeWidth={2.2} />
+      <span className="grid size-[34px] shrink-0 place-items-center rounded-[11px] bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]">
+        <Icon className="size-4" strokeWidth={2.2} />
       </span>
     );
   }
   const tint = getTint(actor.name);
   return (
     <span
-      className="grid size-7 shrink-0 place-items-center rounded-full text-[10px] font-extrabold"
+      className="grid size-[34px] shrink-0 place-items-center rounded-full text-[11px] font-bold"
       style={{ background: tint.bg, color: tint.fg }}
     >
       {msgInitials(actor.name)}
@@ -2806,7 +2902,8 @@ function TimelineAvatar({ actor }: { actor: TimelineActor }) {
 }
 
 /**
- * "15d ago at 09:55". Deliberately not fmtApplied, which stops at the day.
+ * "Today, 09:14" · "Yesterday, 17:40" · "17 Sept, 14:22". Deliberately not
+ * fmtApplied, which stops at the day.
  *
  * Day granularity is right on the Profile card, which is read for what changed
  * rather than when. It is not right in a merged feed, where two events on one
@@ -2816,58 +2913,69 @@ function TimelineAvatar({ actor }: { actor: TimelineActor }) {
  * Minute granularity, and the limit is worth stating rather than discovering:
  * it separates events minutes apart, NOT seconds apart. The three consecutive
  * stage changes in this workspace are six and eight seconds apart and still
- * render "15d ago at 09:55" three times. Separating those needs seconds, which
- * is audit-log precision and was not what this is for.
+ * render identically. The design has the same tie — it stamps two events
+ * "17 Sep, 14:22" and does nothing about it — so this matches rather than
+ * improves on it. Separating those needs seconds, which is audit-log precision.
  *
- * `local` is threaded exactly as fmtApplied threads it, so the pre-hydration
- * render and the hydrating render agree on the zone rather than differing by
- * one. `at` needs no NaN branch: instantOf rejects an unplaceable stamp and
- * every builder skips the row rather than pushing it.
+ * Today/Yesterday are CALENDAR days in the rendering zone, not a rolling 24
+ * hours. Under a rolling window something at 23:00 last night reads "Today" for
+ * most of the morning, which the old relative-only format could hide and this
+ * one cannot: it prints an absolute date in the very next branch.
+ *
+ * The year appears only when it is not the current one. "17 Sept, 14:22" on a
+ * row from two years ago is the kind of thing that reads as recent.
+ *
+ * `local` is threaded exactly as fmtApplied threads it. clock.now is the
+ * server's renderedAt until hydration and clock.local false with it, so the
+ * first client render reproduces the server's text and only the second differs.
+ * `at` needs no NaN branch: instantOf rejects an unplaceable stamp and every
+ * builder skips the row rather than pushing it.
  */
 function fmtTimelineStamp(at: number, clock: PageClock): string {
+  const zone = clock.local ? undefined : "UTC";
   const d = new Date(at);
-  const zone = clock.local ? {} : ({ timeZone: "UTC" } as const);
   const time = d.toLocaleTimeString("en-GB", {
     hour: "2-digit",
     minute: "2-digit",
-    ...zone,
+    timeZone: zone,
   });
-  if (clock.now <= 0) {
-    const day = d.toLocaleDateString("en-GB", { day: "2-digit", month: "short", ...zone });
-    return `${day} at ${time}`;
-  }
-  const days = Math.floor((clock.now - at) / 86_400_000);
-  if (days < 1) return `Today at ${time}`;
-  if (days === 1) return `1d ago at ${time}`;
-  return `${days}d ago at ${time}`;
+  // en-CA renders YYYY-MM-DD, which makes "same calendar day in this zone" a
+  // string comparison instead of three getters that would read the wrong zone.
+  const dayKey = (ms: number) => new Date(ms).toLocaleDateString("en-CA", { timeZone: zone });
+  const absolute = (withYear: boolean) =>
+    `${d.toLocaleDateString("en-GB", {
+      day: "2-digit",
+      month: "short",
+      ...(withYear ? { year: "numeric" as const } : {}),
+      timeZone: zone,
+    })}, ${time}`;
+
+  if (clock.now <= 0) return absolute(false);
+
+  const key = dayKey(at);
+  if (key === dayKey(clock.now)) return `Today, ${time}`;
+  if (key === dayKey(clock.now - 86_400_000)) return `Yesterday, ${time}`;
+  return absolute(key.slice(0, 4) !== dayKey(clock.now).slice(0, 4));
 }
 
 function TimelineRow({ event, clock }: { event: TimelineEvent; clock: PageClock }) {
-  const who = event.actor.kind === "person" ? event.actor.name : null;
-  const meta = [who, fmtTimelineStamp(event.at, clock), event.suffix].filter(Boolean).join(" · ");
-
   return (
-    <div className="flex items-start gap-3">
+    <div className="grid grid-cols-[34px_minmax(0,1fr)_max-content] items-start gap-3.5 border-t border-[var(--ai-line-soft)] py-3.5 first:border-t-0 first:pt-0">
       <TimelineAvatar actor={event.actor} />
-      <div className="min-w-0 flex-1 pt-px">
-        <p className="m-0 flex items-center gap-[7px] text-[13.5px] font-bold leading-tight text-[var(--ai-t1)]">
-          <span className={`size-[7px] shrink-0 rounded-full ${event.dot}`} aria-hidden="true" />
-          <span className="min-w-0 truncate">{event.title}</span>
-          {event.badge && (
-            <span
-              className={`shrink-0 rounded-[5px] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] ${event.badge.cls}`}
-            >
-              {event.badge.label}
-            </span>
-          )}
+      <div className="min-w-0">
+        <p className="m-0 max-w-[700px] text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+          {event.what}
+          {event.suffix && <span className="text-[var(--ai-t3)]"> · {event.suffix}</span>}
         </p>
-        {event.detail && (
-          <p className="m-0 mt-[3px] whitespace-pre-wrap text-[12.5px] leading-snug text-[var(--ai-t2)]">
-            {event.detail}
+        {event.excerpt && (
+          <p className="m-0 mt-[7px] max-w-[700px] whitespace-pre-wrap rounded-xl bg-[var(--ai-inset)] px-[13px] py-2.5 text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+            {event.excerpt}
           </p>
         )}
-        <small className="mt-[3px] block text-[11.5px] text-[var(--ai-t3)]">{meta}</small>
       </div>
+      <span className="whitespace-nowrap pt-px text-right text-[11px] font-semibold text-[var(--ai-t3)]">
+        {fmtTimelineStamp(event.at, clock)}
+      </span>
     </div>
   );
 }
@@ -2916,8 +3024,15 @@ function TimelinePane({
 
   const loading = historyLoading || messagesLoading;
 
+  // Stated rather than assumed. The order is the one thing a merged feed cannot
+  // show by looking at it, and the count tells a reader whether a short feed is
+  // all there is — which the notices below then qualify when it is not.
+  const meta = loading
+    ? undefined
+    : `Newest first · ${events.length} ${events.length === 1 ? "event" : "events"}`;
+
   return (
-    <PaneCard title="Timeline">
+    <PaneCard title="Activity" meta={meta}>
       <div className="flex flex-col gap-4">
         {historyFailed && (
           <p
@@ -2943,9 +3058,16 @@ function TimelinePane({
           </div>
         )}
 
-        {events.map((e) => (
-          <TimelineRow key={e.id} event={e} clock={clock} />
-        ))}
+        {/* Own wrapper so `first:border-t-0` lands on the first ROW. With the
+            rows as direct siblings of the notices, a rendered notice would take
+            that rule and every row would carry a top border. */}
+        {events.length > 0 && (
+          <div>
+            {events.map((e) => (
+              <TimelineRow key={e.id} event={e} clock={clock} />
+            ))}
+          </div>
+        )}
 
         {messagesTruncated && (
           <p
