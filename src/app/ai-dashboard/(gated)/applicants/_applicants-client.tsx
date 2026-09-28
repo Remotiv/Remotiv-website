@@ -25,6 +25,7 @@ import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
 import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
 import {
@@ -1390,6 +1391,7 @@ function ScoredDimension({ dimension: d }: { dimension: ScoreDimensionRow }) {
 
 function ApplicantDrawer({
   row,
+  showScoringTip,
   history,
   scoreDetail,
   historyLoading,
@@ -1423,6 +1425,8 @@ function ApplicantDrawer({
   onStep,
 }: {
   row: CompanyApplicantRow;
+  /** Undismissed per member. The render condition below narrows it further. */
+  showScoringTip: boolean;
   history: StageHistoryRow[];
   scoreDetail: ApplicantScoreDetail | null;
   historyLoading: boolean;
@@ -2187,6 +2191,25 @@ function ApplicantDrawer({
                 />
               )}
             </div>
+
+            {/*
+              Under the score card, not above it.
+              Measured: the card costs 185px including its margin, and the
+              Review pane shows 550px of 1920. Above the score card that pushes
+              the ring to 200 and the dimensions to 543 — off the bottom of the
+              window, so opening Review would show a tip and nothing else.
+              Here the ring and verdict do not move at all, the tip sits fully
+              in view at 191–356, and it is directly beneath the Adjust score
+              button it describes.
+
+              Never beside the Worth-a-look banner: that is not a tip, the gate
+              does not know about it, and 16 of 133 applications carry it — the
+              high scorers, the ones opened first. The same helper decides both,
+              so they are exactly complementary.
+            */}
+            {showScoringTip && headerScore.status === "scored" && !showsWorthALook(row) && (
+              <TipCard tipKey="cv_scoring" />
+            )}
 
             {scoreDetail?.status === "scored" && (
               <>
@@ -3684,6 +3707,7 @@ export function ApplicantsClient({
   replyToAddress,
   manualTemplates,
   unassigned,
+  showScoringTip,
   renderedAt,
 }: {
   viewerRole: CompanyRole;
@@ -3710,6 +3734,12 @@ export function ApplicantsClient({
   manualTemplates: ManualTemplate[];
   /** True for a scoped member on no hiring teams — see the empty state. */
   unassigned: boolean;
+  /**
+   * This member has not yet dismissed the CV scoring tip. Whether it actually
+   * appears is narrower still: only on the Review pane of a scored applicant
+   * who is not flagged, and only if no other tip has claimed this page load.
+   */
+  showScoringTip: boolean;
   /**
    * The SERVER's clock at render time, so the server pass and the hydrating
    * client pass agree on "2d ago". Replaced by the live clock once hydrated.
@@ -5023,6 +5053,7 @@ export function ApplicantsClient({
            */
           key={openRow.id}
           row={openRow}
+          showScoringTip={showScoringTip}
           clock={clock}
           history={history}
           scoreDetail={scoreDetail}

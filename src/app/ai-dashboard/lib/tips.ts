@@ -13,7 +13,7 @@
  */
 
 /** One key per tip. Stored verbatim in company_member_tips.tip_key. */
-export type TipKey = "team_role_access" | "welcome";
+export type TipKey = "team_role_access" | "welcome" | "cv_scoring";
 
 /**
  * Every key, including any that are not guides.
@@ -22,7 +22,7 @@ export type TipKey = "team_role_access" | "welcome";
  * not a card on a page, and a key list built from the guide catalogue would
  * silently stop accepting it the day the welcome guide is reworded away.
  */
-const TIP_KEYS: ReadonlyArray<TipKey> = ["team_role_access", "welcome"];
+const TIP_KEYS: ReadonlyArray<TipKey> = ["team_role_access", "welcome", "cv_scoring"];
 
 /**
  * What the product does, one line per feature, for the welcome modal.
@@ -125,6 +125,26 @@ export const GUIDES: ReadonlyArray<Guide> = [
     // Derived, not retyped. The modal and this entry are the same five lines,
     // so the list a reader reopens cannot drift from the one they were shown.
     body: WELCOME_FEATURES.map((f) => `${f.title} - ${f.line}`),
+  },
+  {
+    key: "cv_scoring",
+    title: 'What "Adjust score" changes',
+    where: "Applicants",
+    /*
+     * Narrowed to the one fact the Review pane does not already carry. That
+     * pane already says the score is advisory and a person decides, shows the
+     * Adjust score button, prices a re-score at about two cents, and once the
+     * form is open states "The AI scored 87". After an adjustment it reads
+     * "Adjusted to 72 from the AI's 87" beside a Revert to AI score button.
+     *
+     * So what is invisible BEFORE you act is what the adjustment leaves alone:
+     * adjustScore writes human_adjusted_score and nothing else, so the four
+     * dimension scores and the model's overall both survive it. Knowing the
+     * original survives is what makes the button safe to press.
+     */
+    body: [
+      "It moves the overall number only. The four dimension scores below stay as the model wrote them, and its original overall is kept beside yours.",
+    ],
   },
   {
     key: "team_role_access",

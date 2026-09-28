@@ -42,6 +42,31 @@ import { getGuide, type TipKey } from "@/app/ai-dashboard/lib/tips";
  * flashes on screen and vanishes.
  */
 
+/**
+ * One tip per page load, and this variable is the whole mechanism.
+ *
+ * Distinct triggers still collide: the Interviews pane renders its async and
+ * booking sections in one paint, 23px apart, so "a tip when you reach the
+ * interview action" and "a tip when you reach scheduling" are the same moment,
+ * not two.
+ *
+ * Module scope, not state and not context, for two reasons. It has to survive
+ * remounts — the drawer is keyed by applicant and its panes unmount on every
+ * tab switch, so anything held in a component would forget on each one. And it
+ * must NOT be reactive: a context queue would hand the slot to the next card
+ * the instant one was dismissed, which is the guided tour this feature exists
+ * to avoid. A losing card simply does not appear this load; its row is still
+ * undismissed, so it gets its turn on the next visit.
+ *
+ * Claimed on mount, never released, reset only by a full page load.
+ *
+ * Its reach is exactly TipCard. The welcome modal is a different component and
+ * is not gated by it — it cannot collide, since it blocks the whole page and
+ * shows only on the overview, where no tip lives. Anything else that wants the
+ * slot has to move this into a module both can import.
+ */
+let shownThisLoad: TipKey | null = null;
+
 function sessionKey(tipKey: TipKey): string {
   return `remotiv.tip.${tipKey}`;
 }
@@ -66,6 +91,11 @@ export function TipCard({ tipKey }: { tipKey: TipKey }) {
 
   useEffect(() => {
     if (dismissedThisSession(tipKey)) return;
+    // Another card already holds the slot for this load. The same-key branch is
+    // what lets this card re-show after a remount, and what stops React's
+    // development double-invoke from locking a card out of its own claim.
+    if (shownThisLoad !== null && shownThisLoad !== tipKey) return;
+    shownThisLoad = tipKey;
     setOpen(true);
   }, [tipKey]);
 

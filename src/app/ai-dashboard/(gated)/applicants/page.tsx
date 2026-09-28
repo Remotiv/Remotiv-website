@@ -1,8 +1,9 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { getJobScope, isEmptyScope } from "@/app/ai-dashboard/lib/job-scope";
+import { isTipDismissed } from "@/app/ai-dashboard/lib/tip-state";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
-import { fetchCompanyApplicants } from "./actions";
+import { fetchAssignableJobs, fetchCompanyApplicants } from "./actions";
 import { ApplicantsClient } from "./_applicants-client";
 
 export const dynamic = "force-dynamic";
@@ -11,15 +12,28 @@ export const metadata = { title: "Applicants — Remotiv AI Interviews" };
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function ApplicantsPage() {
-  const [ctx, applicants, manualTemplates] = await Promise.all([
+  const [ctx, applicants, manualTemplates, assignableJobs] = await Promise.all([
     getCompanyContext(),
     fetchCompanyApplicants(),
     fetchManualTemplates(),
+    // The roles the Add candidate form can file someone under. A separate read
+    // because the list's own job filter is derived from the applicant rows, so
+    // it cannot offer a job that has no applicants yet — which is exactly the
+    // job you would be adding a first candidate to.
+    fetchAssignableJobs(),
   ]);
 
   // Distinguishes "this company has no applicants" from "you are on no jobs",
   // which look identical on screen and need opposite copy.
   const unassigned = isEmptyScope(await getJobScope(ctx));
+
+  /*
+   * Below the Promise.all rather than inside it: the read is keyed on
+   * ctx.memberId, which that call is what produces. Every role sees it — the
+   * score belongs to whoever reviews the applicant, not to a permission — and
+   * a failed read answers "not dismissed", which shows the tip.
+   */
+  const showScoringTip = !(await isTipDismissed(ctx.memberId, "cv_scoring"));
 
   // The address the drawer's composer quotes back to the sender.
   const { data: replyRow } = await createServiceClient()
@@ -41,6 +55,9 @@ export default async function ApplicantsPage() {
   // pipeline, so on a failed read they are computed over [] and the client is
   // told not to present them as facts.
   const applicantRows = applicants.ok ? applicants.value : [];
+  // A failed read gives [], which disables the Add button — the honest state,
+  // since a form that cannot name a job cannot file anyone under one.
+  const addableJobs = assignableJobs.ok ? assignableJobs.value : [];
   const now = Date.now();
   const since = now - WEEK_MS;
   const newThisWeek = applicantRows.filter((r) => {
@@ -60,6 +77,7 @@ export default async function ApplicantsPage() {
       viewerRole={ctx.role}
       viewerMemberId={ctx.memberId}
       applicants={applicantRows}
+      assignableJobs={addableJobs}
       loadFailed={!applicants.ok}
       newThisWeek={newThisWeek}
       openRoles={openRoles}
@@ -67,6 +85,7 @@ export default async function ApplicantsPage() {
       replyToAddress={replyToAddress}
       manualTemplates={manualTemplates}
       unassigned={unassigned}
+      showScoringTip={showScoringTip}
       renderedAt={now}
     />
   );

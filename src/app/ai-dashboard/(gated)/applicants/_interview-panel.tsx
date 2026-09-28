@@ -971,8 +971,15 @@ function BookingSection({
                   /* The design adds "Her working day is 12:00–21:00 UTC+5, so
                      only slots inside that window will be offered." Cut: the
                      candidate's hours are not recorded anywhere, and the slots
-                     offered come from the recruiter's availability_rules. */
-                  "The candidate picks from your open slots. The call lands in your calendar and theirs."
+                     offered come from the recruiter's availability_rules.
+
+                     The middle clause names the prerequisite BEFORE the click.
+                     sendBookingLink refuses without an active calendar
+                     connection — "Connect your calendar in Settings before
+                     sending a booking link" — and that refusal stays as the
+                     backstop; this only stops it being the first time anyone
+                     hears that a calendar is involved. */
+                  "The candidate picks from your open slots - the free time in the calendar you connected in Settings. The call lands in your calendar and theirs."
                 )}
               </p>
             </div>
