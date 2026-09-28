@@ -1,6 +1,7 @@
 import { NextRequest, NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAvatarUrl } from "@/lib/avatars";
+import { hashClaimToken, looksLikeClaimToken } from "@/lib/claim-tokens";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
@@ -280,14 +281,11 @@ export async function POST(request: NextRequest) {
     const cvFile    = form.get("cv")    as File | null;
     const photoFile = form.get("photo") as File | null;
 
-    // Bridge from /jobs/[id] apply → /join-as-talent. Presence of a valid
-    // 64-char hex token signals "this submission inherits its CV from the
+    // Bridge from /jobs/[id] apply → /join-as-talent. Presence of a
+    // well-formed token signals "this submission inherits its CV from the
     // source job_application; skip the upload + reuse cv_path/cv_text".
     const bridgeTokenRaw = form.get("bridgeToken");
-    const bridgeToken =
-      typeof bridgeTokenRaw === "string" && /^[0-9a-f]{64}$/i.test(bridgeTokenRaw)
-        ? bridgeTokenRaw
-        : null;
+    const bridgeToken = looksLikeClaimToken(bridgeTokenRaw) ? bridgeTokenRaw : null;
 
     if (!firstName || !email) {
       return NextResponse.json(
@@ -373,7 +371,8 @@ export async function POST(request: NextRequest) {
       const { data: tokenRow } = await supabase
         .from("talent_claim_tokens")
         .select("id, candidate_id, source_table, status, expires_at")
-        .eq("token_hash", bridgeToken)
+        // Compared as a digest — see lib/claim-tokens.ts and migration 025.
+        .eq("token_hash", hashClaimToken(bridgeToken))
         .eq("source_table", "job_applications")
         .maybeSingle();
 

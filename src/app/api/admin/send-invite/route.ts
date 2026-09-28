@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { mintClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
@@ -123,16 +124,14 @@ export async function POST(request: Request) {
         .in("status", ["pending", "opened"])
         .gt("expires_at", new Date().toISOString());
 
-      // Token: two UUID v4 values concatenated with hyphens stripped — 64 char
-      // hex string. High-entropy; bcrypt would add cost without much benefit
-      // for a 7-day single-use invite.
-      const token =
-        (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+      // Only the digest is stored; the raw value exists solely in the emailed
+      // URL below. See lib/claim-tokens.ts for why base64url.
+      const { rawToken: token, tokenHash } = mintClaimToken();
 
       const { error: insertErr } = await supabase
         .from("talent_claim_tokens")
         .insert({
-          token_hash: token,
+          token_hash: tokenHash,
           candidate_id: profileId,
           source_table: source,
           status: "pending",

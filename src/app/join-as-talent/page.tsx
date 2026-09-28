@@ -4,6 +4,7 @@ import Link from "next/link";
 import { useRouter, useSearchParams } from "next/navigation";
 import { type RefObject, useEffect, useRef, useState } from "react";
 import { Navbar } from "@/components/navbar";
+import { looksLikeClaimToken } from "@/lib/claim-token-shape";
 import "./join-as-talent.css";
 
 // Phase 4 G2: one-time pdfjs worker URL setup flag. The URL assignment was
@@ -399,7 +400,7 @@ export default function BecomeATalentPage() {
 
   useEffect(() => {
     const tok = searchParams?.get("token") ?? null;
-    if (!tok || tok.length !== 64) return;
+    if (!looksLikeClaimToken(tok)) return;
     let cancelled = false;
     (async () => {
       try {

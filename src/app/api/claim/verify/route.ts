@@ -1,4 +1,5 @@
 import { NextResponse } from "next/server";
+import { hashClaimToken, looksLikeClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 
@@ -33,16 +34,18 @@ export async function POST(request: Request) {
   }
 
   const { token } = (body ?? {}) as { token?: unknown };
-  if (typeof token !== "string" || !token) {
+  if (!looksLikeClaimToken(token)) {
     return NextResponse.json({ error: "Missing token" }, { status: 400 });
   }
 
   const service = createServiceClient();
 
+  // Compared as a digest. A raw token minted before migration 025 and
+  // presented before it ran will not match — see the migration's header.
   const { data: tokenRow } = await service
     .from("talent_claim_tokens")
     .select("id, candidate_id, source_table, status, expires_at")
-    .eq("token_hash", token)
+    .eq("token_hash", hashClaimToken(token))
     .maybeSingle();
 
   if (!tokenRow) {

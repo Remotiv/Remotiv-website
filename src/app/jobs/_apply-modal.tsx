@@ -14,6 +14,7 @@ import { createPortal } from "react-dom";
 import { attributionFields } from "@/app/jobs/_attribution";
 import { type BrandPreset, brandTokens } from "@/components/white-label/brand";
 import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { looksLikeClaimToken } from "@/lib/claim-token-shape";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
 import "./apply-modal.css";
 
@@ -270,7 +271,7 @@ export default function ApplyModal({
       };
       if (!res.ok || json.error) throw new Error(json.error ?? "Submission failed.");
 
-      if (typeof json.bridgeToken === "string" && json.bridgeToken.length === 64) {
+      if (looksLikeClaimToken(json.bridgeToken)) {
         setBridgeToken(json.bridgeToken);
       }
       setSuccess(true);

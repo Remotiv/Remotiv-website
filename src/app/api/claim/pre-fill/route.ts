@@ -1,5 +1,6 @@
 import { NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { hashClaimToken, looksLikeClaimToken } from "@/lib/claim-tokens";
 import { createServiceClient } from "@/lib/supabase/server";
 
 // Bridge endpoint for the apply → join-as-talent flow. Verifies a
@@ -35,16 +36,20 @@ export async function POST(request: Request) {
     return NextResponse.json({ error: "invalid_request" }, { status: 400 });
   }
 
-  if (!token || typeof token !== "string" || token.length !== 64) {
+  // A shape check, not `length !== 64`: new raw tokens are 43 chars of
+  // base64url, legacy ones were 64 hex. See lib/claim-tokens.ts.
+  if (!looksLikeClaimToken(token)) {
     return NextResponse.json({ error: "invalid_token" }, { status: 400 });
   }
 
   const service = createServiceClient();
 
+  // Compared as a digest. A raw token minted before migration 025 and
+  // presented before it ran will not match — see the migration's header.
   const { data: tokenRow } = await service
     .from("talent_claim_tokens")
     .select("id, candidate_id, source_table, status, expires_at")
-    .eq("token_hash", token)
+    .eq("token_hash", hashClaimToken(token))
     .eq("source_table", "job_applications")
     .maybeSingle();
 

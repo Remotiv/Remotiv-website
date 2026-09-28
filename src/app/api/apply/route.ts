@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { mintClaimToken } from "@/lib/claim-tokens";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 import type { ScreeningQuestion } from "@/lib/jobs";
@@ -787,10 +788,12 @@ export async function POST(request: NextRequest) {
     //    gracefully to the original 3-second auto-close.
     let bridgeToken: string | null = null;
     try {
-      const token = (crypto.randomUUID() + crypto.randomUUID()).replace(/-/g, "");
+      // Only the digest is stored; the raw value goes back to the browser as
+      // `bridgeToken` and nowhere else. See lib/claim-tokens.ts.
+      const { rawToken: token, tokenHash } = mintClaimToken();
       const expiresAt = new Date(Date.now() + 7 * 24 * 60 * 60 * 1000).toISOString();
       const { error: tokenErr } = await supabase.from("talent_claim_tokens").insert({
-        token_hash: token,
+        token_hash: tokenHash,
         candidate_id: applicationId,
         source_table: "job_applications",
         status: "pending",
