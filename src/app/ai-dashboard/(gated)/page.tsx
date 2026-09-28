@@ -9,6 +9,8 @@ import {
   canManageTeam,
   type CompanyContext,
 } from "../lib/company-roles";
+import { isTipDismissed } from "../lib/tip-state";
+import { WelcomeModal } from "../_components/welcome-modal";
 import { fetchOverview } from "./overview-actions";
 import { OverviewClient } from "./_overview-client";
 
@@ -30,15 +32,30 @@ export default async function CompanyOverviewPage() {
     throw err;
   }
 
-  const data = await fetchOverview();
+  /*
+   * Resolved with the page's own data, not after it. The modal is part of this
+   * render's HTML, so it covers the dashboard in the first paint rather than
+   * arriving once the client has mounted — see the note in welcome-modal.tsx.
+   *
+   * Every role sees it: it describes the product, not a permission. The read is
+   * tolerant of a failure and answers "not dismissed", which shows the modal;
+   * the client keeps its own dismissal for the session either way.
+   */
+  const [data, welcomeDismissed] = await Promise.all([
+    fetchOverview(),
+    isTipDismissed(ctx.memberId, "welcome"),
+  ]);
 
   return (
-    <OverviewClient
-      memberName={ctx.memberName}
-      companyName={ctx.company.name}
-      canCreateJob={canCreateJobs(ctx.role)}
-      canManageTeam={canManageTeam(ctx.role)}
-      data={data}
-    />
+    <>
+      {!welcomeDismissed && <WelcomeModal />}
+      <OverviewClient
+        memberName={ctx.memberName}
+        companyName={ctx.company.name}
+        canCreateJob={canCreateJobs(ctx.role)}
+        canManageTeam={canManageTeam(ctx.role)}
+        data={data}
+      />
+    </>
   );
 }
