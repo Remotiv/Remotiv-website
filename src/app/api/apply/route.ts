@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { enqueue } from "@/lib/jobs-queue";
@@ -20,12 +21,10 @@ const LINKEDIN_URL_PATTERN = /linkedin\.com/i;
 // `../` or other injection patterns to escape the bucket layout.
 const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
 
-// Defensive bounds against weaponised inputs:
-//   - 5 MB raw PDF (matches the Supabase bucket upload limit)
-//   - 100 KB extracted text (more than any real CV)
-//   - per-text-field length caps below
-const MAX_CV_FILE_BYTES = 5 * 1024 * 1024;
-const MAX_CV_TEXT_LENGTH = 100_000;
+// Defensive bounds against weaponised inputs. The two CV bounds — 5 MB raw PDF
+// and 100 KB extracted text — live in lib/cv-file.ts alongside the magic-byte
+// check, shared with the applicant panel's attach action so the two upload
+// paths cannot drift apart. The per-text-field caps below are this route's own.
 const MAX_NAME_LENGTH = 100;
 const MAX_JOB_TITLE_LENGTH = 200;
 const MAX_PHONE_LENGTH = 50;
@@ -297,26 +296,17 @@ export async function POST(request: NextRequest) {
       return NextResponse.json({ error: "Please enter a valid email address." }, { status: 400 });
     }
 
-    if (cvFile.size > MAX_CV_FILE_BYTES) {
-      return NextResponse.json({ error: "CV file is too large (max 5 MB)." }, { status: 413 });
-    }
-
-    // Magic-byte check: PDF files start with "%PDF" (0x25 0x50 0x44 0x46).
-    // Don't trust the client-supplied content type — a renamed .html or .exe
-    // would otherwise sail through the upload step.
-    const cvBuffer = Buffer.from(await cvFile.arrayBuffer());
-    const isPdf =
-      cvBuffer.length >= 4 &&
-      cvBuffer[0] === 0x25 &&
-      cvBuffer[1] === 0x50 &&
-      cvBuffer[2] === 0x44 &&
-      cvBuffer[3] === 0x46;
-    if (!isPdf) {
+    // Size then magic bytes, both from lib/cv-file.ts. The status codes stay
+    // here because only this caller speaks HTTP: too_large is a 413, a file
+    // that isn't a PDF is a 400.
+    const fileCheck = await checkCvFile(cvFile);
+    if (!fileCheck.ok) {
       return NextResponse.json(
-        { error: "Please upload a valid PDF file. Other file types are not accepted." },
-        { status: 400 },
+        { error: fileCheck.message },
+        { status: fileCheck.reason === "too_large" ? 413 : 400 },
       );
     }
+    const cvBuffer = fileCheck.bytes;
 
     // Server-side CV text extraction (unpdf). Prefer client-sent cv_text
     // (admin bulk upload still extracts in the browser); otherwise extract
@@ -349,10 +339,7 @@ export async function POST(request: NextRequest) {
     }
 
     // Truncate parsed CV text before it ends up in Postgres / search blobs.
-    const boundedCvText =
-      resolvedCvText && resolvedCvText.length > MAX_CV_TEXT_LENGTH
-        ? resolvedCvText.slice(0, MAX_CV_TEXT_LENGTH)
-        : resolvedCvText;
+    const boundedCvText = capCvText(resolvedCvText);
 
     if (!linkedin || !LINKEDIN_URL_PATTERN.test(linkedin)) {
       return NextResponse.json({ error: "Valid LinkedIn URL required" }, { status: 400 });
@@ -683,14 +670,12 @@ export async function POST(request: NextRequest) {
     // have to catch. Writing a date here unconditionally would leave one clause
     // in one selector between the pool and deletion. Don't.
     //
-    // This is the only place the 24 months is computed; the purge reads the
-    // stored column and never derives a date, so changing this constant affects
-    // future applications and nothing already written. Pure arithmetic on a
-    // value already in hand — it cannot throw.
-    const CV_RETENTION_MONTHS = 24;
-    const cvDeleteAfter = companyIdSnapshot
-      ? new Date(new Date().setMonth(new Date().getMonth() + CV_RETENTION_MONTHS)).toISOString()
-      : null;
+    // The 24 months lives in lib/cv-file.ts, shared with the applicants panel's
+    // add action so the promise made to a candidate cannot depend on which door
+    // they came through. The purge reads the stored column and never derives a
+    // date, so changing the constant affects future applications and nothing
+    // already written. Pure arithmetic — it cannot throw.
+    const cvDeleteAfter = companyIdSnapshot ? cvRetentionDate() : null;
 
     // 4. Insert application (service role bypasses RLS). We capture the
     //    inserted row id so the bridge-token issuance below can reference it

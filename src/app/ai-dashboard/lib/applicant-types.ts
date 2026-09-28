@@ -81,6 +81,17 @@ export type CompanyApplicantRow = {
    */
   cv_expired: boolean;
   /**
+   * A recruiter filed this person by hand; they did not submit an application.
+   *
+   * How they ARRIVED, which is not where they ARE — pipeline_stage is still
+   * 'applied', because a manual add is an application coming through a
+   * different door and not a step further along. Two columns, two facts.
+   *
+   * Derived from source = 'manual_upload' rather than passed raw, so the
+   * caveat in the mapper has one place to live. See it before trusting this.
+   */
+  added_manually: boolean;
+  /**
    * The auto-shortlist flag, computed and stored server-side when a score
    * lands. Never derived here — the list and the Flagged count would disagree.
    */
@@ -344,4 +355,32 @@ export type CompanyApplicantQuery = {
   jobId?: string;
   /** Case-insensitive match across name and email. */
   search?: string;
+};
+
+/**
+ * A job a candidate can be added to, for the Add candidate form's select.
+ *
+ * Deliberately NOT derived from the applicant rows the way the list's job
+ * FILTER is. That set only holds jobs someone has already applied to, so the
+ * job you are adding a FIRST candidate to — the whole point of the feature —
+ * would be the one job missing from it.
+ */
+export type AssignableJob = {
+  id: string;
+  title: string;
+};
+
+/**
+ * Who is already on this role under the email a recruiter just typed.
+ *
+ * Carried alongside the refusal rather than baked into its message, for two
+ * reasons: the date has to be formatted in the reader's timezone like every
+ * other date on the page, and the form offers to open the person — a refusal
+ * that names someone without a way to reach them is a dead end.
+ */
+export type AddApplicantDuplicate = {
+  applicationId: string;
+  /** The name on the EXISTING row, which may be spelled differently. */
+  name: string;
+  appliedAt: string | null;
 };

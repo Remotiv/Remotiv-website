@@ -13,6 +13,7 @@ import {
   Flag,
   Mail,
   Minus,
+  Plus,
   RotateCcw,
   Search as SearchIcon,
   Trash,
@@ -32,9 +33,11 @@ import {
   type ManualTemplate,
 } from "@/app/ai-dashboard/(gated)/messages/types";
 import {
+  type AddApplicantDuplicate,
   type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantRow,
   PIPELINE_STAGE_LABELS,
@@ -56,6 +59,7 @@ import {
 import { InterviewPanel } from "./_interview-panel";
 import {
   addApplicationComment,
+  addCompanyApplicant,
   adjustScore,
   clearScoreAdjustment,
   countFlaggedApplicants,
@@ -236,6 +240,12 @@ function compareByNewest(a: CompanyApplicantRow, b: CompanyApplicantRow): number
  */
 const TOOLBAR_SELECT =
   "min-w-0 cursor-pointer appearance-none truncate rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] py-2 pl-3 pr-[30px] text-[12.5px] font-semibold text-[var(--ai-t2)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.14]";
+
+/** Every field in the Add candidate form, so the five cannot drift apart. */
+const ADD_FIELD =
+  "w-full rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[9px] text-[13px] text-[var(--ai-t1)] placeholder:text-[var(--ai-t4)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.14]";
+
+const ADD_LABEL = "mb-[5px] block text-[11.5px] font-bold text-[var(--ai-t2)]";
 
 const AVATAR_TINTS = [
   { bg: "var(--ai-purple-tint)", fg: "var(--ai-purple-ink)" },
@@ -787,6 +797,33 @@ function WorthALookChip() {
 }
 
 /**
+ * "Added by team" — this person was filed by hand and did not apply.
+ *
+ * SLATE, deliberately, and not purple. Purple is this dashboard's primary
+ * action colour: it marks the things worth clicking — Open CV, Add candidate,
+ * Worth a look. This is a fact about where the row came from, with nothing
+ * behind it to click, so borrowing that colour would promise an action it does
+ * not have. Slate is the same neutral the Applied stage pill already uses.
+ *
+ * Says "team", not "manual" or "you": the row records no author, so naming one
+ * would be an invention. And "manual", sitting a column from CV score, reads
+ * as manually scored.
+ *
+ * Beside the job title rather than on the name line, which already carries Top
+ * match and Worth a look and truncates the name behind them.
+ */
+function AddedByTeamChip() {
+  return (
+    <span
+      title="Added by someone on your team. They didn't apply through the job board, and weren't emailed."
+      className="inline-flex shrink-0 items-center rounded-lg bg-[var(--ai-slate-tint)] px-2 py-[5px] text-[10.5px] font-bold uppercase tracking-[0.05em] text-[var(--ai-slate-ink)]"
+    >
+      Added by team
+    </span>
+  );
+}
+
+/**
  * The reason, which replaces the email sub-line on a flagged row.
  *
  * A flag without its reason is just a badge — the recruiter cannot tell whether
@@ -885,10 +922,11 @@ function ApplicantCard({
         </div>
       </div>
 
-      <div className="mt-3 flex">
-        <span className="max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+      <div className="mt-3 flex min-w-0 items-center gap-1.5">
+        <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
           {row.job_title}
         </span>
+        {row.added_manually && <AddedByTeamChip />}
       </div>
 
       <div className="mt-3 flex items-center justify-between gap-3">
@@ -1765,9 +1803,24 @@ function ApplicantDrawer({
             <div className="flex flex-col gap-5">
               <PaneCard title="Application">
                 <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-t3)]">
-                  Applied to <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> ·{" "}
-                  {applied.main}
+                  {/* "Added to", not "Applied to", on a manual row — the verb
+                      is the claim, and they did not apply. */}
+                  {row.added_manually ? "Added to" : "Applied to"}{" "}
+                  <b className="font-bold text-[var(--ai-t1)]">{row.job_title}</b> · {applied.main}
                 </p>
+
+                {/* The chip alone says how they arrived; this says what follows
+                    from it. The no-email decision is otherwise invisible, and
+                    this card is where someone lands before wondering why the
+                    candidate never replied. */}
+                {row.added_manually && (
+                  <div className="mt-2.5 flex items-center gap-2">
+                    <AddedByTeamChip />
+                    <span className="min-w-0 text-[12px] leading-relaxed text-[var(--ai-t4)]">
+                      Not emailed — they didn't apply through the job board.
+                    </span>
+                  </div>
+                )}
 
                 {/* The design's `.acts`: the actions sit under a hairline rather
                     than floating below the fact they act on. */}
@@ -1803,10 +1856,27 @@ function ApplicantDrawer({
                     <Mail className="size-[15px]" strokeWidth={1.9} />
                     Email
                   </button>
+                  {/*
+                    A Replace / Add CV button stood here and was REMOVED on
+                    purpose. Do not read its absence as an oversight.
+
+                    What goes with it: an applicant whose CV extracted to
+                    nothing — a scan, a photo, a PDF of images — has no way back
+                    to a scored state from this panel, and neither does a better
+                    CV that arrives later. Re-score re-reads the stored text, so
+                    it cannot help; the text is the thing that is missing. Such
+                    an applicant stays unscored until someone adds them again
+                    from the list, which makes a second row.
+
+                    That was the accepted trade. attachApplicationCv is still
+                    exported and still correct — if the gap turns out to bite,
+                    the button comes back and nothing server-side has to change.
+                  */}
                 </div>
 
-                {/* Says WHY the button is dead, rather than leaving a greyed control
-                    to be read as a bug. Only on expiry — "no CV" needs no excuse. */}
+                {/* Says WHY the CV button is dead, rather than leaving a greyed
+                    control to be read as a bug. Only on expiry — "no CV" needs
+                    no excuse. */}
                 {row.cv_expired && (
                   <p className="m-0 mt-2.5 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
                     CVs are deleted 24 months after the application. Everything else on this
@@ -3606,6 +3676,7 @@ export function ApplicantsClient({
   viewerRole,
   viewerMemberId,
   applicants: initialApplicants,
+  assignableJobs,
   loadFailed,
   newThisWeek,
   openRoles,
@@ -3623,6 +3694,13 @@ export function ApplicantsClient({
    */
   viewerMemberId: string;
   applicants: CompanyApplicantRow[];
+  /**
+   * Every role the viewer may file a manual add under — NOT derived from the
+   * rows, which can only offer jobs that already have applicants. Empty when
+   * there are none, or when the read failed; either way the Add button is dead
+   * and says why.
+   */
+  assignableJobs: AssignableJob[];
   /** The list could not be READ. Distinct from "this pipeline is empty". */
   loadFailed: boolean;
   newThisWeek: number;
@@ -3643,6 +3721,12 @@ export function ApplicantsClient({
   // budget — rescoreApplication would reject them anyway; this stops the UI
   // offering a button that can only fail.
   const canRescore = canCreateJobs(viewerRole);
+  /**
+   * Same predicate, separate name: adding a candidate and spending scoring
+   * budget are different permissions that happen to coincide today, and the
+   * server action gates them independently.
+   */
+  const canAddApplicant = canCreateJobs(viewerRole);
   const router = useRouter();
 
   // Local copy so a delete can drop the row immediately. Re-synced whenever
@@ -3705,6 +3789,42 @@ export function ApplicantsClient({
     }
     // Either way: success needs the row's stored flag cleared, failure needs the
     // optimistic change undone. One refresh covers both.
+    router.refresh();
+  }
+
+  /**
+   * Add someone who never applied.
+   *
+   * Two failure shapes, rendered differently on purpose. A plain error is a
+   * sentence in the form. A DUPLICATE is not really an error — the candidate
+   * the recruiter wants is already in the pipeline — so it becomes a panel that
+   * names them and offers the thing they actually came to do: open that
+   * applicant and attach the CV there.
+   *
+   * The refusal sentence is composed HERE rather than taken from `error`,
+   * because the date has to be formatted in the reader's timezone off the same
+   * clock every other date on this page uses.
+   */
+  async function submitAdd(form: FormData) {
+    if (addBusy) return;
+    setAddBusy(true);
+    setAddError(null);
+    setAddDuplicate(null);
+    const result = await addCompanyApplicant(form);
+    setAddBusy(false);
+    if (!result.success) {
+      if (result.duplicate) setAddDuplicate(result.duplicate);
+      else setAddError(result.error);
+      return;
+    }
+    setAddOpen(false);
+    if (result.data.cvTextStatus !== "completed") {
+      setToast("Candidate added, but no text could be read from their CV. They won't be scored.");
+    } else if (!result.data.scoreQueued) {
+      setToast("Candidate added, but scoring could not be queued. Use Re-score to try again.");
+    } else {
+      setToast("Candidate added. Scoring their CV now.");
+    }
     router.refresh();
   }
   // Seeded from ?q= so a topbar search result lands on this list already
@@ -3820,6 +3940,11 @@ export function ApplicantsClient({
   const [page, setPage] = useState(1);
   const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(null);
   const [deleting, setDeleting] = useState(false);
+  /** The Add candidate form: open, mid-submit, and its two failure shapes. */
+  const [addOpen, setAddOpen] = useState(false);
+  const [addBusy, setAddBusy] = useState(false);
+  const [addError, setAddError] = useState<string | null>(null);
+  const [addDuplicate, setAddDuplicate] = useState<AddApplicantDuplicate | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   /** The open applicant's message trail, and the composer over it. */
@@ -3957,6 +4082,17 @@ export function ApplicantsClient({
   }, [tab, jobFilter, search, topOnly, flaggedOnly, sort]);
 
   const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
+
+  /**
+   * The refusal sentence, dated in the reader's timezone off the page clock —
+   * which is why it is composed here and not returned ready-made by the action.
+   * The date drops out entirely when the timestamp is missing, rather than
+   * printing a placeholder for a fact we don't have.
+   */
+  const duplicateDay = addDuplicate ? fmtDay(addDuplicate.appliedAt, clock.local) : null;
+  const duplicateLine = addDuplicate
+    ? `${addDuplicate.name} is already on this role${duplicateDay ? `, added ${duplicateDay}` : ""}.`
+    : "";
 
   /**
    * Where the open applicant sits in the sequence prev/next walks.
@@ -4629,6 +4765,36 @@ export function ApplicantsClient({
                   className="w-full min-w-0 bg-transparent text-[13px] text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t3)]"
                 />
               </div>
+
+              {/* In the header, not the empty state: the commonest time to add
+                  someone by hand is onto a list that already has people on it.
+                  Last in the cluster because it is the only control here that
+                  writes — everything to its left only reshapes the view.
+
+                  Dead rather than hidden when there are no jobs, with the
+                  reason in the tooltip. A missing button reads as a missing
+                  feature; a disabled one that explains itself points at the
+                  fix, which is to post a role first. */}
+              {canAddApplicant && (
+                <button
+                  type="button"
+                  disabled={assignableJobs.length === 0}
+                  onClick={() => {
+                    setAddError(null);
+                    setAddDuplicate(null);
+                    setAddOpen(true);
+                  }}
+                  title={
+                    assignableJobs.length === 0
+                      ? "Create a job first — a candidate has to be added to a role."
+                      : "Add a candidate whose CV reached you outside the job board."
+                  }
+                  className="flex shrink-0 items-center gap-[7px] rounded-[10px] bg-remotiv-purple px-[13px] py-[8px] text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
+                >
+                  <Plus className="size-[15px]" strokeWidth={2.4} />
+                  Add candidate
+                </button>
+              )}
             </div>
           </div>
 
@@ -4785,9 +4951,16 @@ export function ApplicantsClient({
                       </div>
                     </div>
 
-                    <span className="justify-self-start max-w-full truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                      {r.job_title}
-                    </span>
+                    {/* min-w-0 on the flex parent and truncate on the title, so
+                        a long role name shortens rather than pushing the chip
+                        out of the cell. The chip never shrinks — it is two
+                        words or it is wrong. */}
+                    <div className="flex min-w-0 items-center gap-1.5">
+                      <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                        {r.job_title}
+                      </span>
+                      {r.added_manually && <AddedByTeamChip />}
+                    </div>
 
                     <ScoreRing score={r.score} />
 
@@ -4928,6 +5101,190 @@ export function ApplicantsClient({
             }
           }}
         />
+      )}
+
+      {addOpen && (
+        <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
+          <div
+            role="dialog"
+            aria-modal="true"
+            aria-labelledby="add-applicant-title"
+            className="max-h-full w-full max-w-md overflow-y-auto rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+          >
+            {/* Uncontrolled on purpose. Five fields that are read once, on
+                submit, and never compared against each other — five useStates
+                would be five rerenders per keystroke to hold what the DOM
+                already holds. `required` and `type=email` do the first pass;
+                the action re-validates everything regardless. */}
+            <form
+              onSubmit={(e) => {
+                e.preventDefault();
+                void submitAdd(new FormData(e.currentTarget));
+              }}
+            >
+              <div className="flex items-start justify-between gap-4 px-6 pb-4 pt-6">
+                <div>
+                  <h3
+                    id="add-applicant-title"
+                    className="font-heading text-lg font-bold text-[var(--ai-t1)]"
+                  >
+                    Add a candidate
+                  </h3>
+                  {/* Says what this does to the candidate, because nothing
+                      else will: they are not told they were added. */}
+                  <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+                    For a CV that reached you outside the job board. They're filed at Applied and
+                    scored like any other application — and they aren't emailed.
+                  </p>
+                </div>
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(false)}
+                  aria-label="Close"
+                  className="-mr-1 shrink-0 rounded-lg p-1 text-[var(--ai-t3)] transition-colors hover:bg-[var(--ai-inset)] hover:text-[var(--ai-t1)]"
+                >
+                  <X className="size-[18px]" strokeWidth={2} />
+                </button>
+              </div>
+
+              <div className="flex flex-col gap-3.5 px-6">
+                <div className="flex gap-3">
+                  <div className="min-w-0 flex-1">
+                    <label className={ADD_LABEL} htmlFor="add-first-name">
+                      First name
+                    </label>
+                    <input
+                      id="add-first-name"
+                      name="first_name"
+                      required
+                      maxLength={100}
+                      autoComplete="off"
+                      className={ADD_FIELD}
+                    />
+                  </div>
+                  <div className="min-w-0 flex-1">
+                    <label className={ADD_LABEL} htmlFor="add-last-name">
+                      Last name
+                    </label>
+                    <input
+                      id="add-last-name"
+                      name="last_name"
+                      required
+                      maxLength={100}
+                      autoComplete="off"
+                      className={ADD_FIELD}
+                    />
+                  </div>
+                </div>
+
+                <div>
+                  <label className={ADD_LABEL} htmlFor="add-email">
+                    Email
+                  </label>
+                  <input
+                    id="add-email"
+                    name="email"
+                    type="email"
+                    required
+                    autoComplete="off"
+                    className={ADD_FIELD}
+                  />
+                </div>
+
+                <div>
+                  <label className={ADD_LABEL} htmlFor="add-job">
+                    Role
+                  </label>
+                  {/* No "All jobs"-style blank option: the row cannot exist
+                      without a job, and an empty default would be a choice the
+                      form has to reject a second later. */}
+                  <select
+                    id="add-job"
+                    name="job_id"
+                    required
+                    className={`${ADD_FIELD} cursor-pointer appearance-none`}
+                  >
+                    {assignableJobs.map((job) => (
+                      <option key={job.id} value={job.id}>
+                        {job.title}
+                      </option>
+                    ))}
+                  </select>
+                </div>
+
+                <div>
+                  <label className={ADD_LABEL} htmlFor="add-cv">
+                    CV
+                  </label>
+                  <input
+                    id="add-cv"
+                    name="cv"
+                    type="file"
+                    accept="application/pdf"
+                    required
+                    className={`${ADD_FIELD} file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--ai-inset)] file:px-2.5 file:py-1 file:text-[12px] file:font-bold file:text-[var(--ai-t2)]`}
+                  />
+                  <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t4)]">
+                    PDF, up to 5 MB. Everything else — phone, location, history — is read from it.
+                  </p>
+                </div>
+
+                {addError && (
+                  <p className="m-0 rounded-[10px] bg-[var(--ai-danger-tint)] px-3 py-2.5 text-[12.5px] font-semibold text-[var(--ai-danger)]">
+                    {addError}
+                  </p>
+                )}
+
+                {/* Not styled as an error, because it isn't one — the person
+                    the recruiter wants is already here. So it names them, says
+                    when, and offers the action that actually finishes the job:
+                    open them and use Add CV. */}
+                {addDuplicate && (
+                  <div className="rounded-[13px] border border-[var(--ai-amber-dot)] bg-[var(--ai-amber-tint)] px-3.5 py-3">
+                    <p className="m-0 flex items-start gap-2 text-[12.5px] font-semibold leading-relaxed text-[var(--ai-amber-ink)]">
+                      <AlertTriangle className="mt-px size-[15px] shrink-0" strokeWidth={2.2} />
+                      <span>{duplicateLine}</span>
+                    </p>
+                    <button
+                      type="button"
+                      onClick={() => {
+                        // The drawer resolves against the unfiltered rows, so
+                        // it will open regardless — but the stage tab drives
+                        // prev/next, and landing in a pane that doesn't list
+                        // them makes those arrows jump somewhere unrelated.
+                        setTab("all");
+                        setOpenId(addDuplicate.applicationId);
+                        setAddOpen(false);
+                      }}
+                      className="mt-2 text-[12.5px] font-bold text-[var(--ai-amber-ink)] underline underline-offset-2 hover:opacity-80"
+                    >
+                      Open their profile to attach this CV
+                    </button>
+                  </div>
+                )}
+              </div>
+
+              <div className="mt-5 flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">
+                <button
+                  type="button"
+                  onClick={() => setAddOpen(false)}
+                  disabled={addBusy}
+                  className="flex-1 rounded-xl border border-[var(--ai-line)] py-2.5 text-sm font-medium text-[var(--ai-t2)] transition-colors hover:bg-[var(--ai-inset)] disabled:opacity-50"
+                >
+                  Cancel
+                </button>
+                <button
+                  type="submit"
+                  disabled={addBusy}
+                  aria-busy={addBusy}
+                  className="flex-1 rounded-xl bg-remotiv-purple py-2.5 text-sm font-semibold text-white transition-opacity hover:opacity-90 disabled:opacity-50"
+                >
+                  {addBusy ? "Adding…" : "Add candidate"}
+                </button>
+              </div>
+            </form>
+          </div>
+        </div>
       )}
 
       {deleteTarget && (

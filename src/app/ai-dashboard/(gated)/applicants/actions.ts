@@ -2,9 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import {
+  type AddApplicantDuplicate,
   type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantDetail,
   type CompanyApplicantQuery,
@@ -25,13 +27,19 @@ import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/co
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
+import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { enqueue } from "@/lib/jobs-queue";
+import { normalizeEmail } from "@/lib/normalize";
 import { notifyCompany } from "@/lib/notifications/company";
+import { extractPdfTextServer, type PdfTextResult, stripInvalidPgChars } from "@/lib/pdf-text";
+import { findSharedPaths } from "@/lib/shared-storage-refs";
+import { removeObjects } from "@/lib/storage-objects";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
+import { isValidEmail } from "@/lib/validators";
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Row/query types live in lib/applicant-types.ts.
@@ -46,7 +54,7 @@ const CV_BUCKET = "cvs";
  * reason — it is what separates an expired CV from one never supplied.
  */
 const APPLICANT_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, cv_path, cv_url, cv_delete_after, shortlist_flagged_at, shortlist_flag_reason, jobs(title)";
+  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, source, cv_path, cv_url, cv_delete_after, shortlist_flagged_at, shortlist_flag_reason, jobs(title)";
 
 type ApplicantQueryRow = {
   id: string;
@@ -65,6 +73,7 @@ type ApplicantQueryRow = {
   availability: string | null;
   created_at: string | null;
   pipeline_stage: string | null;
+  source: string | null;
   cv_path: string | null;
   cv_url: string | null;
   cv_delete_after: string | null;
@@ -239,6 +248,28 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
       !r.cv_url &&
       Boolean(r.cv_delete_after) &&
       new Date(r.cv_delete_after as string).getTime() <= Date.now(),
+    /*
+     * ── 'manual_upload' means more than one thing ──────────────
+     *
+     * The badge this feeds says "Added by team", and for a row created by the
+     * applicants panel that is exactly true. But `source` does not only mark
+     * those. Remotiv's own admin uploads and the bulk candidate imports carry
+     * 'manual_upload' as well, and for an imported row "your team added this
+     * person" is false — Remotiv did, in bulk, from a spreadsheet.
+     *
+     * This is harmless TODAY and only because of an unrelated fact: the
+     * importer writes no company_id_snapshot, and every read here filters on
+     * it, so imported rows never reach this mapper. The badge is correct by
+     * accident of another bug, not by construction.
+     *
+     * So: if imported rows are ever backfilled with a company — which is the
+     * obvious fix for their invisibility — they become visible AND acquire a
+     * badge claiming the company's own team added them. Backfilling the
+     * snapshot without settling this is the thing to watch. The durable fix is
+     * a column recording WHO added the row; `source` cannot answer it, because
+     * it describes the mechanism and three different actors share it.
+     */
+    added_manually: r.source === "manual_upload",
     // Passed through exactly as stored. Nothing here decides whether someone is
     // flagged — that is settled when a score lands, server-side.
     shortlist: {
@@ -534,6 +565,49 @@ export async function fetchCompanyApplicant(
     scoreDetail,
     comments: await readComments(service, ctx.companyId, applicationId),
   });
+}
+
+/**
+ * The jobs this viewer may add a candidate to.
+ *
+ * Scoped company-first then by job scope, the same two layers every other read
+ * here uses — an unassigned recruiter gets an empty list rather than the
+ * company's whole board.
+ *
+ * ── No status filter, on purpose ─────────────────────────────
+ *
+ * Closed and archived jobs stay listable. The apply route gates PUBLIC
+ * applications on visibility but exempts manual_upload from it, because
+ * somebody backfilling a candidate onto a role that has already come down is a
+ * real thing people do — a CV that arrived by email the day the role closed
+ * still belongs on that role. A recruiter adding one by hand is the same case,
+ * so the same exemption applies. This is a decision, not an omission.
+ */
+export async function fetchAssignableJobs(): Promise<Read<AssignableJob[]>> {
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  // An answer: assigned to no roles means nowhere to put a candidate.
+  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
+
+  const service = createServiceClient();
+  let q = service.from("jobs").select("id, title").eq("company_id", ctx.companyId);
+  if (scope.scoped) q = q.in("id", scope.jobIds);
+
+  const { data, error } = await q.order("created_at", { ascending: false });
+
+  if (error) {
+    // Not an empty board. Returning [] would disable the Add button and tell a
+    // company with live roles that it has none to add to.
+    console.error("[applicants] fetchAssignableJobs failed:", error);
+    return unavailable();
+  }
+
+  return answered(
+    ((data ?? []) as { id: string; title: string | null }[]).map((j) => ({
+      id: j.id,
+      title: j.title?.trim() || "Untitled role",
+    })),
+  );
 }
 
 // ── Mutations ────────────────────────────────────────────────
@@ -894,6 +968,573 @@ export async function rescoreApplication(
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
+}
+
+/**
+ * Attach a CV to an applicant who is already here.
+ *
+ * ── Why this attaches rather than creating a row ─────────────
+ *
+ * A second job_applications row for the same person forks everything keyed on
+ * application_id: the stage history, the scorecard, the team's comments and
+ * any interview session. The panel would show two of them and the pipeline
+ * would count two candidates. So the CV moves onto the existing row.
+ *
+ * ── The one line that makes this worth building ──────────────
+ *
+ * `enqueue` at the bottom. A CV that is only stored is a file nobody reads:
+ * cv-scoring.ts never looks at cv_path, only at cv_text, and it only ever runs
+ * because something queued it. Uploading without queueing would produce a
+ * feature that looks identical to a working one from the outside.
+ *
+ * Queued UNCONDITIONALLY — including when extraction found nothing. The
+ * handler's own guards write a `skipped` scorecard with a reason, and the
+ * panel renders it, so a scanned-image PDF says "couldn't read this" instead
+ * of going quiet. Those guards run before the model call, so a skip is free.
+ *
+ * ── cv_delete_after is deliberately NOT touched ──────────────
+ *
+ * The 24 months was set when the candidate applied and is a promise about the
+ * APPLICATION, not about whichever file is currently attached to it. Resetting
+ * the clock would hold someone's document longer because the company chose to
+ * upload something, which the candidate was never party to. Inheriting can
+ * delete a new file early; resetting keeps it past the promise. Early is the
+ * direction that errs toward the person.
+ *
+ * Every company-scoped row has a date today, so the inherited value is never
+ * null and a newly attached CV is never left outside the purge. The visible
+ * cost is that attaching to a nearly-expired application shows "CV expired"
+ * soon after — correct, and surprising exactly once. Past the date, the upload
+ * is refused outright; see the guard below.
+ *
+ * ── Currently called by nothing ──────────────────────────────
+ *
+ * The drawer's Replace / Add CV button was its only caller and was removed on
+ * purpose — see the note where it stood, in _applicants-client's Application
+ * card. This is KEPT, not orphaned: the decision was about the button, not
+ * about whether attaching is the right operation, and the cost of bringing it
+ * back should be a button rather than this whole action. Do not delete it as
+ * dead code without re-reading that note.
+ */
+export async function attachApplicationCv(
+  applicationId: string,
+  form: FormData,
+): Promise<MutationResult<{ cvTextStatus: PdfTextResult["status"]; scoreQueued: boolean }>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+
+  const file = form.get("cv");
+  if (!(file instanceof File) || file.size === 0) {
+    return { success: false, error: "Choose a PDF to upload." };
+  }
+
+  const check = await checkCvFile(file);
+  if (!check.ok) return { success: false, error: check.message };
+
+  const service = createServiceClient();
+
+  // Ownership recheck, worded and scoped exactly as rescoreApplication and
+  // deleteApplication do: not-found and not-yours share one message so a
+  // caller cannot probe another company's ids.
+  const { data } = await service
+    .from("job_applications")
+    .select("id, company_id_snapshot, job_id, cv_path, cv_delete_after")
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  const target = data as {
+    id: string;
+    company_id_snapshot: string | null;
+    job_id: string | null;
+    cv_path: string | null;
+    cv_delete_after: string | null;
+  } | null;
+
+  if (!target || target.company_id_snapshot !== ctx.companyId) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+  if (!(await canAccessJob(ctx, target.job_id ?? ""))) {
+    return { success: false, error: "Applicant not found in your workspace." };
+  }
+
+  /*
+   * The direct consequence of inheriting the date: once it has passed, cv-purge
+   * selects this row on its next daily run — its filter is the date plus a
+   * non-null cv_path or cv_text — and deletes whatever is attached. Accepting
+   * the file would store it, score it, and lose it inside 24 hours while the
+   * panel said it worked. If the promise to the candidate has run out, the
+   * answer is no, not "yes for a day".
+   */
+  if (target.cv_delete_after !== null && new Date(target.cv_delete_after) <= new Date()) {
+    return {
+      success: false,
+      error: "This application's CV retention period has ended, so a new CV can't be attached.",
+    };
+  }
+
+  const previousPath = target.cv_path;
+
+  /*
+   * Same layout the apply route writes: the job's folder, a fresh uuid. Never
+   * the old key — overwriting in place would leave the signed URLs already
+   * handed out pointing at a different person's document, and would make the
+   * upload unrecoverable if the row update below failed.
+   */
+  const folder = target.job_id ?? "manual";
+  const path = `${folder}/${crypto.randomUUID()}.pdf`;
+
+  const { error: uploadErr } = await service.storage
+    .from(CV_BUCKET)
+    .upload(path, check.bytes, { contentType: "application/pdf", upsert: false });
+  if (uploadErr) return { success: false, error: uploadErr.message };
+
+  /*
+   * Never throws by contract; wrapped anyway because a module-load failure in
+   * unpdf must degrade to "stored but unreadable" rather than lose the upload.
+   * Hence the failure values are the DEFAULTS and the try overwrites them —
+   * there is no third state where the file is attached and the status is
+   * unset. Sanitise before capping, so the cap still holds afterwards.
+   */
+  let text: string | null = null;
+  let status: PdfTextResult["status"] = "failed";
+  let extractError: string | null = "extract_call_failed";
+  try {
+    const result = await extractPdfTextServer(check.bytes);
+    text = capCvText(result.text === null ? null : stripInvalidPgChars(result.text));
+    status = result.status;
+    extractError = result.error;
+  } catch (err) {
+    console.error("[applicants] cv extraction call failed:", err);
+  }
+
+  /*
+   * cv_url is cleared, not left alone. It is the legacy public-URL column, and
+   * 145 rows still carry one: leaving it would point at the file being
+   * replaced, and /api/cv/company-application prefers it when present.
+   */
+  const { error: updateErr } = await service
+    .from("job_applications")
+    .update({
+      cv_path: path,
+      cv_url: null,
+      cv_text: text,
+      cv_text_status: status,
+      cv_text_error: extractError,
+    })
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId);
+
+  if (updateErr) {
+    // Roll the object back: nothing points at it, so leaving it would strand a
+    // CV in the bucket with no record of its path outside this log line.
+    try {
+      await service.storage.from(CV_BUCKET).remove([path]);
+    } catch (err) {
+      console.error("[CV_ORPHAN][applicants] rollback of attached CV failed", {
+        applicationId,
+        path,
+        error: err,
+      });
+    }
+    return { success: false, error: updateErr.message };
+  }
+
+  /*
+   * A failure here is NOT a failure of the upload: the CV is attached and the
+   * row is correct. So it rolls nothing back and returns no error — it is
+   * REPORTED instead, because "attached but never scored" is the precise
+   * outcome this action exists to stop happening silently. The panel's
+   * existing Re-score button is the retry.
+   */
+  const queued = await enqueue({
+    type: "ai_cv_score",
+    payload: { applicationId },
+    companyId: ctx.companyId,
+  });
+  if (!queued.ok) {
+    console.error("[applicants] CV attached but scoring could not be queued", {
+      applicationId,
+      error: queued.error,
+    });
+  }
+
+  /*
+   * The old object goes LAST, and only after asking who else holds the key.
+   *
+   * A cv_path is COPIED, never re-uploaded, into talent_profiles and onward
+   * into client_batch_candidates (see lib/shared-storage-refs.ts). Deleting
+   * the previous file because this row stopped naming it would blank a CV
+   * another record still advertises. Last, because a failure here leaves a
+   * stranded object — the recoverable outcome — whereas deleting before the
+   * row was updated would leave the applicant with no CV at all.
+   */
+  if (previousPath && previousPath !== path) {
+    try {
+      const shared = await findSharedPaths(service, "cv_path", [previousPath], {
+        table: "job_applications",
+        ids: new Set([applicationId]),
+      });
+      if (!shared.has(previousPath)) {
+        const outcome = await removeObjects(service, CV_BUCKET, [previousPath]);
+        if (!outcome.complete) {
+          console.error("[CV_ORPHAN][applicants] replaced CV not confirmed deleted", {
+            applicationId,
+            path: previousPath,
+            error: outcome.error,
+          });
+        }
+      }
+    } catch (err) {
+      console.error("[CV_ORPHAN][applicants] replaced-CV cleanup threw", {
+        applicationId,
+        path: previousPath,
+        error: err,
+      });
+    }
+  }
+
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: { cvTextStatus: status, scoreQueued: queued.ok } };
+}
+
+/** Matches /api/apply's MAX_NAME_LENGTH. Restated, not imported: a server
+ *  action reaching into an API route module is the wrong dependency direction. */
+const NAME_MAX = 100;
+
+/** FormData's string fields, trimmed, with blank collapsing to null. */
+function text(value: FormDataEntryValue | null): string | null {
+  if (typeof value !== "string") return null;
+  const trimmed = value.trim();
+  return trimmed.length > 0 ? trimmed : null;
+}
+
+type AddApplicantResult =
+  | {
+      success: true;
+      data: {
+        applicationId: string;
+        cvTextStatus: PdfTextResult["status"];
+        scoreQueued: boolean;
+      };
+    }
+  | { success: false; error: string; duplicate?: AddApplicantDuplicate };
+
+/**
+ * Create an applicant who never applied — a CV that reached a recruiter some
+ * other way, put into the pipeline by hand.
+ *
+ * ── Why this is not /api/apply ───────────────────────────────
+ *
+ * That route already does this shape for Remotiv's own admins, and reusing it
+ * was the obvious move. It is wrong for two reasons that are not stylistic.
+ *
+ * Its manual_upload branch is gated on requireAdmin, and that gate is what
+ * makes the branch's exemptions — skipping dedup, skipping the visibility
+ * check — safe to expose at all. Widening it to accept a company session would
+ * put those exemptions behind a much larger door, on a public endpoint.
+ *
+ * And it derives company_id_snapshot from jobs.company_id without checking
+ * that the CALLER owns the job. Harmless for an admin; for a recruiter it
+ * means a forged job_id files a candidate into somebody else's workspace.
+ *
+ * The route also writes a null company_id_snapshot whenever the job has none —
+ * which is exactly how the bulk import put 1,200+ candidates into a table
+ * where no company's Applicants page can see them. That is the defect this
+ * action exists to not repeat, so the snapshot here comes from the session.
+ *
+ * ── Insert, upload, update — and why not upload first ────────
+ *
+ * The obvious order is upload-then-insert, so a row never exists without its
+ * file. It is the wrong one. When the insert fails, the rollback is a storage
+ * delete, and when THAT fails the residue is a PDF in the bucket that nothing
+ * references — a stranger's CV, with no row naming it, discoverable only by
+ * grepping logs for its uuid. Nobody finds it and nobody can tell whose it is.
+ *
+ * Inserting first inverts the residue. A failed upload rolls back a row we can
+ * name, scoped and deleted by primary key; if even that fails, what survives
+ * is an applicant with no CV — visible in the list, attributable to a person,
+ * and fixable with the Add CV button already in the drawer.
+ *
+ * The cost is honest and small: between the insert and the update the row
+ * truthfully carries no cv_path, so it renders as "no CV" for the moment it
+ * takes to upload. That beats pointing at a file that isn't there yet, which
+ * is what setting cv_path up front would do.
+ *
+ * DO NOT "fix" this back to upload-first. It reads like a bug and is not one.
+ *
+ * ── No email ────────────────────────────────────────────────
+ *
+ * queueApplicationReceived is deliberately not called. The wording would be
+ * false — they did not apply — but the real reason is consent: the apply form
+ * is where a candidate is shown the privacy terms and accepts them, and
+ * someone a recruiter entered by hand never saw that screen. There is no basis
+ * to open a messaging relationship with them, so rewording it would not make
+ * sending one correct.
+ */
+export async function addCompanyApplicant(form: FormData): Promise<AddApplicantResult> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+
+  const firstName = text(form.get("first_name"));
+  const lastName = text(form.get("last_name"));
+  const rawEmail = text(form.get("email"));
+  const jobId = text(form.get("job_id"));
+  const file = form.get("cv");
+
+  if (!firstName || !lastName) {
+    return { success: false, error: "Enter the candidate's first and last name." };
+  }
+  if (firstName.length > NAME_MAX || lastName.length > NAME_MAX) {
+    return { success: false, error: "That name is too long." };
+  }
+  // Required here, unlike on /apply where an application may be anonymised.
+  // It is the only identifier the duplicate check has, and a manual add with
+  // no email is a row nobody can ever match against.
+  const email = rawEmail ? normalizeEmail(rawEmail) : null;
+  if (!email || !isValidEmail(email)) {
+    return { success: false, error: "Enter a valid email address." };
+  }
+  if (!jobId) {
+    return { success: false, error: "Choose the role to add them to." };
+  }
+  /*
+   * The CV is required, and that is a product decision worth stating. A
+   * manual add without one is a name in a list: cv-scoring reads cv_text and
+   * would write a skipped scorecard, so the candidate would sit there unread
+   * until somebody came back with the Add CV button. Better to ask for it now
+   * than to create the row that needs fixing later.
+   */
+  if (!(file instanceof File) || file.size === 0) {
+    return { success: false, error: "Attach the candidate's CV as a PDF." };
+  }
+
+  const check = await checkCvFile(file);
+  if (!check.ok) return { success: false, error: check.message };
+
+  const service = createServiceClient();
+
+  /*
+   * The job, by BOTH id and company — then the per-job team check. Same two
+   * steps as rescoreJob, and both are needed: the first stops a job id from
+   * another tenant, the second stops a scoped recruiter reaching a job inside
+   * their own company that they are not on.
+   *
+   * The title is read here rather than in a second query because the row needs
+   * job_title_snapshot, which is what the list falls back to once a job is
+   * deleted and job_id goes null.
+   */
+  const { data: jobData } = await service
+    .from("jobs")
+    .select("id, title")
+    .eq("id", jobId)
+    .eq("company_id", ctx.companyId)
+    .maybeSingle();
+
+  const job = jobData as { id: string; title: string | null } | null;
+  // Not-found and not-yours share one message, the rule every action here
+  // follows, so a job id cannot be confirmed by probing.
+  if (!job || !(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That role isn't in your workspace." };
+  }
+
+  /*
+   * Refuse a second row for the same person on the same role.
+   *
+   * There is no unique constraint behind this — it is a product rule, and the
+   * reason it is a rule is that a duplicate row forks everything keyed on
+   * application_id: the scorecard, the stage history, the team's comments, any
+   * interview session. The pipeline would then count one candidate twice.
+   *
+   * `.ilike` rather than `.eq` because rows written before email normalisation
+   * may differ only in case. Scoped on company_id_snapshot as well as job_id,
+   * since the tenant boundary must not rest on a job id alone. `.limit(1)`
+   * rather than `.maybeSingle()` because nothing stops two matching rows
+   * existing today, and maybeSingle would turn that into a 406 — reporting a
+   * duplicate as a server error. Oldest first, so the message names the
+   * original rather than a later copy.
+   *
+   * No branch on `source`: a real applicant and an earlier manual add are the
+   * same answer to the recruiter, and both refuse identically.
+   */
+  const { data: dupData } = await service
+    .from("job_applications")
+    .select("id, first_name, last_name, created_at")
+    .eq("company_id_snapshot", ctx.companyId)
+    .eq("job_id", jobId)
+    .ilike("email", email)
+    .order("created_at", { ascending: true })
+    .limit(1);
+
+  const dup = (
+    (dupData ?? []) as unknown as {
+      id: string;
+      first_name: string | null;
+      last_name: string | null;
+      created_at: string | null;
+    }[]
+  )[0];
+
+  if (dup) {
+    // The name comes off the EXISTING row, not from what was just typed. If
+    // they are in as "Sana Riaz" and the recruiter typed "Sanaa", the useful
+    // fact is who is already there.
+    const name = [dup.first_name, dup.last_name].filter(Boolean).join(" ").trim() || "Someone";
+    return {
+      success: false,
+      // Dateless on purpose — the caller renders the date in the reader's
+      // timezone from `duplicate`. This string is the honest fallback for a
+      // caller that ignores the structured half.
+      error: `${name} has already applied to this role.`,
+      duplicate: { applicationId: dup.id, name, appliedAt: dup.created_at },
+    };
+  }
+
+  /*
+   * Extraction runs BEFORE the insert so the row carries its real text status
+   * from the first write — no row ever claims 'pending' for text we already
+   * have. Never throws by contract; wrapped anyway, with the failure values as
+   * the defaults, so a module-load failure in unpdf degrades to "stored but
+   * unreadable" instead of losing the candidate. Sanitise before capping, so
+   * the cap still holds afterwards.
+   */
+  let cvText: string | null = null;
+  let status: PdfTextResult["status"] = "failed";
+  let extractError: string | null = "extract_call_failed";
+  try {
+    const result = await extractPdfTextServer(check.bytes);
+    cvText = capCvText(result.text === null ? null : stripInvalidPgChars(result.text));
+    status = result.status;
+    extractError = result.error;
+  } catch (err) {
+    console.error("[applicants] cv extraction call failed:", err);
+  }
+
+  /*
+   * 1. The row, with cv_path still null. See the banner for why this comes
+   *    first.
+   *
+   * pipeline_stage and screening_answers are OMITTED rather than set: both are
+   * NOT NULL with defaults ('applied', '[]'), so the database supplies them.
+   * Applied is right — a manual add is an application arriving through a
+   * different door, and Screening would claim a step nobody took. The empty
+   * answers are an absence, not an assertion: screening answers are the
+   * candidate's own statements and nobody else can make them.
+   *
+   * Everything else the table holds — phone, LinkedIn, location, skills,
+   * employment history, the whole wizard half — is left null. The recruiter
+   * has a CV, not a filled-in profile, and those facts are IN the CV for the
+   * scorer to read. Asking them to retype what they are already uploading
+   * would be the wrong trade.
+   */
+  const { data: insertedRow, error: insertErr } = await service
+    .from("job_applications")
+    .insert({
+      job_id: jobId,
+      first_name: stripInvalidPgChars(firstName),
+      last_name: stripInvalidPgChars(lastName),
+      email: stripInvalidPgChars(email),
+      cv_path: null,
+      cv_url: null,
+      cv_text: cvText,
+      cv_text_status: status,
+      cv_text_error: extractError,
+      status: "new",
+      source: "manual_upload",
+      job_title_snapshot: job.title?.trim() || null,
+      // From the SESSION, never from the job row. Same value today, but this
+      // is the field the import got wrong, and the session is the fact the
+      // caller cannot influence.
+      company_id_snapshot: ctx.companyId,
+      // The same 24 months every company application gets. Shared with
+      // /api/apply via lib/cv-file.ts so the promise cannot depend on which
+      // door the candidate came through.
+      cv_delete_after: cvRetentionDate(),
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !insertedRow) {
+    console.error("[applicants] addCompanyApplicant insert failed:", insertErr);
+    return { success: false, error: "Couldn't add that candidate. Please try again." };
+  }
+
+  const applicationId = (insertedRow as { id: string }).id;
+
+  /** Drop the half-made applicant. Scoped by company like every other write. */
+  const removeRow = async (reason: string) => {
+    const { error: delErr } = await service
+      .from("job_applications")
+      .delete()
+      .eq("id", applicationId)
+      .eq("company_id_snapshot", ctx.companyId);
+    if (delErr) {
+      // The residue this order chooses: an applicant with no CV. Named, in
+      // the list, and fixable with the drawer's Add CV button — which is why
+      // it is the acceptable one.
+      console.error(`[applicants] ${reason}; rollback of the new applicant failed`, {
+        applicationId,
+        error: delErr.message,
+      });
+    }
+  };
+
+  // 2. The file. Same layout the apply route writes: the job's folder, a fresh
+  //    uuid, so nothing in the path is guessable or personal.
+  const path = `${jobId}/${crypto.randomUUID()}.pdf`;
+  const { error: uploadErr } = await service.storage
+    .from(CV_BUCKET)
+    .upload(path, check.bytes, { contentType: "application/pdf", upsert: false });
+
+  if (uploadErr) {
+    await removeRow("CV upload failed");
+    return { success: false, error: uploadErr.message };
+  }
+
+  // 3. Point the row at the file.
+  const { error: updateErr } = await service
+    .from("job_applications")
+    .update({ cv_path: path })
+    .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId);
+
+  if (updateErr) {
+    // Object first, then the row: the row is what makes the object findable,
+    // so dropping it first would strand the file. Mirrors deleteApplication.
+    try {
+      await service.storage.from(CV_BUCKET).remove([path]);
+    } catch (err) {
+      console.error("[CV_ORPHAN][applicants] rollback of added CV failed", {
+        applicationId,
+        path,
+        error: err,
+      });
+    }
+    await removeRow("CV path update failed");
+    return { success: false, error: updateErr.message };
+  }
+
+  /*
+   * The line that makes this a feature rather than a filing cabinet. A failure
+   * is NOT a failure of the add — the candidate is in, correctly — so it rolls
+   * nothing back and is REPORTED instead, because "added but never scored" is
+   * precisely the silent outcome worth naming. The drawer's Re-score button is
+   * the retry.
+   */
+  const queued = await enqueue({
+    type: "ai_cv_score",
+    payload: { applicationId },
+    companyId: ctx.companyId,
+  });
+  if (!queued.ok) {
+    console.error("[applicants] candidate added but scoring could not be queued", {
+      applicationId,
+      error: queued.error,
+    });
+  }
+
+  revalidatePath("/ai-dashboard/applicants");
+  return {
+    success: true,
+    data: { applicationId, cvTextStatus: status, scoreQueued: queued.ok },
+  };
 }
 
 /**
