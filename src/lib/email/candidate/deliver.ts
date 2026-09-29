@@ -1,5 +1,6 @@
 import "server-only";
 import { Resend } from "resend";
+import { redactCandidateLinks } from "@/lib/candidate-links";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { EMAIL_SHELL } from "./templates";
 import type { LoggedEvent, MessageStatus } from "./types";
@@ -247,7 +248,11 @@ export async function deliverEmail(
     to: string;
     /** Plain text. */
     subject: string;
-    /** Full document, already through buildCandidateHtml. */
+    /**
+     * Full document, already through buildCandidateHtml. Sent as is; the copy
+     * kept in communication_logs has its interview and booking tokens removed
+     * (redactCandidateLinks) so the log cannot be used to open either link.
+     */
     html: string;
     companyName: string;
     /** Omitted from the message entirely when null — never defaulted. */
@@ -272,7 +277,7 @@ export async function deliverEmail(
       event: input.event,
       to: input.to,
       subject: input.subject,
-      body: input.html,
+      body: redactCandidateLinks(input.html),
       status: "skipped",
       error: `Daily send cap of ${cap} reached.`,
       sentByName: input.sentByName ?? null,

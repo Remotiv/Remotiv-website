@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { REDACTED_LINK } from "@/lib/candidate-links";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
@@ -813,6 +814,20 @@ export async function sendScheduledNow(
   }
   if (row.status !== "queued") {
     return { success: false, error: "This message has already been sent." };
+  }
+  /*
+   * The stored body is what gets re-sent, and stored bodies have their
+   * interview and booking tokens removed (deliverEmail → redactCandidateLinks).
+   * No queued message carries such a link today - those sends are immediate -
+   * so this is a guard against a future one, not a live path: re-sending it
+   * would deliver a dead link, which is worse than refusing.
+   */
+  if ((row.body ?? "").includes(REDACTED_LINK)) {
+    return {
+      success: false,
+      error:
+        "This message carried a one-time link that isn't kept on file. Send a fresh one from the applicant instead.",
+    };
   }
 
   const { data: companyData } = await service

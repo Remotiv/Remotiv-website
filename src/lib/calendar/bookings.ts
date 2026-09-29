@@ -70,11 +70,9 @@ export function hashBookingToken(rawToken: string): string {
   return createHash("sha256").update(rawToken).digest("hex");
 }
 
-/** The URL a candidate opens. Raw token, never the hash. */
-export function bookingUrl(rawToken: string): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv.work";
-  return `${base}/book/${rawToken}`;
-}
+// The public URL builder lives with the redactor that scrubs it from stored
+// bodies (see lib/candidate-links.ts); re-exported so callers did not move.
+export { bookingUrl } from "@/lib/candidate-links";
 
 /* ─────────────────────── public page reads ─────────────────── */
 

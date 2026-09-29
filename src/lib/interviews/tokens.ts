@@ -28,11 +28,9 @@ export function hashSessionToken(rawToken: string): string {
   return createHash("sha256").update(rawToken).digest("hex");
 }
 
-/** Public URL a candidate opens. Raw token, never the hash. */
-export function interviewUrl(rawToken: string): string {
-  const base = process.env.NEXT_PUBLIC_SITE_URL ?? "https://remotiv.work";
-  return `${base}/interview/${rawToken}`;
-}
+// The public URL builder lives with the redactor that scrubs it from stored
+// bodies (see lib/candidate-links.ts); re-exported so callers did not move.
+export { interviewUrl } from "@/lib/candidate-links";
 
 /** Days a session stays open. Stated in the invite and on the Welcome screen. */
 export const SESSION_EXPIRY_DAYS = 5;
