@@ -29,12 +29,12 @@ import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/co
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
+import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
-import { enqueue } from "@/lib/jobs-queue";
 import { normalizeEmail } from "@/lib/normalize";
 import { notifyCompany } from "@/lib/notifications/company";
 import { extractPdfTextServer, type PdfTextResult, stripInvalidPgChars } from "@/lib/pdf-text";
@@ -1005,7 +1005,7 @@ export async function dismissShortlistFlagAction(
  */
 export async function rescoreApplication(
   applicationId: string,
-): Promise<MutationResult<undefined>> {
+): Promise<MutationResult<{ outcome: "queued" | "already_queued" }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
   const service = createServiceClient();
@@ -1031,15 +1031,13 @@ export async function rescoreApplication(
     return { success: false, error: "This application has no job to score against." };
   }
 
-  const queued = await enqueue({
-    type: "ai_cv_score",
-    payload: { applicationId },
-    companyId: ctx.companyId,
-  });
+  // One live scoring job per application (migration 030). A second click, or a
+  // colleague's, is reported as already queued rather than as a second run.
+  const queued = await requestCvScore(applicationId, ctx.companyId);
   if (!queued.ok) return { success: false, error: queued.error };
 
   revalidatePath("/ai-dashboard/applicants");
-  return { success: true, data: undefined };
+  return { success: true, data: { outcome: queued.outcome } };
 }
 
 /**
@@ -1230,11 +1228,7 @@ export async function attachApplicationCv(
    * outcome this action exists to stop happening silently. The panel's
    * existing Re-score button is the retry.
    */
-  const queued = await enqueue({
-    type: "ai_cv_score",
-    payload: { applicationId },
-    companyId: ctx.companyId,
-  });
+  const queued = await requestCvScore(applicationId, ctx.companyId);
   if (!queued.ok) {
     console.error("[applicants] CV attached but scoring could not be queued", {
       applicationId,
@@ -1613,11 +1607,7 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
    * precisely the silent outcome worth naming. The drawer's Re-score button is
    * the retry.
    */
-  const queued = await enqueue({
-    type: "ai_cv_score",
-    payload: { applicationId },
-    companyId: ctx.companyId,
-  });
+  const queued = await requestCvScore(applicationId, ctx.companyId);
   if (!queued.ok) {
     console.error("[applicants] candidate added but scoring could not be queued", {
       applicationId,
@@ -1640,7 +1630,9 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
  * BOTH job_id and company_id_snapshot, so a mismatched snapshot can never be
  * swept in. Range-paged for the same reason the list is.
  */
-export async function rescoreJob(jobId: string): Promise<MutationResult<{ queued: number }>> {
+export async function rescoreJob(
+  jobId: string,
+): Promise<MutationResult<{ queued: number; alreadyQueued: number }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
 
@@ -1675,24 +1667,25 @@ export async function rescoreJob(jobId: string): Promise<MutationResult<{ queued
   }
 
   // One job row per application. Enqueued sequentially in small waves so a
-  // 500-applicant job doesn't open 500 concurrent inserts.
+  // 500-applicant job doesn't open 500 concurrent inserts. An applicant whose
+  // scoring is already in flight (migration 030) is counted separately so the
+  // toast can say so instead of claiming a run that did not start.
   let queued = 0;
+  let alreadyQueued = 0;
   const WAVE = 25;
   for (let i = 0; i < ids.length; i += WAVE) {
     const results = await Promise.all(
-      ids.slice(i, i + WAVE).map((applicationId) =>
-        enqueue({
-          type: "ai_cv_score",
-          payload: { applicationId },
-          companyId: ctx.companyId,
-        }),
-      ),
+      ids.slice(i, i + WAVE).map((applicationId) => requestCvScore(applicationId, ctx.companyId)),
     );
-    queued += results.filter((r) => r.ok).length;
+    for (const r of results) {
+      if (!r.ok) continue;
+      if (r.outcome === "queued") queued += 1;
+      else alreadyQueued += 1;
+    }
   }
 
   revalidatePath("/ai-dashboard/applicants");
-  return { success: true, data: { queued } };
+  return { success: true, data: { queued, alreadyQueued } };
 }
 
 /**

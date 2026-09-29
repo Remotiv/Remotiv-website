@@ -9,6 +9,7 @@ import {
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { readInterviewKind } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
+import { readScoringSnapshot, resolveQuestionMeta } from "./question-meta";
 import { findQuoteStart } from "./quote-timestamps";
 import type {
   AnswerScoreView,
@@ -109,6 +110,8 @@ type SessionRow = {
   delete_after: string | null;
   invited_by_name: string | null;
   questions_snapshot: unknown;
+  /** Reviewer-only marking scheme (migration 028). Selected by the detail read, never sent to a candidate. */
+  scoring_snapshot?: unknown;
   archived_at: string | null;
   created_at: string;
 };
@@ -377,7 +380,7 @@ export async function loadInterviewSession(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
+      "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, scoring_snapshot, archived_at, created_at",
     )
     .eq("id", sessionId)
     .eq("company_id", ctx.companyId)
@@ -469,22 +472,44 @@ export async function loadInterviewSession(
   const answerScores = await fetchAnswerScores(service, ctx.companyId, row.id, segmentsById);
   for (const a of answers) a.score = answerScores.get(a.id) ?? null;
 
-  // Competency lives on the QUESTION, never on the answer, and is reviewer-only
-  // — the candidate payload deliberately withholds it.
-  if (row.job_id) {
-    const { data: qRows } = await service
-      .from("interview_questions")
-      .select("position, competency")
-      .eq("job_id", row.job_id)
-      .eq("company_id", ctx.companyId)
-      .limit(50);
-    const byPosition = new Map(
-      ((qRows ?? []) as { position: number; competency: string | null }[]).map((q) => [
-        q.position,
-        (q.competency ?? "").trim() || null,
-      ]),
-    );
-    for (const a of answers) a.competency = byPosition.get(a.position) ?? null;
+  /*
+   * Competency lives on the QUESTION, never on the answer, and is reviewer-only
+   * — the candidate payload deliberately withholds it. Resolved through the
+   * SAME rule the scorer uses (lib/interviews/question-meta.ts): the frozen
+   * scoring_snapshot when the session has one, else the live row with the same
+   * question id, else none. Never the row now at the same position - a label
+   * that says "Collaboration" over an answer scored with no rubric would be
+   * the lie the scorer just refused to tell.
+   */
+  {
+    const { data: qRows } = row.job_id
+      ? await service
+          .from("interview_questions")
+          .select("id, position, question, competency, rubric, weight")
+          .eq("job_id", row.job_id)
+          .eq("company_id", ctx.companyId)
+          .limit(50)
+      : { data: [] };
+    const live = (qRows ?? []) as {
+      id: string;
+      position: number;
+      question: string | null;
+      competency: string | null;
+      rubric: string | null;
+      weight: number | null;
+    }[];
+    const snapshotQuestions = Array.isArray(row.questions_snapshot)
+      ? (row.questions_snapshot as { id?: string; position?: number; question?: string | null }[])
+      : [];
+    const scoring = readScoringSnapshot(row.scoring_snapshot);
+    for (const a of answers) {
+      a.competency = resolveQuestionMeta(
+        { position: a.position, question_text: a.questionText },
+        snapshotQuestions,
+        scoring.length > 0 ? scoring : null,
+        live,
+      ).competency;
+    }
   }
 
   const status = deriveStatus(row.status, row.expires_at);

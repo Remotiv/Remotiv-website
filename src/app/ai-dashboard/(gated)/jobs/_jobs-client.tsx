@@ -832,8 +832,14 @@ export function JobsClient({
     // It is here because it SPENDS MONEY — roughly two cents per CV — and the
     // count is the number the confirm exists to show.
     let result: { success: boolean; error?: string | undefined };
+    // How many re-scores actually started versus were already in flight
+    // (migration 030 dedupes live jobs), so the toast does not claim runs that
+    // did not begin.
+    let rescored: { queued: number; alreadyQueued: number } | null = null;
     if (kind === "rescore") {
-      result = await rescoreJob(job.id);
+      const r = await rescoreJob(job.id);
+      result = r;
+      if (r.success) rescored = r.data;
     } else if (kind === "close") {
       result = await updateCompanyJobStatus(job.id, "closed");
     } else if (kind === "archive") {
@@ -859,7 +865,11 @@ export function JobsClient({
       setOpenId(null);
       setToast(
         kind === "rescore"
-          ? `Re-scoring ${job.applicant_count} applicant${job.applicant_count === 1 ? "" : "s"} for “${job.title}”`
+          ? rescored
+            ? `Re-scoring ${rescored.queued} applicant${rescored.queued === 1 ? "" : "s"} for “${job.title}”${
+                rescored.alreadyQueued > 0 ? ` — ${rescored.alreadyQueued} already in progress` : ""
+              }`
+            : `Re-scoring applicants for “${job.title}”`
           : kind === "close"
             ? `“${job.title}” closed`
             : kind === "archive"

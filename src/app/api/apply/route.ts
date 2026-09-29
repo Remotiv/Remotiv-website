@@ -1,11 +1,11 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { mintClaimToken } from "@/lib/claim-tokens";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 import type { ScreeningQuestion } from "@/lib/jobs";
-import { enqueue } from "@/lib/jobs-queue";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
 import { type NumericMode, resolveNumericMode } from "@/lib/screening";
@@ -757,11 +757,7 @@ export async function POST(request: NextRequest) {
     //     surfaced, same contract as the bridge token below.
     if (resolvedJobId && companyIdSnapshot) {
       try {
-        const queued = await enqueue({
-          type: "ai_cv_score",
-          payload: { applicationId },
-          companyId: companyIdSnapshot,
-        });
+        const queued = await requestCvScore(applicationId, companyIdSnapshot);
         if (!queued.ok) {
           console.error("[/api/apply] cv scoring enqueue failed (non-fatal):", queued.error);
         }

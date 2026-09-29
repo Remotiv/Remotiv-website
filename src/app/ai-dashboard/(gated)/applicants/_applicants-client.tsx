@@ -4535,7 +4535,11 @@ export function ApplicantsClient({
       setToast(result.error);
       return;
     }
-    setToast("Re-score queued — the new card appears here shortly.");
+    setToast(
+      result.data.outcome === "already_queued"
+        ? "Scoring is already queued for this applicant — the card appears here shortly."
+        : "Re-score queued — the new card appears here shortly.",
+    );
     // The card now has a live job to report. Pull the facts so it says
     // "in progress" rather than keeping the old skip on screen.
     const read = await fetchCompanyApplicant(id);

@@ -167,9 +167,23 @@ export async function handleTranscribe(job: {
   const payload = (await res.json()) as {
     text?: string;
     segments?: unknown;
+    /** Whisper's own measurement of the audio, in seconds. */
+    duration?: unknown;
   };
   const transcript = (payload.text ?? "").trim();
   const segments = toStoredSegments(payload.segments);
+  /*
+   * The provider's audio length, kept since migration 031. It is the TRUSTED
+   * duration: interview_answers.duration_seconds is the browser's timer and
+   * can say anything. The assessability rule (lib/interviews/assessable.ts)
+   * gates on this and on the segments, never on the browser's figure.
+   */
+  const providerDuration =
+    typeof payload.duration === "number" &&
+    Number.isFinite(payload.duration) &&
+    payload.duration >= 0
+      ? payload.duration
+      : null;
 
   const { error } = await service
     .from("interview_answers")
@@ -182,6 +196,7 @@ export async function handleTranscribe(job: {
        * plain transcript — which is what every existing row does.
        */
       transcript_segments: segments.length > 0 ? segments : null,
+      transcript_duration_seconds: providerDuration,
       transcript_status: transcript ? "done" : "failed",
       transcript_error: transcript ? null : "Transcription returned nothing.",
     })
@@ -231,6 +246,13 @@ export type TranscriptSegment = {
   start: number;
   end: number;
   text: string;
+  /**
+   * Whisper's no_speech_prob for this segment, 0-1. The one direct signal for
+   * "this span is silence the model filled in". Kept since Phase 4 (AI-1);
+   * absent on every segment stored before that, and readers must treat absent
+   * as UNKNOWN, never as zero.
+   */
+  noSpeech?: number;
 };
 
 function toStoredSegments(raw: unknown): TranscriptSegment[] {
@@ -238,16 +260,26 @@ function toStoredSegments(raw: unknown): TranscriptSegment[] {
   const out: TranscriptSegment[] = [];
   for (const item of raw) {
     if (!item || typeof item !== "object") continue;
-    const seg = item as { start?: unknown; end?: unknown; text?: unknown };
+    const seg = item as {
+      start?: unknown;
+      end?: unknown;
+      text?: unknown;
+      no_speech_prob?: unknown;
+    };
     const start = typeof seg.start === "number" ? seg.start : Number.NaN;
     const end = typeof seg.end === "number" ? seg.end : Number.NaN;
     const text = typeof seg.text === "string" ? seg.text.trim() : "";
     // A segment without a usable start is not seekable, so it is not stored.
     if (!Number.isFinite(start) || !text) continue;
+    const noSpeech =
+      typeof seg.no_speech_prob === "number" && Number.isFinite(seg.no_speech_prob)
+        ? Math.round(seg.no_speech_prob * 1000) / 1000
+        : undefined;
     out.push({
       start: Math.max(0, Math.round(start * 100) / 100),
       end: Number.isFinite(end) ? Math.round(end * 100) / 100 : start,
       text,
+      ...(noSpeech === undefined ? {} : { noSpeech }),
     });
   }
   return out;

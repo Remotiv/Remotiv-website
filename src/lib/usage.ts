@@ -54,12 +54,27 @@ export async function recordUsage(input: RecordUsageInput): Promise<void> {
     });
 
     if (error) {
-      console.error("[usage] recordUsage failed:", {
-        type: input.type,
-        companyId: input.companyId,
-        refId: input.refId ?? null,
-        error: error.message,
-      });
+      /*
+       * A CHECK violation is named apart from every other failure: it means the
+       * table's type vocabulary and this code have drifted, and the fix is a
+       * migration, not a retry. That is exactly what happened to
+       * `interview_scored` - rejected on every scorecard for weeks and visible
+       * only as this generic line. The vocabulary is not in the repository
+       * (see migration 029), so the grep-able prefix is the tripwire.
+       */
+      const rejected = error.code === "23514";
+      console.error(
+        rejected
+          ? `[usage] REJECTED type=${input.type} (23514) - usage_events_type_check does not allow it; see migration 029`
+          : "[usage] recordUsage failed:",
+        {
+          type: input.type,
+          sqlstate: error.code ?? null,
+          companyId: input.companyId,
+          refId: input.refId ?? null,
+          error: error.message,
+        },
+      );
     }
   } catch (err) {
     // createServiceClient throws when the service-role env var is missing.

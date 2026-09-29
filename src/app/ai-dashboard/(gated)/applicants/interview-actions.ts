@@ -94,6 +94,7 @@ export async function sendInterviewInvite(
   }
 
   const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId);
+  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId);
   // No questions, no interview. Sending a link to an empty interview wastes
   // the candidate's time and looks broken from their side.
   if (questionsSnapshot.length === 0) {
@@ -131,6 +132,8 @@ export async function sendInterviewInvite(
       // as allow_rerecord, and for the stronger one that positions are the
       // key for answers and storage paths.
       questions_snapshot: questionsSnapshot,
+      // The marking scheme, frozen alongside the questions. Reviewer-only.
+      scoring_snapshot: scoringSnapshot,
       expires_at: dates.expiresAt,
       invited_by: ctx.memberId,
       invited_by_name: ctx.memberName,
@@ -288,6 +291,7 @@ export async function sendLiveInterviewInvite(
   if (!gate.ok) return { success: false, error: gate.error };
 
   const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId);
+  const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId);
   if (questionsSnapshot.length === 0) {
     return { success: false, error: NO_QUESTIONS };
   }
@@ -326,6 +330,8 @@ export async function sendLiveInterviewInvite(
       // offers it for this session.
       allow_rerecord: false,
       questions_snapshot: questionsSnapshot,
+      // The marking scheme, frozen alongside the questions. Reviewer-only.
+      scoring_snapshot: scoringSnapshot,
       expires_at: dates.expiresAt,
       invited_by: ctx.memberId,
       invited_by_name: ctx.memberName,
@@ -475,6 +481,42 @@ async function loadQuestionsSnapshot(service: Service, jobId: string, companyId:
     answer_seconds: number | null;
     required: boolean | null;
   }[];
+}
+
+/**
+ * The marking scheme, frozen at invite - the half loadQuestionsSnapshot
+ * deliberately leaves out.
+ *
+ * Written to interview_sessions.scoring_snapshot (migration 028), which no
+ * candidate-facing read selects. The scorer marks every answer against this
+ * and never against the live interview_questions rows, which a job save
+ * deletes and reinserts; before this existed a reorder between invite and
+ * scoring could grade an answer with a different question's rubric and weight
+ * (Phase 4, AI-6). Positions match questions_snapshot's, which is how the
+ * scorer joins the two halves.
+ */
+async function loadScoringSnapshot(service: Service, jobId: string, companyId: string) {
+  const { data } = await service
+    .from("interview_questions")
+    .select("id, position, competency, rubric, weight")
+    .eq("job_id", jobId)
+    .eq("company_id", companyId)
+    .order("position", { ascending: true })
+    .limit(50);
+
+  return ((data ?? []) as {
+    id: string;
+    position: number;
+    competency: string | null;
+    rubric: string | null;
+    weight: number | null;
+  }[]).map((q) => ({
+    position: q.position,
+    question_id: q.id,
+    competency: (q.competency ?? "").trim() || null,
+    rubric: (q.rubric ?? "").trim() || null,
+    weight: typeof q.weight === "number" && q.weight > 0 ? q.weight : null,
+  }));
 }
 
 /**
