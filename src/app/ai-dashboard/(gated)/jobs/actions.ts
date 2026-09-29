@@ -3,6 +3,15 @@
 import { revalidatePath } from "next/cache";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import {
+  assertPublishableQuestions,
+  namedList,
+  oneOf,
+  SCORING_ENUM_FALLBACKS,
+  SCORING_RELEVANT_COLUMNS,
+  sanitizeQuestions,
+  scoringInputsChanged,
+} from "@/app/ai-dashboard/lib/job-patch";
+import {
   canAccessJob,
   getJobScope,
   isEmptyScope,
@@ -28,7 +37,6 @@ import {
   JOB_WORK_TYPES,
   type JobStatus,
   MUST_HAVE_MAX,
-  MUST_HAVE_MAX_LENGTH,
   normaliseInterviewDuration,
   snapWeight,
   suggestCriteria,
@@ -54,7 +62,7 @@ import {
 import { applyGroups, mergeJobText, needsModelSplit, parseJobDescription } from "@/lib/jd/parse";
 import type { JdGroup } from "@/lib/jd/partition";
 import { composeLocation } from "@/lib/job-location";
-import { resolveNumericMode, type ScreeningQuestion } from "@/lib/jobs";
+import type { ScreeningQuestion } from "@/lib/jobs";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { notifyCompany } from "@/lib/notifications/company";
 import { slugify, uniqueSlug } from "@/lib/slug";
@@ -81,136 +89,9 @@ const COMPANY_JOB_RATING = 4.5;
 
 // ── Validation ───────────────────────────────────────────────
 
-function oneOf<T extends string>(value: string, allowed: readonly T[], fallback: T): T {
-  return (allowed as readonly string[]).includes(value) ? (value as T) : fallback;
-}
-
-/**
- * Server-side cleanup of the screening-questions array — mirrors the admin
- * sanitizeQuestions exactly so both surfaces write the identical jsonb shape
- * that /api/apply re-reads and scores against. Empty result ([]) is valid.
- *
- * An unset/invalid `ideal` now stores "" rather than coercing to "0".
- *
- * That coercion was the bug: /api/apply matches numeric answers with
- * `answer >= ideal`, the answer field can't go below 0, so `>= 0` passed
- * EVERY candidate. A manager applicant answering 0 years leading teams,
- * 0 team size and 0 years Agile met all three "thresholds".
- *
- * "" is the honest "not set yet", and it is fail-CLOSED for yesno and
- * multiple (`answer === ""` never matches a real answer). It is NOT
- * fail-closed for numeric — `Number("")` is 0, not NaN, which reproduces the
- * same tautology — so assertPublishableQuestions below keeps "" off any job
- * that is actually open. Drafts keep it, so a half-built question survives a
- * save instead of being silently dropped.
- */
-function sanitizeQuestions(input: unknown): ScreeningQuestion[] {
-  if (!Array.isArray(input)) return [];
-
-  const cleaned: ScreeningQuestion[] = [];
-  for (const raw of input.slice(0, 10)) {
-    if (!raw || typeof raw !== "object") continue;
-    const q = raw as Partial<ScreeningQuestion>;
-
-    const question = (typeof q.question === "string" ? q.question : "").trim().slice(0, 200);
-    if (!question) continue;
-
-    const type = q.type;
-    if (type !== "yesno" && type !== "numeric" && type !== "multiple") continue;
-
-    const id = typeof q.id === "string" && q.id ? q.id : crypto.randomUUID();
-    const essential = q.essential === true;
-
-    if (type === "yesno") {
-      // Defaults to "Yes" — the one type where a default is honest rather than
-      // a hidden decision. Screening questions are near-universally phrased so
-      // that Yes is the good answer ("Do you have a work permit?"), and there
-      // are only two options, both visible in the select. Numeric and multiple
-      // choice keep their no-default rule: those have no natural right answer,
-      // and inventing one is what shipped the 0-threshold bug.
-      const ideal = q.ideal === "No" ? "No" : "Yes";
-      cleaned.push({ id, question, type, ideal, options: [], essential });
-    } else if (type === "numeric") {
-      // "collect this number, don't filter on it" IS the mode now — a company
-      // asking current salary or times-terminated wants a ceiling or nothing,
-      // and forcing a floor on those made them write a meaningless threshold.
-      const mode = resolveNumericMode(q);
-
-      if (mode === "none") {
-        // No threshold to store, so `ideal` is cleared rather than left to
-        // carry a stale number that nothing reads but the drawer might show.
-        cleaned.push({
-          id,
-          question,
-          type,
-          ideal: "",
-          options: [],
-          essential,
-          numeric_mode: "none",
-        });
-      } else {
-        // `> 0` for BOTH directions. A minimum of 0 passes everyone (the answer
-        // field can't go below 0); a maximum of 0 demands exactly 0, which is a
-        // threshold nobody means to set from a number input defaulting to empty.
-        const n = Number.parseFloat(String(q.ideal ?? ""));
-        const ideal = Number.isFinite(n) && n > 0 ? String(n) : "";
-        cleaned.push({
-          id,
-          question,
-          type,
-          ideal,
-          options: [],
-          essential,
-          numeric_mode: mode,
-        });
-      }
-    } else {
-      const options = (Array.isArray(q.options) ? q.options : [])
-        .map((o) => (typeof o === "string" ? o.trim() : ""))
-        .filter((o) => o.length > 0);
-      if (options.length < 2) continue; // multiple requires >= 2 options
-      // No fallback to index 0 either: "the first option" was never a choice
-      // the company made, just what an unset field happened to mean.
-      const idx = Number.parseInt(String(q.ideal ?? ""), 10);
-      const ideal = Number.isInteger(idx) && idx >= 0 && idx < options.length ? String(idx) : "";
-      cleaned.push({ id, question, type, ideal, options, essential });
-    }
-  }
-  return cleaned;
-}
-
-/**
- * Publish gate for screening questions.
- *
- * A question whose `ideal` is "" scores nothing meaningful, so it must not
- * reach a public job. Returns an error string naming the offender, or null.
- *
- * Only enforced for status 'open'. Drafts are allowed to be half-built —
- * that is what a draft is — and 'closed' jobs take no new applications.
- */
-function assertPublishableQuestions(questions: ScreeningQuestion[]): string | null {
-  // A numeric_mode 'none' question has an empty `ideal` BY DESIGN — there is no
-  // threshold to set — so it is the one legitimate empty and must not be caught
-  // by the unset check below.
-  const unset = questions.find(
-    (q) => q.ideal === "" && !(q.type === "numeric" && resolveNumericMode(q) === "none"),
-  );
-  if (!unset) return null;
-
-  if (unset.type === "numeric") {
-    const bound = resolveNumericMode(unset) === "max" ? "maximum" : "minimum";
-    return `Screening question "${unset.question}" needs a ${bound} above 0, or set it to collect the number without a threshold, before this job can be published.`;
-  }
-  // yesno can no longer reach here — sanitizeQuestions defaults it to "Yes",
-  // including legacy rows stored with "". Kept in the map so the record stays
-  // exhaustive over the type union rather than silently losing a case if the
-  // default is ever removed.
-  const NEEDS: Record<"multiple" | "yesno", string> = {
-    multiple: "needs its ideal option chosen",
-    yesno: "needs an ideal answer chosen",
-  };
-  return `Screening question "${unset.question}" ${NEEDS[unset.type]} before this job can be published.`;
-}
+// oneOf, sanitizeQuestions, assertPublishableQuestions and namedList live in
+// lib/job-patch.ts with scoringInputsChanged, so the normalisers and the
+// comparison that depends on them are one tested module.
 
 /**
  * Interviewer display name for one of the two interview options.
@@ -227,72 +108,6 @@ function assertPublishableQuestions(questions: ScreeningQuestion[]): string | nu
 function interviewerName(value: string | undefined, enabled: boolean): string | null {
   if (!enabled) return null;
   return (value ?? "").trim().slice(0, JOB_INTERVIEWER_NAME_MAX) || null;
-}
-
-/**
- * Columns the SCORER reads. Editing any of them changes what a scorecard was
- * judged against, so criteria_version bumps and every existing score for the
- * job becomes stale.
- *
- * Taken from the job SELECT in handleAiCvScore, not from intuition — if that
- * select ever grows a column, this list has to grow with it or staleness goes
- * undetected again.
- *
- * `title` is included even though it reads like mere labelling: buildUserMessage
- * puts it at the top of the job block, and re-titling "Junior Analyst" to "Head
- * of Analytics" genuinely changes the seniority the model judges against.
- *
- * Deliberately EXCLUDED — the scorer never reads them, so they cannot make a
- * scorecard stale: location, work_type, contract_type, positions, salary_*,
- * show_salary, status, and the five interview/scoring option columns.
- *
- * ── The four cv_weight_* columns are ALSO excluded, deliberately ──
- *
- * They ARE read by the scorer, so this is the one exception to the rule above
- * and it needs justifying. criteria_version marks a scorecard stale because the
- * MODEL WAS ASKED A DIFFERENT QUESTION — new requirements, a new seniority, new
- * screening questions — so its judgement no longer applies and only a re-run
- * can fix it. Re-weighting asks the model nothing new. The dimension scores,
- * the evidence, the quotes and the reasoning are all still exactly right; only
- * the arithmetic that combines them into one number has changed.
- *
- * Marking every score stale would therefore invite a full re-score — real money
- * and real latency — to recompute something derivable from data already stored.
- * Worse, it would read as "your scorecards are wrong" when they are not.
- *
- * The honest consequence, and it is a real one: after a weight change, stored
- * overalls were computed under the OLD weighting until each application is
- * re-scored. If that divergence starts to matter, the fix is to recompute the
- * overall from the stored dimension_scores — no model call needed — not to
- * bump criteria_version. See applyCvWeights, which is already a pure function
- * over (overall, dimensions, weights) precisely so it can be reused that way.
- */
-const SCORING_RELEVANT_COLUMNS = [
-  "title",
-  "description",
-  "responsibilities",
-  "requirements",
-  "experience_level",
-  "category",
-  "screening_questions",
-  // Step 7. The scorer reports on each of these by name, so editing the list
-  // genuinely changes what a scorecard was judged against — same contract as
-  // editing the requirements text.
-  "scoring_must_haves",
-  // Same argument as scoring_must_haves: the interview scorer reports on each
-  // of these by name, so editing the list changes what a scorecard was judged
-  // against.
-  "interview_criteria",
-] as const;
-
-/** Deep-equal enough for these columns: scalars and the questions jsonb. */
-function scoringInputsChanged(
-  before: Record<string, unknown>,
-  after: Record<string, unknown>,
-): boolean {
-  return SCORING_RELEVANT_COLUMNS.some(
-    (col) => JSON.stringify(before[col] ?? null) !== JSON.stringify(after[col] ?? null),
-  );
 }
 
 /**
@@ -408,8 +223,12 @@ function buildPatch(
     patch: {
       title,
       location,
-      category: oneOf(input.category, JOB_CATEGORIES, "Engineering"),
-      experience_level: oneOf(input.experience_level, JOB_EXPERIENCE_LEVELS, "Intermediate"),
+      category: oneOf(input.category, JOB_CATEGORIES, SCORING_ENUM_FALLBACKS.category),
+      experience_level: oneOf(
+        input.experience_level,
+        JOB_EXPERIENCE_LEVELS,
+        SCORING_ENUM_FALLBACKS.experience_level,
+      ),
       contract_type: oneOf(input.contract_type, JOB_CONTRACT_TYPES, "Full time"),
       work_type: oneOf(input.work_type, JOB_WORK_TYPES, "Remote"),
       language: "English",
@@ -574,37 +393,6 @@ function cvWeightsChanged(
   after: Record<string, unknown>,
 ): boolean {
   return CV_WEIGHT_DIMENSIONS.some(({ key }) => (before[key] ?? null) !== (after[key] ?? null));
-}
-
-/**
- * Clean the must-have list on its way to the column.
- *
- * Trimmed, empties dropped, de-duplicated case-insensitively, each capped at
- * MUST_HAVE_MAX_LENGTH and the list capped at `max`. Shared by both step-7
- * lists so the two cannot drift apart. Enforced HERE and
- * not only in the wizard: the client cap is a courtesy, and this is the one a
- * direct server-action call cannot skip. Over-long input is TRUNCATED rather
- * than rejected — it is a label, and failing an otherwise valid publish over
- * one long line helps nobody.
- *
- * Returns [] for anything unrecognisable, which is the column default and the
- * behaviour every job had before step 7 existed.
- */
-function namedList(value: unknown, max: number): string[] {
-  if (!Array.isArray(value)) return [];
-  const seen = new Set<string>();
-  const out: string[] = [];
-  for (const raw of value) {
-    if (typeof raw !== "string") continue;
-    const item = raw.replace(/\s+/g, " ").trim().slice(0, MUST_HAVE_MAX_LENGTH);
-    if (!item) continue;
-    const key = item.toLowerCase();
-    if (seen.has(key)) continue;
-    seen.add(key);
-    out.push(item);
-    if (out.length >= max) break;
-  }
-  return out;
 }
 
 /** The estimate's window. Matches the handoff's "last 30 days". */
@@ -1039,7 +827,10 @@ export async function updateCompanyJob(
   // Compared against what is actually STORED rather than against the form's
   // initial state: a no-op save (open the wizard, change nothing, save) must not
   // invalidate every existing scorecard, and a concurrent edit by a colleague
-  // must not be missed.
+  // must not be missed. scoringInputsChanged normalises the stored row through
+  // the same functions that built this patch before comparing - the stored
+  // jsonb comes back with keys in Postgres's order, not ours, and for a while
+  // that alone read as a criteria change on every save.
   const patch: Record<string, unknown> = { ...built.patch };
   const scoringChanged = scoringInputsChanged(owned.current, patch);
   if (scoringChanged) {
