@@ -336,11 +336,39 @@ export type ApplicantComment = {
 };
 
 /** An applicant plus their audit trail, for the detail drawer. */
+/**
+ * Where an unscored applicant's scoring request stands in the queue, read
+ * from background_jobs for the drawer only. Never "failed": the queue writes
+ * a retry back as `queued` with `attempts` incremented and `run_after` in the
+ * future, and gives up as `dead` - so those are the states that exist.
+ *
+ *   queued    a job is waiting for its first run
+ *   retrying  a job is waiting again after at least one failed attempt
+ *   running   a worker holds it right now
+ *   dead      every attempt failed; nothing will run without a new request
+ *   null      no live or dead job for this application
+ */
+export type ScoreQueueState = "queued" | "retrying" | "running" | "dead" | null;
+
+/**
+ * The facts the drawer's unscored card branches on. STRUCTURAL - none of them
+ * is read from the skip reason's wording, so the scorer's copy can change
+ * without a card silently falling into the wrong branch.
+ */
+export type ApplicantScoringFacts = {
+  /** The job's AI CV scoring switch as the scorer reads it. Null: the job is gone. */
+  jobScoringEnabled: boolean | null;
+  /** cv_text is at least MIN_CV_TEXT_CHARS long - the scorer's own floor. */
+  cvReadable: boolean;
+  queue: ScoreQueueState;
+};
+
 export type CompanyApplicantDetail = {
   applicant: CompanyApplicantRow;
   history: StageHistoryRow[];
   /** Full scorecard for the drawer. Null when never scored. */
   scoreDetail: ApplicantScoreDetail | null;
+  scoring: ApplicantScoringFacts;
   /**
    * The team's comment thread, roots and replies together in one flat list
    * ordered oldest-first. The pane nests them; the server does not, because a

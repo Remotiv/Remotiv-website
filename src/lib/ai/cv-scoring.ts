@@ -153,8 +153,15 @@ function logCacheUsage(
 /** Ceiling for the model's JSON reply. Generous — evidence quotes are verbose. */
 const MAX_TOKENS = 3000;
 
-/** Below this a CV carries too little text to score honestly. */
-const MIN_CV_TEXT_CHARS = 200;
+/**
+ * Below this a CV carries too little text to score honestly.
+ *
+ * Exported because the applicant drawer mirrors the SAME test against the
+ * stored cv_text to decide whether to offer "Upload a readable CV" - a
+ * structural check on the application row, not a match on the skip reason's
+ * wording, so the reason text below can be reworded freely.
+ */
+export const MIN_CV_TEXT_CHARS = 200;
 
 /** Hard cap on what we send. Long CVs are truncated, never rejected. */
 const MAX_CV_TEXT_CHARS = 24_000;

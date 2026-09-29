@@ -6,6 +6,7 @@ import {
   type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  type ApplicantScoringFacts,
   type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantDetail,
@@ -18,6 +19,7 @@ import {
   type ScoreConfidence,
   type ScoreEvidenceRow,
   type ScoreMustHaveRow,
+  type ScoreQueueState,
   type ScoreStatus,
   type ScoreStrengthRow,
   type StageHistoryRow,
@@ -27,6 +29,7 @@ import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/co
 import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
+import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
@@ -517,19 +520,25 @@ export async function fetchCompanyApplicant(
   // no extra round-trip.
   let jobCriteriaVersion: number | null = null;
   let jobMustHaveCount = 0;
+  // Null until a job row is found: the card reads null as "the job is gone",
+  // which is also what the scorer does (it skips with "no longer exists").
+  let jobScoringEnabled: boolean | null = null;
   if (row.job_id) {
     const { data: jobRow } = await service
       .from("jobs")
-      .select("criteria_version, scoring_must_haves")
+      .select("criteria_version, scoring_must_haves, ai_cv_scoring_enabled")
       .eq("id", row.job_id)
       .eq("company_id", ctx.companyId)
       .maybeSingle();
     const job = jobRow as {
       criteria_version?: number | null;
       scoring_must_haves?: unknown;
+      ai_cv_scoring_enabled?: boolean | null;
     } | null;
     jobCriteriaVersion = typeof job?.criteria_version === "number" ? job.criteria_version : null;
     jobMustHaveCount = Array.isArray(job?.scoring_must_haves) ? job.scoring_must_haves.length : 0;
+    // `!== false`, the scorer's own polarity: a row predating the column still scores.
+    if (job) jobScoringEnabled = job.ai_cv_scoring_enabled !== false;
   }
   // Both sides must be known before claiming staleness. A missing version on
   // either end means "we can't tell", and an unprovable warning beside a
@@ -563,8 +572,71 @@ export async function fetchCompanyApplicant(
     applicant: toRow(row, sRow ?? undefined),
     history: (histData ?? []) as StageHistoryRow[],
     scoreDetail,
+    scoring: await readScoringFacts(service, ctx.companyId, applicationId, {
+      jobScoringEnabled,
+      scored: sRow?.status === "scored",
+    }),
     comments: await readComments(service, ctx.companyId, applicationId),
   });
+}
+
+/**
+ * The structural facts behind the drawer's unscored card. Drawer-only: the
+ * list never pays for these.
+ *
+ * cv_text is read here and NOT returned - only its length matters, and the
+ * comparison is the scorer's own (MIN_CV_TEXT_CHARS on the trimmed text), so
+ * "unreadable" here means exactly what it means to handleAiCvScore.
+ *
+ * The queue is consulted only when there is no scored card: with one, nothing
+ * about the queue changes what the drawer shows, and a `dead` row left behind
+ * by a later-successful re-score would only mislead. Scoped on the job row's
+ * own company_id as well as the payload, so this is never a cross-tenant read.
+ * Newest row wins. The queue never writes `failed` (a retry goes back to
+ * `queued` with attempts incremented; exhaustion is `dead`), so a `failed` row
+ * would be one nothing will ever claim - read as dead, not as retrying.
+ */
+async function readScoringFacts(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  applicationId: string,
+  input: { jobScoringEnabled: boolean | null; scored: boolean },
+): Promise<ApplicantScoringFacts> {
+  const [{ data: textRow }, { data: jobRows }] = await Promise.all([
+    service
+      .from("job_applications")
+      .select("cv_text")
+      .eq("id", applicationId)
+      .eq("company_id_snapshot", companyId)
+      .maybeSingle(),
+    input.scored
+      ? Promise.resolve({ data: [] as unknown[] })
+      : service
+          .from("background_jobs")
+          .select("status, attempts")
+          .eq("company_id", companyId)
+          .eq("type", "ai_cv_score")
+          .contains("payload", { applicationId })
+          .in("status", ["queued", "running", "failed", "dead"])
+          .order("created_at", { ascending: false })
+          .limit(1),
+  ]);
+
+  const text = ((textRow as { cv_text: string | null } | null)?.cv_text ?? "").trim();
+  const job = ((jobRows ?? []) as { status: string; attempts: number | null }[])[0];
+
+  let queue: ScoreQueueState = null;
+  if (job) {
+    if (job.status === "running") queue = "running";
+    else if (job.status === "queued") queue = (job.attempts ?? 0) > 0 ? "retrying" : "queued";
+    else queue = "dead";
+  }
+
+  return {
+    jobScoringEnabled: input.jobScoringEnabled,
+    cvReadable: text.length >= MIN_CV_TEXT_CHARS,
+    queue,
+  };
 }
 
 /**
@@ -1019,7 +1091,20 @@ export async function rescoreApplication(
 export async function attachApplicationCv(
   applicationId: string,
   form: FormData,
-): Promise<MutationResult<{ cvTextStatus: PdfTextResult["status"]; scoreQueued: boolean }>> {
+): Promise<
+  MutationResult<{
+    cvTextStatus: PdfTextResult["status"];
+    scoreQueued: boolean;
+    /**
+     * How much text the new file yielded, against the scorer's floor - so the
+     * drawer can say "this one is unreadable too" at once, rather than after
+     * a queue round-trip that ends in the same skipped card.
+     */
+    cvTextChars: number;
+    cvReadable: boolean;
+    minCvTextChars: number;
+  }>
+> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
 
   const file = form.get("cv");
@@ -1193,7 +1278,17 @@ export async function attachApplicationCv(
   }
 
   revalidatePath("/ai-dashboard/applicants");
-  return { success: true, data: { cvTextStatus: status, scoreQueued: queued.ok } };
+  const cvTextChars = (text ?? "").trim().length;
+  return {
+    success: true,
+    data: {
+      cvTextStatus: status,
+      scoreQueued: queued.ok,
+      cvTextChars,
+      cvReadable: cvTextChars >= MIN_CV_TEXT_CHARS,
+      minCvTextChars: MIN_CV_TEXT_CHARS,
+    },
+  };
 }
 
 /** Matches /api/apply's MAX_NAME_LENGTH. Restated, not imported: a server

@@ -17,10 +17,12 @@ import {
   RotateCcw,
   Search as SearchIcon,
   Trash,
+  Upload,
   Users,
   X,
   Zap,
 } from "lucide-react";
+import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
 import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
@@ -38,6 +40,7 @@ import {
   type ApplicantComment,
   type ApplicantScore,
   type ApplicantScoreDetail,
+  type ApplicantScoringFacts,
   type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantRow,
@@ -57,11 +60,13 @@ import {
   BAND_PILL,
   scoreBand as bandKey,
 } from "@/app/ai-dashboard/lib/score-bands";
+import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
 import { InterviewPanel } from "./_interview-panel";
 import {
   addApplicationComment,
   addCompanyApplicant,
   adjustScore,
+  attachApplicationCv,
   clearScoreAdjustment,
   countFlaggedApplicants,
   deleteApplication,
@@ -1409,6 +1414,9 @@ function ApplicantDrawer({
   canRescore,
   rescoring,
   onRescore,
+  scoring,
+  attaching,
+  onAttachCv,
   onEmail,
   onToast,
   onClose,
@@ -1449,6 +1457,11 @@ function ApplicantDrawer({
   canRescore: boolean;
   rescoring: boolean;
   onRescore: () => void;
+  /** The unscored card's facts. Null while the detail read is in flight. */
+  scoring: ApplicantScoringFacts | null;
+  attaching: boolean;
+  /** F4: replace an unreadable (or missing) CV with a readable one. */
+  onAttachCv: (file: File) => void;
   onEmail: () => void;
   onToast: (message: string) => void;
   onClose: () => void;
@@ -1526,6 +1539,24 @@ function ApplicantDrawer({
    * the previous one on screen.
    */
   const [adjusting, setAdjusting] = useState(false);
+
+  /*
+   * The unscored card's whole state, or null until the detail read lands (the
+   * card then falls back to the old heading/reason for that moment). canEdit
+   * is the re-score permission: the same three roles may upload a CV, open the
+   * job's settings and re-score, and a viewer outside them gets copy only.
+   */
+  const unscored = scoring
+    ? unscoredCardState({
+        scoreStatus: scoreDetail?.status ?? null,
+        scoreError: scoreDetail?.error ?? null,
+        hasCv: row.has_cv,
+        cvExpired: row.cv_expired,
+        facts: scoring,
+        canEdit: canRescore,
+        jobId: row.job_id,
+      })
+    : null;
 
   const location = [row.city, row.country].filter(Boolean).join(", ");
 
@@ -1861,20 +1892,21 @@ function ApplicantDrawer({
                     Email
                   </button>
                   {/*
-                    A Replace / Add CV button stood here and was REMOVED on
-                    purpose. Do not read its absence as an oversight.
+                    A general Replace / Add CV button stood here and was REMOVED
+                    on purpose. Do not read its absence as an oversight, and do
+                    not put it back here.
 
-                    What goes with it: an applicant whose CV extracted to
-                    nothing — a scan, a photo, a PDF of images — has no way back
-                    to a scored state from this panel, and neither does a better
-                    CV that arrives later. Re-score re-reads the stored text, so
-                    it cannot help; the text is the thing that is missing. Such
-                    an applicant stays unscored until someone adds them again
-                    from the list, which makes a second row.
-
-                    That was the accepted trade. attachApplicationCv is still
-                    exported and still correct — if the gap turns out to bite,
-                    the button comes back and nothing server-side has to change.
+                    The gap it left did bite, in one specific shape: an applicant
+                    whose CV extracted to nothing — a scan, a photo, a PDF of
+                    images — had no way back to a scored state, because Re-score
+                    re-reads the stored text and the text is what is missing.
+                    That one state now has its own control: "Upload a readable
+                    CV" on the Review tab's score card, shown only when the
+                    stored text is under the scorer's floor (or there is no CV
+                    at all), driven by unscoredCardState. It calls the same
+                    attachApplicationCv this note always pointed at. A better CV
+                    arriving for an applicant who already scored still has no
+                    button — that remains the accepted trade.
                   */}
                 </div>
 
@@ -2134,23 +2166,59 @@ function ApplicantDrawer({
                   </div>
                 </div>
               ) : (
-                /* Solid border for scoring-off, dashed for the rest — same
-                   reasoning as PendingScore: dashed reads as "in progress",
-                   and nothing is in progress on a job with scoring off. */
+                /* Dashed only while something is genuinely in the queue -
+                   dashed reads as "in progress", and until the facts arrive
+                   (or when nothing is queued) a solid border says so. The
+                   heading, body and control all come from unscoredCardState:
+                   F4, F5 and F6 are one decision, made from the row's facts
+                   rather than from the wording of the last skip reason. */
                 <div
                   className={`m-px rounded-[19px] border px-[26px] py-7 text-center ${
-                    isScoringOff(headerScore)
-                      ? "border-transparent"
-                      : "border-dashed border-[var(--ai-line-strong)]"
+                    unscored?.kind === "in_progress" || unscored?.kind === "retrying"
+                      ? "border-dashed border-[var(--ai-line-strong)]"
+                      : "border-transparent"
                   }`}
                 >
                   <b className="mb-[3px] block text-[13px] text-[var(--ai-t1)]">
-                    {drawerScoreHeading(headerScore)}
+                    {unscored?.heading ?? drawerScoreHeading(headerScore)}
                   </b>
                   <span className="text-xs leading-relaxed text-[var(--ai-t3)]">
-                    {headerScore.error ??
+                    {unscored?.body ??
+                      headerScore.error ??
                       "The breakdown appears here once this CV has been scored."}
                   </span>
+                  {unscored?.control === "upload" && (
+                    <label
+                      className={`${ADJ_BTN_QUIET} mt-3.5 inline-flex cursor-pointer items-center gap-1.5 ${
+                        attaching ? "pointer-events-none opacity-60" : ""
+                      }`}
+                    >
+                      <Upload className="size-3.5" strokeWidth={2} />
+                      {attaching ? "Uploading…" : "Upload a readable CV"}
+                      <input
+                        type="file"
+                        accept="application/pdf,.pdf"
+                        className="sr-only"
+                        disabled={attaching}
+                        onChange={(e) => {
+                          const file = e.target.files?.[0];
+                          // Reset so choosing the same file again re-fires.
+                          e.target.value = "";
+                          if (file) onAttachCv(file);
+                        }}
+                      />
+                    </label>
+                  )}
+                  {unscored?.control === "job_settings" && unscored.href && (
+                    <span className="mt-3.5 flex flex-col items-center gap-1">
+                      <Link href={unscored.href} className={ADJ_BTN_QUIET}>
+                        Open job settings
+                      </Link>
+                      {unscored.hint && (
+                        <span className="text-[11.5px] text-[var(--ai-t4)]">{unscored.hint}</span>
+                      )}
+                    </span>
+                  )}
                   {/* These rows get no ring and so no action column, but the
                       judgement is still available to them — see
                       ScoreAdjustForm. Without this the failed and skipped
@@ -2378,25 +2446,30 @@ function ApplicantDrawer({
             )}
 
             {/* The strip is now only for rows the card above cannot carry the
-                action for: failed, skipped and pending scorecards, which get
-                no action column because they get no ring. Scored rows take
-                the button in the card, stale ones take it in the banner — the
-                action never appears twice. */}
-            {scoreDetail && !scoreDetail.stale && canRescore && headerScore.status !== "scored" && (
-              <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3">
-                <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
-                  Re-run the AI on this CV — costs about two cents.
-                </p>
-                <button
-                  type="button"
-                  onClick={onRescore}
-                  disabled={rescoring}
-                  className={`${ADJ_BTN_QUIET} shrink-0`}
-                >
-                  {rescoring ? "Queueing…" : "Re-score"}
-                </button>
-              </div>
-            )}
+                action for, and only when a re-score can actually change the
+                answer: unscoredCardState says "rescore" for a lost request, a
+                dead one, a failed run and a skip whose cause has gone - and
+                says something else for scoring-off and unreadable-CV, where
+                this button used to reproduce the same result for two cents.
+                Scored rows take the button in the card, stale ones take it in
+                the banner — the action never appears twice. */}
+            {unscored?.control === "rescore" &&
+              !scoreDetail?.stale &&
+              headerScore.status !== "scored" && (
+                <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3">
+                  <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
+                    Re-run the AI on this CV — costs about two cents.
+                  </p>
+                  <button
+                    type="button"
+                    onClick={onRescore}
+                    disabled={rescoring}
+                    className={`${ADJ_BTN_QUIET} shrink-0`}
+                  >
+                    {rescoring ? "Queueing…" : "Re-score"}
+                  </button>
+                </div>
+              )}
           </>
         )}
 
@@ -3997,6 +4070,8 @@ export function ApplicantsClient({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
+  /** The unscored card's facts, from the same read as scoreDetail. */
+  const [scoring, setScoring] = useState<ApplicantScoringFacts | null>(null);
   /** The team's thread, loaded with the rest of the detail. */
   const [comments, setComments] = useState<ApplicantComment[]>([]);
   const [scoreSaving, setScoreSaving] = useState(false);
@@ -4238,12 +4313,14 @@ export function ApplicantsClient({
         }
         setHistory(read.value?.history ?? []);
         setScoreDetail(read.value?.scoreDetail ?? null);
+        setScoring(read.value?.scoring ?? null);
         setComments(read.value?.comments ?? []);
       })
       .catch(() => {
         if (cancelled) return;
         setHistory([]);
         setScoreDetail(null);
+        setScoring(null);
         setComments([]);
       })
       .finally(() => {
@@ -4459,6 +4536,56 @@ export function ApplicantsClient({
       return;
     }
     setToast("Re-score queued — the new card appears here shortly.");
+    // The card now has a live job to report. Pull the facts so it says
+    // "in progress" rather than keeping the old skip on screen.
+    const read = await fetchCompanyApplicant(id);
+    if (read.ok && openIdRef.current === id) setScoring(read.value?.scoring ?? null);
+  }
+
+  /**
+   * F4: replace an unreadable or missing CV.
+   *
+   * attachApplicationCv re-gates, uploads to a fresh key, extracts, updates the
+   * row and enqueues scoring. What comes back decides the toast: the new text's
+   * length against the scorer's floor is reported at once, so a second scan
+   * does not have to go round the queue to be told it is a scan. The detail is
+   * re-read so the card reflects the new CV and the queued job; the list is
+   * refreshed for has_cv.
+   */
+  const [attachingId, setAttachingId] = useState<string | null>(null);
+
+  async function handleAttachCv(id: string, file: File) {
+    if (attachingId) return;
+    setAttachingId(id);
+    const form = new FormData();
+    form.append("cv", file);
+    let result: Awaited<ReturnType<typeof attachApplicationCv>>;
+    try {
+      result = await attachApplicationCv(id, form);
+    } catch {
+      result = { success: false, error: "Couldn't upload that CV - please try again." };
+    }
+    setAttachingId(null);
+    if (!result.success) {
+      setToast(result.error);
+      return;
+    }
+    const { cvReadable, cvTextChars, minCvTextChars, scoreQueued } = result.data;
+    if (!cvReadable) {
+      setToast(
+        `CV replaced, but only ${cvTextChars} characters of text could be read - the scorer needs ${minCvTextChars}. Try a PDF exported from a document rather than a scan.`,
+      );
+    } else if (scoreQueued) {
+      setToast("CV replaced - scoring queued, the card appears here shortly.");
+    } else {
+      setToast("CV replaced, but scoring couldn't be queued. Use Re-score to try again.");
+    }
+    const read = await fetchCompanyApplicant(id);
+    if (read.ok && openIdRef.current === id) {
+      setScoreDetail(read.value?.scoreDetail ?? null);
+      setScoring(read.value?.scoring ?? null);
+    }
+    router.refresh();
   }
 
   /**
@@ -5073,6 +5200,11 @@ export function ApplicantsClient({
           rescoring={rescoringId === openRow.id}
           onRescore={() => {
             void handleRescore(openRow.id);
+          }}
+          scoring={scoring}
+          attaching={attachingId === openRow.id}
+          onAttachCv={(file) => {
+            void handleAttachCv(openRow.id, file);
           }}
           tab={panelTab}
           onTabChange={selectPanelTab}
