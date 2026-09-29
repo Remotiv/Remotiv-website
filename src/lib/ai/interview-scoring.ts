@@ -12,6 +12,22 @@ import { assessTranscript } from "@/lib/interviews/assessable";
 import { readScoringSnapshot, resolveQuestionMeta } from "@/lib/interviews/question-meta";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
+import {
+  logProviderCall,
+  MIN_PROVIDER_CALL_BUDGET_MS,
+  providerTimeoutMs,
+} from "@/lib/queue/budgets";
+import {
+  classifyProviderError,
+  JobYield,
+  TerminalJobError,
+  toJobError,
+} from "@/lib/queue/failure-class";
+import {
+  assertProviderBudget,
+  type JobContext,
+  providerRequestOptions,
+} from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
 import {
@@ -22,6 +38,12 @@ import {
   verifyEvidence,
 } from "./cv-scoring";
 import { parseAnswerJson, stripCodeFences } from "./score-parsers";
+import {
+  answerRunDecision,
+  type ExistingAnswerScore,
+  type ExistingSessionScore,
+  sessionAlreadyComplete,
+} from "./scorecard-resume";
 
 /**
  * AI interview scoring — the plumbing, not yet the judgement.
@@ -464,7 +486,7 @@ function clampSummary(v: unknown, maxSentences: number): string | null {
  * Throws ScoringSkipped when there is nothing worth scoring — the handler
  * turns that into a `skipped` row with the reason, never a retry.
  */
-export async function scoreAnswer(input: AnswerScoreInput): Promise<AnswerScore> {
+export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Promise<AnswerScore> {
   const transcript = input.transcript.trim();
   if (transcript.length < MIN_TRANSCRIPT_CHARS) {
     throw new ScoringSkipped(
@@ -473,22 +495,62 @@ export async function scoreAnswer(input: AnswerScoreInput): Promise<AnswerScore>
   }
 
   const model = resolveScoringModel();
-  const response = await getAnthropic().messages.create({
+  // Inside the worker: never open a call the deadline would kill, hand the SDK
+  // our signal and a timeout inside the budget, and turn its own retries off
+  // so the queue is the single retry controller (Phase 5, P2/P13).
+  assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before answer call");
+  const remainingAtStart = ctx ? ctx.remainingMs() : null;
+  const callStarted = Date.now();
+  let response: Awaited<ReturnType<ReturnType<typeof getAnthropic>["messages"]["create"]>>;
+  try {
+    response = await getAnthropic().messages.create(
+      {
+        model,
+        max_tokens: MAX_TOKENS,
+        temperature: SCORING_TEMPERATURE,
+        system: [{ type: "text", text: SYSTEM_PROMPT }],
+        messages: [{ role: "user", content: buildUserMessage(input) }],
+      },
+      providerRequestOptions(ctx, providerTimeoutMs),
+    );
+  } catch (err) {
+    const c = classifyProviderError(err);
+    logProviderCall({
+      jobType: "ai_scorecard",
+      provider: "anthropic",
+      model,
+      durationMs: Date.now() - callStarted,
+      remainingAtStartMs: remainingAtStart,
+      outcome: ctx?.signal.aborted ? "aborted" : "error",
+      failureClass: c.failureClass,
+      status: c.status,
+    });
+    throw toJobError(err);
+  }
+  logProviderCall({
+    jobType: "ai_scorecard",
+    provider: "anthropic",
     model,
-    max_tokens: MAX_TOKENS,
-    temperature: SCORING_TEMPERATURE,
-    system: [{ type: "text", text: SYSTEM_PROMPT }],
-    messages: [{ role: "user", content: buildUserMessage(input) }],
+    durationMs: Date.now() - callStarted,
+    remainingAtStartMs: remainingAtStart,
+    outcome: "ok",
   });
+  if (!("content" in response)) {
+    throw new TerminalJobError(
+      "deterministic",
+      "Model returned a stream where a message was expected.",
+    );
+  }
 
   const block = response.content[0];
   const text = block && block.type === "text" ? block.text : "";
   const outcome = parseAnswerJson(text);
   if (!outcome.ok) {
     // A missing or non-numeric score is malformed, not zero. Same path as
-    // unparseable JSON: the handler records `failed` with the reason and the
-    // queue retries.
-    throw new Error(
+    // unparseable JSON: the handler records `failed` with the reason. TERMINAL
+    // for this answer: at temperature 0 a retry returns the same bytes.
+    throw new TerminalJobError(
+      "deterministic",
       `Model returned malformed answer JSON: ${outcome.reason} (${text.length} chars, model ${model}).`,
     );
   }
@@ -535,7 +597,10 @@ export async function scoreAnswer(input: AnswerScoreInput): Promise<AnswerScore>
   const totalClaims = parsed.strengths.length + parsed.concerns.length;
   const failRate = totalClaims === 0 ? 0 : droppedClaims / totalClaims;
   if (failRate > MAX_FAIL_RATE) {
-    throw new Error(
+    // Terminal for this answer: deterministic at temperature 0, so a retry
+    // re-buys the same unverifiable quotes.
+    throw new TerminalJobError(
+      "deterministic",
       `Evidence verification failed: ${Math.round(failRate * 100)}% of claims had no quote found in the transcript.`,
     );
   }
@@ -731,37 +796,40 @@ function parseCriteria(raw: unknown, asked: string[], transcripts: string): Crit
  * real per-answer scores and no summary is still useful, and losing the whole
  * scorecard because the last call failed would be the wrong trade.
  */
-export async function summariseSession(input: {
-  overall: number;
-  /**
-   * How many questions there were and which were not scored. Rendered as the
-   * first lines of the message - the model's summary shape keys off it, and
-   * without it a single answer reads as a pattern and a partial set reads as
-   * the whole. Causes travel as codes, never as the stored reason text; see
-   * lib/ai/rollup-coverage.ts for why that must stay so.
-   */
-  coverage: RollupCoverage;
-  answers: {
-    /** Interview position, so "Question 6" means the reviewer's question 6. */
-    position: number;
-    questionText: string;
-    competency: string | null;
-    score: number;
-    strengths: string[];
-    concerns: string[];
+export async function summariseSession(
+  input: {
+    overall: number;
     /**
-     * Sent ONLY when the job named interview criteria.
-     *
-     * The rollup has always worked from per-answer summaries and told the model
-     * plainly that it is not looking at transcripts. A criterion has to be
-     * quoted verbatim from what the candidate SAID, so a job with criteria has
-     * to send the real text — and a job without stays byte-identical to before,
-     * same payload and same cost.
+     * How many questions there were and which were not scored. Rendered as the
+     * first lines of the message - the model's summary shape keys off it, and
+     * without it a single answer reads as a pattern and a partial set reads as
+     * the whole. Causes travel as codes, never as the stored reason text; see
+     * lib/ai/rollup-coverage.ts for why that must stay so.
      */
-    transcript?: string;
-  }[];
-  criteria?: string[];
-}): Promise<SessionRollup> {
+    coverage: RollupCoverage;
+    answers: {
+      /** Interview position, so "Question 6" means the reviewer's question 6. */
+      position: number;
+      questionText: string;
+      competency: string | null;
+      score: number;
+      strengths: string[];
+      concerns: string[];
+      /**
+       * Sent ONLY when the job named interview criteria.
+       *
+       * The rollup has always worked from per-answer summaries and told the model
+       * plainly that it is not looking at transcripts. A criterion has to be
+       * quoted verbatim from what the candidate SAID, so a job with criteria has
+       * to send the real text — and a job without stays byte-identical to before,
+       * same payload and same cost.
+       */
+      transcript?: string;
+    }[];
+    criteria?: string[];
+  },
+  ctx?: JobContext,
+): Promise<SessionRollup> {
   if (input.answers.length === 0) {
     return { verdict: null, summary: null, confidence: "low", criteria: [] };
   }
@@ -802,19 +870,36 @@ export async function summariseSession(input: {
         .join("\n")}`
     : "";
 
+  // Budget is checked by the CALLER (the handler) so a yield here propagates
+  // as a yield; inside this try it would be swallowed into "no summary".
+  const model = resolveScoringModel();
+  const remainingAtStart = ctx ? ctx.remainingMs() : null;
+  const callStarted = Date.now();
   try {
-    const response = await getAnthropic().messages.create({
-      model: resolveScoringModel(),
-      max_tokens: 700,
-      temperature: SCORING_TEMPERATURE,
-      system: [{ type: "text", text: SESSION_SYSTEM_PROMPT }],
-      messages: [
-        {
-          role: "user",
-          content: `${header}\n\nOverall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
-        },
-      ],
+    const response = await getAnthropic().messages.create(
+      {
+        model,
+        max_tokens: 700,
+        temperature: SCORING_TEMPERATURE,
+        system: [{ type: "text", text: SESSION_SYSTEM_PROMPT }],
+        messages: [
+          {
+            role: "user",
+            content: `${header}\n\nOverall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
+          },
+        ],
+      },
+      providerRequestOptions(ctx, providerTimeoutMs),
+    );
+    logProviderCall({
+      jobType: "ai_scorecard",
+      provider: "anthropic",
+      model,
+      durationMs: Date.now() - callStarted,
+      remainingAtStartMs: remainingAtStart,
+      outcome: "ok",
     });
+    if (!("content" in response)) throw new Error("rollup: streamed response");
 
     const block = response.content[0];
     const raw = block && block.type === "text" ? block.text : "";
@@ -834,6 +919,17 @@ export async function summariseSession(input: {
       ),
     };
   } catch (err) {
+    const c = classifyProviderError(err);
+    logProviderCall({
+      jobType: "ai_scorecard",
+      provider: "anthropic",
+      model,
+      durationMs: Date.now() - callStarted,
+      remainingAtStartMs: remainingAtStart,
+      outcome: ctx?.signal.aborted ? "aborted" : "error",
+      failureClass: c.failureClass,
+      status: c.status,
+    });
     console.error("[interview-scoring] session rollup failed:", err);
     return { verdict: null, summary: null, confidence: "low", criteria: [] };
   }
@@ -946,10 +1042,13 @@ type AnswerRow = {
  * Idempotent throughout: both writes upsert on their unique key, so a retry
  * or a duplicate enqueue overwrites rather than erroring or double-counting.
  */
-export async function handleAiScorecard(job: {
-  id: string;
-  payload: Record<string, unknown>;
-}): Promise<void> {
+export async function handleAiScorecard(
+  job: {
+    id: string;
+    payload: Record<string, unknown>;
+  },
+  ctx?: JobContext,
+): Promise<void> {
   const sessionId = job.payload?.sessionId;
   if (typeof sessionId !== "string" || !sessionId) {
     throw new Error(`ai_scorecard: payload.sessionId missing (job ${job.id})`);
@@ -985,6 +1084,7 @@ export async function handleAiScorecard(job: {
       error: reason,
       ai_model: model,
       prompt_version: PROMPT_VERSION,
+      scored_by_job_id: job.id,
     });
     console.warn(`[interview-scoring] skipped ${session.id}: ${reason}`);
   };
@@ -1086,6 +1186,42 @@ export async function handleAiScorecard(job: {
     .filter((p): p is number => typeof p === "number" && !recordedPositions.has(p))
     .map((position) => ({ position, cause: "not_answered" as const }));
 
+  /*
+   * ── Retry versus deliberate re-score (Phase 5, P2; migration 033) ──
+   *
+   * This job may be running for the second time: reclaimed after a kill, or
+   * resumed after a yield for budget. Every score row remembers the job that
+   * wrote it, so an answer THIS job already scored is reused rather than
+   * re-bought. Any other row - another job's, a failed or skipped one, or a
+   * null from before 033 - is scored again. A deliberate re-score is a NEW
+   * job whose id matches nothing, so it replaces everything. Nothing is ever
+   * skipped merely because "a score row exists". See scorecard-resume.ts.
+   */
+  const { data: existingScoreRows } = await service
+    .from("interview_answer_scores")
+    .select("answer_id, status, scored_by_job_id, score, strengths, concerns")
+    .eq("session_id", session.id)
+    .limit(50);
+  type ExistingRow = ExistingAnswerScore & {
+    score: number | null;
+    strengths: unknown;
+    concerns: unknown;
+  };
+  const existingByAnswer = new Map<string, ExistingRow>(
+    ((existingScoreRows ?? []) as ExistingRow[]).map((r) => [r.answer_id, r]),
+  );
+  const { data: existingSessionRow } = await service
+    .from("interview_session_scores")
+    .select("status, scored_by_job_id")
+    .eq("session_id", session.id)
+    .maybeSingle();
+  if (sessionAlreadyComplete(existingSessionRow as ExistingSessionScore | null, job.id)) {
+    console.log(
+      `[interview-scoring] session ${session.id}: rollup already written by this job (${job.id}) - nothing left to do`,
+    );
+    return;
+  }
+
   // ── Score each answer ──
   const scored: {
     position: number;
@@ -1099,6 +1235,16 @@ export async function handleAiScorecard(job: {
     transcript: string;
   }[] = [];
   let anyFailed = false;
+  let reused = 0;
+
+  const claims = (v: unknown): string[] =>
+    Array.isArray(v)
+      ? v
+          .map((item) =>
+            item && typeof item === "object" ? (item as { claim?: unknown }).claim : null,
+          )
+          .filter((c): c is string => typeof c === "string" && c.length > 0)
+      : [];
 
   for (const answer of answers) {
     const meta = resolveQuestionMeta(
@@ -1118,7 +1264,25 @@ export async function handleAiScorecard(job: {
       company_id: session.company_id,
       ai_model: model,
       prompt_version: PROMPT_VERSION,
+      scored_by_job_id: job.id,
     };
+
+    const existing = existingByAnswer.get(answer.id);
+    if (answerRunDecision(existing, job.id) === "reuse" && existing && existing.score !== null) {
+      // Paid for by this very job before it was interrupted. Reuse, no call.
+      reused += 1;
+      scored.push({
+        position: answer.position,
+        score: existing.score,
+        weight: meta.weight,
+        questionText: meta.questionText,
+        competency: meta.competency,
+        strengths: claims(existing.strengths),
+        concerns: claims(existing.concerns),
+        transcript: (answer.transcript ?? "").trim(),
+      });
+      continue;
+    }
 
     /**
      * Per-answer skip. `reason` is stored on the row for the reviewer; `cause`
@@ -1173,12 +1337,15 @@ export async function handleAiScorecard(job: {
     }
 
     try {
-      const result = await scoreAnswer({
-        questionText: meta.questionText,
-        competency: meta.competency,
-        rubric: meta.rubric,
-        transcript,
-      });
+      const result = await scoreAnswer(
+        {
+          questionText: meta.questionText,
+          competency: meta.competency,
+          rubric: meta.rubric,
+          transcript,
+        },
+        ctx,
+      );
 
       // A short answer, or a browser timer that disagrees with the audio, is
       // scoreable but its number does not deserve the model's confidence.
@@ -1229,20 +1396,41 @@ export async function handleAiScorecard(job: {
         await skipAnswer(err.message, "transcript_too_short");
         continue;
       }
+      // Out of budget before this answer's call: everything scored so far is
+      // persisted under this job id, so the next tick resumes right here.
+      if (err instanceof JobYield) throw err;
+
+      const jobErr = toJobError(err);
+      const failureClass = jobErr instanceof TerminalJobError ? jobErr.failureClass : "retryable";
+
       /*
-       * One answer failing must not lose the other four. The row records the
-       * failure and the loop continues; the session rollup is told this
-       * position was not scored, and says how many it is actually based on.
+       * Where a failure goes depends on its class (lib/queue/failure-class.ts):
+       *
+       *   retryable      a 429, a 5xx, a timeout - the queue retries the JOB,
+       *                  and the resume rule above means only this answer and
+       *                  the ones after it are paid for again;
+       *   deterministic  this answer's reply is unusable and will be again -
+       *                  record it, tell the rollup, score the rest;
+       *   billing /      the next six calls fail the same way - record this
+       *   configuration  answer and stop the job, terminally.
        */
+      if (failureClass === "retryable") throw jobErr;
+
       anyFailed = true;
       unscored.push({ position: answer.position, cause: "scoring_failed" });
       await writeAnswerScore({
         ...base,
         status: "failed",
-        error: err instanceof Error ? err.message.slice(0, 1000) : String(err),
+        error: jobErr instanceof Error ? jobErr.message.slice(0, 1000) : String(jobErr),
       });
-      console.error(`[interview-scoring] answer ${answer.id} failed:`, err);
+      console.error(`[interview-scoring] answer ${answer.id} failed (${failureClass}):`, err);
+      if (failureClass === "billing" || failureClass === "configuration") throw jobErr;
     }
+  }
+  if (reused > 0) {
+    console.log(
+      `[interview-scoring] session ${session.id}: reused ${reused} answer score(s) already written by job ${job.id}`,
+    );
   }
 
   // ── Session rollup ──
@@ -1268,20 +1456,27 @@ export async function handleAiScorecard(job: {
     unscored,
   };
 
-  const rollup = await summariseSession({
-    overall,
-    coverage: coverageInput,
-    answers: scored.map((s) => ({
-      position: s.position,
-      questionText: s.questionText,
-      competency: s.competency,
-      score: s.score,
-      strengths: s.strengths,
-      concerns: s.concerns,
-      transcript: s.transcript,
-    })),
-    criteria: jobCriteria,
-  });
+  // Checked HERE, not inside summariseSession, whose try/catch would turn a
+  // yield into "no summary". Every answer is persisted, so a resume lands
+  // directly on this call.
+  assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before rollup call");
+  const rollup = await summariseSession(
+    {
+      overall,
+      coverage: coverageInput,
+      answers: scored.map((s) => ({
+        position: s.position,
+        questionText: s.questionText,
+        competency: s.competency,
+        score: s.score,
+        strengths: s.strengths,
+        concerns: s.concerns,
+        transcript: s.transcript,
+      })),
+      criteria: jobCriteria,
+    },
+    ctx,
+  );
 
   /*
    * A partial set is disclosed in the stored summary as well as in the prompt.
@@ -1306,6 +1501,7 @@ export async function handleAiScorecard(job: {
     confidence: anyFailed ? "low" : rollup.confidence,
     ai_model: model,
     prompt_version: PROMPT_VERSION,
+    scored_by_job_id: job.id,
     scored_at: new Date().toISOString(),
   });
   if (rollupErr) {

@@ -1,13 +1,17 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
-import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import {
   answerPath,
   INTERVIEW_BUCKET,
   INTERVIEW_MAX_BYTES,
   resolveSessionByToken,
 } from "@/lib/interviews/session";
+import {
+  type CancelService,
+  cancelSupersededTranscribeJobs,
+  requestTranscription,
+} from "@/lib/interviews/transcribe-request";
 
 export const runtime = "nodejs";
 export const dynamic = "force-dynamic";
@@ -182,13 +186,18 @@ export async function POST(request: Request) {
       },
       { onConflict: "session_id,position" },
     )
-    .select("id")
+    // recorded_at is read BACK rather than reused from the value written above:
+    // the transcribe job carries it as the recording generation, and the 032
+    // index compares payload strings, so every payload must use the database's
+    // own formatting of the instant. See lib/interviews/transcribe-generation.ts.
+    .select("id, recorded_at")
     .single();
 
   if (rowErr || !answerRow) {
     console.error("[interview] answer row failed:", rowErr?.message);
     return fail(500, "Your answer uploaded but didn't save. Please try again.");
   }
+  const saved = answerRow as { id: string; recorded_at: string | null };
 
   /*
    * A re-record in the OTHER container leaves the previous object behind —
@@ -216,18 +225,55 @@ export async function POST(request: Request) {
   /*
    * Transcription is queued per answer rather than at submit, so a candidate
    * who takes an hour over six questions has five already transcribed by the
-   * time they finish. Non-fatal: the answer is safely stored, and a queue
-   * outage must not tell the candidate their upload failed.
+   * time they finish.
+   *
+   * Non-fatal for the candidate: the answer is safely stored, a queue outage
+   * must not tell them their upload failed, and they cannot act on it anyway.
+   * But NOT silent (Phase 5, P3): enqueue reports failure as { ok: false }
+   * rather than by throwing, and the old try/catch never looked, so a failed
+   * insert left the answer `pending` forever with nothing to notice. The
+   * result is checked, the row records why it is waiting, and the worker's
+   * recovery sweep (lib/interviews/transcribe-recovery.ts) re-queues it once
+   * it is ten minutes old with no job for its recording.
    */
-  try {
-    await enqueue({
-      type: JOB_TYPES.TRANSCRIBE,
-      payload: { answerId: (answerRow as { id: string }).id },
+  let transcriptionQueued = false;
+  if (saved.recorded_at) {
+    const queued = await requestTranscription({
+      answerId: saved.id,
+      recordedAt: saved.recorded_at,
       companyId: resolved.row.company_id,
     });
-  } catch (err) {
-    console.error("[interview] transcribe enqueue failed (non-fatal):", err);
+    transcriptionQueued = queued.ok;
+    if (!queued.ok) {
+      console.error(
+        `[interview] transcribe enqueue failed for answer ${saved.id} (recovery will retry): ${queued.error}`,
+      );
+      await service
+        .from("interview_answers")
+        .update({ transcript_error: "Transcription could not be queued; recovery will retry." })
+        .eq("id", saved.id)
+        .eq("recorded_at", saved.recorded_at);
+    }
+
+    // A re-record supersedes any still-QUEUED job for the previous recording.
+    // Best effort: a running job discovers the new generation itself before
+    // any provider call, so a failure here costs at most one wasted claim.
+    try {
+      await cancelSupersededTranscribeJobs(
+        service as unknown as CancelService,
+        saved.id,
+        saved.recorded_at,
+      );
+    } catch (err) {
+      console.error("[interview] cancel superseded transcribe jobs failed (non-fatal):", err);
+    }
+  } else {
+    // Cannot happen - recorded_at was just written - but a job without a
+    // generation must never be created, so this is refused rather than guessed.
+    console.error(
+      `[interview] answer ${saved.id} saved without recorded_at; transcription not queued`,
+    );
   }
 
-  return NextResponse.json({ ok: true, position });
+  return NextResponse.json({ ok: true, position, transcriptionQueued });
 }

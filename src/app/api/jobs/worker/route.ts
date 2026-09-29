@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { type RecoveryService, runTranscribeRecovery } from "@/lib/interviews/transcribe-recovery";
 import {
   claimJobs,
   completeJob,
@@ -9,16 +10,22 @@ import {
   registeredTypes,
   releaseJob,
   runJob,
+  yieldJob,
 } from "@/lib/jobs-queue";
+import { canStart, DEADLINE_MARGIN_MS, FUNCTION_MAX_DURATION_MS } from "@/lib/queue/budgets";
+import { JobYield } from "@/lib/queue/failure-class";
+import { createJobContext } from "@/lib/queue/job-context";
+import { createServiceClient } from "@/lib/supabase/server";
 
 /**
  * Background job worker.
  *
- * Invoked on a schedule by an EXTERNAL scheduler (cron-job.org) — never by a
- * browser. vercel.json carries this route's maxDuration but no `crons` block,
- * so the tick interval is configured outside this repo and cannot be read from
- * it. Drains a batch of due jobs, runs the handlers concurrently, records each
- * outcome, and returns a summary.
+ * Invoked on a schedule by an EXTERNAL scheduler — never by a browser.
+ * vercel.json carries this route's maxDuration but no `crons` block, so the
+ * tick interval is configured outside this repo and cannot be read from it;
+ * measured from the live job timestamps in September 2026 it is about one
+ * minute. Drains a batch of due jobs, runs the handlers concurrently, records
+ * each outcome, and returns a summary.
  *
  * Node runtime, not edge: handlers will do Node-only work (Buffer, crypto,
  * the Supabase service client) from Step 4 onwards.
@@ -64,26 +71,29 @@ const WORKER_CONCURRENCY = 4;
 const BATCH_SIZE = 10;
 
 /**
- * Hard wall-clock bound on STARTING new work. It does not interrupt a job
- * already running.
+ * The invocation's deadline, and how it is enforced (Phase 5, P2).
  *
- * The route is configured for maxDuration 60 in vercel.json, and the number
- * that matters is the gap between the two: a job may start at the instant the
- * budget expires, so `budget + longest single job` must stay inside
- * maxDuration or the platform kills the invocation mid-flight and the paid-for
- * Anthropic call is thrown away.
+ * The route is configured for maxDuration 60 in vercel.json. Everything the
+ * worker does is measured against `startedAt + FUNCTION_MAX_DURATION_MS -
+ * DEADLINE_MARGIN_MS` (55s), which every handler receives as a JobContext:
  *
- *   30s budget + ~30s for the slowest observed ai_cv_score = 60s
+ *   - a job STARTS only if the budget left is at least what its type needs
+ *     for one provider call (canStart, lib/queue/budgets.ts) - otherwise it is
+ *     released untouched for the next tick;
+ *   - inside a handler every provider call takes the context's AbortSignal
+ *     and a timeout inside the remaining budget, with SDK retries off;
+ *   - a handler with several calls checks the budget before each and YIELDS
+ *     (JobYield) when the next would not fit; the job goes back on the queue
+ *     with attempts untouched and resumes where it stopped.
  *
- * That is why this is 30s and not 50s. Raising it further is only safe with a
- * higher maxDuration, which depends on the Vercel plan — the 60 configured
- * here is the Hobby ceiling.
- *
- * Under concurrency this rarely binds at all: every job in a wave starts at
- * roughly t=0, so the gate now exists to stop a LATE wave rather than to stop
- * job number two.
+ * So no provider call is ever started that the platform will kill, and the
+ * old flat 30s gate plus "about 30s for the slowest job" arithmetic - which
+ * had zero margin and no way to stop a call already in flight - is gone. The
+ * per-type numbers are operational defaults, not measurements; see budgets.ts
+ * for how they are tuned.
  */
-const WORKER_BUDGET_MS = 30_000;
+const deadlineFor = (startedAt: number) =>
+  startedAt + FUNCTION_MAX_DURATION_MS - DEADLINE_MARGIN_MS;
 
 /**
  * Constant-time secret comparison.
@@ -131,17 +141,38 @@ function authorize(request: Request): NextResponse | null {
 
 async function drain() {
   const startedAt = Date.now();
+  const deadlineAt = deadlineFor(startedAt);
   const summary = {
     purgesScheduled: [] as string[],
+    /** Answers whose transcription was never queued and has now been re-queued. */
+    transcribeRecovery: null as null | Record<string, number>,
     reclaimed: 0,
     claimed: 0,
     succeeded: 0,
     failed: 0,
     /** Claimed but never started — no attempt charged. Not a failure. */
     released: 0,
+    /** Stopped for budget after real progress — no attempt charged. Resumes next tick. */
+    yielded: 0,
     dead: 0,
     timedOut: false,
   };
+
+  /*
+   * Recovery for answers stuck `pending` with no transcribe job for their
+   * current recording (lib/interviews/transcribe-recovery.ts). One small read
+   * per tick; non-fatal for the same reason as the scheduler below.
+   */
+  try {
+    // Cast: the recovery module types the client structurally so a test can
+    // pass a fake; the real client satisfies it but TypeScript's check of the
+    // full PostgREST builder against it does not terminate in useful time.
+    summary.transcribeRecovery = await runTranscribeRecovery(
+      createServiceClient() as unknown as RecoveryService,
+    );
+  } catch (err) {
+    console.error("[worker] transcribe recovery failed (non-fatal):", err);
+  }
 
   /*
    * Recurring maintenance has no scheduler; this tick IS the scheduler. Runs
@@ -182,14 +213,15 @@ async function drain() {
       const job = jobs[index];
       if (!job) return;
 
-      if (Date.now() - startedAt > WORKER_BUDGET_MS) {
+      if (!canStart(job.type, deadlineAt - Date.now())) {
         /*
-         * Out of budget. This job has NOT been started, so it must not be
-         * charged an attempt or pushed into backoff — release it and let the
-         * next tick have it immediately. Calling failJob here was the bug that
-         * turned a busy queue into a dying one: four "Worker budget exhausted
-         * before start" failures per tick burned four attempts and delayed all
-         * four, so a job could reach 'dead' having never executed once.
+         * Not enough budget left for this type's first provider call. This
+         * job has NOT been started, so it must not be charged an attempt or
+         * pushed into backoff — release it and let the next tick have it
+         * immediately. Calling failJob here was the bug that turned a busy
+         * queue into a dying one: four "Worker budget exhausted before start"
+         * failures per tick burned four attempts and delayed all four, so a
+         * job could reach 'dead' having never executed once.
          */
         summary.timedOut = true;
         await releaseJob(job);
@@ -198,10 +230,18 @@ async function drain() {
       }
 
       try {
-        await runJob(job);
+        await runJob(job, createJobContext(deadlineAt));
         await completeJob(job.id);
         summary.succeeded += 1;
       } catch (err) {
+        if (err instanceof JobYield) {
+          // Stopped itself before a call that would not fit. Progress is
+          // persisted; the next tick resumes it. Not a failure.
+          await yieldJob(job, err);
+          summary.yielded += 1;
+          console.log(`[worker] job ${job.id} (${job.type}) yielded: ${err.message}`);
+          continue;
+        }
         // One bad job must never abort the batch — or, now, its pool slot.
         const outcome = await failJob(job, err);
         if (outcome === "dead") summary.dead += 1;
@@ -215,7 +255,8 @@ async function drain() {
    * Every slot resolves rather than rejects — the try/catch above is inside
    * the loop — so Promise.all here cannot reject and cannot abandon a
    * half-finished pool. If it ever could, the remaining leases would strand
-   * until the stale-lease reclaim five minutes later.
+   * until the stale-lease reclaim after LEASE_TIMEOUT_MS - and, since Phase 5,
+   * each of those would be charged an attempt.
    */
   await Promise.all(Array.from({ length: Math.min(WORKER_CONCURRENCY, jobs.length) }, slot));
 

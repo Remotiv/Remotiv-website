@@ -8,6 +8,9 @@ import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/intervi
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
+import type { JobYield } from "@/lib/queue/failure-class";
+import type { JobContext } from "@/lib/queue/job-context";
+import { planFailure, planReclaim, planYield } from "@/lib/queue/transitions";
 import { handleQueueSweep } from "@/lib/queue-sweep";
 import { createServiceClient } from "@/lib/supabase/server";
 import { handleTalentRetentionPurge, handleTalentRetentionWarn } from "@/lib/talent-retention-jobs";
@@ -56,7 +59,13 @@ export type BackgroundJob = {
   updated_at: string;
 };
 
-export type JobHandler = (job: BackgroundJob) => Promise<void>;
+/**
+ * A handler receives the job and, from the worker, the invocation's deadline
+ * (lib/queue/job-context.ts). The context is optional so a handler can still
+ * be driven from a script or a test without a worker; with it, every provider
+ * call inside must take `ctx.signal` and check its budget first.
+ */
+export type JobHandler = (job: BackgroundJob, ctx?: JobContext) => Promise<void>;
 
 // ── Tuning ───────────────────────────────────────────────────
 
@@ -67,45 +76,38 @@ export type JobHandler = (job: BackgroundJob) => Promise<void>;
  * hold one — otherwise a job that is merely slow gets reclaimed while it is
  * still running and does its work twice.
  *
- * ── Why five minutes is still right after the concurrency change ──
+ * ── The constraint, and why five minutes ──
  *
  * The bound is NOT the worker's budget. It is the platform's function timeout,
  * because that is the hard limit on how long any invocation can exist:
  *
  *   maxDuration (vercel.json, /api/jobs/worker) ....... 60s
- *   WORKER_BUDGET_MS gates STARTING new work at ....... 30s
- *   so the last job can start at 30s and is killed by . 60s
+ *   the worker's own deadline (lib/queue/budgets.ts) .. 55s
  *   LEASE_TIMEOUT_MS .................................. 300s  (5× that)
  *
- * Running the batch concurrently does not lengthen this. Concurrency changes
- * how MANY jobs are in flight, not how long one may live — every one of them
- * still dies with the invocation at 60s. So the margin is unchanged at 5×, and
- * raising the window would only slow recovery from a crashed invocation for no
- * gain.
+ * MUST STAY LONGER THAN maxDuration. Since Phase 5 a reclaim counts as an
+ * attempt (planReclaim in lib/queue/transitions.ts), so a lease shorter than
+ * the function's life would reclaim a job that is still running, run it
+ * twice, and charge it for the privilege. Five minutes keeps a 5× margin and
+ * survives a maxDuration of 300s on a paid plan without anyone remembering to
+ * change it. With provider timeouts now inside every handler, a reclaim is a
+ * rare crash-recovery event, so its latency matters less than the margin.
  *
- * What concurrency DOES change is the blast radius: an invocation killed
- * mid-pool strands up to WORKER_CONCURRENCY leases instead of one. They are
- * all recovered by the same reclaim, one tick after this window elapses.
+ * Cycle arithmetic, from the live timestamps rather than the old comments:
+ * the external scheduler hits the worker about once a minute (measured
+ * September 2026; the schedule is not configured in this repo), so a job
+ * killed at 60s is reclaimed on the first tick after its lease expires - about
+ * six minutes per cycle, not ten.
+ *
+ * Concurrency does not lengthen any of this. It changes how MANY jobs are in
+ * flight, not how long one may live; an invocation killed mid-pool strands up
+ * to WORKER_CONCURRENCY leases, all recovered by the same reclaim.
  */
 export const LEASE_TIMEOUT_MS = 5 * 60_000;
 
-/** First retry delay; each subsequent attempt doubles it. */
-const BACKOFF_BASE_MS = 30_000;
-/** Ceiling, so attempt 10 doesn't schedule a retry days out. */
-const BACKOFF_MAX_MS = 60 * 60_000;
-
-/**
- * Exponential backoff with jitter: 30s, 60s, 2m, 4m … capped at 1h.
- *
- * The ±20% jitter matters because a downstream outage typically fails every
- * in-flight job at once; without it they would all retry on the same tick and
- * hammer the recovering dependency in lockstep.
- */
-export function backoffMs(attempts: number): number {
-  const exp = Math.min(BACKOFF_BASE_MS * 2 ** Math.max(0, attempts - 1), BACKOFF_MAX_MS);
-  const jitter = exp * 0.2 * (Math.random() * 2 - 1);
-  return Math.round(exp + jitter);
-}
+// Backoff lives in lib/queue/transitions.ts (pure, tested); re-exported so
+// existing importers keep working.
+export { backoffMs } from "@/lib/queue/transitions";
 
 // ── Handler registry ─────────────────────────────────────────
 
@@ -381,9 +383,10 @@ const RECURRING: readonly { type: string; intervalMs: number }[] = [
  * Keep the retention purges scheduled, from the worker tick.
  *
  * There is no scheduler in this product and this does not add one. The worker
- * is already hit every 5 minutes by cron-job.org, so the cheapest thing that
- * ACTUALLY RUNS is to check on each tick whether a purge is due and enqueue
- * one if so.
+ * is already hit by an external scheduler - about once a minute, measured from
+ * the live job timestamps in September 2026; the schedule itself is not
+ * configured anywhere in this repo - so the cheapest thing that ACTUALLY RUNS
+ * is to check on each tick whether a purge is due and enqueue one if so.
  *
  * Chosen over a self-enqueueing job — where the handler queues its own
  * successor — for one reason: a self-enqueueing chain has a single point of
@@ -436,38 +439,70 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
 // ── Lease recovery ───────────────────────────────────────────
 
 /**
- * Return jobs whose lease has expired to the queue.
+ * Return jobs whose lease has expired to the queue - and count the attempt.
  *
  * Without this a crashed invocation leaks its jobs forever: the row sits in
  * 'running' and no claim predicate will ever match it again.
  *
- * Race-safe for the same reason claimJobs is — it is ONE conditional UPDATE.
- * Two workers reclaiming concurrently both issue it; the second blocks on the
- * row lock, then re-evaluates `status = 'running' AND locked_at < cutoff`
- * against the committed row, which no longer matches. Only one gets the row
- * back in its RETURNING set.
+ * ── Why a reclaim now costs an attempt (Phase 5, P2) ─────────
+ *
+ * Until now this reset `status` and nothing else. A job whose single run
+ * reliably outlived the function was therefore killed at 60s, reclaimed five
+ * minutes later with attempts unchanged, run again in full, killed again -
+ * forever, re-paying its provider calls each cycle and never reaching 'dead'
+ * where anyone would see it. The invocation that held the lease is gone, so
+ * the job WAS tried; planReclaim (lib/queue/transitions.ts) increments
+ * attempts, writes a note saying when and by whom it was held, requeues it
+ * immediately (nothing downstream failed, so no backoff), and buries it once
+ * attempts reach max_attempts.
+ *
+ * Per row rather than one bulk UPDATE, because each row's new attempts and
+ * status depend on its own counters. Each write is conditional on the row
+ * still being `running` under the SAME lease token, so two workers reclaiming
+ * at once cannot both count an attempt, and a worker that legitimately
+ * re-claimed the row in between is never touched.
  */
 export async function reclaimStaleJobs(): Promise<number> {
   const service = createServiceClient();
-  const cutoff = new Date(Date.now() - LEASE_TIMEOUT_MS).toISOString();
+  const now = Date.now();
+  const cutoff = new Date(now - LEASE_TIMEOUT_MS).toISOString();
 
   const { data, error } = await service
     .from("background_jobs")
-    .update({
-      status: "queued" satisfies JobStatus,
-      locked_by: null,
-      locked_at: null,
-      updated_at: new Date().toISOString(),
-    })
+    .select("id, type, attempts, max_attempts, locked_at, locked_by")
     .eq("status", "running")
     .lt("locked_at", cutoff)
-    .select("id");
+    .limit(100);
 
   if (error) {
-    console.error("[jobs-queue] reclaimStaleJobs failed:", error);
+    console.error("[jobs-queue] reclaimStaleJobs select failed:", error);
     return 0;
   }
-  return (data ?? []).length;
+
+  let reclaimed = 0;
+  for (const row of (data ?? []) as Pick<
+    BackgroundJob,
+    "id" | "type" | "attempts" | "max_attempts" | "locked_at" | "locked_by"
+  >[]) {
+    const plan = planReclaim(row, now);
+    const { data: hit, error: updErr } = await service
+      .from("background_jobs")
+      .update(plan)
+      .eq("id", row.id)
+      .eq("status", "running")
+      .eq("locked_by", row.locked_by ?? "")
+      .select("id");
+    if (updErr) {
+      console.error(`[jobs-queue] reclaim of ${row.id} failed:`, updErr);
+      continue;
+    }
+    if ((hit ?? []).length === 0) continue;
+    reclaimed += 1;
+    console.warn(
+      `[jobs-queue] reclaimed ${row.type} ${row.id} → ${plan.status}: ${plan.last_error}`,
+    );
+  }
+  return reclaimed;
 }
 
 // ── Claim ────────────────────────────────────────────────────
@@ -615,36 +650,36 @@ export async function releaseJob(job: BackgroundJob): Promise<void> {
  */
 export async function failJob(job: BackgroundJob, err: unknown): Promise<"queued" | "dead"> {
   const service = createServiceClient();
-  const attempts = job.attempts + 1;
-  const isDead = attempts >= job.max_attempts;
-  const message = err instanceof Error ? err.message : String(err);
+  // A TerminalJobError (lib/queue/failure-class.ts) is buried on the spot with
+  // its class in last_error: a 400, a missing key, an empty balance or a reply
+  // the parser rejects at temperature 0 would fail identically twice more.
+  const plan = planFailure(job, err, Date.now());
 
-  const patch: Record<string, unknown> = {
-    attempts,
-    // Postgres text has no length cap, but a runaway stack trace in every row
-    // makes the table unreadable.
-    last_error: message.slice(0, 2000),
-    locked_by: null,
-    locked_at: null,
-    updated_at: new Date().toISOString(),
-  };
-
-  if (isDead) {
-    patch.status = "dead" satisfies JobStatus;
-  } else {
-    patch.status = "queued" satisfies JobStatus;
-    patch.run_after = new Date(Date.now() + backoffMs(attempts)).toISOString();
-  }
-
-  const { error } = await service.from("background_jobs").update(patch).eq("id", job.id);
+  const { error } = await service.from("background_jobs").update(plan).eq("id", job.id);
 
   if (error) console.error("[jobs-queue] failJob failed:", error);
-  return isDead ? "dead" : "queued";
+  return plan.status;
+}
+
+/**
+ * The handler stopped itself for budget (JobYield) after real progress. Back
+ * on the queue for the next tick with attempts untouched and a note saying
+ * where it stopped. Conditional on the lease, like releaseJob.
+ */
+export async function yieldJob(job: BackgroundJob, reason: JobYield): Promise<void> {
+  const service = createServiceClient();
+  const { error } = await service
+    .from("background_jobs")
+    .update(planYield(reason.message, Date.now()))
+    .eq("id", job.id)
+    .eq("status", "running")
+    .eq("locked_by", job.locked_by ?? "");
+  if (error) console.error("[jobs-queue] yieldJob failed:", error);
 }
 
 /** Dispatch one leased job to its handler. Unknown types throw, so they take
  *  the normal retry-then-dead path with a legible last_error. */
-export async function runJob(job: BackgroundJob): Promise<void> {
+export async function runJob(job: BackgroundJob, ctx?: JobContext): Promise<void> {
   const handler = getHandler(job.type);
   if (!handler) {
     throw new Error(
@@ -653,5 +688,5 @@ export async function runJob(job: BackgroundJob): Promise<void> {
       }`,
     );
   }
-  await handler(job);
+  await handler(job, ctx);
 }

@@ -4,6 +4,22 @@ import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
 import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
 import { notifyCompany } from "@/lib/notifications/company";
+import {
+  logProviderCall,
+  MIN_PROVIDER_CALL_BUDGET_MS,
+  providerTimeoutMs,
+} from "@/lib/queue/budgets";
+import {
+  classifyProviderError,
+  JobYield,
+  TerminalJobError,
+  toJobError,
+} from "@/lib/queue/failure-class";
+import {
+  assertProviderBudget,
+  type JobContext,
+  providerRequestOptions,
+} from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
 import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
@@ -1023,7 +1039,7 @@ export class ScoringSkipped extends Error {
  * Throws ScoringSkipped when there is nothing worth scoring — the handler
  * translates that into status 'skipped' rather than a retry.
  */
-export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
+export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scorecard> {
   const cvText = (input.cvText ?? "").trim();
   if (cvText.length < MIN_CV_TEXT_CHARS) {
     throw new ScoringSkipped(
@@ -1034,26 +1050,65 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   const model = resolveScoringModel();
   const anthropic = getAnthropic();
 
-  const response = await anthropic.messages.create({
-    model,
-    max_tokens: MAX_TOKENS,
-    temperature: SCORING_TEMPERATURE,
-    // Same text as the plain-string form this replaces — a single text block
-    // renders identically — with a cache breakpoint on it. The rubric is
-    // byte-identical on every call and ~3.7k tokens, so re-sending it at full
-    // price per CV was the single largest line on the bill. PURELY a billing
-    // change: the model receives exactly the same bytes, which is why
-    // PROMPT_VERSION does NOT move.
-    system: [
+  // Inside the worker: never open a call the deadline would kill, hand the SDK
+  // our signal and a timeout inside the budget, and turn its own retries off
+  // so the queue is the single retry controller (Phase 5, P2/P13).
+  assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_cv_score before model call");
+  const remainingAtStart = ctx ? ctx.remainingMs() : null;
+  const callStarted = Date.now();
+  let response: Awaited<ReturnType<typeof anthropic.messages.create>>;
+  try {
+    response = await anthropic.messages.create(
       {
-        type: "text",
-        text: SYSTEM_PROMPT,
-        cache_control: { type: "ephemeral", ttl: CACHE_TTL },
+        model,
+        max_tokens: MAX_TOKENS,
+        temperature: SCORING_TEMPERATURE,
+        // Same text as the plain-string form this replaces — a single text block
+        // renders identically — with a cache breakpoint on it. The rubric is
+        // byte-identical on every call and ~3.7k tokens, so re-sending it at full
+        // price per CV was the single largest line on the bill. PURELY a billing
+        // change: the model receives exactly the same bytes, which is why
+        // PROMPT_VERSION does NOT move.
+        system: [
+          {
+            type: "text",
+            text: SYSTEM_PROMPT,
+            cache_control: { type: "ephemeral", ttl: CACHE_TTL },
+          },
+        ],
+        messages: [{ role: "user", content: buildUserMessage(input) }],
       },
-    ],
-    messages: [{ role: "user", content: buildUserMessage(input) }],
+      providerRequestOptions(ctx, providerTimeoutMs),
+    );
+  } catch (err) {
+    const c = classifyProviderError(err);
+    logProviderCall({
+      jobType: "ai_cv_score",
+      provider: "anthropic",
+      model,
+      durationMs: Date.now() - callStarted,
+      remainingAtStartMs: remainingAtStart,
+      outcome: ctx?.signal.aborted ? "aborted" : "error",
+      failureClass: c.failureClass,
+      status: c.status,
+    });
+    throw toJobError(err);
+  }
+  logProviderCall({
+    jobType: "ai_cv_score",
+    provider: "anthropic",
+    model,
+    durationMs: Date.now() - callStarted,
+    remainingAtStartMs: remainingAtStart,
+    outcome: "ok",
   });
 
+  if (!("content" in response)) {
+    throw new TerminalJobError(
+      "deterministic",
+      "Model returned a stream where a message was expected.",
+    );
+  }
   logCacheUsage(response.usage);
 
   const block = response.content[0];
@@ -1062,9 +1117,11 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
   if (!outcome.ok) {
     // Malformed is malformed: a missing overall, a fifth dimension, a numeric
     // string. It takes the same path as unparseable JSON - the handler writes
-    // a `failed` row naming the reason and the queue retries - and never
-    // becomes a card with a 0 in it.
-    throw new Error(
+    // a `failed` row naming the reason - and never becomes a card with a 0 in
+    // it. TERMINAL, not retried: at temperature 0 the same prompt returns the
+    // same bytes, so a second and third attempt would only be paid twice more.
+    throw new TerminalJobError(
+      "deterministic",
       `Model returned malformed scorecard JSON: ${outcome.reason} (${text.length} chars, model ${model}).`,
     );
   }
@@ -1139,7 +1196,10 @@ export async function scoreCv(input: ScoreInput): Promise<Scorecard> {
     allQuotes.length === 0 ? 0 : (allQuotes.length - verified.length) / allQuotes.length;
 
   if (failRate > MAX_FAIL_RATE) {
-    throw new Error(
+    // Terminal for the same reason as malformed JSON: deterministic at
+    // temperature 0, so retrying re-buys the same fabricated quotes.
+    throw new TerminalJobError(
+      "deterministic",
       `Evidence verification failed: ${Math.round(failRate * 100)}% of ${
         allQuotes.length
       } quotes could not be found in the CV. Refusing to store a fabricated scorecard.`,
@@ -1304,10 +1364,13 @@ async function writeScoreRow(row: Record<string, unknown>): Promise<{ error: str
  * company, job and CV are all loaded server-side from the application row, so
  * a forged payload cannot make one company's job score another's applicant.
  */
-export async function handleAiCvScore(job: {
-  id: string;
-  payload: Record<string, unknown>;
-}): Promise<void> {
+export async function handleAiCvScore(
+  job: {
+    id: string;
+    payload: Record<string, unknown>;
+  },
+  ctx?: JobContext,
+): Promise<void> {
   const applicationId = job.payload?.applicationId;
   if (typeof applicationId !== "string" || !applicationId) {
     throw new Error(`ai_cv_score: payload.applicationId missing (job ${job.id})`);
@@ -1396,47 +1459,54 @@ export async function handleAiCvScore(job: {
   // ── Score ──
   let card: Scorecard;
   try {
-    card = await scoreCv({
-      cvText,
-      screeningAnswers,
-      candidate: {
-        yearsExperience: app.years_experience,
-        city: app.city,
-        country: app.country,
-        noticePeriod: app.notice_period,
-        availability: app.availability,
-      },
-      job: {
-        title: jobRow.title ?? "Untitled role",
-        description: jobRow.description,
-        responsibilities: jobRow.responsibilities,
-        requirements: jobRow.requirements,
-        experienceLevel: jobRow.experience_level,
-        category: jobRow.category,
-        screeningQuestions: Array.isArray(jobRow.screening_questions)
-          ? (jobRow.screening_questions as ScreeningQuestion[])
-          : [],
-        // Shape-checked rather than null-checked: the column is NOT NULL with a
-        // '[]' default, but a row written before it existed still reads null.
-        mustHaves: Array.isArray(jobRow.scoring_must_haves)
-          ? (jobRow.scoring_must_haves as string[])
-          : [],
-        cvWeights: {
-          cv_weight_requirements: jobRow.cv_weight_requirements,
-          cv_weight_experience: jobRow.cv_weight_experience,
-          cv_weight_domain: jobRow.cv_weight_domain,
-          cv_weight_responsibilities: jobRow.cv_weight_responsibilities,
+    card = await scoreCv(
+      {
+        cvText,
+        screeningAnswers,
+        candidate: {
+          yearsExperience: app.years_experience,
+          city: app.city,
+          country: app.country,
+          noticePeriod: app.notice_period,
+          availability: app.availability,
+        },
+        job: {
+          title: jobRow.title ?? "Untitled role",
+          description: jobRow.description,
+          responsibilities: jobRow.responsibilities,
+          requirements: jobRow.requirements,
+          experienceLevel: jobRow.experience_level,
+          category: jobRow.category,
+          screeningQuestions: Array.isArray(jobRow.screening_questions)
+            ? (jobRow.screening_questions as ScreeningQuestion[])
+            : [],
+          // Shape-checked rather than null-checked: the column is NOT NULL with a
+          // '[]' default, but a row written before it existed still reads null.
+          mustHaves: Array.isArray(jobRow.scoring_must_haves)
+            ? (jobRow.scoring_must_haves as string[])
+            : [],
+          cvWeights: {
+            cv_weight_requirements: jobRow.cv_weight_requirements,
+            cv_weight_experience: jobRow.cv_weight_experience,
+            cv_weight_domain: jobRow.cv_weight_domain,
+            cv_weight_responsibilities: jobRow.cv_weight_responsibilities,
+          },
         },
       },
-    });
+      ctx,
+    );
   } catch (err) {
     if (err instanceof ScoringSkipped) {
       await skip(err.message);
       return;
     }
+    // Stopped before the call for want of budget: nothing was attempted, so
+    // there is no failure to record. The worker requeues it for the next tick.
+    if (err instanceof JobYield) throw err;
     // Record the failure so the UI can show it, then rethrow so the queue
-    // applies backoff and eventually buries the job. NOT swallowed.
-    const message = err instanceof Error ? err.message : String(err);
+    // applies backoff or, for a terminal class, buries the job. NOT swallowed.
+    const jobErr = toJobError(err);
+    const message = jobErr instanceof Error ? jobErr.message : String(jobErr);
     await writeScoreRow({
       application_id: app.id,
       company_id: app.company_id_snapshot,
@@ -1448,7 +1518,7 @@ export async function handleAiCvScore(job: {
       prompt_version: PROMPT_VERSION,
       job_criteria_version: jobRow.criteria_version ?? 1,
     });
-    throw err;
+    throw jobErr;
   }
 
   const { error: writeErr } = await writeScoreRow({

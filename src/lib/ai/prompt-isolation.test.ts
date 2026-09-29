@@ -90,6 +90,50 @@ test("v8: the rollup prompt keys the summary off the header's count, and the mes
   );
 });
 
+test("Phase 5: every worker-side model call takes the job's signal, a budgeted timeout and no SDK retries", () => {
+  // Three calls: CV score, per-answer score, rollup. Each passes the options
+  // helper, which is the only place `maxRetries: 0` is set (job-context.ts).
+  const cvCalls = cv.match(/providerRequestOptions\(ctx, providerTimeoutMs\)/g) ?? [];
+  const interviewCalls = interview.match(/providerRequestOptions\(ctx, providerTimeoutMs\)/g) ?? [];
+  assert.equal(cvCalls.length, 1);
+  assert.equal(interviewCalls.length, 2);
+  // And each is preceded by a budget assertion, so no call starts that cannot fit.
+  assert.match(
+    cv,
+    /assertProviderBudget\(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_cv_score before model call"\)/,
+  );
+  assert.match(
+    interview,
+    /assertProviderBudget\(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before answer call"\)/,
+  );
+  assert.match(
+    interview,
+    /assertProviderBudget\(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before rollup call"\)/,
+  );
+  // Deterministic failures are terminal, not retried at temperature 0.
+  assert.match(
+    cv,
+    /throw new TerminalJobError\(\s*"deterministic",\s*`Model returned malformed scorecard JSON/,
+  );
+  assert.match(
+    cv,
+    /throw new TerminalJobError\(\s*"deterministic",\s*`Evidence verification failed/,
+  );
+  assert.match(
+    interview,
+    /throw new TerminalJobError\(\s*"deterministic",\s*`Model returned malformed answer JSON/,
+  );
+  // Every score write carries the run token (migration 033).
+  assert.match(
+    interview,
+    /scored_by_job_id: job\.id,\n\s*\};\n\n\s*const existing = existingByAnswer\.get\(answer\.id\);/,
+  );
+  assert.match(
+    interview,
+    /scored_by_job_id: job\.id,\n\s*scored_at: new Date\(\)\.toISOString\(\),/,
+  );
+});
+
 test("evidence verification and schema enforcement were not loosened", () => {
   assert.match(cv, /verifyEvidence\(\[\{ claim: d\.dimension, quote: d\.quote \}\], cvText\)/);
   assert.match(cv, /if \(failRate > MAX_FAIL_RATE\)/);
