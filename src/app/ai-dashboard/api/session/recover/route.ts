@@ -1,10 +1,10 @@
 import { cookies } from "next/headers";
 import { NextResponse } from "next/server";
+import { safeNext } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 import {
   RECOVER_ATTEMPTED_COOKIE,
   RECOVER_ATTEMPTED_MAX_AGE_S,
-  safeNext,
 } from "@/lib/supabase/session-cookie";
 
 export const runtime = "nodejs";

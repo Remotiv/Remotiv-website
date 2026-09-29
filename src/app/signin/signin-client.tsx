@@ -4,6 +4,7 @@ import { useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
+import { safeRelativePath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/client";
 
 const PURPLE = "#7E47FF";
@@ -45,7 +46,7 @@ export default function SigninClient({
       return;
     }
 
-    const next = nextParam ?? "/browse-talent";
+    const next = safeRelativePath(nextParam, "/browse-talent");
     router.push(next);
     router.refresh();
   };
@@ -53,7 +54,7 @@ export default function SigninClient({
   const handleGoogleSignin = async () => {
     setError(null);
     const supabase = createClient();
-    const next = nextParam ?? "/browse-talent";
+    const next = safeRelativePath(nextParam, "/browse-talent");
     const { error: oauthError } = await supabase.auth.signInWithOAuth({
       provider: "google",
       options: {

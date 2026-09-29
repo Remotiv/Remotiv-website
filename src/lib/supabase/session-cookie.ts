@@ -123,21 +123,5 @@ export async function peekSession(
 export const RECOVER_ATTEMPTED_COOKIE = "ai-recover-attempted";
 export const RECOVER_ATTEMPTED_MAX_AGE_S = 30;
 
-/**
- * Where the recover handler may send the browser afterwards.
- *
- * `next` arrives from a query string, so it is attacker-shaped whatever the
- * gate put there. Only a same-origin dashboard path survives: a scheme, a
- * protocol-relative `//host`, a backslash, a line break, the recover URL
- * itself, or the login page all collapse to the dashboard root rather than
- * being followed.
- */
-export function safeNext(raw: string | null | undefined): string {
-  if (!raw) return "/ai-dashboard";
-  if (!raw.startsWith("/ai-dashboard")) return "/ai-dashboard";
-  if (raw.startsWith("//") || raw.includes("\\") || /[\r\n]/.test(raw)) return "/ai-dashboard";
-  if (raw.startsWith("/ai-dashboard/api/") || raw.startsWith("/ai-dashboard/login")) {
-    return "/ai-dashboard";
-  }
-  return raw;
-}
+// The recover handler's destination filter (safeNext) lives in
+// src/lib/safe-redirect.ts, beside the generic rule it is built on.

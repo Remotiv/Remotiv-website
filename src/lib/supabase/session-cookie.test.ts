@@ -1,5 +1,6 @@
 /**
- * The gate's cookie peek and the recover handler's destination filter.
+ * The gate's cookie peek. (The recover handler's destination filter is tested
+ * in src/lib/safe-redirect.test.ts.)
  *
  *   node --test src/lib/supabase/session-cookie.test.ts
  *
@@ -15,7 +16,6 @@ import {
   AUTH_JS_EXPIRY_MARGIN_MS,
   PEEK_MARGIN_MS,
   peekSession,
-  safeNext,
   sessionCookieName,
 } from "./session-cookie.ts";
 
@@ -102,25 +102,5 @@ test("corrupt or unexpected cookies read as none, never throw", async () => {
       NOW,
     );
     assert.equal(r.state, "none", `for ${bad}`);
-  }
-});
-
-test("safeNext keeps dashboard paths and collapses everything else to the root", () => {
-  assert.equal(
-    safeNext("/ai-dashboard/applicants?stage=interview"),
-    "/ai-dashboard/applicants?stage=interview",
-  );
-  for (const bad of [
-    null,
-    "",
-    "https://evil.example",
-    "//evil.example/x",
-    "/admin",
-    "/ai-dashboard\\evil",
-    "/ai-dashboard/x\r\nSet-Cookie: a=b",
-    "/ai-dashboard/api/session/recover?next=/ai-dashboard",
-    "/ai-dashboard/login",
-  ]) {
-    assert.equal(safeNext(bad), "/ai-dashboard", `for ${JSON.stringify(bad)}`);
   }
 });

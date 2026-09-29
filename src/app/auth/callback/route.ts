@@ -1,10 +1,14 @@
 import { NextRequest, NextResponse } from "next/server";
+import { safeRelativePath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/server";
 
 export async function GET(request: NextRequest) {
   const { searchParams, origin } = new URL(request.url);
   const code = searchParams.get("code");
-  const next = searchParams.get("next") ?? "/browse-talent";
+  // `next` is attacker-shaped: it rode through Supabase's redirectTo, whose
+  // allow-list checks the callback URL, not the query inside it. Anything that
+  // is not a same-origin path (`@evil.com`, `.evil.com`, ...) falls back.
+  const next = safeRelativePath(searchParams.get("next"), "/browse-talent");
   const type = searchParams.get("type"); // 'signup' | 'recovery' | 'magiclink' | etc.
 
   // Error from Supabase (e.g. expired link)
@@ -39,6 +43,6 @@ export async function GET(request: NextRequest) {
     return NextResponse.redirect(`${origin}/browse-talent?confirmed=true`);
   }
 
-  // Default: respect `next` param, fallback to browse-talent
+  // Default: the filtered `next`, or browse-talent.
   return NextResponse.redirect(`${origin}${next}`);
 }
