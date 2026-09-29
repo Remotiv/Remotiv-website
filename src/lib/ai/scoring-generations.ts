@@ -70,6 +70,11 @@ export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     generation: 1,
     reason: "instruction isolation - candidate text declared data",
   },
+  "interview-scoring-v8": {
+    generation: 1,
+    reason:
+      "rollup told how many answers it has and which it has not - summary shape, no number moves",
+  },
 };
 
 /** The generation a stored prompt_version belongs to, or null for a version this map has never heard of. */

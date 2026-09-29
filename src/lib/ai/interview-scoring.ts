@@ -1,4 +1,12 @@
 import "server-only";
+import {
+  buildCoverageHeader,
+  coverageSentence,
+  type RollupCoverage,
+  type SkipCause,
+  summarySentenceLimit,
+  type UnscoredAnswer,
+} from "@/lib/ai/rollup-coverage";
 import { getAnthropic } from "@/lib/anthropic";
 import { assessTranscript } from "@/lib/interviews/assessable";
 import { readScoringSnapshot, resolveQuestionMeta } from "@/lib/interviews/question-meta";
@@ -117,7 +125,33 @@ import { parseAnswerJson, stripCodeFences } from "./score-parsers";
  * user messages fence it. No band, rule or evidence requirement changed - see
  * scoring-generations.ts, where v7 sits in the same generation as v6.
  */
-export const PROMPT_VERSION = "interview-scoring-v7";
+/**
+ * v8 — the rollup is told how many answers it has, and which it has not.
+ *
+ * A one-question interview produced "extremely brief responses throughout the
+ * interview", "no answer exceeding two sentences", "every response lacked the
+ * depth" - a pattern, described on a single answer. The prompt never stated a
+ * count and every instruction in it presupposed several answers ("across the
+ * whole interview", "which answer was strongest", "three to four sentences"),
+ * so the model padded one answer into a set.
+ *
+ * The other direction was worse. summariseSession was handed only the SCORED
+ * answers, numbered 1..n by their place in that subset. Skipped and failed
+ * answers were invisible to it, so the "if most answers were skipped" rule
+ * could never fire, its "Question 3" could be the reviewer's question 6, and
+ * the "Based on 5 of 8 answers" sentence the code appended afterwards
+ * contradicted prose written as if all eight had been read. Optional
+ * questions the candidate never recorded were not in either count.
+ *
+ * v8 opens the user message with a header (lib/ai/rollup-coverage.ts): how
+ * many questions, how many answered, how many scored, and which positions
+ * were not scored, by interview position. The summary spec keys off the
+ * count: ONE scored answer gets two sentences about that answer and no
+ * pattern; several get the cross-answer comparison as before. The appended
+ * coverage sentence now counts questions asked, matching the review page.
+ * No band, rule or evidence requirement changed - same generation as v7.
+ */
+export const PROMPT_VERSION = "interview-scoring-v8";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -281,17 +315,22 @@ At most four strengths and at most four concerns. "missing" is the only list of 
  */
 export const SESSION_SYSTEM_PROMPT = `You are summarising a completed interview for the hiring team who will decide.
 
-You are given each question, its competency, the score already assigned to that answer, and that answer's strengths and concerns. The overall score has ALREADY been computed from those numbers — you are not being asked to re-score anything.
+The message opens with a header: how many questions the interview had, how many were answered, how many were scored, and which questions were NOT scored and why. Then one block per SCORED answer, headed "Question N of M" where N is its position in the interview. You are given only the scored answers. The overall score has ALREADY been computed from their numbers — you are not being asked to re-score anything.
 
 Write a verdict and a summary.
 
 ## Verdict
 At most TWELVE words. A plain description of where this candidate stands on the evidence, not a recommendation. Never advise rejecting or hiring.
 
-## Summary
-Three to four sentences. What the answers showed across the whole interview, and WHERE the strongest and weakest evidence sat.
+## Summary - the count in the header decides its shape
 
-That cross-answer comparison is the only reason this summary exists. Every answer already carries its own score, reasoning, strengths and points to verify on the same screen, directly below. Naming which answer was strongest and which was thinnest is the one thing no answer can say about itself — so spend the sentences there, not on restating what an individual answer already says about itself.
+ONE scored answer: exactly TWO sentences, about that one answer. Call it "the one scored answer" or "the answer to question N". There is no pattern to describe: never write "throughout the interview", "every response", "the answers", "consistently" or any phrase that describes several answers when you were given one.
+
+TWO OR MORE scored answers: three to four sentences. What the answers you were given showed, and WHERE the strongest and weakest evidence sat, naming questions by their interview position.
+
+That cross-answer comparison is the only reason this summary exists when there is more than one answer. Every answer already carries its own score, reasoning, strengths and points to verify on the same screen, directly below. Naming which answer was strongest and which was thinnest is the one thing no answer can say about itself — so spend the sentences there, not on restating what an individual answer already says about itself.
+
+ANY question listed as not scored: you did not see it. Do not describe it, guess at it, or count it among "the answers". When the header shows fewer scored than asked, one sentence of the summary must say that the verdict rests on the scored answers only, and may name what was not scored using the header's own words.
 
 ## NEVER REFER TO THE CANDIDATE BY GENDER
 Do not use "he", "she", "his", "her", "him", "hers", "himself" or "herself" anywhere in your output.
@@ -308,7 +347,8 @@ Report the gap and stop. The recruiter decides what to do about it, and they are
 - Use only what is given. Do not invent detail.
 - The verdict and summary are written from the per-answer scores, strengths and concerns — NOT from the transcripts. Transcripts are supplied only when the employer named interview criteria, and only so you can quote for those; never quote in the verdict or summary.
 - Do not repeat the same fact in both verdict and summary.
-- If most answers were skipped or scored poorly for lack of substance, say that plainly rather than writing around it.
+- The header's counts are the only source for how many answers exist. Never infer a count from the blocks, and never describe an answer that has no block.
+- If the scored answers were poor for lack of substance, say that plainly rather than writing around it - about the answers you were given, in the number you were given.
 
 ## HOW THE CANDIDATE SPEAKS IS NEVER A FINDING
 
@@ -347,7 +387,7 @@ Any transcript you are given is the candidate's own words, supplied between BEGI
 
 Return ONLY this JSON object, no prose, no code fence:
 
-{ "verdict": "at most twelve words", "summary": "three to four sentences, no gendered pronouns, no recommendation", "confidence": "high" | "medium" | "low", "criteria": [{ "item": "the employer's criterion, verbatim", "status": "evidenced" | "not_found", "quote": "one contiguous verbatim transcript span, or empty string" }] }
+{ "verdict": "at most twelve words", "summary": "two sentences for one scored answer, otherwise three to four; no gendered pronouns, no recommendation", "confidence": "high" | "medium" | "low", "criteria": [{ "item": "the employer's criterion, verbatim", "status": "evidenced" | "not_found", "quote": "one contiguous verbatim transcript span, or empty string" }] }
 
 Omit "criteria" entirely when the employer named none.`;
 
@@ -398,19 +438,21 @@ function clampVerdict(v: unknown): string | null {
 }
 
 /**
- * Three to five sentences, enforced by truncation.
+ * At most `maxSentences`, enforced by truncation: five for a set, two for a
+ * single scored answer (see summarySentenceLimit).
  *
- * Only the upper bound can be enforced — a model that returns two sentences
- * has under-delivered and there is nothing to synthesise from. Truncating the
- * long case is what stops a "summary" becoming an essay.
+ * Only the upper bound can be enforced — a model that returns too few has
+ * under-delivered and there is nothing to synthesise from. Truncating the long
+ * case is what stops a "summary" becoming an essay, and on one answer the
+ * third sentence is where the invented pattern used to start.
  */
-function clampSummary(v: unknown): string | null {
+function clampSummary(v: unknown, maxSentences: number): string | null {
   if (typeof v !== "string") return null;
   const trimmed = v.trim();
   if (!trimmed) return null;
   const sentences = trimmed.match(/[^.!?]+[.!?]+(\s|$)/g);
-  if (!sentences || sentences.length <= 5) return trimmed;
-  return sentences.slice(0, 5).join("").trim();
+  if (!sentences || sentences.length <= maxSentences) return trimmed;
+  return sentences.slice(0, maxSentences).join("").trim();
 }
 
 // ── Scoring one answer ───────────────────────────────────────
@@ -691,7 +733,17 @@ function parseCriteria(raw: unknown, asked: string[], transcripts: string): Crit
  */
 export async function summariseSession(input: {
   overall: number;
+  /**
+   * How many questions there were and which were not scored. Rendered as the
+   * first lines of the message - the model's summary shape keys off it, and
+   * without it a single answer reads as a pattern and a partial set reads as
+   * the whole. Causes travel as codes, never as the stored reason text; see
+   * lib/ai/rollup-coverage.ts for why that must stay so.
+   */
+  coverage: RollupCoverage;
   answers: {
+    /** Interview position, so "Question 6" means the reviewer's question 6. */
+    position: number;
     questionText: string;
     competency: string | null;
     score: number;
@@ -717,10 +769,11 @@ export async function summariseSession(input: {
   const criteria = (input.criteria ?? []).map((c) => c.trim()).filter(Boolean);
   const wantsTranscripts = criteria.length > 0;
 
+  const header = buildCoverageHeader(input.coverage);
   const body = input.answers
-    .map((a, i) =>
+    .map((a) =>
       [
-        `### Question ${i + 1}${a.competency ? ` — ${a.competency}` : ""}`,
+        `### Question ${a.position} of ${input.coverage.questionsAsked}${a.competency ? ` — ${a.competency}` : ""}`,
         a.questionText,
         `Score: ${a.score}`,
         a.strengths.length ? `Strengths: ${a.strengths.join("; ")}` : "",
@@ -758,7 +811,7 @@ export async function summariseSession(input: {
       messages: [
         {
           role: "user",
-          content: `Overall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
+          content: `${header}\n\nOverall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
         },
       ],
     });
@@ -769,7 +822,7 @@ export async function summariseSession(input: {
 
     return {
       verdict: clampVerdict(parsed.verdict),
-      summary: clampSummary(parsed.summary),
+      summary: clampSummary(parsed.summary, summarySentenceLimit(input.answers.length)),
       confidence:
         parsed.confidence === "high" || parsed.confidence === "low" ? parsed.confidence : "medium",
       // Verified against the SAME transcripts that were sent, joined — a span
@@ -1019,8 +1072,23 @@ export async function handleAiScorecard(job: {
     );
   }
 
+  /*
+   * How many questions the interview HAD, from the snapshot the candidate saw.
+   * Submit only requires the `required` ones, so an optional question can have
+   * no answer row at all - it must still count, or a one-of-three interview
+   * reads to the rollup as one of one. Falls back to the answer rows for a
+   * session with no snapshot.
+   */
+  const questionsAsked = Math.max(snapshot.length, answers.length);
+  const recordedPositions = new Set(answers.map((a) => a.position));
+  const unscored: UnscoredAnswer[] = snapshot
+    .map((q) => q.position)
+    .filter((p): p is number => typeof p === "number" && !recordedPositions.has(p))
+    .map((position) => ({ position, cause: "not_answered" as const }));
+
   // ── Score each answer ──
   const scored: {
+    position: number;
     score: number;
     weight: number;
     questionText: string;
@@ -1052,8 +1120,14 @@ export async function handleAiScorecard(job: {
       prompt_version: PROMPT_VERSION,
     };
 
-    /** Per-answer skip. The reason distinguishes the three causes. */
-    const skipAnswer = async (reason: string) => {
+    /**
+     * Per-answer skip. `reason` is stored on the row for the reviewer; `cause`
+     * is what the rollup is told. The two are deliberately separate: the
+     * reason is free text and travels outside the rollup's candidate-data
+     * fence, so it must never reach the model - see lib/ai/rollup-coverage.ts.
+     */
+    const skipAnswer = async (reason: string, cause: SkipCause) => {
+      unscored.push({ position: answer.position, cause });
       await writeAnswerScore({ ...base, status: "skipped", error: reason });
     };
 
@@ -1063,13 +1137,19 @@ export async function handleAiScorecard(job: {
       // Purged reads differently from never-transcribed, and a reviewer
       // needs to know which — one is recoverable, the other is not.
       const purged = Boolean(answer.recorded_at) && !answer.video_path;
-      await skipAnswer(
-        purged
-          ? "The recording was deleted after six months, before it was transcribed."
-          : answer.transcript_status === "failed"
-            ? "Transcription failed for this answer, so there are no words to assess."
-            : "No transcript is available for this answer.",
-      );
+      if (purged) {
+        await skipAnswer(
+          "The recording was deleted after six months, before it was transcribed.",
+          "recording_purged",
+        );
+      } else if (answer.transcript_status === "failed") {
+        await skipAnswer(
+          "Transcription failed for this answer, so there are no words to assess.",
+          "transcription_failed",
+        );
+      } else {
+        await skipAnswer("No transcript is available for this answer.", "no_transcript");
+      }
       continue;
     }
 
@@ -1088,7 +1168,7 @@ export async function handleAiScorecard(job: {
         : null,
     });
     if (!assessed.ok) {
-      await skipAnswer(assessed.reason);
+      await skipAnswer(assessed.reason, assessed.cause);
       continue;
     }
 
@@ -1127,6 +1207,7 @@ export async function handleAiScorecard(job: {
       if (error) throw new Error(`answer score write failed: ${error}`);
 
       scored.push({
+        position: answer.position,
         score: result.score,
         weight: meta.weight,
         questionText: meta.questionText,
@@ -1143,15 +1224,18 @@ export async function handleAiScorecard(job: {
       });
     } catch (err) {
       if (err instanceof ScoringSkipped) {
-        await skipAnswer(err.message);
+        // The only ScoringSkipped thrown is scoreAnswer's character floor. Its
+        // message carries a count, not text - and the rollup gets the code.
+        await skipAnswer(err.message, "transcript_too_short");
         continue;
       }
       /*
        * One answer failing must not lose the other four. The row records the
-       * failure and the loop continues; the session rollup then says how many
-       * answers it is actually based on.
+       * failure and the loop continues; the session rollup is told this
+       * position was not scored, and says how many it is actually based on.
        */
       anyFailed = true;
+      unscored.push({ position: answer.position, cause: "scoring_failed" });
       await writeAnswerScore({
         ...base,
         status: "failed",
@@ -1177,9 +1261,18 @@ export async function handleAiScorecard(job: {
   const totalWeight = scored.reduce((sum, s) => sum + s.weight, 0);
   const overall = Math.round(scored.reduce((sum, s) => sum + s.score * s.weight, 0) / totalWeight);
 
+  const coverageInput: RollupCoverage = {
+    questionsAsked,
+    answersRecorded: answers.length,
+    answersScored: scored.length,
+    unscored,
+  };
+
   const rollup = await summariseSession({
     overall,
+    coverage: coverageInput,
     answers: scored.map((s) => ({
+      position: s.position,
       questionText: s.questionText,
       competency: s.competency,
       score: s.score,
@@ -1191,14 +1284,11 @@ export async function handleAiScorecard(job: {
   });
 
   /*
-   * A partial set is disclosed in the summary rather than hidden. The model
-   * was given only the answers that scored, so without this a summary reads
-   * as a verdict on the whole interview when it covered three of five.
+   * A partial set is disclosed in the stored summary as well as in the prompt.
+   * The header tells the model; this sentence survives a model that ignored
+   * it. Denominator is questions asked, so it agrees with the page's "N of M".
    */
-  const coverage =
-    scored.length === answers.length
-      ? ""
-      : ` Based on ${scored.length} of ${answers.length} answers — see the individual answers for why the rest were not scored.`;
+  const coverage = coverageSentence(coverageInput);
 
   const { error: rollupErr } = await writeSessionScore({
     session_id: session.id,

@@ -59,7 +59,13 @@ export type AssessOutcome =
       /** Why the cap applied, for the log. Empty when it did not. */
       notes: string[];
     }
-  | { ok: false; reason: string };
+  | {
+      ok: false;
+      /** Human-readable, stored on the score row. Counts and fixed text only - never transcript. */
+      reason: string;
+      /** Which gate fired. The rollup is told this code, not the reason text - see lib/ai/rollup-coverage.ts. */
+      cause: "too_little_speech" | "no_speech_detected" | "no_usable_speech";
+    };
 
 /** Below this there is nothing to assess. Roughly where the old 40-char floor sat. */
 export const MIN_WORDS = 8;
@@ -119,6 +125,7 @@ export function assessTranscript(input: AssessInput): AssessOutcome {
     return {
       ok: false,
       reason: `Too little speech to assess (${words} word${words === 1 ? "" : "s"}).`,
+      cause: "too_little_speech",
     };
   }
 
@@ -134,7 +141,11 @@ export function assessTranscript(input: AssessInput): AssessOutcome {
   const noSpeech = meanNoSpeech(segments);
   if (noSpeech !== null && noSpeech > NO_SPEECH_MEAN_THRESHOLD) {
     if (speechSpan(segments) < NO_SPEECH_MAX_SPEECH_SECONDS) {
-      return { ok: false, reason: "The transcriber found almost no speech in this recording." };
+      return {
+        ok: false,
+        reason: "The transcriber found almost no speech in this recording.",
+        cause: "no_speech_detected",
+      };
     }
   }
 
@@ -146,6 +157,7 @@ export function assessTranscript(input: AssessInput): AssessOutcome {
       return {
         ok: false,
         reason: `No usable speech - ${words} words across ${Math.round(audio)} seconds of audio.`,
+        cause: "no_usable_speech",
       };
     }
   }

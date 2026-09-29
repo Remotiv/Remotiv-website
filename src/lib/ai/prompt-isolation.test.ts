@@ -27,7 +27,7 @@ const version = (text) => text.match(/export const PROMPT_VERSION = "([^"]+)"/)[
 
 test("versions moved for the isolation change", () => {
   assert.equal(version(cv), "cv-scoring-v12");
-  assert.equal(version(interview), "interview-scoring-v7");
+  assert.equal(version(interview), "interview-scoring-v8");
 });
 
 test("CV scorer: the system prompt declares candidate sections data, and the user message fences them", () => {
@@ -67,6 +67,29 @@ test("interview scorer: both prompts declare the transcript data, and both user 
   assert.equal(fences.length, 2, "buildUserMessage and the rollup body");
 });
 
+test("v8: the rollup prompt keys the summary off the header's count, and the message opens with it", () => {
+  assert.match(interview, /## Summary - the count in the header decides its shape/);
+  assert.match(interview, /ONE scored answer: exactly TWO sentences, about that one answer\./);
+  assert.match(interview, /never write "throughout the interview", "every response"/);
+  assert.match(interview, /TWO OR MORE scored answers: three to four sentences\./);
+  assert.match(interview, /ANY question listed as not scored: you did not see it\./);
+  assert.match(interview, /The header's counts are the only source for how many answers exist\./);
+  // The header is the first thing in the user message, and blocks carry the interview position.
+  assert.match(interview, /content: `\$\{header\}\\n\\nOverall score/);
+  assert.match(
+    interview,
+    /### Question \$\{a\.position\} of \$\{input\.coverage\.questionsAsked\}/,
+  );
+  // Skip reasons reach the rollup as codes: every skipAnswer call names a SkipCause literal.
+  assert.match(interview, /const skipAnswer = async \(reason: string, cause: SkipCause\)/);
+  assert.doesNotMatch(interview, /skipAnswer\([^,)]*\)\s*;/, "a skipAnswer call without a cause");
+  // The single-answer length is enforced, not trusted.
+  assert.match(
+    interview,
+    /clampSummary\(parsed\.summary, summarySentenceLimit\(input\.answers\.length\)\)/,
+  );
+});
+
 test("evidence verification and schema enforcement were not loosened", () => {
   assert.match(cv, /verifyEvidence\(\[\{ claim: d\.dimension, quote: d\.quote \}\], cvText\)/);
   assert.match(cv, /if \(failRate > MAX_FAIL_RATE\)/);
@@ -83,6 +106,10 @@ test("the isolation bumps sit in the same scoring generation as their predecesso
   assert.equal(
     scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v7"),
     scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v6"),
+  );
+  assert.equal(
+    scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v8"),
+    scoringGeneration(INTERVIEW_SCORING_GENERATIONS, "interview-scoring-v7"),
   );
   // The current versions are known to the map - a bump without an entry is the mistake this catches.
   assert.notEqual(scoringGeneration(CV_SCORING_GENERATIONS, version(cv)), null);

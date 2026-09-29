@@ -33,7 +33,11 @@ test("the six live answers: historical rows are judged on words alone", () => {
       browserDurationSeconds: 120,
       segments: null,
     });
-  assert.deepEqual(legacy(3), { ok: false, reason: "Too little speech to assess (3 words)." }); // …7ac3
+  assert.deepEqual(legacy(3), {
+    ok: false,
+    reason: "Too little speech to assess (3 words).",
+    cause: "too_little_speech",
+  }); // …7ac3
   assert.deepEqual(legacy(13), scoreable(13)); // …717d
   assert.deepEqual(legacy(17), scoreable(17)); // …4f78
   assert.deepEqual(legacy(9), scoreable(9)); // …035f
@@ -85,6 +89,7 @@ test("density gate: a long, near-silent recording measured by the provider is sk
   assert.deepEqual(r, {
     ok: false,
     reason: "No usable speech - 13 words across 120 seconds of audio.",
+    cause: "no_usable_speech",
   });
 });
 
@@ -134,6 +139,7 @@ test("noSpeech gate: only segments that carry a finite value count, and missing 
   assert.deepEqual(silent, {
     ok: false,
     reason: "The transcriber found almost no speech in this recording.",
+    cause: "no_speech_detected",
   });
   // The remaining cases use 25 s of audio so the density gate (30 s+) stays out
   // of the way and only the noSpeech rule is under test.
@@ -188,6 +194,7 @@ test("when silence and density would both fire, the transcriber's own judgement 
   assert.deepEqual(r, {
     ok: false,
     reason: "The transcriber found almost no speech in this recording.",
+    cause: "no_speech_detected",
   });
 });
 
