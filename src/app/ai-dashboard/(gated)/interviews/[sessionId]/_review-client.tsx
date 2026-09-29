@@ -42,6 +42,7 @@ import {
   getAnswerPlaybackUrl,
   revertAnswerScore,
   revertSessionScore,
+  scoreInterview,
   setInterviewArchived,
   updateInterviewNote,
 } from "../actions";
@@ -294,6 +295,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
       <VerdictStrip
         sessionId={session.id}
         score={session.score}
+        canScore={session.canScore}
         onSeekCriterion={onSeekCriterion}
         purged={session.purged}
         status={session.status}
@@ -578,6 +580,7 @@ function DeleteConfirm({
 function VerdictStrip({
   sessionId,
   score,
+  canScore,
   purged,
   status,
   onToast,
@@ -586,6 +589,8 @@ function VerdictStrip({
 }: {
   sessionId: string;
   score: InterviewScore | null;
+  /** Server-derived: this submitted interview never got a scorecard and may ask for one. */
+  canScore: boolean;
   purged: boolean;
   status: string;
   onToast: (message: string) => void;
@@ -594,12 +599,39 @@ function VerdictStrip({
   onSeekCriterion: (answerId: string | null, seconds: number) => void;
 }) {
   const [editing, setEditing] = useState(false);
+  const [requesting, setRequesting] = useState(false);
   if (status !== "submitted" && status !== "cancelled") return null;
 
   const shown = score?.humanScore ?? score?.overall ?? null;
   const scored = score?.status === "scored" && shown !== null;
   const band = scored ? BAND_PANEL[scoreBand(shown)] : null;
   const adj = score?.adjustment ?? null;
+
+  /*
+   * One click, one request. `requesting` stops a double-tap before the
+   * response; the server's eligibility check and the queue's unique index
+   * (migration 027) stop everything this flag cannot see - a colleague's
+   * click, a second tab.
+   */
+  const requestScore = async () => {
+    if (requesting) return;
+    setRequesting(true);
+    try {
+      const result = await scoreInterview(sessionId);
+      if (!result.ok) {
+        onToast(result.error);
+        return;
+      }
+      onToast(
+        result.outcome === "already_queued"
+          ? "Scoring is already queued - the card appears here when it lands."
+          : "Scoring queued - the card appears here in a few minutes.",
+      );
+      onChanged();
+    } finally {
+      setRequesting(false);
+    }
+  };
 
   return (
     <div className="mb-4 overflow-hidden rounded-[18px] bg-[var(--ai-sidebar)] shadow-[0_14px_38px_rgba(20,16,32,0.22)]">
@@ -643,7 +675,9 @@ function VerdictStrip({
                 : score?.status === "skipped"
                   ? (score.error?.slice(0, 200) ??
                     "This interview wasn't scored. The recording is unaffected.")
-                  : "Scoring runs on the transcript, so it starts once transcription is switched on for this workspace. The recording is unaffected — watch and judge it yourself in the meantime."}
+                  : canScore
+                    ? "Scoring was never queued for this interview. Score it now, or watch the answers and judge them yourself - the recording is unaffected."
+                    : "Scoring runs on the transcript, so it starts once transcription is switched on for this workspace. The recording is unaffected — watch and judge it yourself in the meantime."}
           </p>
           {adj && (
             <p className="m-0 mt-2 text-[11.5px] leading-relaxed text-remotiv-lime">
@@ -681,6 +715,16 @@ function VerdictStrip({
               className="whitespace-nowrap border-none bg-transparent p-0 text-[11px] font-bold text-white/60 transition-colors hover:text-white"
             >
               {editing ? "Cancel" : "Adjust overall"}
+            </button>
+          )}
+          {!scored && canScore && (
+            <button
+              type="button"
+              onClick={() => void requestScore()}
+              disabled={requesting}
+              className="whitespace-nowrap rounded-full bg-remotiv-purple px-[14px] py-[7px] text-[11.5px] font-bold text-white transition-opacity hover:opacity-90 disabled:opacity-60"
+            >
+              {requesting ? "Queueing…" : "Score interview"}
             </button>
           )}
         </div>

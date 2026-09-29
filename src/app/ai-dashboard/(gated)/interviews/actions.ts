@@ -9,9 +9,15 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { removeSessionObjects } from "@/lib/interviews/purge";
 import { listInterviewSessions, readNotes } from "@/lib/interviews/review";
+import {
+  readScorecardFacts,
+  requestScorecard,
+  scorecardRecoveryEligibility,
+} from "@/lib/interviews/scorecard";
 import type {
   InterviewListResult,
   InterviewNote,
@@ -338,6 +344,97 @@ export async function deleteInterviewNote(
 // nulling the column. Same reasoning as job archiving.
 
 type SessionMutation = { ok: true } | { ok: false; error: string };
+
+type ScoreRequestResult =
+  | { ok: true; outcome: "queued" | "already_queued" }
+  | { ok: false; error: string };
+
+/**
+ * A recruiter asks for the scorecard a submitted interview never got.
+ *
+ * ── Who ──────────────────────────────────────────────────────
+ *
+ * Anyone gateSession admits: owner, admin, or a member of this job's hiring
+ * team, hiring managers included. They are the people who open the review and
+ * find it unscored; the cost is a couple of cents; and adjustSessionScore -
+ * which changes the number a decision is made on - is open to the same set.
+ *
+ * ── Why the eligibility is re-derived here ───────────────────
+ *
+ * The page computed `canScore` when it rendered. A colleague may have pressed
+ * the button since, or the deployment flag may have changed. The client's
+ * button is a courtesy; this is the gate, and it reads everything fresh.
+ * A skipped or failed scorecard row blocks it on purpose: that row is a
+ * decision the system already recorded, and requesting again over it would
+ * produce the same row and look like the button had done nothing.
+ *
+ * ── Why two clicks cost one run ──────────────────────────────
+ *
+ * requestScorecard's pre-check catches the ordinary second click. The
+ * simultaneous one is caught by the partial unique index from migration 027,
+ * surfaced as `already_queued`, which is reported as success because it is.
+ */
+export async function scoreInterview(sessionId: string): Promise<ScoreRequestResult> {
+  const gate = await gateSession(sessionId);
+  if (!gate.ok) return gate;
+  const { ctx, session } = gate;
+
+  const service = createServiceClient();
+  const [{ data: row }, { data: scoreRow }, facts] = await Promise.all([
+    service
+      .from("interview_sessions")
+      .select("kind, status, expires_at")
+      .eq("id", session.id)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle(),
+    service
+      .from("interview_session_scores")
+      .select("id")
+      .eq("session_id", session.id)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle(),
+    readScorecardFacts(service, session.id),
+  ]);
+
+  const stored = row as { kind: string | null; status: string; expires_at: string | null } | null;
+  if (!stored) return { ok: false, error: NOT_YOURS };
+
+  const eligible = scorecardRecoveryEligibility({
+    kind: stored.kind ?? "",
+    status: stored.status,
+    scoringEnabled: scoringEnabled(),
+    hasScoreRow: scoreRow !== null,
+    pendingTranscripts: facts.pendingTranscripts,
+    liveJob: facts.liveJob,
+  });
+
+  if (!eligible.ok) {
+    // Someone got there first - not a failure, and the page will show the
+    // card when the job lands.
+    if (eligible.block === "already_queued") return { ok: true, outcome: "already_queued" };
+    return { ok: false, error: RECOVERY_BLOCK_COPY[eligible.block] };
+  }
+
+  const requested = await requestScorecard(service, session.id);
+  if (!requested.ok) {
+    console.error("[interview] score request failed:", requested.reason, requested.error);
+    return { ok: false, error: "Couldn't queue the scorecard. Try again in a moment." };
+  }
+
+  revalidatePath("/ai-dashboard/interviews");
+  revalidatePath(`/ai-dashboard/interviews/${session.id}`);
+  return { ok: true, outcome: requested.outcome };
+}
+
+/** Why the button was refused, in the recruiter's terms. */
+const RECOVERY_BLOCK_COPY = {
+  not_async: "Only async video interviews can be scored here.",
+  not_submitted: "The candidate hasn't submitted this interview yet.",
+  scoring_disabled: "AI interview scoring is switched off for this workspace.",
+  already_decided: "This interview already has a scorecard.",
+  transcripts_pending: "A transcript is still being prepared. Try again in a few minutes.",
+  already_queued: "Scoring is already queued.",
+} as const;
 
 /** Archive or restore. Anyone who can see the interview can do either. */
 export async function setInterviewArchived(

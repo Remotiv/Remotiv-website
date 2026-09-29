@@ -279,7 +279,18 @@ export type EnqueueInput = {
   maxAttempts?: number;
 };
 
-export type EnqueueResult = { ok: true; id: string } | { ok: false; error: string };
+export type EnqueueResult =
+  | { ok: true; id: string }
+  | {
+      ok: false;
+      error: string;
+      /**
+       * The SQLSTATE, when PostgREST supplied one. A caller that has a unique
+       * index behind its job type (ai_scorecard, migration 027) reads 23505
+       * here as "already queued" rather than as a failure.
+       */
+      code?: string;
+    };
 
 /**
  * Insert a queued job.
@@ -305,7 +316,7 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
 
   if (error) {
     console.error("[jobs-queue] enqueue failed:", error);
-    return { ok: false, error: error.message };
+    return { ok: false, error: error.message, code: error.code };
   }
   return { ok: true, id: (data as { id: string }).id };
 }

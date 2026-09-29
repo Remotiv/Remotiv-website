@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { requestScorecard } from "@/lib/interviews/scorecard";
 import { resolveSessionByToken } from "@/lib/interviews/session";
 
 export const runtime = "nodejs";
@@ -65,7 +66,8 @@ export async function POST(request: Request) {
     );
   }
 
-  const { error } = await createServiceClient()
+  const service = createServiceClient();
+  const { error } = await service
     .from("interview_sessions")
     .update({ status: "submitted", submitted_at: new Date().toISOString() })
     .eq("id", resolved.row.id)
@@ -75,6 +77,20 @@ export async function POST(request: Request) {
   if (error) {
     console.error("[interview] submit failed:", error.message);
     return NextResponse.json({ error: "Couldn't submit. Try again." }, { status: 500 });
+  }
+
+  /*
+   * Ask for the scorecard, AFTER the status has landed. If every transcript is
+   * already done - the candidate reviewed for longer than a worker tick, so
+   * transcription finished first and found the session still open - this is
+   * the only asker left. If a transcript is still pending, this returns
+   * without queueing and the transcribe handler asks when it lands. Non-fatal:
+   * the interview is submitted either way, and the review page can ask again.
+   */
+  try {
+    await requestScorecard(service, resolved.row.id);
+  } catch (err) {
+    console.error("[interview] scorecard request at submit failed (non-fatal):", err);
   }
 
   return NextResponse.json({ ok: true });

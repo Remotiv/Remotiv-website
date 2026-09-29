@@ -231,6 +231,12 @@ export type InterviewSessionDetail = {
   score: InterviewScore | null;
   /** Owner, admin, or a member of this job's hiring team. */
   canDelete: boolean;
+  /**
+   * "Score interview" may be offered: async, submitted, scoring on for the
+   * deployment, no scorecard row of any status, no transcript pending, no job
+   * live. Derived server-side by scorecardRecoveryEligibility.
+   */
+  canScore: boolean;
   purged: boolean;
   notes: InterviewNote[];
   /** The viewer, so a note can offer edit/delete on their own rows only. */

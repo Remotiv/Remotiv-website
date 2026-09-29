@@ -1,6 +1,7 @@
 import "server-only";
 import { skipJob } from "@/lib/job-skip";
 import { createServiceClient } from "@/lib/supabase/server";
+import { requestScorecard } from "./scorecard";
 import { INTERVIEW_BUCKET } from "./session";
 
 /**
@@ -192,81 +193,27 @@ export async function handleTranscribe(job: {
 }
 
 /**
- * Enqueue session scoring once the LAST transcript has landed.
+ * Ask for session scoring once THIS transcript has landed.
  *
- * ── Why here and not at submit ───────────────────────────────
- *
- * Submitting closes the session, but the transcripts arrive minutes later
- * through this queue. Enqueuing the scorecard at submit would hand the scorer
- * a set of empty transcripts and produce a confidently meaningless result —
- * the race is not theoretical, it is the normal ordering.
- *
- * So the trigger is the completion of transcription, checked from the row that
- * just finished: the session must be submitted, and no answer may still be
- * `pending`. Whichever transcribe job writes last is the one that sees a fully
- * settled set and enqueues; the others see a pending sibling and do nothing.
- *
- * `failed` and `skipped` count as settled on purpose. A permanently failed
- * transcript — a 30MB recording over Whisper's ceiling — would otherwise block
- * scoring of the other four answers forever. The scorer skips that one answer
- * and scores the rest, which is the useful behaviour.
+ * Transcripts arrive minutes after submit through this queue, so the scorer
+ * cannot be handed the set at submit time - it would score empty transcripts.
+ * This is one of the two automatic askers; the submit route is the other, and
+ * lib/interviews/scorecard.ts explains why both are needed and why at most one
+ * job results. The eligibility (submitted, nothing still `pending`) lives
+ * there; a `failed` or `skipped` transcript counts as settled so one bad
+ * recording cannot block the other answers forever.
  */
 async function maybeEnqueueScorecard(
   service: ReturnType<typeof createServiceClient>,
   sessionId: string,
 ): Promise<void> {
   try {
-    /*
-     * Imported at CALL time, not module top.
-     *
-     * jobs-queue.ts imports handleTranscribe from this file in order to
-     * register it, so a top-level import back would close an
-     * initialisation cycle: whichever module evaluated first would reach for a
-     * binding the other had not created yet. Deferring to the call keeps the
-     * dependency one-way at load and honest at runtime.
-     */
-    const { enqueue, JOB_TYPES } = await import("@/lib/jobs-queue");
-
-    const { data: sessionRow } = await service
-      .from("interview_sessions")
-      .select("id, status")
-      .eq("id", sessionId)
-      .maybeSingle();
-
-    const session = sessionRow as { status: string } | null;
-    if (!session || session.status !== "submitted") return;
-
-    const { count: stillPending } = await service
-      .from("interview_answers")
-      .select("id", { count: "exact", head: true })
-      .eq("session_id", sessionId)
-      .eq("transcript_status", "pending");
-    if ((stillPending ?? 0) > 0) return;
-
-    /*
-     * The handler upserts on session_id, so a duplicate job is harmless — but
-     * several transcribe jobs can settle within the same second and each would
-     * queue one. Checking for a live job first keeps the queue readable
-     * without pretending this is the safety mechanism; idempotency is.
-     */
-    const { data: live } = await service
-      .from("background_jobs")
-      .select("id")
-      .eq("type", JOB_TYPES.AI_SCORECARD)
-      .in("status", ["queued", "running"])
-      .contains("payload", { sessionId })
-      .limit(1);
-    if ((live ?? []).length > 0) return;
-
-    await enqueue({
-      type: JOB_TYPES.AI_SCORECARD,
-      payload: { sessionId },
-      companyId: null,
-    });
+    await requestScorecard(service, sessionId);
   } catch (err) {
     // Non-fatal: the transcript is already stored, and a scorecard that was
-    // never queued is recoverable. Failing here would retry the whole
-    // transcription and spend another Whisper call on audio already done.
+    // never queued is recoverable from the review page. Failing here would
+    // retry the whole transcription and spend another Whisper call on audio
+    // already done.
     console.error("[transcribe] scorecard enqueue failed (non-fatal):", err);
   }
 }

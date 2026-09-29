@@ -6,6 +6,7 @@ import {
   isEmptyScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
+import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { readInterviewKind } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
 import { findQuoteStart } from "./quote-timestamps";
@@ -26,6 +27,7 @@ import type {
   SessionCriterion,
   TranscriptState,
 } from "./review-types";
+import { readScorecardFacts, scorecardRecoveryEligibility } from "./scorecard";
 import type { TranscriptSegment } from "./transcribe";
 
 /**
@@ -487,6 +489,39 @@ export async function loadInterviewSession(
 
   const status = deriveStatus(row.status, row.expires_at);
   const totalQuestions = snapshotLength(row.questions_snapshot) ?? answers.length;
+  const kind = readInterviewKind(row.kind, row.id);
+
+  /*
+   * Criteria quotes are PLACED here, not in fetchSessionScores.
+   *
+   * Placement needs the answers' segments, which only this detail path loads
+   * — the list would have to fetch them for a seek button it never renders.
+   * So the score arrives with nulls and gets its offsets filled in against
+   * the segments already in hand.
+   */
+  const score = withPlacedCriteria(
+    (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ?? null,
+    answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
+  );
+
+  /*
+   * "Score interview" is offered only to a submitted async interview with no
+   * scorecard row at all. The two extra reads (pending transcripts, live job)
+   * are made only when the cheap facts already allow it, so the common case -
+   * a scored interview - costs nothing here.
+   */
+  const facts =
+    kind === "async" && status === "submitted" && score === null
+      ? await readScorecardFacts(service, row.id)
+      : { pendingTranscripts: 0, liveJob: false };
+  const canScore = scorecardRecoveryEligibility({
+    kind,
+    status,
+    scoringEnabled: scoringEnabled(),
+    hasScoreRow: score !== null,
+    pendingTranscripts: facts.pendingTranscripts,
+    liveJob: facts.liveJob,
+  }).ok;
 
   return {
     id: row.id,
@@ -497,7 +532,7 @@ export async function loadInterviewSession(
     candidateLink: who.link,
     jobTitle: (row.job_id ? jobs.get(row.job_id) : null) ?? "This role",
     stage: (appRow as { pipeline_stage: string | null } | null)?.pipeline_stage ?? "applied",
-    kind: readInterviewKind(row.kind, row.id),
+    kind,
     status,
     answers,
     totalQuestions,
@@ -508,19 +543,9 @@ export async function loadInterviewSession(
     deleteAfter: row.delete_after,
     invitedByName: row.invited_by_name,
     archivedAt: row.archived_at,
-    /*
-     * Criteria quotes are PLACED here, not in fetchSessionScores.
-     *
-     * Placement needs the answers' segments, which only this detail path loads
-     * — the list would have to fetch them for a seek button it never renders.
-     * So the score arrives with nulls and gets its offsets filled in against
-     * the segments already in hand.
-     */
-    score: withPlacedCriteria(
-      (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ?? null,
-      answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
-    ),
+    score,
     canDelete: await canAccessJob(ctx, row.job_id ?? ""),
+    canScore,
     purged: answers.length > 0 && answers.every((a) => a.purged),
     /*
      * Notes SURVIVE the purge. They are a reviewer's own words about a
