@@ -4735,14 +4735,14 @@ export function ApplicantsClient({
               Applicants
             </h1>
             <p className="m-0 mt-2.5 max-w-[520px] text-[14.5px] leading-relaxed text-[var(--ai-t2)]">
-              {/* Deliberately future tense: AI scoring ships in Step 4, so
-                  "already read every CV" would be a claim the product can't
-                  currently back. The lime treatment is preserved either way. */}
+              {/* Present tense: CV scoring is shipped and on by default per job,
+                  and the default sort is by score. The old future tense contradicted
+                  the welcome modal one screen earlier. */}
               {applicants.length === 0
                 ? "No one has applied yet. "
                 : `${applicants.length} ${applicants.length === 1 ? "person has" : "people have"} applied across your open roles. `}
-              Your AI recruiter will <LimeHighlight>read every CV</LimeHighlight> and put the best
-              ones first.
+              Each new application is <LimeHighlight>scored against the job</LimeHighlight>, unless
+              you&apos;ve switched scoring off for that role.
             </p>
           </div>
 
@@ -5147,7 +5147,9 @@ export function ApplicantsClient({
 
           <div className="flex items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-[13px]">
             <p className="m-0 text-[12.5px] text-[var(--ai-t3)]">
-              Ranked by AI score once your recruiter has read each CV.
+              {sort === "best"
+                ? "Ranked by AI score. Anything without a score sits at the end."
+                : "Newest first. Scores don't affect this order."}
             </p>
             <Pagination
               page={safePage}

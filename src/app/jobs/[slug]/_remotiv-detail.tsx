@@ -74,7 +74,7 @@ const TIMELINE = [
   },
   {
     n: "2",
-    title: "AI + human screen",
+    title: "Human screen",
     sub: "Remotiv vets your skills within 24 hours.",
     dot: "#49D7A7",
     ink: "#ffffff",

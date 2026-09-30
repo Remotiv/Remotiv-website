@@ -33,7 +33,7 @@ export function renderClaimVerificationEmail(data: {
       </div>
 
       <p style="margin: 24px 0 0; color: #888; font-size: 12px; line-height: 1.6;">
-        This link expires in 24 hours. If you did not request this, you can safely ignore this email.
+        This link expires in 7 days. If you did not request this, you can safely ignore this email.
       </p>
 
     </div>

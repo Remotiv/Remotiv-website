@@ -682,7 +682,16 @@ export default function ApplyModal({
                   <div className="ap-foot-err">Please complete all required fields above.</div>
                 )}
                 <div className="ap-foot-note">
-                  By applying you agree to Remotiv&apos;s terms · Avg. response in 24 hours
+                  Your application is handled as described in our{" "}
+                  <Link
+                    href="/privacy"
+                    target="_blank"
+                    rel="noopener noreferrer"
+                    className="underline"
+                  >
+                    Privacy Policy
+                  </Link>{" "}
+                  · Avg. response in 24 hours
                 </div>
               </div>
             </form>

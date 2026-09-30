@@ -660,10 +660,10 @@ export default function PayrollPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://www.remotiv.work",
+              url: "https://remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://www.remotiv.work/services/payroll",
+            url: "https://remotiv.work/services/payroll",
             description:
               "Hassle-free international payroll, contracts, and compliance for remote teams across engineering, sales, design, customer success, and operations. Live in 48 hours with full statutory coverage.",
           }).replace(/</g, "\\u003c"),

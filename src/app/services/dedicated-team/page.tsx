@@ -430,10 +430,10 @@ export default function DedicatedTeamPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://www.remotiv.work",
+              url: "https://remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://www.remotiv.work/services/dedicated-team",
+            url: "https://remotiv.work/services/dedicated-team",
             description:
               "Build a dedicated remote team across engineering, sales, design, customer success, marketing, and operations. Hand-picked, managed, retained — operational in 2 weeks with a free replacement guarantee.",
           }),

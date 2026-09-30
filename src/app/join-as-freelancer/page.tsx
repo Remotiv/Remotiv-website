@@ -192,7 +192,7 @@ function FooterNote() {
         <rect x="3" y="11" width="18" height="11" rx="2" />
         <path d="M7 11V7a5 5 0 0 1 10 0v4" />
       </svg>
-      Your data is encrypted and only shared with matched employers. Questions?
+      If approved, your profile page is public. Questions?
       Email <a href="mailto:talent@remotiv.work">talent@remotiv.work</a>.
     </div>
   );
@@ -795,7 +795,9 @@ export default function RemoteReadyPage() {
                   <p className="bta-success-sub">
                     Your profile is under review. We typically review applications
                     within 3 business days — watch for an email from
-                    talent@remotiv.work (check your spam folder too).
+                    talent@remotiv.work (check your spam folder too). Approved profiles
+                    are listed on Find Freelancers and get a public page on remotiv.work
+                    that anyone can open.
                   </p>
                   <a
                     href="https://www.linkedin.com/company/remotiv-inc/"
@@ -999,7 +1001,7 @@ function Step1(props: {
 }) {
   return (
     <div className="bta-form-step active">
-      <FormHeader icon="👤" title="Personal Information" sub="Tell us who you are — this stays private until matched" />
+      <FormHeader icon="👤" title="Personal Information" sub="Your name, city and time zone are public if approved. Email and phone are not." />
 
       <div className="bta-form-body">
         <h3 className="bta-sec-title">Basic Details</h3>
@@ -1111,7 +1113,7 @@ function Step2(props: {
 }) {
   return (
     <div className="bta-form-step active">
-      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this powers AI Talent Match" />
+      <FormHeader icon="💼" title="Professional Profile" sub="Your role, experience and skills — this is your public listing" />
 
       <div className="bta-form-body">
         <h3 className="bta-sec-title">Headline</h3>
@@ -1550,7 +1552,7 @@ function Step4(props: {
             )}
           </label>
           <div className="bta-photo-info">
-            <p>Upload a professional headshot (JPG, PNG, WEBP, or GIF). Shown to recruiters and global clients browsing talent.</p>
+            <p>Upload a professional headshot (JPG, PNG, WEBP, or GIF, max 5 MB). If your profile is approved, this photo appears on your public Remotiv profile page, which anyone can open and search engines can index.</p>
             <span className="bta-photo-btn">Upload Photo</span>
           </div>
         </div>

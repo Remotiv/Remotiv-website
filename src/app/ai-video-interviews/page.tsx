@@ -947,8 +947,8 @@ export default function AIVideoInterviewsPage() {
                     <span>stages, end to end</span>
                   </div>
                   <div className="avi2-m">
-                    <b>02</b>
-                    <span>of them interviews</span>
+                    <b>01</b>
+                    <span>interview live today</span>
                   </div>
                   <div>
                     <b>01</b>
@@ -1048,7 +1048,7 @@ export default function AIVideoInterviewsPage() {
                         </div>
                         <h3 className="avi2-st__t">Conversational AI Video Interview</h3>
                         <p className="avi2-st__d">
-                          Follow-up questions on what the candidate says.
+                          Follow-up questions on what the candidate says. In development.
                         </p>
                       </div>
                     </li>
@@ -1340,7 +1340,8 @@ export default function AIVideoInterviewsPage() {
                     <p className="avi7-meta">
                       <span className="avi7-frag">Your team&rsquo;s questions</span>{" "}
                       <span className="avi7-frag">adaptive follow-ups</span>{" "}
-                      <span className="avi7-frag">criteria-based scoring</span>
+                      <span className="avi7-frag">criteria-based scoring</span>{" "}
+                      <span className="avi7-frag">in development</span>
                     </p>
                   </div>
                 </div>

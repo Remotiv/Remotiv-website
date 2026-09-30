@@ -514,7 +514,7 @@ function AsyncSection({
                 </>
               ) : (
                 <>
-                  Sends a fresh invitation by email and WhatsApp. The link
+                  Sends a fresh invitation by email, and queues a WhatsApp message as well. The link
                   {fmt(session.sentAt) ? ` from ${fmt(session.sentAt)}` : " they already have"}{" "}
                   stops working straight away — they haven&apos;t started, so nothing is lost.
                 </>
@@ -723,14 +723,13 @@ function LiveInterviewSection({
               <b className="block text-[13px] font-bold text-[var(--ai-t1)]">
                 A conversational round
               </b>
-              {/* The design closes this paragraph with "Recommended here: it
-                  would press directly on the mentoring gap…" — a per-candidate
-                  recommendation with no generator behind it. Cut for the same
-                  reason the Review tab's percentile was. What is left
-                  describes the feature, which is a claim the product can keep. */}
+              {/* This paragraph used to describe generated questions and adaptive
+                  follow-ups. Neither exists: the send path freezes this job's fixed
+                  questions, and no candidate can open the round. This section renders
+                  for every recruiter - only the send button is gated - so it says
+                  what is true instead of what was designed. */}
               <p className="m-0 mt-[3px] max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">
-                Questions are generated from this application and the async answers, and the
-                interviewer follows up when an answer is thin.
+                Still in development, so a candidate can&apos;t start this round yet.
               </p>
             </div>
             {canSend && (

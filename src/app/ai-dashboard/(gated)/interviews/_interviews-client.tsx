@@ -323,7 +323,7 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
             <div className="flex flex-wrap items-center justify-between gap-4 border-t border-[var(--ai-line)] bg-[var(--ai-inset)] px-5 py-3.5">
               <p className="m-0 flex items-center gap-2 text-[12.5px] text-[var(--ai-t3)]">
                 <Lock className="size-3.5 shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
-                Recordings are deleted automatically 6 months after submission.
+                Recordings are deleted automatically 6 months after the invitation is sent.
               </p>
               <div className="flex items-center gap-3">
                 <span className="text-[12.5px] font-semibold text-[var(--ai-t2)]">

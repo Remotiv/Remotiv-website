@@ -319,10 +319,10 @@ export default function RecruitmentPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://www.remotiv.work",
+              url: "https://remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://www.remotiv.work/services/recruitment",
+            url: "https://remotiv.work/services/recruitment",
             description:
               "End-to-end recruitment across engineering, sales, design, data, marketing, and operations. Pre-vetted candidates delivered in 1 business day. 90-day replacement guarantee.",
             offers: [

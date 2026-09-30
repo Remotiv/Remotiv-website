@@ -38,6 +38,16 @@ import { Navbar } from "@/components/navbar";
  *                                   to RECURRING, section 3's "no automatic
  *                                   expiry" wording is part of that change.
  *   `cvs` + interview buckets       private; signed URLs; signed_url_logs
+ *   interview_answer_scores         SURVIVE the interview purge, which clears
+ *   interview_session_scores        only video_path, transcript and
+ *                                   transcript_segments. The score rows keep
+ *                                   verbatim quotes from the answers as their
+ *                                   evidence, so section 3 says so. If the purge
+ *                                   is ever extended to strip them, that wording
+ *                                   is part of the change.
+ *   communication_logs              NOTHING expires these. The bodies of every
+ *                                   email and message we sent are kept, and
+ *                                   section 3's "everything else" says so.
  *
  * NOT white-label. A company's careers page links here, and it still says
  * Remotiv — because Remotiv is the processor holding the data, whoever the
@@ -64,7 +74,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "7 September 2026";
+const LAST_UPDATED = "30 September 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -264,6 +274,9 @@ export default function PrivacyPage() {
             Video recordings and their transcripts are deleted six months after the interview is
             issued. As with CVs, the record of the interview survives the media: the questions you
             were asked, how long you spoke and when, but not the recording or the transcript.
+            Where an interview was scored, the scorecard is kept with the application after the
+            recording goes, including the short quotes from your answers that it cites as its
+            evidence.
           </P>
 
           <H3>Talent-pool profiles, and CVs sent to Remotiv&apos;s own roles: no expiry date</H3>
@@ -298,9 +311,10 @@ export default function PrivacyPage() {
 
           <H3>Everything else</H3>
           <P>
-            Contact form messages, booking requests, account records and application records are
-            kept while they remain useful to the hiring or business relationship they belong to. We
-            do not currently apply an automatic expiry to them.
+            Contact form messages, our record of the emails and messages we sent you, booking
+            requests, account records and application records are kept while they remain useful to
+            the hiring or business relationship they belong to. We do not currently apply an
+            automatic expiry to them.
           </P>
 
           <H2>4. Why we are allowed to process it</H2>
@@ -371,9 +385,9 @@ export default function PrivacyPage() {
               Tokyo region.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">United States</strong> — interview audio
-              sent to OpenAI for transcription, CV text and transcripts sent to Anthropic for
-              scoring, and email sent through Resend.
+              <strong className="font-semibold text-[#111]">United States</strong> — interview
+              recordings sent to OpenAI for transcription, CV text and transcripts sent to Anthropic
+              for scoring, and email sent through Resend.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Global</strong> — Google, for interview
@@ -398,8 +412,9 @@ export default function PrivacyPage() {
               storage and login system. Holds everything described above.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the audio of
-              your video interview answers in order to transcribe them.
+              <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the
+              recording of your video interview answers, video and audio together, in order to
+              transcribe them.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Anthropic</strong> — receives the text
@@ -430,7 +445,7 @@ export default function PrivacyPage() {
 
           <Callout>
             <strong className="font-semibold text-[#111]">
-              About the audio we send to OpenAI, plainly:
+              About the recording we send to OpenAI, plainly:
             </strong>{" "}
             we send it under OpenAI&apos;s standard API terms. OpenAI{" "}
             <strong className="font-semibold text-[#111]">

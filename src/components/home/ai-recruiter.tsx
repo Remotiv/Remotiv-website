@@ -87,8 +87,8 @@ export function AIRecruiter() {
               </h2>
 
               <p className="mt-4 max-w-[400px] font-sans text-[0.95rem] font-normal leading-[1.75] text-white/65">
-                Just tell us the role. Our AI scans 1M+ verified profiles and delivers a shortlist
-                of pre-vetted candidates — within 24 hours.
+                Just tell us the role. Our matching engine searches our approved talent pool and
+                delivers a shortlist of pre-vetted candidates — within 24 hours.
               </p>
               <p className="mt-3 mb-9 max-w-[380px] font-sans text-[0.88rem] font-normal leading-[1.7] text-white/40">
                 At a fraction of what a traditional recruiter charges.

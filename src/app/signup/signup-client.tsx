@@ -6,7 +6,6 @@ import { useRouter } from "next/navigation";
 import { Eye, EyeOff } from "lucide-react";
 import { safeRelativePath } from "@/lib/safe-redirect";
 import { createClient } from "@/lib/supabase/client";
-import { MARKETING_STATS } from "@/lib/marketing-stats";
 
 const PURPLE = "#7E47FF";
 const BG = "#f8f4f1";
@@ -106,7 +105,7 @@ export default function SignupClient({
           <div style={{ background: LIME, color: "#1a3a1a", fontSize: 11, padding: "5px 12px", borderRadius: 999, display: "inline-block", fontWeight: 500, marginBottom: 14 }}>
             Free to join
           </div>
-          <p style={{ fontSize: 14, color: "#666", margin: 0 }}>Start browsing {MARKETING_STATS.talentPool} Talent</p>
+          <p style={{ fontSize: 14, color: "#666", margin: 0 }}>Start browsing our talent pool</p>
         </div>
 
         {error && (
@@ -162,7 +161,10 @@ export default function SignupClient({
         </form>
 
         <p style={{ fontSize: 11, color: "#999", textAlign: "center", margin: "12px 0 0 0", lineHeight: 1.5 }}>
-          By signing up, you agree to our Terms and Privacy Policy
+          By signing up, you agree to our{" "}
+          <Link href="/privacy" style={{ color: "#999", textDecoration: "underline" }}>
+            Privacy Policy
+          </Link>
         </p>
         <p style={{ fontSize: 13, color: "#555", textAlign: "center", margin: "18px 0 0 0" }}>
           Already have an account?{" "}

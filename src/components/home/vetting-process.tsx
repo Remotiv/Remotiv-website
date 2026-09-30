@@ -9,7 +9,7 @@ const STEPS = [
     number: "01",
     title: "Instant AI Sourcing",
     tag: "Every applicant scanned instantly",
-    body: "Our AI analyzes thousands of data points across 1M+ profiles to find candidates matching your exact tech stack and seniority depth.",
+    body: "Our matching engine searches our approved talent pool to find candidates matching your exact tech stack and seniority depth.",
   },
   {
     number: "02",

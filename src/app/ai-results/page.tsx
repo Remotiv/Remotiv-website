@@ -462,8 +462,8 @@ function RateLimitState({
         You&apos;ve used all {limit} free searches today
       </h3>
       <p className="mb-7 font-sans text-[#777]">
-        {used}/{limit} searches used. Sign up for unlimited AI Talent Match, faster results, and
-        contact unlock.
+        {used}/{limit} searches used. Unlimited search and contact unlock come with a paid plan.
+        Checkout is not open yet.
         <br />
         Free searches reset at midnight UTC.
       </p>

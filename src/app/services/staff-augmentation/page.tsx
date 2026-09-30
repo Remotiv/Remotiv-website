@@ -78,7 +78,7 @@ const REASONS: readonly {
   {
     badge: { label: "AI + Human", tone: "dark" },
     title: "AI Finds Them. Recruiters Validate Them",
-    body: `Our matching engine scans ${MARKETING_STATS.talentPool} profiles in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally — verifying skills, communication, and availability — before you see a single profile. No raw database dumps. No unvetted resumes.`,
+    body: "Our matching engine searches our approved talent pool in seconds to surface the best technical fits. Then our recruiters call every shortlisted candidate personally — verifying skills, communication, and availability — before you see a single profile. No raw database dumps. No unvetted resumes.",
   },
 ];
 
@@ -89,7 +89,7 @@ const STEPS: readonly { label: string; body: string }[] = [
   },
   {
     label: "We Match & Vet — 24–48 Hours",
-    body: `Our AI scans ${MARKETING_STATS.talentPool} profiles and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3–5 validated candidates.`,
+    body: "Our matching engine searches our approved talent pool and surfaces the strongest technical fits. Our recruiters then call each candidate personally to verify skills, communication quality, and availability. For technical roles, candidates complete an in-house skills assessment before they ever reach your inbox. You receive a shortlist of 3–5 validated candidates.",
   },
   {
     label: "You Interview & Choose",
@@ -1367,10 +1367,10 @@ export default function StaffAugmentationPage() {
             provider: {
               "@type": "Organization",
               name: "Remotiv",
-              url: "https://www.remotiv.work",
+              url: "https://remotiv.work",
             },
             areaServed: "Worldwide",
-            url: "https://www.remotiv.work/services/staff-augmentation",
+            url: "https://remotiv.work/services/staff-augmentation",
             description:
               "Augment your team with pre-vetted senior specialists across engineering, sales, design, data, marketing, operations, and more. Matched in 24 hours, deployed in days, backed by a free replacement guarantee.",
           }),

@@ -364,6 +364,11 @@ function TemplateEditor({
               <p className="m-0 text-[12.5px] leading-normal text-[var(--ai-amber-ink)]">
                 <b className="font-bold">This event is turned off.</b> You can edit the
                 wording now, but nothing sends until the event is switched back on.
+                {/* The stage event does not fire, but an "interview" email DOES go
+                    out: the video interview invitation, with its own fixed wording.
+                    Without this line a recruiter edits here and expects that. */}
+                {template.key === "interview" &&
+                  " The video interview invitation you send from an applicant's record is separate wording that this template does not control."}
               </p>
             </div>
           )}

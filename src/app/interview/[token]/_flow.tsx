@@ -20,6 +20,7 @@ import {
   VideoOff,
   Wifi,
 } from "lucide-react";
+import Link from "next/link";
 import type { CandidateQuestion, CandidateSession } from "@/lib/interviews/types";
 import { useAnnouncer } from "@/components/live-region";
 import { InterviewShell, UnsupportedScreen } from "./_terminal";
@@ -1745,8 +1746,8 @@ function Consent({
         <ConsentRow
           icon={<Lightbulb className="size-[15px]" strokeWidth={1.9} />}
           tint="bg-[var(--purple-tint)] text-[var(--purple)]"
-          lead="AI scores, a person decides"
-          body="Answers are transcribed and scored. The scores rank candidates and flag some for a closer look."
+          lead="A person makes the decision"
+          body="Answers are transcribed. Where AI scoring is enabled, each answer is also scored against the question it answers."
         />
         <ConsentRow
           icon={<Lock className="size-[15px]" strokeWidth={1.9} />}
@@ -1758,9 +1759,22 @@ function Consent({
           icon={<TriangleAlert className="size-[15px]" strokeWidth={1.9} />}
           tint="bg-[var(--amber-tint)] text-[var(--amber-ink)]"
           lead="Answer in your own words"
-          body="Reading from an AI tool is easy to spot and counts against you. We'd rather hear you think."
+          body="Please don't read from a script or an AI tool. The hiring team wants to hear how you think."
         />
       </div>
+
+      {/* The rows above name the company as the reader. Two processors also
+          receive the interview and neither was named here: transcription runs
+          on every confirmed answer, AI scoring only where it is enabled. Sits
+          outside the four-row block so it does not dilute them, and inside what
+          the checkbox below agrees to. */}
+      <p className="m-0 mb-4 text-[12.5px] leading-relaxed text-[var(--t3)]">
+        Transcribing is done for us by OpenAI, and any AI scoring by Anthropic. Our{" "}
+        <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
+          privacy policy
+        </Link>{" "}
+        says what each one receives.
+      </p>
 
       <label
         className={`mb-4 flex cursor-pointer items-start gap-3 rounded-[14px] border bg-[var(--inset)] p-3.5 transition-colors ${
@@ -2667,8 +2681,8 @@ function Submitted({ companyName }: { companyName: string }) {
           <ol className="m-0 list-decimal pl-[19px] text-[13px] leading-[1.7] text-[var(--t2)]">
             <li>A person reviews your answers, usually within 3 working days.</li>
             <li className="mt-1">
-              You&apos;ll hear back by email either way — we don&apos;t leave people
-              guessing.
+              If the hiring team sends an update, it will arrive by email from Remotiv on
+              their behalf.
             </li>
             <li className="mt-1">
               If it&apos;s a match, {companyName} will reach out to arrange a live

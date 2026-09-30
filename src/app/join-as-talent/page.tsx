@@ -311,7 +311,7 @@ const LockIcon = () => (
 const FooterNote = () => (
   <div className="bta-footer-note">
     <LockIcon />
-    Your data is encrypted and only shared with matched employers.
+    If approved, your profile page is public.
   </div>
 );
 
@@ -1032,7 +1032,8 @@ export default function BecomeATalentPage() {
                       You&apos;re in the Network!
                     </h2>
                     <p className="bta-success-sub">
-                      Your profile is under review. We&apos;ll notify you once approved and matched.
+                      Your profile is under review. We&apos;ll notify you once approved. Approved
+                      profiles get a public page on remotiv.work that anyone can open.
                     </p>
                     <a
                       href="https://www.linkedin.com/company/remotiv-inc/"
@@ -1107,7 +1108,8 @@ export default function BecomeATalentPage() {
                             Personal Information
                           </h2>
                           <div className="bta-fh-sub">
-                            Tell us who you are — this stays private until matched
+                            Your name, city and photo are public if approved. Email and phone are
+                            not.
                           </div>
                         </div>
                       </div>
@@ -1345,8 +1347,9 @@ export default function BecomeATalentPage() {
                           </label>
                           <div className="bta-photo-info">
                             <p>
-                              Upload a professional headshot. This will be shown to recruiters and
-                              companies browsing talent.
+                              Upload a professional headshot. If your profile is approved, this
+                              photo appears on your public Remotiv profile page, which anyone can
+                              open and search engines can index.
                             </p>
                             <span className="bta-photo-btn">Upload Photo</span>
                             {/* Phase 3 M-photo-clear: only render when a photo
@@ -1917,7 +1920,8 @@ export default function BecomeATalentPage() {
                             CV / Resume Upload
                           </h2>
                           <div className="bta-fh-sub">
-                            Upload your latest CV — reviewed by our team and matched employers
+                            Upload your latest CV — reviewed by our team and shared with companies
+                            hiring on Remotiv
                           </div>
                         </div>
                       </div>
@@ -2104,7 +2108,9 @@ export default function BecomeATalentPage() {
                             <div className="bta-info-box-body">
                               Our team reviews your profile within 24–48 hours. If approved, you&apos;ll
                               be live in the Remotiv talent pool and our AI will start matching
-                              you to relevant opportunities from 100+ partner companies.
+                              you to relevant opportunities from 100+ partner companies. Your
+                              profile page also becomes publicly visible on remotiv.work, where
+                              anyone can open it and search engines can index it.
                             </div>
                           </div>
                         </div>

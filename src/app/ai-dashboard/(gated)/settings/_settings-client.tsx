@@ -1040,9 +1040,13 @@ export function SettingsClient({
 
             <p className="m-0 mt-3 text-xs leading-[1.5] text-[var(--ai-t3)]">
               Rejections are sent two days after you move someone to Rejected.
-              Moving them back out before then cancels the email. The only other
-              automatic email is the confirmation every candidate gets when they
-              apply — no other stage sends anything.
+              Moving them back out before then cancels the email. No other stage
+              change sends anything on its own.
+            </p>
+            <p className="m-0 mt-2 text-xs leading-[1.5] text-[var(--ai-t3)]">
+              Candidates hear from Remotiv outside the stages too: a confirmation when
+              they apply, the interview invitation and booking link you send from their
+              record, and a reminder the day before an interview closes.
             </p>
           </div>
         </section>

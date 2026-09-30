@@ -1199,14 +1199,14 @@ function headerWhen(s: InterviewSessionDetail): string {
 
 function retentionLine(s: InterviewSessionDetail): string {
   if (s.purged) {
-    return "The recordings were deleted six months after submission, as scheduled. Questions, transcripts and the answer record are kept with the application.";
+    return "The recordings were deleted six months after the invitation was sent, as scheduled. The questions and the answer record are kept with the application; the transcripts went with the recordings.";
   }
   if (s.status !== "submitted") {
-    return "Retention starts at submission — recordings are then kept for 6 months.";
+    return "Retention started when the invitation was sent - recordings are kept for 6 months from that date.";
   }
   return s.deleteAfter
-    ? `Recordings are deleted automatically on ${fmtDate(s.deleteAfter)} — six months after submission.`
-    : "Recordings are deleted automatically six months after submission.";
+    ? `Recordings are deleted automatically on ${fmtDate(s.deleteAfter)}, six months after the invitation was sent.`
+    : "No deletion date is recorded for this interview, so the automatic six-month deletion will not reach it.";
 }
 
 /** Session-level banner for the states that change how the page should be read. */
@@ -1302,7 +1302,7 @@ function Player({
       <FlatPlayer
         icon={<Lock className="size-[25px]" strokeWidth={1.7} />}
         title="Recording deleted on schedule"
-        body="This answer was removed six months after submission, exactly as the retention policy says. The question, its duration and your team's notes are kept."
+        body="This answer was removed six months after the invitation was sent, exactly as the retention policy says. The question, its duration and your team's notes are kept."
       />
     );
   }

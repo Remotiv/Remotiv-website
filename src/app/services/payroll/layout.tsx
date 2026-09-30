@@ -5,13 +5,13 @@ export const metadata: Metadata = {
   description:
     "Hassle-free international payroll, contracts, and compliance for remote teams across engineering, sales, design, customer success, and operations. Live in 48 hours with full statutory coverage.",
   alternates: {
-    canonical: "https://www.remotiv.work/services/payroll",
+    canonical: "https://remotiv.work/services/payroll",
   },
   openGraph: {
     title: "Payroll & Compliance Services | Remotiv",
     description:
       "Hassle-free international payroll, contracts, and compliance for remote teams across engineering, sales, design, customer success, and operations. Live in 48 hours with full statutory coverage.",
-    url: "https://www.remotiv.work/services/payroll",
+    url: "https://remotiv.work/services/payroll",
     type: "website",
     siteName: "Remotiv",
   },

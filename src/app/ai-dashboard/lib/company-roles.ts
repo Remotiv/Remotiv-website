@@ -110,7 +110,9 @@ export type TeamMemberRow = {
 /** What each role can reach, shown in the Team table's ACCESS column. */
 export const COMPANY_ROLE_ACCESS: Record<CompanyRole, string> = {
   owner: "Full access",
-  admin: "Billing · Jobs · Team",
+  // Not "Billing": canManageBilling is owner-only, and the Team page itself
+  // marks billing as not yet available.
+  admin: "Jobs · Applicants · Team",
   recruiter: "Jobs · Applicants",
   hiring_manager: "Assigned jobs only",
 };

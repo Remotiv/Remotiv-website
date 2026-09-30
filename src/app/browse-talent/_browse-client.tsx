@@ -7,7 +7,6 @@ import Link from "next/link";
 import { useRouter, useSearchParams, usePathname } from "next/navigation";
 import { Loader2, Search, X } from "lucide-react";
 import { Navbar } from "@/components/navbar";
-import { MARKETING_STATS } from "@/lib/marketing-stats";
 import { cn } from "@/lib/utils";
 import Tooltip from "@/components/tooltip";
 // Phase 5 C1: ModalShell is imported statically (~1KB, ships in main chunk)
@@ -163,7 +162,7 @@ export const ROLE_CFG: Record<RoleType, { c: string; bg: string; b: string; labe
 // (18.4K → 18K, 9.8K → 9K, etc). Inflated claims invite trust issues; rounding
 // down keeps marketing-side numbers consistent with the actual talent pool.
 const ROLE_FILTERS: Array<{ key: "All" | RoleType; label: string; count: string; dot: string }> = [
-  { key: "All",       label: "All Talent",            count: MARKETING_STATS.talentPool, dot: "#49D7A7" },
+  { key: "All",       label: "All Talent",            count: "",     dot: "#49D7A7" },
   { key: "Engineer",  label: "Software Engineers",    count: "18K",  dot: "#60a5fa" },
   { key: "SDR",       label: "SDR / Sales",           count: "12K",  dot: "#a78bfa" },
   { key: "CS",        label: "Customer Success",      count: "9K",   dot: "#34d399" },
@@ -1283,13 +1282,12 @@ export function BrowseClient({
       <div className="bt-sbox">
         <div className="bt-sbox-title">Talent Pool</div>
         {/* Phase 6 A3: aligned with ROLE_FILTERS counts — same numbers, same
-            "K+" format, round-DOWN. Matches the chip values: All 50K+, Engineers
-            18K, SDR/Sales 12K, CS 9K, Design 6K. "Available Now" rounds the
-            previous 31,200+ to 31K+. */}
-        <div className="bt-pool-stat">
-          <span className="bt-pool-label">Total Candidates</span>
-          <span className="bt-pool-val" style={{ color: "#49D7A7" }}>{MARKETING_STATS.talentPool}</span>
-        </div>
+            "K+" format, round-DOWN.
+            Phase 7 C7-13: the "Total Candidates" row is gone. It rendered
+            MARKETING_STATS.talentPool ("1M+") as the size of the very set this
+            page queries, and the real total is already on the results line
+            below. The per-role figures here and on the chips are still asserted,
+            not queried — they are the same finding, unresolved. */}
         <div className="bt-pool-stat">
           <span className="bt-pool-label">Engineers</span>
           <span className="bt-pool-val" style={{ color: "#60a5fa" }}>18K+</span>
@@ -1326,7 +1324,11 @@ export function BrowseClient({
               <span className="bt-rc-dot" style={{ background: r.dot }} />
               <span className="bt-rc-name">{r.label}</span>
             </div>
-            <span className="bt-rc-count">{r.count}</span>
+            {/* The "All Talent" chip carries no count: its figure was
+                MARKETING_STATS.talentPool ("1M+") for the set this page queries.
+                An empty string would render an empty pill, so the span is
+                dropped instead. */}
+            {r.count !== "" && <span className="bt-rc-count">{r.count}</span>}
           </button>
         ))}
       </div>

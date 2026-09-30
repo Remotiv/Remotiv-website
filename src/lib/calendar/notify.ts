@@ -149,7 +149,7 @@ export async function sendBookingConfirmations(args: {
       </p>
       ${joinLine}
       <p style="margin:16px 0 0;color:#847E8C;font-size:13px;">
-        Times are shown in ${escapeHtml(args.candidateTimezone)}. If that isn't your timezone, reply to this email.
+        Times are shown in ${escapeHtml(args.candidateTimezone)}.
       </p>`;
 
     candidate = await deliverBooking(
@@ -312,7 +312,7 @@ export async function sendCancellationNotices(
       <p style="margin:0 0 4px;color:#847E8C;text-decoration:line-through;">${escapeHtml(candidateTime)}</p>
       ${reasonLine}
       <p style="margin:16px 0 0;color:#4A4550;">
-        ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Reply to this email if you'd like to arrange another time."}
+        ${cancelledByThem ? "They'll be in touch if there's another time that works." : "Your booking link no longer works, so a new time has to come from the hiring team."}
       </p>`;
     candidate = await deliverBooking(
       service,

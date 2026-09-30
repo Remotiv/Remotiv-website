@@ -402,10 +402,10 @@ function TeamFacepile({
             )}
           </div>
         )}
-        {/* AI interviews ship in a later step; 0 is the honest count. */}
-        <p className="m-0 mt-2.5 text-[11.5px] text-white/40">
-          0 interviews run this month
-        </p>
+        {/* No interview statistic here. The hard-coded "0 interviews run this
+            month" was false - async interviews do run - and this component is
+            passed no interview data to count, so there is nothing true to put
+            in its place. */}
     </div>
   );
 }
@@ -766,8 +766,8 @@ function RolePermissionsDrawer({
           ))}
 
           <p className="m-0 rounded-xl bg-[var(--ai-inset)] px-3.5 py-3 text-[11.5px] leading-relaxed text-[var(--ai-t3)]">
-            AI interviews and candidate verification aren&apos;t built yet. When
-            they ship they&apos;ll follow these same roles, and this list updates
+            The live AI interviewer and candidate verification aren&apos;t built yet.
+            When they ship they&apos;ll follow these same roles, and this list updates
             with them. Only the owner&apos;s role is fixed — it can&apos;t be
             changed or reassigned here.
           </p>
