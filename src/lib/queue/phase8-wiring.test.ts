@@ -111,7 +111,8 @@ test("035 verifies the live constraint before touching it and fails loudly other
   assert.match(migration, /constraint % not found/);
   // Skips, rather than fails, when already applied.
   assert.match(migration, /already includes job_dead and worker_stale; skipping/);
-  // Every existing value preserved, exactly two added.
+  // Every LIVE value preserved - the ten the database allowed on 2026-10-01,
+  // not the eight schema.sql listed - and exactly two added.
   for (const v of [
     "client_decision",
     "client_note",
@@ -121,10 +122,21 @@ test("035 verifies the live constraint before touching it and fails loudly other
     "profile_claimed",
     "profile_approved",
     "profile_rejected",
+    "shortlisted",
+    "profile_paused",
   ]) {
     assert.match(migration, new RegExp(`'${v}'`), `035 drops existing value ${v}`);
   }
   assert.match(migration, /v_added text\[\] := array\['job_dead', 'worker_stale'\]/);
+  // v_expected is exactly ten: it must end on profile_paused, and the
+  // already-applied branch must speak of twelve.
+  assert.match(migration, /'profile_rejected',\n\s*'shortlisted',\n\s*'profile_paused'\n\s*\];/);
+  assert.match(migration, /constraint has twelve values but is missing/);
+  // The header records the drift this verification caught, and the finding
+  // about the bulk pause, so neither has to be rediscovered.
+  assert.match(migration, /two values behind/);
+  assert.match(migration, /It fired zero times\./);
+  assert.match(migration, /shortlisted, profile_paused/);
   // The heartbeat table is single-row by construction and RLS-locked.
   assert.match(migration, /id\s+text primary key default 'worker' check \(id = 'worker'\)/);
   assert.match(migration, /alter table public\.worker_heartbeats enable row level security;/);
@@ -139,6 +151,9 @@ test("the notification union names both new events, and nothing else changed", (
     notifications.indexOf("export type NotificationInput"),
   );
   const values = [...union.matchAll(/"([a-z_]+)"/g)].map((m) => m[1]);
+  // Twelve: the eight the repo always knew, the two setTalentFlag writes
+  // directly and the live CHECK already allowed (the drift 035 caught), and
+  // the two Phase 8 alerts.
   assert.deepEqual(values, [
     "client_decision",
     "client_note",
@@ -148,9 +163,14 @@ test("the notification union names both new events, and nothing else changed", (
     "profile_claimed",
     "profile_approved",
     "profile_rejected",
+    "shortlisted",
+    "profile_paused",
     "job_dead",
     "worker_stale",
   ]);
+  // The direct writer and the union must agree, or the drift returns.
+  const talentActions = src("../../app/admin/talent/actions.ts");
+  assert.match(talentActions, /event_type: isShortlisted \? "shortlisted" : "profile_paused"/);
 });
 
 /* ── queue health: error state and the panel ────────────────── */

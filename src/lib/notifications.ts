@@ -11,6 +11,15 @@ export type NotificationEvent =
   | "profile_approved"
   | "profile_rejected"
   /**
+   * Talent-facing notices written DIRECTLY by src/app/admin/talent/actions.ts
+   * (setTalentFlag), not through notifyAllAdmins. The live CHECK constraint
+   * has allowed both since before this union was written; the union and
+   * schema.sql were two values behind the database until migration 035's
+   * verification refused the eight it expected and the drift was found.
+   */
+  | "shortlisted"
+  | "profile_paused"
+  /**
    * Operational alerts from the background worker (Phase 8). Both require
    * migration 035, which appends them to notifications_event_type_check; until
    * it is applied the insert fails and this function logs it, as it does every

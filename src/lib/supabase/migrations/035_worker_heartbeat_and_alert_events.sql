@@ -4,18 +4,39 @@
 -- NOT RUN BY ANY CODE PATH. Applied by hand in the Supabase SQL
 -- editor, like every other file in this folder.
 --
--- ── Read this first: the live constraint could not be read ──
+-- ── The repo's copy of this constraint was two values behind ──
 --
 -- PostgREST on this project exposes only `public` and
 -- `graphql_public` (PGRST106), so neither pg_catalog nor
--- information_schema is reachable from the repository, and the
--- committed schema.sql is known to be stale. This file therefore
--- does NOT trust schema.sql for the current CHECK constraint.
--- Instead it reads the LIVE definition inside a DO block and
--- refuses to proceed unless that definition holds exactly the
--- eight values the code expects. An unexpected constraint fails
--- loudly with its definition in the error, rather than being
--- silently replaced.
+-- information_schema is reachable from the repository. The first
+-- draft of this file therefore trusted src/lib/supabase/schema.sql,
+-- which lists EIGHT allowed event_type values. Its verification
+-- block was written to refuse anything else, and when the live
+-- definition was read by hand it refused: the database allows TEN.
+--
+--   live, 2026-10-01:  client_decision, client_note, stage_change,
+--                      candidate_added, new_inquiry, profile_claimed,
+--                      profile_approved, profile_rejected,
+--                      shortlisted, profile_paused
+--
+-- The two extra values are written by src/app/admin/talent/actions.ts
+-- (setTalentFlag), which inserts into `notifications` directly rather
+-- than through lib/notifications.ts, so neither schema.sql nor the
+-- NotificationEvent union there ever learned about them. That is
+-- exactly the drift this verification exists to catch, and it caught
+-- it before a single row was touched. This version expects the ten.
+--
+-- ── profile_paused, and the bulk pause of 2,483 profiles ─────
+--
+-- `profile_paused` is a talent-facing notice: setTalentFlag inserts it
+-- for the profile's OWN user_id when an admin pauses one profile in
+-- the admin UI, and only if the profile is claimed (an unclaimed row
+-- has no auth user to notify). The 30 September bulk pause was a raw
+-- SQL UPDATE that never passed through that code, and it paused only
+-- UNCLAIMED profiles by construction. Read-only count of the
+-- notifications table: two `profile_paused` rows ever, both on
+-- 2026-07-08, one recipient, zero on 2026-09-30. It did not fire
+-- 2,483 times. It fired zero times.
 --
 -- To see the live definition yourself before applying, run:
 --
@@ -39,7 +60,7 @@
 --    one `worker_stale` notification when a tick finds the previous
 --    heartbeat older than the staleness threshold, i.e. a
 --    retrospective record of an outage once the worker returns.
---    Every existing value is preserved; nothing is removed.
+--    All ten existing values are preserved. Twelve in total after.
 --
 -- Safe to re-run: the table is create-if-not-exists, and the
 -- constraint block detects an already-applied state and skips.
@@ -77,6 +98,8 @@ do $$
 declare
   v_def   text;
   v_name  text := 'notifications_event_type_check';
+  -- The TEN values the live database allowed on 2026-10-01. Not the
+  -- eight in schema.sql: see the header.
   v_expected text[] := array[
     'client_decision',
     'client_note',
@@ -85,7 +108,9 @@ declare
     'new_inquiry',
     'profile_claimed',
     'profile_approved',
-    'profile_rejected'
+    'profile_rejected',
+    'shortlisted',
+    'profile_paused'
   ];
   v_added text[] := array['job_dead', 'worker_stale'];
   v_val   text;
@@ -108,18 +133,20 @@ begin
   v_count := (length(v_def) - length(replace(v_def, '::text', ''))) / length('::text');
 
   -- Already applied? Then every expected AND added value is present and the
-  -- count is ten. Skip rather than fail, so a re-run is harmless.
+  -- count is twelve. Skip rather than fail, so a re-run is harmless.
   if v_count = array_length(v_expected, 1) + array_length(v_added, 1) then
     foreach v_val in array v_expected || v_added loop
       if position(quote_literal(v_val) || '::text' in v_def) = 0 then
-        raise exception '035: constraint has ten values but is missing %; definition: %', v_val, v_def;
+        raise exception '035: constraint has twelve values but is missing %; definition: %', v_val, v_def;
       end if;
     end loop;
     raise notice '035: notifications_event_type_check already includes job_dead and worker_stale; skipping.';
     return;
   end if;
 
-  -- Pre-state: exactly the eight expected values, no more, no fewer.
+  -- Pre-state: exactly the ten expected values, no more, no fewer. If the
+  -- database has drifted again since 2026-10-01, this refuses and prints
+  -- what it found, which is the correct outcome.
   if v_count <> array_length(v_expected, 1) then
     raise exception
       '035: expected exactly % allowed values but the live constraint has %. Not replacing an unexpected definition. Live definition: %',
@@ -134,7 +161,7 @@ begin
     end if;
   end loop;
 
-  -- Verified. Replace with the same eight plus the two new values.
+  -- Verified. Replace with the same ten plus the two new values.
   execute format('alter table public.notifications drop constraint %I', v_name);
   execute format(
     'alter table public.notifications add constraint %I check (event_type in (%s))',
