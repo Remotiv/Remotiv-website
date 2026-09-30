@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionFailed, actionIncomplete, queueFailed } from "@/app/ai-dashboard/lib/action-errors";
 import {
   type AddApplicantDuplicate,
   type ApplicantComment,
@@ -748,7 +749,9 @@ export async function updateApplicationStage(
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId);
 
-  if (updateErr) return { success: false, error: updateErr.message };
+  if (updateErr) {
+    return { success: false, error: actionFailed("save that stage change", updateErr) };
+  }
 
   // Audit row AFTER the stage lands. A failure here is logged but does NOT
   // fail the action: the move is the user's intent and it has already
@@ -901,7 +904,7 @@ export async function adjustScore(
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("save your adjustment", error) };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
@@ -934,7 +937,7 @@ export async function clearScoreAdjustment(
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("revert to the AI score", error) };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
@@ -1034,7 +1037,7 @@ export async function rescoreApplication(
   // One live scoring job per application (migration 030). A second click, or a
   // colleague's, is reported as already queued rather than as a second run.
   const queued = await requestCvScore(applicationId, ctx.companyId);
-  if (!queued.ok) return { success: false, error: queued.error };
+  if (!queued.ok) return { success: false, error: queueFailed("a re-score", queued.error) };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: { outcome: queued.outcome } };
@@ -1168,7 +1171,8 @@ export async function attachApplicationCv(
   const { error: uploadErr } = await service.storage
     .from(CV_BUCKET)
     .upload(path, check.bytes, { contentType: "application/pdf", upsert: false });
-  if (uploadErr) return { success: false, error: uploadErr.message };
+  // Nothing has been written yet: the row is untouched and no object landed.
+  if (uploadErr) return { success: false, error: actionFailed("attach that CV", uploadErr) };
 
   /*
    * Never throws by contract; wrapped anyway because a module-load failure in
@@ -1218,7 +1222,7 @@ export async function attachApplicationCv(
         error: err,
       });
     }
-    return { success: false, error: updateErr.message };
+    return { success: false, error: actionFailed("attach that CV", updateErr) };
   }
 
   /*
@@ -1232,7 +1236,7 @@ export async function attachApplicationCv(
   if (!queued.ok) {
     console.error("[applicants] CV attached but scoring could not be queued", {
       applicationId,
-      error: queued.error,
+      error: queueFailed("scoring for that CV", queued.error),
     });
   }
 
@@ -1547,8 +1551,13 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
 
   const applicationId = (insertedRow as { id: string }).id;
 
-  /** Drop the half-made applicant. Scoped by company like every other write. */
-  const removeRow = async (reason: string) => {
+  /**
+   * Drop the half-made applicant. Scoped by company like every other write.
+   * Returns whether the rollback landed: when it did, the caller may truthfully
+   * say nothing was changed; when it did not, an applicant without a CV is
+   * left behind and the caller must say so instead.
+   */
+  const removeRow = async (reason: string): Promise<boolean> => {
     const { error: delErr } = await service
       .from("job_applications")
       .delete()
@@ -1562,7 +1571,9 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
         applicationId,
         error: delErr.message,
       });
+      return false;
     }
+    return true;
   };
 
   // 2. The file. Same layout the apply route writes: the job's folder, a fresh
@@ -1573,8 +1584,13 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
     .upload(path, check.bytes, { contentType: "application/pdf", upsert: false });
 
   if (uploadErr) {
-    await removeRow("CV upload failed");
-    return { success: false, error: uploadErr.message };
+    const rolledBack = await removeRow("CV upload failed");
+    return {
+      success: false,
+      error: rolledBack
+        ? actionFailed("add that candidate", uploadErr)
+        : actionIncomplete("add that candidate", uploadErr),
+    };
   }
 
   // 3. Point the row at the file.
@@ -1596,8 +1612,13 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
         error: err,
       });
     }
-    await removeRow("CV path update failed");
-    return { success: false, error: updateErr.message };
+    const rolledBack = await removeRow("CV path update failed");
+    return {
+      success: false,
+      error: rolledBack
+        ? actionFailed("add that candidate", updateErr)
+        : actionIncomplete("add that candidate", updateErr),
+    };
   }
 
   /*
@@ -1611,7 +1632,7 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
   if (!queued.ok) {
     console.error("[applicants] candidate added but scoring could not be queued", {
       applicationId,
-      error: queued.error,
+      error: queueFailed("scoring for that candidate", queued.error),
     });
   }
 
@@ -1660,7 +1681,7 @@ export async function rescoreJob(
       .eq("company_id_snapshot", ctx.companyId)
       .range(from, from + PAGE - 1);
 
-    if (error) return { success: false, error: error.message };
+    if (error) return { success: false, error: actionFailed("start that re-score", error) };
     const batch = (data ?? []) as { id: string }[];
     ids.push(...batch.map((b) => b.id));
     if (batch.length < PAGE) break;
@@ -1772,7 +1793,9 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId);
 
-  if (delErr) return { success: false, error: delErr.message };
+  // The CV object above may already be gone when this fails, so this is not a
+  // "nothing was changed" case.
+  if (delErr) return { success: false, error: actionIncomplete("delete that applicant", delErr) };
 
   await notifyCompany({
     companyId: ctx.companyId,

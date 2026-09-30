@@ -47,6 +47,7 @@ import { WELCOME_FEATURES, type WelcomeFeatureId } from "@/app/ai-dashboard/lib/
  * first. The session fallback can therefore only ever HIDE it, never reveal
  * it, which is the safe direction for a flash.
  */
+import { useModalFocus } from "@/hooks/use-modal-focus";
 
 const ICONS: Record<WelcomeFeatureId, LucideIcon> = {
   cv: ScanSearch,
@@ -66,8 +67,6 @@ function dismissedThisSession(): boolean {
     return false;
   }
 }
-
-const FOCUSABLE = 'button, [href], input, select, textarea, [tabindex]:not([tabindex="-1"])';
 
 export function WelcomeModal() {
   const [open, setOpen] = useState(true);
@@ -115,46 +114,11 @@ export function WelcomeModal() {
    * cannot scroll — the exact failure this modal exists to get out of the way
    * of. Closing has to release what opening took.
    */
-  useEffect(() => {
-    if (!open) return;
-
-    buttonRef.current?.focus();
-
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") {
-        close();
-        return;
-      }
-      if (e.key !== "Tab") return;
-
-      const panel = panelRef.current;
-      if (!panel) return;
-      const items = [...panel.querySelectorAll<HTMLElement>(FOCUSABLE)];
-      if (items.length === 0) return;
-
-      const first = items[0];
-      const last = items[items.length - 1];
-      const active = document.activeElement;
-
-      // Wrap at both ends, and pull focus back in if it has escaped the panel
-      // entirely — which it has on the very first Tab after a click on the scrim.
-      if (e.shiftKey && (active === first || !panel.contains(active))) {
-        e.preventDefault();
-        last.focus();
-      } else if (!e.shiftKey && (active === last || !panel.contains(active))) {
-        e.preventDefault();
-        first.focus();
-      }
-    }
-
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, close]);
+  // Escape, Tab containment (with pull-back after a scrim click), scroll lock
+  // and an inert page behind - the trap this modal used to carry inline is now
+  // the shared primitive, keyed on `open` for the reason above. Initial focus
+  // is the primary button; `close` moves focus to <main> afterwards.
+  useModalFocus(panelRef, open, { onClose: close, initialFocus: buttonRef });
 
   if (!open) return null;
 

@@ -28,6 +28,7 @@ import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
 import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
 import {
@@ -61,6 +62,7 @@ import {
   scoreBand as bandKey,
 } from "@/app/ai-dashboard/lib/score-bands";
 import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { InterviewPanel } from "./_interview-panel";
 import {
   addApplicationComment,
@@ -480,7 +482,12 @@ function drawerScoreHeading(score: ApplicantScore): string {
 function PendingScore({ score }: { score?: ApplicantScore }) {
   const off = isScoringOff(score);
   return (
-    <div className="flex items-center gap-[9px]" title={score?.error ?? undefined}>
+    <div
+      className="flex items-center gap-[9px]"
+      // A failed row's error may be provider text on rows written before
+      // Phase 6; the Review card carries the safe sentence, so no tooltip.
+      title={score?.status === "failed" ? undefined : (score?.error ?? undefined)}
+    >
       <span
         className={`flex size-[38px] shrink-0 items-center justify-center rounded-full border-[1.5px] text-[var(--ai-t4)] ${
           off
@@ -1490,21 +1497,10 @@ function ApplicantDrawer({
   const applied = fmtApplied(row.created_at, clock);
   const stage = stageOf(row);
 
-  // Escape closes, body scroll locks, focus moves into the panel — the same
-  // mechanics as the shipped jobs drawer.
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  // Escape, scroll lock, focus in, Tab containment, inert page behind, and
+  // focus back to the row that opened it - all from the one modal primitive.
+  // A confirm dialog opened from inside this drawer stacks on top of it.
+  useModalFocus(panelRef, true, { onClose });
 
   /**
    * The drawer's authoritative score.
@@ -3888,7 +3884,7 @@ export function ApplicantsClient({
     const result = await dismissShortlistFlagAction(id);
     setDismissing(null);
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
     }
     // Either way: success needs the row's stored flag cleared, failure needs the
     // optimistic change undone. One refresh covers both.
@@ -4048,7 +4044,16 @@ export function ApplicantsClient({
   const [addBusy, setAddBusy] = useState(false);
   const [addError, setAddError] = useState<string | null>(null);
   const [addDuplicate, setAddDuplicate] = useState<AddApplicantDuplicate | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
+
+  // The two page-level dialogs. Each stacks over the drawer when opened from
+  // it; Escape closes the top one only, and focus returns into the drawer.
+  const addDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(addDialogRef, addOpen, { onClose: () => setAddOpen(false) });
+  const deleteDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(deleteDialogRef, deleteTarget !== null, {
+    onClose: () => setDeleteTarget(null),
+  });
 
   /** The open applicant's message trail, and the composer over it. */
   const [messages, setMessages] = useState<CandidateMessage[]>([]);
@@ -4077,12 +4082,6 @@ export function ApplicantsClient({
   const [scoreSaving, setScoreSaving] = useState(false);
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, ApplicantScore>>({});
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const rows = useMemo(
     () =>
@@ -4249,7 +4248,7 @@ export function ApplicantsClient({
     deadLinkReportedFor.current = deepLinkId;
     setOpenId((current) => (current === deepLinkId ? null : current));
     setToast("That applicant isn't in your list — they may have been deleted.");
-  }, [deepLinkId, rows]);
+  }, [deepLinkId, rows, setToast]);
 
   /**
    * Permanent delete. Optimistic: the row leaves the list immediately and is
@@ -4266,7 +4265,7 @@ export function ApplicantsClient({
     setDeleting(false);
 
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
 
@@ -4393,7 +4392,7 @@ export function ApplicantsClient({
 
     if (!result.success) {
       setStageOverrides((prev) => ({ ...prev, [id]: previous }));
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
 
@@ -4451,7 +4450,7 @@ export function ApplicantsClient({
     if (!result.success) {
       setScoreDetail(beforeDetail);
       setScoreOverrides((prev) => ({ ...prev, [id]: beforeScore }));
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
 
@@ -4497,7 +4496,7 @@ export function ApplicantsClient({
     if (!result.success) {
       setScoreDetail(beforeDetail);
       setScoreOverrides((prev) => ({ ...prev, [id]: beforeScore }));
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
 
@@ -4532,7 +4531,7 @@ export function ApplicantsClient({
     }
     setRescoringId(null);
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
     setToast(
@@ -4571,7 +4570,7 @@ export function ApplicantsClient({
     }
     setAttachingId(null);
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
     const { cvReadable, cvTextChars, minCvTextChars, scoreQueued } = result.data;
@@ -5273,10 +5272,11 @@ export function ApplicantsClient({
       {addOpen && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
           <div
+            ref={addDialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="add-applicant-title"
-            className="max-h-full w-full max-w-md overflow-y-auto rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+            className="max-h-full w-full max-w-md overflow-y-auto rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
           >
             {/* Uncontrolled on purpose. Five fields that are read once, on
                 submit, and never compared against each other — five useStates
@@ -5457,10 +5457,11 @@ export function ApplicantsClient({
       {deleteTarget && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
           <div
+            ref={deleteDialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-delete-applicant"
-            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
           >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
@@ -5501,17 +5502,7 @@ export function ApplicantsClient({
         </div>
       )}
 
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-[9px] rounded-[13px] bg-[var(--ai-sidebar)] px-[19px] py-[13px] text-[13.5px] font-semibold text-white shadow-[0_18px_44px_rgba(0,0,0,0.34)]"
-        >
-          <Check className="size-4 shrink-0 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }

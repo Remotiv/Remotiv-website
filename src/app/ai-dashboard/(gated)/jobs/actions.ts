@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionFailed, actionIncomplete } from "@/app/ai-dashboard/lib/action-errors";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import {
   assertPublishableQuestions,
@@ -748,7 +749,7 @@ export async function createCompanyJob(
         error: "That job link was just taken. Try again.",
       };
     }
-    return { success: false, error: error.message };
+    return { success: false, error: actionFailed("create that job", error) };
   }
 
   const row = data as { id: string; slug: string | null };
@@ -847,7 +848,7 @@ export async function updateCompanyJob(
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("save those changes", error) };
 
   /*
    * ── Weights moved: recompute, don't re-score ──
@@ -1114,7 +1115,7 @@ export async function updateCompanyJobStatus(
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("change that job's status", error) };
 
   // 'on_hold' is the product's Draft; moving a job back to it is routine
   // editing rather than an event the team needs told about.
@@ -1179,7 +1180,9 @@ export async function setCompanyJobArchived(
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) {
+    return { success: false, error: actionFailed("change that job's archive status", error) };
+  }
 
   if (archived) {
     await notifyCompany({
@@ -1220,7 +1223,7 @@ export async function deleteCompanyJob(jobId: string): Promise<MutationResult<un
     .from("job_applications")
     .update({ job_title_snapshot: owned.title })
     .eq("job_id", jobId);
-  if (snapErr) return { success: false, error: snapErr.message };
+  if (snapErr) return { success: false, error: actionFailed("delete that job", snapErr) };
 
   const { error } = await supabase
     .from("jobs")
@@ -1228,7 +1231,9 @@ export async function deleteCompanyJob(jobId: string): Promise<MutationResult<un
     .eq("id", jobId)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  // The title snapshots above have already been written when this fails, so
+  // this is not a "nothing was changed" case.
+  if (error) return { success: false, error: actionIncomplete("delete that job", error) };
 
   revalidateJobSurfaces();
   return { success: true, data: undefined };
@@ -1282,7 +1287,7 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
     .select("id")
     .single();
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("duplicate that job", error) };
 
   const copyId = (created as { id: string }).id;
   await seedHiringTeam(supabase, ctx, copyId);

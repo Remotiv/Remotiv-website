@@ -1,6 +1,7 @@
 "use client";
 
 import { useEffect, useMemo, useRef, useState } from "react";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { useRouter, useSearchParams } from "next/navigation";
 import {
   Check,
@@ -28,6 +29,7 @@ import {
 } from "@/app/ai-dashboard/lib/company-roles";
 import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
 import {
   inviteMember,
@@ -469,19 +471,7 @@ function MemberDrawer({
   const tint = getTint(member.email || member.id, member.is_owner);
   const last = fmtLastActive(member.last_sign_in_at);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  useModalFocus(panelRef, true, { onClose });
 
   const title = pending ? member.email : member.name;
 
@@ -678,19 +668,7 @@ function RolePermissionsDrawer({
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose]);
+  useModalFocus(panelRef, true, { onClose });
 
   return (
     <div className="fixed inset-0 z-40 flex">
@@ -979,21 +957,20 @@ function InviteModal({
     }
   }
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape" && !submitting) onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [onClose, submitting]);
+  // Escape is refused while the invite is in flight, as before.
+  const dialogRef = useRef<HTMLDivElement>(null);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, true, {
+    onClose: submitting ? undefined : onClose,
+    overlayRef,
+    initialFocus: "first",
+  });
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm"
+    >
       <button
         type="button"
         aria-label="Close modal"
@@ -1001,10 +978,11 @@ function InviteModal({
         className="absolute inset-0 -z-10 cursor-default"
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-labelledby="invite-modal-title"
-        className="w-full max-w-[470px] overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
+        className="w-full max-w-[470px] overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
       >
         {/* Dark modal hero. Both <p> elements below carry an explicit colour —
             the DS's global `p { color:#444 }` beats inherited white here. */}
@@ -1166,17 +1144,18 @@ export function TeamClient({
   const [openId, setOpenId] = useState<string | null>(null);
   const [removeTarget, setRemoveTarget] = useState<TeamMemberRow | null>(null);
   const [removing, setRemoving] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
+
+  // Stacks over the member drawer when opened from it (Phase 6, A6-16).
+  const removeDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(removeDialogRef, removeTarget !== null, {
+    onClose: () => setRemoveTarget(null),
+  });
 
   useEffect(() => {
     setMembers(initialMembers);
   }, [initialMembers]);
 
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   const activeMembers = members.filter((m) => m.status === "active");
   const pendingMembers = members.filter((m) => m.status === "invited");
@@ -1261,7 +1240,7 @@ export function TeamClient({
       setMembers((prev) =>
         prev.map((m) => (m.id === member.id ? { ...m, role: previous } : m)),
       );
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
     }
   }
 
@@ -1283,7 +1262,7 @@ export function TeamClient({
       );
       router.refresh();
     } else {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
     }
   }
 
@@ -1294,7 +1273,7 @@ export function TeamClient({
       setToast(`Invitation resent to ${member.email}`);
       router.refresh();
     } else {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
     }
   }
 
@@ -1660,10 +1639,11 @@ export function TeamClient({
       {removeTarget && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
           <div
+            ref={removeDialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="remove-member-title"
-            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
           >
             <div className="flex flex-col items-center p-8 text-center">
               <div className="mb-4 flex size-14 items-center justify-center rounded-full bg-[var(--ai-danger-tint)]">
@@ -1721,17 +1701,7 @@ export function TeamClient({
         </div>
       )}
 
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-xl bg-[var(--ai-sidebar)] px-[18px] py-3 text-[13.5px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.3)]"
-        >
-          <Check className="size-4 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }

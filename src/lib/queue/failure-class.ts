@@ -163,6 +163,40 @@ export function toJobError(err: unknown): unknown {
  * only: the provider's own text goes to the job's last_error, never to a
  * column a page renders.
  */
+/**
+ * Every sentence safeFailureSentence can produce, plus the fixed sentences
+ * the transcribe handler writes itself. A recruiter-facing surface renders a
+ * stored `error` only if it is one of these; anything else is a raw provider
+ * or database message from before the write path was made safe, and gets the
+ * surface's fixed fallback instead (Phase 6, A6-26).
+ */
+export function isSafeFailureSentence(text: string | null | undefined): boolean {
+  if (!text) return false;
+  if (SAFE_SENTENCES.has(text)) return true;
+  return /^Recording is \d+MB, over the \d+MB transcription limit\.$/.test(text);
+}
+
+const SAFE_SENTENCES: ReadonlySet<string> = new Set([
+  ...(["transcription", "scoring"] as const).flatMap((what) =>
+    [
+      { failureClass: "configuration", status: 401 },
+      { failureClass: "configuration", status: null },
+      { failureClass: "billing", status: null },
+      { failureClass: "deterministic", status: null },
+      { failureClass: "retryable", status: null },
+    ].map((c) =>
+      safeFailureSentence(
+        { ...c, retryable: c.failureClass === "retryable", summary: "" } as Classification,
+        what,
+      ),
+    ),
+  ),
+  "Transcription returned nothing.",
+  "Answer has no video to transcribe.",
+  "Transcription failed for this answer.",
+  "Scoring didn't complete. The CV is unaffected.",
+]);
+
 export function safeFailureSentence(c: Classification, what: "transcription" | "scoring"): string {
   const noun = what === "transcription" ? "Transcription" : "Scoring";
   switch (c.failureClass) {

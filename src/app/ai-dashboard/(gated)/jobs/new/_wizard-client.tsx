@@ -21,6 +21,7 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import {
   AUTOSHORTLIST_DEFAULT_THRESHOLD,
   AUTOSHORTLIST_SOURCE_LABELS,
@@ -53,6 +54,7 @@ import {
   weightShares,
   weightsAreEqual,
 } from "@/app/ai-dashboard/lib/job-types";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -1040,9 +1042,15 @@ export function WizardClient({
   const [state, setState] = useState<CompanyJobInput>(initialState ?? EMPTY_JOB_INPUT);
   const [step, setStep] = useState(1);
   const [errors, setErrors] = useState<Record<string, string>>({});
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, showToast] = useToast();
   const [submitting, setSubmitting] = useState(false);
   const [published, setPublished] = useState<{ title: string } | null>(null);
+
+  // "Your job is live" - modal, so Escape and focus are handled (A6-16).
+  const publishedDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(publishedDialogRef, published !== null, {
+    onClose: () => setPublished(null),
+  });
 
   // Collapsed by default: Review's job is to get to Publish, and five toggles
   // above the publish note would bury it. Every option already has a default.
@@ -1311,13 +1319,6 @@ export function WizardClient({
 
   // Publishing inserts a row; a double-click would create two jobs.
   const inFlightRef = useRef(false);
-  const toastTimer = useRef<ReturnType<typeof setTimeout> | null>(null);
-
-  function showToast(message: string) {
-    setToast(message);
-    if (toastTimer.current) clearTimeout(toastTimer.current);
-    toastTimer.current = setTimeout(() => setToast(null), 2600);
-  }
 
   function set<K extends keyof CompanyJobInput>(key: K, value: CompanyJobInput[K]) {
     setState((prev) => ({ ...prev, [key]: value }));
@@ -2737,7 +2738,7 @@ export function WizardClient({
                       Hiring team
                     </p>
                     {isEdit && jobId ? (
-                      <HiringTeamSection jobId={jobId} onToast={setToast} />
+                      <HiringTeamSection jobId={jobId} onToast={showToast} />
                     ) : (
                       <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
                         You&apos;ll be added to this job&apos;s hiring team when you publish it.
@@ -3155,10 +3156,11 @@ export function WizardClient({
       {published && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.45)] p-6 backdrop-blur-sm">
           <div
+            ref={publishedDialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="published-title"
-            className="w-full max-w-[420px] rounded-[22px] bg-white px-[30px] py-[34px] text-center shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+            className="w-full max-w-[420px] rounded-[22px] bg-white px-[30px] py-[34px] text-center shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
           >
             <div className="mx-auto mb-4 flex size-[62px] items-center justify-center rounded-full bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]">
               <Check className="size-[30px]" strokeWidth={2.4} />
@@ -3195,17 +3197,7 @@ export function WizardClient({
         </div>
       )}
 
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-xl bg-[var(--ai-sidebar)] px-[18px] py-3 text-[13.5px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.3)]"
-        >
-          <Check className="size-4 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </div>
   );
 }

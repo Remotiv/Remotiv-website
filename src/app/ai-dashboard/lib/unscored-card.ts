@@ -1,3 +1,4 @@
+import { isSafeFailureSentence } from "@/lib/queue/failure-class";
 import type { ApplicantScoringFacts, ScoreStatus } from "./applicant-types";
 
 /**
@@ -140,10 +141,14 @@ export function unscoredCardState(input: {
   }
 
   if (input.scoreStatus === "failed") {
+    // Rows written since Phase 6 carry a fixed safe sentence in `error`; older
+    // rows carry the provider's own text, which a recruiter must not read.
+    // Only a known safe sentence is shown; anything else gets the fallback.
+    const stored = isSafeFailureSentence(input.scoreError) ? input.scoreError : null;
     return withControl({
       kind: "failed",
       heading: "Scoring failed",
-      body: input.scoreError ?? "Scoring didn't complete. The CV is unaffected.",
+      body: `${stored ?? "Scoring didn't complete."} The CV is unaffected - re-score to try again.`,
       control: "rescore",
     });
   }

@@ -13,7 +13,7 @@ import { useEffect, useRef, useState } from "react";
 import { createPortal } from "react-dom";
 import { attributionFields } from "@/app/jobs/_attribution";
 import { type BrandPreset, brandTokens } from "@/components/white-label/brand";
-import { useFocusTrap } from "@/hooks/use-focus-trap";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { looksLikeClaimToken } from "@/lib/claim-token-shape";
 import type { Job, ScreeningQuestion } from "@/lib/jobs";
 import "./apply-modal.css";
@@ -104,10 +104,7 @@ export default function ApplyModal({
   const [duplicateMsg, setDuplicateMsg] = useState<{ appliedAt: string | null } | null>(null);
 
   const fileRef = useRef<HTMLInputElement>(null);
-  // Focus trap + focus-restore. The hook moves initial focus into the modal,
-  // cycles Tab/Shift+Tab within it, and restores focus on unmount.
   const modalRef = useRef<HTMLDivElement>(null);
-  useFocusTrap(modalRef, true);
 
   // SSR-safe mount guard — document.body isn't defined on the server, so the
   // portal target only exists after mount. Mirrors pricing/_tier-cta.tsx.
@@ -116,16 +113,14 @@ export default function ApplyModal({
     setMounted(true);
   }, []);
 
-  // Lock background scroll while the modal is open. The modal only mounts when
-  // open, so mount/unmount is the correct lock/unlock boundary. Restore the
-  // previous value rather than hardcoding so we don't clobber another lock.
-  useEffect(() => {
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.body.style.overflow = prev;
-    };
-  }, []);
+  /*
+   * Focus, trap, Escape, scroll lock, inert background and focus-restore, all
+   * from the one modal primitive. `mounted` - NOT `true` - is the active flag:
+   * the dialog is portalled only after the guard above flips, and a trap
+   * started on the first render found no container and never ran again, so
+   * focus stayed on the Apply button behind the dialog (Phase 6, A6-3).
+   */
+  useModalFocus(modalRef, mounted, { onClose, initialFocus: "first" });
 
   // Auto-close after success — but only when we have nothing more to offer.
   // When a bridge token is present, the success modal renders the
@@ -135,15 +130,6 @@ export default function ApplyModal({
     const t = setTimeout(onClose, 3000);
     return () => clearTimeout(t);
   }, [success, bridgeToken, onClose]);
-
-  // Close on Escape
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
 
   function setField(key: keyof typeof EMPTY_APPLY, value: string) {
     setForm((prev) => ({ ...prev, [key]: value }));

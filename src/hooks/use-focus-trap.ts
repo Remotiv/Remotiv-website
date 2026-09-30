@@ -1,69 +1,26 @@
 "use client";
 
-import { useEffect, type RefObject } from "react";
+import type { RefObject } from "react";
+import { useModalFocus } from "./use-modal-focus";
 
 /**
- * Focus trap hook for modal-like UIs. While `active` is true:
- * - Focuses the first focusable element inside `containerRef` on mount
- * - Cycles Tab / Shift+Tab within the container
- * - Restores focus to the previously-focused element when deactivated
+ * Focus trap for modal-like UIs, kept for its existing callers (filter
+ * drawers, pricing modal, hire-request wizard). Since Phase 6 it is a thin
+ * wrapper over useModalFocus (the one implementation) with the same
+ * semantics it always had: initial focus on the first focusable, Tab cycling,
+ * focus restored on deactivate. It does NOT close on Escape, lock scroll or
+ * inert the page - callers that want a true modal use useModalFocus directly.
  *
  * The container ref must point to an element that wraps all focusable
- * content. Disabled or `inert` elements are skipped.
- *
- * Mirrors the pattern used inline by ProfileModal; centralized here so
- * PricingModal, the filter drawer, and any future modal can reuse it.
+ * content, and `active` must be false until that element is rendered.
  */
 export function useFocusTrap<T extends HTMLElement>(
   containerRef: RefObject<T | null>,
   active: boolean,
 ): void {
-  useEffect(() => {
-    if (!active) return;
-    const container = containerRef.current;
-    if (!container) return;
-
-    const previouslyFocused = (document.activeElement as HTMLElement | null) ?? null;
-
-    const getFocusable = (): HTMLElement[] => {
-      const selector =
-        'button:not([disabled]), [href], input:not([disabled]), select:not([disabled]), textarea:not([disabled]), [tabindex]:not([tabindex="-1"])';
-      return Array.from(container.querySelectorAll<HTMLElement>(selector))
-        .filter((el) => !el.hasAttribute("inert") && el.offsetParent !== null);
-    };
-
-    // Set initial focus on first focusable element
-    const initial = getFocusable()[0];
-    initial?.focus();
-
-    const handleKeyDown = (e: KeyboardEvent) => {
-      if (e.key !== "Tab") return;
-      const focusables = getFocusable();
-      if (focusables.length === 0) {
-        e.preventDefault();
-        return;
-      }
-      const first = focusables[0];
-      const last = focusables[focusables.length - 1];
-      const current = document.activeElement as HTMLElement | null;
-
-      if (e.shiftKey) {
-        if (current === first || !container.contains(current)) {
-          e.preventDefault();
-          last.focus();
-        }
-      } else {
-        if (current === last) {
-          e.preventDefault();
-          first.focus();
-        }
-      }
-    };
-
-    container.addEventListener("keydown", handleKeyDown);
-    return () => {
-      container.removeEventListener("keydown", handleKeyDown);
-      previouslyFocused?.focus?.();
-    };
-  }, [active, containerRef]);
+  useModalFocus(containerRef, active, {
+    initialFocus: "first",
+    lockScroll: false,
+    inertOutside: false,
+  });
 }

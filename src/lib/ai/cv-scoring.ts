@@ -12,6 +12,7 @@ import {
 import {
   classifyProviderError,
   JobYield,
+  safeFailureSentence,
   TerminalJobError,
   toJobError,
 } from "@/lib/queue/failure-class";
@@ -1506,13 +1507,17 @@ export async function handleAiCvScore(
     // Record the failure so the UI can show it, then rethrow so the queue
     // applies backoff or, for a terminal class, buries the job. NOT swallowed.
     const jobErr = toJobError(err);
-    const message = jobErr instanceof Error ? jobErr.message : String(jobErr);
+    // The row's `error` is what the recruiter reads in the drawer, so it gets
+    // the fixed safe sentence for the failure class - never the provider's
+    // text, which stays in the log below and in background_jobs.last_error
+    // (Phase 6, A6-26).
+    console.error(`[cv-scoring] application ${app.id} failed:`, jobErr);
     await writeScoreRow({
       application_id: app.id,
       company_id: app.company_id_snapshot,
       job_id: app.job_id,
       status: "failed",
-      error: message.slice(0, 1000),
+      error: safeFailureSentence(classifyProviderError(jobErr), "scoring"),
       screening_score: computeScreeningScore(screeningAnswers),
       ai_model: resolveScoringModel(),
       prompt_version: PROMPT_VERSION,

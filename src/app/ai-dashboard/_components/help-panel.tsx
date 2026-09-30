@@ -1,8 +1,9 @@
 "use client";
 
 import { LifeBuoy, X } from "lucide-react";
-import { useEffect, useRef } from "react";
+import { useRef } from "react";
 import { GUIDES } from "@/app/ai-dashboard/lib/tips";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 
 /**
  * Help: the product guides, reopenable after their tip has been dismissed.
@@ -29,23 +30,9 @@ import { GUIDES } from "@/app/ai-dashboard/lib/tips";
 export function HelpPanel({ onClose }: { onClose: () => void }) {
   const panelRef = useRef<HTMLDivElement>(null);
 
-  useEffect(() => {
-    const opener = document.activeElement as HTMLElement | null;
-
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    panelRef.current?.focus();
-
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-      opener?.focus?.();
-    };
-  }, [onClose]);
+  // Escape, scroll lock, focus in and back to the opener, plus - since Phase 6
+  // - Tab containment and an inert page behind, from the one modal primitive.
+  useModalFocus(panelRef, true, { onClose });
 
   return (
     <div className="fixed inset-0 z-50 flex">

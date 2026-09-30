@@ -2,6 +2,7 @@
 
 import { useEffect, useMemo, useRef, useState } from "react";
 import { Link2, Save, Send, X } from "lucide-react";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { sendManualMessage } from "./actions";
 import {
   BODY_MAX,
@@ -115,19 +116,12 @@ export function Composer({
     return () => window.clearTimeout(t);
   }, [open, presetApplicationId]);
 
-  useEffect(() => {
-    if (!open) return;
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-    };
-  }, [open, onClose]);
+  // Escape, scroll lock, Tab containment, inert page and focus return come
+  // from the modal primitive; the field focus above (60ms later) still wins
+  // the initial-focus race, as intended.
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, open, { onClose, overlayRef });
 
   const recipient = useMemo(
     () => recipients.find((r) => r.applicationId === to) ?? null,
@@ -202,7 +196,10 @@ export function Composer({
   const tint = recipient ? tintFor(recipient.applicationId) : null;
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]"
+    >
       <button
         type="button"
         aria-label="Close"
@@ -211,10 +208,11 @@ export function Composer({
       />
 
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label="New message"
-        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[580px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
+        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[580px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
       >
         <div className="bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
           <div className="flex items-start justify-between gap-3.5">

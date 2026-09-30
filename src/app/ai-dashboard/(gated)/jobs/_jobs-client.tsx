@@ -24,6 +24,7 @@ import { useRouter, useSearchParams } from "next/navigation";
 import { useEffect, useMemo, useRef, useState } from "react";
 import { DashboardHero } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
 import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import {
@@ -33,6 +34,7 @@ import {
 } from "@/app/ai-dashboard/lib/job-types";
 // Lives with the applicants actions, not the jobs ones — it operates on
 // application_scores and re-checks ownership through company_id_snapshot.
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { rescoreJob } from "../applicants/actions";
 import { HiringTeamSection } from "./_hiring-team";
 import {
@@ -646,17 +648,16 @@ export function JobsClient({
     kind: "close" | "delete" | "rescore" | "archive";
   } | null>(null);
   const [busy, setBusy] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
+
+  // The confirm dialog (archive / close / re-score all). Stacks over the job
+  // drawer when opened from it; Escape closes the dialog only.
+  const confirmDialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(confirmDialogRef, confirm !== null, { onClose: () => setConfirm(null) });
 
   useEffect(() => {
     setJobs(initialJobs);
   }, [initialJobs]);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = setTimeout(() => setToast(null), 2600);
-    return () => clearTimeout(t);
-  }, [toast]);
 
   /**
    * Tab counts.
@@ -797,7 +798,10 @@ export function JobsClient({
       setJobs((prev) =>
         prev.map((j) => (j.id === job.id ? { ...j, archived_at: job.archived_at } : j)),
       );
-      setToast(result.error ?? "Something went wrong. Please try again.");
+      setToast({
+        message: result.error ?? "Something went wrong. Please try again.",
+        tone: "error",
+      });
       return;
     }
     setToast(archived ? `“${job.title}” archived` : `“${job.title}” restored`);
@@ -813,7 +817,7 @@ export function JobsClient({
       router.refresh();
     } else {
       setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, status: previous } : j)));
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
     }
   }
 
@@ -878,7 +882,10 @@ export function JobsClient({
       );
       router.refresh();
     } else {
-      setToast(result.error ?? "Something went wrong. Please try again.");
+      setToast({
+        message: result.error ?? "Something went wrong. Please try again.",
+        tone: "error",
+      });
     }
   }
 
@@ -1398,10 +1405,11 @@ export function JobsClient({
       {confirm && (
         <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.4)] p-6 backdrop-blur-sm">
           <div
+            ref={confirmDialogRef}
             role="dialog"
             aria-modal="true"
             aria-labelledby="confirm-job-title"
-            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)]"
+            className="w-full max-w-sm overflow-hidden rounded-[20px] bg-white shadow-[0_40px_100px_rgba(0,0,0,0.35)] outline-none"
           >
             <div className="flex flex-col items-center p-8 text-center">
               {/* Re-score spends money but destroys nothing, so it gets the
@@ -1518,17 +1526,7 @@ export function JobsClient({
         </div>
       )}
 
-      {toast && (
-        <div
-          role="status"
-          aria-live="polite"
-          aria-atomic="true"
-          className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-xl bg-[var(--ai-sidebar)] px-[18px] py-3 text-[13.5px] font-medium text-white shadow-[0_16px_40px_rgba(0,0,0,0.3)]"
-        >
-          <Check className="size-4 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }

@@ -2,6 +2,7 @@
 
 import { AlertTriangle, Calendar, Check, Clock, Globe, Video, X } from "lucide-react";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { errorCopyFor } from "./_error-copy";
 
 /**
  * The candidate's booking page.
@@ -172,34 +173,23 @@ function zoneLabel(iso: string, zone: string): string {
   }
 }
 
-const ERROR_COPY: Record<string, string> = {
-  not_found: "This booking link isn't valid. Check the link in your email, or reply to it.",
-  expired: "This booking link has expired. Reply to the email and we'll send a new one.",
-  cancelled: "This interview was cancelled. Reply to the email if that's unexpected.",
-  slot_taken: "That time was just taken. Pick another below.",
-  too_late_to_move:
-    "This interview is less than 24 hours away, so it can't be moved now — but you can still cancel it.",
-  too_late_to_cancel: "This interview has already started.",
-  already_cancelled: "This interview is already cancelled.",
-  not_booked: "This interview isn't booked, so there's nothing to change.",
-  provider_failed:
-    "We couldn't move it in the interviewer's calendar, so nothing was changed. Try again in a moment.",
-  already_booked: "This interview is already booked.",
-  bad_timezone: "That timezone wasn't recognised. Pick one from the list.",
-  calendar_failed: "We couldn't put that on the interviewer's calendar. Try another time.",
-  unavailable: "Times aren't available right now. Try again shortly.",
-  /*
-   * NOT `not_found`, and deliberately not folded into `unavailable` above —
-   * that one is about the interviewer having no slots, which would be a second
-   * wrong answer. This is the lookup itself failing, and it is the one message
-   * on this page where getting the tone wrong costs someone an interview: told
-   * their link is invalid, a candidate concludes the process is over and stops.
-   * So it says plainly that the link is fine.
-   */
-  lookup_failed:
-    "We couldn't check your link just now — that's on us, not your link. Refresh the page, or try again in a minute.",
-  network: "Something went wrong. Check your connection and try again.",
-};
+/**
+ * A failure the candidate must see, wherever the action that failed lives.
+ * `role="alert"` so a screen reader hears it when it appears: the cancel and
+ * reschedule failures used to be set but never rendered in the booked state
+ * (Phase 6, A6-4).
+ */
+function NoticeBanner({ text }: { text: string }) {
+  return (
+    <p
+      role="alert"
+      className="mb-4 flex items-start gap-2.5 rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-[13px] text-amber-800"
+    >
+      <AlertTriangle className="mt-px size-4 shrink-0" strokeWidth={2.2} />
+      {text}
+    </p>
+  );
+}
 
 export function BookingClient({ token }: { token: string }) {
   const [zone, setZone] = useState<string>("UTC");
@@ -257,7 +247,7 @@ export function BookingClient({ token }: { token: string }) {
         });
         const body = await res.json();
         if (!res.ok) {
-          setNotice(ERROR_COPY[body?.error] ?? ERROR_COPY.network);
+          setNotice(errorCopyFor(body?.error));
           // A lost race means the offer is stale. Re-read rather than leaving
           // a slot on screen that is no longer bookable.
           if (body?.error === "slot_taken") void load();
@@ -280,7 +270,7 @@ export function BookingClient({ token }: { token: string }) {
           slots: [],
         }));
       } catch {
-        setNotice(ERROR_COPY.network);
+        setNotice(errorCopyFor("network"));
       } finally {
         setConfirming(null);
       }
@@ -300,13 +290,13 @@ export function BookingClient({ token }: { token: string }) {
       });
       const body = await res.json().catch(() => null);
       if (!res.ok) {
-        setNotice(ERROR_COPY[body?.error] ?? ERROR_COPY.network);
+        setNotice(errorCopyFor(body?.error));
         return;
       }
       setMode(null);
       await load();
     } catch {
-      setNotice(ERROR_COPY.network);
+      setNotice(errorCopyFor("network"));
     } finally {
       setBusy(false);
     }
@@ -325,7 +315,7 @@ export function BookingClient({ token }: { token: string }) {
         });
         const body = await res.json().catch(() => null);
         if (!res.ok) {
-          setNotice(ERROR_COPY[body?.error] ?? ERROR_COPY.network);
+          setNotice(errorCopyFor(body?.error));
           // A lost race or a closed window both mean the offer is stale.
           if (body?.error === "slot_taken" || body?.error === "too_late_to_move") {
             setMode(null);
@@ -336,7 +326,7 @@ export function BookingClient({ token }: { token: string }) {
         setMode(null);
         await load();
       } catch {
-        setNotice(ERROR_COPY.network);
+        setNotice(errorCopyFor("network"));
       } finally {
         setConfirming(null);
       }
@@ -430,9 +420,7 @@ export function BookingClient({ token }: { token: string }) {
           <div className={CARD}>
             <AlertTriangle className="mb-3 size-6 text-amber-500" strokeWidth={2} />
             <h1 className="font-heading text-xl font-bold text-gray-900">Can't open this link</h1>
-            <p className="mt-2 text-sm leading-relaxed text-gray-500">
-              {ERROR_COPY[state.code] ?? ERROR_COPY.network}
-            </p>
+            <p className="mt-2 text-sm leading-relaxed text-gray-500">{errorCopyFor(state.code)}</p>
           </div>
         )}
 
@@ -509,6 +497,14 @@ export function BookingClient({ token }: { token: string }) {
               A confirmation is on its way to your inbox, and it's in{" "}
               {state.hostName || "your interviewer"}'s calendar.
             </p>
+
+            {/* The cancel and reschedule actions live in THIS card, so their
+                failures must render here - not only in the open state below. */}
+            {notice && (
+              <div className="mt-5">
+                <NoticeBanner text={notice} />
+              </div>
+            )}
 
             <div className="mt-6 flex flex-wrap items-center gap-3 border-t border-gray-100 pt-5">
               {state.canReschedule && (
@@ -701,12 +697,7 @@ export function BookingClient({ token }: { token: string }) {
               </span>
             </div>
 
-            {notice && (
-              <p className="mb-4 flex items-start gap-2.5 rounded-2xl border border-amber-300/50 bg-amber-50 px-4 py-3 text-[13px] text-amber-800">
-                <AlertTriangle className="mt-px size-4 shrink-0" strokeWidth={2.2} />
-                {notice}
-              </p>
-            )}
+            {notice && <NoticeBanner text={notice} />}
 
             {state.slots.length === 0 ? (
               <div className={CARD}>

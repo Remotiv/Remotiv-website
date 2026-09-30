@@ -2,6 +2,7 @@
 
 import { useCallback, useEffect, useRef, useState } from "react";
 import {
+  AlertTriangle,
   ArrowRight,
   Check,
   CircleAlert,
@@ -20,6 +21,7 @@ import {
   Wifi,
 } from "lucide-react";
 import type { CandidateQuestion, CandidateSession } from "@/lib/interviews/types";
+import { useAnnouncer } from "@/components/live-region";
 import { InterviewShell, UnsupportedScreen } from "./_terminal";
 import {
   classifyMediaError,
@@ -244,13 +246,49 @@ export function InterviewFlow({
   questionsRef.current = questions;
   const [screen, setScreen] = useState<Screen>("welcome");
   const [supported, setSupported] = useState<boolean | null>(null);
-  const [toast, setToast] = useState<string | null>(null);
+  /**
+   * The visible toast and the screen-reader announcement are ONE message
+   * (Phase 6, A6-1). Every toast is spoken through the persistent live regions
+   * below; an error tone is spoken assertively and drawn with a warning icon,
+   * never the checkmark that used to accompany "Couldn't stop that recording".
+   */
+  const [toast, setToast] = useState<{ text: string; tone: "info" | "error" } | null>(null);
+  const notify = useCallback(
+    (text: string, tone: "info" | "error" = "info") => setToast({ text, tone }),
+    [],
+  );
+  const { announce, regions: liveRegions } = useAnnouncer();
+  useEffect(() => {
+    if (toast) announce(toast.text, { assertive: toast.tone === "error" });
+  }, [toast, announce]);
 
   // -1 is the practice round; 0.. indexes `questions`.
   const [qi, setQi] = useState(-1);
   const [phase, setPhase] = useState<
     "prep" | "rec" | "uploading" | "review" | "uploadfailed"
   >("prep");
+
+  /*
+   * Screen-reader focus (Phase 6, A6-2). Each screen's heading carries
+   * data-screen-heading and tabIndex -1; on a MAJOR transition - a new screen,
+   * or the next question - focus moves there so the reader hears where they
+   * are. Never on first paint, never on phase changes within a question.
+   */
+  const sheetRef = useRef<HTMLDivElement>(null);
+  const firstPaintRef = useRef(true);
+  useEffect(() => {
+    // The page opens on Welcome; stealing focus from the address bar on load
+    // is not a transition.
+    if (firstPaintRef.current) {
+      firstPaintRef.current = false;
+      if (screen === "welcome" && qi < 0) return;
+    }
+    const heading = sheetRef.current?.querySelector<HTMLElement>("[data-screen-heading]");
+    if (!heading) return;
+    heading.focus({ preventScroll: true });
+    const reduce = window.matchMedia?.("(prefers-reduced-motion: reduce)").matches ?? false;
+    heading.scrollIntoView({ block: "start", behavior: reduce ? "auto" : "smooth" });
+  }, [screen, qi]);
   const [uploadAttempt, setUploadAttempt] = useState(0);
   const [uploadError, setUploadError] = useState<string | null>(null);
   const [retryingIn, setRetryingIn] = useState(0);
@@ -377,9 +415,22 @@ export function InterviewFlow({
 
   useEffect(() => {
     if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
+    const t = window.setTimeout(() => setToast(null), toast.tone === "error" ? 5000 : 2600);
     return () => window.clearTimeout(t);
   }, [toast]);
+
+  // Recording state, spoken once per change. The countdown is deliberately
+  // NOT announced; a per-second live region would drown everything else.
+  const prevPhaseRef = useRef<string | null>(null);
+  useEffect(() => {
+    const prev = prevPhaseRef.current;
+    prevPhaseRef.current = phase;
+    if (screen !== "record") return;
+    if (phase === "rec") announce("Recording started");
+    else if (phase === "uploading") {
+      announce(prev === "rec" ? "Recording stopped. Saving your answer." : "Saving your answer.");
+    }
+  }, [phase, screen, announce]);
 
   useEffect(() => {
     setPlatform(detectPlatform());
@@ -674,7 +725,7 @@ export function InterviewFlow({
     if (!recorder || recorder.state === "inactive") {
       // Nothing to stop is itself worth saying — the alternative is a button
       // press that vanishes.
-      setToast("That recording had already stopped. Tap Start over to retry.");
+      notify("That recording had already stopped. Tap Start over to retry.", "error");
       setPhase("prep");
       return;
     }
@@ -706,7 +757,7 @@ export function InterviewFlow({
       } else {
         finishingRef.current = true;
         setPhase("prep");
-        setToast("Your browser didn't finish that recording. Tap Start over to retry.");
+        notify("Your browser didn't finish that recording. Tap Start over to retry.", "error");
       }
     }, STOP_HARD_MS);
 
@@ -715,9 +766,9 @@ export function InterviewFlow({
     } catch {
       clearStopTimers();
       setPhase("prep");
-      setToast("Couldn't stop that recording. Tap Start over to retry.");
+      notify("Couldn't stop that recording. Tap Start over to retry.", "error");
     }
-  }, [clearStopTimers]);
+  }, [clearStopTimers, notify]);
 
   /**
    * PUT the blob to a signed storage URL, with progress and a stall watchdog.
@@ -929,7 +980,7 @@ export function InterviewFlow({
         audioBitsPerSecond: AUDIO_BITS_PER_SECOND,
       });
     } catch {
-      setToast("This browser couldn't start recording.");
+      notify("This browser couldn't start recording.", "error");
       return;
     }
 
@@ -971,7 +1022,7 @@ export function InterviewFlow({
     setRecLeft(limit);
     setPhase("rec");
     // eslint-disable-next-line react-hooks/exhaustive-deps
-  }, [limit, clearStopTimers]);
+  }, [limit, clearStopTimers, notify]);
 
   /**
    * Upload with automatic retries, then hand the decision over.
@@ -988,6 +1039,7 @@ export function InterviewFlow({
   const attemptUpload = useCallback(
     async (blob: Blob, position: number, seconds: number): Promise<boolean> => {
       setUploadError(null);
+      let lastError: string | null = null;
       for (let attempt = 1; attempt <= UPLOAD_AUTO_ATTEMPTS; attempt += 1) {
         setUploadAttempt(attempt);
         const result = await uploadAnswer(blob, position, seconds);
@@ -997,18 +1049,28 @@ export function InterviewFlow({
         }
 
         setUploadError(result.error);
+        lastError = result.error;
         // A 415 or a 409 will fail identically next time. Stop immediately
         // rather than making someone wait through a scripted failure.
         if (!result.retryable) break;
         if (attempt < UPLOAD_AUTO_ATTEMPTS) {
+          announce(
+            `Connection dropped, trying again. Attempt ${attempt + 1} of ${UPLOAD_AUTO_ATTEMPTS}.`,
+          );
           setRetryingIn(Math.round(UPLOAD_BACKOFF_MS[attempt - 1] / 1000));
           await new Promise((r) => setTimeout(r, UPLOAD_BACKOFF_MS[attempt - 1]));
           setRetryingIn(0);
         }
       }
+      // The visible card says the same thing at the same moment (see the
+      // "Your answer is still here" block in Recorder).
+      announce(
+        `${lastError ?? "That answer didn't upload."} Your answer is still on this device. Use Retry when you have signal.`,
+        { assertive: true },
+      );
       return false;
     },
-    [uploadAnswer],
+    [uploadAnswer, announce],
   );
 
   /**
@@ -1033,13 +1095,13 @@ export function InterviewFlow({
     );
     questionsRef.current = updated;
     setQuestions(updated);
-    setToast(`Answer ${index + 1} saved`);
+    notify(`Answer ${index + 1} saved`);
     setPhase("prep");
 
     const next = updated.findIndex((q, i) => i > index && !q.answered);
     if (next === -1) setScreen("review");
     else setQi(next);
-  }, []);
+  }, [notify]);
 
   /** The Retry button, and the entry point after the automatic attempts. */
   const retryUpload = useCallback(async () => {
@@ -1069,7 +1131,7 @@ export function InterviewFlow({
     // and for practice it would mean handing an empty blob to a <video>.
     if (blob.size === 0) {
       setPhase("prep");
-      setToast("That recording came through empty. Tap Start over to try again.");
+      notify("That recording came through empty. Tap Start over to try again.", "error");
       return;
     }
 
@@ -1097,7 +1159,7 @@ export function InterviewFlow({
       // Previously a bare `return` — the overlay would have sat on "Saving…"
       // forever with no way out. Silence is the failure mode being eliminated.
       setPhase("prep");
-      setToast("Something went wrong finding that question. Tap Start over.");
+      notify("Something went wrong finding that question. Tap Start over.", "error");
       return;
     }
 
@@ -1226,7 +1288,7 @@ export function InterviewFlow({
     if (!agreed) {
       // A disabled button would not explain itself; the error names the gate.
       setAgreeErr(true);
-      setToast("Please confirm you agree to be recorded");
+      notify("Please confirm you agree to be recorded", "error");
       return;
     }
     try {
@@ -1257,14 +1319,18 @@ export function InterviewFlow({
       });
       const body = (await res.json()) as { error?: string };
       if (!res.ok) {
-        setSubmitErr(body.error ?? "Couldn't submit. Please try again.");
+        const message = body.error ?? "Couldn't submit. Please try again.";
+        setSubmitErr(message);
+        announce(message, { assertive: true });
         setSubmitting(false);
         return;
       }
       releaseCamera();
       setScreen("done");
     } catch {
-      setSubmitErr("Your connection dropped. Your answers are saved — try again.");
+      const message = "Your connection dropped. Your answers are saved — try again.";
+      setSubmitErr(message);
+      announce(message, { assertive: true });
     } finally {
       setSubmitting(false);
     }
@@ -1277,14 +1343,14 @@ export function InterviewFlow({
       );
       const body = (await res.json()) as { url?: string; error?: string };
       if (!body.url) {
-        setToast(body.error ?? "Couldn't load that answer.");
+        notify(body.error ?? "Couldn't load that answer.", "error");
         return;
       }
       // A short-lived signed URL, minted server-side. The storage path itself
       // never reaches this component.
       setWatching({ position, url: body.url });
     } catch {
-      setToast("Couldn't load that answer.");
+      notify("Couldn't load that answer.", "error");
     }
   }
 
@@ -1346,7 +1412,7 @@ export function InterviewFlow({
   return (
     <div className="iv">
       <div className="iv-wrap">
-        <div className="iv-sheet">
+        <div className="iv-sheet" ref={sheetRef}>
           <div className="flex items-center gap-3 px-0.5 pb-[18px] pt-[22px]">
             <span className="iv-sora flex size-11 shrink-0 items-center justify-center rounded-xl bg-[var(--purple-tint)] text-lg font-extrabold tracking-[-0.03em] text-[var(--purple-ink)]">
               {session.companyInitial}
@@ -1421,7 +1487,7 @@ export function InterviewFlow({
               failed={techFailed}
               onRetry={() => {
                 void requestAccess();
-                setToast("Checking again…");
+                notify("Checking again…");
               }}
               onContinue={() => {
                 setQi(-1);
@@ -1466,7 +1532,7 @@ export function InterviewFlow({
                 setUploadError(null);
                 setUploadAttempt(0);
                 setPhase("prep");
-                setToast("Starting that answer again");
+                notify("Starting that answer again");
               }}
               onDone={() => stopRecorder()}
               practiceClip={practiceClip}
@@ -1478,7 +1544,7 @@ export function InterviewFlow({
                 clearPracticeClip();
                 setQi(firstUnanswered());
                 setPhase("prep");
-                setToast("Practice done — nothing was saved");
+                notify("Practice done — nothing was saved");
               }}
             />
           )}
@@ -1547,10 +1613,15 @@ export function InterviewFlow({
         </div>
       )}
 
+      {liveRegions}
       {toast && (
-        <div className="iv-toast show">
-          <Check className="size-4 shrink-0 text-[var(--mint)]" strokeWidth={2.6} />
-          {toast}
+        <div className="iv-toast show" aria-hidden="true">
+          {toast.tone === "error" ? (
+            <AlertTriangle className="size-4 shrink-0 text-[var(--amber-ink)]" strokeWidth={2.4} />
+          ) : (
+            <Check className="size-4 shrink-0 text-[var(--mint)]" strokeWidth={2.6} />
+          )}
+          {toast.text}
         </div>
       )}
     </div>
@@ -1572,7 +1643,7 @@ function Welcome({
 
   return (
     <div className="iv-card">
-      <h1 className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
+      <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
         Your video interview
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
@@ -1649,7 +1720,7 @@ function Consent({
 }) {
   return (
     <div className="iv-card">
-      <h1 className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
+      <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
         Before you start
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
@@ -1786,7 +1857,7 @@ function TechCheck({
   const copy = fault ? faultCopy(fault, platform) : null;
   return (
     <div className="iv-card">
-      <h1 className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
+      <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
         Check your setup
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
@@ -2089,7 +2160,12 @@ function Recorder({
 }) {
   const low = recLeft <= 15;
   return (
-    <div className="iv-card">
+    <section
+      className="iv-card"
+      tabIndex={-1}
+      data-screen-heading
+      aria-label={isPractice ? "Practice question" : `Question ${index + 1} of ${total}`}
+    >
       {/*
         The recording ended without the candidate pressing anything.
         Placed at the very top of the card, above the stage, because the whole
@@ -2317,7 +2393,14 @@ function Recorder({
             )}
             {!isPractice && !stopSlow && (
               <>
-                <div className="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-white/20">
+                <div
+                  role="progressbar"
+                  aria-label="Saving your answer"
+                  aria-valuemin={0}
+                  aria-valuemax={100}
+                  aria-valuenow={uploadPct}
+                  className="h-1.5 w-full max-w-[200px] overflow-hidden rounded-full bg-white/20"
+                >
                   <i
                     className="block h-full rounded-full bg-[var(--mint)] transition-[width]"
                     style={{ width: `${uploadPct}%` }}
@@ -2405,7 +2488,7 @@ function Recorder({
           )}
         </p>
       </div>
-    </div>
+    </section>
   );
 }
 
@@ -2432,7 +2515,7 @@ function Review({
 }) {
   return (
     <div className="iv-card">
-      <h1 className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
+      <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2 text-[25px] font-extrabold leading-tight tracking-[-0.035em] text-[var(--t1)]">
         Review your answers
       </h1>
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
@@ -2571,7 +2654,7 @@ function Submitted({ companyName }: { companyName: string }) {
         <span className="mb-[18px] flex size-[72px] items-center justify-center rounded-3xl bg-[var(--mint-tint)] text-[var(--mint-ink)]">
           <Check className="size-[34px]" strokeWidth={2.2} />
         </span>
-        <h1 className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
+        <h1 tabIndex={-1} data-screen-heading className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
           That&apos;s everything — thank you
         </h1>
         <p className="m-0 mb-1.5 text-sm leading-relaxed text-[var(--t2)]">

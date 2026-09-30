@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useState } from "react";
+import { useState } from "react";
 import Link from "next/link";
 import {
   ArrowDown,
@@ -18,6 +18,7 @@ import {
 } from "lucide-react";
 import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { fetchWeekReport } from "./actions";
 import type { AttentionKind, DeltaTone, WeekReport } from "./types";
 
@@ -168,13 +169,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
   const [week, setWeek] = useState(initialWeek);
   const [offset, setOffset] = useState(0);
   const [loading, setLoading] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(t);
-  }, [toast]);
+  const [toast, setToast] = useToast();
 
   async function go(next: number) {
     if (next < 0 || loading) return;
@@ -542,12 +537,7 @@ export function WeeklyClient({ initialWeek }: { initialWeek: WeekReport }) {
         counted from your own activity in the period shown.
       </p>
 
-      {toast && (
-        <div className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-[13px] bg-[var(--ai-sidebar)] px-[19px] py-[13px] text-[13.5px] font-semibold text-white shadow-[0_18px_44px_rgba(0,0,0,0.34)]">
-          <Check className="size-4 shrink-0 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }

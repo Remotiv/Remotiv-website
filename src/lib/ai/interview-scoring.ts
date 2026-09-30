@@ -20,6 +20,7 @@ import {
 import {
   classifyProviderError,
   JobYield,
+  safeFailureSentence,
   TerminalJobError,
   toJobError,
 } from "@/lib/queue/failure-class";
@@ -1418,10 +1419,13 @@ export async function handleAiScorecard(
 
       anyFailed = true;
       unscored.push({ position: answer.position, cause: "scoring_failed" });
+      // The row's `error` is rendered on the review page, so it gets the fixed
+      // safe sentence; the provider's text goes to the log line below and to
+      // background_jobs.last_error (Phase 6, A6-26).
       await writeAnswerScore({
         ...base,
         status: "failed",
-        error: jobErr instanceof Error ? jobErr.message.slice(0, 1000) : String(jobErr),
+        error: safeFailureSentence(classifyProviderError(jobErr), "scoring"),
       });
       console.error(`[interview-scoring] answer ${answer.id} failed (${failureClass}):`, err);
       if (failureClass === "billing" || failureClass === "configuration") throw jobErr;

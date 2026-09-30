@@ -6,8 +6,13 @@
  */
 // @ts-nocheck — same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
+import { register } from "node:module";
 import { test } from "node:test";
-import { unscoredCardState } from "./unscored-card.ts";
+
+// unscored-card.ts imports the safe-sentence gate through "@/lib/…" since
+// Phase 6, so the bundler-style specifier needs the repo's resolve hook here.
+register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
+const { unscoredCardState } = await import("./unscored-card.ts");
 
 /** A readable CV on a scoring-on job with nothing in the queue and no card. */
 const base = {
@@ -153,11 +158,26 @@ test("expired CV: no control - the server would refuse the upload anyway", () =>
   assert.equal(card.control, null);
 });
 
-test("failed card: the recorded error and Re-score", () => {
-  const card = state({ scoreStatus: "failed", scoreError: "429 rate limited" });
-  assert.equal(card.kind, "failed");
-  assert.equal(card.body, "429 rate limited");
-  assert.equal(card.control, "rescore");
+test("failed card: only a known safe sentence is shown, never the provider's text (Phase 6, A6-26)", () => {
+  // A row written before the write path was made safe carries raw provider
+  // text. The recruiter sees the fixed fallback, and the raw text goes nowhere.
+  const legacy = state({ scoreStatus: "failed", scoreError: "429 rate limited" });
+  assert.equal(legacy.kind, "failed");
+  assert.equal(
+    legacy.body,
+    "Scoring didn't complete. The CV is unaffected - re-score to try again.",
+  );
+  assert.equal(legacy.control, "rescore");
+  assert.equal(legacy.body.includes("429"), false);
+  // A row written since carries one of the fixed sentences, which IS shown.
+  const safe = state({
+    scoreStatus: "failed",
+    scoreError: "The scoring provider declined the request for billing reasons.",
+  });
+  assert.equal(
+    safe.body,
+    "The scoring provider declined the request for billing reasons. The CV is unaffected - re-score to try again.",
+  );
   assert.match(state({ scoreStatus: "failed" }).body, /didn't complete/);
 });
 

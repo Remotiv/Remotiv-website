@@ -20,9 +20,11 @@ import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useCallback, useEffect, useRef, useState } from "react";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/actions";
 import { PIPELINE_STAGE_LABELS, PIPELINE_STAGES } from "@/app/ai-dashboard/lib/applicant-types";
 import { BAND_PANEL, BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import type {
   AnswerScoreView,
   InterviewAnswerView,
@@ -33,6 +35,7 @@ import type {
   SessionCriterion,
 } from "@/lib/interviews/review-types";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
+import { isSafeFailureSentence } from "@/lib/queue/failure-class";
 import {
   addInterviewNote,
   adjustAnswerScore,
@@ -97,7 +100,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
   const firstPlayable = session.answers.findIndex((a) => a.hasVideo);
   const [active, setActive] = useState(firstPlayable >= 0 ? firstPlayable : 0);
   const [stage, setStage] = useState(session.stage);
-  const [toast, setToast] = useState<string | null>(null);
+  const [toast, setToast] = useToast();
   const [archivedAt, setArchivedAt] = useState(session.archivedAt);
   const [confirmingDelete, setConfirmingDelete] = useState(false);
   const [busy, setBusy] = useState(false);
@@ -112,16 +115,19 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
    * timestamp instead of seeking — the evidence is still meaningful, and a
    * control that vanished would make a purged scorecard look broken.
    */
-  const seekTo = useCallback((seconds: number) => {
-    const el = videoRef.current;
-    if (!el) {
-      setToast(`Recording unavailable — quote at ${fmtStamp(seconds)}`);
-      return;
-    }
-    el.currentTime = seconds;
-    void el.play().catch(() => {});
-    setToast(`Jumped to ${fmtStamp(seconds)}`);
-  }, []);
+  const seekTo = useCallback(
+    (seconds: number) => {
+      const el = videoRef.current;
+      if (!el) {
+        setToast(`Recording unavailable — quote at ${fmtStamp(seconds)}`);
+        return;
+      }
+      el.currentTime = seconds;
+      void el.play().catch(() => {});
+      setToast(`Jumped to ${fmtStamp(seconds)}`);
+    },
+    [setToast],
+  );
 
   /**
    * Seek to a criterion's quote, switching answers first when it belongs to
@@ -149,12 +155,6 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
     },
     [active, session.answers, seekTo],
   );
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(t);
-  }, [toast]);
 
   async function onStage(next: string) {
     const prev = stage;
@@ -466,11 +466,7 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
         />
       )}
 
-      {toast && (
-        <div className="fixed bottom-7 left-1/2 z-[200] -translate-x-1/2 rounded-[13px] bg-[var(--ai-sidebar)] px-[19px] py-3.5 text-[13.5px] font-semibold text-white shadow-[0_18px_44px_rgba(0,0,0,0.34)]">
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }
@@ -494,9 +490,15 @@ function DeleteConfirm({
   onConfirm: () => void;
 }) {
   const withVideo = session.answers.filter((a) => a.hasVideo).length;
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, true, { onClose: onCancel, overlayRef });
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]"
+    >
       <button
         type="button"
         aria-label="Cancel"
@@ -504,12 +506,17 @@ function DeleteConfirm({
         className="absolute inset-0 cursor-default"
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
-        className="relative w-full max-w-[470px] overflow-hidden rounded-3xl bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
+        aria-labelledby="delete-interview-title"
+        className="relative w-full max-w-[470px] overflow-hidden rounded-3xl bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
       >
         <div className="bg-[var(--ai-sidebar)] px-7 pb-[22px] pt-6">
-          <h2 className="m-0 font-heading text-[21px] font-extrabold tracking-[-0.028em] text-white">
+          <h2
+            id="delete-interview-title"
+            className="m-0 font-heading text-[21px] font-extrabold tracking-[-0.028em] text-white"
+          >
             Delete this interview?
           </h2>
           <p className="m-0 mt-1.5 text-[13px] leading-relaxed text-white/55">
@@ -670,7 +677,7 @@ function VerdictStrip({
               ? (score?.summary ??
                 "Every answer has been scored individually — open each one for its reasoning and evidence.")
               : score?.status === "failed"
-                ? (score.error?.slice(0, 200) ??
+                ? ((isSafeFailureSentence(score.error) ? score.error : null) ??
                   "Scoring didn't complete. The recording and transcripts are unaffected.")
                 : score?.status === "skipped"
                   ? (score.error?.slice(0, 200) ??
@@ -866,7 +873,7 @@ function Scorecard({
       failed: {
         title: "Scoring failed",
         body:
-          score?.error?.slice(0, 220) ??
+          (isSafeFailureSentence(score?.error) ? score?.error : null) ??
           "We couldn't score this answer. Nothing is wrong with the recording itself.",
         bad: true,
       },
@@ -1377,7 +1384,7 @@ function Transcript({ answer }: { answer: InterviewAnswerView }) {
     failed: {
       title: "Transcription didn't complete",
       body:
-        answer.transcriptError?.slice(0, 200) ??
+        (isSafeFailureSentence(answer.transcriptError) ? answer.transcriptError : null) ??
         "The transcription service couldn't process this recording. The video is unaffected.",
     },
     skipped: {

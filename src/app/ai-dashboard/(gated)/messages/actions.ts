@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { actionFailed } from "@/app/ai-dashboard/lib/action-errors";
 import { REDACTED_LINK } from "@/lib/candidate-links";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -756,7 +757,7 @@ export async function cancelScheduledMessage(
     .eq("id", row.id)
     .eq("company_id", ctx.companyId);
 
-  if (error) return { success: false, error: error.message };
+  if (error) return { success: false, error: actionFailed("cancel that scheduled message", error) };
 
   revalidatePath("/ai-dashboard/messages");
   return { success: true, data: undefined };

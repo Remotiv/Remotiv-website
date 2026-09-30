@@ -3,6 +3,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import { ArrowRight, BellOff, Check, Plus, X } from "lucide-react";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { PLACEHOLDER_KEYS } from "@/lib/email/candidate/render";
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import {
@@ -214,20 +215,9 @@ function TemplateEditor({
   /** Which field a placeholder chip inserts into. */
   const [lastFocus, setLastFocus] = useState<"subject" | "body">("body");
 
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    const prev = document.body.style.overflow;
-    document.body.style.overflow = "hidden";
-    const t = window.setTimeout(() => subjectRef.current?.focus(), 60);
-    return () => {
-      document.removeEventListener("keydown", onKey);
-      document.body.style.overflow = prev;
-      window.clearTimeout(t);
-    };
-  }, [onClose]);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, true, { onClose, overlayRef, initialFocus: subjectRef });
 
   useEffect(() => {
     let cancelled = false;
@@ -323,7 +313,10 @@ function TemplateEditor({
   }
 
   return (
-    <div className="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]"
+    >
       <button
         type="button"
         aria-label="Close"
@@ -331,10 +324,11 @@ function TemplateEditor({
         className="absolute inset-0 cursor-default"
       />
       <div
+        ref={dialogRef}
         role="dialog"
         aria-modal="true"
         aria-label={template.name}
-        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[600px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
+        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[600px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
       >
         <div className="bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
           <div className="flex items-start justify-between gap-3.5">

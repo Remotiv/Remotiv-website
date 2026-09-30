@@ -1,6 +1,6 @@
 "use client";
 
-import { useCallback, useEffect, useMemo, useState } from "react";
+import { useCallback, useEffect, useMemo, useRef, useState } from "react";
 import {
   Check,
   ChevronLeft,
@@ -22,12 +22,14 @@ import {
   HeroDelta,
 } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
+import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import {
   cancelScheduledMessage,
   fetchMessageAggregates,
   fetchMessages,
   sendScheduledNow,
 } from "./actions";
+import { useModalFocus } from "@/hooks/use-modal-focus";
 import { Composer, initialsOf, tintFor } from "./_composer";
 import {
   MESSAGES_PAGE_SIZE,
@@ -150,13 +152,7 @@ export function MessagesClient({
   const [composerFor, setComposerFor] = useState<string | null>(null);
   const [composerOpen, setComposerOpen] = useState(false);
   const [followUp, setFollowUp] = useState(false);
-  const [toast, setToast] = useState<string | null>(null);
-
-  useEffect(() => {
-    if (!toast) return;
-    const t = window.setTimeout(() => setToast(null), 2600);
-    return () => window.clearTimeout(t);
-  }, [toast]);
+  const [toast, setToast] = useToast();
 
   useEffect(() => {
     function onClick() {
@@ -240,7 +236,7 @@ export function MessagesClient({
   async function handleCancel(row: MessageRow) {
     const result = await cancelScheduledMessage(row.id);
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
     setRows((prev) => prev.filter((r) => r.id !== row.id));
@@ -250,16 +246,16 @@ export function MessagesClient({
       all: Math.max(0, a.all - 1),
       scheduled: Math.max(0, a.scheduled - 1),
     }));
-    setToast(`Scheduled email to ${row.candidateName} cancelled`);
+    setToast({ message: `Scheduled email to ${row.candidateName} cancelled`, tone: "success" });
   }
 
   async function handleSendNow(row: MessageRow) {
     const result = await sendScheduledNow(row.id);
     if (!result.success) {
-      setToast(result.error);
+      setToast({ message: result.error, tone: "error" });
       return;
     }
-    setToast(`Sent to ${row.candidateName} now`);
+    setToast({ message: `Sent to ${row.candidateName} now`, tone: "success" });
     await Promise.all([reload({ tab, jobId, search, page }), refreshAggregates()]);
   }
 
@@ -553,7 +549,7 @@ export function MessagesClient({
                       e.stopPropagation();
                       setMenuFor(menuFor === row.id ? null : row.id);
                     }}
-                    className={`flex size-8 items-center justify-center rounded-[9px] text-[var(--ai-t4)] transition-all hover:bg-[var(--ai-sidebar)] hover:text-white ${
+                    className={`flex size-8 items-center justify-center rounded-[9px] text-[var(--ai-t4)] transition-all hover:bg-[var(--ai-sidebar)] hover:text-white focus-visible:opacity-100 ${
                       menuFor === row.id ? "opacity-100" : "opacity-0 group-hover:opacity-100"
                     }`}
                   >
@@ -695,6 +691,16 @@ export function MessagesClient({
         <MessageViewer
           row={viewing}
           onClose={() => setViewing(null)}
+          onSendNow={() => {
+            const row = viewing;
+            setViewing(null);
+            void handleSendNow(row);
+          }}
+          onCancelSend={() => {
+            const row = viewing;
+            setViewing(null);
+            void handleCancel(row);
+          }}
           onFollowUp={() => {
             const target = viewing.applicationId;
             setViewing(null);
@@ -722,12 +728,7 @@ export function MessagesClient({
         }}
       />
 
-      {toast && (
-        <div className="fixed bottom-7 left-1/2 z-[200] flex -translate-x-1/2 items-center gap-2.5 rounded-[13px] bg-[var(--ai-sidebar)] px-[19px] py-[13px] text-[13.5px] font-semibold text-white shadow-[0_18px_44px_rgba(0,0,0,0.34)]">
-          <Check className="size-4 shrink-0 text-remotiv-green" strokeWidth={2.4} />
-          {toast}
-        </div>
-      )}
+      <Toast state={toast} />
     </PageContainer>
   );
 }
@@ -806,18 +807,23 @@ function MessageViewer({
   row,
   onClose,
   onFollowUp,
+  onSendNow,
+  onCancelSend,
 }: {
   row: MessageRow;
   onClose: () => void;
   onFollowUp: () => void;
+  /**
+   * The row kebab that also offers these is hidden below 1100px, so for every
+   * phone and tablet this viewer is the ONLY way to send a scheduled message
+   * now or cancel it (Phase 6, A6-6).
+   */
+  onSendNow?: () => void;
+  onCancelSend?: () => void;
 }) {
-  useEffect(() => {
-    function onKey(e: KeyboardEvent) {
-      if (e.key === "Escape") onClose();
-    }
-    document.addEventListener("keydown", onKey);
-    return () => document.removeEventListener("keydown", onKey);
-  }, [onClose]);
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const panelRef = useRef<HTMLDivElement>(null);
+  useModalFocus(panelRef, true, { onClose, overlayRef, initialFocus: "container" });
 
   const when = whenOf(row);
   const tint = tintFor(row.applicationId ?? row.id);
@@ -830,7 +836,10 @@ function MessageViewer({
         : "Sent automatically";
 
   return (
-    <div className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]">
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[100] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-6 backdrop-blur-[5px]"
+    >
       <button
         type="button"
         aria-label="Close"
@@ -838,10 +847,11 @@ function MessageViewer({
         className="absolute inset-0 cursor-default"
       />
       <div
+        ref={panelRef}
         role="dialog"
         aria-modal="true"
         aria-label={row.subject || "Message"}
-        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[560px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)]"
+        className="relative flex max-h-[calc(var(--vh-full)*0.88)] w-full max-w-[560px] flex-col overflow-hidden rounded-[24px] bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
       >
         <div className="bg-[var(--ai-sidebar)] px-[26px] py-[22px]">
           <div className="flex items-start justify-between gap-3.5">
@@ -917,7 +927,7 @@ function MessageViewer({
               </>
             )}
           </span>
-          <div className="flex shrink-0 gap-2.5">
+          <div className="flex shrink-0 flex-wrap gap-2.5">
             <button
               type="button"
               onClick={onClose}
@@ -925,7 +935,27 @@ function MessageViewer({
             >
               Close
             </button>
-            {row.applicationId && (
+            {row.kind === "scheduled" && onCancelSend && (
+              <button
+                type="button"
+                onClick={onCancelSend}
+                className="inline-flex items-center gap-2 rounded-[11px] border border-[var(--ai-danger)]/40 bg-[var(--ai-surface)] px-[17px] py-2.5 text-[13.5px] font-semibold text-[var(--ai-danger)] transition-colors hover:bg-[var(--ai-danger-tint)]"
+              >
+                <CircleX className="size-[15px]" strokeWidth={2} />
+                Cancel send
+              </button>
+            )}
+            {row.kind === "scheduled" && onSendNow && (
+              <button
+                type="button"
+                onClick={onSendNow}
+                className="inline-flex items-center gap-2 rounded-[11px] border border-remotiv-purple bg-remotiv-purple px-[18px] py-2.5 text-[13.5px] font-bold text-white shadow-[0_6px_20px_rgba(126,71,255,0.3)] transition-colors hover:bg-[var(--ai-purple-hover)]"
+              >
+                <Send className="size-[15px]" strokeWidth={2} />
+                Send now
+              </button>
+            )}
+            {row.applicationId && row.kind !== "scheduled" && (
               <button
                 type="button"
                 onClick={onFollowUp}
