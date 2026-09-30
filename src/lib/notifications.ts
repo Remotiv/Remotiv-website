@@ -9,7 +9,18 @@ export type NotificationEvent =
   | "new_inquiry"
   | "profile_claimed"
   | "profile_approved"
-  | "profile_rejected";
+  | "profile_rejected"
+  /**
+   * Operational alerts from the background worker (Phase 8). Both require
+   * migration 035, which appends them to notifications_event_type_check; until
+   * it is applied the insert fails and this function logs it, as it does every
+   * insert failure. `job_dead` is one notification per tick that killed any
+   * job, carrying counts and safe failure classes and never last_error.
+   * `worker_stale` is the worker's own retrospective notice that its previous
+   * heartbeat was older than the staleness threshold, i.e. an outage ended.
+   */
+  | "job_dead"
+  | "worker_stale";
 
 export type NotificationInput = {
   event_type: NotificationEvent;

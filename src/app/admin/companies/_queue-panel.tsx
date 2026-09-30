@@ -9,9 +9,13 @@ import {
   Hourglass,
   RefreshCcw,
   Activity,
+  HeartPulse,
+  WifiOff,
 } from "lucide-react";
 import {
   QUEUE_STATUSES,
+  WORKER_TICK_STALE_MS,
+  WORKER_TICK_WARN_MS,
   type QueueHealth,
   type QueueJob,
   type QueueStatus,
@@ -102,16 +106,35 @@ export function QueuePanel({ health }: { health: QueueHealth }) {
   );
 
   /*
-   * Two different liveness questions, and the panel answers both because
-   * neither is sufficient alone. "Last claim" is precise but silent on an idle
-   * queue — a cron that stopped and a queue with nothing to do look identical
-   * through it. "Last maintenance" comes from the worker's own 24h scheduler,
-   * which fires whether or not there is work, so it is the one that catches a
-   * stopped cron — at a day's resolution.
+   * Three liveness questions, answered in order of precision.
+   *
+   * "Worker last ticked" is the heartbeat the worker writes at the end of EVERY
+   * tick, empty or not (migration 035). It is the real liveness signal, at the
+   * cadence the worker actually runs. "Last job claimed" measures throughput
+   * and is silent on an idle queue - it used to be the liveness tile and read
+   * "never" in amber on a perfectly healthy idle system, because every terminal
+   * transition nulls locked_at. "Worker self-scheduled" is the 24h maintenance
+   * cadence, kept as the coarse backstop for the period before 035 is applied.
    */
+  const tickAgeMs = health.lastTickAt ? Date.now() - new Date(health.lastTickAt).getTime() : null;
+  const tickTone: "ok" | "warn" | "bad" =
+    tickAgeMs === null || tickAgeMs > WORKER_TICK_STALE_MS
+      ? "bad"
+      : tickAgeMs > WORKER_TICK_WARN_MS
+        ? "warn"
+        : "ok";
   const maintenanceStale =
     !health.lastMaintenanceAt ||
     Date.now() - new Date(health.lastMaintenanceAt).getTime() > 36 * 3_600_000;
+
+  /*
+   * A failed read is not an empty queue. When any read failed the figures
+   * below cannot be trusted, so every tile says so instead of showing a number
+   * that would read as "all clear". Only the source CATEGORY is shown; the
+   * database message stayed in the server log where it belongs.
+   */
+  const degraded = health.readErrors.length > 0;
+  const unavailable = "unavailable";
 
   return (
     <section className="mt-8">
@@ -149,39 +172,69 @@ export function QueuePanel({ health }: { health: QueueHealth }) {
         </p>
       )}
 
-      {/* ── The four signals a stuck queue shows and a healthy one doesn't ── */}
-      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-4">
+      {degraded && (
+        <div
+          role="alert"
+          className="mb-4 flex items-start gap-3 rounded-2xl border border-red-200 bg-red-50 px-4 py-3"
+        >
+          <WifiOff className="mt-0.5 size-4 shrink-0 text-red-600" strokeWidth={2} />
+          <div className="text-sm">
+            <p className="m-0 font-bold text-red-800">Health data could not be loaded.</p>
+            <p className="m-0 mt-0.5 text-red-700">
+              {health.readErrors.length} of the reads behind this panel failed
+              {health.readErrors.length > 0 &&
+                ` (${health.readErrors.map((e) => e.source).join(", ")})`}
+              . The figures below are not a picture of the queue. Details are in the
+              server log.
+            </p>
+          </div>
+        </div>
+      )}
+
+      {/* ── The signals a stuck queue shows and a healthy one doesn't ── */}
+      <div className="mb-4 grid gap-3 sm:grid-cols-2 xl:grid-cols-5">
+        <Signal
+          icon={<HeartPulse className="size-4" strokeWidth={2} />}
+          title="Worker last ticked"
+          value={degraded ? unavailable : ago(health.lastTickAt)}
+          sub={
+            health.lastTickAt
+              ? `Heartbeat written at the end of every tick, empty or not. Amber past ${Math.round(WORKER_TICK_WARN_MS / 60_000)} minutes, red past ${Math.round(WORKER_TICK_STALE_MS / 60_000)}.`
+              : "No heartbeat yet. Either migration 035 is not applied or the worker has not ticked since it was."
+          }
+          tone={degraded ? "muted" : tickTone}
+        />
         <Signal
           icon={<Hourglass className="size-4" strokeWidth={2} />}
           title="Oldest queued job"
-          value={health.oldestQueued ? ago(health.oldestQueued.at) : "nothing queued"}
+          value={degraded ? unavailable : health.oldestQueued ? ago(health.oldestQueued.at) : "nothing queued"}
           sub={
             health.oldestQueued
               ? `${label(health.oldestQueued.type)} · waiting since ${stamp(health.oldestQueued.at)}`
               : "A draining queue and a stopped one look identical without this."
           }
-          tone={health.oldestQueued ? "warn" : "ok"}
+          tone={degraded ? "muted" : health.oldestQueued ? "warn" : "ok"}
         />
         <Signal
           icon={<AlertTriangle className="size-4" strokeWidth={2} />}
           title="Stuck running"
-          value={String(health.staleTotal)}
+          value={degraded ? unavailable : String(health.staleTotal)}
           sub={`Leased longer than ${Math.round(health.leaseTimeoutMs / 60_000)} minutes. The worker reclaims these on its next tick.`}
-          tone={health.staleTotal > 0 ? "warn" : "ok"}
+          tone={degraded ? "muted" : health.staleTotal > 0 ? "warn" : "ok"}
         />
         <Signal
           icon={<Activity className="size-4" strokeWidth={2} />}
-          title="Worker last claimed"
-          value={ago(health.lastClaimAt)}
-          sub="Exact, but silent while the queue is empty — an idle worker looks the same as a stopped one here."
-          tone={health.lastClaimAt ? "ok" : "warn"}
+          title="Last job claimed"
+          value={degraded ? unavailable : ago(health.lastClaimAt)}
+          sub="Throughput, not liveness: this is silent while the queue is empty, and terminal transitions clear it. Liveness is the heartbeat tile."
+          tone={degraded ? "muted" : "ok"}
         />
         <Signal
           icon={<Clock className="size-4" strokeWidth={2} />}
           title="Worker self-scheduled"
-          value={ago(health.lastMaintenanceAt)}
-          sub="The 24h retention sweep the worker queues for itself. Fires whether or not there is work, so this is what catches a stopped cron."
-          tone={maintenanceStale ? "warn" : "ok"}
+          value={degraded ? unavailable : ago(health.lastMaintenanceAt)}
+          sub="The 24h retention sweep the worker queues for itself. The coarse backstop for the period before the heartbeat existed."
+          tone={degraded ? "muted" : maintenanceStale ? "warn" : "ok"}
         />
       </div>
 
@@ -353,19 +406,34 @@ function Signal({
   title: string;
   value: string;
   sub: string;
-  tone: "ok" | "warn";
+  /**
+   * ok: healthy. warn: worth a look. bad: the worker is not ticking. muted: the
+   * read behind this tile failed, so the value is "unavailable" and must not
+   * read as a healthy figure.
+   */
+  tone: "ok" | "warn" | "bad" | "muted";
 }) {
+  const titleTone = {
+    ok: "text-gray-400",
+    warn: "text-amber-600",
+    bad: "text-red-600",
+    muted: "text-gray-300",
+  }[tone];
   return (
     <div className="rounded-2xl border border-black/[0.05] bg-white p-4 shadow-sm">
       <div
-        className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${
-          tone === "warn" ? "text-amber-600" : "text-gray-400"
-        }`}
+        className={`mb-2 flex items-center gap-2 text-xs font-bold uppercase tracking-wide ${titleTone}`}
       >
         {icon}
         {title}
       </div>
-      <p className="m-0 font-heading text-lg font-bold text-gray-900">{value}</p>
+      <p
+        className={`m-0 font-heading text-lg font-bold ${
+          tone === "muted" ? "text-gray-300 italic" : tone === "bad" ? "text-red-700" : "text-gray-900"
+        }`}
+      >
+        {value}
+      </p>
       <p className="m-0 mt-1 text-[11.5px] leading-relaxed text-gray-500">{sub}</p>
     </div>
   );

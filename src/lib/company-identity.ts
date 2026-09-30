@@ -1,4 +1,5 @@
 import "server-only";
+import { assertServiceClientAllowed } from "@/lib/supabase/guard";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -43,6 +44,9 @@ export function isAlreadyRegistered(message: string): boolean {
  * final authority when the update runs.
  */
 export async function findAuthUserIdByEmail(email: string): Promise<string | null> {
+  // Same guard as createServiceClient: this is a service-role request built by
+  // hand, and the development fail-closed rule applies to it equally.
+  assertServiceClientAllowed();
   const base = process.env.NEXT_PUBLIC_SUPABASE_URL;
   const key = process.env.SUPABASE_SERVICE_ROLE_KEY;
   if (!base || !key) return null;

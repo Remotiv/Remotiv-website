@@ -4,6 +4,7 @@ import {
   QUEUE_STATUSES,
   type QueueHealth,
   type QueueJob,
+  type QueueReadError,
   type QueueStatus,
 } from "@/lib/queue-health-types";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -159,22 +160,38 @@ function toJob(r: RawJob, names: Map<string, string>): QueueJob {
   };
 }
 
-/** One capped page of a status, plus that status's true total. */
+/**
+ * One capped page of a status, plus that status's true total.
+ *
+ * The error is CARRIED, not coalesced away. `data ?? []` and `count ?? 0` on a
+ * failed read used to render exactly like an empty queue, which is how an
+ * observability outage turned into a healthy-looking dashboard. A null count on
+ * a SUCCESSFUL read is still legitimately zero; only `error` marks a failure.
+ */
 async function readStatus(
   service: Service,
   status: QueueStatus,
-): Promise<{ rows: RawJob[]; total: number }> {
-  const { data, count } = await service
+): Promise<{ rows: RawJob[]; total: number; error: string | null }> {
+  const { data, count, error } = await service
     .from("background_jobs")
     .select(SELECT, { count: "exact" })
     .eq("status", status)
     .order("created_at", { ascending: false })
     .limit(ROW_CAP);
-  return { rows: (data ?? []) as RawJob[], total: count ?? 0 };
+  return { rows: (data ?? []) as RawJob[], total: count ?? 0, error: error?.message ?? null };
 }
 
+/**
+ * Test seam. queue-health.test.ts installs a fake builder here so the error
+ * handling can be exercised under bare node:test without a database. Never set
+ * in production; the nullish fallback is the only path a real request takes.
+ */
+type ServiceFactory = () => Service;
+const testSeam = () =>
+  (globalThis as { __queueHealthServiceForTests?: ServiceFactory }).__queueHealthServiceForTests;
+
 export async function readQueueHealth(): Promise<QueueHealth> {
-  const service = createServiceClient();
+  const service = testSeam()?.() ?? createServiceClient();
   const staleCutoff = new Date(Date.now() - LEASE_TIMEOUT_MS).toISOString();
 
   const [
@@ -187,6 +204,7 @@ export async function readQueueHealth(): Promise<QueueHealth> {
     staleCount,
     lastClaim,
     lastMaintenance,
+    lastTick,
   ] = await Promise.all([
     readStatus(service, "queued"),
     readStatus(service, "running"),
@@ -196,12 +214,14 @@ export async function readQueueHealth(): Promise<QueueHealth> {
     // row and never fetched.
     Promise.all(
       QUEUE_TYPES.map(async (type) => {
-        const { count } = await service
+        const { count, error } = await service
           .from("background_jobs")
           .select("id", { count: "estimated", head: true })
           .eq("status", "succeeded")
           .eq("type", type);
-        return [type, count ?? 0] as const;
+        // A null count on a successful HEAD is a legitimate zero; only the
+        // error marks a failed read. Both travel so the caller can tell.
+        return [type, count ?? 0, error?.message ?? null] as const;
       }),
     ),
     service
@@ -229,6 +249,9 @@ export async function readQueueHealth(): Promise<QueueHealth> {
       .in("type", MAINTENANCE_TYPES)
       .order("created_at", { ascending: false })
       .limit(1),
+    // The worker's own heartbeat (migration 035): written at the end of every
+    // tick including empty ones, so unlike lastClaim it moves on an idle queue.
+    service.from("worker_heartbeats").select("last_tick_at").eq("id", "worker").maybeSingle(),
   ]);
 
   // Company names for whatever landed in the two detail lists. Bounded by
@@ -289,8 +312,44 @@ export async function readQueueHealth(): Promise<QueueHealth> {
   const oldestRow = ((oldest.data ?? []) as { created_at: string; type: string }[])[0];
   const claimRow = ((lastClaim.data ?? []) as { locked_at: string }[])[0];
   const maintRow = ((lastMaintenance.data ?? []) as { created_at: string }[])[0];
+  const tickRow = (lastTick.data ?? null) as { last_tick_at: string } | null;
+
+  /*
+   * Every read that failed, by SOURCE CATEGORY. The raw PostgREST message goes
+   * to the server log here and nowhere else: QueueHealth crosses into a client
+   * component, and a database error string in the browser is a diagnostic in
+   * the wrong place. The panel shows "could not be loaded" plus these
+   * categories, and must not render the affected figures as zeros.
+   *
+   * The heartbeat read is included: before migration 035 is applied it fails
+   * with "relation does not exist", and that is a real reason the liveness
+   * tile cannot be trusted, so it is reported rather than hidden.
+   */
+  const readErrors: QueueReadError[] = [];
+  const noteFailure = (source: string, error: { message: string } | null | undefined) => {
+    if (!error) return;
+    readErrors.push({ source });
+    console.error(`[queue-health] read failed (${source}):`, error.message);
+  };
+  for (const [status, page] of [
+    ["queued", queued],
+    ["running", running],
+    ["failed", failed],
+    ["dead", dead],
+  ] as const) {
+    if (page.error) noteFailure(`${status} page`, { message: page.error });
+  }
+  noteFailure("oldest queued", oldest.error);
+  noteFailure("stale count", staleCount.error);
+  noteFailure("last claim", lastClaim.error);
+  noteFailure("last maintenance", lastMaintenance.error);
+  noteFailure("worker heartbeat", lastTick.error);
+  for (const [type, , error] of succeededPerType) {
+    if (error) noteFailure(`succeeded count (${type})`, { message: error });
+  }
 
   return {
+    readErrors,
     counts,
     totals,
     capped: {
@@ -309,6 +368,7 @@ export async function readQueueHealth(): Promise<QueueHealth> {
       : null,
     lastClaimAt: claimRow?.locked_at ?? null,
     lastMaintenanceAt: maintRow?.created_at ?? null,
+    lastTickAt: tickRow?.last_tick_at ?? null,
     leaseTimeoutMs: LEASE_TIMEOUT_MS,
     rowCap: ROW_CAP,
   };
