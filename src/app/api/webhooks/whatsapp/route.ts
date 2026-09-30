@@ -87,6 +87,13 @@ type MetaMessage = {
    */
   from_user_id?: unknown;
   type?: unknown;
+  /**
+   * Present on `type: "system"` messages. For `user_changed_user_id` Meta puts
+   * the NEW business-scoped id in `user_id` and a human-readable sentence in
+   * `body` — the latter is why a system message is not bodiless, even though
+   * `extractBody` finds nothing: it looks under `text`, and this is not that.
+   */
+  system?: unknown;
 };
 
 /**
@@ -176,7 +183,7 @@ async function handleEvents(body: unknown): Promise<void> {
   for (const entry of entries) {
     for (const change of asArray((entry as { changes?: unknown })?.changes)) {
       const value = (change as { value?: unknown })?.value as
-        | { statuses?: unknown; messages?: unknown; contacts?: unknown }
+        | { statuses?: unknown; messages?: unknown; contacts?: unknown; user_id_update?: unknown }
         | undefined;
       if (!value) continue;
 
@@ -188,6 +195,11 @@ async function handleEvents(body: unknown): Promise<void> {
       const profileName = firstProfileName(value);
       for (const message of asArray(value.messages)) {
         await storeInbound(message as MetaMessage, profileName);
+      }
+      // A sibling of messages[] and statuses[], not a message — so it needs
+      // walking explicitly or it is dropped on the floor.
+      for (const update of asArray(value.user_id_update)) {
+        await storeUserIdUpdate(update, profileName);
       }
     }
   }
@@ -376,9 +388,20 @@ async function storeInbound(message: MetaMessage, profileName: string | null): P
   // Null, not "": a message that carried no phone is a different fact from one
   // that carried an empty one, and only the first is now expected.
   const fromPhone = str(message.from) || null;
-  const bsuid = str(message.from_user_id) || null;
   const type = str(message.type) || "unknown";
-  const body = extractBody(message);
+
+  /*
+   * A `user_changed_user_id` system message is an identifier announcement
+   * wearing a message's clothes. Meta states the NEW business-scoped id in
+   * `system.user_id`, which is the one worth having in a column: it is what
+   * future messages from this person will arrive under. `from_user_id` is
+   * still read as the fallback for every other message type.
+   */
+  const sys = asRecord(message.system);
+  const bsuid = str(sys?.user_id) || str(message.from_user_id) || null;
+  // `system.body` is Meta's own sentence describing the change. Surfacing it
+  // beats storing null and making a human open `raw` to learn what happened.
+  const body = extractBody(message) ?? (str(sys?.body).slice(0, 4000) || null);
 
   const service = createServiceClient();
   const resolved = await resolveTenancy(service, fromPhone);
@@ -408,6 +431,88 @@ async function storeInbound(message: MetaMessage, profileName: string | null): P
   // Only after the message is safely stored, so an opt-out can never be
   // recorded for a message we failed to keep evidence of.
   await maybeOptOut(service, fromPhone, bsuid, body);
+}
+
+/**
+ * Meta announcing that a candidate's business-scoped id has changed.
+ *
+ * ── Why this is worth catching at all ──
+ *
+ * Every other row in `whatsapp_inbound` links a phone to a BSUID by COINCIDENCE
+ * — both happened to arrive in the same payload. This event is Meta stating the
+ * association outright, including the id being retired. It is the authoritative
+ * version of what the rest of the table infers, and it is the only form that
+ * still arrives once a candidate adopts a username and the phone stops coming.
+ *
+ * ── Why a row here rather than a new table ──
+ *
+ * The identifiers land in `from_phone` and `bsuid`, the same two columns the
+ * enforcement pass will read, next to the messages implying the same link — one
+ * place to look instead of two. It also needs NO migration, which matters: the
+ * previous pass shipped code that required hand-applied SQL first, and getting
+ * that order wrong drops inbound messages. This cannot be got wrong.
+ *
+ * ── Idempotency without a dedup table ──
+ *
+ * Meta redelivers. `wa_message_id` is UNIQUE and NOT NULL, and this event has no
+ * wamid of its own, so the key is synthesised from the parts that identify the
+ * transition. A redelivery rebuilds the same key and loses the race to the
+ * unique constraint, which is the outcome we want. The timestamp is included so
+ * a genuine second change is not mistaken for a redelivery of the first.
+ *
+ * ── What is deliberately NOT done ──
+ *
+ * Nothing is enforced and nothing is rewritten. `job_applications` is not
+ * touched. This pass only makes sure the announcement is not thrown away.
+ */
+async function storeUserIdUpdate(update: unknown, profileName: string | null): Promise<void> {
+  const entry = asRecord(update);
+  if (!entry) return;
+
+  const userId = asRecord(entry.user_id);
+  const previous = str(userId?.previous) || null;
+  const current = str(userId?.current) || null;
+  // `wa_id` is the phone. Meta omits it once the candidate is username-only,
+  // which is exactly the case this row exists to survive.
+  const waId = str(entry.wa_id) || null;
+
+  if (!current && !previous && !waId) {
+    console.warn("[whatsapp][user-id-update] an update carried no identifiers — ignored.");
+    return;
+  }
+
+  const key = `uid-update:${waId ?? "-"}:${previous ?? "-"}:${current ?? "-"}:${str(entry.timestamp) || "-"}`;
+
+  const service = createServiceClient();
+  const resolved = await resolveTenancy(service, waId);
+
+  const { error } = await service.from("whatsapp_inbound").insert({
+    wa_message_id: key.slice(0, 500),
+    from_phone: waId,
+    // The id going FORWARD. `previous` stays in `raw` rather than a column,
+    // because nothing will ever arrive under it again.
+    bsuid: current ?? previous,
+    profile_name: profileName,
+    body: str(entry.detail) || null,
+    message_type: "user_id_update",
+    raw: entry,
+    company_id: resolved.companyId,
+    application_id: resolved.applicationId,
+    received_at: new Date().toISOString(),
+  });
+
+  if (error) {
+    if (!String(error.code).includes("23505")) {
+      console.error("[whatsapp][user-id-update] could not store the change:", error.message);
+    }
+    return;
+  }
+
+  console.log(
+    `[whatsapp][user-id-update] recorded a BSUID change (phone: ${waId ? "yes" : "no"}, ` +
+      `previous: ${previous ? "yes" : "no"}, attached to an application: ` +
+      `${resolved.applicationId ? "yes" : "no"}).`,
+  );
 }
 
 /**
@@ -685,6 +790,13 @@ function firstProfileName(value: { contacts?: unknown }): string | null {
 
 function asArray(value: unknown): unknown[] {
   return Array.isArray(value) ? value : [];
+}
+
+/** A plain object, or undefined — so `?.` on a string or array cannot throw. */
+function asRecord(value: unknown): Record<string, unknown> | undefined {
+  return typeof value === "object" && value !== null && !Array.isArray(value)
+    ? (value as Record<string, unknown>)
+    : undefined;
 }
 
 function str(value: unknown): string {
