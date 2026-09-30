@@ -4919,11 +4919,14 @@ export function ApplicantsClient({
       {/* The list dims and goes inert behind the panel rather than sitting
           under a scrim. At 1100px the panel still leaves a strip of list
           visible, and being able to see where you are in the queue is most of
-          why a wide panel beats a modal. `inert` and not just
-          pointer-events-none: without it Tab walks focus into a list nobody
-          can see. */}
+          why a wide panel beats a modal.
+
+          The inert half comes from useModalFocus, which inerts everything
+          outside the panel — this div included. Do NOT set `inert` here too.
+          The hook records the attribute each element had and restores it on
+          close, so an `inert` React put here is written back after React has
+          removed it, and the list stays unclickable until a reload. */}
       <div
-        inert={openRow ? true : undefined}
         className={`transition-opacity duration-200 ${openRow ? "pointer-events-none opacity-30" : ""}`}
       >
         {/* Header — `items-end` per the mock so the buttons sit on the lede's
