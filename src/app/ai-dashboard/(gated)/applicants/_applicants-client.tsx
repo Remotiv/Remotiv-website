@@ -30,10 +30,16 @@ import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
 import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { Composer, initialsOf as msgInitials } from "@/app/ai-dashboard/(gated)/messages/_composer";
-import { fetchApplicationMessages } from "@/app/ai-dashboard/(gated)/messages/actions";
 import {
+  fetchApplicationInbound,
+  fetchApplicationMessages,
+} from "@/app/ai-dashboard/(gated)/messages/actions";
+import {
+  APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
   type MessageRow as CandidateMessage,
+  type InboundMatchBasis,
+  type InboundMessageRow,
   type ManualTemplate,
 } from "@/app/ai-dashboard/(gated)/messages/types";
 import {
@@ -63,6 +69,7 @@ import {
 } from "@/app/ai-dashboard/lib/score-bands";
 import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import { placeholderFor } from "@/lib/whatsapp/inbound-display";
 import { InterviewPanel } from "./_interview-panel";
 import {
   addApplicationComment,
@@ -1412,6 +1419,11 @@ function ApplicantDrawer({
   messagesLoading,
   messagesFailed,
   messagesTruncated,
+  inbound,
+  inboundLoading,
+  inboundFailed,
+  inboundTruncated,
+  inboundBasis,
   comments,
   commentsLoading,
   viewerMemberId,
@@ -1453,6 +1465,14 @@ function ApplicantDrawer({
   messagesFailed: boolean;
   /** More messages exist than were fetched — the feed says so rather than ending. */
   messagesTruncated: boolean;
+  /** Replies the candidate sent us on WhatsApp, matched on their phone. */
+  inbound: InboundMessageRow[];
+  inboundLoading: boolean;
+  /** The replies could not be READ. Distinct from "they have not replied". */
+  inboundFailed: boolean;
+  inboundTruncated: boolean;
+  /** Whether replies could be looked for at all — see InboundMatchBasis. */
+  inboundBasis: InboundMatchBasis;
   comments: ApplicantComment[];
   commentsLoading: boolean;
   /** company_members.id of the viewer — decides whose Edit and Delete show. */
@@ -1512,6 +1532,12 @@ function ApplicantDrawer({
    * directly below it showed a full scorecard.
    */
   const headerScore: ApplicantScore = scoreDetail ?? row.score;
+
+  // The Communication tab's single list. Both directions are in flight
+  // separately, so the skeleton stands until neither is still arriving —
+  // showing half the conversation and calling it loaded would be worse.
+  const commEntries = mergeComm(messages, inbound);
+  const commLoading = messagesLoading || inboundLoading;
 
   /**
    * Which side of a threshold the number fell — null when there is no number.
@@ -2474,31 +2500,63 @@ function ApplicantDrawer({
              are one continuous record, and a card each would read as four
              unrelated events. The design's `.chead` carries a "New message"
              button; there is no composer in this drawer, so the head is the
-             title alone rather than a control that does nothing. */
-          <PaneCard title="Messages sent">
+             title alone rather than a control that does nothing.
+
+             "Messages sent" was accurate while the card was outbound only. It
+             now carries the candidate's WhatsApp replies too, so the title can
+             no longer claim a direction. */
+          <PaneCard title="Messages">
             <div className="flex flex-col gap-2.5">
-              {messagesLoading && messages.length === 0 && (
+              {commLoading && commEntries.length === 0 && (
                 <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
               )}
               {/* A failed read is not an empty trail. Until the action reported
                   its query error this pane said "No messages sent yet." on a
-                  database failure — the reassuring answer, and the wrong one. */}
+                  database failure — the reassuring answer, and the wrong one.
+                  The two directions are separate reads, so they say which one
+                  failed rather than blaming the whole card. */}
               {messagesFailed && (
                 <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-danger)]">
-                  Couldn't load this candidate's messages just now — nothing has been lost. Close
-                  the panel and reopen it to try again.
+                  Couldn't load the messages sent to this candidate just now — nothing has been
+                  lost. Close the panel and reopen it to try again.
                 </p>
               )}
-              {!messagesLoading && !messagesFailed && messages.length === 0 && (
-                <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">No messages sent yet.</p>
+              {inboundFailed && (
+                <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-danger)]">
+                  Couldn't load this candidate's WhatsApp replies just now. Anything they sent is
+                  still stored.
+                </p>
               )}
-              {messages.map((m) => (
-                <MessageEntry key={m.id} message={m} />
-              ))}
+              {!commLoading && !messagesFailed && !inboundFailed && commEntries.length === 0 && (
+                <p className="m-0 text-[13px] italic text-[var(--ai-t4)]">
+                  Nothing sent or received yet.
+                </p>
+              )}
+              {commEntries.map((entry) =>
+                entry.kind === "sent" ? (
+                  <MessageEntry key={entry.message.id} message={entry.message} />
+                ) : (
+                  <InboundEntry key={entry.message.id} message={entry.message} />
+                ),
+              )}
               {messagesTruncated && (
                 <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
                   Older messages aren't shown — this trail carries the most recent{" "}
-                  {APPLICATION_MESSAGE_CAP}.
+                  {APPLICATION_MESSAGE_CAP} sent.
+                </p>
+              )}
+              {inboundTruncated && (
+                <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+                  Older replies aren't shown — this trail carries the most recent{" "}
+                  {APPLICATION_INBOUND_CAP} received.
+                </p>
+              )}
+              {/* Why no WhatsApp can appear here, when that is the reason and
+                  not the answer. Without this an unmatchable number reads as a
+                  candidate who never replied. */}
+              {INBOUND_BASIS_NOTE[inboundBasis] && (
+                <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
+                  {INBOUND_BASIS_NOTE[inboundBasis]}
                 </p>
               )}
             </div>
@@ -2540,6 +2598,103 @@ function ApplicantDrawer({
           />
         )}
       </div>
+    </div>
+  );
+}
+
+const INBOUND_BASIS_NOTE: Record<InboundMatchBasis, string> = {
+  phone: "",
+  "no-phone-on-file":
+    "No phone number on file for this candidate, so WhatsApp replies can't be matched to them.",
+  "phone-not-normalisable":
+    "This candidate's phone number isn't in a shape we can match on, so any WhatsApp reply from " +
+    "them is in the admin inbox rather than here.",
+};
+
+type CommEntry =
+  | { kind: "sent"; at: number; message: CandidateMessage }
+  | { kind: "received"; at: number; message: InboundMessageRow };
+
+function commTime(iso: string): number {
+  const t = Date.parse(iso);
+  // An unreadable stamp sinks to the bottom rather than landing somewhere
+  // arbitrary in the middle of a list the reader is treating as chronological.
+  return Number.isNaN(t) ? 0 : t;
+}
+
+/**
+ * Interleave the two directions into the one list the Communication tab shows.
+ *
+ * Sorted on `createdAt` for outbound and `receivedAt` for inbound. Those are
+ * the same clock — both are the moment OUR database wrote the row — which is
+ * what makes them comparable at all; Meta's own send time is not used on
+ * either side.
+ *
+ * The stamp each entry DISPLAYS is a different field: an outbound message
+ * shows when it was sent, or when a queued one is due. Sorting on the
+ * displayed field would reorder the existing outbound trail, which has been
+ * ordered by creation since it was built. So a scheduled message still sits at
+ * its creation point while showing a future date, exactly as it did before
+ * inbound existed.
+ */
+function mergeComm(sent: CandidateMessage[], received: InboundMessageRow[]): CommEntry[] {
+  const entries: CommEntry[] = [
+    ...sent.map((m) => ({ kind: "sent" as const, at: commTime(m.createdAt), message: m })),
+    ...received.map((m) => ({
+      kind: "received" as const,
+      at: commTime(m.receivedAt),
+      message: m,
+    })),
+  ];
+  return entries.sort((a, b) => b.at - a.at);
+}
+
+/**
+ * One reply the candidate sent us on WhatsApp.
+ *
+ * Direction has to read before anything else here, because this is the only
+ * place a message the candidate sent sits beside one we sent, and the two
+ * sources have nothing in common structurally. Three signals carry it, all
+ * pointing the same way:
+ *
+ *  - a solid green left rule, the one colour no outbound kind uses (outbound
+ *    is a grey rule, a heavier grey rule, or dashed amber);
+ *  - a "Received" pill in the same slot outbound puts Scheduled / Automatic /
+ *    Failed, so the reader is already looking there;
+ *  - a first line that is the message itself. Outbound leads with a bold
+ *    subject; WhatsApp has no subject, so the body IS the headline.
+ *
+ * No sender name. The drawer is already headed with the candidate, and the
+ * only name WhatsApp offers is Meta's profile name — whatever the person set
+ * on their own account, often not what they applied under. Beside the tab
+ * header it reads as a mismatch rather than as information.
+ *
+ * The body is shown whole. Outbound entries are one line because a subject is
+ * one line, but clamping a reply with no way to expand it would hide the only
+ * thing this tab was extended to show.
+ */
+function InboundEntry({ message }: { message: InboundMessageRow }) {
+  const placeholder = message.body ? null : placeholderFor(message.messageType);
+
+  return (
+    <div className="border-l-[2.5px] border-solid border-l-remotiv-green py-px pl-3 transition-colors hover:border-l-[var(--ai-mint-ink)]">
+      {placeholder ? (
+        <p className="m-0 text-[13.5px] italic leading-snug text-[var(--ai-t4)]">
+          {placeholder.label}{" "}
+          <span className="not-italic text-[var(--ai-t4)]">· {placeholder.note}</span>
+        </p>
+      ) : (
+        <p className="m-0 whitespace-pre-wrap text-[13.5px] leading-snug text-[var(--ai-t1)]">
+          {message.body}
+        </p>
+      )}
+      <small className="mt-[3px] flex flex-wrap items-center gap-[7px] text-[11.5px] text-[var(--ai-t3)]">
+        <span className="shrink-0 rounded-[5px] bg-[var(--ai-mint-tint)] px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[var(--ai-mint-ink)]">
+          Received
+        </span>
+        <span>WhatsApp</span>
+        {fmtMessageWhen(message.receivedAt)}
+      </small>
     </div>
   );
 }
@@ -4060,6 +4215,11 @@ export function ApplicantsClient({
   const [messagesLoading, setMessagesLoading] = useState(false);
   const [messagesFailed, setMessagesFailed] = useState(false);
   const [messagesTruncated, setMessagesTruncated] = useState(false);
+  const [inbound, setInbound] = useState<InboundMessageRow[]>([]);
+  const [inboundLoading, setInboundLoading] = useState(false);
+  const [inboundFailed, setInboundFailed] = useState(false);
+  const [inboundTruncated, setInboundTruncated] = useState(false);
+  const [inboundBasis, setInboundBasis] = useState<InboundMatchBasis>("phone");
   const [composerOpen, setComposerOpen] = useState(false);
 
   /**
@@ -4359,6 +4519,45 @@ export function ApplicantsClient({
       })
       .finally(() => {
         if (!cancelled) setMessagesLoading(false);
+      });
+    return () => {
+      cancelled = true;
+    };
+  }, [openId]);
+
+  // Inbound WhatsApp is its own read, deliberately: it matches on the phone
+  // rather than on application_id, it can fail on its own, and a candidate
+  // whose number we cannot normalise has no inbound trail to read at all.
+  // Folding it into the outbound query would make all three of those
+  // indistinguishable from "nobody has written to this person".
+  useEffect(() => {
+    if (!openId) {
+      setInbound([]);
+      setInboundFailed(false);
+      setInboundTruncated(false);
+      setInboundBasis("phone");
+      return;
+    }
+    let cancelled = false;
+    setInboundLoading(true);
+    setInboundFailed(false);
+    setInboundTruncated(false);
+    setInbound([]);
+    fetchApplicationInbound(openId)
+      .then((read) => {
+        if (cancelled) return;
+        setInbound(read.rows);
+        setInboundFailed(!read.ok);
+        setInboundTruncated(read.truncated);
+        setInboundBasis(read.basis);
+      })
+      .catch(() => {
+        if (cancelled) return;
+        setInbound([]);
+        setInboundFailed(true);
+      })
+      .finally(() => {
+        if (!cancelled) setInboundLoading(false);
       });
     return () => {
       cancelled = true;
@@ -5195,6 +5394,11 @@ export function ApplicantsClient({
           messagesLoading={messagesLoading}
           messagesFailed={messagesFailed}
           messagesTruncated={messagesTruncated}
+          inbound={inbound}
+          inboundLoading={inboundLoading}
+          inboundFailed={inboundFailed}
+          inboundTruncated={inboundTruncated}
+          inboundBasis={inboundBasis}
           comments={comments}
           commentsLoading={historyLoading}
           viewerMemberId={viewerMemberId}

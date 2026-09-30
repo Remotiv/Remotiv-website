@@ -13,6 +13,7 @@ import {
   LogOut,
   type LucideIcon,
   Menu,
+  MessageCircle,
   MessageSquare,
   Search,
   Sparkles,
@@ -110,6 +111,7 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
     heading: "Platform",
     items: [
       { label: "Contacts", href: "/admin/contacts", icon: MessageSquare },
+      { label: "WhatsApp", href: "/admin/whatsapp", icon: MessageCircle },
       // /admin/bookings is a real, working page that the old flat bar never
       // linked — reachable only from a dead sidebar component.
       { label: "Bookings", href: "/admin/bookings", icon: CalendarDays },

@@ -115,6 +115,50 @@ export type ApplicationMessageRead = {
   truncated: boolean;
 };
 
+/**
+ * One inbound WhatsApp message, as the drawer's Communication tab renders it.
+ *
+ * No sender identity here, deliberately. The drawer is already headed with the
+ * candidate's name, and the only sender field WhatsApp gives us is Meta's
+ * profile name — which is whatever the person set on their own account, and
+ * frequently not what they applied under. Printed beside the tab header it
+ * reads as a mismatch rather than as information. /admin/whatsapp keeps it,
+ * because there it is the only thing identifying who sent the message.
+ */
+export type InboundMessageRow = {
+  id: string;
+  /** Null for a voice note or an uncaptioned image — see `placeholderFor`. */
+  body: string | null;
+  messageType: string;
+  /** ISO. Our insert time, the same clock `communication_logs.created_at` uses. */
+  receivedAt: string;
+};
+
+/**
+ * Whether this candidate's WhatsApp could be looked for at all.
+ *
+ * The tab claims to show the conversation, so "we found nothing" and "we could
+ * never have found anything" must not render as the same silence.
+ */
+export type InboundMatchBasis = "phone" | "no-phone-on-file" | "phone-not-normalisable";
+
+/** One applicant's inbound WhatsApp, and what is known about how complete it is. */
+export type ApplicationInboundRead = {
+  ok: boolean;
+  rows: InboundMessageRow[];
+  basis: InboundMatchBasis;
+  /** More replies exist than were returned. */
+  truncated: boolean;
+};
+
+/**
+ * How many of one applicant's inbound WhatsApp messages the drawer reads.
+ *
+ * Same cap as the outbound trail because the two are rendered as one list and
+ * a reader cannot be expected to hold two different limits in mind.
+ */
+export const APPLICATION_INBOUND_CAP = APPLICATION_MESSAGE_CAP;
+
 export const MESSAGES_PAGE_SIZE = 20;
 
 /** Server-side caps. Enforced in the action; the inputs mirror them. */

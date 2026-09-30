@@ -25,10 +25,16 @@ import {
   escapePlaceholders,
   renderTemplate,
 } from "@/lib/email/candidate/render";
+import { toWhatsAppDigits } from "@/lib/normalize";
+import { isIdentifierChange } from "@/lib/whatsapp/inbound-display";
 import {
+  APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
+  type ApplicationInboundRead,
   type ApplicationMessageRead,
   BODY_MAX,
+  type InboundMatchBasis,
+  type InboundMessageRow,
   MESSAGES_PAGE_SIZE,
   SUBJECT_MAX,
   type ManualTemplate,
@@ -478,6 +484,124 @@ export async function fetchApplicationMessages(
     ok: true,
     rows: await hydrate(service, truncated ? logs.slice(0, APPLICATION_MESSAGE_CAP) : logs),
     truncated,
+  };
+}
+
+/**
+ * This candidate's inbound WhatsApp, for the drawer. Ownership-checked.
+ *
+ * ── Why this matches on the phone and not on `application_id` ──
+ *
+ * `whatsapp_inbound.application_id` is written once, by the webhook, and
+ * refused outright whenever a number matches several applications. So it is
+ * null on every row the table holds and will stay null — reading it here would
+ * show nobody anything, for ever.
+ *
+ * The ambiguity it refuses is a WRITE-time one. "Which of three applications
+ * does this message belong to?" has no answer when the webhook asks it. The
+ * drawer already knows which applicant is open, so it asks a different
+ * question — "is this message from THIS applicant's number?" — and that one
+ * does have an answer.
+ *
+ * `toWhatsAppDigits` normalises both sides, and it is the same function
+ * resolveTenancy() in the webhook normalises with, so the two agree by
+ * construction rather than by coincidence.
+ *
+ * ── The cost, measured and accepted ──
+ *
+ * Eight numbers are shared by genuinely different people. Measured over the
+ * 3,396 applications on record: 2,675 distinct normalisable numbers, 364 of
+ * them shared by the same person applying twice, and 8 shared across different
+ * names AND different emails. Those candidates will each see the other's
+ * replies in this tab.
+ *
+ * That is the price of showing anyone anything, and it was taken deliberately.
+ * Do NOT "tighten" this back to application_id: the tighter query is not more
+ * correct, it is empty. Replacing the webhook's matcher is the only thing that
+ * would earn the change.
+ */
+export async function fetchApplicationInbound(
+  applicationId: string,
+): Promise<ApplicationInboundRead> {
+  const empty = (basis: InboundMatchBasis): ApplicationInboundRead => ({
+    ok: true,
+    rows: [],
+    basis,
+    truncated: false,
+  });
+
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  if (!(await canSeeApplication(ctx, applicationId))) return empty("phone");
+
+  const { data: appData, error: appError } = await service
+    .from("job_applications")
+    .select("phone")
+    .eq("id", applicationId)
+    .maybeSingle();
+
+  if (appError) {
+    console.error("[whatsapp] applicant phone read failed:", appError.message);
+    return { ok: false, rows: [], basis: "phone", truncated: false };
+  }
+
+  const stored = ((appData as { phone: string | null } | null)?.phone ?? "").trim();
+  if (!stored) return empty("no-phone-on-file");
+
+  // Null means the number is not a shape toWhatsAppDigits will vouch for —
+  // 268 applications are in that position, and a WhatsApp reply from one of
+  // them could never reach this tab. The caller says so rather than showing an
+  // empty list that reads as "they have not replied".
+  const digits = toWhatsAppDigits(stored);
+  if (!digits) return empty("phone-not-normalisable");
+
+  // Same prefilter the webhook uses: the nine trailing digits, each allowed to
+  // be followed by a separator run. Built only from toWhatsAppDigits output,
+  // which is digits by construction, so nothing in it is a regex metacharacter.
+  const pattern = digits.slice(-9).split("").join("[^0-9]*");
+  const { data, error } = await service
+    .from("whatsapp_inbound")
+    .select("id, from_phone, body, message_type, received_at")
+    .filter("from_phone", "imatch", pattern)
+    .order("received_at", { ascending: false })
+    .limit(APPLICATION_INBOUND_CAP + 1);
+
+  if (error) {
+    console.error("[whatsapp] fetchApplicationInbound failed:", error.message);
+    return { ok: false, rows: [], basis: "phone", truncated: false };
+  }
+
+  type InboundDbRow = {
+    id: string;
+    from_phone: string | null;
+    body: string | null;
+    message_type: string | null;
+    received_at: string | null;
+  };
+
+  // The prefilter is a cheap narrowing; the normaliser is the actual test.
+  // Identifier changes are dropped here rather than rendered: they are account
+  // events, not something the candidate said, and /admin/whatsapp already
+  // carries them where there is room to explain what they mean.
+  const matched = ((data ?? []) as InboundDbRow[]).filter(
+    (r) =>
+      toWhatsAppDigits(r.from_phone) === digits && !isIdentifierChange(r.message_type ?? "unknown"),
+  );
+
+  const truncated = matched.length > APPLICATION_INBOUND_CAP;
+  const kept = truncated ? matched.slice(0, APPLICATION_INBOUND_CAP) : matched;
+
+  return {
+    ok: true,
+    basis: "phone",
+    truncated,
+    rows: kept.map((r) => ({
+      id: r.id,
+      body: r.body || null,
+      messageType: r.message_type ?? "unknown",
+      receivedAt: r.received_at ?? "",
+    })) satisfies InboundMessageRow[],
   };
 }
 
