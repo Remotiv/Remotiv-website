@@ -4,6 +4,7 @@ import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
+import { isTalentPublic, TALENT_VISIBILITY_COLUMNS } from "@/lib/talent-visibility";
 
 // Hoisted from getCvSignedUrl so the shared signing helper (Phase 4 E2)
 // can reference the same TTL.
@@ -152,7 +153,12 @@ export async function unlockCandidate(candidateId: string): Promise<UnlockResult
       not_authenticated: "Please sign in to unlock contacts.",
       not_subscribed: "Subscription required to unlock contacts.",
       no_credits: "You're out of credits this month.",
-      candidate_not_found: "Candidate not found.",
+      // One wording for four states: nonexistent, not approved, paused and
+      // archived all return candidate_not_found from the RPC (migration 034),
+      // and this message must not let the recruiter tell them apart. "Not
+      // found" asserted the row does not exist, which for a paused profile
+      // was a statement about a real person.
+      candidate_not_found: "This profile is not available.",
     };
     return {
       success: false,
@@ -478,9 +484,13 @@ export async function fetchProfileDetail(
   // The admin/unlock checks drive redaction; for anonymous viewers, both
   // skip the DB hop entirely (resolved Promise placeholders below).
   const [candidateResult, unlockResult, adminResult] = await Promise.all([
+    // Visibility columns come back alongside the content so the gate below can
+    // answer without a second round trip. Deliberately NOT filtered in the
+    // query: an admin and a recruiter holding an unlock must still be able to
+    // open a paused profile, and a filter cannot express that.
     service
       .from("talent_profiles")
-      .select("summary, experience, degree, institution")
+      .select(`summary, experience, degree, institution, ${TALENT_VISIBILITY_COLUMNS}`)
       .eq("id", candidateId)
       .maybeSingle(),
     user
@@ -511,6 +521,16 @@ export async function fetchProfileDetail(
     (isSuperAdminEmail(user?.email)) ||
     (adminRow?.status === "active" &&
       (adminRow.role === "admin" || adminRow.role === "super_admin"));
+
+  // This action had NO visibility check of any kind. It is a server action, so
+  // anyone who can reach the app could POST an id and receive a paused or
+  // never-approved profile's summary and employment history. A non-public row
+  // is now only readable by an admin or by someone who already holds an unlock
+  // for it, and everyone else gets the same "not_found" as a bad id - the
+  // refusal must not say which of the two it was.
+  if (!isTalentPublic(candidate) && !isAdmin && !isUnlocked) {
+    return { ok: false, error: "not_found" };
+  }
 
   // Mirror the email + Phase 2 B2 hardened-phone regex from page.tsx.
   // If the digit count in the matched phone is outside the E.164 valid range

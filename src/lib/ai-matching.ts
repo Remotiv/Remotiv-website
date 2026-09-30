@@ -10,6 +10,7 @@
  */
 
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
+import { publicTalent } from "@/lib/talent-visibility";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAnthropic, AI_MATCHING_MODEL } from "@/lib/anthropic";
 
@@ -216,12 +217,9 @@ export async function prefilterCandidates(
 
   if (tokens.length > 0) {
     const orQuery = tokens.join(" | ");
-    const { data: ftData, error: ftError } = await supabase
-      .from("talent_profiles")
-      .select(CANDIDATE_COLUMNS)
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false)
+    const { data: ftData, error: ftError } = await publicTalent(
+      supabase.from("talent_profiles").select(CANDIDATE_COLUMNS),
+    )
       .textSearch("search_vector", orQuery, { type: "plain", config: "english" })
       .limit(limit);
 
@@ -236,12 +234,9 @@ export async function prefilterCandidates(
   const safeTokens = tokens.slice(0, 6).map((t) => t.replace(/[%_\\]/g, ""));
   if (safeTokens.length === 0) {
     // last resort: return most recent approved profiles so the page is never empty
-    const { data } = await supabase
-      .from("talent_profiles")
-      .select(CANDIDATE_COLUMNS)
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false)
+    const { data } = await publicTalent(
+      supabase.from("talent_profiles").select(CANDIDATE_COLUMNS),
+    )
       .order("approved_at", { ascending: false })
       .limit(limit);
     return (data ?? []) as CandidateRow[];
@@ -250,12 +245,9 @@ export async function prefilterCandidates(
   const orFilter = safeTokens
     .flatMap((t) => [`job_title.ilike.%${t}%`, `role_category.ilike.%${t}%`])
     .join(",");
-  const { data: fbData, error: fbError } = await supabase
-    .from("talent_profiles")
-    .select(CANDIDATE_COLUMNS)
-    .not("approved_at", "is", null)
-    .eq("is_paused", false)
-    .eq("is_archived", false)
+  const { data: fbData, error: fbError } = await publicTalent(
+    supabase.from("talent_profiles").select(CANDIDATE_COLUMNS),
+  )
     .or(orFilter)
     .limit(limit);
 

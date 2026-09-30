@@ -14,43 +14,20 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
   const now = new Date();
 
   const supabase = createServiceClient();
-  let talentEntries: MetadataRoute.Sitemap = [];
 
-  try {
-    const [pakResult, remoteResult] = await Promise.all([
-      supabase
-        .from("talent_profiles")
-        .select("id, claimed_at, approved_at")
-        .not("approved_at", "is", null),
-      supabase
-        .from("hire_remote_profiles")
-        .select("id, claimed_at, approved_at")
-        .not("approved_at", "is", null),
-    ]);
-
-    const pakRows = (pakResult.data ?? []) as Array<{
-      id: string;
-      claimed_at: string | null;
-      approved_at: string;
-    }>;
-    const remoteRows = (remoteResult.data ?? []) as Array<{
-      id: string;
-      claimed_at: string | null;
-      approved_at: string;
-    }>;
-
-    talentEntries = [...pakRows, ...remoteRows].map((r) => ({
-      url: `${BASE_URL}/talent/${r.id}`,
-      lastModified: new Date(r.claimed_at ?? r.approved_at),
-      changeFrequency: "weekly" as const,
-      priority: 0.6,
-    }));
-  } catch (err) {
-    // Graceful degradation: a transient Supabase outage must not 500 the
-    // entire sitemap. Log and proceed with static-only entries — Google
-    // still gets a valid sitemap covering the marketing pages.
-    console.error("[sitemap] failed to fetch talent entries:", err);
-  }
+  // ── Talent profiles are NOT advertised here ─────────────────
+  //
+  // This block used to emit one URL per approved profile in both pools. It is
+  // gone on purpose: the pages now carry `robots: { index: false }`, and a
+  // sitemap that submits URLs we are asking not to be indexed works against
+  // itself. Removing them here is the other half of that change.
+  //
+  // Two things this deliberately does NOT do. It does not add /talent/ to
+  // robots.ts - a disallow would stop crawlers fetching the pages, so they
+  // would never see the noindex and the already-indexed URLs would stay
+  // indexed. And it does not touch the 1000-row page cap that was silently
+  // limiting this list: with profiles removed the cap no longer affects them,
+  // and fixing it now would be fixing the wrong thing first.
 
   let jobEntries: MetadataRoute.Sitemap = [];
   try {
@@ -166,7 +143,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       changeFrequency: "monthly",
       priority: 0.8,
     },
-    ...talentEntries,
     ...jobEntries,
   ];
 }

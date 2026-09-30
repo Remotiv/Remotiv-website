@@ -130,17 +130,29 @@ test("C7-09/C7-09b: both signup flows disclose that an approved profile is publi
       /If approved, your profile page is public\./,
       `${name}: no footer disclosure`,
     );
-    assert.match(text, /search engines can index/, `${name}: no indexing disclosure`);
+    assert.match(text, /anyone with the link can open/, `${name}: no public-page disclosure`);
     assert.match(text, /public page on remotiv\.work/, `${name}: no success-screen disclosure`);
+    // The indexing claim is gone deliberately. The visibility work set
+    // `robots: index false` on profile pages and removed them from the
+    // sitemap, so telling an applicant that search engines can index their
+    // profile would now be the false half of a true sentence.
+    assert.doesNotMatch(text, /search engines can index/, `${name}: stale indexing claim`);
   }
   // The CV claim on the talent flow's upload step was the fourth false one.
   assert.doesNotMatch(talentSignup, /reviewed by our team and matched employers/);
   assert.match(talentSignup, /shared with companies\s+hiring on Remotiv/);
-  // The code fact: approval alone makes the page public and listed.
+  // The code fact the disclosure rests on: approval alone still makes the page
+  // readable by anyone holding the link. The gate moved out of the query and
+  // into the shared predicate, so it is pinned there now rather than as a
+  // PostgREST filter on this page.
   const publicProfile = src("../app/talent/[id]/page.tsx");
-  assert.match(publicProfile, /\.not\("approved_at", "is", null\)/);
+  assert.match(publicProfile, /isTalentPublic\(/);
+  assert.match(publicProfile, /kind: "public"/);
+  const visibility = src("./talent-visibility.ts");
+  assert.match(visibility, /row\.approved_at !== null/);
+  // De-indexed, so the sitemap no longer advertises these pages.
   const sitemap = src("../app/sitemap.ts");
-  assert.match(sitemap, /talent_profiles/);
+  assert.doesNotMatch(sitemap, /from\("talent_profiles"\)/);
 });
 
 test("C7-09-05: the submit-time agreement is untouched, pending the historical decision", () => {

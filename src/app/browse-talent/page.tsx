@@ -1,6 +1,7 @@
 import type { Metadata } from "next";
 import { canonicalUrl } from "@/lib/seo";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { publicTalent } from "@/lib/talent-visibility";
 import { BrowseClient, type TalentRow } from "./_browse-client";
 
 export const dynamic = "force-dynamic";
@@ -114,12 +115,9 @@ export default async function BrowseTalentPage({
   // role, q) for non-saved view — no need to wait on auth/sub/saved before
   // firing it. Saved view's count needs .in("id", inList) from savedIdsSet
   // and is mutated + fired below once the saved query resolves.
-  let countQuery = supabase
-    .from("talent_profiles")
-    .select("id", { count: "exact", head: true })
-    .not("approved_at", "is", null)
-    .eq("is_paused", false)
-    .eq("is_archived", false);
+  let countQuery = publicTalent(
+    supabase.from("talent_profiles").select("id", { count: "exact", head: true }),
+  );
   if (claimedOnly) {
     countQuery = countQuery.not("user_id", "is", null);
   }
@@ -173,14 +171,13 @@ export default async function BrowseTalentPage({
     toRow: number,
     savedInList?: string[],
   ) => {
-    let t = supabase
-      .from("talent_profiles")
-      .select(
-        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
-      )
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false);
+    let t = publicTalent(
+      supabase
+        .from("talent_profiles")
+        .select(
+          "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
+        ),
+    );
     if (claimedOnly) {
       t = t.not("user_id", "is", null);
     }
@@ -346,16 +343,14 @@ export default async function BrowseTalentPage({
   // inside the auto-opened modal.
   let deepLinkedRow: TalentRow | null = null;
   if (deepLinkId && !rows.some((r) => r.id === deepLinkId)) {
-    const { data } = await supabase
-      .from("talent_profiles")
-      .select(
-        "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
-      )
-      .eq("id", deepLinkId)
-      .not("approved_at", "is", null)
-      .eq("is_paused", false)
-      .eq("is_archived", false)
-      .maybeSingle();
+    const { data } = await publicTalent(
+      supabase
+        .from("talent_profiles")
+        .select(
+          "id, first_name, last_name, email, phone, cv_url, cv_path, job_title, role_category, years_experience, city, country, skills, summary, availability, work_type, notice_period, work_location, salary_min, salary_max, avatar_url, photo_path, linkedin_url, github_url, user_id, approved_at, created_at",
+        )
+        .eq("id", deepLinkId),
+    ).maybeSingle();
     deepLinkedRow = (data ?? null) as TalentRow | null;
   }
 

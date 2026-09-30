@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createServiceClient } from "@/lib/supabase/server";
+import { publicRemote } from "@/lib/talent-visibility";
 
 export const runtime = "nodejs";
 
@@ -73,11 +74,15 @@ export async function GET(request: NextRequest) {
 
   const supabase = createServiceClient();
 
-  let query = supabase
-    .from("hire_remote_profiles")
-    .select(SELECT_COLUMNS, { count: "exact" })
-    .eq("status", "approved")
-    .not("approved_at", "is", null);
+  // Was `status = 'approved'`, while the public profile page allowed anything
+  // except paused and archived. A row moved to shortlisted or placed fell
+  // between the two: still readable at /talent/[id], absent from this list.
+  // Both now use the one whitelist in lib/talent-visibility. This is a no-op
+  // against today's data - no row is shortlisted or placed - which is why it
+  // is safe to align now rather than after the semantics start to matter.
+  let query = publicRemote(
+    supabase.from("hire_remote_profiles").select(SELECT_COLUMNS, { count: "exact" }),
+  );
 
   if (role !== "All Roles") {
     const firstWord = role.split(" ")[0]?.toLowerCase() ?? "";

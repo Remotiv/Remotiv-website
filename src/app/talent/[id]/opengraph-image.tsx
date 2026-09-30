@@ -1,5 +1,6 @@
 import { ImageResponse } from "next/og";
 import { createServiceClient } from "@/lib/supabase/server";
+import { publicRemote, publicTalent } from "@/lib/talent-visibility";
 
 export const runtime = "edge";
 export const alt = "Remotiv Talent Profile";
@@ -49,24 +50,30 @@ export default async function Image({ params }: Props) {
   const supabase = createServiceClient();
   let row: MinimalRow | null = null;
 
-  const { data: pak } = await supabase
-    .from("talent_profiles")
-    .select("first_name, last_name, job_title, photo_path")
-    .eq("id", id)
-    .not("approved_at", "is", null)
-    .maybeSingle();
+  // Both lookups carry the shared visibility predicate. On `approved_at` alone
+  // a paused or archived profile still rendered its own name and photo into a
+  // share card, which is the one surface that survives being unlinked: it is
+  // fetched by whatever already holds the URL.
+  const { data: pak } = await publicTalent(
+    supabase
+      .from("talent_profiles")
+      .select("first_name, last_name, job_title, photo_path")
+      .eq("id", id),
+  ).maybeSingle();
   if (pak) {
     row = pak as MinimalRow;
   } else {
-    const { data: remote } = await supabase
-      .from("hire_remote_profiles")
-      .select("first_name, last_name, job_titles, photo_path")
-      .eq("id", id)
-      .not("approved_at", "is", null)
-      .maybeSingle();
+    const { data: remote } = await publicRemote(
+      supabase
+        .from("hire_remote_profiles")
+        .select("first_name, last_name, job_titles, photo_path")
+        .eq("id", id),
+    ).maybeSingle();
     if (remote) row = remote as MinimalRow;
   }
 
+  // A hidden profile falls through to the generic card, exactly like an id that
+  // never existed. The image itself must not distinguish the two either.
   if (!row) return fallbackImage();
 
   const fullName = `${row.first_name} ${row.last_name ?? ""}`.trim();

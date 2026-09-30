@@ -4,7 +4,15 @@ import Link from "next/link";
 import { notFound } from "next/navigation";
 import { Navbar } from "@/components/navbar";
 import { canonicalUrl } from "@/lib/seo";
-import { createServiceClient } from "@/lib/supabase/server";
+import { createClient, createServiceClient } from "@/lib/supabase/server";
+import {
+  isRemotePublic,
+  isTalentPublic,
+  REMOTE_VISIBILITY_COLUMNS,
+  type RemoteVisibilityFields,
+  TALENT_VISIBILITY_COLUMNS,
+  type TalentVisibilityFields,
+} from "@/lib/talent-visibility";
 
 // Force SSR — these pages depend on DB state and we want fresh approval
 // status on every request rather than risk stale cache leaking unapproved
@@ -244,55 +252,119 @@ function normaliseRemote(row: Record<string, unknown>): UnifiedProfile {
   };
 }
 
-async function fetchProfile(id: string): Promise<UnifiedProfile | null> {
-  if (!UUID_REGEX.test(id)) return null;
+/**
+ * Three outcomes, not two.
+ *
+ * The visibility predicate used to live inside these queries, so a hidden row
+ * and an id that never existed both came back as `null` and the page could not
+ * tell them apart. Fetching by id alone and testing the predicate in memory is
+ * what makes the owner-gated unavailable state possible. `ownerUserId` is the
+ * only thing carried out of a hidden row: no name, no photo, nothing rendered.
+ */
+type ProfileState =
+  | { kind: "public"; profile: UnifiedProfile }
+  | { kind: "hidden"; ownerUserId: string | null }
+  | { kind: "missing" };
+
+async function fetchProfileState(id: string): Promise<ProfileState> {
+  if (!UUID_REGEX.test(id)) return { kind: "missing" };
 
   const supabase = createServiceClient();
 
   const { data: pakRow } = await supabase
     .from("talent_profiles")
     .select(
-      "id, first_name, last_name, city, country, job_title, role_category, years_experience, summary, skills, availability, work_type, work_location, salary_min, salary_max, photo_path, avatar_url, linkedin_url, github_url, user_id, claimed_at, approved_at, experience",
+      `id, first_name, last_name, city, country, job_title, role_category, years_experience, summary, skills, availability, work_type, work_location, salary_min, salary_max, photo_path, avatar_url, linkedin_url, github_url, user_id, claimed_at, experience, ${TALENT_VISIBILITY_COLUMNS}`,
     )
     .eq("id", id)
-    .not("approved_at", "is", null)
-    .eq("is_paused", false)
-    .eq("is_archived", false)
     .maybeSingle();
 
   if (pakRow) {
-    return normalisePakistan(pakRow as Record<string, unknown>);
+    const row = pakRow as Record<string, unknown>;
+    return isTalentPublic(row as TalentVisibilityFields)
+      ? { kind: "public", profile: normalisePakistan(row) }
+      : { kind: "hidden", ownerUserId: (row.user_id as string | null) ?? null };
   }
 
   const { data: remoteRow } = await supabase
     .from("hire_remote_profiles")
     .select(
-      "id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, linkedin_url, skills, employment_history, education, languages, portfolio, user_id, claimed_at, approved_at",
+      `id, first_name, last_name, city, country, time_zone, job_titles, bio, hourly_rate, hours_per_week, work_type, availability, photo_path, linkedin_url, skills, employment_history, education, languages, portfolio, user_id, claimed_at, ${REMOTE_VISIBILITY_COLUMNS}`,
     )
     .eq("id", id)
-    .not("approved_at", "is", null)
-    .not("status", "in", "(paused,archived)")
     .maybeSingle();
 
   if (remoteRow) {
-    return normaliseRemote(remoteRow as Record<string, unknown>);
+    const row = remoteRow as Record<string, unknown>;
+    return isRemotePublic(row as RemoteVisibilityFields)
+      ? { kind: "public", profile: normaliseRemote(row) }
+      : { kind: "hidden", ownerUserId: (row.user_id as string | null) ?? null };
   }
 
-  return null;
+  return { kind: "missing" };
+}
+
+/**
+ * True only when the caller is signed in as the person whose profile this is.
+ * A hidden profile is a 404 for everyone else, so a stranger holding an id
+ * cannot learn that the row exists.
+ */
+async function viewerOwnsHiddenProfile(ownerUserId: string | null): Promise<boolean> {
+  if (!ownerUserId) return false;
+  const auth = await createClient();
+  const {
+    data: { user },
+  } = await auth.auth.getUser();
+  return !!user && user.id === ownerUserId;
+}
+
+/**
+ * Shown to the owner of a hidden profile, and to nobody else.
+ *
+ * Carries no name, no photo, no profile field of any kind, and no reason. The
+ * reason is deliberately absent: "paused for a privacy review" invites a
+ * question this page cannot answer, and the state may have several causes.
+ * Anyone who is not the owner never reaches this and sees a 404 instead.
+ */
+function ProfileNotListed() {
+  return (
+    <>
+      <Navbar />
+      <main className="min-h-screen bg-remotiv-bg font-sans">
+        <div className="mx-auto max-w-2xl px-4 py-24 text-center">
+          <h1 className="font-heading text-2xl font-bold text-gray-900 md:text-3xl">
+            This profile isn&apos;t currently listed.
+          </h1>
+          <p className="mt-3 text-base text-gray-600">
+            It may be listed again later. Nothing else is shown at this address.
+          </p>
+          <Link
+            href="/talent/dashboard"
+            className="mt-8 inline-flex items-center gap-2 rounded-full bg-remotiv-purple px-6 py-3 text-sm font-bold text-white hover:opacity-90"
+          >
+            Go to your dashboard
+          </Link>
+        </div>
+      </main>
+    </>
+  );
 }
 
 export async function generateMetadata({
   params,
 }: PageProps): Promise<Metadata> {
   const { id } = await params;
-  const profile = await fetchProfile(id);
+  const state = await fetchProfileState(id);
 
-  if (!profile) {
+  if (state.kind !== "public") {
+    // Identical metadata for hidden and missing, so the tab title cannot be
+    // used to tell a paused profile from an id that never existed.
     return {
       title: "Profile not found — Remotiv",
       robots: { index: false, follow: false },
     };
   }
+  const profile = state.profile;
 
   const title = `${profile.fullName} — ${profile.roleLabel} | Remotiv`;
   const description = profile.bio
@@ -318,17 +390,37 @@ export async function generateMetadata({
       title,
       description,
     },
-    robots: { index: true, follow: true },
+    // Step 2 of the visibility work: profile pages are de-indexed. Page-level
+    // noindex rather than a robots.txt disallow, deliberately - a disallow
+    // stops crawlers fetching the page, so they never see this directive and
+    // already-indexed URLs stay indexed. The canonical and openGraph blocks
+    // stay as they are: they describe the page for anyone who already has the
+    // link, and removing them would not un-index anything.
+    robots: { index: false, follow: false },
   };
 }
 
 export default async function TalentProfilePage({ params }: PageProps) {
   const { id } = await params;
-  const profile = await fetchProfile(id);
+  const state = await fetchProfileState(id);
 
-  if (!profile) {
+  if (state.kind === "missing") {
     notFound();
   }
+
+  if (state.kind === "hidden") {
+    // The owner gets told their profile is not listed. Everyone else gets the
+    // same 404 as a nonexistent id, so holding a link reveals nothing. Most of
+    // the hidden population is unclaimed and therefore has no owner who can
+    // sign in, so this branch will rarely render - a claim invitation, not a
+    // page, is what reaches those people.
+    if (!(await viewerOwnsHiddenProfile(state.ownerUserId))) {
+      notFound();
+    }
+    return <ProfileNotListed />;
+  }
+
+  const profile = state.profile;
 
   const personLd = {
     "@context": "https://schema.org",

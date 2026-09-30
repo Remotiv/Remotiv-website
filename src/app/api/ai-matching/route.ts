@@ -1,6 +1,7 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
+import { publicTalent } from "@/lib/talent-visibility";
 import {
   CANDIDATE_COLUMNS,
   type CandidateRow,
@@ -179,11 +180,18 @@ export async function POST(request: NextRequest) {
       });
     }
     const supabase = createServiceClient();
-    const { data: rows } = await supabase
-      .from("talent_profiles")
-      .select(CANDIDATE_COLUMNS)
-      .in("id", ids)
-      .not("approved_at", "is", null);
+    // The cached ranking holds ids, not rows, and the cache lives for
+    // CACHE_TTL_HOURS. Rehydrating on `approved_at` alone meant a paused or
+    // archived profile kept being served from a warm cache for up to that
+    // long. Filtering here is what makes a pause take effect on the next
+    // request: enrichWithUserState drops any cached entry whose id no longer
+    // hydrates (`if (!c) continue`), so a hidden profile leaves the ranking
+    // rather than rendering an empty card. There is deliberately no per-profile
+    // cache invalidation - the cache key is a normalised query string, so there
+    // is no index from a profile to the rows mentioning it.
+    const { data: rows } = await publicTalent(
+      supabase.from("talent_profiles").select(CANDIDATE_COLUMNS).in("id", ids),
+    );
     const candidates = (rows ?? []) as CandidateRow[];
     // Per-user enrichment applied fresh on every cache hit — the cached
     // MatchResult[] is user-agnostic; saved/unlocked/contact state is not.
