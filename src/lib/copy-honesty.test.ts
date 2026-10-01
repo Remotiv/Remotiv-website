@@ -323,3 +323,65 @@ test("C7-08a: no booking email invites a reply it sends with no reply-to", () =>
   // The reason it would be false: these sends carry no Reply-To.
   assert.match(notify, /replyTo: null/);
 });
+
+/* ── Response times promised on the company's behalf ───────── */
+
+/*
+ * Three surfaces promised a candidate a reply on a clock: an answer within a
+ * week on the company's job page, a 24-hour average in the apply modal, and a
+ * review within 3 working days after the interview. Nothing measures any of
+ * them, and the only automatic reply is a rejection email that each company
+ * turns on per job. They now say a reply may come, by email, from the team.
+ *
+ * Matched on whitespace-collapsed source, so a sentence wrapped across JSX lines
+ * still counts. The apply modal is shared by company and Remotiv-owned jobs.
+ */
+const flat = (text) => text.replace(/\s+/g, " ");
+const companyJob = src("../app/jobs/[slug]/_company-detail.tsx");
+
+/** Any reply-on-a-clock promise: the three removed, and their near relatives. */
+const TIME_PROMISE =
+  /within (a|one|two|three|\d+) (week|day|working day|business day|hour)|\d+ (hours|working days|business days)|response time|avg\. response|hears? back/i;
+
+test("response promises: no surface promises a candidate a reply on a clock", () => {
+  for (const [name, text] of [
+    ["company job page", companyJob],
+    ["apply modal", applyModal],
+    ["interview submitted screen", flow],
+  ]) {
+    assert.doesNotMatch(flat(text), TIME_PROMISE, `${name} promises a response time`);
+  }
+  // The pattern catches every sentence it replaced, so the pin is not vacuous.
+  for (const removed of [
+    "every applicant gets an answer within a week.",
+    "Five minutes to apply. Every applicant hears back within a week.",
+    "Average response time is 24 hours.",
+    "· Avg. response in 24 hours",
+    "A person reviews your answers, usually within 3 working days.",
+  ]) {
+    assert.match(removed, TIME_PROMISE, removed);
+  }
+});
+
+test("response promises: each surface says what may happen instead, without an em dash", () => {
+  const jobPage = flat(companyJob);
+  const sentence =
+    "The hiring team will review your application and may contact you by email with an update.";
+  // Both places on the company job page: the Decision step and the closing card.
+  assert.equal(jobPage.split(sentence).length - 1, 2, "company job page, both places");
+  assert.match(jobPage, /rest: "- The hiring team will review your application/);
+
+  const modal = flat(applyModal);
+  const update = "You&apos;ll receive updates by email if the hiring team moves forward.";
+  // The success message and the form footer.
+  assert.equal(modal.split(update).length - 1, 2, "apply modal, both places");
+
+  assert.match(
+    flat(flow),
+    /Your interview has been submitted\. The hiring team will review it and may contact you with next steps\./,
+  );
+
+  for (const written of [sentence, update, "Your interview has been submitted."]) {
+    assert.ok(!written.includes("—"), written);
+  }
+});

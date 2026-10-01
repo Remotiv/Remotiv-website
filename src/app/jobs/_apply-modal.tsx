@@ -380,7 +380,7 @@ export default function ApplyModal({
             ) : (
               <p className="ap-success-sub">
                 Thanks, {form.firstName || "there"}! The {job.company} team will review your
-                application. Average response time is 24 hours.
+                application. You&apos;ll receive updates by email if the hiring team moves forward.
               </p>
             )}
           </div>
@@ -691,7 +691,7 @@ export default function ApplyModal({
                   >
                     Privacy Policy
                   </Link>{" "}
-                  · Avg. response in 24 hours
+                  · You&apos;ll receive updates by email if the hiring team moves forward.
                 </div>
               </div>
             </form>

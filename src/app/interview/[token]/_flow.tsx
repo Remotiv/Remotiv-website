@@ -2679,7 +2679,10 @@ function Submitted({ companyName }: { companyName: string }) {
             What happens next
           </p>
           <ol className="m-0 list-decimal pl-[19px] text-[13px] leading-[1.7] text-[var(--t2)]">
-            <li>A person reviews your answers, usually within 3 working days.</li>
+            <li>
+              Your interview has been submitted. The hiring team will review it and may contact you
+              with next steps.
+            </li>
             <li className="mt-1">
               If the hiring team sends an update, it will arrive by email from Remotiv on
               their behalf.

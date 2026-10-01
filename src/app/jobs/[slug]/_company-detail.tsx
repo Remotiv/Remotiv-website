@@ -42,7 +42,10 @@ const HIRING_STEPS = [
     rest: "— a few questions you answer on video, whenever suits you.",
   },
   { lead: "Two conversations", rest: "— one with the team, one on craft." },
-  { lead: "Decision", rest: "— every applicant gets an answer within a week." },
+  {
+    lead: "Decision",
+    rest: "- The hiring team will review your application and may contact you by email with an update.",
+  },
 ];
 
 const ARROW = "M4 12h15M13 6l6 6-6 6";
@@ -337,7 +340,10 @@ export function CompanyJobDetail({
             <div className="card">
               <div>
                 <h3>Interested in this role?</h3>
-                <p>Five minutes to apply. Every applicant hears back within a week.</p>
+                <p>
+                  Five minutes to apply. The hiring team will review your application and may
+                  contact you by email with an update.
+                </p>
               </div>
               <ApplyButton job={applyJob} className="btn" preset={company.preset}>
                 <Icon d={ARROW} />
