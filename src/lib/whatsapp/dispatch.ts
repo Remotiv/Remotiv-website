@@ -2,6 +2,7 @@ import "server-only";
 import { redactCandidateLinks } from "@/lib/candidate-links";
 import { skipJob } from "@/lib/job-skip";
 import { createServiceClient } from "@/lib/supabase/server";
+import { isWhatsAppOptedOut } from "@/lib/whatsapp/opt-out";
 import {
   resolveRecipient,
   sendTemplateMessage,
@@ -59,6 +60,11 @@ const QUEUED_STALE_MS = 15 * 60 * 1000;
 
 /** Roughly how long an interview takes, for template variable {{4}}. */
 const DEFAULT_MINUTES = "12";
+
+/** Shown on the Messages page for a skipped send. Fixed text, never a raw error. */
+export const OPTED_OUT_REASON = "Recipient has opted out of WhatsApp messages.";
+export const OPT_OUT_CHECK_FAILED_REASON =
+  "Not sent: we couldn't confirm whether this candidate has opted out of WhatsApp, so it was skipped to be safe. Email is unaffected.";
 
 type ApplicationRow = {
   id: string;
@@ -233,23 +239,37 @@ export async function handleWhatsAppMessage(job: {
     return;
   }
 
-  // ── 4. Opt-out. Global: that phone never hears from us again. ──
-  const { data: optOut } = await service
-    .from("whatsapp_opt_outs")
-    .select("id")
-    .eq("phone", recipient.digits)
-    .maybeSingle();
-
-  if (optOut) {
-    await writeLog(service, {
-      companyId,
-      applicationId,
-      event,
-      toAddress: recipient.digits,
-      status: "skipped",
-      error: "Recipient has opted out of WhatsApp messages.",
-      sentByName,
-    });
+  /*
+   * ── 4. Opt-out. Global: that person never hears from us again. ──
+   *
+   * By phone OR by any BSUID seen with that phone, and closed on any lookup
+   * error. The rule and its limits live in opt-out.ts; nothing about BSUIDs
+   * belongs in this file.
+   */
+  const optOut = await isWhatsAppOptedOut(service, recipient.digits);
+  if (optOut.status !== "clear") {
+    const reason = optOut.status === "opted_out" ? OPTED_OUT_REASON : OPT_OUT_CHECK_FAILED_REASON;
+    if (reuseLogId) {
+      /*
+       * A stale `queued` row was adopted above and still holds this send's
+       * slot in the partial unique index, so a second automatic row would be
+       * refused. The skip is recorded on that row instead.
+       */
+      await service
+        .from("communication_logs")
+        .update({ status: "skipped", error: reason, to_address: recipient.digits })
+        .eq("id", reuseLogId);
+    } else {
+      await writeLog(service, {
+        companyId,
+        applicationId,
+        event,
+        toAddress: recipient.digits,
+        status: "skipped",
+        error: reason,
+        sentByName,
+      });
+    }
     return;
   }
 
