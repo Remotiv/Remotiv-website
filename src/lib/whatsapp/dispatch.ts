@@ -1,4 +1,5 @@
 import "server-only";
+import { redactCandidateLinks } from "@/lib/candidate-links";
 import { skipJob } from "@/lib/job-skip";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
@@ -292,7 +293,12 @@ export async function handleWhatsAppMessage(job: {
     // attempt's error, so the Messages page shows this attempt, not the dead one.
     await service
       .from("communication_logs")
-      .update({ status: "queued", body, error: null, to_address: recipient.digits })
+      .update({
+        status: "queued",
+        body: redactCandidateLinks(body),
+        error: null,
+        to_address: recipient.digits,
+      })
       .eq("id", reuseLogId);
     logId = reuseLogId;
   } else {
@@ -386,7 +392,9 @@ async function writeLog(
       channel: "whatsapp",
       to_address: row.toAddress,
       subject: null,
-      body: row.body ?? null,
+      // The variables carry no link today. Redacted anyway: every write to this
+      // column goes through the redactor, and a test holds every write to that.
+      body: redactCandidateLinks(row.body),
       status: row.status,
       error: row.error ?? null,
       sent_by_name: row.sentByName ?? null,

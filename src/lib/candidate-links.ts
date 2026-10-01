@@ -68,8 +68,24 @@ const REDACTIONS = Object.values(TOKEN_PATHS).map((path) => ({
  * The unsubscribe footer is left alone on purpose: it is an HMAC claim over
  * company + email whose worst case is one candidate's opt-out, and the queued
  * rows that sendScheduledNow re-sends need their footer intact.
+ *
+ * ── Every write, not most of them ────────────────────────────
+ *
+ * Every value written to communication_logs.body goes through this function at
+ * the write site itself, never upstream of it. The first version redacted one
+ * of deliverEmail's two inserts, the daily-cap one, and stored the normal send
+ * raw, so the fix covered the path that almost never runs.
+ * communication-log-writes.test.ts reads every write to the table and fails on
+ * any body that is not passed through here, an empty string, or null.
+ *
+ * Accepts null and undefined so a nullable column can be written as
+ * `body: redactCandidateLinks(row.body)` rather than a ternary around it, which
+ * keeps the one shape that test accepts.
  */
-export function redactCandidateLinks(html: string): string {
+export function redactCandidateLinks(html: string): string;
+export function redactCandidateLinks(html: string | null | undefined): string | null;
+export function redactCandidateLinks(html: string | null | undefined): string | null {
+  if (html == null) return null;
   return REDACTIONS.reduce(
     (out, { pattern, replacement }) => out.replace(pattern, replacement),
     html,

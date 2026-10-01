@@ -106,6 +106,7 @@ export async function writeCommunicationLog(
     event: LoggedEvent;
     to: string;
     subject: string;
+    /** The rendered email. Stored redacted; see the insert below. */
     body: string;
     status: MessageStatus;
     /** Free-text column. Carries failure text, and on a sent row, a note. */
@@ -123,7 +124,9 @@ export async function writeCommunicationLog(
       channel: "email",
       to_address: row.to,
       subject: row.subject,
-      body: row.body,
+      // Redacted HERE, on the only insert, so no caller can store a live
+      // interview or booking link by passing the rendered email straight in.
+      body: redactCandidateLinks(row.body),
       status: row.status,
       error: row.error ?? null,
       sent_by_name: row.sentByName ?? null,
@@ -277,7 +280,7 @@ export async function deliverEmail(
       event: input.event,
       to: input.to,
       subject: input.subject,
-      body: redactCandidateLinks(input.html),
+      body: input.html,
       status: "skipped",
       error: `Daily send cap of ${cap} reached.`,
       sentByName: input.sentByName ?? null,
