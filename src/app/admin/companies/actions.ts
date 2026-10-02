@@ -13,6 +13,8 @@ import {
 import type { CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
 import type { QueueHealth } from "@/lib/queue-health-types";
 import { QUEUE_TYPES, readQueueHealth } from "@/lib/queue-health";
+import { readPlansUsage } from "@/lib/plans-usage";
+import type { PlansUsageResult } from "@/lib/plans-usage-types";
 
 // ── Types ────────────────────────────────────────────────────
 // NB: a "use server" module may only export async functions — every export is
@@ -644,6 +646,18 @@ export async function deleteCompany(id: string): Promise<MutationResult<undefine
 export async function fetchQueueHealth(): Promise<QueueHealth> {
   await requireSuperAdmin();
   return readQueueHealth();
+}
+
+/**
+ * This calendar month's usage per company, for the Plans & Usage tab.
+ *
+ * Read-only: readPlansUsage only SELECTs. Super admin only, for the same
+ * reasons as fetchQueueHealth above; this is a server action, so the guard is
+ * the gate and the page's redirect is navigation.
+ */
+export async function fetchPlansUsage(): Promise<PlansUsageResult> {
+  await requireSuperAdmin();
+  return readPlansUsage(createServiceClient());
 }
 
 /**

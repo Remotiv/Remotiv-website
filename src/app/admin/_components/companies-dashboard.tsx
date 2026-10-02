@@ -1,6 +1,6 @@
 "use client";
 
-import { useEffect, useMemo, useRef, useState } from "react";
+import { type ReactNode, useEffect, useMemo, useRef, useState } from "react";
 import { useRouter } from "next/navigation";
 import {
   AlertTriangle,
@@ -1205,10 +1205,13 @@ export function CompaniesDashboard({
   email,
   userRole,
   initialCompanies,
+  tabs,
 }: {
   email: string;
   userRole: UserRole;
   initialCompanies: Company[];
+  /** The Companies / Usage tab strip, rendered by the page above the heading. */
+  tabs?: ReactNode;
 }) {
   const router = useRouter();
 
@@ -1329,6 +1332,7 @@ export function CompaniesDashboard({
       <TopNav email={email} userRole={userRole} />
 
       <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
+        {tabs}
         <div className="mb-6 flex flex-col gap-3 lg:flex-row lg:items-end lg:justify-between">
           <div>
             <p className="text-xs text-gray-400">AI Video Interviews</p>

@@ -616,7 +616,14 @@ test("the functions are callable by the service role only", () => {
 
 /* ── deploying it changes no behaviour ────────────────────────── */
 
-test("nothing in the application calls the new functions or tables yet", () => {
+/*
+ * Step 1 pinned that nothing touched any of this. Step 2 adds the read-only
+ * Usage tab, which reads company_plans and pricing_settings, so the pin is now
+ * the narrower thing that still guarantees no behaviour change: no code calls
+ * any of the four functions, and the only code that names the new tables is
+ * the read-only reader, which itself performs no write.
+ */
+test("no code calls the allowance or plan-writing functions; only the read-only reader touches the tables", () => {
   const src = fileURLToPath(new URL("../../", import.meta.url));
   const walk = (dir) =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -624,13 +631,25 @@ test("nothing in the application calls the new functions or tables yet", () => {
       if (e.isDirectory()) return walk(p);
       return /\.(ts|tsx|mjs)$/.test(e.name) && !/\.test\.tsx?$/.test(e.name) ? [p] : [];
     });
-  const callers = walk(src).filter((f) =>
-    /consume_allowance|release_allowance|set_company_plan|company_plans|company_plan_history|pricing_settings/.test(
-      readFileSync(f, "utf8"),
-    ),
+  // Code only: doc comments may name a function to say it is not called.
+  const code = (f) =>
+    readFileSync(f, "utf8")
+      .replace(/\/\*[\s\S]*?\*\//g, "")
+      .replace(/^\s*\/\/.*$/gm, "");
+  const files = walk(src);
+  const functionCallers = files.filter((f) =>
+    /consume_allowance|release_allowance|set_company_plan|remove_company_plan/.test(code(f)),
   );
   assert.deepEqual(
-    callers.map((f) => relative(src, f)),
+    functionCallers.map((f) => relative(src, f)),
     [],
   );
+  const tableReaders = files.filter((f) =>
+    /company_plans|company_plan_history|pricing_settings/.test(code(f)),
+  );
+  assert.deepEqual(
+    tableReaders.map((f) => relative(src, f)),
+    ["lib/plans-usage.ts"],
+  );
+  assert.doesNotMatch(code(tableReaders[0]), /\.(insert|update|upsert|delete|rpc)\(/);
 });
