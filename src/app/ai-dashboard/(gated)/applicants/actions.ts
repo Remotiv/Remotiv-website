@@ -663,7 +663,15 @@ export async function fetchAssignableJobs(): Promise<Read<AssignableJob[]>> {
   if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 
   const service = createServiceClient();
-  let q = service.from("jobs").select("id, title").eq("company_id", ctx.companyId);
+  // Deleted IS filtered, unlike status and archived_at above: a closed role is
+  // one you can still defensibly file a late CV against, a deleted one is not
+  // supposed to exist. Assigning to it would put the candidate somewhere the
+  // recruiter can no longer open.
+  let q = service
+    .from("jobs")
+    .select("id, title")
+    .eq("company_id", ctx.companyId)
+    .is("deleted_at", null);
   if (scope.scoped) q = q.in("id", scope.jobIds);
 
   const { data, error } = await q.order("created_at", { ascending: false });
@@ -1419,6 +1427,10 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
     .select("id, title")
     .eq("id", jobId)
     .eq("company_id", ctx.companyId)
+    // A deleted job accepts no new applications, by this route either. The
+    // public apply route already 404s; this is the same rule for the recruiter
+    // who adds a candidate by hand.
+    .is("deleted_at", null)
     .maybeSingle();
 
   const job = jobData as { id: string; title: string | null } | null;
@@ -1661,6 +1673,7 @@ export async function rescoreJob(
     .from("jobs")
     .select("id, company_id")
     .eq("id", jobId)
+    .is("deleted_at", null)
     .maybeSingle();
 
   const job = jobData as { company_id: string | null } | null;

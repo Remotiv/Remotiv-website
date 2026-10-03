@@ -124,7 +124,8 @@ export async function fetchOverview(): Promise<OverviewData> {
         const q = service
           .from("jobs")
           .select("id, title, category, status, created_at")
-          .eq("company_id", ctx.companyId);
+          .eq("company_id", ctx.companyId)
+          .is("deleted_at", null);
         // Conditional, never `.in("id", [])` for an unscoped role — that
         // would return nothing for an owner.
         return (scope.scoped ? q.in("id", scope.jobIds) : q)

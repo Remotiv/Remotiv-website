@@ -89,10 +89,13 @@ export type MeetingDay = {
 
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+// `excludeSoftDeleted` is opt-in because `deleted_at` only exists on `jobs`;
+// applying it unconditionally would error on every other table this counts.
 async function calculateMetric(
   supabase: SupabaseClient,
   table: string,
   filter?: { column: string; value: string },
+  excludeSoftDeleted = false,
 ): Promise<MetricResult> {
   const now = Date.now();
   const thirtyDaysAgo = new Date(now - 30 * DAY_MS).toISOString();
@@ -109,9 +112,16 @@ async function calculateMetric(
     .gte("created_at", sixtyDaysAgo)
     .lt("created_at", thirtyDaysAgo);
 
-  const totalQ = filter ? total.eq(filter.column, filter.value) : total;
-  const recentQ = filter ? recent.eq(filter.column, filter.value) : recent;
-  const priorQ = filter ? prior.eq(filter.column, filter.value) : prior;
+  const applyFilters = <Q extends { eq(c: string, v: string): Q; is(c: string, v: null): Q }>(
+    q: Q,
+  ): Q => {
+    const filtered = filter ? q.eq(filter.column, filter.value) : q;
+    return excludeSoftDeleted ? filtered.is("deleted_at", null) : filtered;
+  };
+
+  const totalQ = applyFilters(total);
+  const recentQ = applyFilters(recent);
+  const priorQ = applyFilters(prior);
 
   const [{ count: totalCount }, { count: recentCount }, { count: priorCount }] =
     await Promise.all([totalQ, recentQ, priorQ]);
@@ -580,7 +590,7 @@ export default async function AdminOverviewPage() {
     calculateMetric(service, "talent_profiles"),
     calculateMetric(service, "hire_remote_profiles"),
     calculateMetric(service, "job_applications"),
-    calculateMetric(service, "jobs", { column: "status", value: "open" }),
+    calculateMetric(service, "jobs", { column: "status", value: "open" }, true),
     calculateMetric(service, "clients", { column: "status", value: "active" }),
     calculateMetric(service, "client_batches", {
       column: "status",

@@ -445,6 +445,7 @@ async function buildAttention(
     .eq("company_id", companyId)
     .eq("status", "on_hold")
     .is("archived_at", null)
+    .is("deleted_at", null)
     .lt("created_at", staleBefore);
   // Reads `jobs` directly, so it needs the scope applied explicitly rather
   // than inheriting it from the applications above.

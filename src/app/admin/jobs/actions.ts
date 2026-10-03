@@ -31,6 +31,7 @@ export type Job = {
   created_by: string | null;
   status: "open" | "on_hold" | "closed";
   created_at: string;
+  deleted_at: string | null;
 };
 
 export type JobInput = {
@@ -219,10 +220,13 @@ export async function updateJob(id: string, input: JobInput): Promise<MutationRe
   if (!built.ok) return { success: false, error: built.error };
 
   const supabase = createServiceClient();
+  // A deleted job is not editable. Restore it first — otherwise an edit made
+  // from a stale list would silently resurrect content on a hidden row.
   const { data, error } = await supabase
     .from("jobs")
     .update(built.patch)
     .eq("id", id)
+    .is("deleted_at", null)
     .select()
     .single();
 
@@ -237,7 +241,11 @@ export async function updateJobStatus(
 ): Promise<MutationResult<undefined>> {
   await requireAdmin();
   const supabase = createServiceClient();
-  const { error } = await supabase.from("jobs").update({ status }).eq("id", id);
+  const { error } = await supabase
+    .from("jobs")
+    .update({ status })
+    .eq("id", id)
+    .is("deleted_at", null);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/jobs");
@@ -251,7 +259,11 @@ export async function updateJobDisplayOrder(
   await requireAdmin();
   const supabase = createServiceClient();
   const clean = value === null || !Number.isFinite(value) ? null : Math.trunc(value);
-  const { error } = await supabase.from("jobs").update({ display_order: clean }).eq("id", id);
+  const { error } = await supabase
+    .from("jobs")
+    .update({ display_order: clean })
+    .eq("id", id)
+    .is("deleted_at", null);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/jobs");
@@ -267,22 +279,57 @@ export async function deleteJob(id: string): Promise<MutationResult<undefined>> 
     .from("jobs")
     .select("title")
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
   if (fetchErr) return { success: false, error: fetchErr.message };
   if (!row) return { success: false, error: "Job not found." };
   const title = (row as { title: string }).title;
 
-  // Snapshot the job title onto every application BEFORE deleting the job.
-  // Once the FK's ON DELETE SET NULL fires we lose the link back to jobs.title,
-  // so the admin Applications list would render a blank job column. If the
-  // snapshot write fails, abort — preserving the title is the whole point.
+  // Still stamped, even though the row now survives and jobs(title) would
+  // resolve. The snapshot is what makes a soft delete degrade to the hard one:
+  // the 11 applications orphaned by the two real DELETEs already read their
+  // title from here, so leaving it unstamped would create a second class of
+  // deleted job whose applications depend on a row we are promising to hide.
+  // It also costs one indexed update and survives a later purge.
   const { error: snapErr } = await supabase
     .from("job_applications")
     .update({ job_title_snapshot: title })
     .eq("job_id", id);
   if (snapErr) return { success: false, error: snapErr.message };
 
-  const { error } = await supabase.from("jobs").delete().eq("id", id);
+  // Soft delete. `.is("deleted_at", null)` makes this idempotent: a second
+  // click cannot overwrite the original timestamp with a later one.
+  const { error } = await supabase
+    .from("jobs")
+    .update({ deleted_at: new Date().toISOString() })
+    .eq("id", id)
+    .is("deleted_at", null);
+  if (error) return { success: false, error: error.message };
+
+  revalidatePath("/admin/jobs");
+  revalidatePath("/admin/applications");
+  revalidatePath("/jobs");
+  return { success: true, data: undefined };
+}
+
+/**
+ * Undo a soft delete.
+ *
+ * The slug cannot collide. `jobs_slug_unique` is a plain unique index with no
+ * partial predicate, so a soft-deleted row keeps occupying its slug, and the
+ * create path's clash loop above deliberately does NOT filter deleted rows —
+ * it sees the tombstone and picks `title-2`. The slug is never freed, so there
+ * is nothing for a restore to collide with.
+ */
+export async function restoreJob(id: string): Promise<MutationResult<undefined>> {
+  await requireSuperAdmin();
+  const supabase = createServiceClient();
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({ deleted_at: null })
+    .eq("id", id)
+    .not("deleted_at", "is", null);
   if (error) return { success: false, error: error.message };
 
   revalidatePath("/admin/jobs");

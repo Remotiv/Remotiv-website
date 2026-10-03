@@ -53,7 +53,8 @@ export default async function MessagesPage() {
         const q = service
           .from("jobs")
           .select("id", { count: "exact", head: true })
-          .eq("company_id", ctx.companyId);
+          .eq("company_id", ctx.companyId)
+          .is("deleted_at", null);
         return heroScope.scoped ? q.in("id", heroScope.jobIds) : q;
       })(),
       // The reply-to the identity block and the footer both quote. Read here

@@ -120,7 +120,8 @@ export async function searchWorkspace(rawQuery: string): Promise<SearchResults> 
       let q = service
         .from("jobs")
         .select("id, title, status, location, work_type, created_at")
-        .eq("company_id", ctx.companyId);
+        .eq("company_id", ctx.companyId)
+        .is("deleted_at", null);
       // Scoped members search only the jobs they are on — the same id list the
       // Jobs list narrows to.
       if (allowedJobIds) q = q.in("id", allowedJobIds);

@@ -52,6 +52,14 @@ export async function queueApplicationReceived(
  * Reads the JOB's flag, not the company's. The company setting is only a seed
  * for new jobs — see seedRejectionDefault — so a company that flips its default
  * today does not retroactively start rejecting on jobs posted last month.
+ *
+ * DELIBERATELY not filtered on `deleted_at`, and this is a decision rather than
+ * an oversight — do not "fix" it. Deleting a job used to be a hard DELETE,
+ * which set job_id to null and made this return false, so a deleted job's
+ * applicants were silently never told. Under soft delete the row survives and
+ * they get their rejection. That is the intended behaviour: they applied, they
+ * get an answer, and the company withdrawing the role internally is not a
+ * reason to leave them waiting forever.
  */
 async function jobWantsRejectionEmail(
   service: ReturnType<typeof createServiceClient>,

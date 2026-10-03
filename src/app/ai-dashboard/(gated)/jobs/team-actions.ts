@@ -45,6 +45,7 @@ async function assertCanManage(
     .from("jobs")
     .select("id, company_id")
     .eq("id", jobId)
+    .is("deleted_at", null)
     .maybeSingle();
   const job = data as { company_id: string | null } | null;
   if (!job || job.company_id !== ctx.companyId) {
@@ -77,6 +78,7 @@ export async function fetchHiringTeam(jobId: string): Promise<{
     .from("jobs")
     .select("id, company_id")
     .eq("id", jobId)
+    .is("deleted_at", null)
     .maybeSingle();
   const job = jobRow as { company_id: string | null } | null;
   if (!job || job.company_id !== ctx.companyId) return empty;

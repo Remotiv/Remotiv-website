@@ -12,6 +12,7 @@ import {
   Plus,
   SlidersHorizontal,
   Star,
+  Trash2,
   X,
   XCircle,
 } from "lucide-react";
@@ -21,6 +22,7 @@ import {
   deleteJob,
   type Job,
   type JobInput,
+  restoreJob,
   updateJob,
   updateJobStatus,
 } from "@/app/admin/jobs/actions";
@@ -228,7 +230,7 @@ export function JobsDashboard({
   // Mobile-only UI state. Modal responsiveness is handled with Tailwind
   // `lg:` classes on the modal container — no JS branch needed.
   const [filterDrawerOpen, setFilterDrawerOpen] = useState(false);
-  const [filterStatus, setFilterStatus] = useState<"all" | Job["status"]>("all");
+  const [filterStatus, setFilterStatus] = useState<"all" | Job["status"] | "deleted">("all");
   const [filterWorkType, setFilterWorkType] = useState<string>("all");
 
   useEffect(() => {
@@ -252,8 +254,16 @@ export function JobsDashboard({
 
   const activeFilterCount = (filterStatus !== "all" ? 1 : 0) + (filterWorkType !== "all" ? 1 : 0);
 
+  const viewingDeleted = filterStatus === "deleted";
+
   const filteredJobs = jobs.filter((j) => {
-    if (filterStatus !== "all" && j.status !== filterStatus) return false;
+    const isDeleted = j.deleted_at !== null;
+    const wantDeleted = viewingDeleted;
+    // "all" means every LIVE job, not every row. This list is the only query in
+    // the app that fetches tombstones, so it is also the only one that has to
+    // hide them — they surface under their own filter value and nowhere else.
+    if (isDeleted !== wantDeleted) return false;
+    if (!wantDeleted && filterStatus !== "all" && j.status !== filterStatus) return false;
     if (filterWorkType !== "all" && j.work_type !== filterWorkType) return false;
     return true;
   });
@@ -363,7 +373,10 @@ export function JobsDashboard({
     if (!confirmDeleteId) return;
     const targetId = confirmDeleteId;
     const snapshot = jobs;
-    setJobs((prev) => prev.filter((j) => j.id !== targetId));
+    const stamp = new Date().toISOString();
+    // Stamp rather than drop: the row stays in local state so switching to the
+    // Deleted filter shows it immediately, without a refetch.
+    setJobs((prev) => prev.map((j) => (j.id === targetId ? { ...j, deleted_at: stamp } : j)));
     setConfirmDeleteId(null);
     const result = await deleteJob(targetId);
     if (!result.success) {
@@ -372,11 +385,25 @@ export function JobsDashboard({
     }
   }
 
+  async function handleRestore(job: Job) {
+    const snapshot = jobs;
+    setJobs((prev) => prev.map((j) => (j.id === job.id ? { ...j, deleted_at: null } : j)));
+    const result = await restoreJob(job.id);
+    if (!result.success) {
+      setJobs(snapshot);
+      setMutError(result.error);
+    }
+  }
+
   // ── Derived stats ─────────────────────────────────────────
-  const totalJobs = jobs.length;
-  const openCount = jobs.filter((j) => j.status === "open").length;
-  const onHoldCount = jobs.filter((j) => j.status === "on_hold").length;
-  const closedCount = jobs.filter((j) => j.status === "closed").length;
+  // Every count is a count of LIVE jobs — a deleted job is not on hold, and the
+  // header must not keep counting a row the list no longer shows.
+  const liveJobs = jobs.filter((j) => j.deleted_at === null);
+  const totalJobs = liveJobs.length;
+  const openCount = liveJobs.filter((j) => j.status === "open").length;
+  const onHoldCount = liveJobs.filter((j) => j.status === "on_hold").length;
+  const closedCount = liveJobs.filter((j) => j.status === "closed").length;
+  const deletedCount = jobs.length - liveJobs.length;
 
   // Client-side pagination — see pagination-controls.tsx for rationale.
   const [page, setPage] = useState(1);
@@ -406,20 +433,36 @@ export function JobsDashboard({
         {/* Page header */}
         <div className="mb-6 flex items-center justify-between">
           <div>
-            <h1 className="font-heading text-2xl font-bold text-[#111]">Jobs</h1>
-            <p className="mt-0.5 text-sm text-gray-400">Manage open positions</p>
+            <h1 className="font-heading text-2xl font-bold text-[#111]">
+              {viewingDeleted ? "Deleted jobs" : "Jobs"}
+            </h1>
+            <p className="mt-0.5 text-sm text-gray-400">
+              {viewingDeleted ? "Restore a job to put it back everywhere" : "Manage open positions"}
+            </p>
           </div>
-          {/* Desktop "Post Job" button — mobile uses the FAB instead */}
-          {canEditJobs && (
-            <button
-              type="button"
-              onClick={openAddModal}
-              className="hidden items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
-            >
-              <Plus className="size-4" strokeWidth={2.5} />
-              New Job
-            </button>
-          )}
+          <div className="flex items-center gap-2">
+            {canDeleteJobs && (
+              <button
+                type="button"
+                onClick={() => setFilterStatus(viewingDeleted ? "all" : "deleted")}
+                className="hidden items-center gap-2 rounded-xl border border-gray-200 bg-white px-4 py-2.5 text-sm font-semibold text-gray-700 transition-colors hover:bg-gray-50 lg:flex"
+              >
+                <Trash2 className="size-4" strokeWidth={2} />
+                {viewingDeleted ? "Back to jobs" : `Deleted (${deletedCount})`}
+              </button>
+            )}
+            {/* Desktop "Post Job" button — mobile uses the FAB instead */}
+            {canEditJobs && !viewingDeleted && (
+              <button
+                type="button"
+                onClick={openAddModal}
+                className="hidden items-center gap-2 rounded-xl bg-remotiv-purple px-4 py-2.5 text-sm font-semibold text-white transition-colors hover:bg-[#6a38e0] lg:flex"
+              >
+                <Plus className="size-4" strokeWidth={2.5} />
+                New Job
+              </button>
+            )}
+          </div>
         </div>
 
         {/* Mobile filter trigger + inline "+ New" pill (backup for the FAB) */}
@@ -617,7 +660,20 @@ export function JobsDashboard({
                               </button>
                               {openMenuId === job.id && (
                                 <div className="absolute right-0 top-9 z-20 w-36 overflow-hidden rounded-xl border border-gray-100 bg-white shadow-lg">
-                                  {canEditJobs && (
+                                  {canDeleteJobs && viewingDeleted && (
+                                    <button
+                                      type="button"
+                                      onClick={(e) => {
+                                        e.stopPropagation();
+                                        setOpenMenuId(null);
+                                        handleRestore(job);
+                                      }}
+                                      className="w-full px-4 py-2.5 text-left text-sm font-semibold text-remotiv-purple transition-colors hover:bg-gray-50"
+                                    >
+                                      Restore
+                                    </button>
+                                  )}
+                                  {canEditJobs && !viewingDeleted && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -630,7 +686,7 @@ export function JobsDashboard({
                                       Edit
                                     </button>
                                   )}
-                                  {canEditJobs && job.status !== "on_hold" && (
+                                  {canEditJobs && !viewingDeleted && job.status !== "on_hold" && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -643,7 +699,7 @@ export function JobsDashboard({
                                       Put On Hold
                                     </button>
                                   )}
-                                  {canEditJobs && job.status !== "open" && (
+                                  {canEditJobs && !viewingDeleted && job.status !== "open" && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -656,7 +712,7 @@ export function JobsDashboard({
                                       Reopen
                                     </button>
                                   )}
-                                  {canEditJobs && job.status !== "closed" && (
+                                  {canEditJobs && !viewingDeleted && job.status !== "closed" && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -669,7 +725,7 @@ export function JobsDashboard({
                                       Close
                                     </button>
                                   )}
-                                  {canDeleteJobs && (
+                                  {canDeleteJobs && !viewingDeleted && (
                                     <button
                                       type="button"
                                       onClick={(e) => {
@@ -1100,12 +1156,13 @@ export function JobsDashboard({
           <FilterSheetGroup
             label="Status"
             value={filterStatus}
-            onChange={(v) => setFilterStatus(v as "all" | Job["status"])}
+            onChange={(v) => setFilterStatus(v as "all" | Job["status"] | "deleted")}
             options={[
               { value: "all", label: "All" },
               { value: "open", label: "Open" },
               { value: "on_hold", label: "On Hold" },
               { value: "closed", label: "Closed" },
+              ...(canDeleteJobs ? [{ value: "deleted", label: `Deleted (${deletedCount})` }] : []),
             ]}
           />
           <FilterSheetGroup

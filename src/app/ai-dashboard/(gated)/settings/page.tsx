@@ -24,7 +24,8 @@ export default async function SettingsPage() {
       .from("jobs")
       .select("id", { count: "exact", head: true })
       .eq("company_id", ctx.companyId)
-      .eq("status", "open"),
+      .eq("status", "open")
+      .is("deleted_at", null),
     service
       .from("job_applications")
       .select("id", { count: "exact", head: true })

@@ -880,6 +880,7 @@ async function buildJobHealth(
     .select("id, title")
     .eq("company_id", companyId)
     .is("archived_at", null)
+    .is("deleted_at", null)
     .limit(50);
   if (jobIds) jq = jq.in("id", jobIds);
   const { data: jobRows } = await jq;

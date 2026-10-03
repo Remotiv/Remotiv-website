@@ -128,7 +128,8 @@ export default async function GatedCompanyLayout({
             const q = service
               .from("jobs")
               .select("id", { count: "exact", head: true })
-              .eq("company_id", ctx.companyId);
+              .eq("company_id", ctx.companyId)
+              .is("deleted_at", null);
             return scope.scoped ? q.in("id", scope.jobIds) : q;
           })(),
           (() => {

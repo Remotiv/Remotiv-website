@@ -153,6 +153,7 @@ export async function fetchPlatformAnalytics(range: AnalyticsRange): Promise<Ana
       service
         .from("jobs")
         .select("id, company_id, category, status, ai_cv_scoring_enabled, created_at, archived_at")
+        .is("deleted_at", null)
         .range(from, to),
     "jobs",
   );

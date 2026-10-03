@@ -899,7 +899,8 @@ export async function fetchMessageJobs(): Promise<{ id: string; title: string }[
   let q = service
     .from("jobs")
     .select("id, title")
-    .eq("company_id", ctx.companyId);
+    .eq("company_id", ctx.companyId)
+    .is("deleted_at", null);
   if (scope.scoped) q = q.in("id", scope.jobIds);
 
   const { data } = await q.order("created_at", { ascending: false }).limit(200);

@@ -230,15 +230,36 @@ export async function attachCompanyData<T extends { company_id: string | null }>
 }
 
 /**
+ * Every job row a surface may show, except the recovery view: `deleted_at IS
+ * NULL`.
+ *
+ * Deleting used to be a real DELETE, so every list got its exclusion from the
+ * row's absence and no query said anything about it. Now the row survives, and
+ * each list has to exclude it by name or a deleted job stays live. This helper
+ * is the one place that spelling lives, so a caller opts out visibly.
+ *
+ * Deliberately separate from publiclyVisible: admin and ai-dashboard list
+ * closed and archived jobs on purpose, but no surface lists a deleted one.
+ */
+type DeletionFilterable = {
+  is(column: string, value: null): DeletionFilterable;
+};
+
+export function notDeleted<T>(query: T): T {
+  return (query as DeletionFilterable).is("deleted_at", null) as T;
+}
+
+/**
  * The single source of truth for "is this job publicly visible":
  *
- *   status = 'open' AND archived_at IS NULL
+ *   status = 'open' AND archived_at IS NULL AND deleted_at IS NULL
  *
  * Archived is a separate axis from status on purpose: archived jobs are kept
  * for the company's records and are never public — a role withdrawn from the
  * site entirely, whatever its status. Admin, ai-dashboard, and other
  * company-facing surfaces deliberately do NOT use this helper: they
- * legitimately list closed and archived jobs.
+ * legitimately list closed and archived jobs — but never a deleted one, which
+ * is why the deletion gate is composed in here rather than left to callers.
  *
  * `T` is deliberately UNCONSTRAINED. Any structural constraint naming the
  * builder's `eq`/`is` methods (generic `T extends { eq(...): T }` or a
@@ -259,7 +280,7 @@ type ListingFilterable = {
 };
 
 export function publiclyVisible<T>(query: T): T {
-  const filterable = query as VisibilityFilterable;
+  const filterable = notDeleted(query) as VisibilityFilterable;
   return filterable.eq("status", "open").is("archived_at", null) as T;
 }
 

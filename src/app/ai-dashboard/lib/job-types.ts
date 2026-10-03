@@ -120,6 +120,25 @@ export type CompanyJobRow = {
   applicant_count: number;
 };
 
+/**
+ * A soft-deleted job, as the recovery view needs it.
+ *
+ * Deliberately narrower than CompanyJobRow. The recovery view offers one action
+ * — Restore — so it needs only enough to identify the role and say what comes
+ * back with it; carrying the full row would invite reusing the live job card,
+ * whose menu is full of actions a tombstone must not offer.
+ */
+export type DeletedCompanyJobRow = {
+  id: string;
+  title: string;
+  location: string;
+  status: string;
+  /** ISO timestamp. Never null — the query selects only non-null rows. */
+  deleted_at: string;
+  /** Count of applications that come back with the job. */
+  applicant_count: number;
+};
+
 /** The wizard's single form model. Strings mirror the admin form's contract:
  *  everything arrives as text and is coerced/validated server-side. */
 /**

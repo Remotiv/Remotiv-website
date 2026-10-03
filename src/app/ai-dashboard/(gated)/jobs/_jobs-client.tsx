@@ -29,6 +29,7 @@ import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
 import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
 import {
   type CompanyJobRow,
+  type DeletedCompanyJobRow,
   JOB_STATUS_LABELS,
   type JobStatus,
 } from "@/app/ai-dashboard/lib/job-types";
@@ -36,10 +37,12 @@ import {
 // application_scores and re-checks ownership through company_id_snapshot.
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { rescoreJob } from "../applicants/actions";
+import { DeletedJobsPanel } from "./_deleted-jobs";
 import { HiringTeamSection } from "./_hiring-team";
 import {
   deleteCompanyJob,
   duplicateCompanyJob,
+  restoreCompanyJob,
   setCompanyJobArchived,
   updateCompanyJobStatus,
 } from "./actions";
@@ -623,10 +626,13 @@ function JobDrawer({
 export function JobsClient({
   viewerRole,
   jobs: initialJobs,
+  deletedJobs: initialDeletedJobs,
   loadFailed,
 }: {
   viewerRole: CompanyRole;
   jobs: CompanyJobRow[];
+  /** Tombstones, kept out of `jobs` so they cannot reach any tab count. */
+  deletedJobs: DeletedCompanyJobRow[];
   /** The roles could not be READ. Distinct from "this company has no roles". */
   loadFailed: boolean;
 }) {
@@ -634,6 +640,9 @@ export function JobsClient({
   const canManage = canCreateJobs(viewerRole);
 
   const [jobs, setJobs] = useState<CompanyJobRow[]>(initialJobs);
+  const [deletedJobs, setDeletedJobs] = useState<DeletedCompanyJobRow[]>(initialDeletedJobs);
+  const [viewingDeleted, setViewingDeleted] = useState(false);
+  const [restoringId, setRestoringId] = useState<string | null>(null);
   const [tab, setTab] = useState<Tab>("all");
   // Seeded from ?q= so a topbar search result lands on this list already
   // filtered, rather than on an unfiltered page the reader has to search again.
@@ -658,6 +667,30 @@ export function JobsClient({
   useEffect(() => {
     setJobs(initialJobs);
   }, [initialJobs]);
+
+  useEffect(() => {
+    setDeletedJobs(initialDeletedJobs);
+  }, [initialDeletedJobs]);
+
+  async function handleRestore(job: DeletedCompanyJobRow) {
+    setRestoringId(job.id);
+    const result = await restoreCompanyJob(job.id);
+    setRestoringId(null);
+
+    if (!result.success) {
+      setToast({
+        message: result.error ?? "Something went wrong. Please try again.",
+        tone: "error",
+      });
+      return;
+    }
+
+    setDeletedJobs((prev) => prev.filter((j) => j.id !== job.id));
+    setToast(`“${job.title}” restored`);
+    // The job has to reappear in the live list, which only the server can
+    // supply — it carries columns the recovery row deliberately does not hold.
+    router.refresh();
+  }
 
   /**
    * Tab counts.
@@ -1065,6 +1098,21 @@ export function JobsClient({
     };
   })();
 
+  if (viewingDeleted) {
+    return (
+      <PageContainer>
+        <DeletedJobsPanel
+          jobs={deletedJobs}
+          canRestore={canManage}
+          busyId={restoringId}
+          onRestore={handleRestore}
+          onBack={() => setViewingDeleted(false)}
+        />
+        <Toast state={toast} />
+      </PageContainer>
+    );
+  }
+
   return (
     <PageContainer>
       {/* Header */}
@@ -1094,6 +1142,22 @@ export function JobsClient({
                 {counts.archived > 0 && (
                   <span className="rounded-full bg-[var(--ai-inset)] px-1.5 py-px text-[11px] font-bold text-[var(--ai-t3)]">
                     {counts.archived}
+                  </span>
+                )}
+              </button>
+              {/* Sits beside Archived because it is the same kind of control —
+                  a jump to a view of jobs that are out of the working set. The
+                  count comes from its own query, not from `counts`. */}
+              <button
+                type="button"
+                onClick={() => setViewingDeleted(true)}
+                className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white"
+              >
+                <Trash className="size-[15px]" strokeWidth={1.9} />
+                Deleted
+                {deletedJobs.length > 0 && (
+                  <span className="rounded-full bg-[var(--ai-inset)] px-1.5 py-px text-[11px] font-bold text-[var(--ai-t3)]">
+                    {deletedJobs.length}
                   </span>
                 )}
               </button>

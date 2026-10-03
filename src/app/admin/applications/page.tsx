@@ -64,6 +64,7 @@ export default async function ApplicationsPage({
       .from("jobs")
       .select("id, title")
       .eq("status", "open")
+      .is("deleted_at", null)
       .order("title", { ascending: true }),
     service.from("admin_users").select("role").eq("user_id", userId).maybeSingle(),
     service

@@ -25,6 +25,7 @@ import {
   CV_WEIGHT_DIMENSIONS,
   CV_WEIGHT_MAX,
   CV_WEIGHT_MIN,
+  type DeletedCompanyJobRow,
   INTERVIEW_CRITERIA_MAX,
   INTERVIEW_DURATION_MAX,
   INTERVIEW_DURATION_MIN,
@@ -458,7 +459,11 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
   const PAGE = 1000;
   const rows: Record<string, unknown>[] = [];
   for (let from = 0; ; from += PAGE) {
-    let q = service.from("jobs").select(JOB_COLUMNS).eq("company_id", ctx.companyId);
+    let q = service
+      .from("jobs")
+      .select(JOB_COLUMNS)
+      .eq("company_id", ctx.companyId)
+      .is("deleted_at", null);
     if (scope.scoped) q = q.in("id", scope.jobIds);
     const { data, error } = await q
       .order("created_at", { ascending: false })
@@ -511,6 +516,70 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
       positions: (r.positions as number) ?? 1,
       created_at: (r.created_at as string) ?? "",
       archived_at: (r.archived_at as string | null) ?? null,
+      applicant_count: counts[i],
+    })),
+  );
+}
+
+/**
+ * The company's soft-deleted jobs, for the recovery view only.
+ *
+ * A separate action rather than widening `fetchCompanyJobs`, which filters
+ * `deleted_at IS NULL` server-side. Letting tombstones into that list would
+ * put them through its tab counts, hero bars and attention lists — six
+ * aggregates, each a chance to leak a deleted job into a number. Keeping them
+ * in their own query means they cannot reach any of it.
+ *
+ * Scoped the same way as the live list: a recruiter sees only roles they are on
+ * the hiring team for, and that membership survives a soft delete.
+ */
+export async function fetchDeletedCompanyJobs(): Promise<Read<DeletedCompanyJobRow[]>> {
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  const scope = await getJobScope(ctx);
+  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
+
+  let q = service
+    .from("jobs")
+    .select("id, title, location, status, deleted_at")
+    .eq("company_id", ctx.companyId)
+    .not("deleted_at", "is", null);
+  if (scope.scoped) q = q.in("id", scope.jobIds);
+
+  const { data, error } = await q.order("deleted_at", { ascending: false }).limit(200);
+
+  if (error) {
+    console.error("[jobs] fetchDeletedCompanyJobs failed:", error);
+    // Same reasoning as the live list: an empty recovery view would say "you
+    // have deleted nothing" to someone who deleted something by accident.
+    return unavailable();
+  }
+
+  const rows = (data ?? []) as Record<string, unknown>[];
+  if (rows.length === 0) return answered([]);
+
+  const counts = await Promise.all(
+    rows.map(async (r) => {
+      try {
+        const { count } = await service
+          .from("job_applications")
+          .select("id", { count: "exact", head: true })
+          .eq("job_id", r.id as string);
+        return count ?? 0;
+      } catch {
+        return 0;
+      }
+    }),
+  );
+
+  return answered(
+    rows.map((r, i) => ({
+      id: r.id as string,
+      title: (r.title as string) ?? "",
+      location: (r.location as string) ?? "",
+      status: (r.status as string) ?? "",
+      deleted_at: (r.deleted_at as string) ?? "",
       applicant_count: counts[i],
     })),
   );
@@ -786,6 +855,10 @@ async function assertOwned(
       `id, company_id, criteria_version, ${SCORING_RELEVANT_COLUMNS.join(", ")}, ${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}`,
     )
     .eq("id", jobId)
+    // A deleted job is not mutable. This one filter is what stops every caller
+    // below it — edit, status, archive, delete — from reviving a tombstone, and
+    // it answers with "not in your workspace" exactly as a hard delete did.
+    .is("deleted_at", null)
     .maybeSingle();
 
   const row = data as
@@ -1215,25 +1288,72 @@ export async function deleteCompanyJob(jobId: string): Promise<MutationResult<un
     return { success: false, error: "That job isn't in your workspace." };
   }
 
-  // Snapshot the job title onto every application BEFORE deleting the job.
-  // Once the FK's ON DELETE SET NULL fires we lose the link back to jobs.title,
-  // so applicant lists would render a blank job column. If the snapshot write
-  // fails, abort — preserving the title is the whole point.
+  // Still snapshotted, even though a soft delete keeps job_id intact and
+  // jobs.title would resolve. Applications orphaned by the hard DELETE this
+  // replaced already read their title from here, and leaving it unstamped
+  // would make tombstoned jobs a second class whose applicant lists depend on
+  // a row we promise to hide. It also survives a later purge.
   const { error: snapErr } = await supabase
     .from("job_applications")
     .update({ job_title_snapshot: owned.title })
     .eq("job_id", jobId);
   if (snapErr) return { success: false, error: actionFailed("delete that job", snapErr) };
 
+  // `.is("deleted_at", null)` makes this idempotent: a double-submit stamps
+  // once and the second call is a no-op rather than moving the timestamp.
   const { error } = await supabase
     .from("jobs")
-    .delete()
+    .update({ deleted_at: new Date().toISOString() })
     .eq("id", jobId)
-    .eq("company_id", ctx.companyId);
+    .eq("company_id", ctx.companyId)
+    .is("deleted_at", null);
 
   // The title snapshots above have already been written when this fails, so
   // this is not a "nothing was changed" case.
   if (error) return { success: false, error: actionIncomplete("delete that job", error) };
+
+  revalidateJobSurfaces();
+  return { success: true, data: undefined };
+}
+
+/**
+ * Put a soft-deleted job back, scoped to the caller's company.
+ *
+ * Deliberately does NOT use `assertOwned` — that filters `deleted_at IS NULL`
+ * and is therefore blind to the only rows this function exists to touch. The
+ * ownership check is repeated inline instead, against a query that sees
+ * tombstones.
+ *
+ * Same gate as `deleteCompanyJob` on the reasoning that whoever can hide a job
+ * can unhide it, and `canAccessJob` reads `job_hiring_team`, which a soft
+ * delete leaves intact — so a recruiter keeps access to a role they deleted.
+ */
+export async function restoreCompanyJob(jobId: string): Promise<MutationResult<undefined>> {
+  const ctx = await requireCompanyRole("owner", "admin", "recruiter");
+
+  const supabase = createServiceClient();
+  const { data } = await supabase
+    .from("jobs")
+    .select("id, company_id")
+    .eq("id", jobId)
+    .not("deleted_at", "is", null)
+    .maybeSingle();
+
+  const row = data as { company_id: string | null } | null;
+  if (!row || row.company_id !== ctx.companyId) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
+  if (!(await canAccessJob(ctx, jobId))) {
+    return { success: false, error: "That job isn't in your workspace." };
+  }
+
+  const { error } = await supabase
+    .from("jobs")
+    .update({ deleted_at: null })
+    .eq("id", jobId)
+    .eq("company_id", ctx.companyId)
+    .not("deleted_at", "is", null);
+  if (error) return { success: false, error: actionIncomplete("restore that job", error) };
 
   revalidateJobSurfaces();
   return { success: true, data: undefined };
@@ -1255,6 +1375,9 @@ export async function duplicateCompanyJob(jobId: string): Promise<MutationResult
       "company_id, title, location, category, experience_level, contract_type, work_type, language, positions, salary_min, salary_max, salary_currency, description, responsibilities, requirements, screening_questions, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", jobId)
+    // Duplicating a tombstone would mint a live Draft from content someone
+    // deleted, under a new id that no restore view accounts for.
+    .is("deleted_at", null)
     .maybeSingle();
 
   const source = data as (Record<string, unknown> & { company_id: string | null }) | null;

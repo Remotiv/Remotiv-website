@@ -13,6 +13,9 @@ export default async function AdminJobsPage() {
   const userEmail = user?.email ?? "";
 
   const [{ data: jobs }, { data: roleRow }] = await Promise.all([
+    // Deliberately unfiltered on `deleted_at` — this is the one list that must
+    // see tombstones, because the recovery view is a filter on it rather than a
+    // separate page. JobsDashboard hides them from every other filter state.
     service
       .from("jobs")
       .select("*")

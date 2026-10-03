@@ -367,7 +367,7 @@ export async function POST(request: NextRequest) {
     if (source !== "manual_upload" && jobId !== null) {
       const { data: visRow, error: visError } = await supabase
         .from("jobs")
-        .select("status, archived_at")
+        .select("status, archived_at, deleted_at")
         .eq("id", jobId)
         .maybeSingle();
 
@@ -381,7 +381,21 @@ export async function POST(request: NextRequest) {
         return NextResponse.json({ error: "Job not found." }, { status: 404 });
       }
 
-      const vis = visRow as { status: string | null; archived_at: string | null };
+      const vis = visRow as {
+        status: string | null;
+        archived_at: string | null;
+        deleted_at: string | null;
+      };
+
+      // 404, not 410, and before the status check: a soft-deleted job must
+      // answer exactly as it did when deleting removed the row. 410 would say
+      // "this existed and is withdrawn", which is the answer for a closed or
+      // archived role — a deleted one is supposed to be indistinguishable from
+      // one that never existed.
+      if (vis.deleted_at !== null) {
+        return NextResponse.json({ error: "Job not found." }, { status: 404 });
+      }
+
       if (vis.status !== "open" || vis.archived_at !== null) {
         return NextResponse.json(
           { error: "This role is no longer accepting applications." },

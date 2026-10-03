@@ -84,12 +84,14 @@ export default async function EditJobPage({ params }: { params: Promise<{ id: st
       "id, company_id, title, location, country, city, category, experience_level, contract_type, work_type, positions, description, responsibilities, requirements, salary_currency, salary_min, salary_max, screening_questions, status, allow_rerecord, ai_cv_scoring_enabled, measure_relevancy, avatar_interview_enabled, avatar_interviewer_name, async_interview_enabled, async_interview_name, send_rejection_email, listed_on_remotiv, cv_weight_requirements, cv_weight_experience, cv_weight_domain, cv_weight_responsibilities, autoshortlist_source, autoshortlist_cv_threshold, autoshortlist_interview_threshold, scoring_must_haves, interview_criteria, interview_duration_minutes, booking_hours_override",
     )
     .eq("id", id)
+    .is("deleted_at", null)
     .maybeSingle();
 
   const job = data as JobRow | null;
 
-  // Missing and not-yours are deliberately indistinguishable — both bounce to
-  // the list rather than confirming that some other company's job id exists.
+  // Missing, not-yours and deleted are deliberately indistinguishable — all
+  // bounce to the list rather than confirming that some other company's job id
+  // exists, or rendering an editable form over a tombstone.
   if (!job || job.company_id !== ctx.companyId) {
     redirect("/ai-dashboard/jobs");
   }
