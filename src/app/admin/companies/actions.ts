@@ -15,6 +15,22 @@ import type { QueueHealth } from "@/lib/queue-health-types";
 import { QUEUE_TYPES, readQueueHealth } from "@/lib/queue-health";
 import { readPlansUsage } from "@/lib/plans-usage";
 import type { PlansUsageResult } from "@/lib/plans-usage-types";
+import {
+  type PlansAdminResult,
+  type RatesResult,
+  readPlansAdmin,
+  readPricingRates,
+  removeCompanyPlan,
+  saveCompanyPlan,
+  savePricingSettings,
+} from "@/lib/plans-admin";
+import {
+  isUuid,
+  type PlanField,
+  type PricingField,
+  validateCompanyPlan,
+  validatePricingSettings,
+} from "@/lib/plans-admin-validate";
 
 // ── Types ────────────────────────────────────────────────────
 // NB: a "use server" module may only export async functions — every export is
@@ -658,6 +674,64 @@ export async function fetchQueueHealth(): Promise<QueueHealth> {
 export async function fetchPlansUsage(): Promise<PlansUsageResult> {
   await requireSuperAdmin();
   return readPlansUsage(createServiceClient());
+}
+
+// ── Plans & Rates ───────────────────────────────────────────
+//
+// Super admin only. The acting user is ALWAYS taken from the server session
+// (requireSuperAdmin's ctx.user.id), never from anything the browser sends, so
+// the history a plan change writes names the person who actually made it.
+// Plan writes go only through set_company_plan / remove_company_plan; see
+// src/lib/plans-admin.ts. Nothing here enforces a limit.
+
+type FormResult<F extends string> =
+  | { ok: true }
+  | { ok: false; error: string; fieldErrors?: Partial<Record<F, string>> };
+
+export async function fetchPlansAdmin(): Promise<PlansAdminResult> {
+  await requireSuperAdmin();
+  return readPlansAdmin(createServiceClient());
+}
+
+export async function fetchPricingRates(): Promise<RatesResult> {
+  await requireSuperAdmin();
+  return readPricingRates(createServiceClient());
+}
+
+export async function savePricingSettingsAction(
+  form: Partial<Record<PricingField, string>>,
+): Promise<FormResult<PricingField>> {
+  const ctx = await requireSuperAdmin();
+  const parsed = validatePricingSettings(form);
+  if (!parsed.ok) {
+    return { ok: false, error: "Some values need fixing.", fieldErrors: parsed.errors };
+  }
+  const saved = await savePricingSettings(createServiceClient(), ctx.user.id, parsed.value);
+  if (saved.ok) revalidatePath("/admin/companies");
+  return saved;
+}
+
+export async function saveCompanyPlanAction(
+  companyId: string,
+  form: Partial<Record<PlanField, string>>,
+): Promise<FormResult<PlanField>> {
+  const ctx = await requireSuperAdmin();
+  if (!isUuid(companyId)) return { ok: false, error: "That company could not be found." };
+  const parsed = validateCompanyPlan(form);
+  if (!parsed.ok) {
+    return { ok: false, error: "Some values need fixing.", fieldErrors: parsed.errors };
+  }
+  const saved = await saveCompanyPlan(createServiceClient(), ctx.user.id, companyId, parsed.value);
+  if (saved.ok) revalidatePath("/admin/companies");
+  return saved;
+}
+
+export async function removeCompanyPlanAction(companyId: string): Promise<FormResult<never>> {
+  const ctx = await requireSuperAdmin();
+  if (!isUuid(companyId)) return { ok: false, error: "That company could not be found." };
+  const removed = await removeCompanyPlan(createServiceClient(), ctx.user.id, companyId);
+  if (removed.ok) revalidatePath("/admin/companies");
+  return removed;
 }
 
 /**

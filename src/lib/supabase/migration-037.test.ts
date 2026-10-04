@@ -617,13 +617,15 @@ test("the functions are callable by the service role only", () => {
 /* ── deploying it changes no behaviour ────────────────────────── */
 
 /*
- * Step 1 pinned that nothing touched any of this. Step 2 adds the read-only
- * Usage tab, which reads company_plans and pricing_settings, so the pin is now
- * the narrower thing that still guarantees no behaviour change: no code calls
- * any of the four functions, and the only code that names the new tables is
- * the read-only reader, which itself performs no write.
+ * Step 1 pinned that nothing touched any of this. Step 2 added the read-only
+ * Usage tab. Step 3 adds plan editing, so the pin now states the shape that
+ * still guarantees nothing is enforced and every plan change is audited:
+ * nothing calls the allowance functions; the two plan functions are called
+ * from exactly one module; only the Usage reader and that module name the new
+ * tables; neither writes the plan tables directly, and the Usage reader writes
+ * nothing at all.
  */
-test("no code calls the allowance or plan-writing functions; only the read-only reader touches the tables", () => {
+test("nothing calls the allowance functions; plan writes have one caller; no direct plan-table writes", () => {
   const src = fileURLToPath(new URL("../../", import.meta.url));
   const walk = (dir) =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -637,19 +639,26 @@ test("no code calls the allowance or plan-writing functions; only the read-only 
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "");
   const files = walk(src);
-  const functionCallers = files.filter((f) =>
-    /consume_allowance|release_allowance|set_company_plan|remove_company_plan/.test(code(f)),
-  );
+  const rel = (list) => list.map((f) => relative(src, f));
+
   assert.deepEqual(
-    functionCallers.map((f) => relative(src, f)),
+    rel(files.filter((f) => /consume_allowance|release_allowance/.test(code(f)))),
     [],
   );
-  const tableReaders = files.filter((f) =>
+  assert.deepEqual(rel(files.filter((f) => /set_company_plan|remove_company_plan/.test(code(f)))), [
+    "lib/plans-admin.ts",
+  ]);
+  const tableUsers = files.filter((f) =>
     /company_plans|company_plan_history|pricing_settings/.test(code(f)),
   );
-  assert.deepEqual(
-    tableReaders.map((f) => relative(src, f)),
-    ["lib/plans-usage.ts"],
-  );
-  assert.doesNotMatch(code(tableReaders[0]), /\.(insert|update|upsert|delete|rpc)\(/);
+  assert.deepEqual(rel(tableUsers), ["lib/plans-admin.ts", "lib/plans-usage.ts"]);
+  for (const f of tableUsers) {
+    assert.doesNotMatch(
+      code(f),
+      /from\(\s*["'](company_plans|company_plan_history)["']\s*\)\s*\.(insert|update|upsert|delete)\(/,
+      relative(src, f),
+    );
+  }
+  const usageReader = tableUsers.find((f) => f.endsWith("plans-usage.ts"));
+  assert.doesNotMatch(code(usageReader), /\.(insert|update|upsert|delete|rpc)\(/);
 });

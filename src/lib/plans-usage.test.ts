@@ -243,7 +243,11 @@ test("the Usage tab is super-admin only, read-only, and says so when it cannot l
   // No form, no button, no server action: nothing on the tab can write.
   assert.doesNotMatch(panel, /<form|<button|"use client"|onClick/);
   const page = src("../app/admin/companies/page.tsx");
-  assert.match(page, /if \(tab === "usage"\) \{\n {4}const usage = await fetchPlansUsage\(\);/);
+  // The Usage tab renders the read-only panel from the super-admin action.
+  assert.match(
+    page,
+    /if \(tab === "usage"\) \{\s+content = <UsagePanel result=\{await fetchPlansUsage\(\)\} \/>;/,
+  );
 });
 
 test("the reader never touches the allowance functions or a scoring path", () => {

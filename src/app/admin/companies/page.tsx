@@ -1,11 +1,20 @@
 import { redirect } from "next/navigation";
+import type { ReactNode } from "react";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 import { CompaniesDashboard } from "@/app/admin/_components/companies-dashboard";
 import { TopNav } from "@/app/admin/_components/top-nav";
 import { type UserRole, isSuperAdminEmail } from "@/app/admin/lib/roles";
-import { fetchCompanies, fetchPlansUsage, fetchQueueHealth } from "./actions";
+import {
+  fetchCompanies,
+  fetchPlansAdmin,
+  fetchPlansUsage,
+  fetchPricingRates,
+  fetchQueueHealth,
+} from "./actions";
 import { CompaniesTabs, parseCompaniesTab } from "./_companies-tabs";
 import { QueuePanel } from "./_queue-panel";
+import { QuoteBuilder } from "./_quote-builder";
+import { RatesPanel } from "./_rates-panel";
 import { UsagePanel } from "./_usage-panel";
 
 export const dynamic = "force-dynamic";
@@ -43,14 +52,29 @@ export default async function AdminCompaniesPage({
 
   // Every read below is already behind requireSuperAdmin(); the redirect above
   // is navigation polish, not the gate. Each tab fetches only what it shows.
-  if (tab === "usage") {
-    const usage = await fetchPlansUsage();
+  if (tab !== "companies") {
+    let content: ReactNode;
+    if (tab === "usage") {
+      content = <UsagePanel result={await fetchPlansUsage()} />;
+    } else if (tab === "plans") {
+      content = <RatesPanel result={await fetchPlansAdmin()} />;
+    } else {
+      const rates = await fetchPricingRates();
+      content = rates.ok ? (
+        <QuoteBuilder rates={rates.rates} />
+      ) : (
+        <div role="alert" className="rounded-2xl bg-red-50 p-5 text-red-800 ring-1 ring-red-200">
+          <p className="font-semibold">Rates could not be loaded.</p>
+          <p className="mt-1 text-sm">Details are in the server log.</p>
+        </div>
+      );
+    }
     return (
       <div className="min-h-screen bg-remotiv-bg">
         <TopNav email={userEmail} userRole={userRole} />
         <main className="mx-auto max-w-screen-2xl px-4 py-6 lg:px-8 lg:py-8">
-          <CompaniesTabs active="usage" />
-          <UsagePanel result={usage} />
+          <CompaniesTabs active={tab} />
+          {content}
         </main>
       </div>
     );

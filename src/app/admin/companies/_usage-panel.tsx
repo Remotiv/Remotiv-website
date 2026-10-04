@@ -15,7 +15,7 @@ import {
 import { cn } from "@/lib/utils";
 
 /**
- * The Plans & Usage tab: this calendar month, per company. Read-only. Nothing
+ * The Usage tab: this calendar month, per company. Read-only. Nothing
  * here can edit a plan, change a rate or affect what a company may do; it
  * shows what was used and what it is estimated to have cost.
  *
@@ -231,7 +231,7 @@ function CompanyCard({ usage, rates }: { usage: CompanyUsage; rates: PricingRate
 export function UsagePanel({ result }: { result: PlansUsageResult }) {
   const heading = (
     <div className="mb-4">
-      <h2 className="font-heading text-xl font-bold text-gray-900">Plans &amp; Usage</h2>
+      <h2 className="font-heading text-xl font-bold text-gray-900">Usage</h2>
       <p className="mt-1 text-sm text-gray-500">
         {result.window.label}, calendar month in {BILLING_TIME_ZONE}. Read-only.
       </p>
@@ -264,7 +264,7 @@ export function UsagePanel({ result }: { result: PlansUsageResult }) {
   ].filter(Boolean) as string[];
 
   return (
-    <section aria-label="Plans and usage">
+    <section aria-label="Usage">
       {heading}
       {unsetRates.length > 0 && (
         <p className="mb-4 rounded-xl bg-amber-50 px-4 py-3 text-sm text-amber-800 ring-1 ring-amber-200">

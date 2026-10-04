@@ -75,6 +75,8 @@ type SettingsRow = {
   fixed_monthly_cost: number | string | null;
   clients_sharing_fixed_cost: number | null;
   pkr_per_usd: number | string | null;
+  minimum_price: number | string | null;
+  minimum_margin_pct: number | string | null;
 };
 
 /** Per-company totals. Rows with no company (Remotiv-owned) are not anyone's usage. */
@@ -144,7 +146,7 @@ export async function readPlansUsage(
           service
             .from("pricing_settings")
             .select(
-              "cv_score_cost, async_interview_cost, live_minute_cost, whatsapp_message_cost, fixed_monthly_cost, clients_sharing_fixed_cost, pkr_per_usd",
+              "cv_score_cost, async_interview_cost, live_minute_cost, whatsapp_message_cost, fixed_monthly_cost, clients_sharing_fixed_cost, pkr_per_usd, minimum_price, minimum_margin_pct",
             )
             .eq("id", "default")
             .maybeSingle(),
@@ -234,6 +236,8 @@ export async function readPlansUsage(
     fixedMonthlyCost: num(settings.fixed_monthly_cost),
     clientsSharingFixedCost: Math.max(1, settings.clients_sharing_fixed_cost ?? 1),
     pkrPerUsd: num(settings.pkr_per_usd),
+    minimumPrice: num(settings.minimum_price),
+    minimumMarginPct: num(settings.minimum_margin_pct),
   };
 
   const planByCompany = new Map(plans.map((p) => [p.company_id, p]));

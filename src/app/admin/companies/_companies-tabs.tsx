@@ -2,23 +2,29 @@ import Link from "next/link";
 import { cn } from "@/lib/utils";
 
 /**
- * The tab strip on /admin/companies. Two plain links, so a tab is a URL: it
+ * The tab strip on /admin/companies. Plain links, so a tab is a URL: it
  * survives a reload, can be shared, and needs no client script.
  *
  * Lives here rather than in the admin top navigation, which belongs to another
  * line of work and is not edited from this one.
  */
 
-export type CompaniesTab = "companies" | "usage";
+export type CompaniesTab = "companies" | "usage" | "plans" | "quote";
 
-/** Anything but an exact "usage" is the default tab. */
+const KNOWN: CompaniesTab[] = ["usage", "plans", "quote"];
+
+/** Anything but an exact known tab id is the default tab. */
 export function parseCompaniesTab(raw: string | string[] | undefined): CompaniesTab {
-  return raw === "usage" ? "usage" : "companies";
+  return typeof raw === "string" && (KNOWN as string[]).includes(raw)
+    ? (raw as CompaniesTab)
+    : "companies";
 }
 
 const TABS: { id: CompaniesTab; label: string; href: string }[] = [
   { id: "companies", label: "Companies", href: "/admin/companies" },
-  { id: "usage", label: "Plans & Usage", href: "/admin/companies?tab=usage" },
+  { id: "usage", label: "Usage", href: "/admin/companies?tab=usage" },
+  { id: "plans", label: "Plans & Rates", href: "/admin/companies?tab=plans" },
+  { id: "quote", label: "Quote Builder", href: "/admin/companies?tab=quote" },
 ];
 
 const TAB_BASE =

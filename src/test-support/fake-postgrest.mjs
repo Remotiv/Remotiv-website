@@ -15,8 +15,15 @@
  */
 export function fakeService(respond) {
   const queries = [];
+  /** Every `.rpc(name, args)` call, in order. Answered by respond(`rpc:${name}`, [["args", args]]). */
+  const rpcs = [];
   return {
     queries,
+    rpcs,
+    rpc(name, args) {
+      rpcs.push({ name, args });
+      return Promise.resolve().then(() => respond(`rpc:${name}`, [["args", args]]));
+    },
     from(table) {
       const calls = [];
       queries.push({ table, calls });

@@ -119,6 +119,9 @@ export type PricingRates = {
   fixedMonthlyCost: number | null;
   clientsSharingFixedCost: number;
   pkrPerUsd: number | null;
+  /** The Quote Builder's floor inputs. NULL = not entered yet. */
+  minimumPrice: number | null;
+  minimumMarginPct: number | null;
 };
 
 export type CostLine =
