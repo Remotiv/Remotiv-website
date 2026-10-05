@@ -104,6 +104,23 @@ const PAGE_SIZE = 20;
 // ── Helpers ──────────────────────────────────────────────────
 
 /** Tint derived from a stable hash of the job id, never array position. */
+type RescoreCounts = { queued: number; alreadyQueued: number; held: number };
+
+/**
+ * What a job-wide re-score started, what was already running, and what the
+ * month's AI scoring limit held back, so the toast never claims runs that did
+ * not begin.
+ */
+function rescoreToast(title: string, counts: RescoreCounts | null): string {
+  if (!counts) return `Re-scoring applicants for “${title}”`;
+  const parts = [
+    `Re-scoring ${counts.queued} applicant${counts.queued === 1 ? "" : "s"} for “${title}”`,
+  ];
+  if (counts.alreadyQueued > 0) parts.push(`${counts.alreadyQueued} already in progress`);
+  if (counts.held > 0) parts.push(`${counts.held} held by this month's AI scoring limit`);
+  return parts.join(" - ");
+}
+
 function getTint(key: string) {
   let hash = 0;
   for (let i = 0; i < key.length; i++) hash = (hash * 31 + key.charCodeAt(i)) >>> 0;
@@ -872,7 +889,7 @@ export function JobsClient({
     // How many re-scores actually started versus were already in flight
     // (migration 030 dedupes live jobs), so the toast does not claim runs that
     // did not begin.
-    let rescored: { queued: number; alreadyQueued: number } | null = null;
+    let rescored: RescoreCounts | null = null;
     if (kind === "rescore") {
       const r = await rescoreJob(job.id);
       result = r;
@@ -902,11 +919,7 @@ export function JobsClient({
       setOpenId(null);
       setToast(
         kind === "rescore"
-          ? rescored
-            ? `Re-scoring ${rescored.queued} applicant${rescored.queued === 1 ? "" : "s"} for “${job.title}”${
-                rescored.alreadyQueued > 0 ? ` — ${rescored.alreadyQueued} already in progress` : ""
-              }`
-            : `Re-scoring applicants for “${job.title}”`
+          ? rescoreToast(job.title, rescored)
           : kind === "close"
             ? `“${job.title}” closed`
             : kind === "archive"

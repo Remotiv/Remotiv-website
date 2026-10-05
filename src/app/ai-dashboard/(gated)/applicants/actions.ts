@@ -32,6 +32,12 @@ import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
+import {
+  RESCORE_NO_ALLOWANCE_MESSAGE,
+  readCvCapacity,
+  scoresToQueue,
+  unscoredFirst,
+} from "@/lib/cv-allowance";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
@@ -1013,6 +1019,10 @@ export async function dismissShortlistFlagAction(
  *
  * The handler upserts on the unique application_id, so re-scoring overwrites
  * the previous card rather than erroring or accumulating duplicates.
+ *
+ * The allowance check here is advisory: it saves queueing a job the worker
+ * would only refuse. The worker's consume_allowance is what decides, and a
+ * failed read here lets the request through to it.
  */
 export async function rescoreApplication(
   applicationId: string,
@@ -1040,6 +1050,10 @@ export async function rescoreApplication(
   }
   if (!target.job_id) {
     return { success: false, error: "This application has no job to score against." };
+  }
+
+  if (scoresToQueue(await readCvCapacity(service, ctx.companyId), 1) === 0) {
+    return { success: false, error: RESCORE_NO_ALLOWANCE_MESSAGE };
   }
 
   // One live scoring job per application (migration 030). A second click, or a
@@ -1662,10 +1676,15 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
  * The job's own ownership is checked once, then applications are selected by
  * BOTH job_id and company_id_snapshot, so a mismatched snapshot can never be
  * swept in. Range-paged for the same reason the list is.
+ *
+ * At most the month's remaining CV-scoring allowance is queued, applicants
+ * without a saved card first, and the rest are reported as held. The count is
+ * advisory: the worker gates every queued application, because capacity can
+ * change before it runs. Held applicants are never queued later on their own.
  */
 export async function rescoreJob(
   jobId: string,
-): Promise<MutationResult<{ queued: number; alreadyQueued: number }>> {
+): Promise<MutationResult<{ queued: number; alreadyQueued: number; held: number }>> {
   const ctx = await requireCompanyRole("owner", "admin", "recruiter");
   const service = createServiceClient();
 
@@ -1700,6 +1719,31 @@ export async function rescoreJob(
     if (batch.length < PAGE) break;
   }
 
+  const room = scoresToQueue(await readCvCapacity(service, ctx.companyId), ids.length);
+  let toQueue = ids;
+  if (room < ids.length) {
+    const scored = new Set<string>();
+    for (let from = 0; ; from += PAGE) {
+      const { data, error } = await service
+        .from("application_scores")
+        .select("application_id")
+        .eq("job_id", jobId)
+        .eq("company_id", ctx.companyId)
+        .eq("status", "scored")
+        .range(from, from + PAGE - 1);
+      // Only the ORDER depends on this read, never the count.
+      if (error) {
+        console.error("[rescoreJob] scored-card read failed; queueing in list order:", error);
+        break;
+      }
+      const batch = (data ?? []) as { application_id: string }[];
+      for (const b of batch) scored.add(b.application_id);
+      if (batch.length < PAGE) break;
+    }
+    toQueue = unscoredFirst(ids, scored).slice(0, room);
+  }
+  const held = ids.length - toQueue.length;
+
   // One job row per application. Enqueued sequentially in small waves so a
   // 500-applicant job doesn't open 500 concurrent inserts. An applicant whose
   // scoring is already in flight (migration 030) is counted separately so the
@@ -1707,9 +1751,11 @@ export async function rescoreJob(
   let queued = 0;
   let alreadyQueued = 0;
   const WAVE = 25;
-  for (let i = 0; i < ids.length; i += WAVE) {
+  for (let i = 0; i < toQueue.length; i += WAVE) {
     const results = await Promise.all(
-      ids.slice(i, i + WAVE).map((applicationId) => requestCvScore(applicationId, ctx.companyId)),
+      toQueue
+        .slice(i, i + WAVE)
+        .map((applicationId) => requestCvScore(applicationId, ctx.companyId)),
     );
     for (const r of results) {
       if (!r.ok) continue;
@@ -1719,7 +1765,7 @@ export async function rescoreJob(
   }
 
   revalidatePath("/ai-dashboard/applicants");
-  return { success: true, data: { queued, alreadyQueued } };
+  return { success: true, data: { queued, alreadyQueued, held } };
 }
 
 /**

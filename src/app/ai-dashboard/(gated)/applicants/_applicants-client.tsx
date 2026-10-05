@@ -51,6 +51,7 @@ import {
   type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantRow,
+  CV_LIMIT_REACHED_REASON,
   PIPELINE_STAGE_LABELS,
   PIPELINE_STAGES,
   type PipelineStage,
@@ -460,9 +461,15 @@ function isScoringOff(score?: ApplicantScore): boolean {
   return score?.status === "skipped" && score.error === SCORING_OFF_REASON;
 }
 
+/** Held by the company's monthly AI scoring limit. Matched on the fixed reason, as above. */
+function isLimitReached(score?: ApplicantScore): boolean {
+  return score?.status === "skipped" && score.error === CV_LIMIT_REACHED_REASON;
+}
+
 /** Extracted rather than nested-ternaried inline — four cases, one order. */
 function pendingLabel(score?: ApplicantScore): string {
   if (isScoringOff(score)) return "Scoring off";
+  if (isLimitReached(score)) return "Limit reached";
   if (score?.status === "failed") return "Failed";
   if (score?.status === "skipped") return "No CV text";
   return "Pending";
@@ -471,6 +478,7 @@ function pendingLabel(score?: ApplicantScore): string {
 /** The drawer's version of pendingLabel — longer, since it has the room. */
 function drawerScoreHeading(score: ApplicantScore): string {
   if (isScoringOff(score)) return "Scoring off for this job";
+  if (isLimitReached(score)) return "Not scored - monthly AI scoring limit reached";
   if (score.status === "failed") return "Scoring failed";
   if (score.status === "skipped") return "Not scored";
   return "AI score pending";
@@ -487,7 +495,8 @@ function drawerScoreHeading(score: ApplicantScore): string {
  * clocks would read as a queue backlog rather than a setting.
  */
 function PendingScore({ score }: { score?: ApplicantScore }) {
-  const off = isScoringOff(score);
+  // Nothing is coming for either: a setting, or a limit only a re-score lifts.
+  const off = isScoringOff(score) || isLimitReached(score);
   return (
     <div
       className="flex items-center gap-[9px]"

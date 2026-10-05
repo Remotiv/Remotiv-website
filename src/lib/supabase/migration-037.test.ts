@@ -618,14 +618,15 @@ test("the functions are callable by the service role only", () => {
 
 /*
  * Step 1 pinned that nothing touched any of this. Step 2 added the read-only
- * Usage tab. Step 3 adds plan editing, so the pin now states the shape that
- * still guarantees nothing is enforced and every plan change is audited:
- * nothing calls the allowance functions; the two plan functions are called
- * from exactly one module; only the Usage reader and that module name the new
- * tables; neither writes the plan tables directly, and the Usage reader writes
- * nothing at all.
+ * Usage tab. Step 3 added plan editing. Step 4 enforces the CV-scoring cap,
+ * so the pin now states the shape that keeps enforcement in one place and
+ * every plan change audited: the allowance functions are called from exactly
+ * one module (the CV scorer's); the two plan functions from exactly one other;
+ * only those two and the Usage reader name the new tables; none writes the
+ * plan tables directly, and the Usage reader and the allowance module write
+ * nothing but through their functions.
  */
-test("nothing calls the allowance functions; plan writes have one caller; no direct plan-table writes", () => {
+test("allowance functions have one caller; plan writes have one caller; no direct plan-table writes", () => {
   const src = fileURLToPath(new URL("../../", import.meta.url));
   const walk = (dir) =>
     readdirSync(dir, { withFileTypes: true }).flatMap((e) => {
@@ -641,17 +642,20 @@ test("nothing calls the allowance functions; plan writes have one caller; no dir
   const files = walk(src);
   const rel = (list) => list.map((f) => relative(src, f));
 
-  assert.deepEqual(
-    rel(files.filter((f) => /consume_allowance|release_allowance/.test(code(f)))),
-    [],
-  );
+  assert.deepEqual(rel(files.filter((f) => /consume_allowance|release_allowance/.test(code(f)))), [
+    "lib/cv-allowance.ts",
+  ]);
   assert.deepEqual(rel(files.filter((f) => /set_company_plan|remove_company_plan/.test(code(f)))), [
     "lib/plans-admin.ts",
   ]);
   const tableUsers = files.filter((f) =>
     /company_plans|company_plan_history|pricing_settings/.test(code(f)),
   );
-  assert.deepEqual(rel(tableUsers), ["lib/plans-admin.ts", "lib/plans-usage.ts"]);
+  assert.deepEqual(rel(tableUsers), [
+    "lib/cv-allowance.ts",
+    "lib/plans-admin.ts",
+    "lib/plans-usage.ts",
+  ]);
   for (const f of tableUsers) {
     assert.doesNotMatch(
       code(f),
@@ -661,4 +665,10 @@ test("nothing calls the allowance functions; plan writes have one caller; no dir
   }
   const usageReader = tableUsers.find((f) => f.endsWith("plans-usage.ts"));
   assert.doesNotMatch(code(usageReader), /\.(insert|update|upsert|delete|rpc)\(/);
+  const allowance = tableUsers.find((f) => f.endsWith("cv-allowance.ts"));
+  assert.doesNotMatch(code(allowance), /\.(insert|update|upsert|delete)\(/);
+  assert.deepEqual(
+    [...code(allowance).matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]),
+    ["consume_allowance", "release_allowance"],
+  );
 });

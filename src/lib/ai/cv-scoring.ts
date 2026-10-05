@@ -1,5 +1,9 @@
-import { SCORING_OFF_REASON } from "@/app/ai-dashboard/lib/applicant-types";
+import {
+  CV_LIMIT_REACHED_REASON,
+  SCORING_OFF_REASON,
+} from "@/app/ai-dashboard/lib/applicant-types";
 import { getAnthropic } from "@/lib/anthropic";
+import { consumeCvAllowance, releaseCvAllowance } from "@/lib/cv-allowance";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
 import type { ScreeningAnswerSnapshot, ScreeningQuestion } from "@/lib/jobs";
@@ -22,7 +26,6 @@ import {
   providerRequestOptions,
 } from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
-import { recordUsage } from "@/lib/usage";
 import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
 import {
   type Confidence,
@@ -57,7 +60,8 @@ export {
  *   1. `scoreCv` — pure-ish: takes an application + a job, calls the model,
  *      verifies the evidence, returns a scorecard. No database.
  *   2. `handleAiCvScore` — the queue handler: loads everything server-side,
- *      calls scoreCv, upserts application_scores, records usage.
+ *      reserves a slot of the company's monthly allowance, calls scoreCv and
+ *      upserts application_scores. The reservation IS the usage record.
  *
  * A plain module, NOT "use server": it exports types and constants, and such a
  * module may only export async functions.
@@ -1457,103 +1461,149 @@ export async function handleAiCvScore(
     return;
   }
 
-  // ── Score ──
-  let card: Scorecard;
-  try {
-    card = await scoreCv(
-      {
-        cvText,
-        screeningAnswers,
-        candidate: {
-          yearsExperience: app.years_experience,
-          city: app.city,
-          country: app.country,
-          noticePeriod: app.notice_period,
-          availability: app.availability,
-        },
-        job: {
-          title: jobRow.title ?? "Untitled role",
-          description: jobRow.description,
-          responsibilities: jobRow.responsibilities,
-          requirements: jobRow.requirements,
-          experienceLevel: jobRow.experience_level,
-          category: jobRow.category,
-          screeningQuestions: Array.isArray(jobRow.screening_questions)
-            ? (jobRow.screening_questions as ScreeningQuestion[])
-            : [],
-          // Shape-checked rather than null-checked: the column is NOT NULL with a
-          // '[]' default, but a row written before it existed still reads null.
-          mustHaves: Array.isArray(jobRow.scoring_must_haves)
-            ? (jobRow.scoring_must_haves as string[])
-            : [],
-          cvWeights: {
-            cv_weight_requirements: jobRow.cv_weight_requirements,
-            cv_weight_experience: jobRow.cv_weight_experience,
-            cv_weight_domain: jobRow.cv_weight_domain,
-            cv_weight_responsibilities: jobRow.cv_weight_responsibilities,
-          },
-        },
-      },
-      ctx,
-    );
-  } catch (err) {
-    if (err instanceof ScoringSkipped) {
-      await skip(err.message);
+  // ── Allowance: after every free skip above, before the paid call below ──
+  //
+  // Every enqueue path requires a company (/api/apply and the dashboard
+  // actions), so a job without one is stray. With no company there is no
+  // allowance to charge, and scoring it unmetered would be a hole in the cap.
+  const companyId = app.company_id_snapshot;
+  if (!companyId) {
+    skipJob("ai_cv_score", job.id, `application ${app.id} has no company to meter against`);
+    return;
+  }
+
+  const reservation = await consumeCvAllowance(service, companyId, app.id);
+
+  if (!reservation.allowed) {
+    // Over the cap. The refusal wrote no usage row. The job ends either way:
+    // a retry would only be refused again, and nothing scores a held applicant
+    // automatically - Re-score is how a recruiter asks once there is room.
+    const { data: existing, error: existingErr } = await service
+      .from("application_scores")
+      .select("status")
+      .eq("application_id", app.id)
+      .maybeSingle();
+    if (existingErr) {
+      // Unknown whether a card exists, so nothing is written over it.
+      console.error(`[cv-scoring] ${app.id} held at the limit; existing card unread:`, existingErr);
       return;
     }
-    // Stopped before the call for want of budget: nothing was attempted, so
-    // there is no failure to record. The worker requeues it for the next tick.
-    if (err instanceof JobYield) throw err;
-    // Record the failure so the UI can show it, then rethrow so the queue
-    // applies backoff or, for a terminal class, buries the job. NOT swallowed.
-    const jobErr = toJobError(err);
-    // The row's `error` is what the recruiter reads in the drawer, so it gets
-    // the fixed safe sentence for the failure class - never the provider's
-    // text, which stays in the log below and in background_jobs.last_error
-    // (Phase 6, A6-26).
-    console.error(`[cv-scoring] application ${app.id} failed:`, jobErr);
-    await writeScoreRow({
+    if ((existing as { status: string } | null)?.status === "scored") {
+      // A re-score. The card it would have replaced stays exactly as it is.
+      console.warn(`[cv-scoring] re-score of ${app.id} held: monthly AI scoring limit reached`);
+      return;
+    }
+    await skip(CV_LIMIT_REACHED_REASON);
+    return;
+  }
+
+  // ── Score ──
+  //
+  // The slot is given back on every path that does not end in a saved
+  // scorecard: a skip, a yield, a provider or terminal error, a failed write.
+  // `persisted` is set on the line after the write succeeds and on no other.
+  let persisted = false;
+  let card: Scorecard;
+  try {
+    try {
+      card = await scoreCv(
+        {
+          cvText,
+          screeningAnswers,
+          candidate: {
+            yearsExperience: app.years_experience,
+            city: app.city,
+            country: app.country,
+            noticePeriod: app.notice_period,
+            availability: app.availability,
+          },
+          job: {
+            title: jobRow.title ?? "Untitled role",
+            description: jobRow.description,
+            responsibilities: jobRow.responsibilities,
+            requirements: jobRow.requirements,
+            experienceLevel: jobRow.experience_level,
+            category: jobRow.category,
+            screeningQuestions: Array.isArray(jobRow.screening_questions)
+              ? (jobRow.screening_questions as ScreeningQuestion[])
+              : [],
+            // Shape-checked rather than null-checked: the column is NOT NULL with a
+            // '[]' default, but a row written before it existed still reads null.
+            mustHaves: Array.isArray(jobRow.scoring_must_haves)
+              ? (jobRow.scoring_must_haves as string[])
+              : [],
+            cvWeights: {
+              cv_weight_requirements: jobRow.cv_weight_requirements,
+              cv_weight_experience: jobRow.cv_weight_experience,
+              cv_weight_domain: jobRow.cv_weight_domain,
+              cv_weight_responsibilities: jobRow.cv_weight_responsibilities,
+            },
+          },
+        },
+        ctx,
+      );
+    } catch (err) {
+      if (err instanceof ScoringSkipped) {
+        await skip(err.message);
+        return;
+      }
+      // Stopped before the call for want of budget: nothing was attempted, so
+      // there is no failure to record. The worker requeues it for the next tick.
+      if (err instanceof JobYield) throw err;
+      // Record the failure so the UI can show it, then rethrow so the queue
+      // applies backoff or, for a terminal class, buries the job. NOT swallowed.
+      const jobErr = toJobError(err);
+      // The row's `error` is what the recruiter reads in the drawer, so it gets
+      // the fixed safe sentence for the failure class - never the provider's
+      // text, which stays in the log below and in background_jobs.last_error
+      // (Phase 6, A6-26).
+      console.error(`[cv-scoring] application ${app.id} failed:`, jobErr);
+      await writeScoreRow({
+        application_id: app.id,
+        company_id: app.company_id_snapshot,
+        job_id: app.job_id,
+        status: "failed",
+        error: safeFailureSentence(classifyProviderError(jobErr), "scoring"),
+        screening_score: computeScreeningScore(screeningAnswers),
+        ai_model: resolveScoringModel(),
+        prompt_version: PROMPT_VERSION,
+        job_criteria_version: jobRow.criteria_version ?? 1,
+      });
+      throw jobErr;
+    }
+
+    const { error: writeErr } = await writeScoreRow({
       application_id: app.id,
       company_id: app.company_id_snapshot,
       job_id: app.job_id,
-      status: "failed",
-      error: safeFailureSentence(classifyProviderError(jobErr), "scoring"),
-      screening_score: computeScreeningScore(screeningAnswers),
-      ai_model: resolveScoringModel(),
-      prompt_version: PROMPT_VERSION,
+      overall_score: card.overall_score,
+      dimension_scores: card.dimension_scores,
+      verdict: card.verdict,
+      evidence: card.evidence,
+      missing_requirements: card.missing_requirements,
+      concerns: card.concerns,
+      strengths: card.strengths,
+      confidence: card.confidence,
+      summary: card.summary,
+      // Stored even when empty: [] is the column default and is exactly what
+      // "the employer named no must-haves" means.
+      must_haves: card.must_haves,
+      screening_score: card.screening_score,
+      ai_model: card.ai_model,
+      prompt_version: card.prompt_version,
       job_criteria_version: jobRow.criteria_version ?? 1,
+      input_tokens: card.input_tokens,
+      output_tokens: card.output_tokens,
+      status: "scored",
+      error: null,
+      scored_at: new Date().toISOString(),
     });
-    throw jobErr;
+
+    if (writeErr) throw new Error(`ai_cv_score: score write failed: ${writeErr}`);
+    persisted = true;
+  } finally {
+    if (!persisted) await releaseCvAllowance(service, reservation.usageId);
   }
-
-  const { error: writeErr } = await writeScoreRow({
-    application_id: app.id,
-    company_id: app.company_id_snapshot,
-    job_id: app.job_id,
-    overall_score: card.overall_score,
-    dimension_scores: card.dimension_scores,
-    verdict: card.verdict,
-    evidence: card.evidence,
-    missing_requirements: card.missing_requirements,
-    concerns: card.concerns,
-    strengths: card.strengths,
-    confidence: card.confidence,
-    summary: card.summary,
-    // Stored even when empty: [] is the column default and is exactly what
-    // "the employer named no must-haves" means.
-    must_haves: card.must_haves,
-    screening_score: card.screening_score,
-    ai_model: card.ai_model,
-    prompt_version: card.prompt_version,
-    job_criteria_version: jobRow.criteria_version ?? 1,
-    input_tokens: card.input_tokens,
-    output_tokens: card.output_tokens,
-    status: "scored",
-    error: null,
-    scored_at: new Date().toISOString(),
-  });
-
-  if (writeErr) throw new Error(`ai_cv_score: score write failed: ${writeErr}`);
 
   /*
    * Auto-shortlist, AFTER the score row is safely stored.
@@ -1578,9 +1628,9 @@ export async function handleAiCvScore(
    * entry that only says "a score is ready" makes the reader open the page to
    * find out whether it was worth opening.
    *
-   * Never throws, like recordUsage below it: the score has already been
-   * written, and failing the job here would retry the whole (paid) scoring
-   * call to fix a missing notification.
+   * Never throws: the score has already been written, and failing the job
+   * here would retry the whole (paid) scoring call to fix a missing
+   * notification.
    */
   if (app.company_id_snapshot) {
     const who = [app.first_name, app.last_name].filter(Boolean).join(" ").trim() || "An applicant";
@@ -1592,15 +1642,6 @@ export async function handleAiCvScore(
       jobId: app.job_id,
       applicationId: app.id,
       // No actor: the scorer is the machine, so there is nobody to exclude.
-    });
-  }
-
-  // Metering. Never throws — see src/lib/usage.ts.
-  if (app.company_id_snapshot) {
-    await recordUsage({
-      companyId: app.company_id_snapshot,
-      type: "cv_scored",
-      refId: app.id,
     });
   }
 }

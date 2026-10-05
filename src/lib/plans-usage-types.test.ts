@@ -8,6 +8,7 @@
 import assert from "node:assert/strict";
 import { test } from "node:test";
 import {
+  allowanceResetDate,
   allowanceState,
   costLine,
   costText,
@@ -24,6 +25,17 @@ import {
 } from "./plans-usage-types.ts";
 
 /* ── the month boundary ─────────────────────────────────────────── */
+
+test("the reset date is the 1st of the next Karachi month, turning at Karachi midnight", () => {
+  // 18:59 UTC on 31 October is 23:59 on 31 October in Karachi: November next.
+  assert.equal(allowanceResetDate(new Date("2026-10-31T18:59:59.000Z")), "1 November 2026");
+  // 19:00 UTC on 31 October is already 1 November in Karachi: December next,
+  // although it is still October in UTC.
+  assert.equal(allowanceResetDate(new Date("2026-10-31T19:00:00.000Z")), "1 December 2026");
+  // The year rolls over.
+  assert.equal(allowanceResetDate(new Date("2026-12-15T12:00:00.000Z")), "1 January 2027");
+  assert.equal(allowanceResetDate(new Date("2026-12-31T19:00:00.000Z")), "1 February 2027");
+});
 
 test("the month turns at midnight in Karachi, not at midnight UTC", () => {
   // 19:00 UTC on 30 September is 00:00 on 1 October in Karachi (UTC+5).

@@ -13,7 +13,8 @@ import { removeCompanyPlanAction, saveCompanyPlanAction } from "./actions";
  * price and notes. Saving goes through set_company_plan and removing through
  * remove_company_plan, both on the server, as the signed-in admin.
  *
- * Limits are recorded, not enforced: nothing checks them yet. The copy says so.
+ * The CV scoring limit is enforced by the scorer (consume_allowance); the
+ * async interview limit is recorded, not enforced yet. The copy says so.
  */
 
 const INPUT =
@@ -175,7 +176,9 @@ export function PlanEditor({
       </div>
 
       <p className="mt-3 text-xs text-gray-500">
-        Limits are recorded here, not enforced yet. Saving changes nothing a company can do.
+        The CV scoring limit is enforced: past it, applications still arrive but are not AI scored
+        until the month resets or the limit is raised. The interview limit is recorded, not enforced
+        yet.
       </p>
 
       <div className="mt-4 flex flex-wrap items-center gap-3">

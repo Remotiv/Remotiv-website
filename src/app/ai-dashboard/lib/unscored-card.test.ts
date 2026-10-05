@@ -13,6 +13,7 @@ import { test } from "node:test";
 // Phase 6, so the bundler-style specifier needs the repo's resolve hook here.
 register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
 const { unscoredCardState } = await import("./unscored-card.ts");
+const { CV_LIMIT_REACHED_REASON, SCORING_OFF_REASON } = await import("./applicant-types.ts");
 
 /** A readable CV on a scoring-on job with nothing in the queue and no card. */
 const base = {
@@ -198,4 +199,67 @@ test("a non-editor never gets a control, in any state", () => {
       JSON.stringify([over, facts]),
     );
   }
+});
+
+/* ── held by the monthly AI scoring limit ───────────────────────── */
+
+// 23:30 on 15 October in Karachi.
+const MID_OCTOBER = new Date("2026-10-15T18:30:00.000Z");
+const held = (over = {}, facts = {}) =>
+  state(
+    { scoreStatus: "skipped", scoreError: CV_LIMIT_REACHED_REASON, now: MID_OCTOBER, ...over },
+    facts,
+  );
+
+test("limit reached: the fixed heading and body, with the Karachi reset date, and Re-score", () => {
+  const card = held();
+  assert.equal(card.kind, "limit_reached");
+  assert.equal(card.heading, "Not scored - monthly AI scoring limit reached");
+  assert.equal(
+    card.body,
+    "Applications still arrive and can be reviewed manually. AI scoring becomes available again when the monthly limit resets on 1 November 2026 or the company's plan limit is increased. Use Re-score when capacity is available.",
+  );
+  assert.equal(card.control, "rescore");
+  assert.doesNotMatch(`${card.heading} ${card.body}`, /—/);
+});
+
+test("limit reached: the reset date follows the Karachi month, not the UTC one", () => {
+  // 19:30 UTC on 31 October is 00:30 on 1 November in Karachi.
+  const card = held({ now: new Date("2026-10-31T19:30:00.000Z") });
+  assert.match(card.body, /resets on 1 December 2026 /);
+  const before = held({ now: new Date("2026-10-31T18:30:00.000Z") });
+  assert.match(before.body, /resets on 1 November 2026 /);
+});
+
+test("limit reached: a non-editor gets the copy without the control", () => {
+  const card = held({ canEdit: false });
+  assert.equal(card.kind, "limit_reached");
+  assert.equal(card.control, null);
+  assert.match(
+    card.body,
+    /An owner, admin or recruiter can re-score it when capacity is available\.$/,
+  );
+});
+
+test("limit reached is keyed on the fixed reason only, never on similar text", () => {
+  for (const near of [
+    CV_LIMIT_REACHED_REASON.toLowerCase(),
+    `${CV_LIMIT_REACHED_REASON} `,
+    "Monthly AI scoring limit reached",
+    "limit reached",
+    SCORING_OFF_REASON,
+    null,
+  ]) {
+    assert.equal(held({ scoreError: near }).kind, "ready_to_rescore", String(near));
+  }
+  // The reason on a row that is not a skip is not a hold.
+  assert.equal(held({ scoreStatus: "failed" }).kind, "failed");
+});
+
+test("limit reached sits below live queue states and the CV states, as the scorer orders them", () => {
+  assert.equal(held({}, { queue: "queued" }).kind, "in_progress");
+  assert.equal(held({}, { queue: "retrying" }).kind, "retrying");
+  assert.equal(held({}, { cvReadable: false }).kind, "unreadable_cv");
+  assert.equal(held({ hasCv: false }).kind, "no_cv");
+  assert.equal(held({}, { jobScoringEnabled: false }).kind, "scoring_off");
 });

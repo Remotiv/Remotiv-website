@@ -1,5 +1,10 @@
+import { allowanceResetDate } from "@/lib/plans-usage-types";
 import { isSafeFailureSentence } from "@/lib/queue/failure-class";
-import type { ApplicantScoringFacts, ScoreStatus } from "./applicant-types";
+import {
+  type ApplicantScoringFacts,
+  CV_LIMIT_REACHED_REASON,
+  type ScoreStatus,
+} from "./applicant-types";
 
 /**
  * What the drawer's score card says when there is no number to show, and
@@ -17,7 +22,8 @@ import type { ApplicantScoringFacts, ScoreStatus } from "./applicant-types";
  * ── Precedence, and why ──────────────────────────────────────
  *
  * The order mirrors handleAiCvScore's own skip order where it applies (job
- * gone, then scoring off, then the CV-text floor), with the queue's live
+ * gone, then scoring off, then the CV-text floor, then the monthly
+ * allowance), with the queue's live
  * states above the CV states because "in progress" is the truer statement
  * while a job is actually waiting - when it runs, the card comes back here and
  * the CV state shows. Terminal queue states sit below the CV states because a
@@ -37,6 +43,7 @@ export type UnscoredCard = {
     | "cv_expired"
     | "no_cv"
     | "unreadable_cv"
+    | "limit_reached"
     | "ready_to_rescore"
     | "failed"
     | "gave_up"
@@ -59,6 +66,8 @@ export function unscoredCardState(input: {
   /** Owner, admin or recruiter: the roles that may re-score, upload and edit jobs. */
   canEdit: boolean;
   jobId: string | null;
+  /** For the reset date. Defaults to the current time. */
+  now?: Date;
 }): UnscoredCard {
   const { facts, canEdit } = input;
   const withControl = (card: UnscoredCard): UnscoredCard =>
@@ -128,6 +137,22 @@ export function unscoredCardState(input: {
       heading: "Couldn't read this CV",
       body: "The file has no readable text - usually a scan or a photo saved as PDF. Re-scoring won't help until there's text to read. Upload a text version and it will be scored automatically.",
       control: "upload",
+    });
+  }
+
+  // Keyed on the fixed reason the scorer writes, never on its wording. Below
+  // the CV states because the scorer checks the CV before the allowance.
+  if (input.scoreStatus === "skipped" && input.scoreError === CV_LIMIT_REACHED_REASON) {
+    const resetsOn = allowanceResetDate(input.now ?? new Date());
+    return withControl({
+      kind: "limit_reached",
+      heading: "Not scored - monthly AI scoring limit reached",
+      body: `Applications still arrive and can be reviewed manually. AI scoring becomes available again when the monthly limit resets on ${resetsOn} or the company's plan limit is increased. ${
+        canEdit
+          ? "Use Re-score when capacity is available."
+          : "An owner, admin or recruiter can re-score it when capacity is available."
+      }`,
+      control: "rescore",
     });
   }
 

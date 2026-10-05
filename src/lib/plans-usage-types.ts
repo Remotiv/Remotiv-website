@@ -7,9 +7,9 @@
  * plans-usage.ts.
  *
  * Read-only by design. Nothing here decides whether work is allowed; that is
- * consume_allowance, in migration 037, and nothing in the application calls it
- * yet. This file only describes what has been used and what it is estimated
- * to have cost.
+ * consume_allowance, in migration 037, which the CV scorer calls before every
+ * paid score (src/lib/cv-allowance.ts). This file only describes what has been
+ * used and what it is estimated to have cost.
  */
 
 /**
@@ -71,6 +71,20 @@ export function karachiMonthWindow(now: Date): MonthWindow {
   return { startIso: start.toISOString(), endIso: end.toISOString(), label };
 }
 
+/**
+ * The day this billing month's allowances reset, e.g. "1 November 2026": the
+ * 1st of the next calendar month in BILLING_TIME_ZONE, the same boundary
+ * consume_allowance counts from.
+ */
+export function allowanceResetDate(now: Date): string {
+  return new Intl.DateTimeFormat("en-GB", {
+    timeZone: BILLING_TIME_ZONE,
+    day: "numeric",
+    month: "long",
+    year: "numeric",
+  }).format(new Date(karachiMonthWindow(now).endIso));
+}
+
 /* ── allowances ─────────────────────────────────────────────────── */
 
 export const NO_PLAN_LABEL = "No plan - unlimited";
@@ -83,7 +97,10 @@ export type AllowanceState =
   | { kind: "no_plan"; label: string; flagged: true }
   /** A plan exists but sets no limit for this metric. */
   | { kind: "unlimited"; label: string; flagged: false }
-  /** A plan with a limit. `over` when usage passed it, which nothing prevents yet. */
+  /**
+   * A plan with a limit. `over` when usage passed it: the CV scorer stops at the
+   * limit, so for CV scoring this means the limit was lowered mid-month.
+   */
   | { kind: "limit"; label: string; flagged: false; over: boolean };
 
 export function allowanceState(input: {

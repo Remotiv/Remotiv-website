@@ -151,6 +151,14 @@ export type ScoreStatus = (typeof SCORE_STATUSES)[number];
  */
 export const SCORING_OFF_REASON = "AI CV scoring is turned off for this job.";
 
+/**
+ * The exact `error` text handleAiCvScore writes when the company's monthly AI
+ * scoring allowance refused a first score. Lives here for the same reason as
+ * SCORING_OFF_REASON: the drawer keys its "limit reached" card on this value,
+ * never on the wording of a skip.
+ */
+export const CV_LIMIT_REACHED_REASON = "Not scored - the monthly AI scoring limit was reached.";
+
 export type ScoreConfidence = "high" | "medium" | "low";
 
 /**
