@@ -2,6 +2,7 @@
 
 import { type ReactNode, useId, useState } from "react";
 import { parseOptionalMoney } from "@/lib/plans-admin-validate";
+import { formatRate } from "@/lib/plans-table";
 import { formatPkr, formatUsd, type PricingRates, RATE_NOT_SET } from "@/lib/plans-usage-types";
 import { computeQuote, VERDICT_LABEL } from "@/lib/quote";
 import { cn } from "@/lib/utils";
@@ -49,7 +50,7 @@ function Rate({ value, unit }: { value: number | null; unit: string }) {
     <span className="text-amber-700">{RATE_NOT_SET}</span>
   ) : (
     <span className="text-gray-800">
-      {formatUsd(value)} {unit}
+      {formatRate(value)} {unit}
     </span>
   );
 }
@@ -158,7 +159,7 @@ export function QuoteBuilder({ rates }: { rates: PricingRates }) {
                 ) : (
                   <span className="text-gray-800">
                     {formatUsd(rates.fixedMonthlyCost / Math.max(1, rates.clientsSharingFixedCost))}{" "}
-                    per month ({formatUsd(rates.fixedMonthlyCost)} across{" "}
+                    per month ({formatRate(rates.fixedMonthlyCost)} across{" "}
                     {rates.clientsSharingFixedCost})
                   </span>
                 ),

@@ -48,17 +48,25 @@ export type PlanHistoryEntry = {
   snapshot: PlanSnapshot;
 };
 
+/**
+ * One row of the Plans & Rates table. History is deliberately absent: it is
+ * read for one company at a time, when that company's drawer opens
+ * (readPlanHistory), so the page never carries every company's history.
+ */
 export type AdminCompany = {
   id: string;
   name: string;
   status: string;
   isInternal: boolean;
   plan: PlanSnapshot | null;
-  history: PlanHistoryEntry[];
 };
 
 export type PlansAdminResult =
   | { ok: true; rates: PricingRates; companies: AdminCompany[] }
+  | { ok: false; readErrors: { source: string }[] };
+
+export type PlanHistoryResult =
+  | { ok: true; entries: PlanHistoryEntry[] }
   | { ok: false; readErrors: { source: string }[] };
 
 export type RatesResult =
@@ -117,7 +125,11 @@ export async function readPricingRates(service: Service): Promise<RatesResult> {
   return { ok: true, rates: ratesFrom(data as Record<string, unknown>) };
 }
 
-/** Everything the Plans & Rates tab shows. All or nothing, like the Usage tab. */
+/**
+ * The Plans & Rates table: companies, their current plans, and the rates. All
+ * or nothing, like the Usage tab. Plan history is not read here; see
+ * readPlanHistory.
+ */
 export async function readPlansAdmin(service: Service): Promise<PlansAdminResult> {
   const readErrors: { source: string }[] = [];
   async function attempt<T>(
@@ -141,7 +153,7 @@ export async function readPlansAdmin(service: Service): Promise<PlansAdminResult
     return data as T;
   }
 
-  const [companies, plans, history, admins, rates] = await Promise.all([
+  const [companies, plans, rates] = await Promise.all([
     attempt("companies", () =>
       one<
         { id: string; name: string | null; status: string | null; is_internal: boolean | null }[]
@@ -156,30 +168,6 @@ export async function readPlansAdmin(service: Service): Promise<PlansAdminResult
           ),
       ),
     ),
-    attempt("plan history", () =>
-      pageAll<{
-        id: number;
-        company_id: string;
-        operation: string;
-        snapshot: unknown;
-        changed_by: string | null;
-        changed_at: string;
-      }>(
-        (from, to) =>
-          service
-            .from("company_plan_history")
-            .select("id, company_id, operation, snapshot, changed_by, changed_at")
-            .order("changed_at", { ascending: false })
-            .order("id", { ascending: false })
-            .range(from, to),
-        { scope: "plans-admin", label: "plan history" },
-      ),
-    ),
-    attempt("admin names", () =>
-      one<{ user_id: string | null; full_name: string | null }[]>(
-        service.from("admin_users").select("user_id, full_name"),
-      ),
-    ),
     attempt("pricing settings", async () => {
       const r = await readPricingRates(service);
       if (!r.ok) throw new Error("pricing settings unavailable");
@@ -187,32 +175,11 @@ export async function readPlansAdmin(service: Service): Promise<PlansAdminResult
     }),
   ]);
 
-  if (readErrors.length > 0 || !companies || !plans || !history || !admins || !rates) {
+  if (readErrors.length > 0 || !companies || !plans || !rates) {
     return { ok: false, readErrors };
   }
 
-  const names = new Map(
-    admins
-      .filter((a) => a.user_id)
-      .map((a) => [a.user_id as string, a.full_name?.trim() || "An admin"]),
-  );
-  const actorLabel = (id: string | null) =>
-    id === null ? "Unknown - a direct database edit" : (names.get(id) ?? `User ${id.slice(0, 8)}`);
-
   const planByCompany = new Map(plans.map((p) => [p.company_id as string, snapshotFrom(p)]));
-  const historyByCompany = new Map<string, PlanHistoryEntry[]>();
-  for (const h of history) {
-    const list = historyByCompany.get(h.company_id) ?? [];
-    list.push({
-      id: h.id,
-      operation:
-        h.operation === "DELETE" ? "DELETE" : h.operation === "INSERT" ? "INSERT" : "UPDATE",
-      changedAt: h.changed_at,
-      changedBy: actorLabel(h.changed_by),
-      snapshot: snapshotFrom((h.snapshot ?? {}) as Record<string, unknown>),
-    });
-    historyByCompany.set(h.company_id, list);
-  }
 
   return {
     ok: true,
@@ -223,7 +190,71 @@ export async function readPlansAdmin(service: Service): Promise<PlansAdminResult
       status: c.status ?? "unknown",
       isInternal: c.is_internal === true,
       plan: planByCompany.get(c.id) ?? null,
-      history: historyByCompany.get(c.id) ?? [],
+    })),
+  };
+}
+
+/**
+ * One company's plan history, newest first, with each actor resolved to an
+ * admin's name. Read when that company's drawer opens. Read only.
+ */
+export async function readPlanHistory(
+  service: Service,
+  companyId: string,
+): Promise<PlanHistoryResult> {
+  const failed = (source: string, cause: unknown): PlanHistoryResult => {
+    console.error(`[plans-admin] read failed (${source}):`, cause);
+    return { ok: false, readErrors: [{ source }] };
+  };
+
+  let rows: {
+    id: number;
+    operation: string;
+    snapshot: unknown;
+    changed_by: string | null;
+    changed_at: string;
+  }[];
+  try {
+    rows = await pageAll(
+      (from, to) =>
+        service
+          .from("company_plan_history")
+          .select("id, operation, snapshot, changed_by, changed_at")
+          .eq("company_id", companyId)
+          .order("changed_at", { ascending: false })
+          .order("id", { ascending: false })
+          .range(from, to),
+      { scope: "plans-admin", label: "plan history" },
+    );
+  } catch (err) {
+    return failed("plan history", err instanceof Error && err.cause ? err.cause : err);
+  }
+
+  // Names only for the people who appear in this history.
+  const actorIds = [...new Set(rows.map((r) => r.changed_by).filter((id): id is string => !!id))];
+  const names = new Map<string, string>();
+  if (actorIds.length > 0) {
+    const { data, error } = await service
+      .from("admin_users")
+      .select("user_id, full_name")
+      .in("user_id", actorIds);
+    if (error) return failed("admin names", error);
+    for (const a of (data ?? []) as { user_id: string | null; full_name: string | null }[]) {
+      if (a.user_id) names.set(a.user_id, a.full_name?.trim() || "An admin");
+    }
+  }
+  const actorLabel = (id: string | null) =>
+    id === null ? "Unknown - a direct database edit" : (names.get(id) ?? `User ${id.slice(0, 8)}`);
+
+  return {
+    ok: true,
+    entries: rows.map((h) => ({
+      id: h.id,
+      operation:
+        h.operation === "DELETE" ? "DELETE" : h.operation === "INSERT" ? "INSERT" : "UPDATE",
+      changedAt: h.changed_at,
+      changedBy: actorLabel(h.changed_by),
+      snapshot: snapshotFrom((h.snapshot ?? {}) as Record<string, unknown>),
     })),
   };
 }

@@ -16,8 +16,10 @@ import { QUEUE_TYPES, readQueueHealth } from "@/lib/queue-health";
 import { readPlansUsage } from "@/lib/plans-usage";
 import type { PlansUsageResult } from "@/lib/plans-usage-types";
 import {
+  type PlanHistoryResult,
   type PlansAdminResult,
   type RatesResult,
+  readPlanHistory,
   readPlansAdmin,
   readPricingRates,
   removeCompanyPlan,
@@ -691,6 +693,16 @@ type FormResult<F extends string> =
 export async function fetchPlansAdmin(): Promise<PlansAdminResult> {
   await requireSuperAdmin();
   return readPlansAdmin(createServiceClient());
+}
+
+/**
+ * One company's plan history, for its drawer. Read only, super admin only, and
+ * a malformed id never reaches the database.
+ */
+export async function fetchPlanHistory(companyId: string): Promise<PlanHistoryResult> {
+  await requireSuperAdmin();
+  if (!isUuid(companyId)) return { ok: false, readErrors: [{ source: "company" }] };
+  return readPlanHistory(createServiceClient(), companyId);
 }
 
 export async function fetchPricingRates(): Promise<RatesResult> {

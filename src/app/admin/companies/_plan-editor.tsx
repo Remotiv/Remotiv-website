@@ -34,11 +34,14 @@ export function PlanEditor({
   companyName,
   plan,
   pkrPerUsd,
+  onChanged,
 }: {
   companyId: string;
   companyName: string;
   plan: PlanSnapshot | null;
   pkrPerUsd: number | null;
+  /** After a successful save or removal, e.g. so the drawer reloads its history. */
+  onChanged?: () => void;
 }) {
   const router = useRouter();
   const formId = useId();
@@ -65,6 +68,7 @@ export function PlanEditor({
       if (result.ok) {
         setStatus({ tone: "ok", text: "Plan saved. The change is recorded in the history below." });
         router.refresh();
+        onChanged?.();
       } else {
         setErrors(result.fieldErrors ?? {});
         setStatus({ tone: "error", text: result.error });
@@ -83,6 +87,7 @@ export function PlanEditor({
           text: "Plan removed. This company now has no plan, so it is unlimited.",
         });
         router.refresh();
+        onChanged?.();
       } else {
         setStatus({ tone: "error", text: result.error });
       }

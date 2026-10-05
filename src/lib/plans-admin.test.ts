@@ -17,9 +17,8 @@ import { call, fakeService } from "../test-support/fake-postgrest.mjs";
 register(new URL("../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../test-support/server-only-stub.mjs", import.meta.url));
 
-const { readPlansAdmin, removeCompanyPlan, saveCompanyPlan, savePricingSettings } = await import(
-  "./plans-admin.ts"
-);
+const { readPlanHistory, readPlansAdmin, removeCompanyPlan, saveCompanyPlan, savePricingSettings } =
+  await import("./plans-admin.ts");
 
 const ACTOR = "aaaaaaaa-0000-4000-8000-000000000001";
 const COMPANY = "cccccccc-0000-4000-8000-000000000002";
@@ -213,40 +212,90 @@ function world({ failing = null } = {}) {
   });
 }
 
-test("the plans tab reads plans, history newest first with named actors, and rates", async () => {
+test("the plans table reads companies, plans and rates, and no history", async () => {
   const service = world();
   const r = await readPlansAdmin(service);
   assert.equal(r.ok, true);
   const acme = r.companies.find((c) => c.id === COMPANY);
   assert.equal(acme.plan.planName, "Starter");
   assert.equal(acme.plan.quotedPrice, 199);
-  assert.deepEqual(
-    acme.history.map((h) => [h.id, h.operation, h.changedBy]),
-    [
-      [2, "UPDATE", "Waleed"],
-      [1, "INSERT", "Unknown - a direct database edit"],
-    ],
-  );
-  const hist = service.queries.find((q) => q.table === "company_plan_history");
-  assert.deepEqual(call(hist.calls, "order"), ["order", "changed_at", { ascending: false }]);
+  assert.equal("history" in acme, false, "history must not ride along with every row");
   assert.equal(r.companies.find((c) => c.id === "internal").plan, null);
   assert.equal(r.rates.cvScoreCost, 0.033);
   assert.equal(r.rates.minimumMarginPct, 60);
   assert.equal(r.rates.pkrPerUsd, null);
+  // History and admin names are read per company, in the drawer, not here.
+  const tables = service.queries.map((q) => q.table);
+  assert.ok(!tables.includes("company_plan_history"), "the table read touched history");
+  assert.ok(!tables.includes("admin_users"));
 });
 
-test("a failed read on the plans tab yields categories and no data", async () => {
+test("a failed read on the plans table yields categories and no data", async () => {
   await quiet(async (logged) => {
-    for (const table of [
-      "companies",
-      "company_plans",
-      "company_plan_history",
-      "admin_users",
-      "pricing_settings",
-    ]) {
+    for (const table of ["companies", "company_plans", "pricing_settings"]) {
       const r = await readPlansAdmin(world({ failing: table }));
       assert.equal(r.ok, false, table);
       assert.equal("companies" in r, false);
+      assert.ok(!JSON.stringify(r).includes(RAW), table);
+    }
+    assert.ok(logged.some((l) => l.includes(RAW)));
+  });
+});
+
+/* ── one company's history, read when its drawer opens ──────────── */
+
+test("history is read for one company, newest first, with actors named", async () => {
+  const service = world();
+  const r = await readPlanHistory(service, COMPANY);
+  assert.equal(r.ok, true);
+  assert.deepEqual(
+    r.entries.map((h) => [h.id, h.operation, h.changedBy, h.snapshot.planName]),
+    [
+      [2, "UPDATE", "Waleed", "Starter"],
+      [1, "INSERT", "Unknown - a direct database edit", "Trial"],
+    ],
+  );
+  const hist = service.queries.find((q) => q.table === "company_plan_history");
+  assert.deepEqual(call(hist.calls, "eq"), ["eq", "company_id", COMPANY]);
+  const orders = hist.calls.filter((c) => c[0] === "order");
+  assert.deepEqual(orders, [
+    ["order", "changed_at", { ascending: false }],
+    ["order", "id", { ascending: false }],
+  ]);
+  // Names are looked up only for the people in this history.
+  const names = service.queries.find((q) => q.table === "admin_users");
+  assert.deepEqual(call(names.calls, "in"), ["in", "user_id", [ACTOR]]);
+  // Read only.
+  const verbs = service.queries.flatMap((q) => q.calls.map((c) => c[0]));
+  for (const w of ["insert", "update", "upsert", "delete"]) assert.ok(!verbs.includes(w), w);
+  assert.equal(service.rpcs.length, 0);
+});
+
+test("a history with no named actors makes no name lookup", async () => {
+  const service = fakeService((table) =>
+    table === "company_plan_history"
+      ? ok([
+          {
+            id: 1,
+            operation: "INSERT",
+            snapshot: {},
+            changed_by: null,
+            changed_at: "2026-10-05T00:00:00Z",
+          },
+        ])
+      : ok([]),
+  );
+  const r = await readPlanHistory(service, COMPANY);
+  assert.equal(r.ok, true);
+  assert.ok(!service.queries.some((q) => q.table === "admin_users"));
+});
+
+test("a failed history read returns a category, never the raw message, and logs it", async () => {
+  await quiet(async (logged) => {
+    for (const table of ["company_plan_history", "admin_users"]) {
+      const r = await readPlanHistory(world({ failing: table }), COMPANY);
+      assert.equal(r.ok, false, table);
+      assert.equal("entries" in r, false);
       assert.ok(!JSON.stringify(r).includes(RAW), table);
     }
     assert.ok(logged.some((l) => l.includes(RAW)));
