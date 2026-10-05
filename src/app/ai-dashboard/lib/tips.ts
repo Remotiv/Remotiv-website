@@ -133,7 +133,7 @@ export const GUIDES: ReadonlyArray<Guide> = [
     /*
      * Narrowed to the one fact the Review pane does not already carry. That
      * pane already says the score is advisory and a person decides, shows the
-     * Adjust score button, prices a re-score at about two cents, and once the
+     * Adjust score button, says a re-score uses one AI scoring credit, and once the
      * form is open states "The AI scored 87". After an adjustment it reads
      * "Adjusted to 72 from the AI's 87" beside a Revert to AI score button.
      *

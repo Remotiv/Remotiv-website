@@ -2176,11 +2176,12 @@ function ApplicantDrawer({
                           <RotateCcw className="size-[14px]" strokeWidth={2} />
                           {rescoring ? "Queueing…" : "Re-score"}
                         </button>
-                        {/* The cost stays visible rather than becoming a
-                            tooltip — it is money, and a tooltip is invisible
-                            on a touch screen. */}
+                        {/* What it spends stays visible rather than becoming
+                            a tooltip - it is a credit from the monthly
+                            allowance, and a tooltip is invisible on a touch
+                            screen. */}
                         <span className="text-center text-[11px] leading-[1.5] text-[var(--ai-t3)]">
-                          About two cents
+                          Uses one AI scoring credit
                         </span>
                       </>
                     )}
@@ -2481,7 +2482,7 @@ function ApplicantDrawer({
                 answer: unscoredCardState says "rescore" for a lost request, a
                 dead one, a failed run and a skip whose cause has gone - and
                 says something else for scoring-off and unreadable-CV, where
-                this button used to reproduce the same result for two cents.
+                this button used to reproduce the same result for a credit.
                 Scored rows take the button in the card, stale ones take it in
                 the banner — the action never appears twice. */}
             {unscored?.control === "rescore" &&
@@ -2489,7 +2490,7 @@ function ApplicantDrawer({
               headerScore.status !== "scored" && (
                 <div className="mt-[22px] flex items-center justify-between gap-3 rounded-[13px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-4 py-3">
                   <p className="m-0 text-xs leading-relaxed text-[var(--ai-t3)]">
-                    Re-run the AI on this CV — costs about two cents.
+                    Re-run the AI on this CV - uses one AI scoring credit.
                   </p>
                   <button
                     type="button"

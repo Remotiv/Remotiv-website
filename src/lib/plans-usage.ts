@@ -21,9 +21,14 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *   AI-scored applicants   usage_events, type cv_scored. One row per scoring
  *                          run, so a re-score counts, which matches the locked
  *                          decision that re-scores consume a credit.
- *   Async invitations      interview_sessions created this month, kind async.
- *                          Each re-send is a new session, so it counts. This
- *                          is what the allowance counts.
+ *   Async invitations      usage_events, type interview_sent: one credit per
+ *                          invitation the email provider accepted, re-sends
+ *                          included. This is what the allowance counts, and it
+ *                          is the same row consume_allowance counts, so the tab
+ *                          and the gate cannot disagree. A send that failed
+ *                          before the provider accepted gave its credit back,
+ *                          so it is not here. Sessions are not counted for
+ *                          this: a session is not an invitation sent.
  *   Completed async        interview_sessions kind async, status submitted,
  *                          with submitted_at this month. This is what the async
  *                          cost uses. Unambiguous: the submit route is the only
@@ -125,95 +130,118 @@ export async function readPlansUsage(
     return data as T;
   }
 
-  const [companies, plans, settings, cvRows, sessionRows, completedRows, whatsappRows] =
-    await Promise.all([
-      attempt("companies", () =>
-        one<CompanyRow[]>(
-          service.from("companies").select("id, name, status, is_internal").order("name"),
-        ),
+  const [
+    companies,
+    plans,
+    settings,
+    cvRows,
+    invitationRows,
+    liveRows,
+    completedRows,
+    whatsappRows,
+  ] = await Promise.all([
+    attempt("companies", () =>
+      one<CompanyRow[]>(
+        service.from("companies").select("id, name, status, is_internal").order("name"),
       ),
-      attempt("plans", () =>
-        one<PlanRow[]>(
+    ),
+    attempt("plans", () =>
+      one<PlanRow[]>(
+        service
+          .from("company_plans")
+          .select(
+            "company_id, plan_name, cv_scoring_limit, async_interview_limit, live_minutes_limit, quoted_price, currency",
+          ),
+      ),
+    ),
+    attempt("pricing settings", async () => {
+      const row = await one<SettingsRow | null>(
+        service
+          .from("pricing_settings")
+          .select(
+            "cv_score_cost, async_interview_cost, live_minute_cost, whatsapp_message_cost, fixed_monthly_cost, clients_sharing_fixed_cost, pkr_per_usd, minimum_price, minimum_margin_pct",
+          )
+          .eq("id", "default")
+          .maybeSingle(),
+      );
+      // Migration 037 inserts this row. Its absence is a broken install, not
+      // "all rates unset", so it is reported rather than defaulted.
+      if (!row) throw new Error("pricing_settings default row is missing");
+      return row;
+    }),
+    attempt("AI scoring usage", () =>
+      pageAll<{ company_id: string | null; quantity: number | null }>(
+        (from, to) =>
           service
-            .from("company_plans")
-            .select(
-              "company_id, plan_name, cv_scoring_limit, async_interview_limit, live_minutes_limit, quoted_price, currency",
-            ),
-        ),
+            .from("usage_events")
+            .select("company_id, quantity")
+            .eq("type", "cv_scored")
+            .gte("created_at", window.startIso)
+            .lt("created_at", window.endIso)
+            .order("id")
+            .range(from, to),
+        { scope: "plans-usage", label: "cv_scored usage" },
       ),
-      attempt("pricing settings", async () => {
-        const row = await one<SettingsRow | null>(
+    ),
+    attempt("interview invitations", () =>
+      pageAll<{ company_id: string | null; quantity: number | null }>(
+        (from, to) =>
           service
-            .from("pricing_settings")
-            .select(
-              "cv_score_cost, async_interview_cost, live_minute_cost, whatsapp_message_cost, fixed_monthly_cost, clients_sharing_fixed_cost, pkr_per_usd, minimum_price, minimum_margin_pct",
-            )
-            .eq("id", "default")
-            .maybeSingle(),
-        );
-        // Migration 037 inserts this row. Its absence is a broken install, not
-        // "all rates unset", so it is reported rather than defaulted.
-        if (!row) throw new Error("pricing_settings default row is missing");
-        return row;
-      }),
-      attempt("AI scoring usage", () =>
-        pageAll<{ company_id: string | null; quantity: number | null }>(
-          (from, to) =>
-            service
-              .from("usage_events")
-              .select("company_id, quantity")
-              .eq("type", "cv_scored")
-              .gte("created_at", window.startIso)
-              .lt("created_at", window.endIso)
-              .order("id")
-              .range(from, to),
-          { scope: "plans-usage", label: "cv_scored usage" },
-        ),
+            .from("usage_events")
+            .select("company_id, quantity")
+            .eq("type", "interview_sent")
+            .gte("created_at", window.startIso)
+            .lt("created_at", window.endIso)
+            .order("id")
+            .range(from, to),
+        { scope: "plans-usage", label: "interview_sent usage" },
       ),
-      attempt("interview invitations", () =>
-        pageAll<{ company_id: string | null; kind: string | null }>(
-          (from, to) =>
-            service
-              .from("interview_sessions")
-              .select("company_id, kind")
-              .gte("created_at", window.startIso)
-              .lt("created_at", window.endIso)
-              .order("id")
-              .range(from, to),
-          { scope: "plans-usage", label: "interview sessions" },
-        ),
+    ),
+    attempt("live AI interviews", () =>
+      pageAll<{ company_id: string | null }>(
+        (from, to) =>
+          service
+            .from("interview_sessions")
+            .select("company_id")
+            .eq("kind", "live")
+            .gte("created_at", window.startIso)
+            .lt("created_at", window.endIso)
+            .order("id")
+            .range(from, to),
+        { scope: "plans-usage", label: "live interview sessions" },
       ),
-      attempt("interview completions", () =>
-        pageAll<{ company_id: string | null }>(
-          (from, to) =>
-            service
-              .from("interview_sessions")
-              .select("company_id")
-              .eq("kind", "async")
-              .eq("status", "submitted")
-              .gte("submitted_at", window.startIso)
-              .lt("submitted_at", window.endIso)
-              .order("id")
-              .range(from, to),
-          { scope: "plans-usage", label: "async completions" },
-        ),
+    ),
+    attempt("interview completions", () =>
+      pageAll<{ company_id: string | null }>(
+        (from, to) =>
+          service
+            .from("interview_sessions")
+            .select("company_id")
+            .eq("kind", "async")
+            .eq("status", "submitted")
+            .gte("submitted_at", window.startIso)
+            .lt("submitted_at", window.endIso)
+            .order("id")
+            .range(from, to),
+        { scope: "plans-usage", label: "async completions" },
       ),
-      attempt("WhatsApp deliveries", () =>
-        pageAll<{ company_id: string | null }>(
-          (from, to) =>
-            service
-              .from("communication_logs")
-              .select("company_id")
-              .eq("channel", "whatsapp")
-              .in("status", ["delivered", "read"])
-              .gte("created_at", window.startIso)
-              .lt("created_at", window.endIso)
-              .order("id")
-              .range(from, to),
-          { scope: "plans-usage", label: "whatsapp deliveries" },
-        ),
+    ),
+    attempt("WhatsApp deliveries", () =>
+      pageAll<{ company_id: string | null }>(
+        (from, to) =>
+          service
+            .from("communication_logs")
+            .select("company_id")
+            .eq("channel", "whatsapp")
+            .in("status", ["delivered", "read"])
+            .gte("created_at", window.startIso)
+            .lt("created_at", window.endIso)
+            .order("id")
+            .range(from, to),
+        { scope: "plans-usage", label: "whatsapp deliveries" },
       ),
-    ]);
+    ),
+  ]);
 
   if (
     readErrors.length > 0 ||
@@ -221,7 +249,8 @@ export async function readPlansUsage(
     !plans ||
     !settings ||
     !cvRows ||
-    !sessionRows ||
+    !invitationRows ||
+    !liveRows ||
     !completedRows ||
     !whatsappRows
   ) {
@@ -242,14 +271,8 @@ export async function readPlansUsage(
 
   const planByCompany = new Map(plans.map((p) => [p.company_id, p]));
   const cv = sumByCompany(cvRows, (r) => r.quantity ?? 1);
-  const asyncInv = sumByCompany(
-    sessionRows.filter((s) => s.kind === "async"),
-    () => 1,
-  );
-  const live = sumByCompany(
-    sessionRows.filter((s) => s.kind === "live"),
-    () => 1,
-  );
+  const asyncInv = sumByCompany(invitationRows, (r) => r.quantity ?? 1);
+  const live = sumByCompany(liveRows, () => 1);
   const completed = sumByCompany(completedRows, () => 1);
   const whatsapp = sumByCompany(whatsappRows, () => 1);
 

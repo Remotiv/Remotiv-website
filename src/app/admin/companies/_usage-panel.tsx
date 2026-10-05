@@ -72,6 +72,8 @@ function CompanyCard({ usage, rates }: { usage: CompanyUsage; rates: PricingRate
     limit: usage.plan?.cvScoringLimit ?? null,
     used: usage.cvScored,
   });
+  // Invitation credits (usage_events interview_sent), the count the gate
+  // enforces. Never sessions created, and never completions.
   const asyncAllowance = allowanceState({
     ...base,
     limit: usage.plan?.asyncInterviewLimit ?? null,
@@ -134,7 +136,7 @@ function CompanyCard({ usage, rates }: { usage: CompanyUsage; rates: PricingRate
             </tr>
             <tr className="border-b border-gray-50">
               <th scope="row" className={cn(CELL, "text-left font-medium text-gray-700")}>
-                Async interview invitations
+                Async interview invitations sent
               </th>
               <td className={CELL}>{usage.asyncInvitations}</td>
               <td className={CELL}>
@@ -284,8 +286,10 @@ export function UsagePanel({ result }: { result: PlansUsageResult }) {
       <ul className="mt-4 space-y-1 text-xs text-gray-500">
         <li>AI-scored applicants counts every scoring run this month, re-scores included.</li>
         <li>
-          Async interview invitations counts every invitation sent, re-sends included. This is what
-          the allowance counts.
+          Async interview invitations sent counts invitation credits used this month: one for each
+          invitation email the provider accepted, re-sends included, and none for a send that
+          failed. This is what the allowance counts and enforces. It is not a count of interviews
+          created or completed.
         </li>
         <li>
           Completed async interviews counts interviews submitted this month, by submission date. The
@@ -300,7 +304,10 @@ export function UsagePanel({ result }: { result: PlansUsageResult }) {
           Live AI interviews are counted. Their minutes are not measured yet, so no allowance is
           enforced against them and no cost is calculated.
         </li>
-        <li>Nothing on this tab is enforced. Allowances are shown for reference only.</li>
+        <li>
+          This tab only shows usage. The CV scoring limit and the async interview invitation limit
+          are enforced where the work happens. Live AI is not enforced yet.
+        </li>
       </ul>
     </section>
   );

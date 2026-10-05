@@ -1,6 +1,14 @@
 "use server";
 
+import { randomUUID } from "node:crypto";
 import { revalidatePath } from "next/cache";
+import {
+  consumeInterviewAllowance,
+  INTERVIEW_ALLOWANCE_UNAVAILABLE,
+  type InterviewReservation,
+  interviewLimitMessage,
+  releaseInterviewAllowance,
+} from "@/lib/interview-allowance";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
@@ -101,75 +109,113 @@ export async function sendInterviewInvite(
     return { success: false, error: NO_QUESTIONS };
   }
 
-  const superseded = await supersedeOpenSession(service, {
-    applicationId,
-    companyId: ctx.companyId,
-    kind: "async",
-    submittedError: "They've already submitted this interview. Answers can't be re-recorded.",
-  });
-  if (!superseded.ok) return { success: false, error: superseded.error };
+  /*
+   * ── The monthly allowance, reserved before anything is created or sent ──
+   *
+   * One interview_sent credit per invitation, re-sends included. The session id
+   * is minted here so the same UUID is the credit's reference and the row's id:
+   * every credit points at exactly one session, and no two attempts share one.
+   *
+   * Reserved BEFORE the supersede, so a refused re-send leaves the candidate's
+   * current link open rather than cancelling it and sending nothing.
+   *
+   * Refused means nothing happens: no session, no email, no retry. No decision
+   * means the same, with a different message. Internal companies, companies
+   * with no plan and plans with no interview limit are granted by the database.
+   */
+  const sessionId = randomUUID();
+  let reservation: InterviewReservation;
+  try {
+    reservation = await consumeInterviewAllowance(service, ctx.companyId, sessionId);
+  } catch {
+    return { success: false, error: INTERVIEW_ALLOWANCE_UNAVAILABLE };
+  }
+  if (!reservation.allowed) {
+    return { success: false, error: interviewLimitMessage(new Date()) };
+  }
 
+  /*
+   * From here until the email provider accepts, every way out gives the same
+   * credit back: a submitted interview, a failed insert, a refused or failed
+   * email, or a throw. `accepted` is set the moment delivery succeeds, and after
+   * that nothing releases, whatever fails later.
+   */
   const { rawToken, tokenHash } = mintSessionToken();
   const dates = inviteDates();
-
-  const { data: created, error: sessionErr } = await service
-    .from("interview_sessions")
-    .insert({
-      company_id: ctx.companyId,
-      application_id: applicationId,
-      job_id: jobId,
-      token_hash: tokenHash,
-      status: "invited",
-      // Named, never defaulted. The column's default backfills rows that
-      // predate it and is due to be dropped; a writer that omits kind must
-      // fail a NOT NULL at that point rather than silently mint an async
-      // session for the wrong option.
+  let accepted = false;
+  let deadline: string;
+  try {
+    const superseded = await supersedeOpenSession(service, {
+      applicationId,
+      companyId: ctx.companyId,
       kind: "async",
-      // Snapshotted from the job so a later toggle can't retroactively let
-      // someone re-record an interview they were invited to under other rules.
-      allow_rerecord: settings.allowRerecord,
-      // The question set as it stands right now. Frozen for the same reason
-      // as allow_rerecord, and for the stronger one that positions are the
-      // key for answers and storage paths.
-      questions_snapshot: questionsSnapshot,
-      // The marking scheme, frozen alongside the questions. Reviewer-only.
-      scoring_snapshot: scoringSnapshot,
-      expires_at: dates.expiresAt,
-      invited_by: ctx.memberId,
-      invited_by_name: ctx.memberName,
-      delete_after: dates.deleteAfter,
-    })
-    .select("id")
-    .single();
+      submittedError: "They've already submitted this interview. Answers can't be re-recorded.",
+    });
+    if (!superseded.ok) return { success: false, error: superseded.error };
 
-  if (sessionErr || !created) {
-    return {
-      success: false,
-      error: sessionErr?.message ?? "Couldn't create the interview.",
-    };
+    const { data: created, error: sessionErr } = await service
+      .from("interview_sessions")
+      .insert({
+        // Supplied, not defaulted: the id the allowance credit already references.
+        id: sessionId,
+        company_id: ctx.companyId,
+        application_id: applicationId,
+        job_id: jobId,
+        token_hash: tokenHash,
+        status: "invited",
+        // Named, never defaulted. The column's default backfills rows that
+        // predate it and is due to be dropped; a writer that omits kind must
+        // fail a NOT NULL at that point rather than silently mint an async
+        // session for the wrong option.
+        kind: "async",
+        // Snapshotted from the job so a later toggle can't retroactively let
+        // someone re-record an interview they were invited to under other rules.
+        allow_rerecord: settings.allowRerecord,
+        // The question set as it stands right now. Frozen for the same reason
+        // as allow_rerecord, and for the stronger one that positions are the
+        // key for answers and storage paths.
+        questions_snapshot: questionsSnapshot,
+        // The marking scheme, frozen alongside the questions. Reviewer-only.
+        scoring_snapshot: scoringSnapshot,
+        expires_at: dates.expiresAt,
+        invited_by: ctx.memberId,
+        invited_by_name: ctx.memberName,
+        delete_after: dates.deleteAfter,
+      })
+      .select("id")
+      .single();
+
+    if (sessionErr || !created) {
+      return {
+        success: false,
+        error: sessionErr?.message ?? "Couldn't create the interview.",
+      };
+    }
+
+    const delivered = await deliverInvite(service, {
+      ctx,
+      applicationId,
+      app,
+      sessionId,
+      rawToken,
+      expiresAt: dates.expiresAt,
+      copy: (link, deadline) => ({
+        subject: `Your video interview for {{job_title}} at {{company_name}}`,
+        body: [
+          "<p>Hi {{candidate_first_name}},</p>",
+          "<p><strong>{{company_name}}</strong> would like you to answer a few questions on video for <strong>{{job_title}}</strong>. There's no call to schedule — you record the answers in your own time, from your phone or laptop.</p>",
+          `<p><a href="${escapeHtml(link)}" style="color:#7E47FF;font-weight:700">Start your interview</a></p>`,
+          `<p>The link works until <strong>${escapeHtml(deadline)}</strong>. There's a practice round first, and it isn't recorded.</p>`,
+          "<p>Good luck.</p>",
+        ].join("\n"),
+      }),
+    });
+    if (!delivered.ok) return { success: false, error: delivered.error };
+    accepted = true;
+    deadline = delivered.deadline;
+  } finally {
+    if (!accepted) await releaseInterviewAllowance(service, reservation.usageId);
   }
-  const sessionId = (created as { id: string }).id;
-
-  const delivered = await deliverInvite(service, {
-    ctx,
-    applicationId,
-    app,
-    sessionId,
-    rawToken,
-    expiresAt: dates.expiresAt,
-    copy: (link, deadline) => ({
-      subject: `Your video interview for {{job_title}} at {{company_name}}`,
-      body: [
-        "<p>Hi {{candidate_first_name}},</p>",
-        "<p><strong>{{company_name}}</strong> would like you to answer a few questions on video for <strong>{{job_title}}</strong>. There's no call to schedule — you record the answers in your own time, from your phone or laptop.</p>",
-        `<p><a href="${escapeHtml(link)}" style="color:#7E47FF;font-weight:700">Start your interview</a></p>`,
-        `<p>The link works until <strong>${escapeHtml(deadline)}</strong>. There's a practice round first, and it isn't recorded.</p>`,
-        "<p>Good luck.</p>",
-      ].join("\n"),
-    }),
-  });
-  if (!delivered.ok) return { success: false, error: delivered.error };
-  const { deadline } = delivered;
 
   /*
    * ── WhatsApp, alongside the email ──

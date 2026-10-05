@@ -172,8 +172,9 @@ export type CompanyUsage = {
   /** usage_events cv_scored: every scoring run, re-scores included. */
   cvScored: number;
   /**
-   * interview_sessions created this month, kind async: every invitation,
-   * re-sends included. What the allowance counts. NOT what the cost uses.
+   * usage_events interview_sent: every invitation sent, re-sends included, one
+   * credit each. What the allowance counts and consume_allowance enforces. NOT
+   * what the cost uses, and NOT a count of sessions.
    */
   asyncInvitations: number;
   /**

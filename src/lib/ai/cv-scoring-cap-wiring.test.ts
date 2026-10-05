@@ -119,11 +119,20 @@ test("usage_events is written only by recordUsage; everything else reads it", ()
   assert.deepEqual(writers, ["src/lib/usage.ts"]);
 });
 
-test("consume_allowance is called from one module, and that module from the scorer only", () => {
+test("cv_scored is consumed from one module, and that module from the scorer only", () => {
+  // Step 5 added the interview allowance module, which consumes interview_sent only.
   const rpcCallers = FILES.filter((f) => /\.rpc\("consume_allowance"/.test(f.text)).map(
     (f) => f.rel,
   );
-  assert.deepEqual(rpcCallers, ["src/lib/cv-allowance.ts"]);
+  assert.deepEqual(rpcCallers.sort(), [
+    "src/lib/cv-allowance.ts",
+    "src/lib/interview-allowance.ts",
+  ]);
+  const cvMetric = FILES.filter((f) => /["']cv_scored["']/.test(f.text) && /\.rpc\(/.test(f.text));
+  assert.deepEqual(
+    cvMetric.map((f) => f.rel),
+    ["src/lib/cv-allowance.ts"],
+  );
   const consumers = FILES.filter((f) => /consumeCvAllowance\(/.test(f.text)).map((f) => f.rel);
   assert.deepEqual(consumers.sort(), ["src/lib/ai/cv-scoring.ts", "src/lib/cv-allowance.ts"]);
 });

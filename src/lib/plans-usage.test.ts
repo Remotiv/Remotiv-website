@@ -37,12 +37,15 @@ const SETTINGS = {
 
 /** A small world: one internal company, one customer with a plan, one without. */
 /**
- * Which query this is. interview_sessions is read twice: invitations by
- * created_at, and completions by status and submitted_at.
+ * Which query this is. usage_events is read twice: AI scoring (cv_scored) and
+ * invitations sent (interview_sent). interview_sessions is read twice: live
+ * interviews by created_at, and async completions by status and submitted_at.
  */
 function queryName(table, calls) {
-  const completions = calls.some((c) => c[0] === "eq" && c[1] === "status" && c[2] === "submitted");
-  return table === "interview_sessions" && completions ? "interview_completions" : table;
+  const has = (col, val) => calls.some((c) => c[0] === "eq" && c[1] === col && c[2] === val);
+  if (table === "usage_events" && has("type", "interview_sent")) return "interview_invitations";
+  if (table === "interview_sessions" && has("status", "submitted")) return "interview_completions";
+  return table;
 }
 
 function world({ failing = null } = {}) {
@@ -73,6 +76,16 @@ function world({ failing = null } = {}) {
       case "pricing_settings":
         return ok(SETTINGS);
       case "usage_events":
+        // Invitation credits: acme spent three (one row carries quantity 2),
+        // Remotiv one. Deliberately not the session counts below.
+        if (queryName(table, calls) === "interview_invitations") {
+          return ok([
+            { company_id: "acme", quantity: 1 },
+            { company_id: "acme", quantity: 2 },
+            { company_id: "remotiv", quantity: 1 },
+            { company_id: null, quantity: 1 },
+          ]);
+        }
         return ok([
           { company_id: "acme", quantity: 1 },
           { company_id: "acme", quantity: 1 },
@@ -84,12 +97,8 @@ function world({ failing = null } = {}) {
         if (queryName(table, calls) === "interview_completions") {
           return ok([{ company_id: "acme" }, { company_id: null }]);
         }
-        return ok([
-          { company_id: "acme", kind: "async" },
-          { company_id: "acme", kind: "async" },
-          { company_id: "acme", kind: "live" },
-          { company_id: "remotiv", kind: "async" },
-        ]);
+        // Live interviews: the query asks for kind live only.
+        return ok([{ company_id: "acme" }, { company_id: null }]);
       case "communication_logs":
         return ok([{ company_id: "beta" }, { company_id: "beta" }]);
       default:
@@ -116,11 +125,14 @@ test("counts each metric per company, with plans and rates attached", async () =
   const by = Object.fromEntries(r.companies.map((c) => [c.companyId, c]));
   assert.deepEqual(
     [by.acme.cvScored, by.acme.asyncInvitations, by.acme.liveInterviews, by.acme.whatsappDelivered],
-    [2, 2, 1, 0],
+    [2, 3, 1, 0],
   );
   assert.equal(by.beta.cvScored, 3, "quantity is summed, not rows counted");
   assert.equal(by.beta.whatsappDelivered, 2);
+  // Invitations are interview_sent credits, summed by quantity; never sessions.
   assert.equal(by.remotiv.asyncInvitations, 1);
+  assert.equal(by.beta.asyncInvitations, 0);
+  assert.equal(by.remotiv.liveInterviews, 0);
   // Completions come from their own query, not from the invitations.
   assert.equal(by.acme.asyncCompleted, 1);
   assert.equal(by.remotiv.asyncCompleted, 0);
@@ -140,7 +152,12 @@ test("every usage read is bounded to this Karachi calendar month", async () => {
   const r = await readPlansUsage(service, NOW);
   assert.equal(r.window.startIso, START);
   assert.equal(r.window.endIso, END);
-  for (const table of ["usage_events", "interview_sessions", "communication_logs"]) {
+  for (const table of [
+    "usage_events",
+    "interview_invitations",
+    "interview_sessions",
+    "communication_logs",
+  ]) {
     const q = service.queries.find((x) => queryName(x.table, x.calls) === table);
     assert.deepEqual(call(q.calls, "gte"), ["gte", "created_at", START], table);
     assert.deepEqual(call(q.calls, "lt"), ["lt", "created_at", END], table);
@@ -154,8 +171,20 @@ test("every usage read is bounded to this Karachi calendar month", async () => {
   ]);
   assert.deepEqual(call(done.calls, "gte"), ["gte", "submitted_at", START]);
   assert.deepEqual(call(done.calls, "lt"), ["lt", "submitted_at", END]);
-  const usage = service.queries.find((x) => x.table === "usage_events");
+  const usage = service.queries.find((x) => queryName(x.table, x.calls) === "usage_events");
   assert.deepEqual(call(usage.calls, "eq"), ["eq", "type", "cv_scored"]);
+  // Invitations sent: the interview_sent credits consume_allowance counts.
+  const sent = service.queries.find((x) => queryName(x.table, x.calls) === "interview_invitations");
+  assert.deepEqual(
+    sent.calls.filter((c) => c[0] === "eq"),
+    [["eq", "type", "interview_sent"]],
+  );
+  // Live interviews only: async sessions are not what the allowance counts.
+  const live = service.queries.find((x) => queryName(x.table, x.calls) === "interview_sessions");
+  assert.deepEqual(
+    live.calls.filter((c) => c[0] === "eq"),
+    [["eq", "kind", "live"]],
+  );
   const wa = service.queries.find((x) => x.table === "communication_logs");
   assert.deepEqual(call(wa.calls, "in"), ["in", "status", ["delivered", "read"]]);
 });
@@ -174,6 +203,7 @@ for (const table of [
   "company_plans",
   "pricing_settings",
   "usage_events",
+  "interview_invitations",
   "interview_sessions",
   "interview_completions",
   "communication_logs",
@@ -211,7 +241,7 @@ test("the panel costs async on completions and never sets live interviews agains
   // Invitations carry the allowance and say where their cost appears instead.
   assert.match(
     panel,
-    /Async interview invitations\s*<\/th>\s*<td className=\{CELL\}>\{usage\.asyncInvitations\}<\/td>\s*<td className=\{CELL\}>\s*<Allowance state=\{asyncAllowance\} \/>\s*<\/td>\s*<td className=\{CELL\}>\s*<Muted>Costed on completion<\/Muted>/,
+    /Async interview invitations sent\s*<\/th>\s*<td className=\{CELL\}>\{usage\.asyncInvitations\}<\/td>\s*<td className=\{CELL\}>\s*<Allowance state=\{asyncAllowance\} \/>\s*<\/td>\s*<td className=\{CELL\}>\s*<Muted>Costed on completion<\/Muted>/,
   );
   // The async cost sits on the completed row.
   assert.match(
@@ -226,6 +256,23 @@ test("the panel costs async on completions and never sets live interviews agains
     /Live minutes\s*<\/th>\s*<td className=\{CELL\}>\s*<Muted>\{NOT_TRACKED_YET\}<\/Muted>/,
   );
   assert.doesNotMatch(panel, /liveMinutesLimit/);
+  // The async allowance is set against invitation credits, nothing else.
+  assert.match(
+    panel,
+    /const asyncAllowance = allowanceState\(\{\s*\.\.\.base,\s*limit: usage\.plan\?\.asyncInterviewLimit \?\? null,\s*used: usage\.asyncInvitations,\s*\}\);/,
+  );
+  // The two async rows are told apart in words, and the tab no longer says nothing is enforced.
+  assert.match(panel, /invitation credits used this month/);
+  assert.match(panel, /It is not a count of interviews\s+created or completed\./);
+  assert.match(
+    panel,
+    /Completed async interviews counts interviews submitted this month, by submission date\./,
+  );
+  assert.match(
+    panel,
+    /The CV scoring limit and the async interview invitation limit\s+are enforced where the work happens\. Live AI is not enforced yet\./,
+  );
+  assert.doesNotMatch(panel, /Nothing on this tab is enforced/);
 });
 
 test("the Usage tab is super-admin only, read-only, and says so when it cannot load", () => {

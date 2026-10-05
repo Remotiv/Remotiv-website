@@ -618,10 +618,11 @@ test("the functions are callable by the service role only", () => {
 
 /*
  * Step 1 pinned that nothing touched any of this. Step 2 added the read-only
- * Usage tab. Step 3 added plan editing. Step 4 enforces the CV-scoring cap,
- * so the pin now states the shape that keeps enforcement in one place and
- * every plan change audited: the allowance functions are called from exactly
- * one module (the CV scorer's); the two plan functions from exactly one other;
+ * Usage tab. Step 3 added plan editing. Step 4 enforces the CV-scoring cap and
+ * Step 5 the async interview cap, so the pin now states the shape that keeps
+ * enforcement in two known places and every plan change audited: the
+ * allowance functions are called from exactly two modules, one per metric;
+ * the two plan functions from exactly one other;
  * only those two and the Usage reader name the new tables; none writes the
  * plan tables directly, and the Usage reader and the allowance module write
  * nothing but through their functions.
@@ -644,6 +645,7 @@ test("allowance functions have one caller; plan writes have one caller; no direc
 
   assert.deepEqual(rel(files.filter((f) => /consume_allowance|release_allowance/.test(code(f)))), [
     "lib/cv-allowance.ts",
+    "lib/interview-allowance.ts",
   ]);
   assert.deepEqual(rel(files.filter((f) => /set_company_plan|remove_company_plan/.test(code(f)))), [
     "lib/plans-admin.ts",
@@ -671,4 +673,15 @@ test("allowance functions have one caller; plan writes have one caller; no direc
     [...code(allowance).matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]),
     ["consume_allowance", "release_allowance"],
   );
+  // The interview module writes nothing directly and consumes only its own metric.
+  const interview = files.find((f) => f.endsWith("lib/interview-allowance.ts"));
+  assert.doesNotMatch(code(interview), /\.(from|insert|update|upsert|delete)\(/);
+  assert.deepEqual(
+    [...code(interview).matchAll(/\.rpc\("([a-z_]+)"/g)].map((m) => m[1]),
+    ["consume_allowance", "release_allowance"],
+  );
+  assert.match(code(interview), /INTERVIEW_SENT_METRIC = "interview_sent";/);
+  assert.match(code(interview), /p_metric: INTERVIEW_SENT_METRIC,/);
+  assert.doesNotMatch(code(interview), /cv_scored/);
+  assert.doesNotMatch(code(allowance), /interview_sent/);
 });

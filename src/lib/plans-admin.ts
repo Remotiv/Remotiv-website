@@ -18,8 +18,8 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * ── What this never does ─────────────────────────────────────
  *
  * It never calls consume_allowance or release_allowance and never touches
- * scoring, interview invitations or WhatsApp. Saving a plan records limits; it
- * does not enforce them. Enforcement is a later step.
+ * scoring, interview invitations or WhatsApp. Saving a plan records limits;
+ * the CV scorer and sendInterviewInvite enforce them, through consume_allowance.
  *
  * Raw database errors are logged here and returned to nobody: callers get a
  * fixed sentence.

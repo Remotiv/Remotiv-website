@@ -628,7 +628,7 @@ function JobDrawer({
               </button>
               <p className="mt-2 text-[10px] leading-relaxed text-[var(--ai-t4)]">
                 Re-runs the AI against this job&apos;s current requirements and screening questions.
-                Costs roughly two cents per CV.
+                Uses one AI scoring credit per CV.
               </p>
             </DrawerSection>
           )}
@@ -883,7 +883,7 @@ export function JobsClient({
     const { job, kind } = confirm;
     setBusy(true);
     // Re-score is the only non-destructive action routed through this dialog.
-    // It is here because it SPENDS MONEY — roughly two cents per CV — and the
+    // It is here because it SPENDS CREDITS - one AI scoring credit per CV - and the
     // count is the number the confirm exists to show.
     let result: { success: boolean; error?: string | undefined };
     // How many re-scores actually started versus were already in flight

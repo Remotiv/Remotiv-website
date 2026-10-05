@@ -349,10 +349,10 @@ test("the actions take the actor from the server session, never from the browser
   }
 });
 
-test("the plan editor never calls the allowance functions; only the allowance module does", () => {
+test("the plan editor never calls the allowance functions; only the allowance modules do", () => {
   const callers = files(SRC).filter((f) => /consume_allowance|release_allowance/.test(code(f)));
   assert.deepEqual(
     callers.map((f) => relative(SRC, f)),
-    ["lib/cv-allowance.ts"],
+    ["lib/cv-allowance.ts", "lib/interview-allowance.ts"],
   );
 });

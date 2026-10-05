@@ -16,7 +16,7 @@ export function RatesPanel({ result }: { result: PlansAdminResult }) {
       <h2 className="font-heading text-xl font-bold text-gray-900">Plans &amp; Rates</h2>
       <p className="mt-1 text-sm text-gray-500">
         Set the rates the estimates use and each company&apos;s plan. CV scoring limits are
-        enforced; interview limits are recorded, not enforced yet.
+        enforced. Async interview invitation limits are enforced. Live AI is not enforced yet.
       </p>
     </div>
   );
