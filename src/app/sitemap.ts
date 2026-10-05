@@ -1,6 +1,8 @@
 import type { MetadataRoute } from "next";
 import { listedOnRemotiv } from "@/lib/jobs";
+import { pageAll } from "@/lib/supabase/paging";
 import { createServiceClient } from "@/lib/supabase/server";
+import { publicRemote, publicTalent } from "@/lib/talent-visibility";
 
 const BASE_URL = "https://remotiv.work";
 
@@ -15,19 +17,49 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
 
   const supabase = createServiceClient();
 
-  // ── Talent profiles are NOT advertised here ─────────────────
+  // ── Public talent and freelancer profiles ──────────────────
   //
-  // This block used to emit one URL per approved profile in both pools. It is
-  // gone on purpose: the pages now carry `robots: { index: false }`, and a
-  // sitemap that submits URLs we are asking not to be indexed works against
-  // itself. Removing them here is the other half of that change.
+  // Exactly the set /talent/[id] serves as public, because both read the same
+  // predicate: publicTalent() and publicRemote() from lib/talent-visibility.
+  // A paused, archived, unapproved or non-public-status profile can never be
+  // advertised here, and those pages are noindex besides.
   //
-  // Two things this deliberately does NOT do. It does not add /talent/ to
-  // robots.ts - a disallow would stop crawlers fetching the pages, so they
-  // would never see the noindex and the already-indexed URLs would stay
-  // indexed. And it does not touch the 1000-row page cap that was silently
-  // limiting this list: with profiles removed the cap no longer affects them,
-  // and fixing it now would be fixing the wrong thing first.
+  // Paged with pageAll. The previous version read each table in one request
+  // and PostgREST returned the first 1,000 rows, so most profiles were silently
+  // never advertised. A failed page throws rather than returning what it has,
+  // and the whole profile block is then skipped and logged: a sitemap missing
+  // profiles for an hour is honest, one missing an arbitrary slice of them is
+  // not. Ordered by id so the pages tile the table without gaps or repeats.
+  let profileEntries: MetadataRoute.Sitemap = [];
+  try {
+    type ProfileRow = { id: string; claimed_at: string | null; approved_at: string };
+    const [talentRows, remoteRows] = await Promise.all([
+      pageAll<ProfileRow>(
+        (from, to) =>
+          publicTalent(supabase.from("talent_profiles").select("id, claimed_at, approved_at"))
+            .order("id")
+            .range(from, to),
+        { scope: "sitemap", label: "public talent profiles" },
+      ),
+      pageAll<ProfileRow>(
+        (from, to) =>
+          publicRemote(supabase.from("hire_remote_profiles").select("id, claimed_at, approved_at"))
+            .order("id")
+            .range(from, to),
+        { scope: "sitemap", label: "public freelancer profiles" },
+      ),
+    ]);
+    profileEntries = [...talentRows, ...remoteRows].map((r) => ({
+      url: `${BASE_URL}/talent/${r.id}`,
+      lastModified: new Date(r.claimed_at ?? r.approved_at),
+      changeFrequency: "weekly" as const,
+      priority: 0.6,
+    }));
+  } catch (err) {
+    // A transient outage must not 500 the whole sitemap: the static pages and
+    // jobs still go out, and the profiles return on the next regeneration.
+    console.error("[sitemap] failed to fetch profile entries:", err);
+  }
 
   let jobEntries: MetadataRoute.Sitemap = [];
   try {
@@ -48,7 +80,7 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.6,
     }));
   } catch (err) {
-    // Same graceful degradation as the talent block.
+    // Same graceful degradation as the profile block.
     console.error("[sitemap] failed to fetch job entries:", err);
   }
 
@@ -144,5 +176,6 @@ export default async function sitemap(): Promise<MetadataRoute.Sitemap> {
       priority: 0.8,
     },
     ...jobEntries,
+    ...profileEntries,
   ];
 }

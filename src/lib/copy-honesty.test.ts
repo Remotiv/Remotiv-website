@@ -130,13 +130,12 @@ test("C7-09/C7-09b: both signup flows disclose that an approved profile is publi
       /If approved, your profile page is public\./,
       `${name}: no footer disclosure`,
     );
-    assert.match(text, /anyone with the link can open/, `${name}: no public-page disclosure`);
     assert.match(text, /public page on remotiv\.work/, `${name}: no success-screen disclosure`);
-    // The indexing claim is gone deliberately. The visibility work set
-    // `robots: index false` on profile pages and removed them from the
-    // sitemap, so telling an applicant that search engines can index their
-    // profile would now be the false half of a true sentence.
-    assert.doesNotMatch(text, /search engines can index/, `${name}: stale indexing claim`);
+    // Public profiles are indexed again (robots index, follow, and listed in
+    // the sitemap), so the disclosure says so. "Anyone with the link" was true
+    // only while they were noindex; it would now understate who can find them.
+    assert.match(text, /search engines can index/, `${name}: no search-engine disclosure`);
+    assert.doesNotMatch(text, /anyone with the link/, `${name}: understates who can find the page`);
   }
   // The CV claim on the talent flow's upload step was the fourth false one.
   assert.doesNotMatch(talentSignup, /reviewed by our team and matched employers/);
@@ -150,9 +149,12 @@ test("C7-09/C7-09b: both signup flows disclose that an approved profile is publi
   assert.match(publicProfile, /kind: "public"/);
   const visibility = src("./talent-visibility.ts");
   assert.match(visibility, /row\.approved_at !== null/);
-  // De-indexed, so the sitemap no longer advertises these pages.
+  // The claim rests on two code facts: the page invites indexing, and the
+  // sitemap advertises public profiles through the shared predicate.
+  assert.match(publicProfile, /robots: \{ index: true, follow: true \}/);
   const sitemap = src("../app/sitemap.ts");
-  assert.doesNotMatch(sitemap, /from\("talent_profiles"\)/);
+  assert.match(sitemap, /publicTalent\(\s*supabase\.from\("talent_profiles"\)/);
+  assert.match(sitemap, /publicRemote\(\s*supabase\.from\("hire_remote_profiles"\)/);
 });
 
 test("C7-09-05: the submit-time agreement is untouched, pending the historical decision", () => {

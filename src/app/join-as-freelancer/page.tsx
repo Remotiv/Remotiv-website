@@ -1552,7 +1552,7 @@ function Step4(props: {
             )}
           </label>
           <div className="bta-photo-info">
-            <p>Upload a professional headshot (JPG, PNG, WEBP, or GIF, max 5 MB). If your profile is approved, this photo appears on your public Remotiv profile page, which anyone with the link can open.</p>
+            <p>Upload a professional headshot (JPG, PNG, WEBP, or GIF, max 5 MB). If your profile is approved, this photo appears on your public Remotiv profile page, which anyone can open and search engines can index.</p>
             <span className="bta-photo-btn">Upload Photo</span>
           </div>
         </div>

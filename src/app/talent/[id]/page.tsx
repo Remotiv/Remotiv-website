@@ -390,13 +390,14 @@ export async function generateMetadata({
       title,
       description,
     },
-    // Step 2 of the visibility work: profile pages are de-indexed. Page-level
-    // noindex rather than a robots.txt disallow, deliberately - a disallow
-    // stops crawlers fetching the page, so they never see this directive and
-    // already-indexed URLs stay indexed. The canonical and openGraph blocks
-    // stay as they are: they describe the page for anyone who already has the
-    // link, and removing them would not un-index anything.
-    robots: { index: false, follow: false },
+    // A public profile may be indexed. Only profiles that pass the shared
+    // visibility predicate reach this branch: a paused, archived, unapproved or
+    // non-public-status profile takes the branch above, which stays noindex
+    // whether it renders the owner's "not currently listed" page or a 404, so
+    // the robots directive cannot tell a stranger a hidden profile from a
+    // missing one. The signup forms tell applicants an approved page can appear
+    // in search engines, and the sitemap advertises exactly this set.
+    robots: { index: true, follow: true },
   };
 }
 

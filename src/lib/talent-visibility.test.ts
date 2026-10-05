@@ -312,30 +312,46 @@ test("hidden and missing are indistinguishable in metadata", () => {
   assert.match(block, /robots: \{ index: false, follow: false \}/);
 });
 
-/* ── step 2: de-index ───────────────────────────────────────── */
+/* ── indexing: public profiles are indexed, hidden ones never ── */
 
-test("profile pages are noindex", () => {
+test("public profile pages invite indexing; the non-public branch stays noindex", () => {
   const page = src("../app/talent/[id]/page.tsx");
-  assert.doesNotMatch(page, /robots: \{ index: true, follow: true \}/);
-  assert.equal((page.match(/robots: \{ index: false, follow: false \}/g) ?? []).length, 2);
+  // Exactly one of each: noindex for hidden and missing alike, index for public.
+  assert.equal((page.match(/robots: \{ index: false, follow: false \}/g) ?? []).length, 1);
+  assert.equal((page.match(/robots: \{ index: true, follow: true \}/g) ?? []).length, 1);
+  // The indexable directive sits after the non-public early return, so only a
+  // profile that passed the predicate can carry it.
+  const guard = page.indexOf('if (state.kind !== "public") {');
+  const noindex = page.indexOf("robots: { index: false, follow: false }");
+  const index = page.indexOf("robots: { index: true, follow: true }");
+  assert.ok(
+    guard > 0 && guard < noindex && noindex < index,
+    "index must come after the non-public return",
+  );
 });
 
-test("the sitemap no longer advertises profile URLs, and nothing else changed", () => {
+test("the sitemap advertises public profiles only, through the shared predicate, paged", () => {
   const sitemap = src("../app/sitemap.ts");
-  assert.doesNotMatch(sitemap, /from\("talent_profiles"\)/);
-  assert.doesNotMatch(sitemap, /from\("hire_remote_profiles"\)/);
-  assert.doesNotMatch(sitemap, /talentEntries/);
-  // The emitted URL template, not any mention of the path: the block's
-  // replacement comment explains why /talent/ is absent, and matching prose
-  // would make this assertion pass or fail on wording.
-  assert.doesNotMatch(sitemap, /url: `\$\{BASE_URL\}\/talent\//);
+  assert.match(
+    sitemap,
+    /import \{ publicRemote, publicTalent \} from "@\/lib\/talent-visibility";/,
+  );
+  assert.match(sitemap, /publicTalent\(\s*supabase\.from\("talent_profiles"\)/);
+  assert.match(sitemap, /publicRemote\(\s*supabase\.from\("hire_remote_profiles"\)/);
+  // Every read of a profile table goes through the predicate: no bare from().
+  const bare = sitemap.match(
+    /(?<!publicTalent\(\s*|publicRemote\(\s*)supabase\.from\("(talent_profiles|hire_remote_profiles)"\)/g,
+  );
+  assert.equal(bare, null, "a profile table is read without the visibility predicate");
+  // Paged past the 1,000-row cap. sitemap.test.ts proves it on 1,500 rows.
+  assert.match(sitemap, /pageAll<ProfileRow>/);
+  assert.match(sitemap, /\.range\(from, to\)/);
+  assert.match(sitemap, /url: `\$\{BASE_URL\}\/talent\/\$\{r\.id\}`/);
   // The jobs block and the static pages are untouched.
   assert.match(sitemap, /jobEntries = rows\.map/);
   assert.match(sitemap, /listedOnRemotiv/);
   assert.match(sitemap, /\.\.\.jobEntries,/);
   assert.match(sitemap, /export const revalidate = 3600;/);
-  // The row cap is deliberately still unfixed this round.
-  assert.doesNotMatch(sitemap, /\.range\(/);
 });
 
 test("robots.txt does not disallow /talent/, so crawlers can see the noindex", () => {

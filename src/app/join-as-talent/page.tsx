@@ -1348,8 +1348,8 @@ export default function BecomeATalentPage() {
                           <div className="bta-photo-info">
                             <p>
                               Upload a professional headshot. If your profile is approved, this
-                              photo appears on your public Remotiv profile page, which anyone
-                              with the link can open.
+                              photo appears on your public Remotiv profile page, which anyone can
+                              open and search engines can index.
                             </p>
                             <span className="bta-photo-btn">Upload Photo</span>
                             {/* Phase 3 M-photo-clear: only render when a photo
@@ -2110,7 +2110,7 @@ export default function BecomeATalentPage() {
                               be live in the Remotiv talent pool and our AI will start matching
                               you to relevant opportunities from 100+ partner companies. Your
                               profile page also becomes publicly visible on remotiv.work, where
-                              anyone with the link can open it.
+                              anyone can open it and search engines can index it.
                             </div>
                           </div>
                         </div>
