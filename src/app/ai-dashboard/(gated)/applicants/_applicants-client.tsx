@@ -24,7 +24,15 @@ import {
 } from "lucide-react";
 import Link from "next/link";
 import { usePathname, useRouter, useSearchParams } from "next/navigation";
-import { useCallback, useEffect, useMemo, useRef, useState, useSyncExternalStore } from "react";
+import {
+  type ReactNode,
+  useCallback,
+  useEffect,
+  useMemo,
+  useRef,
+  useState,
+  useSyncExternalStore,
+} from "react";
 import { DashboardHero, HeroDelta } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { TipCard } from "@/app/ai-dashboard/_components/tip-card";
@@ -3943,6 +3951,7 @@ export function ApplicantsClient({
   unassigned,
   showScoringTip,
   renderedAt,
+  quotaBanner,
 }: {
   viewerRole: CompanyRole;
   /**
@@ -3979,6 +3988,8 @@ export function ApplicantsClient({
    * client pass agree on "2d ago". Replaced by the live clock once hydrated.
    */
   renderedAt: number;
+  /** The recruiter's quota notices, already rendered on the server, or null. */
+  quotaBanner: ReactNode;
 }) {
   // Same predicate the server action enforces (owner / admin / recruiter).
   // Hiring managers review candidates but do not spend the company's scoring
@@ -4993,6 +5004,8 @@ export function ApplicantsClient({
             </button>
           </div>
         </div>
+
+        {quotaBanner}
 
         {/* Dark hero strip */}
         <DashboardHero

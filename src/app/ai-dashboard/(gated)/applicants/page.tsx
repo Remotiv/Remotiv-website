@@ -5,6 +5,8 @@ import { isTipDismissed } from "@/app/ai-dashboard/lib/tip-state";
 import { fetchManualTemplates } from "@/app/ai-dashboard/(gated)/messages/actions";
 import { fetchAssignableJobs, fetchCompanyApplicants } from "./actions";
 import { ApplicantsClient } from "./_applicants-client";
+import { loadApplicantsUsage } from "@/app/ai-dashboard/lib/company-usage-view";
+import { QuotaBanner } from "./_quota-banner";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Applicants — Remotiv AI Interviews" };
@@ -12,7 +14,7 @@ export const metadata = { title: "Applicants — Remotiv AI Interviews" };
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
 
 export default async function ApplicantsPage() {
-  const [ctx, applicants, manualTemplates, assignableJobs] = await Promise.all([
+  const [ctx, applicants, manualTemplates, assignableJobs, quota] = await Promise.all([
     getCompanyContext(),
     fetchCompanyApplicants(),
     fetchManualTemplates(),
@@ -21,6 +23,8 @@ export default async function ApplicantsPage() {
     // it cannot offer a job that has no applicants yet — which is exactly the
     // job you would be adding a first candidate to.
     fetchAssignableJobs(),
+    // Owner, admin and recruiter, at 80% and 100% of a capped metric; null otherwise.
+    loadApplicantsUsage(),
   ]);
 
   // Distinguishes "this company has no applicants" from "you are on no jobs",
@@ -87,6 +91,7 @@ export default async function ApplicantsPage() {
       unassigned={unassigned}
       showScoringTip={showScoringTip}
       renderedAt={now}
+      quotaBanner={quota && <QuotaBanner view={quota} />}
     />
   );
 }

@@ -1,6 +1,6 @@
 "use client";
 
-import { useRef, useState } from "react";
+import { type ReactNode, useRef, useState } from "react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { ArrowRight, Check, Eye, Lock, Plus } from "lucide-react";
@@ -100,6 +100,7 @@ export function SettingsClient({
   calendarConnections,
   workingHours,
   stats,
+  planUsage,
 }: {
   role: CompanyRole;
   company: CompanyForm & { logoUrl: string | null; slug: string | null };
@@ -110,6 +111,11 @@ export function SettingsClient({
   calendarConnections: CalendarConnectionView[];
   workingHours: WorkingRule[];
   stats: { liveRoles: number; applicants: number; seatsUsed: number };
+  /**
+   * The Plan & usage card, already rendered on the server, or null for a role
+   * that does not see it. Never data: the figures stay out of client state.
+   */
+  planUsage: ReactNode;
 }) {
   const router = useRouter();
 
@@ -839,6 +845,8 @@ export function SettingsClient({
             </div>
           )}
         </section>
+
+        {planUsage}
 
         {/* ── Card 2: Your account ── */}
         <section className={CARD_CLS}>

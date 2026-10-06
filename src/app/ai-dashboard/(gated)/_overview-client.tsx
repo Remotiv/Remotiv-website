@@ -1,6 +1,7 @@
 "use client";
 
 import Link from "next/link";
+import type { ReactNode } from "react";
 import {
   ArrowRight,
   FileText,
@@ -467,12 +468,15 @@ export function OverviewClient({
   canCreateJob,
   canManageTeam: canTeam,
   data,
+  usageMeter,
 }: {
   memberName: string;
   companyName: string;
   canCreateJob: boolean;
   canManageTeam: boolean;
   data: OverviewData;
+  /** The usage meter, already rendered on the server, or null for this viewer. */
+  usageMeter: ReactNode;
 }) {
   const {
     totalApplicants,
@@ -623,6 +627,8 @@ export function OverviewClient({
       </div>
 
       <AiHero data={data} canCreateJob={canCreateJob} />
+
+      {usageMeter}
 
       {/* Needs you — hidden entirely when nothing is outstanding. */}
       {needs.length > 0 && (

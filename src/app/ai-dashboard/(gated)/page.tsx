@@ -11,7 +11,9 @@ import {
 } from "../lib/company-roles";
 import { isTipDismissed } from "../lib/tip-state";
 import { WelcomeModal } from "../_components/welcome-modal";
+import { loadOverviewUsage } from "../lib/company-usage-view";
 import { fetchOverview } from "./overview-actions";
+import { UsageMeter } from "./_usage-meter";
 import { OverviewClient } from "./_overview-client";
 
 export const dynamic = "force-dynamic";
@@ -41,9 +43,11 @@ export default async function CompanyOverviewPage() {
    * tolerant of a failure and answers "not dismissed", which shows the modal;
    * the client keeps its own dismissal for the session either way.
    */
-  const [data, welcomeDismissed] = await Promise.all([
+  const [data, welcomeDismissed, usage] = await Promise.all([
     fetchOverview(),
     isTipDismissed(ctx.memberId, "welcome"),
+    // Roles that can spend a credit; null for anyone else and for internal companies.
+    loadOverviewUsage(),
   ]);
 
   return (
@@ -55,6 +59,7 @@ export default async function CompanyOverviewPage() {
         canCreateJob={canCreateJobs(ctx.role)}
         canManageTeam={canManageTeam(ctx.role)}
         data={data}
+        usageMeter={usage && <UsageMeter view={usage} />}
       />
     </>
   );

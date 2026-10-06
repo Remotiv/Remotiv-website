@@ -640,7 +640,8 @@ test("allowance functions have one caller; plan writes have one caller; no direc
     readFileSync(f, "utf8")
       .replace(/\/\*[\s\S]*?\*\//g, "")
       .replace(/^\s*\/\/.*$/gm, "");
-  const files = walk(src);
+  // Application code only: test-support fixtures name these tables as fake data.
+  const files = walk(src).filter((f) => !relative(src, f).startsWith("test-support/"));
   const rel = (list) => list.map((f) => relative(src, f));
 
   assert.deepEqual(rel(files.filter((f) => /consume_allowance|release_allowance/.test(code(f)))), [
@@ -653,7 +654,9 @@ test("allowance functions have one caller; plan writes have one caller; no direc
   const tableUsers = files.filter((f) =>
     /company_plans|company_plan_history|pricing_settings/.test(code(f)),
   );
+  // Step 6 added the company's own read-only view (lib/company-usage.ts).
   assert.deepEqual(rel(tableUsers), [
+    "lib/company-usage.ts",
     "lib/cv-allowance.ts",
     "lib/plans-admin.ts",
     "lib/plans-usage.ts",
@@ -665,8 +668,10 @@ test("allowance functions have one caller; plan writes have one caller; no direc
       relative(src, f),
     );
   }
-  const usageReader = tableUsers.find((f) => f.endsWith("plans-usage.ts"));
-  assert.doesNotMatch(code(usageReader), /\.(insert|update|upsert|delete|rpc)\(/);
+  for (const reader of ["lib/plans-usage.ts", "lib/company-usage.ts"]) {
+    const f = tableUsers.find((x) => relative(src, x) === reader);
+    assert.doesNotMatch(code(f), /\.(insert|update|upsert|delete|rpc)\(/, reader);
+  }
   const allowance = tableUsers.find((f) => f.endsWith("cv-allowance.ts"));
   assert.doesNotMatch(code(allowance), /\.(insert|update|upsert|delete)\(/);
   assert.deepEqual(

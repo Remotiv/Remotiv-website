@@ -7,6 +7,8 @@ import { fetchTemplateRows } from "./template-actions";
 import { SettingsClient } from "./_settings-client";
 import { toPreset } from "@/components/white-label/brand";
 import { COMPANY_LOGO_BUCKET } from "./constants";
+import { loadSettingsUsage } from "@/app/ai-dashboard/lib/company-usage-view";
+import { PlanUsageCard } from "./_plan-usage-card";
 
 export const dynamic = "force-dynamic";
 export const metadata = { title: "Settings — Remotiv AI Interviews" };
@@ -46,6 +48,8 @@ export default async function SettingsPage() {
   // this reads only the non-secret view columns (no token is fetched at all).
   const calendarConnections = await fetchCalendarConnections();
   const workingHours = await fetchWorkingHours();
+  // Owner and admin only, decided server-side; null for every other role.
+  const planUsage = await loadSettingsUsage();
 
   // Read directly rather than widening COMPANY_COLUMNS: the shared company
   // guard runs on every /ai-dashboard request and this column is only ever
@@ -110,6 +114,7 @@ export default async function SettingsPage() {
         applicants: applicants.count ?? 0,
         seatsUsed: seats.count ?? 0,
       }}
+      planUsage={planUsage && <PlanUsageCard view={planUsage} />}
     />
   );
 }

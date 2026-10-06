@@ -139,8 +139,15 @@ test("only the send action spends interview_sent, and only through the allowance
   );
   assert.deepEqual(users.map((f) => f.rel).sort(), [ACTIONS, "src/lib/interview-allowance.ts"]);
   const metric = FILES.filter((f) => /["']interview_sent["']/.test(f.text)).map((f) => f.rel);
-  // The allowance module consumes it; the Usage reader counts it. Nothing else names it.
-  assert.deepEqual(metric.sort(), ["src/lib/interview-allowance.ts", "src/lib/plans-usage.ts"]);
+  // The allowance module consumes it; the admin Usage reader and the company's
+  // own view (Step 6, read-only, pinned in company-usage-wiring) count and
+  // label it. Nothing else names it.
+  assert.deepEqual(metric.sort(), [
+    "src/lib/company-usage-types.ts",
+    "src/lib/company-usage.ts",
+    "src/lib/interview-allowance.ts",
+    "src/lib/plans-usage.ts",
+  ]);
 });
 
 /* ── reminders never consume ────────────────────────────────────── */
