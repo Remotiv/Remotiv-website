@@ -48,6 +48,24 @@ import { Navbar } from "@/components/navbar";
  *   communication_logs              NOTHING expires these. The bodies of every
  *                                   email and message we sent are kept, and
  *                                   section 3's "everything else" says so.
+ *   Google user data (section 13)   read from src/lib/calendar/. Scopes are
+ *                                   google.ts SCOPES (calendar.events,
+ *                                   calendar.readonly, userinfo.email; Google
+ *                                   adds openid). Reads: calendars/primary (id,
+ *                                   time zone), userinfo (email), freeBusy - and
+ *                                   nothing else; no event is listed or read.
+ *                                   Writes: create, PATCH times, DELETE, only
+ *                                   for booked interviews. Stored: the
+ *                                   calendar_connections row until disconnect(),
+ *                                   which revokes at Google and deletes the row
+ *                                   either way; event id + Meet link on
+ *                                   interview_bookings. Free/busy is never
+ *                                   stored. No AI provider receives any of it.
+ *                                   A new scope, read, stored column or
+ *                                   recipient is a change to section 13.
+ *                                   Google's verification needs the Limited
+ *                                   Use sentence word for word; the copy test
+ *                                   pins it.
  *
  * NOT white-label. A company's careers page links here, and it still says
  * Remotiv — because Remotiv is the processor holding the data, whoever the
@@ -74,7 +92,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "30 September 2026";
+const LAST_UPDATED = "7 October 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -211,11 +229,11 @@ export default function PrivacyPage() {
           <H3>From companies hiring through us</H3>
           <P>
             Employers using our hiring product create accounts, and may connect a Google Calendar so
-            interview times can be booked. The permission we request covers calendar events. To find
-            free slots we deliberately use only Google&apos;s free/busy view, which returns blocks
-            of busy time with no titles, attendees or descriptions attached — we do not read the
-            contents of anyone&apos;s meetings, and the only events we create are the interviews
-            themselves.
+            interview times can be booked. The permissions we request, and exactly what we do with
+            them, are set out in section 13. To find free slots we deliberately use only
+            Google&apos;s free/busy view, which returns blocks of busy time with no titles,
+            attendees or descriptions attached. We do not read the contents of anyone&apos;s
+            meetings, and the only events we create are the interviews themselves.
           </P>
 
           <H2>2. Where it is stored, and who can reach it</H2>
@@ -540,7 +558,137 @@ export default function PrivacyPage() {
             code, so a change to them is a change to the system, not only to this document.
           </P>
 
-          <H2>13. Contact</H2>
+          <H2>13. Google user data</H2>
+          <P>
+            This section applies to people at companies hiring through Remotiv who connect a Google
+            Calendar from Settings. Candidates never connect a Google account. We use Google data
+            for one purpose: scheduling candidate interviews. That means offering a candidate times
+            when the interviewer is free, and putting the booked interview on the interviewer&apos;s
+            calendar with a Google Meet link.
+          </P>
+
+          <H3>What we ask Google for, and why</H3>
+          <UL>
+            <li>
+              <strong className="font-semibold text-[#111]">Calendar events</strong> (the
+              calendar.events permission): to create the interview events Remotiv books, move them
+              when an interview is rescheduled, and delete them when it is cancelled. We do not
+              change or delete any other event.
+            </li>
+            <li>
+              <strong className="font-semibold text-[#111]">Read access to your calendars</strong>{" "}
+              (the calendar.readonly permission): to read your primary calendar&apos;s ID and time
+              zone, and its free/busy information. Free/busy is only the start and end times of busy
+              periods, with no titles, descriptions, attendees or locations. We do not list or read
+              your events.
+            </li>
+            <li>
+              <strong className="font-semibold text-[#111]">Your email address</strong> (the
+              userinfo.email permission, which Google grants together with the basic openid sign-in
+              identifier): to show which Google account is connected on your Settings page.
+            </li>
+          </UL>
+
+          <H3>What we read</H3>
+          <UL>
+            <li>
+              When you connect: your Google account email, and your primary calendar&apos;s ID and
+              time zone.
+            </li>
+            <li>
+              Each time a candidate opens a booking link or picks a time: the free/busy information
+              for your primary calendar over the dates being offered. We use it to work out which
+              times to offer, and we do not store it.
+            </li>
+          </UL>
+
+          <H3>What we write to your calendar</H3>
+          <P>
+            When a candidate books an interview with you, we create one event on your primary
+            calendar. It has a title naming the candidate and the role, a short description (the
+            role, the candidate&apos;s time zone, and that it was arranged through Remotiv), the
+            time, you and the candidate as attendees, and a Google Meet link where your account
+            allows Meet. Google sends the invitation to both attendees. If the candidate
+            reschedules, we move that event. If you or the candidate cancel, we delete it.
+          </P>
+
+          <H3>What we store, and for how long</H3>
+          <UL>
+            <li>
+              <strong className="font-semibold text-[#111]">Your connection:</strong> the access and
+              refresh tokens Google issues, when they expire, the permissions you granted, your
+              Google account email, your primary calendar&apos;s ID and time zone, the connection
+              status, and the most recent error Google returned, if any. These are stored with
+              Supabase (section 2), used only by our servers, never sent to your browser, and never
+              written to our logs. We keep them until you disconnect.
+            </li>
+            <li>
+              <strong className="font-semibold text-[#111]">Each booked interview:</strong> the
+              Google event ID, the Meet link, the time and both time zones. These are kept with the
+              application, like the other application records described in section 3.
+            </li>
+            <li>Free/busy information is used at the moment it is read and is never stored.</li>
+          </UL>
+
+          <H3>What we never do with it</H3>
+          <Callout>
+            <strong className="font-semibold text-[#111]">
+              We do not sell Google data, we do not use it for advertising, and we do not use it to
+              train AI models, ours or anyone else&apos;s.
+            </strong>{" "}
+            None of it is sent to our AI providers. No one at Remotiv reads your calendar data,
+            except where you ask us to for support, where it is needed for security, or where the
+            law requires it.
+          </Callout>
+
+          <H3>Who it is shared with</H3>
+          <P>Only as needed to schedule the interview:</P>
+          <UL>
+            <li>
+              The candidate sees the times you are free to be booked, never what fills the rest of
+              your calendar, and receives the interview time and Meet link on the booking page and
+              in the confirmation email.
+            </li>
+            <li>
+              Your hiring team in Remotiv sees the interview time and Meet link on the application.
+            </li>
+            <li>
+              Supabase stores the connection and booking details, and Resend delivers the
+              confirmation emails that carry the time and Meet link, as described in section 6.
+            </li>
+            <li>We disclose it to anyone else only if the law requires us to.</li>
+          </UL>
+
+          <H3>Disconnecting, and what is deleted</H3>
+          <P>
+            In Settings, use Disconnect on your calendar. We ask Google to revoke Remotiv&apos;s
+            access, then delete your stored connection: the tokens, your Google account email, and
+            your calendar&apos;s ID and time zone. We delete it even if Google does not confirm the
+            revocation, and in that case Settings tells you to remove Remotiv from your Google
+            account permissions, which ends the access for certain.
+          </P>
+          <P>
+            You can also remove Remotiv from your Google account permissions directly. We then can
+            no longer use the connection; disconnect in Settings as well to delete the stored
+            details. Disconnecting does not remove interview events already on your calendar, or the
+            records of interviews already booked. To have those deleted too, email <Mail />.
+          </P>
+
+          <P>
+            Remotiv&apos;s use and transfer of information received from Google APIs will adhere to
+            the{" "}
+            <a
+              href="https://developers.google.com/terms/api-services-user-data-policy"
+              className="font-medium text-remotiv-purple underline underline-offset-2"
+              target="_blank"
+              rel="noopener noreferrer"
+            >
+              Google API Services User Data Policy
+            </a>
+            , including the Limited Use requirements.
+          </P>
+
+          <H2>14. Contact</H2>
           <P>
             For anything in this policy — access, correction, deletion, or a question about what we
             hold — email <Mail />. For anything else, our{" "}
