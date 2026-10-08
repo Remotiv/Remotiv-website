@@ -3,6 +3,7 @@
 import { AudioLines, CalendarClock, Check, CircleX, Clock, Send, Video } from "lucide-react";
 import Link from "next/link";
 import { useCallback, useEffect, useState } from "react";
+import { type CompanyRole, canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import {
   BAND_LABEL,
   BAND_PILL,
@@ -331,16 +332,19 @@ function ReviewLink({ session }: { session: InterviewSessionSummary }) {
 
 export function InterviewPanel({
   applicationId,
+  viewerRole,
   onToast,
 }: {
   applicationId: string;
+  /** The account role. Decides whether the booking card offers send and cancel. */
+  viewerRole: CompanyRole;
   onToast: (message: string) => void;
 }) {
   return (
     <div className="flex flex-col gap-7">
       <AsyncSection applicationId={applicationId} onToast={onToast} />
       <LiveInterviewSection applicationId={applicationId} onToast={onToast} />
-      <BookingSection applicationId={applicationId} onToast={onToast} />
+      <BookingSection applicationId={applicationId} viewerRole={viewerRole} onToast={onToast} />
     </div>
   );
 }
@@ -849,11 +853,17 @@ const BOOKING_BADGE: Record<string, { label: string; cls: string; icon: typeof C
  */
 function BookingSection({
   applicationId,
+  viewerRole,
   onToast,
 }: {
   applicationId: string;
+  viewerRole: CompanyRole;
   onToast: (message: string) => void;
 }) {
+  // Send and cancel are reserved to owner, admin and recruiter; the server
+  // actions refuse everyone else, so the buttons are not drawn for them. The
+  // booking itself (time, Meet link, status) stays visible to every viewer.
+  const canManage = canManageBookings(viewerRole);
   const [booking, setBooking] = useState<BookingPanel>(null);
   const [loading, setLoading] = useState(true);
   const [busy, setBusy] = useState(false);
@@ -942,6 +952,7 @@ function BookingSection({
           <ScheduledCall
             booking={booking}
             start={booking.scheduledStart}
+            canManage={canManage}
             busy={busy}
             cancelling={cancelling}
             cancelReason={cancelReason}
@@ -954,16 +965,22 @@ function BookingSection({
           <div className={EMPTY_BOX}>
             <div className="min-w-0">
               <b className="block text-[13px] font-bold text-[var(--ai-t1)]">
-                {booking?.status === "cancelled" ? "Call cancelled" : "Send a booking link"}
+                {booking?.status === "cancelled"
+                  ? "Call cancelled"
+                  : canManage
+                    ? "Send a booking link"
+                    : "No call booked"}
               </b>
               <p className="m-0 mt-[3px] max-w-[430px] text-[12.5px] leading-[1.6] text-[var(--ai-t3)]">
                 {booking?.status === "cancelled" ? (
                   <>
                     Cancelled
                     {booking.cancelledBy === "candidate" ? " by the candidate" : " by your team"}
-                    {booking.cancelReason ? ` — “${booking.cancelReason}”` : "."} Send a new link to
-                    offer fresh times.
+                    {booking.cancelReason ? ` — “${booking.cancelReason}”` : "."}
+                    {canManage ? " Send a new link to offer fresh times." : ""}
                   </>
+                ) : !canManage && !booking ? (
+                  "No booking link has been sent yet. An owner, admin or recruiter can send one."
                 ) : booking?.status === "invited" ? (
                   "The link is with the candidate. They pick from your open slots and the call lands in your calendar."
                 ) : (
@@ -982,17 +999,19 @@ function BookingSection({
                 )}
               </p>
             </div>
-            <button
-              type="button"
-              onClick={() => {
-                void handleSendLink();
-              }}
-              disabled={busy}
-              className={`ml-auto ${BTN_PRIMARY}`}
-            >
-              <CalendarClock className="size-[15px]" strokeWidth={1.9} />
-              {busy ? "Sending…" : booking ? "Send a new link" : "Send booking link"}
-            </button>
+            {canManage && (
+              <button
+                type="button"
+                onClick={() => {
+                  void handleSendLink();
+                }}
+                disabled={busy}
+                className={`ml-auto ${BTN_PRIMARY}`}
+              >
+                <CalendarClock className="size-[15px]" strokeWidth={1.9} />
+                {busy ? "Sending…" : booking ? "Send a new link" : "Send booking link"}
+              </button>
+            )}
           </div>
         )}
       </div>
@@ -1005,6 +1024,7 @@ function BookingSection({
 function ScheduledCall({
   booking,
   start,
+  canManage,
   busy,
   cancelling,
   cancelReason,
@@ -1015,6 +1035,8 @@ function ScheduledCall({
 }: {
   booking: NonNullable<BookingPanel>;
   start: string;
+  /** False for a hiring manager: the call is shown, the Cancel button is not. */
+  canManage: boolean;
   busy: boolean;
   cancelling: boolean;
   cancelReason: string;
@@ -1132,7 +1154,7 @@ function ScheduledCall({
             Join call
           </a>
         )}
-        {booking.canCancel && !cancelling && (
+        {canManage && booking.canCancel && !cancelling && (
           <button type="button" onClick={onStartCancel} className={BTN_DANGER}>
             Cancel call
           </button>

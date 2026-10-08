@@ -69,7 +69,12 @@ import {
   type StageHistoryRow,
   showsWorthALook,
 } from "@/app/ai-dashboard/lib/applicant-types";
-import { type CompanyRole, canCreateJobs } from "@/app/ai-dashboard/lib/company-roles";
+import {
+  type CompanyRole,
+  canCreateJobs,
+  canMakeHiringDecision,
+  isDecisionStage,
+} from "@/app/ai-dashboard/lib/company-roles";
 import {
   BAND_LABEL,
   BAND_MATCH_LABEL,
@@ -1772,38 +1777,60 @@ function ApplicantDrawer({
               one stage showing through — there is no stage colour system to
               read it from, and painting all six blue would make the dot mean
               nothing. Shape, size and the leading dot match the design. */}
-          <div className="flex shrink-0 items-center gap-2.5">
-            <label
-              htmlFor="applicant-stage"
-              className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]"
-            >
-              Stage
-            </label>
-            <div className="relative">
-              <span
-                aria-hidden
-                className="pointer-events-none absolute left-[13px] top-1/2 size-[7px] -translate-y-1/2 rounded-full bg-[var(--ai-t3)]"
-              />
-              <select
-                id="applicant-stage"
-                value={stage}
-                disabled={saving}
-                onChange={(e) => onStageChange(e.target.value as PipelineStage)}
-                className="cursor-pointer appearance-none rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] py-[9px] pl-[30px] pr-[34px] text-[13px] font-bold text-[var(--ai-t1)] transition-colors hover:border-[var(--ai-line-strong)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
-              >
-                {PIPELINE_STAGES.map((s) => (
-                  <option key={s} value={s}>
-                    {PIPELINE_STAGE_LABELS[s]}
-                  </option>
-                ))}
-              </select>
-              <ChevronDown
-                aria-hidden
-                className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t1)] opacity-55"
-                strokeWidth={1.8}
-              />
+          {/* The decision stages (Hired, Rejected) are reserved to owner, admin
+              and recruiter. A hiring manager is not offered them, and once a
+              candidate is in one, sees the stage as text rather than a menu
+              that would refuse. Same rule as the server (canChangeStage). */}
+          {!canMakeHiringDecision(viewerRole) && isDecisionStage(stage) ? (
+            <div className="flex shrink-0 items-center gap-2.5">
+              <span className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]">
+                Stage
+              </span>
+              <div className="min-w-0">
+                <span className="block rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] px-[13px] py-[9px] text-[13px] font-bold text-[var(--ai-t1)]">
+                  {PIPELINE_STAGE_LABELS[stage]}
+                </span>
+                <span className="mt-1 block text-[11px] leading-[1.4] text-[var(--ai-t3)]">
+                  Only an owner, admin or recruiter can change this.
+                </span>
+              </div>
             </div>
-          </div>
+          ) : (
+            <div className="flex shrink-0 items-center gap-2.5">
+              <label
+                htmlFor="applicant-stage"
+                className="text-[11.5px] font-bold tracking-[0.02em] text-[var(--ai-t3)]"
+              >
+                Stage
+              </label>
+              <div className="relative">
+                <span
+                  aria-hidden
+                  className="pointer-events-none absolute left-[13px] top-1/2 size-[7px] -translate-y-1/2 rounded-full bg-[var(--ai-t3)]"
+                />
+                <select
+                  id="applicant-stage"
+                  value={stage}
+                  disabled={saving}
+                  onChange={(e) => onStageChange(e.target.value as PipelineStage)}
+                  className="cursor-pointer appearance-none rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] py-[9px] pl-[30px] pr-[34px] text-[13px] font-bold text-[var(--ai-t1)] transition-colors hover:border-[var(--ai-line-strong)] focus:border-remotiv-purple focus:outline-none focus:ring-[3px] focus:ring-remotiv-purple/[0.16] disabled:cursor-wait disabled:opacity-70"
+                >
+                  {PIPELINE_STAGES.filter(
+                    (s) => canMakeHiringDecision(viewerRole) || !isDecisionStage(s),
+                  ).map((s) => (
+                    <option key={s} value={s}>
+                      {PIPELINE_STAGE_LABELS[s]}
+                    </option>
+                  ))}
+                </select>
+                <ChevronDown
+                  aria-hidden
+                  className="pointer-events-none absolute right-3 top-1/2 size-3 -translate-y-1/2 text-[var(--ai-t1)] opacity-55"
+                  strokeWidth={1.8}
+                />
+              </div>
+            </div>
+          )}
         </div>
 
         <div className="flex gap-[26px]">
@@ -2602,7 +2629,7 @@ function ApplicantDrawer({
              the design's subhead and its own card, because async, AI video and
              the call with your team are three separate decisions with separate
              status. */
-          <InterviewPanel applicationId={row.id} onToast={onToast} />
+          <InterviewPanel applicationId={row.id} viewerRole={viewerRole} onToast={onToast} />
         )}
 
         {tab === "comments" && (

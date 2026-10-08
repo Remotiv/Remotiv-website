@@ -19,6 +19,59 @@ export function canManageBilling(role: CompanyRole): boolean {
   return role === "owner";
 }
 
+/*
+ * ── Booking links and hiring decisions (locked 2026-10-08) ───
+ *
+ * Both key on the ACCOUNT role, company_members.role. The per-job label on a
+ * hiring-team row (see TEAM_ROLES below) is a label beside a name and nothing
+ * branches on it. The helpers take an untyped role on purpose and fail closed:
+ * a missing, unknown or misspelt role can never be read as permission.
+ */
+
+/** The roles that may send and cancel interview booking links. */
+const BOOKING_ROLES: ReadonlySet<string> = new Set<CompanyRole>(["owner", "admin", "recruiter"]);
+
+/** The roles that may hire, reject, or change a hiring decision. */
+const DECISION_ROLES: ReadonlySet<string> = new Set<CompanyRole>(["owner", "admin", "recruiter"]);
+
+/** Send a candidate a booking link, or cancel a booked call. */
+export function canManageBookings(role: string | null | undefined): boolean {
+  return typeof role === "string" && BOOKING_ROLES.has(role);
+}
+
+/** Move a candidate into or out of a decision stage. */
+export function canMakeHiringDecision(role: string | null | undefined): boolean {
+  return typeof role === "string" && DECISION_ROLES.has(role);
+}
+
+/**
+ * The two stages that ARE the decision. Moving into either is hiring or
+ * rejecting; moving out of either reverses a decision already made. Both are
+ * reserved to canMakeHiringDecision. Every other move is reviewing.
+ */
+export const DECISION_STAGES = ["hired", "rejected"] as const;
+
+export function isDecisionStage(stage: string | null | undefined): boolean {
+  return (DECISION_STAGES as readonly string[]).includes(stage ?? "");
+}
+
+/**
+ * May this role move a candidate from `fromStage` to `toStage`?
+ *
+ * The one rule the server action, the drawer and the review page all read:
+ * a decision stage on EITHER side of the move needs a decision-making role.
+ * `fromStage` must be the stage the database holds right now, never one the
+ * browser sent.
+ */
+export function canChangeStage(
+  role: string | null | undefined,
+  fromStage: string | null | undefined,
+  toStage: string | null | undefined,
+): boolean {
+  if (canMakeHiringDecision(role)) return true;
+  return !isDecisionStage(fromStage) && !isDecisionStage(toStage);
+}
+
 export const COMPANY_ROLE_LABELS: Record<CompanyRole, string> = {
   owner: "Owner",
   admin: "Admin",

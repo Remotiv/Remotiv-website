@@ -20,7 +20,9 @@ import {
 } from "lucide-react";
 import {
   canCreateJobs,
+  canMakeHiringDecision,
   canManageBilling,
+  canManageBookings,
   canManageTeam,
   COMPANY_ROLE_ACCESS,
   COMPANY_ROLE_LABELS,
@@ -111,10 +113,19 @@ const CAPABILITIES: ReadonlyArray<Capability> = [
   },
   {
     // Mirrors updateApplicationStage in (gated)/applicants/actions.ts, whose
-    // requireCompanyRole admits all four roles — reviewing and advancing
-    // candidates is a hiring manager's core job.
-    label: "Move applicants through the pipeline",
+    // requireCompanyRole admits all four roles for the reviewing stages -
+    // reviewing and advancing candidates is a hiring manager's core job. The
+    // decision stages are the row below.
+    label: "Move applicants between the reviewing stages",
     allows: () => true,
+  },
+  {
+    label: "Hire, reject, or change a hiring decision",
+    allows: canMakeHiringDecision,
+  },
+  {
+    label: "Send and cancel interview booking links",
+    allows: canManageBookings,
   },
   {
     label: "Invite members and change roles",

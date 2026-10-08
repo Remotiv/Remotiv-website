@@ -23,5 +23,6 @@ export default async function InterviewReviewPage({
   const session = await loadInterviewSession(ctx, sessionId);
   if (!session) notFound();
 
-  return <ReviewClient session={session} />;
+  // The account role, so the stage control follows the same rule as the drawer.
+  return <ReviewClient session={session} viewerRole={ctx.role} />;
 }

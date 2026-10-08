@@ -27,7 +27,7 @@ import {
   WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
-import type { CompanyContext } from "@/app/ai-dashboard/lib/company-roles";
+import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
@@ -704,9 +704,13 @@ type MutationResult<T = undefined> = { success: true; data: T } | { success: fal
 /**
  * Move an applicant through the hiring pipeline.
  *
- * Every active member may do this, including hiring managers — reviewing and
- * advancing candidates is their core job, and the role model grants them
- * "review applicants / move pipeline".
+ * Every active member may move a candidate between the reviewing stages,
+ * including hiring managers: reviewing and advancing candidates is their core
+ * job. The DECISION is different. Moving into Hired or Rejected, or back out
+ * of either, is reserved to owner, admin and recruiter (canChangeStage, in
+ * company-roles.ts), and the check reads the stage the database holds now,
+ * never one the browser sent. A refused move writes nothing: no stage, no
+ * history row.
  *
  * Transitions are deliberately NOT forward-only: recruiters routinely move
  * people backwards (an interview that reveals a gap, a re-opened offer), and
@@ -751,6 +755,17 @@ export async function updateApplicationStage(
   }
 
   const fromStage = (target.pipeline_stage as PipelineStage) ?? "applied";
+
+  // The decision guard, BEFORE the stage update and the history insert below.
+  // `fromStage` is the row as it stands, read a moment ago, so a client cannot
+  // disguise a reversal as a routine move.
+  if (!canChangeStage(ctx.role, fromStage, toStage)) {
+    return {
+      success: false,
+      error: "Only an owner, admin or recruiter can hire, reject, or change a hiring decision.",
+    };
+  }
+
   // No-op: don't write a history row for a stage that didn't change.
   if (fromStage === toStage) return { success: true, data: undefined };
 

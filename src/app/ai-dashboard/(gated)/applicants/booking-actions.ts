@@ -2,6 +2,7 @@
 
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
+import { canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
 import { normaliseInterviewDuration } from "@/app/ai-dashboard/lib/job-types";
 import {
@@ -41,10 +42,20 @@ const NOT_YOURS = "Applicant not found in your workspace.";
 const DEFAULT_INTERVIEW_MINUTES = 30;
 const DAY_MS = 24 * 60 * 60 * 1000;
 
+/**
+ * Sending and cancelling are reserved to owner, admin and recruiter
+ * (canManageBookings). Checked on the account role the session resolved, and
+ * before anything else: no token, no row, no email, no calendar call happens
+ * for a role that may not. A hiring manager still sees the booking.
+ */
+const NOT_A_BOOKING_ROLE =
+  "Only an owner, admin or recruiter can send or cancel interview booking links.";
+
 export async function sendBookingLink(
   applicationId: string,
 ): Promise<MutationResult<{ expiresAt: string }>> {
   const ctx = await getCompanyContext();
+  if (!canManageBookings(ctx.role)) return { success: false, error: NOT_A_BOOKING_ROLE };
   const service = createServiceClient();
 
   /*
@@ -356,6 +367,7 @@ export async function cancelBookingAsRecruiter(
   reason?: string,
 ): Promise<MutationResult<{ removedFromCalendar: boolean }>> {
   const ctx = await getCompanyContext();
+  if (!canManageBookings(ctx.role)) return { success: false, error: NOT_A_BOOKING_ROLE };
   const service = createServiceClient();
 
   const { data } = await service

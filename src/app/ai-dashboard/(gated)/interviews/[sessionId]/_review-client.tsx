@@ -23,6 +23,11 @@ import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import { Toast, useToast } from "@/app/ai-dashboard/_components/toast";
 import { updateApplicationStage } from "@/app/ai-dashboard/(gated)/applicants/actions";
 import { PIPELINE_STAGE_LABELS, PIPELINE_STAGES } from "@/app/ai-dashboard/lib/applicant-types";
+import {
+  type CompanyRole,
+  canMakeHiringDecision,
+  isDecisionStage,
+} from "@/app/ai-dashboard/lib/company-roles";
 import { BAND_PANEL, BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import type {
@@ -96,7 +101,14 @@ function initials(name: string): string {
     .toUpperCase();
 }
 
-export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
+export function ReviewClient({
+  session,
+  viewerRole,
+}: {
+  session: InterviewSessionDetail;
+  /** The account role. Decides whether the stage control offers the decision stages. */
+  viewerRole: CompanyRole;
+}) {
   const firstPlayable = session.answers.findIndex((a) => a.hasVideo);
   const [active, setActive] = useState(firstPlayable >= 0 ? firstPlayable : 0);
   const [stage, setStage] = useState(session.stage);
@@ -266,20 +278,36 @@ export function ReviewClient({ session }: { session: InterviewSessionDetail }) {
             </button>
           )}
 
-          {session.applicationId && (
-            <select
-              value={stage}
-              onChange={(e) => void onStage(e.target.value)}
-              aria-label="Pipeline stage"
-              className="cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-[11px] pl-3.5 pr-8 text-[13.5px] font-bold text-[var(--ai-t1)] outline-none focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]"
-            >
-              {PIPELINE_STAGES.map((s) => (
-                <option key={s} value={s}>
-                  {PIPELINE_STAGE_LABELS[s]}
-                </option>
-              ))}
-            </select>
-          )}
+          {/* Same rule as the applicant drawer: the decision stages (Hired,
+              Rejected) are reserved to owner, admin and recruiter. A hiring
+              manager is not offered them, and once a candidate is in one, sees
+              the stage as text rather than a menu that would refuse. */}
+          {session.applicationId &&
+            (!canMakeHiringDecision(viewerRole) && isDecisionStage(stage) ? (
+              <div className="min-w-0">
+                <span className="block rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-[11px] text-[13.5px] font-bold text-[var(--ai-t1)]">
+                  {PIPELINE_STAGE_LABELS[stage as never] ?? stage}
+                </span>
+                <span className="mt-1 block text-[11px] leading-[1.4] text-[var(--ai-t3)]">
+                  Only an owner, admin or recruiter can change this.
+                </span>
+              </div>
+            ) : (
+              <select
+                value={stage}
+                onChange={(e) => void onStage(e.target.value)}
+                aria-label="Pipeline stage"
+                className="cursor-pointer appearance-none rounded-xl border-[1.5px] border-[var(--ai-line-strong)] bg-[var(--ai-surface)] py-[11px] pl-3.5 pr-8 text-[13.5px] font-bold text-[var(--ai-t1)] outline-none focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]"
+              >
+                {PIPELINE_STAGES.filter(
+                  (s) => canMakeHiringDecision(viewerRole) || !isDecisionStage(s),
+                ).map((s) => (
+                  <option key={s} value={s}>
+                    {PIPELINE_STAGE_LABELS[s]}
+                  </option>
+                ))}
+              </select>
+            ))}
         </div>
       </div>
 
