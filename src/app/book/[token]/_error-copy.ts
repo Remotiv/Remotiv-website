@@ -35,6 +35,7 @@ export const ERROR_COPY: Record<string, string> = {
   bad_slot: "That time couldn't be read. Pick a time from the list.",
   write_failed: `We couldn't save that change - your booking is exactly as it was. ${RECOVERY_LINE}`,
   calendar_failed: "We couldn't put that on the interviewer's calendar. Try another time.",
+  acknowledgement_required: "Please confirm you understand the interview will be recorded.",
   unavailable: "Times aren't available right now. Try again shortly.",
   /*
    * NOT `not_found`, and deliberately not folded into `unavailable` above -

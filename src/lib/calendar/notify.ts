@@ -3,8 +3,9 @@ import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver"
 import { escapeHtml } from "@/lib/email/candidate/render";
 import type { LoggedEvent } from "@/lib/email/candidate/types";
 import { sendEmail } from "@/lib/email/send";
+import { recordingNoticeText } from "@/lib/final-interviews/constants";
 import { createServiceClient } from "@/lib/supabase/server";
-import type { BookingActor, BookingRow } from "./bookings";
+import { BOOKING_EXPIRY_DAYS, type BookingActor, type BookingRow } from "./bookings";
 import { formatInZone, zoneAbbreviation } from "./timezone";
 
 /**
@@ -71,26 +72,33 @@ type NoticeArgs = {
   jobTitle: string;
   companyName: string;
   meetingUrl: string | null;
+  /**
+   * Set for a Final Human Interview: "CTO interview", "Final interview". The
+   * emails then name that instead of "{job title} interview". Absent for a
+   * screening call, whose emails are unchanged.
+   */
+  interviewLabel?: string | null;
+  /**
+   * Set for a final round, to the host's name. communication_logs keeps one
+   * automatic (sender-less) row per application, event and channel, so a
+   * final-round confirmation after a screening confirmation would otherwise
+   * be refused as a duplicate. A named sender sits outside that index.
+   */
+  sentByName?: string | null;
 };
 
 function timeBlock(ms: number, zone: string): string {
   return `${formatInZone(ms, zone)} (${zoneAbbreviation(ms, zone)})`;
 }
 
-export async function sendBookingConfirmations(args: {
-  row: BookingRow;
-  startMs: number;
-  endMs: number;
-  hostTimezone: string;
-  candidateTimezone: string;
-  candidateEmail: string | null;
-  candidateName: string;
-  hostEmail: string | null;
-  hostName: string;
-  jobTitle: string;
-  companyName: string;
-  meetingUrl: string | null;
-}): Promise<NoticeOutcome> {
+/** "CTO interview" for a final round; "{job title} interview" for a screening call. */
+function whatOf(args: Pick<NoticeArgs, "interviewLabel" | "jobTitle">): string {
+  return args.interviewLabel ?? `${args.jobTitle} interview`;
+}
+
+export async function sendBookingConfirmations(
+  args: NoticeArgs & { endMs: number },
+): Promise<NoticeOutcome> {
   const service = createServiceClient();
 
   const candidateTime = timeBlock(args.startMs, args.candidateTimezone);
@@ -137,7 +145,7 @@ export async function sendBookingConfirmations(args: {
     const body = `
       <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
       <p style="margin:0 0 12px;color:#4A4550;">
-        Your ${escapeHtml(args.jobTitle)} interview is confirmed.
+        Your ${escapeHtml(whatOf(args))} is confirmed.
       </p>
       <p style="margin:0 0 4px;color:#17131F;font-weight:700;">${escapeHtml(candidateTime)}</p>
       <p style="margin:0 0 12px;color:#847E8C;font-size:13px;">
@@ -156,7 +164,9 @@ export async function sendBookingConfirmations(args: {
       service,
       args,
       EVENT_CONFIRMED,
-      `Interview confirmed — ${args.jobTitle}`,
+      args.interviewLabel
+        ? `${args.interviewLabel} confirmed - ${args.jobTitle}`
+        : `Interview confirmed — ${args.jobTitle}`,
       body,
     );
   }
@@ -165,7 +175,7 @@ export async function sendBookingConfirmations(args: {
   if (args.hostEmail) {
     const body = `
       <p>Hi ${escapeHtml(args.hostName || "there")},</p>
-      <p><strong>${escapeHtml(args.candidateName)}</strong> booked their ${escapeHtml(args.jobTitle)} interview.</p>
+      <p><strong>${escapeHtml(args.candidateName)}</strong> booked their ${escapeHtml(whatOf(args))}.</p>
       <p><strong>${escapeHtml(hostTime)}</strong><br>
       <span style="color:#847E8C;font-size:13px;">${duration} minutes${
         timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""
@@ -182,12 +192,78 @@ export async function sendBookingConfirmations(args: {
      */
     host = await sendHostEmail(
       args.hostEmail,
-      `${args.candidateName} booked — ${args.jobTitle}`,
+      args.interviewLabel
+        ? `${args.candidateName} booked - ${args.interviewLabel}`
+        : `${args.candidateName} booked — ${args.jobTitle}`,
       body,
     );
   }
 
   return summarise(candidate, host);
+}
+
+/**
+ * The final-round booking link, to the candidate.
+ *
+ * Through deliverEmail like the screening link, so it is logged, capped and
+ * unsubscribable. The recording notice is in the email as well as on the
+ * booking page: the candidate meets it before the page asks them to tick it.
+ * Event 'booking_link' with a named sender, for the same reason as the notices
+ * above: the screening link may already hold the automatic slot.
+ */
+export async function sendFinalInterviewLinkEmail(args: {
+  companyId: string;
+  applicationId: string;
+  to: string;
+  candidateFirstName: string;
+  interviewLabel: string;
+  jobTitle: string;
+  companyName: string;
+  durationMinutes: number;
+  url: string;
+  sentByName: string;
+}): Promise<{ ok: true } | { ok: false; message: string }> {
+  const service = createServiceClient();
+  const company = args.companyName.trim() || "The hiring team";
+  const body = `
+    <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateFirstName || "there")},</p>
+    <p style="margin:0 0 12px;color:#4A4550;">
+      ${escapeHtml(company)} would like to invite you to a ${escapeHtml(args.interviewLabel.toLowerCase())}
+      for the ${escapeHtml(args.jobTitle)} role. Pick a time that suits you - it takes about
+      ${args.durationMinutes} minutes and happens on Google Meet.
+    </p>
+    <p style="margin:20px 0;">
+      <a href="${escapeHtml(args.url)}" style="background:#7E47FF;color:#ffffff;padding:12px 22px;border-radius:12px;text-decoration:none;font-weight:700;display:inline-block;">
+        Choose your interview time
+      </a>
+    </p>
+    <p style="margin:16px 0 0;color:#4A4550;">${escapeHtml(recordingNoticeText(args.companyName))}</p>
+    <p style="margin:16px 0 0;color:#847E8C;font-size:13px;">
+      Times are shown in your own timezone, and you can change it on the page if it looks wrong.
+      This link works for the next ${BOOKING_EXPIRY_DAYS} days.
+    </p>`;
+
+  try {
+    const outcome = await deliverEmail(service, {
+      companyId: args.companyId,
+      applicationId: args.applicationId,
+      event: "booking_link",
+      to: args.to,
+      subject: `${args.interviewLabel} with ${company}`,
+      html: buildCandidateHtml(body, args.companyName, args.companyId, args.to),
+      companyName: args.companyName,
+      replyTo: null,
+      sentByName: args.sentByName,
+    });
+    if (!outcome.ok) {
+      console.error(`[booking] final link: ${outcome.kind} - ${outcome.message}`);
+      return { ok: false, message: outcome.message };
+    }
+    return { ok: true };
+  } catch (err) {
+    console.error("[booking] final link threw:", err);
+    return { ok: false, message: "Couldn't send the booking link. Try again." };
+  }
 }
 
 /* ─────────────────── reschedule and cancel ─────────────────── */
@@ -232,7 +308,7 @@ export async function sendRescheduleNotices(
       <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
       <p style="margin:0 0 12px;color:#4A4550;">
         ${movedByThem ? `${escapeHtml(args.hostName || "Your interviewer")} moved your` : "You moved your"}
-        ${escapeHtml(args.jobTitle)} interview.
+        ${escapeHtml(whatOf(args))}.
       </p>
       <p style="margin:0 0 4px;color:#17131F;font-weight:700;">${escapeHtml(candidateTime)}</p>
       <p style="margin:0 0 12px;color:#847E8C;font-size:13px;">
@@ -244,7 +320,9 @@ export async function sendRescheduleNotices(
       service,
       args,
       EVENT_RESCHEDULED,
-      `Interview moved — ${args.jobTitle}`,
+      args.interviewLabel
+        ? `${args.interviewLabel} moved - ${args.jobTitle}`
+        : `Interview moved — ${args.jobTitle}`,
       body,
     );
   }
@@ -254,13 +332,19 @@ export async function sendRescheduleNotices(
     const body = `
       <p>Hi ${escapeHtml(args.hostName || "there")},</p>
       <p>${movedByThem ? "You moved" : `<strong>${escapeHtml(args.candidateName)}</strong> moved their`}
-      ${escapeHtml(args.jobTitle)} interview.</p>
+      ${escapeHtml(whatOf(args))}.</p>
       <p><strong>${escapeHtml(hostTime)}</strong><br>
       <span style="color:#847E8C;font-size:13px;">${duration} minutes${timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""}
       <br>Previously ${escapeHtml(timeBlock(args.previousStartMs, args.hostTimezone))}</span></p>
       ${joinLine}
       <p style="color:#847E8C;font-size:13px;">Your calendar has been updated.</p>`;
-    host = await sendHostEmail(args.hostEmail, `Interview moved — ${args.jobTitle}`, body);
+    host = await sendHostEmail(
+      args.hostEmail,
+      args.interviewLabel
+        ? `${args.interviewLabel} moved - ${args.jobTitle}`
+        : `Interview moved — ${args.jobTitle}`,
+      body,
+    );
   }
 
   return summarise(candidate, host);
@@ -307,7 +391,7 @@ export async function sendCancellationNotices(
       <p style="margin:0 0 12px;color:#17131F;">Hi ${escapeHtml(args.candidateName)},</p>
       <p style="margin:0 0 12px;color:#4A4550;">
         ${cancelledByThem ? `${escapeHtml(args.hostName || "Your interviewer")} cancelled your` : "You cancelled your"}
-        ${escapeHtml(args.jobTitle)} interview${escapeHtml(args.companyName ? ` at ${args.companyName}` : "")}.
+        ${escapeHtml(whatOf(args))}${escapeHtml(args.companyName ? ` at ${args.companyName}` : "")}.
       </p>
       <p style="margin:0 0 4px;color:#847E8C;text-decoration:line-through;">${escapeHtml(candidateTime)}</p>
       ${reasonLine}
@@ -318,7 +402,9 @@ export async function sendCancellationNotices(
       service,
       args,
       EVENT_CANCELLED,
-      `Interview cancelled — ${args.jobTitle}`,
+      args.interviewLabel
+        ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
+        : `Interview cancelled — ${args.jobTitle}`,
       body,
     );
   }
@@ -328,7 +414,7 @@ export async function sendCancellationNotices(
     const body = `
       <p>Hi ${escapeHtml(args.hostName || "there")},</p>
       <p>${cancelledByThem ? "You cancelled" : `<strong>${escapeHtml(args.candidateName)}</strong> cancelled their`}
-      ${escapeHtml(args.jobTitle)} interview.</p>
+      ${escapeHtml(whatOf(args))}.</p>
       <p style="color:#847E8C;text-decoration:line-through;">${escapeHtml(hostTime)}${timesDiffer ? ` · ${escapeHtml(candidateTime)} for them` : ""}</p>
       ${reasonLine}
       <p style="color:#847E8C;font-size:13px;">${
@@ -336,7 +422,13 @@ export async function sendCancellationNotices(
           ? "It's been removed from your calendar."
           : "We couldn't confirm its removal from your calendar — please delete the entry yourself."
       }</p>`;
-    host = await sendHostEmail(args.hostEmail, `Interview cancelled — ${args.jobTitle}`, body);
+    host = await sendHostEmail(
+      args.hostEmail,
+      args.interviewLabel
+        ? `${args.interviewLabel} cancelled - ${args.jobTitle}`
+        : `Interview cancelled — ${args.jobTitle}`,
+      body,
+    );
   }
 
   return summarise(candidate, host);
@@ -381,6 +473,7 @@ async function deliverBooking(
       html: buildCandidateHtml(body, args.companyName, args.row.company_id, args.candidateEmail),
       companyName: args.companyName,
       replyTo: null,
+      sentByName: args.sentByName ?? null,
     });
     if (!outcome.ok) {
       const problem = `candidate ${event}: ${outcome.kind} — ${outcome.message}`;

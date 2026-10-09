@@ -21,6 +21,12 @@ import {
   sendRescheduleNotices,
 } from "@/lib/calendar/notify";
 import { formatInZone, isValidTimeZone } from "@/lib/calendar/timezone";
+import {
+  ACKNOWLEDGE_RECORDING,
+  interviewTypeLabel,
+  RECORDING_NOTICE_VERSION,
+  recordingNoticeText,
+} from "@/lib/final-interviews/constants";
 import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
 
@@ -70,10 +76,46 @@ function candidateLabel(ctx: {
   );
 }
 
+/**
+ * What a Final Human Interview adds to a booking: its label, and the extra
+ * interviewers who join the host's calendar event. Null for a screening call,
+ * so every screening response and email is exactly as before.
+ */
+async function loadFinalContext(
+  service: ReturnType<typeof createServiceClient>,
+  row: BookingRow,
+): Promise<{ label: string; interviewerEmails: string[] } | null> {
+  if (row.purpose !== "final" || !row.final_interview_id) return null;
+  const [{ data: fi }, { data: extra }] = await Promise.all([
+    service
+      .from("final_interviews")
+      .select("interview_type, custom_label")
+      .eq("id", row.final_interview_id)
+      .eq("company_id", row.company_id)
+      .maybeSingle(),
+    service
+      .from("final_interview_interviewers")
+      .select("member_id")
+      .eq("final_interview_id", row.final_interview_id)
+      .eq("company_id", row.company_id),
+  ]);
+  const type = fi as { interview_type: string; custom_label: string | null } | null;
+  // Resolved like the host's address: company_members.email is null for owners.
+  const emails = await Promise.all(
+    ((extra ?? []) as { member_id: string }[]).map(
+      async (m) => (await resolveHostEmail(m.member_id, row.company_id)).email,
+    ),
+  );
+  return {
+    label: interviewTypeLabel(type?.interview_type ?? "final", type?.custom_label ?? null),
+    interviewerEmails: emails.filter((e): e is string => Boolean(e)),
+  };
+}
+
 /** Context the page needs, gathered once. Server-side ids stay here. */
 async function loadContext(row: BookingRow) {
   const service = createServiceClient();
-  const [{ data: app }, { data: job }, { data: company }, host] = await Promise.all([
+  const [{ data: app }, { data: job }, { data: company }, host, final] = await Promise.all([
     service
       .from("job_applications")
       .select("first_name, last_name, email")
@@ -86,9 +128,11 @@ async function loadContext(row: BookingRow) {
       .maybeSingle(),
     service.from("companies").select("name").eq("id", row.company_id).maybeSingle(),
     resolveHostEmail(row.host_member_id, row.company_id),
+    loadFinalContext(service, row),
   ]);
 
   return {
+    final,
     candidate: app as {
       first_name: string | null;
       last_name: string | null;
@@ -104,6 +148,33 @@ async function loadContext(row: BookingRow) {
      */
     host,
   };
+}
+
+type Ctx = Awaited<ReturnType<typeof loadContext>>;
+
+/**
+ * The fields every GET state carries about the booking's purpose. A screening
+ * call reads purpose 'interview' with nulls; a final round names its type and
+ * the recording notice the page must show before the candidate can book.
+ */
+function purposeFields(row: BookingRow, ctx: Ctx) {
+  return {
+    purpose: row.purpose,
+    interviewLabel: ctx.final?.label ?? null,
+    recordingNotice: ctx.final
+      ? {
+          text: recordingNoticeText(ctx.company?.name ?? ""),
+          version: RECORDING_NOTICE_VERSION,
+        }
+      : null,
+  };
+}
+
+/** For a final round, notices name the type and carry the host as sender. */
+function noticeExtras(ctx: Ctx) {
+  return ctx.final
+    ? { interviewLabel: ctx.final.label, sentByName: ctx.host.name ?? "Remotiv" }
+    : {};
 }
 
 export async function GET(_request: Request, { params }: { params: Promise<{ token: string }> }) {
@@ -124,6 +195,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json(
       {
         state: "booked",
+        ...purposeFields(row, ctx),
         scheduledStart: row.scheduled_start,
         scheduledEnd: row.scheduled_end,
         candidateTimezone: row.candidate_timezone,
@@ -167,6 +239,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json(
       {
         state: "cancelled",
+        ...purposeFields(row, ctx),
+        durationMinutes: row.duration_minutes,
         scheduledStart: row.scheduled_start,
         candidateTimezone: row.candidate_timezone,
         cancelledBy: row.cancelled_by,
@@ -198,6 +272,8 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
     return NextResponse.json(
       {
         state: "unavailable",
+        ...purposeFields(row, ctx),
+        durationMinutes: row.duration_minutes,
         reason: availability.reason,
         jobTitle: ctx.job?.title ?? "the role",
         companyName: ctx.company?.name ?? "the company",
@@ -211,6 +287,7 @@ export async function GET(_request: Request, { params }: { params: Promise<{ tok
   return NextResponse.json(
     {
       state: "open",
+      ...purposeFields(row, ctx),
       slots: availability.slots,
       hostTimezone: availability.hostTimezone,
       truncated: availability.truncated,
@@ -231,6 +308,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   const body = (await request.json().catch(() => null)) as {
     startIso?: string;
     timezone?: string;
+    /** Required true for a final round: the recording notice was shown and accepted. */
+    recordingNoticeAcknowledged?: boolean;
   } | null;
 
   const startMs = Date.parse(body?.startIso ?? "");
@@ -261,6 +340,17 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
   if (row.status === "cancelled") return fail(410, "cancelled");
 
   /*
+   * A final round is recorded, and the candidate must have said they know.
+   * Checked BEFORE availability is read or anything is written: a booking that
+   * exists without the acknowledgement is what migration 038's CHECK forbids,
+   * and the page must not get as far as claiming a slot without it.
+   */
+  const isFinal = row.purpose === "final";
+  if (isFinal && body?.recordingNoticeAcknowledged !== true) {
+    return fail(400, ACKNOWLEDGE_RECORDING);
+  }
+
+  /*
    * RE-DERIVE availability rather than trusting the posted instant.
    *
    * The slot list the browser holds may be minutes old — the host may have
@@ -289,8 +379,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     endMs,
     candidateTimezone,
     hostTimezone: availability.hostTimezone,
+    // Written in the same UPDATE as the booking itself, by version.
+    recordingNotice: isFinal ? { version: RECORDING_NOTICE_VERSION } : null,
   });
   if (!claim.ok) {
+    if (claim.reason === "acknowledgement_required") return fail(400, ACKNOWLEDGE_RECORDING);
     const status = claim.reason === "slot_taken" || claim.reason === "already_booked" ? 409 : 500;
     return fail(status, claim.reason);
   }
@@ -301,6 +394,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     .join(" ")
     .trim();
   const jobTitle = ctx.job?.title ?? "Interview";
+  const companyName = ctx.company?.name ?? "";
+  const label = ctx.final?.label ?? null;
 
   let meetingUrl: string | null = null;
   try {
@@ -309,13 +404,34 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       startMs,
       endMs,
       hostTimezone: availability.hostTimezone,
-      summary: `Interview — ${candidateName || "Candidate"} · ${jobTitle}`,
-      description: [
-        `${jobTitle} interview with ${candidateName || "the candidate"}.`,
-        `Candidate timezone: ${candidateTimezone}.`,
-        "Arranged through Remotiv.",
-      ].join("\n\n"),
-      attendeeEmails: [ctx.host?.email ?? "", ctx.candidate?.email ?? ""].filter(Boolean),
+      summary: label
+        ? `${label} - ${candidateName || "Candidate"} - ${companyName || "Remotiv"}`
+        : `Interview — ${candidateName || "Candidate"} · ${jobTitle}`,
+      description: label
+        ? [
+            `${label} with ${candidateName || "the candidate"} for ${jobTitle}.`,
+            `Candidate timezone: ${candidateTimezone}.`,
+            recordingNoticeText(companyName),
+            "Arranged through Remotiv.",
+          ].join("\n\n")
+        : [
+            `${jobTitle} interview with ${candidateName || "the candidate"}.`,
+            `Candidate timezone: ${candidateTimezone}.`,
+            "Arranged through Remotiv.",
+          ].join("\n\n"),
+      // Host and candidate, plus the extra interviewers on a final round. The
+      // reschedule PATCH touches only the times, so the guests stay.
+      attendeeEmails: [
+        ...new Set(
+          [
+            ctx.host?.email ?? "",
+            ctx.candidate?.email ?? "",
+            ...(ctx.final?.interviewerEmails ?? []),
+          ]
+            .map((e) => e.trim().toLowerCase())
+            .filter(Boolean),
+        ),
+      ],
       // Session 3 exposes a manual URL per booking; the column exists and is
       // honoured here already when set.
       manualUrl: row.meeting_url,
@@ -350,15 +466,16 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     hostEmail: ctx.host.email,
     hostName: ctx.host.name ?? "",
     jobTitle,
-    companyName: ctx.company?.name ?? "",
+    companyName,
     meetingUrl,
+    ...noticeExtras(ctx),
   });
   reportNotices("booked", claim.row.id, notices);
 
   await notifyCompany({
     companyId: claim.row.company_id,
     type: "interview_booked",
-    title: `${candidateName || "A candidate"} booked an interview`,
+    title: `${candidateName || "A candidate"} booked ${label ? `their ${label.toLowerCase()}` : "an interview"}`,
     body: `${formatInZone(startMs, availability.hostTimezone)} · ${jobTitle}`,
     jobId: claim.row.job_id,
     applicationId: claim.row.application_id,
@@ -462,6 +579,7 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     jobTitle: ctx.job?.title ?? "Interview",
     companyName: ctx.company?.name ?? "",
     meetingUrl: moved.row.meeting_url,
+    ...noticeExtras(ctx),
   });
   reportNotices("rescheduled", moved.row.id, notices);
 
@@ -542,6 +660,7 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
     jobTitle: ctx.job?.title ?? "Interview",
     companyName: ctx.company?.name ?? "",
     meetingUrl: null,
+    ...noticeExtras(ctx),
   });
   reportNotices("cancelled", cancelled.row.id, notices);
 

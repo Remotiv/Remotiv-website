@@ -119,10 +119,120 @@ export type BookingRow = {
   /** 'candidate' or 'recruiter' — see BookingActor. */
   cancelled_by: string | null;
   cancel_reason: string | null;
+  /** 'interview' (a screening call) or 'final' (a Final Human Interview). */
+  purpose: string;
+  /** Set exactly when purpose is 'final' (migration 038). */
+  final_interview_id: string | null;
+  /** The candidate's acknowledgement of the recording notice, final only. */
+  recording_notice_acknowledged_at: string | null;
+  recording_notice_version: string | null;
 };
 
+export type BookingPurpose = "interview" | "final";
+
 const ROW_COLUMNS =
-  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, booked_at, cancelled_by, cancel_reason";
+  "id, company_id, application_id, job_id, host_member_id, duration_minutes, status, scheduled_start, scheduled_end, candidate_timezone, host_timezone, meeting_mode, meeting_url, provider_event_id, provider, expires_at, cancelled_at, booked_at, cancelled_by, cancel_reason, purpose, final_interview_id, recording_notice_acknowledged_at, recording_notice_version";
+/** The same list, for callers that read a BookingRow themselves. */
+export const BOOKING_ROW_COLUMNS = ROW_COLUMNS;
+
+/* ─────────────────────── creating a link ───────────────────── */
+
+export type CreateLinkOutcome =
+  | { ok: true; bookingId: string; rawToken: string; expiresAt: string }
+  | { ok: false; reason: "already_booked" | "write_failed" };
+
+/**
+ * Mint a booking link: supersede the live one, then insert the new row.
+ *
+ * ── The supersede rule is PER PURPOSE ────────────────────────
+ *
+ * A screening call and a final round can both be live for one application, so
+ * "the live booking" is looked up differently for each:
+ *
+ *   purpose 'interview'  rows WHERE purpose = 'interview' AND application_id = X
+ *   purpose 'final'      rows WHERE purpose = 'final' AND final_interview_id = Y
+ *
+ * Sending or resending a screening link can therefore never expire a final
+ * booking, and a final resend can never touch the screening booking or another
+ * final interview's booking. A BOOKED row is never superseded: the caller is
+ * told, and must cancel first.
+ *
+ * `hostMemberId` and `invitedBy` are separate because they differ for a final
+ * round: the recruiter sends the link, the chosen host holds the calendar.
+ */
+export async function createBookingLink(args: {
+  purpose: BookingPurpose;
+  companyId: string;
+  applicationId: string;
+  jobId: string;
+  hostMemberId: string;
+  invitedBy: string;
+  invitedByName: string;
+  durationMinutes: number;
+  finalInterviewId?: string | null;
+}): Promise<CreateLinkOutcome> {
+  const service = createServiceClient();
+  const finalInterviewId = args.purpose === "final" ? (args.finalInterviewId ?? null) : null;
+  if (args.purpose === "final" && !finalInterviewId) {
+    console.error("[booking] a final-round link needs its final interview id");
+    return { ok: false, reason: "write_failed" };
+  }
+
+  let live = service
+    .from("interview_bookings")
+    .select("id, status")
+    .eq("company_id", args.companyId)
+    .eq("purpose", args.purpose);
+  live =
+    args.purpose === "final"
+      ? live.eq("final_interview_id", finalInterviewId)
+      : live.eq("application_id", args.applicationId);
+  const { data: existing, error: readErr } = await live
+    .in("status", ["invited", "booked"])
+    .order("created_at", { ascending: false })
+    .limit(1);
+  if (readErr) {
+    console.error("[booking] live booking read failed:", readErr.message);
+    return { ok: false, reason: "write_failed" };
+  }
+
+  const current = ((existing ?? []) as { id: string; status: string }[])[0];
+  if (current?.status === "booked") return { ok: false, reason: "already_booked" };
+  if (current) {
+    await service.from("interview_bookings").update({ status: "expired" }).eq("id", current.id);
+  }
+
+  const { rawToken, tokenHash } = mintBookingToken();
+  const expiresAt = new Date(Date.now() + BOOKING_EXPIRY_DAYS * 24 * 60 * 60 * 1000).toISOString();
+
+  const { data: created, error: insertErr } = await service
+    .from("interview_bookings")
+    .insert({
+      company_id: args.companyId,
+      application_id: args.applicationId,
+      job_id: args.jobId,
+      host_member_id: args.hostMemberId,
+      // Only the hash is stored. The raw token exists in the email URL and
+      // nowhere else.
+      token_hash: tokenHash,
+      duration_minutes: args.durationMinutes,
+      status: "invited",
+      meeting_mode: "auto",
+      purpose: args.purpose,
+      final_interview_id: finalInterviewId,
+      invited_by: args.invitedBy,
+      invited_by_name: args.invitedByName,
+      expires_at: expiresAt,
+    })
+    .select("id")
+    .single();
+
+  if (insertErr || !created) {
+    console.error("[booking] invite insert failed:", insertErr?.message);
+    return { ok: false, reason: "write_failed" };
+  }
+  return { ok: true, bookingId: (created as { id: string }).id, rawToken, expiresAt };
+}
 
 /** Look a booking up by its RAW token. Hashes before querying — the raw value
  *  never reaches a query predicate. */
@@ -164,7 +274,13 @@ export type ClaimOutcome =
   | { ok: true; row: BookingRow }
   | {
       ok: false;
-      reason: "already_booked" | "slot_taken" | "expired" | "not_found" | "write_failed";
+      reason:
+        | "already_booked"
+        | "slot_taken"
+        | "expired"
+        | "not_found"
+        | "write_failed"
+        | "acknowledgement_required";
     };
 
 /**
@@ -216,6 +332,13 @@ export async function claimSlot(args: {
   endMs: number;
   candidateTimezone: string;
   hostTimezone: string;
+  /**
+   * The recording notice the candidate acknowledged, by version. REQUIRED for
+   * a final round and written in the same UPDATE that books the slot, because
+   * migration 038's CHECK refuses a booked final row without it. Ignored for
+   * a screening call, which shows no notice.
+   */
+  recordingNotice?: { version: string } | null;
 }): Promise<ClaimOutcome> {
   const service = createServiceClient();
 
@@ -224,12 +347,17 @@ export async function claimSlot(args: {
   if (!isValidTimeZone(args.candidateTimezone)) {
     return { ok: false, reason: "write_failed" };
   }
+  const isFinal = args.row.purpose === "final";
+  if (isFinal && !args.recordingNotice?.version) {
+    return { ok: false, reason: "acknowledgement_required" };
+  }
 
   // Pre-flight. Narrows the cross-candidate window; does not close it.
   if (await overlapsExisting(args.row.host_member_id, args.startMs, args.endMs, args.row.id)) {
     return { ok: false, reason: "slot_taken" };
   }
 
+  const bookedAt = new Date().toISOString();
   const { data, error } = await service
     .from("interview_bookings")
     .update({
@@ -240,7 +368,13 @@ export async function claimSlot(args: {
       scheduled_end: new Date(args.endMs).toISOString(),
       candidate_timezone: args.candidateTimezone,
       host_timezone: args.hostTimezone,
-      booked_at: new Date().toISOString(),
+      booked_at: bookedAt,
+      ...(isFinal && args.recordingNotice
+        ? {
+            recording_notice_acknowledged_at: bookedAt,
+            recording_notice_version: args.recordingNotice.version,
+          }
+        : {}),
     })
     .eq("id", args.row.id)
     // THE GATE. Only a row still 'invited' transitions.

@@ -145,8 +145,8 @@ test("both booking actions resolve the session, then refuse by role before any t
     [
       "const ctx = await getCompanyContext();",
       "if (!canManageBookings(ctx.role)) return",
-      "mintBookingToken()",
-      ".insert({",
+      // Minting and the insert live in createBookingLink since step 3a.
+      "await createBookingLink({",
       "await deliverEmail(",
     ],
     "sendBookingLink",

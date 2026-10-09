@@ -12,7 +12,7 @@ import {
   canCancel,
   cancelBooking,
   canReschedule,
-  mintBookingToken,
+  createBookingLink,
   resolveHostEmail,
 } from "@/lib/calendar/bookings";
 import { sendCancellationNotices } from "@/lib/calendar/notify";
@@ -40,7 +40,6 @@ const NOT_YOURS = "Applicant not found in your workspace.";
 
 /** Used when a job has not chosen one. A null is undecided, not zero-length. */
 const DEFAULT_INTERVIEW_MINUTES = 30;
-const DAY_MS = 24 * 60 * 60 * 1000;
 
 /**
  * Sending and cancelling are reserved to owner, admin and recruiter
@@ -145,62 +144,38 @@ export async function sendBookingLink(
     normaliseInterviewDuration(job?.interview_duration_minutes) ?? DEFAULT_INTERVIEW_MINUTES;
 
   /*
-   * One live link per application. Re-sending supersedes rather than
+   * One live SCREENING link per application. Re-sending supersedes rather than
    * accumulating — two open links for one candidate means two ways to book the
    * same interview and no way to say which is theirs.
    *
    * A BOOKED row is never superseded. Session 3 owns reschedule; silently
    * issuing a fresh link here would let a candidate book a second slot while
    * the first is still on the recruiter's calendar.
+   *
+   * Purpose 'interview', explicitly: createBookingLink looks up the live row
+   * by purpose, so this can never expire a Final Human Interview's booking.
+   * The host is the sender, as it has always been for a screening call.
    */
-  const { data: existing } = await service
-    .from("interview_bookings")
-    .select("id, status")
-    .eq("application_id", applicationId)
-    .in("status", ["invited", "booked"])
-    .order("created_at", { ascending: false })
-    .limit(1);
-
-  const live = ((existing ?? []) as { id: string; status: string }[])[0];
-  if (live?.status === "booked") {
-    return {
-      success: false,
-      error: "This candidate has already booked. Rescheduling isn't available yet.",
-    };
+  const created = await createBookingLink({
+    purpose: "interview",
+    companyId: ctx.companyId,
+    applicationId,
+    jobId: app.job_id,
+    hostMemberId: ctx.memberId,
+    invitedBy: ctx.user.id,
+    invitedByName: ctx.memberName,
+    durationMinutes,
+  });
+  if (!created.ok) {
+    return created.reason === "already_booked"
+      ? {
+          success: false,
+          error: "This candidate has already booked. Rescheduling isn't available yet.",
+        }
+      : { success: false, error: "Could not create the booking link. Try again." };
   }
-  if (live) {
-    await service.from("interview_bookings").update({ status: "expired" }).eq("id", live.id);
-  }
-
-  const { rawToken, tokenHash } = mintBookingToken();
-  const expiresAt = new Date(Date.now() + BOOKING_EXPIRY_DAYS * DAY_MS).toISOString();
-
-  const { data: createdRow, error: insertErr } = await service
-    .from("interview_bookings")
-    .insert({
-      company_id: ctx.companyId,
-      application_id: applicationId,
-      job_id: app.job_id,
-      host_member_id: ctx.memberId,
-      // Only the hash is stored. The raw token exists in the email URL and
-      // nowhere else — see bookings.ts.
-      token_hash: tokenHash,
-      duration_minutes: durationMinutes,
-      status: "invited",
-      meeting_mode: "auto",
-      invited_by: ctx.user.id,
-      invited_by_name: ctx.memberName,
-      expires_at: expiresAt,
-    })
-    .select("id")
-    .single();
-
-  if (insertErr) {
-    console.error("[booking] invite insert failed:", insertErr.message);
-    return { success: false, error: "Could not create the booking link. Try again." };
-  }
-
-  const bookingId = (createdRow as { id: string } | null)?.id ?? null;
+  const { rawToken, expiresAt } = created;
+  const bookingId: string | null = created.bookingId;
 
   const name = (app.first_name ?? "there").trim() || "there";
   const title = job?.title ?? app.jobs?.title ?? "the role";
@@ -326,6 +301,9 @@ export async function fetchBookingPanel(applicationId: string): Promise<BookingP
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
+    // The screening call only. A Final Human Interview's booking has its own
+    // card and must not surface, or be cancelled, through this one.
+    .eq("purpose", "interview")
     .in("status", ["invited", "booked", "cancelled"])
     .order("created_at", { ascending: false })
     .limit(1)
@@ -377,6 +355,9 @@ export async function cancelBookingAsRecruiter(
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
+    // Same rule as fetchBookingPanel: this cancels the screening call, never
+    // a final round, which cancelFinalInterview owns.
+    .eq("purpose", "interview")
     .eq("status", "booked")
     .maybeSingle();
 
