@@ -46,3 +46,12 @@ next-env.d.ts
 !.env.example
 .env.local.production-backup
 schema.sql
+
+# VoiceLLM
+model_pth/
+sessions/
+.pixi/
+voicellm/voxagent.egg-info/
+__pycache__/
+*.pyc
+pixi.lock

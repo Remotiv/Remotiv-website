@@ -1,0 +1,66 @@
+[workspace]
+name = "gemma4-kokoro"
+platforms = [{ platform = "linux-64", cuda = "12.9" }]
+version = "0.1.0"
+description = "Gemma 4 E4B (llama-cpp-python) + Kokoro-82M TTS pipeline"
+channels = ["https://prefix.dev/conda-forge"]
+
+[activation]
+scripts = ["activate.sh"]
+
+
+
+[dependencies]
+python = "3.11.*"
+cmake = ">=3.26"
+pip = "*"
+patchelf = "*"
+setuptools = "<82"
+ffmpeg = "==7.1.1"
+
+[pypi-options]
+extra-index-urls = ["https://download.pytorch.org/whl/cu129"]
+
+[pypi-dependencies]
+torch = "==2.11.0"
+torchaudio = "==2.11.0"
+librosa = "==0.11.0"
+pydub = "==0.25.1"
+soundfile = ">=0.13"
+PyAudio = "==0.2.14"
+wave = "==0.0.2"
+numpy = "<2.3.3"
+scipy = ">=1.10"
+huggingface-hub = "*"
+safetensors = ">=0.7"
+transformers = ">=4.46.0"
+websockets = ">=16.0"
+aiohttp = ">=3.9"
+fastapi = ">=0.115"
+uvicorn = ">=0.34"
+PyYAML = "==6.0.2"
+pydantic = ">=2.10"
+rich = ">=13.7"
+loguru = "*"
+tqdm = "*"
+click = ">=8.0"
+spaCy = "==3.8.13"
+
+[tasks]
+
+# ── Step 1: Kokoro TTS + phonemizer ──
+install-kokoro = "pip install kokoro==0.9.4 misaki==0.9.4 pykokoro==0.6.5 phonemizer-fork==3.3.2 espeakng-loader==0.2.4 --no-cache-dir"
+
+# ── Step 2: llama-cpp-python with CUDA, RPATH-patched to system CUDA ──
+# Shared with rtr_module (separate pixi env, same build) via install_llama_cuda.sh
+# — see that file for why. CMAKE_CUDA_ARCHITECTURES auto-detects from nvidia-smi;
+# pin it (`CMAKE_CUDA_ARCHITECTURES=86 pixi run install-llama`) to cross-compile.
+install-llama = "bash install_llama_cuda.sh"
+
+# ── All-in-one setup (after pixi install) ──
+# Kokoro first, then llama last (llama's pip deps can downgrade nvidia-* packages;
+# RPATH patch means llama uses system CUDA, so the bundled torch nvidia libs win)
+setup = { cmd = "pixi run install-kokoro && pixi run install-llama", description = "Full pip setup — run once after pixi install" }
+
+# ── Fix nvidia deps if torch import fails after adding packages ──
+fix-nvidia = "pip install torch==2.11.0 torchaudio==2.11.0 --index-url https://download.pytorch.org/whl/cu129 --force-reinstall --no-cache-dir"

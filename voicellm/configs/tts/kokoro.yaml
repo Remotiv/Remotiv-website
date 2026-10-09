@@ -1,0 +1,26 @@
+# =============================================================================
+# TTS engine config — Kokoro-82M
+# =============================================================================
+# To swap TTS engines: create a new YAML (e.g. xtts.yaml) and point
+# --tts-config at it. The backend field selects the implementation.
+
+backend: kokoro                           # maps to backends/kokoro/
+
+device: "cuda"
+sample_rate: 24000
+
+# Decoder shape bucketing — prevents cuBLAS replanning on novel shapes
+decoder_buckets: [128, 192, 256, 320, 384, 512, 768, 1024]
+
+# Minimum phoneme string length for chunk 0 (padded with spaces)
+chunk0_ps_len: 40
+
+# CUDA stream priority for first-chunk synthesis
+stream_priority: -3
+
+# Text splitting for streaming TTS
+chunking:
+  first_chunk_chars: 20
+  first_chunk_max: 40
+  min_chunk_chars: 60
+  max_buffer_chars: 200
