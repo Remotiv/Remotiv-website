@@ -1,0 +1,50 @@
+[build-system]
+requires = ["setuptools>=77", "wheel"]
+build-backend = "setuptools.build_meta"
+
+[project]
+name = "voxagent"
+version = "0.1.0"
+description = "Config-driven real-time AI voice agent"
+readme = "README.md"
+requires-python = ">=3.10"
+dependencies = [
+    "pyyaml",
+    "loguru",
+]
+
+[project.optional-dependencies]
+# LLM + TTS backends (Gemma 4 via llama-cpp-python, Kokoro-82M TTS).
+# `llama-cpp-python` here installs the plain CPU wheel — for CUDA acceleration,
+# build it from source afterwards (see README "Installing as a package").
+gpu = [
+    # <2.3.3 used to be pinned here; nothing in this extra's own dependency
+    # tree actually needs a ceiling that tight — thinc (spaCy's own numpy
+    # floor/ceiling) allows up to <3.0.0, and none of kokoro/misaki/pykokoro/
+    # phonemizer-fork/espeakng-loader declare a numpy ceiling at all. Match
+    # thinc's actual ceiling instead of an arbitrary tighter one, since a
+    # tighter pin here forces every caller of this extra to match it too —
+    # e.g. rtr_module's own pixi.toml, whose numpy pin had to move because
+    # this one clashed with a newer opencv-python.
+    "numpy<3.0.0",
+    "soundfile>=0.13",
+    "torch==2.11.0",
+    "torchaudio==2.11.0",
+    "kokoro==0.9.4",
+    "misaki==0.9.4",
+    "pykokoro==0.6.5",
+    "phonemizer-fork==3.3.2",
+    "espeakng-loader==0.2.4",
+    "spaCy ==3.8.13",
+]
+dev = [
+    "pytest",
+    "pytest-cov",
+    "ruff",
+]
+
+[project.scripts]
+voxagent = "voxagent.cli:main"
+
+[tool.setuptools.packages.find]
+include = ["voxagent*"]
