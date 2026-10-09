@@ -110,7 +110,7 @@ test("the public route checks the acknowledgement before availability and the cl
       'if (row.status === "cancelled") return fail(410, "cancelled");',
       'const isFinal = row.purpose === "final";',
       "if (isFinal && body?.recordingNoticeAcknowledged !== true) {",
-      "return fail(400, ACKNOWLEDGE_RECORDING);",
+      'return fail(400, "acknowledgement_required");',
       "await fetchAvailability(",
       "await claimSlot({",
       "recordingNotice: isFinal ? { version: RECORDING_NOTICE_VERSION } : null,",

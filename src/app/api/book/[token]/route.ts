@@ -22,7 +22,6 @@ import {
 } from "@/lib/calendar/notify";
 import { formatInZone, isValidTimeZone } from "@/lib/calendar/timezone";
 import {
-  ACKNOWLEDGE_RECORDING,
   interviewTypeLabel,
   RECORDING_NOTICE_VERSION,
   recordingNoticeText,
@@ -347,7 +346,8 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
    */
   const isFinal = row.purpose === "final";
   if (isFinal && body?.recordingNoticeAcknowledged !== true) {
-    return fail(400, ACKNOWLEDGE_RECORDING);
+    // A code like every other refusal here; the page maps it through ERROR_COPY.
+    return fail(400, "acknowledgement_required");
   }
 
   /*
@@ -383,7 +383,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     recordingNotice: isFinal ? { version: RECORDING_NOTICE_VERSION } : null,
   });
   if (!claim.ok) {
-    if (claim.reason === "acknowledgement_required") return fail(400, ACKNOWLEDGE_RECORDING);
+    if (claim.reason === "acknowledgement_required") return fail(400, "acknowledgement_required");
     const status = claim.reason === "slot_taken" || claim.reason === "already_booked" ? 409 : 500;
     return fail(status, claim.reason);
   }

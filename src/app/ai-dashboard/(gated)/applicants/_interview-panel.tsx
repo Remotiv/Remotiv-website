@@ -11,6 +11,7 @@ import {
   scoreBand,
 } from "@/app/ai-dashboard/lib/score-bands";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
+import { FinalInterviewCard } from "./_final-interview-card";
 import {
   type BookingPanel,
   cancelBookingAsRecruiter,
@@ -345,6 +346,7 @@ export function InterviewPanel({
       <AsyncSection applicationId={applicationId} onToast={onToast} />
       <LiveInterviewSection applicationId={applicationId} onToast={onToast} />
       <BookingSection applicationId={applicationId} viewerRole={viewerRole} onToast={onToast} />
+      <FinalInterviewCard applicationId={applicationId} viewerRole={viewerRole} onToast={onToast} />
     </div>
   );
 }

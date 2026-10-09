@@ -23,10 +23,22 @@ import { errorCopyFor } from "./_error-copy";
 
 type Slot = { startIso: string; endIso: string };
 
+/**
+ * What the route says about the booking's purpose. A screening call reads
+ * purpose 'interview' with nulls, and this page then looks and behaves exactly
+ * as it always did. A Final Human Interview names its type and carries the
+ * recording notice the candidate must accept before a time can be chosen.
+ */
+type PurposeFields = {
+  purpose?: string;
+  interviewLabel?: string | null;
+  recordingNotice?: { text: string; version: string } | null;
+};
+
 type State =
   | { kind: "loading" }
   | { kind: "error"; code: string }
-  | {
+  | (PurposeFields & {
       kind: "open";
       slots: Slot[];
       hostTimezone: string;
@@ -37,15 +49,15 @@ type State =
       hostName: string;
       candidateFirstName: string;
       expiresAt: string | null;
-    }
-  | {
+    })
+  | (PurposeFields & {
       kind: "unavailable";
       reason: string;
       jobTitle: string;
       companyName: string;
       hostName: string;
-    }
-  | {
+    })
+  | (PurposeFields & {
       kind: "booked";
       scheduledStart: string;
       scheduledEnd: string;
@@ -61,8 +73,8 @@ type State =
       canCancel: boolean;
       /** Present when a move is still allowed; drives the same picker. */
       slots: Slot[];
-    }
-  | {
+    })
+  | (PurposeFields & {
       kind: "cancelled";
       scheduledStart: string | null;
       cancelledBy: string | null;
@@ -70,7 +82,12 @@ type State =
       jobTitle: string;
       companyName: string;
       hostName: string;
-    };
+    });
+
+/** A Final Human Interview, as opposed to a screening call. */
+function isFinalRound(state: State): boolean {
+  return "purpose" in state && state.purpose === "final";
+}
 
 /**
  * Zones offered in the picker.
@@ -200,6 +217,8 @@ export function BookingClient({ token }: { token: string }) {
   const [mode, setMode] = useState<"reschedule" | "cancel" | null>(null);
   const [reason, setReason] = useState("");
   const [busy, setBusy] = useState(false);
+  /** The recording notice, ticked. Final rounds only; a screening call never asks. */
+  const [acknowledged, setAcknowledged] = useState(false);
 
   // Detection runs in an effect, not during render: the server has no zone and
   // rendering one there would produce a hydration mismatch on every visit.
@@ -235,6 +254,14 @@ export function BookingClient({ token }: { token: string }) {
 
   const confirm = useCallback(
     async (slot: Slot) => {
+      // A final round is recorded, and the slot buttons stay disabled until the
+      // candidate has said they know. This is the same check again, so a stale
+      // or scripted click can never book without it.
+      const final = isFinalRound(state);
+      if (final && !acknowledged) {
+        setNotice(errorCopyFor("acknowledgement_required"));
+        return;
+      }
       setConfirming(slot.startIso);
       setNotice(null);
       try {
@@ -243,7 +270,11 @@ export function BookingClient({ token }: { token: string }) {
           headers: { "content-type": "application/json" },
           // The candidate's CHOSEN zone, not the detected one — they may have
           // corrected it, and the correction is the whole point.
-          body: JSON.stringify({ startIso: slot.startIso, timezone: zone }),
+          body: JSON.stringify({
+            startIso: slot.startIso,
+            timezone: zone,
+            ...(final ? { recordingNoticeAcknowledged: true } : {}),
+          }),
         });
         const body = await res.json();
         if (!res.ok) {
@@ -263,6 +294,8 @@ export function BookingClient({ token }: { token: string }) {
           companyName: prev.kind === "open" ? prev.companyName : "",
           hostName: prev.kind === "open" ? prev.hostName : "",
           durationMinutes: prev.kind === "open" ? prev.durationMinutes : 30,
+          purpose: prev.kind === "open" ? prev.purpose : undefined,
+          interviewLabel: prev.kind === "open" ? prev.interviewLabel : null,
           // Straight from the server's answer, never inferred here.
           canReschedule: body.canReschedule === true,
           canCancel: body.canCancel === true,
@@ -275,7 +308,7 @@ export function BookingClient({ token }: { token: string }) {
         setConfirming(null);
       }
     },
-    [token, zone, load],
+    [token, zone, load, state, acknowledged],
   );
 
   /** Cancel, with an optional reason. Reloads so the page shows the outcome. */
@@ -453,6 +486,7 @@ export function BookingClient({ token }: { token: string }) {
               You're booked
             </h1>
             <p className="mt-2 text-sm text-gray-500">
+              {state.interviewLabel ? `${state.interviewLabel} · ` : ""}
               {state.jobTitle}
               {state.companyName ? ` · ${state.companyName}` : ""}
             </p>
@@ -664,15 +698,32 @@ export function BookingClient({ token }: { token: string }) {
         {state.kind === "open" && (
           <>
             <div className="mb-4">
-              <h1 className="font-heading text-2xl font-bold tracking-tight text-gray-900">
-                {state.candidateFirstName ? `Hi ${state.candidateFirstName} — pick` : "Pick"} a time
-              </h1>
-              <p className="mt-2 text-sm leading-relaxed text-gray-500">
-                {state.durationMinutes}-minute interview for{" "}
-                <span className="font-semibold text-gray-700">{state.jobTitle}</span>
-                {state.companyName ? ` at ${state.companyName}` : ""}, with{" "}
-                {state.hostName || "the hiring team"}.
-              </p>
+              {isFinalRound(state) && state.interviewLabel ? (
+                <>
+                  <h1 className="font-heading text-2xl font-bold tracking-tight text-gray-900">
+                    {state.interviewLabel} with {state.companyName || "the hiring team"}
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                    {state.candidateFirstName ? `Hi ${state.candidateFirstName}, pick` : "Pick"} a
+                    time. A {state.durationMinutes}-minute call on Google Meet for{" "}
+                    <span className="font-semibold text-gray-700">{state.jobTitle}</span>, with{" "}
+                    {state.hostName || "the hiring team"}.
+                  </p>
+                </>
+              ) : (
+                <>
+                  <h1 className="font-heading text-2xl font-bold tracking-tight text-gray-900">
+                    {state.candidateFirstName ? `Hi ${state.candidateFirstName} — pick` : "Pick"} a
+                    time
+                  </h1>
+                  <p className="mt-2 text-sm leading-relaxed text-gray-500">
+                    {state.durationMinutes}-minute interview for{" "}
+                    <span className="font-semibold text-gray-700">{state.jobTitle}</span>
+                    {state.companyName ? ` at ${state.companyName}` : ""}, with{" "}
+                    {state.hostName || "the hiring team"}.
+                  </p>
+                </>
+              )}
             </div>
 
             <div className={`${CARD} mb-4 flex flex-wrap items-center gap-3`}>
@@ -696,6 +747,35 @@ export function BookingClient({ token }: { token: string }) {
                 Not your timezone? Change it — every time below updates.
               </span>
             </div>
+
+            {/*
+              The recording notice, ABOVE the times and before any of them can
+              be chosen. The route refuses a final-round booking without the
+              acknowledgement, so the tick is what unlocks the slot buttons.
+              A screening call renders none of this.
+            */}
+            {isFinalRound(state) && state.recordingNotice && (
+              <div className={`${CARD} mb-4`}>
+                <p className="m-0 text-sm leading-relaxed text-gray-700">
+                  {state.recordingNotice.text}
+                </p>
+                <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm text-gray-800">
+                  <input
+                    id="recording-ack"
+                    type="checkbox"
+                    checked={acknowledged}
+                    onChange={(e) => setAcknowledged(e.target.checked)}
+                    className="mt-0.5 size-4 accent-remotiv-purple"
+                  />
+                  <span className="font-semibold">
+                    I understand this interview will be recorded.
+                  </span>
+                </label>
+                {!acknowledged && state.slots.length > 0 && (
+                  <p className="m-0 mt-2 text-xs text-gray-400">Tick the box to choose a time.</p>
+                )}
+              </div>
+            )}
 
             {notice && <NoticeBanner text={notice} />}
 
@@ -728,6 +808,7 @@ export function BookingClient({ token }: { token: string }) {
                   sections={sections}
                   zone={zone}
                   confirming={confirming}
+                  disabled={isFinalRound(state) && !acknowledged}
                   onSelectDay={setActiveDay}
                   onPick={(slot) => void confirm(slot)}
                 />
@@ -763,6 +844,7 @@ function SlotPicker({
   sections,
   zone,
   confirming,
+  disabled = false,
   onSelectDay,
   onPick,
 }: {
@@ -771,6 +853,8 @@ function SlotPicker({
   sections: { label: string; slots: Slot[] }[];
   zone: string;
   confirming: string | null;
+  /** True while a final round's recording notice is still unticked. */
+  disabled?: boolean;
   onSelectDay: (key: string) => void;
   onPick: (slot: Slot) => void;
 }) {
@@ -840,7 +924,7 @@ function SlotPicker({
                   <button
                     key={slot.startIso}
                     type="button"
-                    disabled={confirming !== null}
+                    disabled={disabled || confirming !== null}
                     onClick={() => onPick(slot)}
                     className="rounded-xl border border-gray-200 px-4 py-2.5 text-sm font-semibold tabular-nums text-gray-700 transition-colors hover:border-remotiv-purple hover:bg-remotiv-purple hover:text-white disabled:opacity-50"
                   >

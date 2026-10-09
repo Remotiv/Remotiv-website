@@ -127,9 +127,10 @@ test("the live AI invite is not capped", () => {
 test("the gated action is reached from the applicant drawer only, and has no other way in", () => {
   const callers = FILES.filter((f) => /\bsendInterviewInvite\(/.test(f.text)).map((f) => f.rel);
   assert.deepEqual(callers.sort(), [PANEL, ACTIONS].sort());
-  const importers = FILES.filter((f) => /from\s+["'][^"']*interview-actions["']/.test(f.text)).map(
-    (f) => f.rel,
-  );
+  // "/interview-actions" exactly: ./final-interview-actions is a different module.
+  const importers = FILES.filter((f) =>
+    /from\s+["'][^"']*\/interview-actions["']/.test(f.text),
+  ).map((f) => f.rel);
   assert.deepEqual(importers, [PANEL]);
 });
 
