@@ -373,10 +373,21 @@ export async function cancelBookingAsRecruiter(
     return { success: false, error: "Could not cancel. Try again." };
   }
 
+  /*
+   * Filtered on the company, not merely on the id. This feeds a candidate-facing
+   * email, and the booking's own company proves nothing about the application's:
+   * for purpose = 'interview' rows final_interview_id is null, so the composite
+   * (final_interview_id, company_id) FK that backs final rounds is vacuous here
+   * and no constraint ties this application to this company.
+   *
+   * The booking is already cancelled above, so a miss must not abort — it
+   * degrades to the same fallbacks a missing row has always produced.
+   */
   const { data: appRow } = await service
     .from("job_applications")
     .select("first_name, last_name, email, jobs(title)")
     .eq("id", applicationId)
+    .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
   const app = appRow as {
     first_name: string | null;

@@ -213,41 +213,6 @@ const ALLOWLIST = [
     ),
   },
 
-  /* ── safe only by derivation from another scoped read ─────── */
-  {
-    file: `${DASH}/applicants/booking-actions.ts`,
-    fn: "cancelBookingAsRecruiter",
-    query:
-      '.select("first_name, last_name, email, jobs(title)").eq("id", applicationId).maybeSingle()',
-    // Checked: a read of interview_bookings in this function narrows on BOTH
-    // the same applicationId and ctx.companyId, and provably precedes this
-    // read. Deleting either filter fails the test.
-    scopedRead: {
-      table: "interview_bookings",
-      column: "company_id",
-      also: [["application_id", "applicationId"]],
-    },
-    unprovable: [
-      "That interview_bookings.company_id equals job_applications.company_id_snapshot for the " +
-        "same application. It is a cross-table invariant with no database constraint behind it, " +
-        "established only at write time in lib/calendar/bookings.ts:211.",
-    ],
-    why:
-      "The ONE entry here whose safety cannot be re-checked from its own row: the select omits " +
-      "company_id_snapshot, so no post-read comparison is possible. applicationId is the raw " +
-      "client argument (344), NOT re-derived from the scoped row. Ownership rests on the prior " +
-      'interview_bookings read at 351-362, which carries .eq("application_id", applicationId) ' +
-      'AND .eq("company_id", ctx.companyId), short-circuits at 365 when no row matches, and is ' +
-      "followed by canAccessJob(ctx, row.job_id) at 366. So reaching this line proves a booked " +
-      "interview exists for that application inside ctx.companyId. That is a CROSS-TABLE " +
-      "invariant — interview_bookings.company_id equals job_applications.company_id_snapshot for " +
-      "the same application — established at creation (sendBookingLink verifies ownership at 88 " +
-      "before createBookingLink writes company_id, lib/calendar/bookings.ts:211) and enforced by " +
-      "no database constraint. It is also the shape that breaks when someone reuses this helper " +
-      "with an id from elsewhere, and the read happens AFTER cancelBooking (371) and feeds a " +
-      "candidate-facing email at 400-401, so a violated invariant would put a name and address " +
-      "into outbound mail rather than merely into server memory. Reported as a finding.",
-  },
   {
     file: `${DASH}/jobs/actions.ts`,
     fn: "fetchCompanyJobs",
@@ -1603,7 +1568,7 @@ test("every declared guard and scoped-read dependency still holds", () => {
   const DECLS = ["guard", "gate", "verifyAfter", "scopedRead", "viaCall", "derivesTenancy"];
   const declares = (a) => DECLS.some((d) => a[d]);
   const declared = ALLOWLIST.filter(declares);
-  assert.equal(declared.length, 15, "the number of entries declaring a dependency changed");
+  assert.equal(declared.length, 14, "the number of entries declaring a dependency changed");
   assert.ok(
     ALLOWLIST.some((a) => a.guard),
     "at least one entry must declare an authorization guard",
