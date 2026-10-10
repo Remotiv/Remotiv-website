@@ -249,38 +249,6 @@ const ALLOWLIST = [
       "into outbound mail rather than merely into server memory. Reported as a finding.",
   },
   {
-    file: `${DASH}/applicants/final-interview-actions.ts`,
-    fn: "cancelFinalInterview",
-    query:
-      '.select("first_name, last_name, email, jobs(title)").eq("id", fi.application_id).maybeSingle()',
-    // Checked: gateFinalInterview is called in this function, provably before
-    // this read, the read's id is a property of the binding it returned, and
-    // the callee itself filters final_interviews on ctx.companyId.
-    viaCall: {
-      call: "gateFinalInterview",
-      binding: "fi",
-      calleeFiltersOn: "company_id",
-    },
-    unprovable: [
-      "That a final interview's application stays in the final interview's company — " +
-        "final_interviews.company_id equals job_applications.company_id_snapshot for the linked " +
-        "application. No constraint enforces it.",
-      "That gateFinalInterview's short-circuit on a missing row is reached before this read. The " +
-        "call is ordered, and its `if (!gate.ok) return` is adjacent, but this checks the CALL's " +
-        "position, not the callee's internal control flow.",
-    ],
-    why:
-      "fi comes from gateFinalInterview(ctx, service, finalInterviewId) at 532, which reads " +
-      'final_interviews with .eq("id", finalInterviewId) AND .eq("company_id", ctx.companyId) ' +
-      "at 125-126, returns NOT_FOUND at 129 when no row matches, and requires " +
-      "canAccessJob(ctx, fi.job_id) at 130. fi.application_id is therefore an FK off a row proven " +
-      "to belong to ctx.companyId, safe by the invariant that a final interview's application " +
-      "stays in its own company. Gratuitously derived, though: the company-filtered helper " +
-      'gateApplication in this same file (98-114, .eq("company_id_snapshot", ctx.companyId) at ' +
-      "107) returns exactly these columns and the sibling sendFinalInterviewLink uses it at 510. " +
-      "Reported as a finding: a scoped alternative exists and simply was not used.",
-  },
-  {
     file: `${DASH}/jobs/actions.ts`,
     fn: "fetchCompanyJobs",
     query: '.select("id", { count: "exact", head: true }).eq("job_id", r.id as string)',
@@ -1635,7 +1603,7 @@ test("every declared guard and scoped-read dependency still holds", () => {
   const DECLS = ["guard", "gate", "verifyAfter", "scopedRead", "viaCall", "derivesTenancy"];
   const declares = (a) => DECLS.some((d) => a[d]);
   const declared = ALLOWLIST.filter(declares);
-  assert.equal(declared.length, 16, "the number of entries declaring a dependency changed");
+  assert.equal(declared.length, 15, "the number of entries declaring a dependency changed");
   assert.ok(
     ALLOWLIST.some((a) => a.guard),
     "at least one entry must declare an authorization guard",

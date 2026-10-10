@@ -448,6 +448,42 @@ test("cancelling a booked final round cancels the booking, marks the interview, 
   assert.match(bell[0].title, /Sam Lee's cto interview was cancelled/);
 });
 
+test("cancelling reads the candidate through the company filter: a drifted application leaks nothing", async () => {
+  const db = makeDb();
+  db.final_interviews.push({ ...FI });
+  // The state the filter defends against: the interview is this company's, but
+  // its application is not. A trigger forbids creating this, so it can only
+  // arise by drift — and that is exactly when an unfiltered read would leak.
+  db.job_applications[0].company_id_snapshot = "other-co";
+  db.interview_bookings.push(
+    finalBooking({
+      status: "booked",
+      scheduled_start: FUTURE,
+      scheduled_end: new Date(Date.parse(FUTURE) + 30 * 60 * 1000).toISOString(),
+      host_timezone: "Europe/London",
+      candidate_timezone: "Asia/Karachi",
+    }),
+  );
+  const {
+    result,
+    db: after,
+    emails,
+    hostEmails,
+    bell,
+  } = await run("admin", () => cancelFinalInterview("fi-1", "Role filled"), { db });
+
+  // The cancellation still completes. The filter protects the read, not the
+  // write, and the booking was already cancelled by the time it is consulted.
+  assert.deepEqual(result, { success: true, data: { removedFromCalendar: true } });
+  assert.equal(after.interview_bookings[0].status, "cancelled");
+  assert.equal(after.final_interviews[0].status, "cancelled");
+
+  const sent = JSON.stringify({ emails, hostEmails, bell });
+  assert.ok(!sent.includes("sam@example.test"), "another company's email address reached a notice");
+  assert.ok(!sent.includes("Sam"), "another company's candidate name reached a notice");
+  assert.ok(!sent.includes("Engineer"), "another company's job title reached a notice");
+});
+
 test("cancelling an unbooked final round expires its link and marks the interview, with no emails", async () => {
   const db = makeDb();
   db.final_interviews.push({ ...FI });

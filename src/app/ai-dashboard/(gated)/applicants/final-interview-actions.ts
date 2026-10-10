@@ -552,20 +552,14 @@ export async function cancelFinalInterview(
     if (!cancelled.ok) return { success: false, error: "Could not cancel. Try again." };
     removedFromCalendar = cancelled.removedFromCalendar;
 
-    const [{ data: appRow }, host] = await Promise.all([
-      service
-        .from("job_applications")
-        .select("first_name, last_name, email, jobs(title)")
-        .eq("id", fi.application_id)
-        .maybeSingle(),
+    const [appGate, host] = await Promise.all([
+      gateApplication(ctx, service, fi.application_id),
       resolveHostEmail(fi.host_member_id, ctx.companyId),
     ]);
-    const app = appRow as unknown as {
-      first_name: string | null;
-      last_name: string | null;
-      email: string | null;
-      jobs?: { title: string | null } | null;
-    } | null;
+    // The booking is already cancelled by this point, so a refusal here must not
+    // abort — the notices degrade to the same fallbacks a missing row has always
+    // produced rather than leaving the cancellation half-done.
+    const app = appGate.ok ? appGate.app : null;
     const candidateName = [app?.first_name, app?.last_name].filter(Boolean).join(" ").trim();
     const label = interviewTypeLabel(fi.interview_type, fi.custom_label);
 
