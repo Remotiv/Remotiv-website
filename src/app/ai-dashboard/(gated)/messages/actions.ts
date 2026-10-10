@@ -9,7 +9,9 @@ import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import {
   canAccessJob,
   getJobScope,
+  isEmptyScope,
   scopedApplicationIds,
+  scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
 import { MANUAL_DEFAULTS } from "@/lib/email/candidate/templates";
@@ -56,6 +58,17 @@ type MutationResult<T = undefined> =
 type Service = ReturnType<typeof createServiceClient>;
 
 const WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * How many candidates the composer's recipient picker offers.
+ *
+ * Unchanged from the value this surface has always carried. Worth naming now
+ * because it used to bind only scoped recruiters — owner and admin reached it
+ * with an empty job filter and so never saw a row at all. With that fixed the
+ * cap is live for every role, and the newest 500 by application date is what a
+ * company past that size can pick from here.
+ */
+const RECIPIENT_LIMIT = 500;
 
 /**
  * Rows we never show.
@@ -605,23 +618,39 @@ export async function fetchApplicationInbound(
   };
 }
 
-/** Candidates this company can write to. Every role may email. */
+/**
+ * Candidates this company can write to. Every role may email.
+ *
+ * The job filter is OMITTED for owner and admin rather than passed as an empty
+ * list. `.in("job_id", [])` matches no rows, so the ternary this replaces
+ * emptied the composer for exactly the two roles entitled to the whole company
+ * — see the same warning in `job-scope.ts` and `search-actions.ts`.
+ *
+ * RECIPIENT_LIMIT bounds the dropdown, so a company past that many applicants
+ * cannot reach the remainder from this picker. The drawer composer, which is
+ * fed the one applicant it has open, is unaffected.
+ */
 export async function fetchRecipients(): Promise<MessageRecipient[]> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
-  // The composer may only offer candidates the sender can already see.
+  // The composer may only offer candidates the sender can already see. An
+  // assigned-to-nothing member never reaches a query at all.
   const recipientScope = await getJobScope(ctx);
-  if (recipientScope.scoped && recipientScope.jobIds.length === 0) return [];
+  if (isEmptyScope(recipientScope)) return [];
+  const allowedJobIds = scopeJobIds(recipientScope);
 
-  const { data } = await service
+  // The company filter is applied unconditionally; job scoping narrows within a
+  // tenant and is never the tenant boundary.
+  const scoped = service
     .from("job_applications")
     .select("id, first_name, last_name, email, job_title_snapshot, jobs(title), created_at")
     .eq("company_id_snapshot", ctx.companyId)
-    .not("email", "is", null)
-    .in("job_id", recipientScope.scoped ? recipientScope.jobIds : [])
+    .not("email", "is", null);
+
+  const { data } = await (allowedJobIds ? scoped.in("job_id", allowedJobIds) : scoped)
     .order("created_at", { ascending: false })
-    .limit(500);
+    .limit(RECIPIENT_LIMIT);
 
   return ((data ?? []) as unknown as (AppLite & { created_at: string })[])
     .filter((r) => (r.email ?? "").trim())
