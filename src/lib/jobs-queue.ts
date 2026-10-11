@@ -4,6 +4,11 @@ import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
 import { handleCvPurge } from "@/lib/cv-purge";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
+import {
+  finalBotReconcileWanted,
+  handleFinalBotSync,
+  RECONCILE_INTERVAL_MS,
+} from "@/lib/final-interviews/bots";
 import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
@@ -199,6 +204,22 @@ export const JOB_TYPES = {
    * NOT SCHEDULED. See the note in RECURRING.
    */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
+  /*
+   * Migration 040, in its order. Only FINAL_BOT_SYNC has a handler. The other
+   * four belong to later recording steps and nothing enqueues them yet; were
+   * one enqueued by mistake, runJob throws for that job alone and it takes the
+   * normal retry-then-dead path without touching any other job.
+   */
+  /** Recording step 2 — schedule, replace, remove and reconcile Recall bots. */
+  FINAL_BOT_SYNC: "final_bot_sync",
+  /** Recording step 3 — host alert when the bot waits in the lobby. No handler yet. */
+  FINAL_BOT_LOBBY_CHECK: "final_bot_lobby_check",
+  /** Recording step 4 — copy the recording into storage. No handler yet. */
+  FINAL_RECORDING_IMPORT: "final_recording_import",
+  /** Recording step 4 — restart a stuck import. No handler yet. */
+  FINAL_RECORDING_IMPORT_WATCHDOG: "final_recording_import_watchdog",
+  /** Recording step 6 — delete recordings past retention. No handler yet. */
+  FINAL_RECORDING_PURGE: "final_recording_purge",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -267,6 +288,9 @@ registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
  */
 registerHandler(JOB_TYPES.TALENT_RETENTION_WARN, handleTalentRetentionWarn);
 registerHandler(JOB_TYPES.TALENT_RETENTION_PURGE, handleTalentRetentionPurge);
+// Recording step 2. Sync, reconcile and migration 040's orphan delete all
+// arrive as this type, told apart by payload.action inside the handler.
+registerHandler(JOB_TYPES.FINAL_BOT_SYNC, handleFinalBotSync);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -337,7 +361,20 @@ const PURGE_INTERVAL_MS = 24 * 60 * 60 * 1000;
  * video stopped CVs expiring too, and one `last_error` would have to describe
  * all of them.
  */
-const RECURRING: readonly { type: string; intervalMs: number }[] = [
+type RecurringJob = {
+  type: string;
+  intervalMs: number;
+  /**
+   * For a type that also carries one-off jobs: the payload action that marks
+   * the recurring one. Both the live check and the pacing check filter on it,
+   * so the one-off jobs of the same type neither block nor pace it.
+   */
+  action?: string;
+  /** Scheduled only while this resolves true. A failure counts as false. */
+  when?: () => Promise<boolean>;
+};
+
+const RECURRING: readonly RecurringJob[] = [
   { type: JOB_TYPES.INTERVIEW_PURGE, intervalMs: PURGE_INTERVAL_MS },
   { type: JOB_TYPES.CV_PURGE, intervalMs: PURGE_INTERVAL_MS },
   // Row retention for this table itself, paced identically and scheduled by
@@ -377,6 +414,21 @@ const RECURRING: readonly { type: string; intervalMs: number }[] = [
    * was already scheduled. A distinct type removes that trap entirely.
    */
   { type: JOB_TYPES.INTERVIEW_EXPIRY_SWEEP, intervalMs: PURGE_INTERVAL_MS },
+  /*
+   * Recording step 2: the backstop for the Recall bots. Every two minutes, so
+   * a cancellation that raced a running sync is repaired within a few ticks
+   * rather than a day later. It shares final_bot_sync with the per-booking
+   * syncs and the orphan deletes, hence `action`. With the flag off it runs
+   * only while a recent bot may still be scheduled or in a call
+   * (finalBotReconcileWanted), so a deployment that never enabled recording
+   * never queues it.
+   */
+  {
+    type: JOB_TYPES.FINAL_BOT_SYNC,
+    intervalMs: RECONCILE_INTERVAL_MS,
+    action: "reconcile",
+    when: () => finalBotReconcileWanted(),
+  },
 ];
 
 /**
@@ -405,32 +457,36 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
   const service = createServiceClient();
   const scheduled: string[] = [];
 
-  for (const { type, intervalMs } of RECURRING) {
-    const { data: live } = await service
+  for (const { type, intervalMs, action, when } of RECURRING) {
+    if (when && !(await when().catch(() => false))) continue;
+
+    let liveQuery = service
       .from("background_jobs")
       .select("id")
       .eq("type", type)
-      .in("status", ["queued", "running"])
-      .limit(1);
+      .in("status", ["queued", "running"]);
+    if (action) liveQuery = liveQuery.eq("payload->>action", action);
+    const { data: live } = await liveQuery.limit(1);
     if ((live ?? []).length > 0) continue;
 
     // created_at, not a completion timestamp: this paces how often a purge is
     // STARTED, which is the thing being rate-limited. A run that failed still
     // counts, because the next one is a day away and will redo its work anyway.
-    const { data: last } = await service
-      .from("background_jobs")
-      .select("created_at")
-      .eq("type", type)
-      .order("created_at", { ascending: false })
-      .limit(1);
+    let lastQuery = service.from("background_jobs").select("created_at").eq("type", type);
+    if (action) lastQuery = lastQuery.eq("payload->>action", action);
+    const { data: last } = await lastQuery.order("created_at", { ascending: false }).limit(1);
 
     const lastAt = (last ?? [])[0]
       ? new Date((last as { created_at: string }[])[0].created_at).getTime()
       : 0;
     if (Date.now() - lastAt < intervalMs) continue;
 
-    const result = await enqueue({ type, companyId: null });
-    if (result.ok) scheduled.push(type);
+    const result = await enqueue({
+      type,
+      companyId: null,
+      ...(action ? { payload: { action } } : {}),
+    });
+    if (result.ok) scheduled.push(action ? `${type}:${action}` : type);
   }
 
   return scheduled;

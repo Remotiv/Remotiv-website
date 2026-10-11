@@ -1,0 +1,1654 @@
+import type { BookingRow } from "@/lib/calendar/bookings";
+import type { BackgroundJob, EnqueueInput, EnqueueResult } from "@/lib/jobs-queue";
+import { JobYield, TerminalJobError, toJobError } from "@/lib/queue/failure-class";
+import { assertProviderBudget, type JobContext } from "@/lib/queue/job-context";
+import {
+  getRecallClient,
+  isRecallId,
+  RecallApiError,
+  type RecallBot,
+  type RecallClient,
+} from "@/lib/recall/client";
+import type { CreateBotRequest } from "@/lib/recall/types";
+import { createServiceClient } from "@/lib/supabase/server";
+import {
+  type FinalBotStatus,
+  RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S,
+  RECORDING_BOT_INTEGRATION,
+  RECORDING_BOT_JOIN_LEAD_MS,
+  RECORDING_BOT_MIN_SCHEDULE_LEAD_MS,
+  RECORDING_BOT_NAME,
+  RECORDING_BOT_NOONE_JOINED_TIMEOUT_S,
+  RECORDING_BOT_RECORDING_TIMEOUT_S,
+  RECORDING_BOT_RETENTION_HOURS,
+  RECORDING_BOT_WAITING_ROOM_TIMEOUT_S,
+} from "./constants";
+
+/**
+ * The Recall.ai recording bot for a Final Human Interview: scheduled when the
+ * candidate books, replaced when they move it, removed when it is cancelled,
+ * and cleaned up when its interview is deleted. Step 2 of the recording work.
+ *
+ * ── Who calls Recall ─────────────────────────────────────────
+ *
+ * Only the `final_bot_sync` job. The booking route and the recruiter's cancel
+ * action call the three hooks at the bottom of this file, which write a row
+ * and enqueue a job and never reach Recall, so a Recall outage cannot slow or
+ * fail a booking.
+ *
+ * ── One job, state-based ─────────────────────────────────────
+ *
+ * A sync job does not carry an instruction. It reads the booking, its final
+ * interview and every bot row for the booking, works out what should be true
+ * now (planSync), makes it so, and reads again. An old queued job therefore
+ * cannot recreate a bot for a booking that has since been cancelled: it sees
+ * the cancellation first. Migration 040 allows one queued-or-running sync per
+ * booking, so a change that lands while one is running is caught by the
+ * re-read loop, and anything after the last re-read by the reconcile job
+ * every two minutes.
+ *
+ * ── Media is never deleted here except on the privacy path ───
+ *
+ * Ordinary cancellation and rescheduling delete a bot only while it is still
+ * scheduled (it has joined nothing, so it holds nothing). A bot that has
+ * joined is asked to leave the call and its media is kept for the import.
+ * Only the orphan `delete` action, queued by migration 040's trigger when an
+ * applicant, interview, booking or company is deleted, deletes recordings.
+ * No row is set to 'deleted' unless Recall has confirmed the bot is gone
+ * before it joined anything.
+ *
+ * ── The feature flag ─────────────────────────────────────────
+ *
+ * RECALL_RECORDING_ENABLED gates NEW bots only, through isRecallRecordingEnabled.
+ * With it off, nothing is written for a new booking, but bots that already
+ * exist are still removed on cancel or reschedule, and the orphan delete runs.
+ */
+
+/* ── tuning ───────────────────────────────────────────────────── */
+
+/** Must equal JOB_TYPES.FINAL_BOT_SYNC; a literal because jobs-queue imports this file. */
+export const FINAL_BOT_SYNC_JOB = "final_bot_sync";
+/** 30s, 1m, 2m, 4m, 8m between attempts: about a quarter of an hour of retries. */
+export const SYNC_MAX_ATTEMPTS = 6;
+/** How often the reconcile job may start. */
+export const RECONCILE_INTERVAL_MS = 2 * 60_000;
+/** Plan, act, re-read: at most this many times per job before handing back to the queue. */
+const MAX_ROUNDS = 5;
+/** A booking request waits at most this long for a hook. */
+const HOOK_TIMEOUT_MS = 4_000;
+/** A Recall call is not opened with less worker budget than this. */
+const MIN_CALL_BUDGET_MS = 10_000;
+const CALL_TIMEOUT_CAP_MS = 15_000;
+/** Rows touched more recently than this are left to the job that touched them. */
+const RECONCILE_SETTLE_MS = 2 * 60_000;
+const RECONCILE_BATCH = 25;
+const RECONCILE_LOOKBACK_MS = 24 * 60 * 60_000;
+const RECONCILE_VENDOR_PAGES = 2;
+const ORPHAN_LEAVE_POLLS = 4;
+const ORPHAN_POLL_MS = 3_000;
+
+/** last_event_code values Remotiv writes itself. Recall's own codes land there too. */
+export const BOT_EVENT = {
+  createRequested: "create_requested",
+  createAmbiguous: "create_ambiguous",
+  createRetry: "create_retry",
+  createFailed: "create_failed",
+  scheduled: "scheduled",
+  adopted: "adopted",
+  tooLate: "too_late_to_schedule",
+  disabled: "recording_disabled",
+  noMeetingUrl: "no_meeting_url",
+  metadataMismatch: "vendor_metadata_mismatch",
+  leaveRequested: "leave_requested",
+  scheduledDeleted: "scheduled_bot_deleted",
+  vendorNotFound: "vendor_not_found",
+  supersededUnscheduled: "superseded_before_scheduling",
+} as const;
+
+/** A create was attempted, so a vendor bot may exist even though no id was saved. */
+const CREATE_ATTEMPTED: ReadonlySet<string> = new Set([
+  BOT_EVENT.createRequested,
+  BOT_EVENT.createAmbiguous,
+  BOT_EVENT.createRetry,
+]);
+
+/** Statuses whose vendor bot may still be scheduled or in a call. */
+const VENDOR_ACTIVE: ReadonlySet<string> = new Set([
+  "pending",
+  "scheduled",
+  "waiting_room",
+  "in_call",
+  "recording",
+]);
+
+/* ── the flag ─────────────────────────────────────────────────── */
+
+/**
+ * Whether NEW recording bots may be scheduled. Fails closed: only the exact
+ * string "true" turns it on. Cleanup and the orphan delete never consult it.
+ */
+export function isRecallRecordingEnabled(
+  env: Record<string, string | undefined> = process.env,
+): boolean {
+  return env.RECALL_RECORDING_ENABLED === "true";
+}
+
+/* ── shapes ───────────────────────────────────────────────────── */
+
+type Service = ReturnType<typeof createServiceClient>;
+
+export type FinalBotRow = {
+  id: string;
+  final_interview_id: string;
+  company_id: string;
+  job_id: string;
+  application_id: string;
+  booking_id: string;
+  provider: string;
+  provider_bot_id: string | null;
+  provider_recording_id: string | null;
+  join_at: string;
+  status: FinalBotStatus;
+  last_event_code: string | null;
+  last_event_sub_code: string | null;
+  last_event_at: string | null;
+  import_status: string;
+  superseded_at: string | null;
+  created_at: string;
+  updated_at: string;
+};
+
+const BOT_COLUMNS =
+  "id, final_interview_id, company_id, job_id, application_id, booking_id, provider, provider_bot_id, provider_recording_id, join_at, status, last_event_code, last_event_sub_code, last_event_at, import_status, superseded_at, created_at, updated_at";
+
+export type BookingSnapshot = Pick<
+  BookingRow,
+  | "id"
+  | "company_id"
+  | "application_id"
+  | "job_id"
+  | "status"
+  | "purpose"
+  | "final_interview_id"
+  | "scheduled_start"
+  | "meeting_url"
+>;
+
+const BOOKING_COLUMNS =
+  "id, company_id, application_id, job_id, status, purpose, final_interview_id, scheduled_start, meeting_url";
+
+type FinalInterviewSnapshot = {
+  id: string;
+  company_id: string;
+  job_id: string;
+  application_id: string;
+  status: string;
+};
+
+export type SyncState = {
+  booking: BookingSnapshot | null;
+  finalInterview: FinalInterviewSnapshot | null;
+  rows: FinalBotRow[];
+};
+
+export type EnqueueFn = (input: EnqueueInput) => Promise<EnqueueResult>;
+
+export type BotDeps = {
+  service: Service;
+  recall: RecallClient;
+  enqueue: EnqueueFn;
+  enabled: () => boolean;
+  now: () => number;
+  sleep: (ms: number) => Promise<void>;
+  ctx?: JobContext;
+};
+
+/** What the booking hooks need. No Recall client: hooks never call Recall. */
+export type HookDeps = Pick<BotDeps, "service" | "enqueue" | "enabled" | "now">;
+
+/** jobs-queue imports this file, so the enqueue is reached lazily, as expiry.ts does. */
+async function lazyEnqueue(input: EnqueueInput): Promise<EnqueueResult> {
+  const { enqueue } = await import("@/lib/jobs-queue");
+  return enqueue(input);
+}
+
+function workerDeps(ctx?: JobContext): BotDeps {
+  return {
+    service: createServiceClient(),
+    recall: getRecallClient(),
+    enqueue: lazyEnqueue,
+    enabled: () => isRecallRecordingEnabled(),
+    now: Date.now,
+    sleep: (ms) => new Promise((resolve) => setTimeout(resolve, ms)),
+    ctx,
+  };
+}
+
+/* ── the bot request ──────────────────────────────────────────── */
+
+export function desiredJoinAtMs(scheduledStart: string | null | undefined): number | null {
+  const start = Date.parse(scheduledStart ?? "");
+  return Number.isFinite(start) ? start - RECORDING_BOT_JOIN_LEAD_MS : null;
+}
+
+/** One key per bot row: Recall replays the first create for an hour on a repeat. */
+export function idempotencyKeyFor(botRowId: string): string {
+  return `remotiv-final-bot-${botRowId}`;
+}
+
+/** String values only, as Recall requires. The marker reconciliation trusts. */
+export function botMetadata(
+  row: Pick<FinalBotRow, "id" | "final_interview_id" | "company_id">,
+): Record<string, string> {
+  return {
+    integration: RECORDING_BOT_INTEGRATION,
+    botRowId: row.id,
+    finalInterviewId: row.final_interview_id,
+    companyId: row.company_id,
+  };
+}
+
+export function buildCreateBotRequest(
+  row: Pick<FinalBotRow, "id" | "final_interview_id" | "company_id" | "join_at">,
+  meetingUrl: string,
+): CreateBotRequest {
+  return {
+    meeting_url: meetingUrl,
+    bot_name: RECORDING_BOT_NAME,
+    join_at: new Date(Date.parse(row.join_at)).toISOString(),
+    recording_config: {
+      video_mixed_mp4: {},
+      retention: { type: "timed", hours: RECORDING_BOT_RETENTION_HOURS },
+    },
+    automatic_leave: {
+      waiting_room_timeout: RECORDING_BOT_WAITING_ROOM_TIMEOUT_S,
+      noone_joined_timeout: RECORDING_BOT_NOONE_JOINED_TIMEOUT_S,
+      everyone_left_timeout: { timeout: RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S },
+      in_call_recording_timeout: RECORDING_BOT_RECORDING_TIMEOUT_S,
+    },
+    metadata: botMetadata(row),
+  };
+}
+
+/* ── reading Recall's view of a bot ───────────────────────────── */
+
+export type VendorPhase = "scheduled" | "in_progress" | "ended" | "unknown";
+
+export type VendorView = {
+  phase: VendorPhase;
+  /** The row status this maps to; null when Recall said something unknown. */
+  status: FinalBotStatus | null;
+  code: string | null;
+  subCode: string | null;
+  at: string | null;
+  /** Any status beyond being scheduled: the bot may hold media from here on. */
+  dispatched: boolean;
+  recordingIds: string[];
+};
+
+const IN_PROGRESS_CODES: ReadonlyMap<string, FinalBotStatus> = new Map([
+  ["joining_call", "waiting_room"],
+  ["in_waiting_room", "waiting_room"],
+  ["in_call_not_recording", "in_call"],
+  ["recording_permission_allowed", "in_call"],
+  ["recording_permission_denied", "in_call"],
+  ["in_call_recording", "recording"],
+  ["breakout_room_entered", "in_call"],
+  ["breakout_room_left", "in_call"],
+  ["breakout_room_opened", "in_call"],
+  ["breakout_room_closed", "in_call"],
+]);
+
+const ENDED_CODES: ReadonlyMap<string, FinalBotStatus> = new Map([
+  ["call_ended", "call_ended"],
+  ["recording_done", "done"],
+  ["done", "done"],
+  ["analysis_done", "done"],
+  ["analysis_failed", "done"],
+  ["media_expired", "done"],
+  ["fatal", "fatal"],
+]);
+
+/** Status codes a bot carries before it is dispatched. */
+const PRE_JOIN_CODES: ReadonlySet<string> = new Set(["ready"]);
+
+export function vendorView(bot: RecallBot): VendorView {
+  const changes = (bot.status_changes ?? []).filter((c) => typeof c?.code === "string");
+  const last = changes.at(-1) ?? null;
+  const dispatched = changes.some((c) => !PRE_JOIN_CODES.has(c.code));
+  const lastEnded = [...changes].reverse().find((c) => ENDED_CODES.has(c.code)) ?? null;
+  const recordingIds = (bot.recordings ?? []).map((r) => r?.id).filter(isRecallId);
+  const base = {
+    code: last?.code ?? null,
+    subCode: last?.sub_code ?? null,
+    at: last?.created_at ?? null,
+    dispatched,
+    recordingIds,
+  };
+  if (!dispatched) return { ...base, phase: "scheduled", status: "scheduled" };
+  if (lastEnded) {
+    return { ...base, phase: "ended", status: ENDED_CODES.get(lastEnded.code) ?? null };
+  }
+  const inProgress = last ? IN_PROGRESS_CODES.get(last.code) : undefined;
+  if (inProgress) return { ...base, phase: "in_progress", status: inProgress };
+  return { ...base, phase: "unknown", status: null };
+}
+
+/* ── the plan ─────────────────────────────────────────────────── */
+
+export type SyncPlan = {
+  /** Live rows that are no longer wanted: mark superseded. */
+  retire: FinalBotRow[];
+  /** A live row is wanted and none exists. */
+  insertLive: boolean;
+  /** The live row whose vendor bot should exist. */
+  ensure: { row: FinalBotRow; createAllowed: boolean } | null;
+  /** A patch to the live row that needs no vendor call. */
+  markLive: { row: FinalBotRow; patch: Partial<FinalBotRow> } | null;
+  /** Retired rows whose vendor bot may still be scheduled or in a call. */
+  cleanup: FinalBotRow[];
+  /** Retired rows that never reached Recall: close them. */
+  closeRetired: FinalBotRow[];
+};
+
+export function isEligible(state: SyncState): boolean {
+  const { booking, finalInterview } = state;
+  return Boolean(
+    booking &&
+      booking.purpose === "final" &&
+      booking.status === "booked" &&
+      desiredJoinAtMs(booking.scheduled_start) !== null &&
+      finalInterview?.status === "active",
+  );
+}
+
+/**
+ * What must change for the booking's bots to match the booking. Pure.
+ *
+ * One live row (superseded_at null) per booking, existing exactly when the
+ * booking is an active final round that is booked; its join time is the
+ * booking's start less the lead. Everything else is retired. A retired row
+ * that may have a vendor bot is cleaned up; one that never did is closed.
+ */
+export function planSync(state: SyncState, enabled: boolean): SyncPlan {
+  const plan: SyncPlan = {
+    retire: [],
+    insertLive: false,
+    ensure: null,
+    markLive: null,
+    cleanup: [],
+    closeRetired: [],
+  };
+  const { booking, rows } = state;
+  if (!booking) return plan;
+
+  const eligible = isEligible(state);
+  const desired = desiredJoinAtMs(booking.scheduled_start);
+  const live = rows.find((r) => r.superseded_at === null) ?? null;
+
+  if (live) {
+    if (!eligible) {
+      plan.retire.push(live);
+    } else if (Date.parse(live.join_at) !== desired) {
+      plan.retire.push(live);
+      plan.insertLive = enabled;
+    } else if (live.status === "pending" && !live.provider_bot_id) {
+      const attempted = CREATE_ATTEMPTED.has(live.last_event_code ?? "");
+      if (!booking.meeting_url && !attempted) {
+        if (live.last_event_code !== BOT_EVENT.noMeetingUrl) {
+          plan.markLive = {
+            row: live,
+            patch: { status: "fatal", last_event_code: BOT_EVENT.noMeetingUrl },
+          };
+        }
+      } else if (enabled || attempted) {
+        plan.ensure = { row: live, createAllowed: enabled && Boolean(booking.meeting_url) };
+      } else if (live.last_event_code !== BOT_EVENT.disabled) {
+        plan.markLive = { row: live, patch: { last_event_code: BOT_EVENT.disabled } };
+      }
+    }
+  } else if (eligible && enabled) {
+    plan.insertLive = true;
+  }
+
+  for (const row of rows) {
+    if (row.superseded_at === null) continue;
+    if (row.provider_bot_id) {
+      if (VENDOR_ACTIVE.has(row.status)) plan.cleanup.push(row);
+    } else if (row.status === "pending") {
+      if (CREATE_ATTEMPTED.has(row.last_event_code ?? "")) plan.cleanup.push(row);
+      else plan.closeRetired.push(row);
+    }
+  }
+  return plan;
+}
+
+function planIsEmpty(plan: SyncPlan): boolean {
+  return (
+    plan.retire.length === 0 &&
+    !plan.insertLive &&
+    !plan.ensure &&
+    !plan.markLive &&
+    plan.cleanup.length === 0 &&
+    plan.closeRetired.length === 0
+  );
+}
+
+/* ── database helpers ─────────────────────────────────────────── */
+
+function dbError(what: string, error: { code?: string } | null | undefined): Error {
+  // The code only: a PostgREST message can quote row values.
+  return new Error(`${what} failed (${error?.code ?? "db"})`);
+}
+
+async function loadState(
+  service: Service,
+  bookingId: string,
+  companyId: string | null,
+): Promise<SyncState> {
+  const { data: booking, error } = await service
+    .from("interview_bookings")
+    .select(BOOKING_COLUMNS)
+    .eq("id", bookingId)
+    .maybeSingle();
+  if (error) throw dbError("booking read", error);
+  if (!booking) return { booking: null, finalInterview: null, rows: [] };
+  const b = booking as BookingSnapshot;
+  if (companyId && b.company_id !== companyId) {
+    throw new TerminalJobError("deterministic", "the booking does not belong to the job's company");
+  }
+
+  const [fiRes, rowsRes] = await Promise.all([
+    b.final_interview_id
+      ? service
+          .from("final_interviews")
+          .select("id, company_id, job_id, application_id, status")
+          .eq("id", b.final_interview_id)
+          .eq("company_id", b.company_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null, error: null }),
+    service
+      .from("final_interview_bots")
+      .select(BOT_COLUMNS)
+      .eq("booking_id", b.id)
+      .eq("company_id", b.company_id)
+      .order("created_at", { ascending: true }),
+  ]);
+  if (fiRes.error) throw dbError("final interview read", fiRes.error);
+  if (rowsRes.error) throw dbError("bot rows read", rowsRes.error);
+  return {
+    booking: b,
+    finalInterview: (fiRes.data as FinalInterviewSnapshot | null) ?? null,
+    rows: (rowsRes.data ?? []) as FinalBotRow[],
+  };
+}
+
+type UpdateQuery = ReturnType<ReturnType<Service["from"]>["update"]>;
+type Guard = (query: UpdateQuery) => UpdateQuery;
+
+/**
+ * A conditional update of one bot row. The guard is the stale check: the row
+ * is changed only if it still looks the way the caller last read it. True
+ * when a row was changed.
+ */
+async function patchRow(
+  deps: Pick<BotDeps, "service" | "now">,
+  row: Pick<FinalBotRow, "id" | "company_id">,
+  patch: Partial<FinalBotRow>,
+  guard: Guard,
+): Promise<boolean> {
+  const query = deps.service
+    .from("final_interview_bots")
+    .update({ ...patch, updated_at: new Date(deps.now()).toISOString() })
+    .eq("id", row.id)
+    .eq("company_id", row.company_id);
+  const { data, error } = await guard(query).select("id");
+  if (error) throw dbError("bot row update", error);
+  return ((data ?? []) as unknown[]).length > 0;
+}
+
+const pendingUnsaved: Guard = (q) =>
+  q.eq("status", "pending").is("provider_bot_id", null).is("superseded_at", null);
+
+async function insertLiveRow(
+  deps: Pick<BotDeps, "service">,
+  booking: Pick<BookingSnapshot, "id" | "company_id" | "scheduled_start">,
+  finalInterview: FinalInterviewSnapshot,
+): Promise<FinalBotRow | null> {
+  const joinAt = desiredJoinAtMs(booking.scheduled_start);
+  if (joinAt === null) return null;
+  const { data, error } = await deps.service
+    .from("final_interview_bots")
+    .insert({
+      final_interview_id: finalInterview.id,
+      company_id: booking.company_id,
+      job_id: finalInterview.job_id,
+      application_id: finalInterview.application_id,
+      booking_id: booking.id,
+      provider: "recall",
+      join_at: new Date(joinAt).toISOString(),
+      status: "pending",
+    })
+    .select(BOT_COLUMNS)
+    .single();
+  if (error) {
+    // One live row per booking (migration 040): somebody else wrote it first.
+    if (error.code === "23505") return null;
+    throw dbError("bot row insert", error);
+  }
+  return data as FinalBotRow;
+}
+
+/* ── talking to Recall ────────────────────────────────────────── */
+
+function callOptions(deps: BotDeps, label: string): { signal?: AbortSignal; timeoutMs: number } {
+  assertProviderBudget(deps.ctx, MIN_CALL_BUDGET_MS, label);
+  if (!deps.ctx) return { timeoutMs: CALL_TIMEOUT_CAP_MS };
+  return {
+    signal: deps.ctx.signal,
+    timeoutMs: Math.max(1_000, Math.min(CALL_TIMEOUT_CAP_MS, deps.ctx.remainingMs() - 3_000)),
+  };
+}
+
+function recallStatus(err: unknown): number | null {
+  if (err && typeof err === "object" && "status" in err) {
+    const s = (err as { status: unknown }).status;
+    return typeof s === "number" ? s : null;
+  }
+  return null;
+}
+
+function isRetryableError(err: unknown): boolean {
+  if (err instanceof RecallApiError) return err.retryable;
+  // Not from Recall (a database read, say): let the queue retry it.
+  return !(err instanceof TerminalJobError);
+}
+
+/**
+ * What a handler rethrows. A Recall refusal raised before any request (no
+ * key, no base URL, a malformed id) is terminal; everything else goes through
+ * the shared classification.
+ */
+export function toBotJobError(err: unknown): unknown {
+  if (err instanceof JobYield || err instanceof TerminalJobError) return err;
+  if (err instanceof RecallApiError && err.status === null && !err.retryable) {
+    const config = /not set|not configured/.test(err.message);
+    return new TerminalJobError(config ? "configuration" : "deterministic", err.message, {
+      cause: err,
+    });
+  }
+  return toJobError(err);
+}
+
+/** Recall bots carrying this row's id in their metadata, ownership double-checked. */
+async function findVendorBotsForRow(deps: BotDeps, row: FinalBotRow): Promise<RecallBot[]> {
+  const { bots } = await deps.recall.listBots(
+    { metadata: { integration: RECORDING_BOT_INTEGRATION, botRowId: row.id }, maxPages: 1 },
+    callOptions(deps, "list bots"),
+  );
+  return bots.filter(
+    (b) => b.metadata?.integration === RECORDING_BOT_INTEGRATION && b.metadata?.botRowId === row.id,
+  );
+}
+
+function ownsRow(bot: RecallBot, row: FinalBotRow): boolean {
+  return (
+    bot.metadata?.companyId === row.company_id &&
+    bot.metadata?.finalInterviewId === row.final_interview_id
+  );
+}
+
+/** Write what Recall reports for this row's bot. Never writes 'deleted'. */
+async function recordVendorState(
+  deps: BotDeps,
+  row: FinalBotRow,
+  botId: string,
+  view: VendorView,
+  eventOverride?: string,
+): Promise<void> {
+  const patch: Partial<FinalBotRow> = {
+    last_event_code: eventOverride ?? view.code ?? BOT_EVENT.scheduled,
+    last_event_sub_code: view.subCode,
+    last_event_at: view.at ?? new Date(deps.now()).toISOString(),
+  };
+  if (view.status) patch.status = view.status;
+  await patchRow(deps, row, patch, (q) => q.eq("provider_bot_id", botId));
+}
+
+/** Recall confirmed the bot is gone and never joined: the one way to reach 'deleted'. */
+async function markVendorGone(
+  deps: BotDeps,
+  row: FinalBotRow,
+  botId: string,
+  event: string,
+): Promise<void> {
+  await patchRow(
+    deps,
+    row,
+    {
+      status: "deleted",
+      last_event_code: event,
+      last_event_sub_code: null,
+      last_event_at: new Date(deps.now()).toISOString(),
+    },
+    (q) => q.eq("provider_bot_id", botId),
+  );
+}
+
+/**
+ * Remove a bot Remotiv no longer wants, keeping anything it recorded.
+ *
+ *   scheduled, never joined  -> Delete Scheduled Bot; the row becomes 'deleted'
+ *   405 on that delete       -> it was dispatched meanwhile: look again
+ *   joining or in the call   -> Remove Bot From Call; media kept for the import
+ *   ended, or unknown        -> nothing; media kept, Recall's state recorded
+ *
+ * Delete Bot Media and Delete Recording are never called here.
+ */
+async function retireVendorBot(
+  deps: BotDeps,
+  row: FinalBotRow,
+  initial: RecallBot | null,
+  botId: string,
+  summary: SyncSummary,
+): Promise<void> {
+  if (!initial) {
+    await markVendorGone(deps, row, botId, BOT_EVENT.vendorNotFound);
+    summary.deleted += 1;
+    return;
+  }
+  let view = vendorView(initial);
+
+  if (view.phase === "scheduled") {
+    const outcome = await deps.recall.deleteScheduledBot(botId, callOptions(deps, "delete bot"));
+    if (outcome !== "not_allowed") {
+      await markVendorGone(deps, row, botId, BOT_EVENT.scheduledDeleted);
+      summary.deleted += 1;
+      return;
+    }
+    const again = await deps.recall.retrieveBot(botId, callOptions(deps, "retrieve bot"));
+    if (!again) {
+      await markVendorGone(deps, row, botId, BOT_EVENT.vendorNotFound);
+      summary.deleted += 1;
+      return;
+    }
+    view = vendorView(again);
+    if (view.phase === "scheduled") {
+      await recordVendorState(deps, row, botId, view);
+      // No status on purpose: the queue classifies a bare error as retryable,
+      // where a 405 would be buried as deterministic.
+      throw new Error("Recall refused to delete a bot it still reports as scheduled; retrying");
+    }
+  }
+
+  if (view.phase === "in_progress") {
+    const left = await deps.recall.leaveCall(botId, callOptions(deps, "leave call"));
+    const after =
+      left.outcome === "left"
+        ? left.bot
+        : await deps.recall.retrieveBot(botId, callOptions(deps, "retrieve bot"));
+    const afterView = after ? vendorView(after) : view;
+    await recordVendorState(
+      deps,
+      row,
+      botId,
+      afterView,
+      afterView.phase === "in_progress" ? BOT_EVENT.leaveRequested : undefined,
+    );
+    summary.left += 1;
+    return;
+  }
+
+  await recordVendorState(deps, row, botId, view);
+  summary.preserved += 1;
+}
+
+/** A bot nothing points at any more, freshly created: remove it if it has not joined. */
+async function removeIfStillScheduled(deps: BotDeps, bot: RecallBot): Promise<boolean> {
+  if (vendorView(bot).phase !== "scheduled") return false;
+  const outcome = await deps.recall.deleteScheduledBot(bot.id, callOptions(deps, "delete bot"));
+  return outcome !== "not_allowed";
+}
+
+/* ── the sync ─────────────────────────────────────────────────── */
+
+export type SyncSummary = {
+  outcome: "in_sync" | "booking_missing";
+  rounds: number;
+  created: number;
+  adopted: number;
+  retired: number;
+  deleted: number;
+  left: number;
+  preserved: number;
+};
+
+/** Persist a bot just created for this row, or compensate if the row moved on. */
+async function persistCreated(
+  deps: BotDeps,
+  row: FinalBotRow,
+  bot: RecallBot,
+  summary: SyncSummary,
+): Promise<void> {
+  const view = vendorView(bot);
+  // Guarded on the id still being unsaved only: a row superseded while the
+  // call was out still records its bot, so the cleanup can find it.
+  const applied = await patchRow(
+    deps,
+    row,
+    {
+      provider_bot_id: bot.id,
+      status: view.status ?? "scheduled",
+      last_event_code: BOT_EVENT.scheduled,
+      last_event_sub_code: null,
+      last_event_at: new Date(deps.now()).toISOString(),
+    },
+    (q) => q.is("provider_bot_id", null),
+  );
+  if (applied) {
+    summary.created += 1;
+    return;
+  }
+  const { data: current, error } = await deps.service
+    .from("final_interview_bots")
+    .select("id, provider_bot_id")
+    .eq("id", row.id)
+    .eq("company_id", row.company_id)
+    .maybeSingle();
+  if (error) throw dbError("bot row re-read", error);
+  if ((current as { provider_bot_id: string | null } | null)?.provider_bot_id === bot.id) {
+    summary.created += 1;
+    return;
+  }
+  // The row is gone, or holds another bot. Nothing will ever point at this one.
+  const removed = await removeIfStillScheduled(deps, bot);
+  console.warn(
+    `[final-bot] row ${row.id} moved on during create; new bot ${removed ? "removed" : "left for reconciliation"}`,
+  );
+}
+
+/** Adopt a bot Recall already has for this row, and remove any scheduled duplicate. */
+async function adoptVendorBots(
+  deps: BotDeps,
+  row: FinalBotRow,
+  found: RecallBot[],
+  summary: SyncSummary,
+): Promise<void> {
+  const owned = found.filter((b) => ownsRow(b, row));
+  if (owned.length !== found.length) {
+    // Metadata names this row but disagrees about whose it is. Touch nothing.
+    await patchRow(
+      deps,
+      row,
+      {
+        status: "fatal",
+        last_event_code: BOT_EVENT.metadataMismatch,
+        last_event_at: new Date(deps.now()).toISOString(),
+      },
+      pendingUnsaved,
+    );
+    console.error(`[final-bot] row ${row.id}: Recall metadata disagrees with the row; not adopted`);
+    return;
+  }
+  const canonical = owned.find((b) => vendorView(b).dispatched) ?? owned[0];
+  if (!canonical) return;
+  const view = vendorView(canonical);
+  const applied = await patchRow(
+    deps,
+    row,
+    {
+      provider_bot_id: canonical.id,
+      status: view.status ?? "scheduled",
+      last_event_code: BOT_EVENT.adopted,
+      last_event_sub_code: null,
+      last_event_at: new Date(deps.now()).toISOString(),
+    },
+    (q) => q.is("provider_bot_id", null),
+  );
+  if (applied) summary.adopted += 1;
+  for (const extra of owned) {
+    if (extra.id === canonical.id) continue;
+    // A duplicate that joined may hold media: left for the import and Recall's retention.
+    const removed = await removeIfStillScheduled(deps, extra);
+    console.warn(`[final-bot] row ${row.id}: duplicate bot ${removed ? "removed" : "kept"}`);
+  }
+}
+
+/**
+ * Make the live row's vendor bot exist. Looks Recall up by the row id before
+ * creating, and creates with a per-row idempotency key, so neither a lost
+ * response nor a failed save can produce a second bot.
+ */
+async function ensureLive(
+  deps: BotDeps,
+  row: FinalBotRow,
+  meetingUrl: string | null,
+  createAllowed: boolean,
+  summary: SyncSummary,
+): Promise<"done" | "stale"> {
+  const nowIso = () => new Date(deps.now()).toISOString();
+  const tooLate = Date.parse(row.join_at) - deps.now() < RECORDING_BOT_MIN_SCHEDULE_LEAD_MS;
+  const attempted = CREATE_ATTEMPTED.has(row.last_event_code ?? "");
+  const markTooLate = () =>
+    patchRow(
+      deps,
+      row,
+      { status: "fatal", last_event_code: BOT_EVENT.tooLate, last_event_at: nowIso() },
+      pendingUnsaved,
+    );
+
+  // Never attempted, so nothing can exist at Recall: no lookup needed.
+  if (tooLate && !attempted) return (await markTooLate()) ? "done" : "stale";
+
+  if (createAllowed) {
+    const claimed = await patchRow(
+      deps,
+      row,
+      { last_event_code: BOT_EVENT.createRequested, last_event_at: nowIso() },
+      pendingUnsaved,
+    );
+    if (!claimed) return "stale";
+  }
+
+  const found = await findVendorBotsForRow(deps, row);
+  if (found.length > 0) {
+    await adoptVendorBots(deps, row, found, summary);
+    return "done";
+  }
+  if (!createAllowed) {
+    await patchRow(
+      deps,
+      row,
+      { last_event_code: BOT_EVENT.disabled, last_event_at: nowIso() },
+      pendingUnsaved,
+    );
+    return "done";
+  }
+  if (tooLate) return (await markTooLate()) ? "done" : "stale";
+  // planSync allows a create only with a meeting URL; this is the type guard.
+  if (!meetingUrl) return "done";
+
+  let bot: RecallBot;
+  try {
+    bot = await deps.recall.createBot(buildCreateBotRequest(row, meetingUrl), {
+      ...callOptions(deps, "create bot"),
+      idempotencyKey: idempotencyKeyFor(row.id),
+    });
+  } catch (err) {
+    if (err instanceof JobYield) throw err;
+    const status = recallStatus(err);
+    if (isRetryableError(err)) {
+      // 429, 409 and 507 were refused outright; a timeout or a 5xx may have
+      // created the bot. Either way the next attempt looks Recall up first.
+      const refused = status === 429 || status === 409 || status === 507;
+      await patchRow(
+        deps,
+        row,
+        {
+          last_event_code: refused ? BOT_EVENT.createRetry : BOT_EVENT.createAmbiguous,
+          last_event_sub_code: status ? `http_${status}` : "network",
+          last_event_at: nowIso(),
+        },
+        pendingUnsaved,
+      ).catch(() => false);
+      throw err;
+    }
+    const jobErr = toBotJobError(err);
+    const failureClass = jobErr instanceof TerminalJobError ? jobErr.failureClass : "deterministic";
+    await patchRow(
+      deps,
+      row,
+      {
+        status: "fatal",
+        last_event_code: BOT_EVENT.createFailed,
+        last_event_sub_code: status ? `${failureClass}_${status}` : failureClass,
+        last_event_at: nowIso(),
+      },
+      pendingUnsaved,
+    );
+    console.error(`[final-bot] row ${row.id}: Recall refused the bot (${failureClass})`);
+    // A bad key or an empty balance fails every booking: bury the job so it is seen.
+    if (failureClass === "configuration" || failureClass === "billing") throw jobErr;
+    return "done";
+  }
+
+  await persistCreated(deps, row, bot, summary);
+  return "done";
+}
+
+/** A retired row: find its vendor bot (by saved id, or by metadata) and retire it. */
+async function cleanupRetired(deps: BotDeps, row: FinalBotRow, summary: SyncSummary) {
+  if (row.provider_bot_id) {
+    const bot = await deps.recall.retrieveBot(
+      row.provider_bot_id,
+      callOptions(deps, "retrieve bot"),
+    );
+    await retireVendorBot(deps, row, bot, row.provider_bot_id, summary);
+    return;
+  }
+  const found = (await findVendorBotsForRow(deps, row)).filter((b) => ownsRow(b, row));
+  if (found.length === 0) {
+    await closeNeverScheduled(deps, row);
+    return;
+  }
+  const [first, ...rest] = found;
+  if (!first) return;
+  const view = vendorView(first);
+  const saved = await patchRow(
+    deps,
+    row,
+    {
+      provider_bot_id: first.id,
+      status: view.status ?? "scheduled",
+      last_event_code: BOT_EVENT.adopted,
+      last_event_at: new Date(deps.now()).toISOString(),
+    },
+    (q) => q.is("provider_bot_id", null),
+  );
+  if (saved) {
+    summary.adopted += 1;
+    await retireVendorBot(deps, { ...row, provider_bot_id: first.id }, first, first.id, summary);
+  }
+  for (const extra of rest) await removeIfStillScheduled(deps, extra);
+}
+
+async function closeNeverScheduled(deps: BotDeps, row: FinalBotRow): Promise<void> {
+  await patchRow(
+    deps,
+    row,
+    {
+      status: "superseded",
+      last_event_code: BOT_EVENT.supersededUnscheduled,
+      last_event_at: new Date(deps.now()).toISOString(),
+    },
+    (q) => q.eq("status", "pending").is("provider_bot_id", null).not("superseded_at", "is", null),
+  );
+}
+
+/**
+ * Bring one booking's bots in line with the booking. Plan, act, re-read, up
+ * to MAX_ROUNDS times; a booking still changing after that goes back on the
+ * queue with backoff. Each retired row is cleaned at most once per run and
+ * the live row ensured at most once, so a bot that is slow to leave a call
+ * does not spin this loop.
+ */
+export async function syncBooking(
+  deps: BotDeps,
+  bookingId: string,
+  companyId: string | null = null,
+): Promise<SyncSummary> {
+  const summary: SyncSummary = {
+    outcome: "in_sync",
+    rounds: 0,
+    created: 0,
+    adopted: 0,
+    retired: 0,
+    deleted: 0,
+    left: 0,
+    preserved: 0,
+  };
+  const cleaned = new Set<string>();
+  const ensured = new Set<string>();
+
+  const nextPlan = (state: SyncState): SyncPlan => {
+    const plan = planSync(state, deps.enabled());
+    plan.cleanup = plan.cleanup.filter((r) => !cleaned.has(r.id));
+    if (plan.ensure && ensured.has(plan.ensure.row.id)) plan.ensure = null;
+    return plan;
+  };
+
+  for (let round = 1; round <= MAX_ROUNDS + 1; round++) {
+    const state = await loadState(deps.service, bookingId, companyId);
+    if (!state.booking) {
+      summary.outcome = "booking_missing";
+      return summary;
+    }
+    const plan = nextPlan(state);
+    if (planIsEmpty(plan)) return summary;
+    if (round > MAX_ROUNDS) break;
+    summary.rounds = round;
+
+    const nowIso = new Date(deps.now()).toISOString();
+    for (const row of plan.retire) {
+      if (
+        await patchRow(deps, row, { superseded_at: nowIso }, (q) => q.is("superseded_at", null))
+      ) {
+        summary.retired += 1;
+      }
+    }
+    if (plan.markLive) {
+      await patchRow(deps, plan.markLive.row, plan.markLive.patch, pendingUnsaved);
+    }
+    for (const row of plan.cleanup) {
+      cleaned.add(row.id);
+      await cleanupRetired(deps, row, summary);
+    }
+    for (const row of plan.closeRetired) await closeNeverScheduled(deps, row);
+    if (plan.insertLive && state.finalInterview && state.booking) {
+      await insertLiveRow(deps, state.booking, state.finalInterview);
+    }
+    if (plan.ensure) {
+      const result = await ensureLive(
+        deps,
+        plan.ensure.row,
+        state.booking.meeting_url,
+        plan.ensure.createAllowed,
+        summary,
+      );
+      if (result === "done") ensured.add(plan.ensure.row.id);
+    }
+  }
+  throw new Error("final_bot_sync: the booking kept changing during the run; retrying");
+}
+
+/* ── orphan delete: the privacy path ──────────────────────────── */
+
+export type OrphanReport = {
+  outcome: "gone" | "scheduled_deleted" | "media_deleted";
+  recordings: number;
+};
+
+/**
+ * Migration 040's trigger queues this when a bot row is deleted with its
+ * applicant, interview, booking or company. Nothing in the database points
+ * at the bot any more, so nothing it recorded can ever be imported: the bot
+ * is removed and every recording Recall holds for it is deleted. Runs with
+ * the flag off. A bot still in a call is asked to leave first; its media is
+ * deleted once Recall reports it ended, on this run or a retry.
+ */
+export async function runOrphanDelete(
+  deps: BotDeps,
+  payload: Record<string, unknown>,
+): Promise<OrphanReport> {
+  const botId = payload.providerBotId;
+  if (!isRecallId(botId)) {
+    throw new TerminalJobError("deterministic", "orphan delete payload has no valid providerBotId");
+  }
+  const recordingId = isRecallId(payload.providerRecordingId) ? payload.providerRecordingId : null;
+  const deleteMedia = async (ids: string[]) => {
+    const unique = [...new Set(ids.filter(isRecallId))];
+    for (const id of unique) {
+      await deps.recall.deleteRecording(id, callOptions(deps, "delete recording"));
+    }
+    return unique.length;
+  };
+
+  let bot = await deps.recall.retrieveBot(botId, callOptions(deps, "retrieve bot"));
+  if (!bot) {
+    return { outcome: "gone", recordings: await deleteMedia(recordingId ? [recordingId] : []) };
+  }
+  let view = vendorView(bot);
+
+  if (view.phase === "scheduled") {
+    const outcome = await deps.recall.deleteScheduledBot(botId, callOptions(deps, "delete bot"));
+    if (outcome !== "not_allowed") {
+      return {
+        outcome: "scheduled_deleted",
+        recordings: await deleteMedia(recordingId ? [recordingId] : []),
+      };
+    }
+    bot = await deps.recall.retrieveBot(botId, callOptions(deps, "retrieve bot"));
+    if (!bot) {
+      return { outcome: "gone", recordings: await deleteMedia(recordingId ? [recordingId] : []) };
+    }
+    view = vendorView(bot);
+  }
+
+  if (view.phase === "in_progress" || view.phase === "unknown") {
+    await deps.recall.leaveCall(botId, callOptions(deps, "leave call"));
+    for (let i = 0; i < ORPHAN_LEAVE_POLLS && view.phase !== "ended"; i++) {
+      await deps.sleep(ORPHAN_POLL_MS);
+      bot = await deps.recall.retrieveBot(botId, callOptions(deps, "retrieve bot"));
+      if (!bot) {
+        return { outcome: "gone", recordings: await deleteMedia(recordingId ? [recordingId] : []) };
+      }
+      view = vendorView(bot);
+    }
+  }
+  if (view.phase !== "ended") {
+    throw new Error("orphan delete: the bot has not left its call yet; media is deleted on retry");
+  }
+  const recordings = await deleteMedia([
+    ...view.recordingIds,
+    ...(recordingId ? [recordingId] : []),
+  ]);
+  return { outcome: "media_deleted", recordings };
+}
+
+/* ── reconcile: the backstop ──────────────────────────────────── */
+
+export type ReconcileReport = {
+  requeued: number;
+  pendingRows: number;
+  missingRows: number;
+  staleLiveRows: number;
+  retiredActive: number;
+  vendorSeen: number;
+  vendorAdopted: number;
+  vendorRemovedScheduled: number;
+  reportedUnidentified: number;
+  reportedMismatch: number;
+  reportedUnownedDispatched: number;
+  reportedDuplicateDispatched: number;
+  vendorTruncated: boolean;
+  vendorError: boolean;
+};
+
+async function enqueueSync(
+  deps: Pick<HookDeps, "enqueue">,
+  booking: { id: string; company_id: string },
+  botRowId: string | null,
+): Promise<"queued" | "already_queued" | "enqueue_failed"> {
+  const result = await deps.enqueue({
+    type: FINAL_BOT_SYNC_JOB,
+    companyId: booking.company_id,
+    payload: { action: "sync", bookingId: booking.id, ...(botRowId ? { botRowId } : {}) },
+    maxAttempts: SYNC_MAX_ATTEMPTS,
+  });
+  if (result.ok) return "queued";
+  // Migration 040 allows one queued-or-running sync per booking: one exists.
+  if (result.code === "23505") return "already_queued";
+  return "enqueue_failed";
+}
+
+/**
+ * Find what the hooks and the sync jobs missed, and queue a sync for it. The
+ * database pass needs no Recall call; the vendor pass reads Remotiv's own
+ * bots (metadata.integration) and adopts or removes only those, and only
+ * ever deletes a bot that is still scheduled.
+ *
+ * Runs every RECONCILE_INTERVAL_MS while the flag is on, and while it is off
+ * for as long as any bot may still be scheduled or in a call.
+ */
+export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport> {
+  const report: ReconcileReport = {
+    requeued: 0,
+    pendingRows: 0,
+    missingRows: 0,
+    staleLiveRows: 0,
+    retiredActive: 0,
+    vendorSeen: 0,
+    vendorAdopted: 0,
+    vendorRemovedScheduled: 0,
+    reportedUnidentified: 0,
+    reportedMismatch: 0,
+    reportedUnownedDispatched: 0,
+    reportedDuplicateDispatched: 0,
+    vendorTruncated: false,
+    vendorError: false,
+  };
+  const now = deps.now();
+  const settleIso = new Date(now - RECONCILE_SETTLE_MS).toISOString();
+  const lookbackIso = new Date(now - RECONCILE_LOOKBACK_MS).toISOString();
+  const enabled = deps.enabled();
+  const toSync = new Map<string, string>(); // booking id -> company id
+
+  const read = async <T>(what: string, query: PromiseLike<{ data: unknown; error: unknown }>) => {
+    const { data, error } = await query;
+    if (error) throw dbError(what, error as { code?: string });
+    return (data ?? []) as T[];
+  };
+
+  if (enabled) {
+    // Pending live rows whose job never ran or died.
+    const pending = await read<{ booking_id: string; company_id: string }>(
+      "pending rows",
+      deps.service
+        .from("final_interview_bots")
+        .select("booking_id, company_id")
+        .eq("status", "pending")
+        .is("superseded_at", null)
+        .is("provider_bot_id", null)
+        .gt("join_at", lookbackIso)
+        .lt("updated_at", settleIso)
+        .order("join_at", { ascending: true })
+        .limit(RECONCILE_BATCH),
+    );
+    for (const r of pending) toSync.set(r.booking_id, r.company_id);
+    report.pendingRows = pending.length;
+
+    // Booked final rounds with no live row at all: the hook's insert failed.
+    const minStart = new Date(
+      now + RECORDING_BOT_JOIN_LEAD_MS + RECORDING_BOT_MIN_SCHEDULE_LEAD_MS,
+    ).toISOString();
+    const booked = await read<{ id: string; company_id: string }>(
+      "booked final rounds",
+      deps.service
+        .from("interview_bookings")
+        .select("id, company_id")
+        .eq("purpose", "final")
+        .eq("status", "booked")
+        .gt("scheduled_start", minStart)
+        .lt("booked_at", settleIso)
+        .order("scheduled_start", { ascending: true })
+        .limit(RECONCILE_BATCH),
+    );
+    if (booked.length > 0) {
+      const live = await read<{ booking_id: string }>(
+        "live rows",
+        deps.service
+          .from("final_interview_bots")
+          .select("booking_id")
+          .in(
+            "booking_id",
+            booked.map((b) => b.id),
+          )
+          .is("superseded_at", null),
+      );
+      const hasLive = new Set(live.map((l) => l.booking_id));
+      for (const b of booked) {
+        if (hasLive.has(b.id)) continue;
+        toSync.set(b.id, b.company_id);
+        report.missingRows += 1;
+      }
+    }
+  }
+
+  // Live rows whose booking was cancelled or moved while a job was running.
+  const liveRows = await read<{
+    booking_id: string;
+    company_id: string;
+    join_at: string;
+  }>(
+    "live rows",
+    deps.service
+      .from("final_interview_bots")
+      .select("booking_id, company_id, join_at")
+      .is("superseded_at", null)
+      .in("status", [...VENDOR_ACTIVE])
+      .gt("join_at", lookbackIso)
+      .lt("updated_at", settleIso)
+      .order("join_at", { ascending: true })
+      .limit(RECONCILE_BATCH),
+  );
+  if (liveRows.length > 0) {
+    const bookings = await read<{ id: string; status: string; scheduled_start: string | null }>(
+      "bookings of live rows",
+      deps.service
+        .from("interview_bookings")
+        .select("id, status, scheduled_start")
+        .in(
+          "id",
+          liveRows.map((r) => r.booking_id),
+        ),
+    );
+    const byId = new Map(bookings.map((b) => [b.id, b]));
+    for (const r of liveRows) {
+      const b = byId.get(r.booking_id);
+      const stale =
+        b?.status !== "booked" || Date.parse(r.join_at) !== desiredJoinAtMs(b.scheduled_start);
+      if (!stale) continue;
+      toSync.set(r.booking_id, r.company_id);
+      report.staleLiveRows += 1;
+    }
+  }
+
+  // Retired rows whose bot may still be scheduled or in a call.
+  const retired = await read<{ booking_id: string; company_id: string }>(
+    "retired active rows",
+    deps.service
+      .from("final_interview_bots")
+      .select("booking_id, company_id")
+      .not("superseded_at", "is", null)
+      .not("provider_bot_id", "is", null)
+      .in("status", ["scheduled", "waiting_room", "in_call", "recording"])
+      .gt("join_at", lookbackIso)
+      .lt("updated_at", settleIso)
+      .limit(RECONCILE_BATCH),
+  );
+  const retiredUnsaved = await read<{ booking_id: string; company_id: string }>(
+    "retired unsaved rows",
+    deps.service
+      .from("final_interview_bots")
+      .select("booking_id, company_id")
+      .not("superseded_at", "is", null)
+      .is("provider_bot_id", null)
+      .eq("status", "pending")
+      .in("last_event_code", [...CREATE_ATTEMPTED])
+      .gt("join_at", lookbackIso)
+      .lt("updated_at", settleIso)
+      .limit(RECONCILE_BATCH),
+  );
+  for (const r of [...retired, ...retiredUnsaved]) toSync.set(r.booking_id, r.company_id);
+  report.retiredActive = retired.length + retiredUnsaved.length;
+
+  for (const [bookingId, companyId] of toSync) {
+    const outcome = await enqueueSync(deps, { id: bookingId, company_id: companyId }, null);
+    if (outcome === "queued") report.requeued += 1;
+  }
+
+  try {
+    await reconcileVendor(deps, report, toSync);
+  } catch (err) {
+    if (!(err instanceof JobYield)) {
+      report.vendorError = true;
+      console.error(
+        `[final-bot] reconcile vendor pass stopped: ${err instanceof Error ? err.message : "error"}`,
+      );
+    } else {
+      report.vendorTruncated = true;
+    }
+  }
+  return report;
+}
+
+async function reconcileVendor(
+  deps: BotDeps,
+  report: ReconcileReport,
+  alreadyQueued: Map<string, string>,
+): Promise<void> {
+  const since = new Date(deps.now() - RECONCILE_LOOKBACK_MS).toISOString().slice(0, 10);
+  const { bots, truncated } = await deps.recall.listBots(
+    {
+      metadata: { integration: RECORDING_BOT_INTEGRATION },
+      joinAtAfter: since,
+      maxPages: RECONCILE_VENDOR_PAGES,
+    },
+    callOptions(deps, "list bots"),
+  );
+  report.vendorTruncated = truncated;
+
+  for (const bot of bots) {
+    const meta = bot.metadata ?? {};
+    // Recall filtered on this already; checked again because only this marker
+    // makes a bot Remotiv's to touch.
+    if (meta.integration !== RECORDING_BOT_INTEGRATION) continue;
+    report.vendorSeen += 1;
+    const rowId = meta.botRowId;
+    if (!isRecallId(rowId) || !isRecallId(bot.id)) {
+      report.reportedUnidentified += 1;
+      continue;
+    }
+    const { data, error } = await deps.service
+      .from("final_interview_bots")
+      .select(BOT_COLUMNS)
+      .eq("id", rowId)
+      .maybeSingle();
+    if (error) throw dbError("bot row read", error);
+    const row = data as FinalBotRow | null;
+    const view = vendorView(bot);
+
+    if (!row) {
+      // Nothing points at it. Scheduled is safe to remove; anything else may
+      // hold media and is left to Recall's 72-hour retention.
+      if (view.phase === "scheduled") {
+        if (await removeIfStillScheduled(deps, bot)) report.vendorRemovedScheduled += 1;
+      } else {
+        report.reportedUnownedDispatched += 1;
+      }
+      continue;
+    }
+    if (row.company_id !== meta.companyId || row.final_interview_id !== meta.finalInterviewId) {
+      report.reportedMismatch += 1;
+      continue;
+    }
+    if (!row.provider_bot_id) {
+      const applied = await patchRow(
+        deps,
+        row,
+        {
+          provider_bot_id: bot.id,
+          status: view.status ?? row.status,
+          last_event_code: BOT_EVENT.adopted,
+          last_event_at: new Date(deps.now()).toISOString(),
+        },
+        (q) => q.is("provider_bot_id", null),
+      );
+      if (applied) {
+        report.vendorAdopted += 1;
+        if (!alreadyQueued.has(row.booking_id)) {
+          alreadyQueued.set(row.booking_id, row.company_id);
+          if (
+            (await enqueueSync(deps, { id: row.booking_id, company_id: row.company_id }, null)) ===
+            "queued"
+          ) {
+            report.requeued += 1;
+          }
+        }
+      }
+      continue;
+    }
+    if (row.provider_bot_id !== bot.id) {
+      if (view.phase === "scheduled") {
+        if (await removeIfStillScheduled(deps, bot)) report.vendorRemovedScheduled += 1;
+      } else {
+        report.reportedDuplicateDispatched += 1;
+      }
+    }
+  }
+}
+
+/**
+ * Whether the reconcile job should be scheduled at all. With the flag on,
+ * always. With it off, only while a bot from the last day may still be
+ * scheduled or in a call, so a deployment that never turned recording on
+ * never queues one, and one that turned it off stops a day later.
+ */
+export async function finalBotReconcileWanted(
+  overrides: Partial<Pick<BotDeps, "service" | "enabled" | "now">> = {},
+): Promise<boolean> {
+  const enabled = overrides.enabled ?? (() => isRecallRecordingEnabled());
+  if (enabled()) return true;
+  const service = overrides.service ?? createServiceClient();
+  const since = new Date((overrides.now ?? Date.now)() - RECONCILE_LOOKBACK_MS).toISOString();
+  const [active, unsaved] = await Promise.all([
+    service
+      .from("final_interview_bots")
+      .select("id")
+      .in("status", ["scheduled", "waiting_room", "in_call", "recording"])
+      .gt("join_at", since)
+      .limit(1),
+    service
+      .from("final_interview_bots")
+      .select("id")
+      .eq("status", "pending")
+      .in("last_event_code", [...CREATE_ATTEMPTED])
+      .gt("join_at", since)
+      .limit(1),
+  ]);
+  if (active.error || unsaved.error) return false;
+  return ((active.data ?? []) as unknown[]).length + ((unsaved.data ?? []) as unknown[]).length > 0;
+}
+
+/* ── the job handler ──────────────────────────────────────────── */
+
+/** Dispatch one final_bot_sync job. Exported with injectable deps for tests. */
+export async function processFinalBotJob(
+  deps: BotDeps,
+  job: Pick<BackgroundJob, "id" | "company_id" | "payload">,
+): Promise<SyncSummary | OrphanReport | ReconcileReport> {
+  const payload = (job.payload ?? {}) as Record<string, unknown>;
+  try {
+    if (payload.action === "delete") {
+      const report = await runOrphanDelete(deps, payload);
+      console.log(
+        `[final-bot] orphan delete: ${report.outcome}, ${report.recordings} recording(s)`,
+      );
+      return report;
+    }
+    if (payload.action === "reconcile") {
+      const report = await reconcileFinalBots(deps);
+      console.log(`[final-bot] reconcile: ${JSON.stringify(report)}`);
+      return report;
+    }
+    if (payload.action !== "sync" && payload.action !== undefined) {
+      throw new TerminalJobError("deterministic", "unknown final_bot_sync action");
+    }
+    const bookingId = payload.bookingId;
+    if (typeof bookingId !== "string" || !bookingId) {
+      throw new TerminalJobError("deterministic", "final_bot_sync payload has no bookingId");
+    }
+    const summary = await syncBooking(deps, bookingId, job.company_id);
+    console.log(
+      `[final-bot] sync ${bookingId}: ${summary.outcome}, rounds ${summary.rounds}, created ${summary.created}, adopted ${summary.adopted}, deleted ${summary.deleted}, left ${summary.left}, kept ${summary.preserved}`,
+    );
+    return summary;
+  } catch (err) {
+    throw toBotJobError(err);
+  }
+}
+
+export async function handleFinalBotSync(job: BackgroundJob, ctx?: JobContext): Promise<void> {
+  await processFinalBotJob(workerDeps(ctx), job);
+}
+
+/* ── booking hooks: no Recall calls, never throw, bounded ─────── */
+
+export type HookBooking = Pick<
+  BookingRow,
+  "id" | "company_id" | "purpose" | "final_interview_id" | "scheduled_start" | "status"
+>;
+
+export type HookOutcome =
+  | "not_final"
+  | "disabled"
+  | "ineligible"
+  | "no_bots"
+  | "queued"
+  | "already_queued"
+  | "enqueue_failed"
+  | "failed"
+  | "timed_out";
+
+export type HookOverrides = Partial<HookDeps> & { timeoutMs?: number };
+
+function hookDeps(overrides: HookOverrides): HookDeps {
+  return {
+    service: overrides.service ?? createServiceClient(),
+    enqueue: overrides.enqueue ?? lazyEnqueue,
+    enabled: hookEnabled(overrides),
+    now: overrides.now ?? Date.now,
+  };
+}
+
+function hookEnabled(overrides: HookOverrides): () => boolean {
+  return overrides.enabled ?? (() => isRecallRecordingEnabled());
+}
+
+/**
+ * Run a hook's work without ever failing or holding up the booking response.
+ * Anything short of queued is logged with the booking id only; the reconcile
+ * job finds whatever was missed.
+ */
+async function runHook(
+  name: string,
+  bookingId: string,
+  timeoutMs: number,
+  work: () => Promise<HookOutcome>,
+): Promise<HookOutcome> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const timeout = new Promise<HookOutcome>((resolve) => {
+    timer = setTimeout(() => resolve("timed_out"), timeoutMs);
+  });
+  try {
+    const outcome = await Promise.race([
+      work().catch((err: unknown) => {
+        console.error(
+          `[final-bot] ${name} hook ${bookingId}: ${err instanceof Error ? err.message : "error"}`,
+        );
+        return "failed" as const;
+      }),
+      timeout,
+    ]);
+    if (outcome === "failed" || outcome === "timed_out" || outcome === "enqueue_failed") {
+      console.warn(`[final-bot] ${name} hook ${bookingId}: ${outcome}; reconciliation will retry`);
+    }
+    return outcome;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+async function readFinalInterview(
+  service: Service,
+  booking: HookBooking,
+): Promise<FinalInterviewSnapshot | null> {
+  if (!booking.final_interview_id) return null;
+  const { data, error } = await service
+    .from("final_interviews")
+    .select("id, company_id, job_id, application_id, status")
+    .eq("id", booking.final_interview_id)
+    .eq("company_id", booking.company_id)
+    .maybeSingle();
+  if (error) throw dbError("final interview read", error);
+  return (data as FinalInterviewSnapshot | null) ?? null;
+}
+
+/** POST /api/book/[token], after the calendar event exists. */
+export async function onFinalBookingConfirmed(
+  booking: HookBooking,
+  overrides: HookOverrides = {},
+): Promise<HookOutcome> {
+  if (booking.purpose !== "final" || !booking.final_interview_id) return "not_final";
+  // Off means nothing at all: no database client, no row, no job.
+  if (!hookEnabled(overrides)()) return "disabled";
+  return runHook("booked", booking.id, overrides.timeoutMs ?? HOOK_TIMEOUT_MS, async () => {
+    const deps = hookDeps(overrides);
+    const fi = await readFinalInterview(deps.service, booking);
+    if (fi?.status !== "active" || desiredJoinAtMs(booking.scheduled_start) === null) {
+      return "ineligible";
+    }
+    const row = await insertLiveRow(deps, booking, fi);
+    return enqueueSync(deps, booking, row?.id ?? null);
+  });
+}
+
+/** PATCH /api/book/[token], after the booking moved. Cleanup runs with the flag off. */
+export async function onFinalBookingRescheduled(
+  booking: HookBooking,
+  overrides: HookOverrides = {},
+): Promise<HookOutcome> {
+  if (booking.purpose !== "final" || !booking.final_interview_id) return "not_final";
+  return runHook("rescheduled", booking.id, overrides.timeoutMs ?? HOOK_TIMEOUT_MS, async () => {
+    const deps = hookDeps(overrides);
+    const nowIso = new Date(deps.now()).toISOString();
+    const { data: retired, error } = await deps.service
+      .from("final_interview_bots")
+      .update({ superseded_at: nowIso, updated_at: nowIso })
+      .eq("booking_id", booking.id)
+      .eq("company_id", booking.company_id)
+      .is("superseded_at", null)
+      .select("id");
+    if (error) throw dbError("bot row retire", error);
+
+    let inserted: FinalBotRow | null = null;
+    if (deps.enabled()) {
+      const fi = await readFinalInterview(deps.service, booking);
+      if (fi?.status === "active") inserted = await insertLiveRow(deps, booking, fi);
+    }
+    if (((retired ?? []) as unknown[]).length === 0 && !inserted) {
+      return deps.enabled() ? "ineligible" : "no_bots";
+    }
+    return enqueueSync(deps, booking, inserted?.id ?? null);
+  });
+}
+
+/** DELETE /api/book/[token] and cancelFinalInterview, after the booking is cancelled. */
+export async function onFinalBookingCancelled(
+  booking: HookBooking,
+  overrides: HookOverrides = {},
+): Promise<HookOutcome> {
+  if (booking.purpose !== "final" || !booking.final_interview_id) return "not_final";
+  return runHook("cancelled", booking.id, overrides.timeoutMs ?? HOOK_TIMEOUT_MS, async () => {
+    const deps = hookDeps(overrides);
+    const nowIso = new Date(deps.now()).toISOString();
+    // Retired at once, so a create that has not started yet sees it is stale.
+    const { error: retireErr } = await deps.service
+      .from("final_interview_bots")
+      .update({ superseded_at: nowIso, updated_at: nowIso })
+      .eq("booking_id", booking.id)
+      .eq("company_id", booking.company_id)
+      .is("superseded_at", null)
+      .select("id");
+    if (retireErr) throw dbError("bot row retire", retireErr);
+    const { data: existing, error } = await deps.service
+      .from("final_interview_bots")
+      .select("id")
+      .eq("booking_id", booking.id)
+      .eq("company_id", booking.company_id)
+      .limit(1);
+    if (error) throw dbError("bot rows read", error);
+    if (((existing ?? []) as unknown[]).length === 0) return "no_bots";
+    return enqueueSync(deps, booking, null);
+  });
+}

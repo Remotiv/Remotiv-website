@@ -3,7 +3,8 @@
  *
  * Client-safe on purpose: no server imports, so the drawer card (step 3b) and
  * the candidate booking page can read the same labels, durations and notice
- * text the server enforces. Every value here matches a CHECK in migration 038.
+ * text the server enforces. Every vocabulary here matches a CHECK in migration
+ * 038 or 040.
  */
 
 export const INTERVIEW_TYPES = [
@@ -60,6 +61,52 @@ export function recordingNoticeText(companyName: string): string {
   const company = companyName.trim() || "the company";
   return `This interview will be recorded. The recording will be available only to authorized members of ${company}'s hiring team and will be deleted after 6 months.`;
 }
+
+/* ── recording bot (migration 040) ──────────────────────────────── */
+
+/** final_interview_bots.status, in migration 040's CHECK order. */
+export const FINAL_BOT_STATUSES = [
+  "pending",
+  "scheduled",
+  "waiting_room",
+  "in_call",
+  "recording",
+  "call_ended",
+  "done",
+  "fatal",
+  "superseded",
+  "deleted",
+] as const;
+export type FinalBotStatus = (typeof FINAL_BOT_STATUSES)[number];
+
+/** final_interview_bots.import_status, in migration 040's CHECK order. */
+export const FINAL_BOT_IMPORT_STATUSES = [
+  "none",
+  "queued",
+  "importing",
+  "ready",
+  "failed",
+] as const;
+export type FinalBotImportStatus = (typeof FINAL_BOT_IMPORT_STATUSES)[number];
+
+/** The participant name candidates and interviewers see in the call. */
+export const RECORDING_BOT_NAME = "Remotiv Recorder";
+/** The bot is told to join this long before the interview starts. */
+export const RECORDING_BOT_JOIN_LEAD_MS = 60_000;
+/**
+ * Recall treats a bot whose join time is more than 10 minutes away as
+ * scheduled; closer than that it is an ad-hoc bot from a shared pool, which V1
+ * does not use. A bot is never created with less lead than this.
+ */
+export const RECORDING_BOT_MIN_SCHEDULE_LEAD_MS = 10 * 60_000;
+/** Recall keeps the media this long unless the import deletes it sooner. */
+export const RECORDING_BOT_RETENTION_HOURS = 72;
+export const RECORDING_BOT_WAITING_ROOM_TIMEOUT_S = 600;
+export const RECORDING_BOT_NOONE_JOINED_TIMEOUT_S = 900;
+export const RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S = 30;
+export const RECORDING_BOT_RECORDING_TIMEOUT_S = 10_800;
+/** metadata.integration on every bot Remotiv creates; the only marker reconciliation trusts. */
+export const RECORDING_BOT_INTEGRATION = "remotiv-final-interview";
 
 /* ── fixed copy ─────────────────────────────────────────────────── */
 

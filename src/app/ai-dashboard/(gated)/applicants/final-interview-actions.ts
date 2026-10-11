@@ -16,6 +16,7 @@ import {
 } from "@/lib/calendar/bookings";
 import "@/lib/calendar/google";
 import { sendCancellationNotices, sendFinalInterviewLinkEmail } from "@/lib/calendar/notify";
+import { onFinalBookingCancelled } from "@/lib/final-interviews/bots";
 import {
   CUSTOM_LABEL_MAX,
   DEFAULT_FINAL_DURATION,
@@ -557,7 +558,7 @@ export async function cancelFinalInterview(
       resolveHostEmail(fi.host_member_id, ctx.companyId),
     ]);
     // The booking is already cancelled by this point, so a refusal here must not
-    // abort — the notices degrade to the same fallbacks a missing row has always
+    // abort - the notices degrade to the same fallbacks a missing row has always
     // produced rather than leaving the cancellation half-done.
     const app = appGate.ok ? appGate.app : null;
     const candidateName = [app?.first_name, app?.last_name].filter(Boolean).join(" ").trim();
@@ -601,6 +602,10 @@ export async function cancelFinalInterview(
       .eq("id", live.id)
       .eq("status", "invited");
   }
+
+  // The recording bot, if one was scheduled: queues its removal, keeping
+  // anything it recorded. Bounded, never throws, never calls Recall.
+  if (live) await onFinalBookingCancelled(live);
 
   const { error } = await service
     .from("final_interviews")

@@ -22,6 +22,11 @@ import {
 } from "@/lib/calendar/notify";
 import { formatInZone, isValidTimeZone } from "@/lib/calendar/timezone";
 import {
+  onFinalBookingCancelled,
+  onFinalBookingConfirmed,
+  onFinalBookingRescheduled,
+} from "@/lib/final-interviews/bots";
+import {
   interviewTypeLabel,
   RECORDING_NOTICE_VERSION,
   recordingNoticeText,
@@ -449,6 +454,11 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
     return fail(502, "calendar_failed");
   }
 
+  // Final rounds only, behind RECALL_RECORDING_ENABLED: a bot row and a queued
+  // job, never a Recall call. Bounded and never throws, so the booking's
+  // response is the same whatever happens in there.
+  await onFinalBookingConfirmed(claim.row);
+
   /*
    * Both sides are told. A failure here does not undo the booking — the meeting
    * is real and on the calendar; the email is a notification about it. But it
@@ -562,6 +572,10 @@ export async function PATCH(request: Request, { params }: { params: Promise<{ to
     return fail(status, moved.reason);
   }
 
+  // Final rounds only: the old bot is retired and a new one queued. Bounded,
+  // never throws, never calls Recall; the old bot's cleanup runs with the flag off.
+  await onFinalBookingRescheduled(moved.row);
+
   const ctx = await loadContext(row);
   const notices = await sendRescheduleNotices({
     row: moved.row,
@@ -641,6 +655,10 @@ export async function DELETE(request: Request, { params }: { params: Promise<{ t
   if (!cancelled.ok) {
     return fail(cancelled.reason === "write_failed" ? 500 : 409, cancelled.reason);
   }
+
+  // Final rounds only: queues removal of the bot, keeping anything it recorded.
+  // Bounded, never throws, never calls Recall, runs with the flag off.
+  await onFinalBookingCancelled(cancelled.row);
 
   const ctx = await loadContext(row);
   const notices = await sendCancellationNotices({
