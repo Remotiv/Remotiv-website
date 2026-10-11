@@ -233,15 +233,28 @@ function fullName(first: string | null, last: string | null, fallback: string): 
  * log outlives the application on purpose — a sent email is a fact about the
  * past — so a missing application degrades to the stored to_address.
  */
-async function hydrate(service: Service, logs: LogRow[]): Promise<MessageRow[]> {
+async function hydrate(
+  ctx: Awaited<ReturnType<typeof getCompanyContext>>,
+  service: Service,
+  logs: LogRow[],
+): Promise<MessageRow[]> {
   const ids = [...new Set(logs.map((l) => l.application_id).filter(Boolean))] as string[];
   const byId = new Map<string, AppLite>();
 
   // Chunked: a company with a long log would otherwise overflow the URL.
   for (let i = 0; i < ids.length; i += 200) {
+    /*
+     * Filtered on the company, not only on the ids. The ids arrive off
+     * communication_logs rows already scoped to ctx.companyId, but that is a
+     * write-time invariant — nothing ties a log's company to its application's
+     * company_id_snapshot, and the only foreign key here points at
+     * job_applications(id) alone. This read returns name, email and job title,
+     * so it checks for itself rather than trusting the caller's ids.
+     */
     const { data } = await service
       .from("job_applications")
       .select("id, first_name, last_name, email, job_id, job_title_snapshot, jobs(title)")
+      .eq("company_id_snapshot", ctx.companyId)
       .in("id", ids.slice(i, i + 200));
     for (const row of (data ?? []) as unknown as AppLite[]) byId.set(row.id, row);
   }
@@ -451,7 +464,7 @@ export async function fetchMessages(input: {
   ]);
 
   return answered({
-    rows: await hydrate(service, (data ?? []) as unknown as LogRow[]),
+    rows: await hydrate(ctx, service, (data ?? []) as unknown as LogRow[]),
     matching: count ?? 0,
   });
 }
@@ -495,7 +508,7 @@ export async function fetchApplicationMessages(
 
   return {
     ok: true,
-    rows: await hydrate(service, truncated ? logs.slice(0, APPLICATION_MESSAGE_CAP) : logs),
+    rows: await hydrate(ctx, service, truncated ? logs.slice(0, APPLICATION_MESSAGE_CAP) : logs),
     truncated,
   };
 }

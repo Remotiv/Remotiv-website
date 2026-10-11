@@ -259,37 +259,6 @@ const ALLOWLIST = [
   },
   {
     file: `${DASH}/messages/actions.ts`,
-    fn: "hydrate",
-    query:
-      '.select("id, first_name, last_name, email, job_id, job_title_snapshot, jobs(title)").in("id", ids.slice(i, i + 200))',
-    // NOTHING is mechanically asserted here, deliberately. hydrate takes
-    // `logs` as a PARAMETER, so its scoping lives in two different callers.
-    // Declaring a guard would be a false claim; the mechanism is not applied
-    // where it cannot check anything.
-    unprovable: [
-      "Everything. hydrate receives `logs` as an argument, so no read in this function " +
-        "establishes tenancy and there is nothing in scope to assert. Both callers happen to " +
-        "filter communication_logs on ctx.companyId (423, 482), but a third caller could pass " +
-        "unscoped logs and this test would stay green.",
-      "The write-time invariant that communication_logs.company_id equals the linked " +
-        "application's company_id_snapshot, which is what makes the derivation hold at all.",
-      "This is the entry to fix in production rather than in the allowlist: it returns PII, and " +
-        "the honest repair is to pass ctx and filter here, not to document harder.",
-    ],
-    why:
-      "ids is built at 237 from logs.map((l) => l.application_id). logs has exactly two origins, " +
-      "both company-scoped reads of communication_logs: the list view at 414-443 with " +
-      '.eq("company_id", ctx.companyId) at 423 plus q.in("application_id", allowedApps) at 427 ' +
-      'for scoped roles, and the drawer at 477-486 with .eq("company_id", ctx.companyId) at 482 ' +
-      "behind canSeeApplication at 469. Every id is therefore an application_id read off a log " +
-      "row already filtered to this company. Unlike the HEAD counts this read returns PII — name, " +
-      "email, job title — so the cross-table invariant it depends on matters: it holds only while " +
-      "communication_logs.company_id always equals the linked application's company_id_snapshot, " +
-      "a write-time property (lib/email/candidate/deliver.ts:121, lib/whatsapp/dispatch.ts:409) " +
-      "and not a filter on this query. Reported as a finding.",
-  },
-  {
-    file: `${DASH}/messages/actions.ts`,
     fn: "fetchApplicationInbound",
     query: '.select("phone").eq("id", applicationId).maybeSingle()',
     // Fully checked, and the reason this mechanism exists. Every clause is
