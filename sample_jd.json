@@ -1,0 +1,36 @@
+{
+  "title": "Machine Learning Engineer",
+  "company": "Remotiv",
+  "experience_years": 3,
+  "level": "mid",
+  "interview_duration_minutes": 30,
+  "description": "We are looking for a Machine Learning Engineer to join our AI team. You will design, build, and deploy ML models that power our core product. You'll work closely with data engineers and product teams to ship production-grade solutions.",
+  "responsibilities": [
+    "Design and implement ML pipelines from data ingestion to model deployment",
+    "Train, evaluate, and optimize deep learning models for computer vision and NLP tasks",
+    "Build and maintain scalable inference services",
+    "Collaborate with cross-functional teams to translate business requirements into ML solutions",
+    "Monitor model performance in production and iterate based on metrics"
+  ],
+  "required_skills": [
+    "Python",
+    "PyTorch or TensorFlow",
+    "Computer Vision",
+    "Deep Learning",
+    "Model deployment and serving",
+    "Docker",
+    "Git"
+  ],
+  "nice_to_have": [
+    "Experience with real-time inference systems",
+    "Familiarity with ONNX, TensorRT, or model optimization",
+    "Experience with distributed training",
+    "Kubernetes or cloud ML platforms (AWS SageMaker, GCP Vertex AI)"
+  ],
+  "interview_focus": [
+    "Technical depth in ML fundamentals and practical application",
+    "Ability to take a project from research to production",
+    "Problem-solving approach and debugging skills",
+    "Communication and collaboration"
+  ]
+}

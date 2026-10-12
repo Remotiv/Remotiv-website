@@ -1,0 +1,38 @@
+# Git
+.git
+.gitignore
+.gitattributes
+
+# Docker
+Dockerfile
+.docker
+.dockerignore
+
+# Byte-compiled / optimized / DLL files
+**/__pycache__/
+**/*.py[cod]
+
+# C extensions
+*.so
+
+# Distribution / packaging
+.Python
+env/
+
+# Unit test / coverage reports
+.coverage
+.cache
+
+# Virtual environment
+.env
+.venv/
+venv/
+
+# PyCharm
+.idea/
+
+# Vscode
+.vscode/
+
+# MacOs
+.DS_Store

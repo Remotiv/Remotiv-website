@@ -1,0 +1,32 @@
+# =============================================================================
+# Model config — Gemma 4 E4B Q4_1 via llama-cpp-python
+# =============================================================================
+# To swap models: create a new YAML (e.g. llama4_scout.yaml) with the same
+# top-level keys and point --model-config at it. Nothing else changes.
+
+backend: gemma4                           # maps to backends/gemma4/
+
+model:
+  path: "./model_pth/gemma-4-E4B-it-Q4_1.gguf"
+  context_size: 32768
+  n_gpu_layers: -1
+  flash_attn: false
+  verbose: false
+
+audio:
+  enabled: true
+  mmproj_path: "./model_pth/mmproj-BF16.gguf"
+  warmup_wav: "./test_question/test_question.wav"
+
+generation:
+  max_tokens: 1536
+  soft_limit: 1400
+
+# Template tokens — model-specific chat format.
+# {system} and {user_content} are replaced at runtime.
+chat_template:
+  system_prefix: "<|turn>system\n"
+  system_suffix: "<turn|>\n<|turn>user\n"
+  post_user: "<turn|>\n<|turn>model\n"
+  # If the model uses a different audio marker, override here.
+  # audio_marker is auto-detected from mtmd by default.

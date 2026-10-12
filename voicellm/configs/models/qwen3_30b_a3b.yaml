@@ -1,0 +1,25 @@
+# =============================================================================
+# Model config — Qwen3-30B-A3B (MoE, 3B active) via llama-cpp-python
+# =============================================================================
+
+backend: qwen3
+
+model:
+  path: "./model_pth/Qwen3-30B-A3B-Instruct-2507-Q4_K_M.gguf"
+  context_size: 32768
+  # 48 layers total — offload 8 to CPU to leave ~7GB for Kokoro TTS + KV cache
+  n_gpu_layers: 40
+  flash_attn: true
+  verbose: false
+
+audio:
+  enabled: false
+
+generation:
+  max_tokens: 1536
+  soft_limit: 1400
+
+chat_template:
+  system_prefix: "<|im_start|>system\n"
+  system_suffix: "<|im_end|>\n<|im_start|>user\n"
+  post_user: "<|im_end|>\n<|im_start|>assistant\n"

@@ -1,0 +1,310 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>VoxAgent Test</title>
+<style>
+  * { margin: 0; padding: 0; box-sizing: border-box; }
+  body { font-family: system-ui, sans-serif; background: #0c0e12; color: #d4d8e0; min-height: 100vh; display: flex; align-items: center; justify-content: center; }
+  .container { max-width: 520px; width: 100%; padding: 32px 24px; }
+  h1 { font-size: 22px; font-weight: 700; margin-bottom: 8px; }
+  .sub { color: #7a8194; font-size: 14px; margin-bottom: 24px; }
+  .status { display: inline-block; padding: 4px 12px; border-radius: 20px; font-size: 12px; font-weight: 600; margin-bottom: 20px; }
+  .status.idle { background: rgba(122,129,148,0.15); color: #7a8194; }
+  .status.connecting { background: rgba(74,158,255,0.15); color: #4a9eff; }
+  .status.listening { background: rgba(224,85,85,0.15); color: #e05555; }
+  .status.speaking { background: rgba(126,71,255,0.15); color: #7e47ff; }
+  .status.processing { background: rgba(240,168,48,0.15); color: #f0a830; }
+  .status.complete { background: rgba(73,215,167,0.15); color: #49d7a7; }
+  .status.error { background: rgba(224,85,85,0.15); color: #e05555; }
+  .chat { background: #13161c; border: 1px solid #252a35; border-radius: 12px; padding: 16px; min-height: 300px; max-height: 450px; overflow-y: auto; margin-bottom: 16px; }
+  .chat .empty { display: flex; align-items: center; justify-content: center; height: 260px; color: #333; font-size: 14px; }
+  .msg { margin-bottom: 12px; padding: 10px 14px; border-radius: 10px; font-size: 13.5px; line-height: 1.55; }
+  .msg.ai { background: rgba(126,71,255,0.1); border-left: 3px solid #7e47ff; }
+  .msg.user { background: rgba(73,215,167,0.1); border-left: 3px solid #49d7a7; }
+  .msg .label { font-size: 10px; font-weight: 700; text-transform: uppercase; letter-spacing: 0.05em; opacity: 0.6; margin-bottom: 4px; }
+  .msg.ai .label { color: #7e47ff; }
+  .msg.user .label { color: #49d7a7; }
+  .controls { display: flex; gap: 10px; margin-bottom: 10px; }
+  button { flex: 1; padding: 14px; border: none; border-radius: 10px; font-size: 14px; font-weight: 600; cursor: pointer; transition: 0.15s; font-family: inherit; }
+  button:disabled { opacity: 0.3; cursor: not-allowed; }
+  .btn-primary { background: #7e47ff; color: #fff; }
+  .btn-primary:hover:not(:disabled) { background: #6d38f0; }
+  .btn-danger { background: rgba(224,85,85,0.15); color: #e05555; flex: none; width: 80px; }
+  .btn-danger:hover:not(:disabled) { background: rgba(224,85,85,0.25); }
+  .btn-green { background: #49d7a7; color: #0c0e12; }
+  .btn-green:hover:not(:disabled) { background: #3bc494; }
+  .btn-secondary { background: #1c2029; color: #4e5568; }
+  .transcript { margin-top: 16px; padding: 12px; background: #13161c; border: 1px solid #252a35; border-radius: 10px; font-size: 12px; color: #7a8194; max-height: 200px; overflow-y: auto; white-space: pre-wrap; display: none; }
+  .cv-upload { background: #13161c; border: 1px solid #252a35; border-radius: 12px; padding: 16px; margin-bottom: 16px; }
+  .cv-upload input[type="file"]::file-selector-button { background: #1c2029; color: #d4d8e0; border: 1px solid #252a35; border-radius: 6px; padding: 6px 14px; cursor: pointer; font-size: 12px; }
+  @keyframes pulse { 0%,100% { opacity: 1; } 50% { opacity: 0.3; } }
+  .rec-dot { display: inline-block; width: 8px; height: 8px; border-radius: 50%; background: #e05555; animation: pulse 1.2s infinite; margin-right: 6px; vertical-align: middle; }
+</style>
+</head>
+<body>
+<div class="container">
+  <h1>VoxAgent Test</h1>
+  <p class="sub">Speak with Sarah to test the pipeline. VoxAgent must be running on port 8000.</p>
+
+  <div class="cv-upload" id="cvUpload">
+    <label for="cvFile" style="display:block;font-size:13px;color:#7a8194;margin-bottom:8px;">Upload CV (PDF) — optional</label>
+    <input type="file" id="cvFile" accept=".pdf" style="font-size:13px;color:#d4d8e0;margin-bottom:8px;width:100%;">
+    <div id="cvStatus" style="font-size:12px;color:#7a8194;min-height:18px;"></div>
+  </div>
+
+  <div class="status idle" id="status">Ready</div>
+  <div class="chat" id="chat"><div class="empty">Upload a CV and click Start to talk with Sarah</div></div>
+  <div class="controls" id="controls">
+    <button class="btn-primary" onclick="startSession()">Start Interview</button>
+  </div>
+  <div class="transcript" id="transcriptBox"></div>
+</div>
+
+<script>
+const VOXAGENT = 'http://localhost:8000';
+const VOXAGENT_WS = 'ws://localhost:8000';
+
+let ws, audioCtx, playCtx, micStream, processor, source;
+let playQueue = [], isPlaying = false, sampleRateOut = 24000;
+let sessionId = null;
+let cvText = null;
+
+const chatEl = document.getElementById('chat');
+const statusEl = document.getElementById('status');
+const ctrlEl = document.getElementById('controls');
+const transcriptEl = document.getElementById('transcriptBox');
+
+function setStatus(cls, text) {
+  statusEl.className = 'status ' + cls;
+  statusEl.innerHTML = text;
+}
+
+function addMsg(role, text) {
+  if (chatEl.querySelector('.empty')) chatEl.innerHTML = '';
+  const d = document.createElement('div');
+  d.className = 'msg ' + (role === 'ai' ? 'ai' : 'user');
+  d.innerHTML = '<div class="label">' + (role === 'ai' ? 'Sarah' : 'You') + '</div>' + text;
+  chatEl.appendChild(d);
+  chatEl.scrollTop = chatEl.scrollHeight;
+}
+
+function setControls(html) { ctrlEl.innerHTML = html; }
+
+function playNext() {
+  if (isPlaying || !playQueue.length || !playCtx) return;
+  isPlaying = true;
+  playCtx.resume().then(() => {
+    const buf = playQueue.shift();
+    console.log('[audio] playing chunk:', buf.duration.toFixed(2) + 's, queue left:', playQueue.length, 'ctx state:', playCtx.state);
+    const s = playCtx.createBufferSource();
+    s.buffer = buf;
+    s.connect(playCtx.destination);
+    s.onended = () => { isPlaying = false; playNext(); };
+    s.start();
+  });
+}
+
+function queueAudio(pcm) {
+  if (!playCtx) return;
+  console.log('[audio] received chunk:', pcm.byteLength, 'bytes');
+  const i16 = new Int16Array(pcm);
+  const f = new Float32Array(i16.length);
+  for (let i = 0; i < i16.length; i++) f[i] = i16[i] / 32768;
+  const b = playCtx.createBuffer(1, f.length, sampleRateOut);
+  b.getChannelData(0).set(f);
+  playQueue.push(b);
+  playNext();
+}
+
+function micOn() {
+  if (!audioCtx || !micStream || !ws || ws.readyState !== 1) return;
+  audioCtx.resume();
+  source = audioCtx.createMediaStreamSource(micStream);
+  processor = audioCtx.createScriptProcessor(4096, 1, 1);
+  processor.onaudioprocess = (e) => {
+    if (!ws || ws.readyState !== 1) return;
+    const inp = e.inputBuffer.getChannelData(0);
+    const out = new Int16Array(inp.length);
+    for (let i = 0; i < inp.length; i++) {
+      const v = Math.max(-1, Math.min(1, inp[i]));
+      out[i] = v < 0 ? v * 0x8000 : v * 0x7FFF;
+    }
+    ws.send(out.buffer);
+  };
+  source.connect(processor);
+  processor.connect(audioCtx.destination);
+}
+
+function micOff() {
+  if (processor) { processor.disconnect(); processor = null; }
+  if (source) { source.disconnect(); source = null; }
+}
+
+async function finalizeSession() {
+  if (!sessionId) return;
+  try {
+    const r = await fetch(VOXAGENT + '/v1/sessions/' + sessionId + '/finalize', { method: 'POST' });
+    const data = await r.json();
+    let txt = 'Session: ' + data.session_id + '\nDuration: ' + data.duration_seconds + 's\nQuestions completed: ' + data.questions_completed + '\n\n';
+    (data.turns || []).forEach((t, i) => {
+      txt += '[' + t.role + '] ' + t.text + '\n\n';
+    });
+    transcriptEl.textContent = txt;
+    transcriptEl.style.display = 'block';
+  } catch (e) {
+    console.error('Finalize failed:', e);
+  }
+}
+
+async function parseCV() {
+  const fileInput = document.getElementById('cvFile');
+  const cvStatusEl = document.getElementById('cvStatus');
+  if (!fileInput.files.length) return null;
+
+  const file = fileInput.files[0];
+  cvStatusEl.textContent = 'Parsing CV…';
+  cvStatusEl.style.color = '#4a9eff';
+
+  try {
+    const formData = new FormData();
+    formData.append('file', file);
+    const r = await fetch(VOXAGENT + '/v1/cv/parse', { method: 'POST', body: formData });
+    const data = await r.json();
+    cvStatusEl.textContent = `CV parsed — ${data.char_count} chars extracted`;
+    cvStatusEl.style.color = '#49d7a7';
+    return data.cv_text;
+  } catch (e) {
+    cvStatusEl.textContent = 'CV parse failed — starting without CV';
+    cvStatusEl.style.color = '#e05555';
+    console.error('CV parse error:', e);
+    return null;
+  }
+}
+
+async function startSession() {
+  setStatus('connecting', 'Connecting…');
+  setControls('');
+  chatEl.innerHTML = '<div class="empty">Connecting to VoxAgent…</div>';
+  transcriptEl.style.display = 'none';
+
+  cvText = await parseCV();
+
+  let jdData;
+  try {
+    const jdResp = await fetch('sample_jd.json');
+    jdData = await jdResp.json();
+  } catch {
+    setStatus('error', 'Failed to load sample_jd.json');
+    setControls('<button class="btn-primary" onclick="startSession()">Retry</button>');
+    return;
+  }
+
+  let session;
+  try {
+    sessionId = 'test-' + Date.now();
+    const body = {
+      session_id: sessionId,
+      interviewer_name: 'Sarah',
+      questions: [],
+      jd: jdData,
+      max_follow_ups_per_question: 2
+    };
+    if (cvText) body.cv_text = cvText;
+
+    const r = await fetch(VOXAGENT + '/v1/sessions', {
+      method: 'POST',
+      headers: { 'Content-Type': 'application/json' },
+      body: JSON.stringify(body)
+    });
+    session = await r.json();
+  } catch {
+    setStatus('error', 'Cannot reach VoxAgent on port 8000');
+    setControls('<button class="btn-primary" onclick="startSession()">Retry</button>');
+    return;
+  }
+
+  document.getElementById('cvUpload').style.display = 'none';
+
+  sampleRateOut = session.downstream_sample_rate || 24000;
+
+  try {
+    micStream = await navigator.mediaDevices.getUserMedia({
+      audio: { sampleRate: session.upstream_sample_rate || 16000, channelCount: 1, echoCancellation: true, noiseSuppression: true }
+    });
+  } catch {
+    setStatus('error', 'Mic access denied');
+    setControls('<button class="btn-primary" onclick="startSession()">Retry</button>');
+    return;
+  }
+
+  audioCtx = new AudioContext({ sampleRate: session.upstream_sample_rate || 16000 });
+  playCtx = new AudioContext({ sampleRate: sampleRateOut });
+  await playCtx.resume();
+
+  ws = new WebSocket(VOXAGENT_WS + session.ws_url + '?token=' + session.ws_token);
+  ws.binaryType = 'arraybuffer';
+  chatEl.innerHTML = '';
+
+  ws.onmessage = (ev) => {
+    if (ev.data instanceof ArrayBuffer) { queueAudio(ev.data); return; }
+    const m = JSON.parse(ev.data);
+    console.log('[ws]', m.type, m);
+
+    if (m.type === 'speaking') {
+      setStatus('speaking', 'Sarah is speaking…');
+      setControls('<button class="btn-secondary" disabled>Listening to Sarah…</button>');
+          } else if (m.type === 'listening') {
+      setStatus('listening', '<span class="rec-dot"></span> Your turn — speak now');
+      micOn();
+      setControls(
+        '<button class="btn-primary" onclick="doneSpeaking()">Done speaking</button>' +
+        '<button class="btn-danger" onclick="endSession()">End</button>'
+      );
+          } else if (m.type === 'processing') {
+      setStatus('processing', 'Thinking…');
+      micOff();
+            setControls('<button class="btn-secondary" disabled>Processing…</button>');
+    } else if (m.type === 'transcript') {
+      addMsg(m.role === 'interviewer' ? 'ai' : 'user', m.text);
+    } else if (m.type === 'session_complete') {
+      setStatus('complete', 'Done');
+      micOff();
+            setControls('<button class="btn-green" onclick="location.reload()">New conversation</button>');
+      finalizeSession();
+    } else if (m.type === 'error') {
+      addMsg('ai', '⚠ ' + m.message);
+    }
+  };
+
+  ws.onclose = () => {
+    if (statusEl.className.indexOf('complete') === -1) {
+      setStatus('complete', 'Disconnected');
+            setControls('<button class="btn-green" onclick="location.reload()">Restart</button>');
+      finalizeSession();
+    }
+  };
+  ws.onerror = () => {
+    setStatus('error', 'Connection lost');
+        setControls('<button class="btn-primary" onclick="location.reload()">Restart</button>');
+  };
+}
+
+function doneSpeaking() {
+  micOff();
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'stop_listening' }));
+  setStatus('processing', 'Thinking…');
+  setControls('<button class="btn-secondary" disabled>Processing…</button>');
+}
+
+function endSession() {
+  micOff();
+    if (ws && ws.readyState === 1) ws.send(JSON.stringify({ type: 'end_session' }));
+  setStatus('complete', 'Done');
+  setControls('<button class="btn-green" onclick="location.reload()">New conversation</button>');
+  finalizeSession();
+}
+</script>
+</body>
+</html>
