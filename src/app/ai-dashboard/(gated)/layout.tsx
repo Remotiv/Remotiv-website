@@ -8,8 +8,7 @@ import {
   getCompanyContext,
   loginRedirectFor,
 } from "../lib/company-guards";
-import { orElse } from "@/lib/supabase/read";
-import { getJobScope, scopedApplicationIds } from "../lib/job-scope";
+import { getJobScope } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
 import type { CompanyContext } from "../lib/company-roles";
@@ -105,14 +104,6 @@ export default async function GatedCompanyLayout({
   // seeing "128" beside an Applicants page showing 4 is the same class of bug
   // as a tab count disagreeing with its rows.
   const scope = await getJobScope(ctx);
-  /*
-   * orElse, deliberately. A failed allow-list read degrades to "closed" here —
-   * the same behaviour as before the type existed — because the consequence is
-   * one badge count, and taking the whole workspace away for that would be
-   * worse than the bug. The Messages page does NOT absorb it; see the note on
-   * scopedApplicationIds for why those two are not in disagreement.
-   */
-  const allowedApps = orElse(await scopedApplicationIds(ctx, scope), []);
   const noJobs = scope.scoped && scope.jobIds.length === 0;
 
   const [jobs, applicants, messages, interviews] =
@@ -139,18 +130,46 @@ export default async function GatedCompanyLayout({
               .eq("company_id_snapshot", ctx.companyId);
             return scope.scoped ? q.in("job_id", scope.jobIds) : q;
           })(),
-          // Must match what the Messages page lists, or the badge and the page
-          // disagree. Cancelled rows are tombstones for messages that never
-          // sent; a null application_id is a message whose applicant has been
-          // deleted, which that page hides.
+          /*
+           * Must match what the Messages page lists, or the badge and the page
+           * disagree. Cancelled rows are tombstones for messages that never
+           * sent; a null application_id is a message whose applicant has been
+           * deleted, which that page hides.
+           *
+           * Scoped through the join rather than an application-id allow-list.
+           * The allow-list was unbounded: at ~205 ids the `.in()` overflowed
+           * the request URL, and PostgREST answers that with a 414 that
+           * supabase-js reports as an error rather than throwing — so the badge
+           * silently vanished. Filtering on job_id costs one `.in()` over the
+           * member's jobs instead, and one request instead of N.
+           *
+           * `!inner` is load-bearing twice. It excludes the null application_id
+           * the old `.not(…, "is", null)` excluded, because a non-null FK always
+           * resolves to a live row. And without it PostgREST builds a LEFT join
+           * and the embedded job_id filter stops restricting the logs at all —
+           * the cv-purge.ts:309 failure mode. Verified read-only against
+           * production: 146 both ways, and 231 once the join is widened.
+           */
           (() => {
             const q = service
               .from("communication_logs")
-              .select("id", { count: "exact", head: true })
+              .select("id, job_applications!inner(job_id, company_id_snapshot)", {
+                count: "exact",
+                head: true,
+              })
               .eq("company_id", ctx.companyId)
               .neq("status", "cancelled")
-              .not("application_id", "is", null);
-            return allowedApps === null ? q : q.in("application_id", allowedApps);
+              // Unconditional, not inside the scoped branch below. The job-id
+              // filter is what narrows a recruiter; THIS is the tenant boundary
+              // on the joined side, and every role needs it. It also has to be
+              // unconditional to be honest: tenant-isolation.test.ts reads this
+              // as source text and cannot tell a conditional filter from an
+              // applied one, so a version that only filtered when scoped would
+              // show green while owners read the join unguarded. Verified
+              // read-only against production: 146 with it and 146 without, so
+              // no count moves.
+              .eq("job_applications.company_id_snapshot", ctx.companyId);
+            return scope.scoped ? q.in("job_applications.job_id", scope.jobIds) : q;
           })(),
           // Scoped on job_id like Jobs, not through applications: an interview
           // belongs to a job, and the list this badge labels is scoped that way.
