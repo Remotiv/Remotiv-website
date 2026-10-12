@@ -23,6 +23,7 @@ const code = (text) =>
 
 const BOTS = "src/lib/final-interviews/bots.ts";
 const CLIENT = "src/lib/recall/client.ts";
+const IMPORT = "src/lib/final-interviews/import.ts";
 const QUEUE = "src/lib/jobs-queue.ts";
 const ROUTE = "src/app/api/book/[token]/route.ts";
 const ACTIONS = "src/app/ai-dashboard/(gated)/applicants/final-interview-actions.ts";
@@ -65,31 +66,36 @@ test("JOB_TYPES holds migration 040's nineteen job types in its order", () => {
   assert.deepEqual(inCode, inMigration);
 });
 
-test("final_bot_sync (step 2) and final_bot_lobby_check (step 3) have handlers; the other three do not", () => {
+test("final_bot_sync (step 2), final_bot_lobby_check (step 3) and final_recording_import (step 4) have handlers; the other two do not", () => {
   const queue = code(read(QUEUE));
   assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_SYNC, handleFinalBotSync\);/);
   assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert\);/);
-  for (const t of [
-    "FINAL_RECORDING_IMPORT",
-    "FINAL_RECORDING_IMPORT_WATCHDOG",
-    "FINAL_RECORDING_PURGE",
-  ]) {
+  assert.match(
+    queue,
+    /registerHandler\(JOB_TYPES\.FINAL_RECORDING_IMPORT, handleFinalRecordingImport\);/,
+  );
+  for (const t of ["FINAL_RECORDING_IMPORT_WATCHDOG", "FINAL_RECORDING_PURGE"]) {
     assert.doesNotMatch(queue, new RegExp(`registerHandler\\(JOB_TYPES\\.${t}\\b`), t);
   }
-  // Nothing outside JOB_TYPES names the three that have no handler yet, so
-  // nothing can enqueue them.
+  // Nothing outside JOB_TYPES names the two that have no handler, so nothing
+  // can enqueue them.
   for (const { rel, text } of SOURCES) {
     if (rel === QUEUE) continue;
     assert.doesNotMatch(
       text,
-      /["'](final_recording_import|final_recording_import_watchdog|final_recording_purge)["']/,
+      /["'](final_recording_import_watchdog|final_recording_purge)["']/,
       rel,
     );
   }
   assert.doesNotMatch(
     queue,
-    /JOB_TYPES\.(FINAL_RECORDING_IMPORT|FINAL_RECORDING_IMPORT_WATCHDOG|FINAL_RECORDING_PURGE)\b/,
+    /JOB_TYPES\.(FINAL_RECORDING_IMPORT_WATCHDOG|FINAL_RECORDING_PURGE)\b/,
   );
+  // The import job's name is written once, beside JOB_TYPES' own copy.
+  const importNamers = SOURCES.filter((s) => /["']final_recording_import["']/.test(s.text)).map(
+    (s) => s.rel,
+  );
+  assert.deepEqual(importNamers.sort(), ["src/lib/final-interviews/constants.ts", QUEUE].sort());
   // The alert job's name is written once, beside JOB_TYPES' own copy.
   const namers = SOURCES.filter((s) => /["']final_bot_lobby_check["']/.test(s.text)).map(
     (s) => s.rel,
@@ -228,7 +234,14 @@ test("2. Recall is reached only through the client, and the client only from the
   const clientUsers = SOURCES.filter((s) =>
     /getRecallClient\(|createRecallClient\(/.test(s.text),
   ).map((s) => s.rel);
-  assert.deepEqual(clientUsers.sort(), [BOTS, CLIENT].sort());
+  assert.deepEqual(clientUsers.sort(), [BOTS, CLIENT, IMPORT].sort());
+  // The import (step 4) builds its one client in its job handler.
+  const imp = code(read(IMPORT));
+  assert.equal((imp.match(/getRecallClient\(\)/g) ?? []).length, 1);
+  assert.match(
+    body(imp, "export async function handleFinalRecordingImport("),
+    /recall: getRecallClient\(\),/,
+  );
   const bots = code(read(BOTS));
   assert.equal((bots.match(/getRecallClient\(\)/g) ?? []).length, 1);
   assert.match(body(bots, "function workerDeps("), /recall: getRecallClient\(\),/);
@@ -296,7 +309,7 @@ test("7. ordinary cancellation and rescheduling never delete media", () => {
   assert.doesNotMatch(body(bots, "async function retireVendorBot("), /deleteRecording/);
 });
 
-test("8. only a confirmed pre-join removal writes 'deleted'; Step 2 never marks an import ready", () => {
+test("8. only a confirmed pre-join removal writes 'deleted'; bots.ts never marks an import ready", () => {
   const bots = code(read(BOTS));
   assert.equal((bots.match(/status: "deleted"/g) ?? []).length, 1);
   assert.match(body(bots, "async function markVendorGone("), /status: "deleted"/);
@@ -307,9 +320,12 @@ test("8. only a confirmed pre-join removal writes 'deleted'; Step 2 never marks 
     (body(bots, "async function retireVendorBot(").match(/await markVendorGone\(/g) ?? []).length,
     3,
   );
-  // The row type declares the column; no patch anywhere writes it.
+  // The row type declares the column. Step 4 lets this file write 'queued'
+  // (recording.done, the reconcile) and 'failed' (imports past their cap)
+  // only: 'importing' and 'ready' belong to the import job alone.
   const withoutRowType = bots.replace(/export type FinalBotRow = \{[\s\S]*?\n\};/, "");
   assert.notEqual(withoutRowType, bots, "the row type was found and set aside");
-  assert.doesNotMatch(withoutRowType, /import_status:/);
+  const writes = [...withoutRowType.matchAll(/import_status: "([a-z]+)"/g)].map((m) => m[1]);
+  assert.deepEqual([...new Set(writes)].sort(), ["failed", "queued"]);
   assert.doesNotMatch(body(bots, "export function vendorView("), /"deleted"/);
 });

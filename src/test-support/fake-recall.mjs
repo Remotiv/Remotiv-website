@@ -9,7 +9,13 @@
  *                       'ready'; 'already_gone' (404) for an unknown bot
  *   leaveCall           'not_in_call' (400) for a bot not in a call; otherwise
  *                       the bot ends: call_ended, then done if it recorded
- *   deleteRecording     removes the recording from its bot; 404 when unknown
+ *   deleteRecording     removes the recording from its bot and its media;
+ *                       404 when unknown
+ *   retrieveRecording   (step 4) the recording's bot, statuses and a signed
+ *                       URL carrying a version; null when unknown
+ *   downloadRange       (step 4) 'refused' for an expired URL version or
+ *                       deleted media; otherwise exactly the bytes asked for
+ *                       and the total, as a 206 would carry them
  *
  * Every call is logged on `calls` as [method, ...args]. Scripting:
  *   failNext(method, error)   the next call to `method` throws `error`
@@ -21,6 +27,9 @@
  *   beforeDelete(fn)          runs inside deleteScheduledBot before the check
  *   advance(id, codes, { recording })  status changes, optionally a recording
  *   add(bot)                  a bot made outside this test's flow
+ *   addMedia(botId, bytes, { id, status, video })  a finished recording
+ *   expireUrls(id)            every URL handed out so far stops working
+ *   before(method, fn)        runs `fn()` once, at the start of the next call
  *
  * Test-only. Nothing in the application imports this.
  */
@@ -47,6 +56,10 @@ export function httpError(status, operation = "create bot", code = null) {
 
 export function fakeRecall() {
   const bots = new Map();
+  /** recording id -> { botId, bytes, statusCode, videoStatusCode, version } */
+  const media = new Map();
+  const before = new Map();
+  const ranges = [];
   const idem = new Map();
   const calls = [];
   const failures = [];
@@ -54,7 +67,12 @@ export function fakeRecall() {
   let onCreate = null;
   let beforeDelete = null;
 
-  const maybeFail = (method) => {
+  const maybeFail = async (method) => {
+    const hook = before.get(method);
+    if (hook) {
+      before.delete(method);
+      await hook();
+    }
     const i = failures.findIndex((f) => f.method === method);
     if (i >= 0) {
       const [f] = failures.splice(i, 1);
@@ -66,6 +84,9 @@ export function fakeRecall() {
   return {
     calls,
     bots,
+    media,
+    /** Every [start, end] downloaded, in order. */
+    ranges,
     count: (method) => calls.filter((c) => c[0] === method).length,
     failNext(method, error) {
       failures.push({ method, error });
@@ -90,10 +111,21 @@ export function fakeRecall() {
       bots.set(full.id, full);
       return full;
     },
+    addMedia(botId, bytes, { id = randomUUID(), status = "done", video = "done" } = {}) {
+      media.set(id, { botId, bytes, statusCode: status, videoStatusCode: video, version: 1 });
+      bots.get(botId)?.recordings.push({ id, status: { code: status } });
+      return id;
+    },
+    expireUrls(id) {
+      media.get(id).version += 1;
+    },
+    before(method, fn) {
+      before.set(method, fn);
+    },
 
     async createBot(request, options) {
       calls.push(["createBot", clone(request), { idempotencyKey: options.idempotencyKey }]);
-      maybeFail("createBot");
+      await maybeFail("createBot");
       const prior = idem.get(options.idempotencyKey);
       if (prior && bots.has(prior)) return clone(bots.get(prior));
       const bot = {
@@ -119,13 +151,13 @@ export function fakeRecall() {
 
     async retrieveBot(id) {
       calls.push(["retrieveBot", id]);
-      maybeFail("retrieveBot");
+      await maybeFail("retrieveBot");
       return bots.has(id) ? clone(bots.get(id)) : null;
     },
 
     async listBots(query) {
       calls.push(["listBots", clone(query)]);
-      maybeFail("listBots");
+      await maybeFail("listBots");
       const pairs = Object.entries(query.metadata ?? {});
       const found = [...bots.values()].filter((b) =>
         pairs.every(([k, v]) => b.metadata?.[k] === v),
@@ -135,7 +167,7 @@ export function fakeRecall() {
 
     async deleteScheduledBot(id) {
       calls.push(["deleteScheduledBot", id]);
-      maybeFail("deleteScheduledBot");
+      await maybeFail("deleteScheduledBot");
       if (beforeDelete) {
         const fn = beforeDelete;
         beforeDelete = null;
@@ -150,7 +182,7 @@ export function fakeRecall() {
 
     async leaveCall(id) {
       calls.push(["leaveCall", id]);
-      maybeFail("leaveCall");
+      await maybeFail("leaveCall");
       const bot = bots.get(id);
       if (!bot) return { outcome: "already_gone" };
       if (!dispatched(bot) || ended(bot)) return { outcome: "not_in_call" };
@@ -166,7 +198,8 @@ export function fakeRecall() {
 
     async deleteRecording(id) {
       calls.push(["deleteRecording", id]);
-      maybeFail("deleteRecording");
+      await maybeFail("deleteRecording");
+      const hadMedia = media.delete(id);
       for (const bot of bots.values()) {
         const i = bot.recordings.findIndex((r) => r.id === id);
         if (i >= 0) {
@@ -174,7 +207,33 @@ export function fakeRecall() {
           return "deleted";
         }
       }
-      return "already_gone";
+      return hadMedia ? "deleted" : "already_gone";
+    },
+
+    async retrieveRecording(id) {
+      calls.push(["retrieveRecording", id]);
+      await maybeFail("retrieveRecording");
+      const m = media.get(id);
+      if (!m) return null;
+      return {
+        id,
+        botId: m.botId,
+        statusCode: m.statusCode,
+        videoStatusCode: m.videoStatusCode,
+        downloadUrl:
+          m.videoStatusCode === "done" ? `https://media.fake.test/${id}?v=${m.version}` : null,
+      };
+    },
+
+    async downloadRange(url, start, end) {
+      calls.push(["downloadRange", start, end]);
+      await maybeFail("downloadRange");
+      const parsed = new URL(url);
+      const m = media.get(parsed.pathname.slice(1));
+      if (!m || Number(parsed.searchParams.get("v")) !== m.version) return { outcome: "refused" };
+      if (end >= m.bytes.length) throw httpError(416, "download recording");
+      ranges.push([start, end]);
+      return { outcome: "ok", bytes: m.bytes.slice(start, end + 1), total: m.bytes.length };
     },
   };
 }

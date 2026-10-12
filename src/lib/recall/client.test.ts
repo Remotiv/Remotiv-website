@@ -13,7 +13,9 @@ import { test } from "node:test";
 register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
 register(new URL("../../test-support/server-only-stub.mjs", import.meta.url));
 
-const { createRecallClient, normaliseRecallBaseUrl } = await import("./client.ts");
+const { createRecallClient, normaliseRecallBaseUrl, isSafeDownloadUrl } = await import(
+  "./client.ts"
+);
 const { RecallApiError } = await import("./types.ts");
 const { classifyProviderError } = await import("../queue/failure-class.ts");
 
@@ -261,4 +263,142 @@ test("listBots stops at maxPages and refuses an unsafe metadata key", async () =
   assert.equal(requests.length, 1);
   assert.equal(result.truncated, true);
   await caught(client([]).recall.listBots({ metadata: { "a&b": "x" } }));
+});
+
+/* ── recording step 4: the recording and its media ────────────── */
+
+const MEDIA =
+  "https://recall-media.s3.ap-northeast-1.amazonaws.com/x/video.mp4?X-Amz-Signature=abc";
+
+/** A fetch answering with raw bytes and headers, for the media host. */
+function mediaFetch(answers) {
+  const requests = [];
+  const impl = async (url, init) => {
+    requests.push({ url, init });
+    const next = answers.shift();
+    if (!next) throw new Error("test: unexpected request");
+    if (next instanceof Error) throw next;
+    return new Response(next.body ?? null, { status: next.status, headers: next.headers ?? {} });
+  };
+  return { impl, requests };
+}
+
+test("retrieveRecording: GET /recording/{id}/ with the key, reduced to bot, statuses and URL", async () => {
+  const { recall, requests } = client([
+    {
+      status: 200,
+      body: {
+        id: REC,
+        bot: { id: BOT, metadata: {} },
+        status: { code: "done" },
+        media_shortcuts: {
+          video_mixed: { status: { code: "done" }, data: { download_url: MEDIA } },
+        },
+      },
+    },
+    { status: 404 },
+  ]);
+  const info = await recall.retrieveRecording(REC);
+  assert.deepEqual(info, {
+    id: REC,
+    botId: BOT,
+    statusCode: "done",
+    videoStatusCode: "done",
+    downloadUrl: MEDIA,
+  });
+  assert.equal(requests[0].url, `${BASE}/recording/${REC}/`);
+  assert.equal(requests[0].init.method, "GET");
+  assert.equal(requests[0].init.headers.authorization, `Token ${KEY}`);
+  assert.equal(await recall.retrieveRecording(REC), null, "404 is null");
+  const bad = await caught(client([]).recall.retrieveRecording("not-a-uuid"));
+  assert.equal(bad.retryable, false);
+});
+
+test("retrieveRecording: no bot, no video yet, or no URL are read as null fields, never guessed", async () => {
+  const { recall } = client([{ status: 200, body: { id: REC, status: { code: "processing" } } }]);
+  assert.deepEqual(await recall.retrieveRecording(REC), {
+    id: REC,
+    botId: null,
+    statusCode: "processing",
+    videoStatusCode: null,
+    downloadUrl: null,
+  });
+});
+
+test("downloadRange: a Range GET without the key, exactly the bytes asked for", async () => {
+  const f = mediaFetch([
+    {
+      status: 206,
+      body: new Uint8Array([1, 2, 3, 4]),
+      headers: { "content-range": "bytes 10-13/100" },
+    },
+  ]);
+  const recall = createRecallClient({ apiKey: KEY, baseUrl: BASE, fetchImpl: f.impl });
+  const r = await recall.downloadRange(MEDIA, 10, 13);
+  assert.equal(r.outcome, "ok");
+  assert.deepEqual([...r.bytes], [1, 2, 3, 4]);
+  assert.equal(r.total, 100);
+  const [{ url, init }] = f.requests;
+  assert.equal(url, MEDIA);
+  assert.deepEqual(init.headers, { range: "bytes=10-13" });
+  assert.ok(!JSON.stringify(init).includes(KEY), "the key never goes to the media host");
+});
+
+test("downloadRange: 403 and 404 are 'refused' (expired URL, media gone)", async () => {
+  for (const status of [403, 404]) {
+    const f = mediaFetch([{ status, body: "AccessDenied" }]);
+    const recall = createRecallClient({ apiKey: KEY, baseUrl: BASE, fetchImpl: f.impl });
+    assert.deepEqual(await recall.downloadRange(MEDIA, 0, 0), { outcome: "refused" });
+  }
+});
+
+test("downloadRange: anything but exactly the asked range throws, and never names the URL", async () => {
+  const cases = [
+    { status: 200, body: new Uint8Array(4) }, // the whole file
+    { status: 206, body: new Uint8Array(4), headers: { "content-range": "bytes 0-3/100" } }, // other range
+    { status: 206, body: new Uint8Array(4) }, // no content-range
+    { status: 206, body: new Uint8Array(5), headers: { "content-range": "bytes 10-13/100" } }, // longer
+    { status: 206, body: new Uint8Array(3), headers: { "content-range": "bytes 10-13/100" } }, // shorter
+    { status: 503 },
+    new TypeError("fetch failed"),
+  ];
+  for (const answer of cases) {
+    const f = mediaFetch([answer]);
+    const recall = createRecallClient({ apiKey: KEY, baseUrl: BASE, fetchImpl: f.impl });
+    const err = await caught(recall.downloadRange(MEDIA, 10, 13));
+    assert.ok(err instanceof RecallApiError, JSON.stringify(answer.status));
+    assert.equal(err.retryable, true, `retried: ${answer.status}`);
+    assert.ok(!err.message.includes("amazonaws") && !err.message.includes("Signature"));
+    assert.ok(!JSON.stringify(err).includes("Signature"));
+  }
+});
+
+test("downloadRange: only https URLs on a named host, no credentials, valid ranges; refused before any request", async () => {
+  for (const url of [
+    "http://recall-media.s3.amazonaws.com/x",
+    "https://127.0.0.1/x",
+    "https://[::1]/x",
+    "https://localhost/x",
+    "https://user:pw@recall-media.s3.amazonaws.com/x",
+    "https://intranet/x",
+    "not a url",
+  ]) {
+    assert.equal(isSafeDownloadUrl(url), false, url);
+    const f = mediaFetch([]);
+    const recall = createRecallClient({ apiKey: KEY, baseUrl: BASE, fetchImpl: f.impl });
+    const err = await caught(recall.downloadRange(url, 0, 0));
+    assert.equal(err.retryable, false);
+    assert.equal(f.requests.length, 0, url);
+  }
+  assert.equal(isSafeDownloadUrl(MEDIA), true);
+  const f = mediaFetch([]);
+  const recall = createRecallClient({ apiKey: KEY, baseUrl: BASE, fetchImpl: f.impl });
+  for (const [a, b] of [
+    [-1, 0],
+    [5, 4],
+    [0.5, 1],
+  ]) {
+    await caught(recall.downloadRange(MEDIA, a, b));
+  }
+  assert.equal(f.requests.length, 0);
 });

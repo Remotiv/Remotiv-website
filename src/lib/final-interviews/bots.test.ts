@@ -177,7 +177,7 @@ test("a final booking creates one scheduled bot with the documented request", as
     meeting_url: MEET,
     bot_name: "Remotiv Recorder",
     join_at: new Date(t.start - MIN).toISOString(),
-    recording_config: { video_mixed_mp4: {}, retention: { type: "timed", hours: 72 } },
+    recording_config: { video_mixed_mp4: {}, retention: { type: "timed", hours: 168 } },
     automatic_leave: {
       waiting_room_timeout: 600,
       noone_joined_timeout: 900,

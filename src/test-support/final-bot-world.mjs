@@ -8,14 +8,22 @@
  *                          company and final interview), a 42501
  *   background_jobs        one queued-or-running final_bot_sync per booking
  *                          (action not 'delete') and one per providerBotId
- *                          (action 'delete'), each a 23505
+ *                          (action 'delete'), and one final_recording_import
+ *                          per payload botId, each a 23505
+ *   final_interview_recordings  (038 + 040, recording step 4) one ready row
+ *                          per interview, one row per storage_path and per
+ *                          vendor_recording_id (23505); the composite
+ *                          foreign key to final_interviews (23503); the
+ *                          CHECKs the import can trip (23514)
  *
  * Filters honoured: eq (including payload->>key), neq, in, is, not(col, 'is',
  * null), lt, lte, gt, gte, order, limit, maybeSingle, single. Rows handed back
  * are copies, so code under test cannot change the database by accident.
  *
  * Fault injection: `world.failNext(table, op)` makes the next matching query
- * return an error; `world.hang(table)` makes every query to it never settle.
+ * return an error; `world.hang(table)` makes every query to it never settle;
+ * `world.afterNext(table, op, fn)` runs `fn()` once the next matching query
+ * has been answered, as if another writer acted in between.
  *
  * Test-only. Nothing in the application imports this.
  */
@@ -63,6 +71,7 @@ export function makeBotDb(startMs) {
       },
     ],
     final_interview_bots: [],
+    final_interview_recordings: [],
     background_jobs: [],
     company_members: [
       { id: HOST, company_id: CO, status: "active", email: "host@acme.test", user_id: "u-host" },
@@ -180,8 +189,10 @@ const dup = (name) => ({
 });
 
 function liveSyncKey(job) {
-  if (job.type !== "final_bot_sync" || !["queued", "running"].includes(job.status)) return null;
+  if (!["queued", "running"].includes(job.status)) return null;
   const p = job.payload ?? {};
+  if (job.type === "final_recording_import") return p.botId ? `import:${p.botId}` : null;
+  if (job.type !== "final_bot_sync") return null;
   if (p.action === "delete") return p.providerBotId ? `del:${p.providerBotId}` : null;
   return p.bookingId ? `sync:${p.bookingId}` : null;
 }
@@ -209,6 +220,41 @@ function violation(db, table, row, others) {
       return { code: "42501", message: "final_interview_bots: booking does not belong" };
     }
   }
+  if (table === "final_interview_recordings") {
+    const check = (name) => ({ code: "23514", message: `violates check constraint "${name}"` });
+    if (
+      row.status === "ready" &&
+      others.some((o) => o.status === "ready" && o.final_interview_id === row.final_interview_id)
+    ) {
+      return dup("final_interview_recordings_one_ready_idx");
+    }
+    if (row.storage_path && others.some((o) => o.storage_path === row.storage_path)) {
+      return dup("final_interview_recordings_path_idx");
+    }
+    if (
+      row.vendor_recording_id &&
+      others.some((o) => o.vendor_recording_id === row.vendor_recording_id)
+    ) {
+      return dup("final_interview_recordings_vendor_recording_idx");
+    }
+    const fi = db.final_interviews.find((f) => f.id === row.final_interview_id);
+    if (
+      !fi ||
+      fi.company_id !== row.company_id ||
+      fi.job_id !== row.job_id ||
+      fi.application_id !== row.application_id
+    ) {
+      return {
+        code: "23503",
+        message: "final_interview_recordings: final interview does not exist",
+      };
+    }
+    if (!(row.size_bytes > 0 && row.size_bytes <= 2147483648)) return check("size_bytes");
+    if (!["video/mp4", "video/webm"].includes(row.mime_type)) return check("mime_type");
+    if (row.status === "ready" && (!row.delete_after || !row.storage_path)) return check("ready");
+    if ((row.source === "recall_bot") !== (row.vendor_recording_id != null)) return check("vendor");
+    if (row.source !== "recall_bot" && row.uploaded_by == null) return check("uploaded_by");
+  }
   if (table === "background_jobs") {
     const key = liveSyncKey(row);
     if (key && others.some((o) => liveSyncKey(o) === key))
@@ -220,6 +266,7 @@ function violation(db, table, row, others) {
 export function botWorld(db) {
   const failures = [];
   const hanging = new Set();
+  const afters = [];
 
   const service = fakeService((table, calls) => {
     if (hanging.has(table)) return new Promise(() => {});
@@ -232,6 +279,8 @@ export function botWorld(db) {
     if (failure && !failure.applied) return { data: null, error: injected };
     // applied: the write lands, and the caller is told it failed anyway.
     const result = run(table, rows, calls, op);
+    const afterAt = afters.findIndex((a) => a.table === table && a.op === op);
+    if (afterAt >= 0) afters.splice(afterAt, 1)[0].fn();
     return failure ? { data: null, error: result.error ?? injected } : result;
   });
 
@@ -303,6 +352,7 @@ export function botWorld(db) {
     },
   };
   service.hang = (table) => hanging.add(table);
+  service.afterNext = (table, op, fn) => afters.push({ table, op, fn });
   return service;
 }
 

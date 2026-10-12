@@ -10,6 +10,7 @@ import {
   handleFinalBotSync,
   RECONCILE_INTERVAL_MS,
 } from "@/lib/final-interviews/bots";
+import { handleFinalRecordingImport } from "@/lib/final-interviews/import";
 import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
@@ -206,19 +207,20 @@ export const JOB_TYPES = {
    */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
   /*
-   * Migration 040, in its order. FINAL_BOT_SYNC and FINAL_BOT_LOBBY_CHECK have
-   * handlers. The other three belong to later recording steps and nothing
-   * enqueues them yet; were one enqueued by mistake, runJob throws for that job
+   * Migration 040, in its order. FINAL_BOT_SYNC, FINAL_BOT_LOBBY_CHECK and
+   * FINAL_RECORDING_IMPORT have handlers. The other two have none and nothing
+   * enqueues them (step 4 restarts imports from the reconcile instead of a
+   * watchdog job); were one enqueued by mistake, runJob throws for that job
    * alone and it takes the normal retry-then-dead path without touching any
    * other job.
    */
   /** Recording step 2 — schedule, replace, remove and reconcile Recall bots. */
   FINAL_BOT_SYNC: "final_bot_sync",
-  /** Recording step 3 — host alerts: lobby (payload.kind "lobby") and failure ("failure"). */
+  /** Recording step 3 - host alerts: lobby, failure, and step 4's import_failed (payload.kind). */
   FINAL_BOT_LOBBY_CHECK: "final_bot_lobby_check",
-  /** Recording step 4 — copy the recording into storage. No handler yet. */
+  /** Recording step 4 - copy the recording into storage, verify it, delete Recall's copy. */
   FINAL_RECORDING_IMPORT: "final_recording_import",
-  /** Recording step 4 — restart a stuck import. No handler yet. */
+  /** Unused: the reconcile restarts stuck imports. No handler. */
   FINAL_RECORDING_IMPORT_WATCHDOG: "final_recording_import_watchdog",
   /** Recording step 6 — delete recordings past retention. No handler yet. */
   FINAL_RECORDING_PURGE: "final_recording_purge",
@@ -296,6 +298,9 @@ registerHandler(JOB_TYPES.FINAL_BOT_SYNC, handleFinalBotSync);
 // Recording step 3. Despite the name, both host alerts: payload.kind is
 // "lobby" (still waiting after two minutes) or "failure" (could not record).
 registerHandler(JOB_TYPES.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert);
+// Recording step 4. Copies in parts across runs, handing the job back
+// (JobYield) when its budget runs out; payload.botId names the bot row.
+registerHandler(JOB_TYPES.FINAL_RECORDING_IMPORT, handleFinalRecordingImport);
 
 // ── Enqueue ──────────────────────────────────────────────────
 

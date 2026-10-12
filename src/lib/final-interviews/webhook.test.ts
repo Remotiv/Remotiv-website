@@ -278,7 +278,7 @@ test("an event with no usable timestamp changes no status", async () => {
 
 /* ── the recording stream ─────────────────────────────────────── */
 
-test("recording.done stores the id only: no status, no import, and it waits for no bot event", async () => {
+test("recording.done stores the id and queues the import: no status, and it waits for no bot event", async () => {
   const t = setup({ row: { status: "recording", last_event_at: at(MIN) } });
   const recId = randomUUID();
   await t.deliver(recordingEvent("recording.done", t.botId, recId, at(5 * MIN)));
@@ -286,8 +286,12 @@ test("recording.done stores the id only: no status, no import, and it waits for 
   assert.equal(row.provider_recording_id, recId);
   assert.equal(row.status, "recording");
   assert.equal(row.last_event_at, at(MIN), "the lifecycle watermark is untouched");
-  assert.equal(row.import_status, "none");
-  assert.equal(t.jobs().length, 0, "no import or anything else queued");
+  // Recording step 4: queued, with one import job and nothing else.
+  assert.equal(row.import_status, "queued");
+  assert.deepEqual(
+    t.jobs().map((j) => [j.type, j.payload]),
+    [["final_recording_import", { botId: row.id }]],
+  );
   // The bot's own later events still apply.
   await t.deliver(botEvent("bot.done", t.botId, at(3 * MIN)));
   assert.equal(t.row().status, "done");

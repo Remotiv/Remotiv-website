@@ -2,7 +2,7 @@ import { createHash } from "node:crypto";
 import { escapeHtml } from "@/lib/email/candidate/render";
 import { sendEmail } from "@/lib/email/send";
 import type { BackgroundJob } from "@/lib/jobs-queue";
-import { resolveHref } from "@/lib/notifications/company";
+import { type CompanyNotificationType, resolveHref } from "@/lib/notifications/company";
 import { TerminalJobError } from "@/lib/queue/failure-class";
 import { isRecallId } from "@/lib/recall/client";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -11,6 +11,8 @@ import {
   interviewTypeLabel,
   RECORDING_ALERT_EMAIL_TIMEOUT_MS,
   RECORDING_BOT_NAME,
+  RECORDING_IMPORT_SILENT_ERRORS,
+  RECORDING_KEEP_MONTHS,
   RECORDING_LOBBY_ALERT_DELAY_MS,
   type RecordingAlertKind,
   SCHEDULE_TIME_FAILURE_CODES,
@@ -73,6 +75,20 @@ import {
  *
  * Not guaranteed: a crash between the claim and the sends loses that alert; a
  * host with no verifiable identity is never told; nothing here is exactly once.
+ *
+ * ── Recording step 4: import failed, and the ready bell ──────
+ *
+ * "import_failed" tells the host the recording could not be saved. It has no
+ * claim stamp (040 has no column for it and none is added). It dedupes on
+ * its own instead, sharing nothing with the alerts above: one job per bot
+ * row, ever, by fixed id (bots.ts ensureImportFailedAlert), so no two runs of
+ * it exist at once; its own email idempotency key (the kind is in the key);
+ * and its own bell id. A refused email is retried by the queue, and the last
+ * attempt sends the bell anyway. It is not gated on the booking or interview
+ * still being active: a recording exists only after the interview ran.
+ *
+ * notifyRecordingReady is a bell only, sent once import_status is 'ready',
+ * to the interview's host, with a bell id per bot row.
  */
 
 type AlertKind = RecordingAlertKind;
@@ -125,7 +141,8 @@ export type AlertOutcome =
   | "not_waiting"
   | "not_active"
   | "host_mismatch"
-  | "host_unverified";
+  | "host_unverified"
+  | "not_failed";
 
 type AlertRow = {
   id: string;
@@ -141,14 +158,30 @@ type AlertRow = {
   last_event_at: string | null;
   lobby_alert_sent_at: string | null;
   failure_alert_sent_at: string | null;
+  import_status: string;
+  import_error: string | null;
 };
 
 const ALERT_ROW_COLUMNS =
-  "id, company_id, final_interview_id, application_id, booking_id, status, provider_recording_id, superseded_at, last_event_code, last_event_sub_code, last_event_at, lobby_alert_sent_at, failure_alert_sent_at";
+  "id, company_id, final_interview_id, application_id, booking_id, status, provider_recording_id, superseded_at, last_event_code, last_event_sub_code, last_event_at, lobby_alert_sent_at, failure_alert_sent_at, import_status, import_error";
 
-const STAMP: Record<AlertKind, "lobby_alert_sent_at" | "failure_alert_sent_at"> = {
+type Stamp = "lobby_alert_sent_at" | "failure_alert_sent_at";
+
+/** The claim column per kind. import_failed has none; see the header. */
+const STAMP: Record<AlertKind, Stamp | null> = {
   lobby: "lobby_alert_sent_at",
   failure: "failure_alert_sent_at",
+  import_failed: null,
+};
+
+/** Every bell this file writes: the three alerts and the ready bell. */
+type BellKind = AlertKind | "ready";
+
+const BELL_TYPE: Record<BellKind, CompanyNotificationType> = {
+  lobby: "final_recording_lobby",
+  failure: "final_recording_failed",
+  import_failed: "final_recording_failed",
+  ready: "final_recording_ready",
 };
 
 function dbError(what: string, error: { code?: string } | null | undefined): Error {
@@ -215,6 +248,17 @@ export function scheduleFailureEmail(
   };
 }
 
+/** The recording was made but could not be copied into Remotiv (step 4). */
+export function importFailedEmail(
+  label: string,
+  firstName: string,
+): { subject: string; html: string } {
+  return {
+    subject: `The recording of your ${label} could not be saved`,
+    html: `<p>The recording of your ${escapeHtml(label)} with ${escapeHtml(firstName)} could not be saved.</p>`,
+  };
+}
+
 /** One key per bot row, alert kind and exact email text. */
 export function emailIdempotencyKey(
   botRowId: string,
@@ -228,8 +272,8 @@ export function emailIdempotencyKey(
   return `remotiv-final-alert-${kind}-${botRowId}-${digest}`;
 }
 
-/** The bell row's id: one per bot row and alert kind, so a second insert is refused. */
-export function bellNotificationId(botRowId: string, kind: AlertKind): string {
+/** The bell row's id: one per bot row and kind, so a second insert is refused. */
+export function bellNotificationId(botRowId: string, kind: BellKind): string {
   return deterministicUuid(`final-bot-alert-bell:${botRowId}:${kind}`);
 }
 
@@ -274,8 +318,8 @@ async function sendWithLimit(
 }
 
 type BellInput = {
-  row: AlertRow;
-  kind: AlertKind;
+  row: Pick<AlertRow, "id" | "application_id">;
+  kind: BellKind;
   /** The bot row's company: the host, the applicant and the bell all belong to it. */
   companyId: string;
   hostId: string;
@@ -286,11 +330,11 @@ type BellInput = {
 
 /** Insert this alert's one bell row, and say whether it is there. */
 async function insertBell(
-  deps: AlertDeps,
+  deps: Pick<AlertDeps, "service">,
   input: BellInput,
 ): Promise<"inserted" | "failed" | "unknown"> {
   const id = bellNotificationId(input.row.id, input.kind);
-  const type = input.kind === "lobby" ? "final_recording_lobby" : "final_recording_failed";
+  const type = BELL_TYPE[input.kind];
   const { error } = await deps.service.from("notifications_company").insert({
     id,
     company_id: input.companyId,
@@ -323,7 +367,7 @@ async function insertBell(
 async function releaseClaim(
   deps: AlertDeps,
   row: AlertRow,
-  stamp: "lobby_alert_sent_at" | "failure_alert_sent_at",
+  stamp: Stamp,
   claimedAt: string,
 ): Promise<"released" | "still_ours" | "unknown"> {
   const { error } = await deps.service
@@ -346,6 +390,30 @@ async function releaseClaim(
   return ((data ?? []) as unknown[]).length > 0 ? "still_ours" : "released";
 }
 
+const BELL_BODY: Record<AlertKind, string> = {
+  lobby: "Admit it in Google Meet so the interview can be recorded.",
+  failure: "The interview itself is not affected.",
+  import_failed: "The recording could not be copied into Remotiv.",
+};
+
+function alertEmail(
+  kind: AlertKind,
+  row: AlertRow,
+  label: string,
+  firstName: string,
+  scheduleCode: (typeof SCHEDULE_TIME_FAILURE_CODES)[number] | null,
+): { subject: string; html: string } {
+  if (kind === "lobby") return lobbyEmail(label, firstName);
+  if (kind === "import_failed") return importFailedEmail(label, firstName);
+  if (scheduleCode) return scheduleFailureEmail(label, firstName, scheduleCode);
+  return failureEmail(
+    label,
+    firstName,
+    FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null,
+    provablyJoined(row),
+  );
+}
+
 /** One alert for one bot row. Exported with injectable deps for tests. */
 export async function runFinalBotAlert(
   deps: AlertDeps,
@@ -354,7 +422,10 @@ export async function runFinalBotAlert(
 ): Promise<AlertOutcome> {
   const botRowId = payload.botRowId;
   const kind = payload.kind;
-  if (!isRecallId(botRowId) || (kind !== "lobby" && kind !== "failure")) {
+  if (
+    !isRecallId(botRowId) ||
+    (kind !== "lobby" && kind !== "failure" && kind !== "import_failed")
+  ) {
     throw new TerminalJobError("deterministic", "final_bot_lobby_check payload is malformed");
   }
   const stamp = STAMP[kind];
@@ -368,10 +439,19 @@ export async function runFinalBotAlert(
   if (rowErr) throw dbError("bot row read", rowErr);
   const row = rowData as AlertRow | null;
   if (!row) return "gone";
-  if (row.superseded_at || row.status === "deleted" || row.status === "superseded") {
+  if (kind === "import_failed") {
+    // A superseded bot's recording is still the interview's recording.
+    if (row.status === "deleted") return "not_live";
+    if (
+      row.import_status !== "failed" ||
+      RECORDING_IMPORT_SILENT_ERRORS.has(row.import_error ?? "")
+    ) {
+      return "not_failed";
+    }
+  } else if (row.superseded_at || row.status === "deleted" || row.status === "superseded") {
     return "not_live";
   }
-  if (row[stamp]) return "already_sent";
+  if (stamp && row[stamp]) return "already_sent";
 
   if (kind === "lobby") {
     if (row.status !== "waiting_room") return "not_waiting";
@@ -412,10 +492,13 @@ export async function runFinalBotAlert(
     job_id: string;
   } | null;
   if (
-    booking?.status !== "booked" ||
+    !booking ||
+    !fi ||
     booking.purpose !== "final" ||
     booking.final_interview_id !== row.final_interview_id ||
-    fi?.status !== "active"
+    // After the interview the booking may be completed: an import alert only
+    // needs the link to hold. The step 3 alerts need it still booked and active.
+    (kind !== "import_failed" && (booking.status !== "booked" || fi.status !== "active"))
   ) {
     return "not_active";
   }
@@ -450,34 +533,27 @@ export async function runFinalBotAlert(
   );
 
   // The claim. One conditional UPDATE: only one job can move the stamp off null.
+  // import_failed has no stamp: its single job id is what keeps it to one.
   const claimedAt = new Date(now).toISOString();
-  let claim = deps.service
-    .from("final_interview_bots")
-    .update({ [stamp]: claimedAt })
-    .eq("id", row.id)
-    .eq("company_id", row.company_id)
-    .is(stamp, null)
-    .is("superseded_at", null)
-    .not("status", "in", '("deleted","superseded")');
-  if (kind === "lobby") claim = claim.eq("status", "waiting_room");
-  const { data: claimed, error: claimErr } = await claim.select("id");
-  if (claimErr) throw dbError("alert claim", claimErr);
-  if (((claimed ?? []) as unknown[]).length === 0) return "already_sent";
+  if (stamp) {
+    let claim = deps.service
+      .from("final_interview_bots")
+      .update({ [stamp]: claimedAt })
+      .eq("id", row.id)
+      .eq("company_id", row.company_id)
+      .is(stamp, null)
+      .is("superseded_at", null)
+      .not("status", "in", '("deleted","superseded")');
+    if (kind === "lobby") claim = claim.eq("status", "waiting_room");
+    const { data: claimed, error: claimErr } = await claim.select("id");
+    if (claimErr) throw dbError("alert claim", claimErr);
+    if (((claimed ?? []) as unknown[]).length === 0) return "already_sent";
+  }
 
   const scheduleCode = isScheduleTimeFailure(row.last_event_code)
     ? (row.last_event_code as (typeof SCHEDULE_TIME_FAILURE_CODES)[number])
     : null;
-  const message =
-    kind === "lobby"
-      ? lobbyEmail(label, firstName)
-      : scheduleCode
-        ? scheduleFailureEmail(label, firstName, scheduleCode)
-        : failureEmail(
-            label,
-            firstName,
-            FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null,
-            provablyJoined(row),
-          );
+  const message = alertEmail(kind, row, label, firstName, scheduleCode);
   const bell: BellInput = {
     row,
     kind,
@@ -485,10 +561,7 @@ export async function runFinalBotAlert(
     hostId: host.id,
     jobId: fi.job_id,
     title: message.subject,
-    body:
-      kind === "lobby"
-        ? "Admit it in Google Meet so the interview can be recorded."
-        : "The interview itself is not affected.",
+    body: BELL_BODY[kind],
   };
 
   let emailed: boolean | null = null; // null: the host has no address
@@ -499,6 +572,7 @@ export async function runFinalBotAlert(
       emailIdempotencyKey(row.id, kind, message),
     );
     if (!emailed && !attempt.finalAttempt) {
+      if (!stamp) throw new Error(`${kind} alert email was not accepted; retrying`);
       const release = await releaseClaim(deps, row, stamp, claimedAt);
       if (release === "released") {
         throw new Error(`${kind} alert email was not accepted; retrying`);
@@ -527,7 +601,7 @@ export async function runFinalBotAlert(
       return "email_sent_bell_failed";
     }
     // Nothing reached the host: give the claim back so a retry can try again.
-    await releaseClaim(deps, row, stamp, claimedAt);
+    if (stamp) await releaseClaim(deps, row, stamp, claimedAt);
     throw new Error(`${kind} alert bell insert failed and no email was delivered; retrying`);
   }
 
@@ -535,6 +609,79 @@ export async function runFinalBotAlert(
     emailed === true ? "sent" : emailed === false ? "bell_after_email_failure" : "sent_bell_only";
   console.log(`[final-bot-alert] ${row.id}: ${kind} alert ${outcome}`);
   return outcome;
+}
+
+export type ReadyBellOutcome =
+  | "inserted"
+  | "failed"
+  | "unknown"
+  | "gone"
+  | "not_ready"
+  | "host_unverified";
+
+/**
+ * The recording-ready bell (step 4): to the interview's host only, once the
+ * bot row's import_status is 'ready', one per bot row by id. Links to the
+ * applicant, never to the recording. Safe to call again: a repeat is 23505.
+ */
+export async function notifyRecordingReady(
+  deps: Pick<AlertDeps, "service">,
+  botRowId: string,
+): Promise<ReadyBellOutcome> {
+  const { data: rowData, error: rowErr } = await deps.service
+    .from("final_interview_bots")
+    .select("id, company_id, final_interview_id, application_id, import_status")
+    .eq("id", botRowId)
+    .maybeSingle();
+  if (rowErr) throw dbError("bot row read", rowErr);
+  const row = rowData as {
+    id: string;
+    company_id: string;
+    final_interview_id: string;
+    application_id: string;
+    import_status: string;
+  } | null;
+  if (!row) return "gone";
+  if (row.import_status !== "ready") return "not_ready";
+
+  const { data: fiData, error: fiErr } = await deps.service
+    .from("final_interviews")
+    .select("id, host_member_id, interview_type, custom_label, job_id")
+    .eq("id", row.final_interview_id)
+    .eq("company_id", row.company_id)
+    .maybeSingle();
+  if (fiErr) throw dbError("final interview read", fiErr);
+  const fi = fiData as {
+    host_member_id: string;
+    interview_type: string;
+    custom_label: string | null;
+    job_id: string;
+  } | null;
+  if (!fi) return "gone";
+
+  const { data: hostData, error: hostErr } = await deps.service
+    .from("company_members")
+    .select("id")
+    .eq("id", fi.host_member_id)
+    .eq("company_id", row.company_id)
+    .eq("status", "active")
+    .maybeSingle();
+  if (hostErr) throw dbError("host read", hostErr);
+  if (!hostData) return "host_unverified";
+
+  const label = inSentence(
+    fi.interview_type,
+    interviewTypeLabel(fi.interview_type, fi.custom_label),
+  );
+  return insertBell(deps, {
+    row,
+    kind: "ready",
+    companyId: row.company_id,
+    hostId: fi.host_member_id,
+    jobId: fi.job_id,
+    title: `The recording of your ${label} is saved`,
+    body: `It is kept with the applicant and deleted after ${RECORDING_KEEP_MONTHS} months.`,
+  });
 }
 
 export async function handleFinalBotAlert(job: BackgroundJob): Promise<void> {

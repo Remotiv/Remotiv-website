@@ -99,8 +99,12 @@ export const RECORDING_BOT_JOIN_LEAD_MS = 60_000;
  * does not use. A bot is never created with less lead than this.
  */
 export const RECORDING_BOT_MIN_SCHEDULE_LEAD_MS = 10 * 60_000;
-/** Recall keeps the media this long unless the import deletes it sooner. */
-export const RECORDING_BOT_RETENTION_HOURS = 72;
+/**
+ * Recall keeps the media this long unless the import deletes it sooner. A
+ * fallback only: the import deletes Recall's copy as soon as Remotiv's is
+ * verified, and seven days leaves room for retries spread hours apart.
+ */
+export const RECORDING_BOT_RETENTION_HOURS = 168;
 export const RECORDING_BOT_WAITING_ROOM_TIMEOUT_S = 600;
 export const RECORDING_BOT_NOONE_JOINED_TIMEOUT_S = 900;
 export const RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S = 30;
@@ -112,7 +116,8 @@ export const RECORDING_BOT_INTEGRATION = "remotiv-final-interview";
 
 /** The job type for both host alerts; payload.kind says which. JOB_TYPES.FINAL_BOT_LOBBY_CHECK. */
 export const FINAL_BOT_ALERT_JOB = "final_bot_lobby_check";
-export type RecordingAlertKind = "lobby" | "failure";
+/** "import_failed" is recording step 4's: the recording could not be copied into Remotiv. */
+export type RecordingAlertKind = "lobby" | "failure" | "import_failed";
 /** How long the bot waits in the lobby before the host is told. */
 export const RECORDING_LOBBY_ALERT_DELAY_MS = 2 * 60_000;
 /**
@@ -138,6 +143,46 @@ export const RECORDING_WAITING_ROOM_FAILURE_SUB_CODES: ReadonlySet<string> = new
   "timeout_exceeded_waiting_room",
   "call_ended_by_platform_waiting_room_timeout",
   "bot_kicked_from_waiting_room",
+]);
+
+/* ── recording import (recording step 4) ────────────────────────── */
+
+/** JOB_TYPES.FINAL_RECORDING_IMPORT; payload { botId: <bot row id> }. */
+export const FINAL_RECORDING_IMPORT_JOB = "final_recording_import";
+/** The private bucket recordings are copied into. Created by hand, with its policies. */
+export const FINAL_RECORDING_BUCKET = "final-interview-recordings";
+/** Bytes per multipart part, and so the most one import holds in memory at once. */
+export const RECORDING_IMPORT_PART_BYTES = 8 * 1024 * 1024;
+/** final_interview_recordings.size_bytes CHECK: 2 GiB. */
+export const RECORDING_MAX_BYTES = 2_147_483_648;
+/** Import jobs one bot row may ever have, whoever queues them. */
+export const RECORDING_IMPORT_MAX_JOBS = 3;
+/** Attempts per import job. A budget hand-back (JobYield) is not an attempt. */
+export const RECORDING_IMPORT_MAX_ATTEMPTS = 5;
+/** The reconcile waits this long after an import job ends before queueing the next. */
+export const RECORDING_IMPORT_RETRY_GAP_MS = 6 * 60 * 60_000;
+/** A copied recording is deleted this many months after the interview's scheduled start. */
+export const RECORDING_KEEP_MONTHS = 6;
+/** uploaded_by_name on rows the import writes (migration 040). */
+export const RECORDING_IMPORT_UPLOADER = "Remotiv automatic import";
+
+/** final_interview_bots.import_error values the import writes. Fixed codes only. */
+export const RECORDING_IMPORT_ERRORS = {
+  tooLarge: "too_large",
+  empty: "empty_recording",
+  notMp4: "not_mp4",
+  sizeMismatch: "size_mismatch",
+  recordingFailed: "recording_failed",
+  gone: "recording_gone",
+  noVideo: "no_video",
+  ownerMismatch: "owner_mismatch",
+  duplicate: "duplicate_recording",
+  retriesExhausted: "retries_exhausted",
+} as const;
+
+/** Import failures that do not alert the host: the interview already has a ready recording. */
+export const RECORDING_IMPORT_SILENT_ERRORS: ReadonlySet<string> = new Set([
+  RECORDING_IMPORT_ERRORS.duplicate,
 ]);
 
 /* ── fixed copy ─────────────────────────────────────────────────── */

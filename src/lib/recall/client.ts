@@ -8,12 +8,14 @@ import {
   type LeaveCallOutcome,
   type ListBotsQuery,
   type ListBotsResult,
+  type MediaRangeResult,
   RecallApiError,
   type RecallBot,
   type RecallClient,
+  type RecallRecordingInfo,
 } from "./types";
 
-export type { RecallBot, RecallClient } from "./types";
+export type { RecallBot, RecallClient, RecallRecordingInfo } from "./types";
 export { RecallApiError } from "./types";
 
 /**
@@ -95,6 +97,85 @@ function asBot(value: unknown): RecallBot | null {
   if (!value || typeof value !== "object") return null;
   const bot = value as RecallBot;
   return typeof bot.id === "string" && bot.id ? bot : null;
+}
+
+const asCode = (value: unknown): string | null =>
+  typeof value === "string" && SAFE_CODE_RE.test(value) ? value : null;
+
+function asRecordingInfo(value: unknown): RecallRecordingInfo | null {
+  if (!value || typeof value !== "object") return null;
+  const r = value as {
+    id?: unknown;
+    bot?: { id?: unknown } | null;
+    status?: { code?: unknown } | null;
+    media_shortcuts?: {
+      video_mixed?: {
+        status?: { code?: unknown } | null;
+        data?: { download_url?: unknown };
+      } | null;
+    } | null;
+  };
+  if (!isRecallId(r.id)) return null;
+  const video = r.media_shortcuts?.video_mixed;
+  const url = video?.data?.download_url;
+  return {
+    id: r.id,
+    botId: isRecallId(r.bot?.id) ? r.bot.id : null,
+    statusCode: asCode(r.status?.code),
+    videoStatusCode: asCode(video?.status?.code),
+    downloadUrl: typeof url === "string" && url ? url : null,
+  };
+}
+
+/**
+ * Whether a media URL may be fetched: https, a named host, no credentials.
+ * The URL comes from Recall, but it is checked before a byte is requested.
+ */
+export function isSafeDownloadUrl(raw: string): boolean {
+  try {
+    const url = new URL(raw);
+    if (url.protocol !== "https:" || url.username || url.password) return false;
+    const host = url.hostname;
+    if (host === "localhost" || host.endsWith(".localhost")) return false;
+    if (host.startsWith("[") || /^[\d.]+$/.test(host)) return false;
+    return host.includes(".");
+  } catch {
+    return false;
+  }
+}
+
+const CONTENT_RANGE_RE = /^bytes (\d+)-(\d+)\/(\d+)$/;
+
+/**
+ * Exactly `expected` bytes into one buffer of that size, or a throw. Memory
+ * is bounded by the range the caller asked for, never by what is sent.
+ */
+async function readExactly(res: Response, expected: number, operation: string) {
+  const out = new Uint8Array(expected);
+  let offset = 0;
+  const fail = (reason: string) =>
+    new RecallApiError({ operation, status: null, retryable: true, reason });
+  const reader = res.body?.getReader();
+  if (!reader) throw fail("no body");
+  try {
+    for (;;) {
+      const { done, value } = await reader.read();
+      if (done) break;
+      if (offset + value.byteLength > expected) {
+        await reader.cancel().catch(() => {});
+        throw fail("body longer than its range");
+      }
+      out.set(value, offset);
+      offset += value.byteLength;
+    }
+  } catch (err) {
+    if (err instanceof RecallApiError) throw err;
+    const timedOut =
+      err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+    throw fail(timedOut ? "timed out" : "network error");
+  }
+  if (offset !== expected) throw fail("body shorter than its range");
+  return out;
 }
 
 export function createRecallClient(config: RecallClientConfig): RecallClient {
@@ -308,6 +389,94 @@ export function createRecallClient(config: RecallClientConfig): RecallClient {
         [404],
       );
       return status === 404 ? "already_gone" : "deleted";
+    },
+
+    async retrieveRecording(recordingId, options = {}): Promise<RecallRecordingInfo | null> {
+      if (!isRecallId(recordingId)) {
+        throw new RecallApiError({
+          operation: "retrieve recording",
+          status: null,
+          retryable: false,
+          reason: "invalid recording id",
+        });
+      }
+      const { status, body } = await request(
+        "retrieve recording",
+        "GET",
+        `${base}/recording/${recordingId}/`,
+        options,
+        [404],
+      );
+      if (status === 404) return null;
+      const info = asRecordingInfo(body);
+      if (!info) {
+        throw new RecallApiError({
+          operation: "retrieve recording",
+          status: null,
+          retryable: true,
+          reason: "response had no recording id",
+        });
+      }
+      return info;
+    },
+
+    async downloadRange(url, start, end, options = {}): Promise<MediaRangeResult> {
+      const operation = "download recording";
+      const refuse = (reason: string): never => {
+        throw new RecallApiError({ operation, status: null, retryable: false, reason });
+      };
+      if (!isSafeDownloadUrl(url)) refuse("download url refused");
+      if (!Number.isSafeInteger(start) || !Number.isSafeInteger(end) || start < 0 || end < start) {
+        refuse("invalid range");
+      }
+      const signals = [AbortSignal.timeout(options.timeoutMs ?? defaultTimeout)];
+      if (options.signal) signals.push(options.signal);
+
+      let res: Response;
+      try {
+        // A signed URL: no authorization header, the key never leaves Recall's API.
+        res = await doFetch(url, {
+          method: "GET",
+          headers: { range: `bytes=${start}-${end}` },
+          signal: AbortSignal.any(signals),
+          cache: "no-store",
+        });
+      } catch (err) {
+        const timedOut =
+          err instanceof Error && (err.name === "TimeoutError" || err.name === "AbortError");
+        throw new RecallApiError({
+          operation,
+          status: null,
+          retryable: true,
+          reason: timedOut ? "timed out" : "network error",
+        });
+      }
+      const discard = () => res.body?.cancel().catch(() => {});
+      if (res.status === 403 || res.status === 404) {
+        await discard();
+        return { outcome: "refused" };
+      }
+      if (res.status !== 206) {
+        // A 200 is the whole file: never read it.
+        await discard();
+        throw new RecallApiError({
+          operation,
+          status: res.status,
+          retryable: res.status === 200 || isRetryableRecallStatus(res.status),
+        });
+      }
+      const m = CONTENT_RANGE_RE.exec(res.headers.get("content-range") ?? "");
+      if (!m || Number(m[1]) !== start || Number(m[2]) !== end) {
+        await discard();
+        throw new RecallApiError({
+          operation,
+          status: null,
+          retryable: true,
+          reason: "content-range does not match the request",
+        });
+      }
+      const bytes = await readExactly(res, end - start + 1, operation);
+      return { outcome: "ok", bytes, total: Number(m[3]) };
     },
   };
 }

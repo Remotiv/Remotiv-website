@@ -15,6 +15,7 @@ import { type HeaderReader, verifyRecallWebhook } from "@/lib/recall/verify";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   FINAL_BOT_ALERT_JOB,
+  FINAL_RECORDING_IMPORT_JOB,
   type FinalBotStatus,
   RECORDING_ALERT_MAX_ATTEMPTS,
   RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S,
@@ -27,6 +28,11 @@ import {
   RECORDING_BOT_RETENTION_HOURS,
   RECORDING_BOT_WAITING_ROOM_TIMEOUT_S,
   RECORDING_FAILURE_ALERT_MAX_JOBS,
+  RECORDING_IMPORT_ERRORS,
+  RECORDING_IMPORT_MAX_ATTEMPTS,
+  RECORDING_IMPORT_MAX_JOBS,
+  RECORDING_IMPORT_RETRY_GAP_MS,
+  RECORDING_IMPORT_SILENT_ERRORS,
   RECORDING_LOBBY_ALERT_DELAY_MS,
   RECORDING_WAITING_ROOM_FAILURE_SUB_CODES,
   type RecordingAlertKind,
@@ -61,7 +67,9 @@ import {
  * scheduled (it has joined nothing, so it holds nothing). A bot that has
  * joined is asked to leave the call and its media is kept for the import.
  * Only the orphan `delete` action, queued by migration 040's trigger when an
- * applicant, interview, booking or company is deleted, deletes recordings.
+ * applicant, interview, booking or company is deleted, deletes recordings
+ * here. The import (import.ts, step 4) deletes Recall's copy too, but only
+ * once Remotiv's copy is verified and marked ready.
  * No row is set to 'deleted' unless Recall has confirmed the bot is gone
  * before it joined anything.
  *
@@ -94,6 +102,8 @@ const RECONCILE_LOOKBACK_MS = 24 * 60 * 60_000;
 const RECONCILE_VENDOR_PAGES = 2;
 const ORPHAN_LEAVE_POLLS = 4;
 const ORPHAN_POLL_MS = 3_000;
+/** How long after an import fails the reconcile still checks its host alert was queued. */
+const IMPORT_ALERT_BACKSTOP_MS = 24 * 60 * 60_000;
 
 /** last_event_code values Remotiv writes itself. Recall's own codes land there too. */
 export const BOT_EVENT = {
@@ -161,6 +171,8 @@ export type FinalBotRow = {
   last_event_sub_code: string | null;
   last_event_at: string | null;
   import_status: string;
+  /** Not in BOT_COLUMNS: written by the import (step 4), read where it is needed. */
+  import_error?: string | null;
   lobby_alert_sent_at: string | null;
   failure_alert_sent_at: string | null;
   superseded_at: string | null;
@@ -1156,6 +1168,14 @@ export type ReconcileReport = {
   failureAlertsQueued: number;
   /** Fatal bots with no alert sent whose failure-alert jobs are used up. */
   failureAlertsCapped: number;
+  /** Recording step 4: imports queued for recordings whose job never ran or ended unfinished. */
+  importsQueued: number;
+  /** Imports marked failed because every import job was used up. */
+  importsFailed: number;
+  /** Ready copies whose Recall delete is retried past the import cap. */
+  importDeleteRetries: number;
+  /** Import-failed alerts queued by the reconcile. */
+  importAlertsQueued: number;
   vendorTruncated: boolean;
   vendorError: boolean;
 };
@@ -1184,7 +1204,8 @@ async function enqueueSync(
  * ever deletes a bot that is still scheduled.
  *
  * Runs every RECONCILE_INTERVAL_MS while the flag is on, and while it is off
- * for as long as any bot may still be scheduled or in a call.
+ * for as long as any bot may still be scheduled or in a call, or any import
+ * is unfinished.
  */
 export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport> {
   const report: ReconcileReport = {
@@ -1203,6 +1224,10 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     lobbyChecksQueued: 0,
     failureAlertsQueued: 0,
     failureAlertsCapped: 0,
+    importsQueued: 0,
+    importsFailed: 0,
+    importDeleteRetries: 0,
+    importAlertsQueued: 0,
     vendorTruncated: false,
     vendorError: false,
   };
@@ -1386,6 +1411,52 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     if (outcome === "capped") report.failureAlertsCapped += 1;
   }
 
+  // Recording step 4. Recordings whose import was never queued, or whose job
+  // ended before the copy was safe and Recall's deleted. Spaced and capped in
+  // ensureImportJob. Runs with the flag off: an existing recording is
+  // protected whatever the flag says.
+  const imports = await read<{
+    id: string;
+    company_id: string;
+    provider_recording_id: string;
+    import_status: string;
+  }>(
+    "unfinished imports",
+    deps.service
+      .from("final_interview_bots")
+      .select("id, company_id, provider_recording_id, import_status")
+      .not("provider_recording_id", "is", null)
+      .in("import_status", ["none", "queued", "importing"])
+      .lt("updated_at", settleIso)
+      .order("updated_at", { ascending: true })
+      .limit(RECONCILE_BATCH),
+  );
+  for (const row of imports) {
+    if (row.import_status === "none") {
+      await patchRow(deps, row, { import_status: "queued" }, (q) => q.eq("import_status", "none"));
+    }
+    const outcome = await ensureImportJob(deps, row, { spaced: true });
+    if (outcome === "queued") report.importsQueued += 1;
+    if (outcome === "capped") await settleCappedImport(deps, row, report);
+  }
+
+  // Failed imports from the last day whose host alert was never queued. The
+  // alert job's fixed id makes a repeat a no-op; the day bounds this far
+  // inside the 30 days queue-sweep keeps that id taken.
+  const failedImports = await read<{ id: string; company_id: string }>(
+    "failed imports",
+    deps.service
+      .from("final_interview_bots")
+      .select("id, company_id")
+      .eq("import_status", "failed")
+      .not("import_error", "in", `(${[...RECORDING_IMPORT_SILENT_ERRORS].join(",")})`)
+      .gt("updated_at", new Date(now - IMPORT_ALERT_BACKSTOP_MS).toISOString())
+      .limit(RECONCILE_BATCH),
+  );
+  for (const row of failedImports) {
+    if ((await ensureImportFailedAlert(deps, row)) === "queued") report.importAlertsQueued += 1;
+  }
+
   try {
     await reconcileVendor(deps, report, toSync);
   } catch (err) {
@@ -1439,7 +1510,7 @@ async function reconcileVendor(
 
     if (!row) {
       // Nothing points at it. Scheduled is safe to remove; anything else may
-      // hold media and is left to Recall's 72-hour retention.
+      // hold media and is left to Recall's retention.
       if (view.phase === "scheduled") {
         if (await removeIfStillScheduled(deps, bot)) report.vendorRemovedScheduled += 1;
       } else {
@@ -1490,8 +1561,10 @@ async function reconcileVendor(
 /**
  * Whether the reconcile job should be scheduled at all. With the flag on,
  * always. With it off, only while a bot from the last day may still be
- * scheduled or in a call, so a deployment that never turned recording on
- * never queues one, and one that turned it off stops a day later.
+ * scheduled or in a call, a recording is not yet copied (step 4), or an
+ * import failed in the last day, so a deployment that never turned recording
+ * on never queues one, and one that turned it off stops once the last import
+ * is settled.
  */
 export async function finalBotReconcileWanted(
   overrides: Partial<Pick<BotDeps, "service" | "enabled" | "now">> = {},
@@ -1500,7 +1573,7 @@ export async function finalBotReconcileWanted(
   if (enabled()) return true;
   const service = overrides.service ?? createServiceClient();
   const since = new Date((overrides.now ?? Date.now)() - RECONCILE_LOOKBACK_MS).toISOString();
-  const [active, unsaved] = await Promise.all([
+  const [active, unsaved, imports, failedImports] = await Promise.all([
     service
       .from("final_interview_bots")
       .select("id")
@@ -1514,9 +1587,26 @@ export async function finalBotReconcileWanted(
       .in("last_event_code", [...CREATE_ATTEMPTED])
       .gt("join_at", since)
       .limit(1),
+    // Recording step 4: a recording not yet copied, whatever its age.
+    service
+      .from("final_interview_bots")
+      .select("id")
+      .not("provider_recording_id", "is", null)
+      .in("import_status", ["none", "queued", "importing"])
+      .limit(1),
+    service
+      .from("final_interview_bots")
+      .select("id")
+      .eq("import_status", "failed")
+      .gt(
+        "updated_at",
+        new Date((overrides.now ?? Date.now)() - IMPORT_ALERT_BACKSTOP_MS).toISOString(),
+      )
+      .limit(1),
   ]);
-  if (active.error || unsaved.error) return false;
-  return ((active.data ?? []) as unknown[]).length + ((unsaved.data ?? []) as unknown[]).length > 0;
+  const results = [active, unsaved, imports, failedImports];
+  if (results.some((r) => r.error)) return false;
+  return results.some((r) => ((r.data ?? []) as unknown[]).length > 0);
 }
 
 /* ── host alert jobs ──────────────────────────────────────────── */
@@ -1587,6 +1677,13 @@ async function ensureAlertJob(
     // Bounded by the lobby itself: Meet closes its waiting room after 10 minutes.
     return (await deps.enqueue(job)).ok ? "queued" : "failed";
   }
+  if (kind === "import_failed") {
+    // One job per bot row, ever: an import fails once, so a refusal means it
+    // was queued already. Its own id, so it never takes a failure alert's.
+    const result = await deps.enqueue({ ...job, id: importFailedAlertJobId(row.id) });
+    if (result.ok) return "queued";
+    return result.code === "23505" ? "exists" : "failed";
+  }
 
   const { data: prior, error: priorErr } = await deps.service
     .from("background_jobs")
@@ -1624,6 +1721,153 @@ async function queueFailureAlert(
   if (outcome === "failed") {
     console.warn(`[final-bot] row ${row.id}: failure alert not queued; the reconcile will retry`);
   }
+}
+
+/* ── recording import jobs (recording step 4) ─────────────────── */
+
+/** The one job id a bot row's import-failed alert may use. */
+export function importFailedAlertJobId(botRowId: string): string {
+  return deterministicUuid(`final-bot-alert:${botRowId}:import_failed`);
+}
+
+/** The fixed job ids a bot row's imports may use: there are only RECORDING_IMPORT_MAX_JOBS. */
+export function importJobIds(botRowId: string): string[] {
+  return Array.from({ length: RECORDING_IMPORT_MAX_JOBS }, (_, i) =>
+    deterministicUuid(`final-recording-import:${botRowId}:${i + 1}`),
+  );
+}
+
+/**
+ * Queue the host's import-failed alert. Its dedupe is the job's fixed id, the
+ * email's idempotency key and the bell's id, all its own: it shares no claim
+ * stamp, job id, key or bell with the step 3 and 3b alerts.
+ */
+export async function ensureImportFailedAlert(
+  deps: Pick<BotDeps, "service" | "enqueue" | "now">,
+  row: { id: string; company_id: string },
+): Promise<"queued" | "exists" | "capped" | "failed"> {
+  return ensureAlertJob(deps, row, "import_failed", deps.now());
+}
+
+/**
+ * Queue an import for a bot row unless one is already queued or running
+ * (migration 040 allows one per bot, by payload botId).
+ *
+ * Capped at RECORDING_IMPORT_MAX_JOBS jobs per bot row, ever, the way the
+ * failure alerts are: each job takes one of the row's fixed ids, so the
+ * database refuses one past the cap. `spaced` (the reconcile) starts the next
+ * job no sooner than RECORDING_IMPORT_RETRY_GAP_MS after the last one ended,
+ * so three jobs cover a day of outage rather than minutes. `afterCap` is for
+ * work that may never be capped: finishing Recall's delete once Remotiv's
+ * copy is safe, and cleaning up after a failure. It takes a random id.
+ *
+ * "capped" means every fixed id is taken and nothing was queued.
+ */
+export async function ensureImportJob(
+  deps: Pick<BotDeps, "service" | "enqueue" | "now">,
+  row: { id: string; company_id: string },
+  options: { spaced?: boolean; afterCap?: boolean } = {},
+): Promise<"queued" | "exists" | "capped" | "failed"> {
+  const { data, error } = await deps.service
+    .from("background_jobs")
+    .select("id, status, updated_at")
+    .eq("type", FINAL_RECORDING_IMPORT_JOB)
+    .eq("payload->>botId", row.id)
+    .limit(100);
+  if (error) return "failed";
+  const prior = (data ?? []) as { id: string; status: string; updated_at: string | null }[];
+  if (prior.some((j) => j.status === "queued" || j.status === "running")) return "exists";
+
+  const now = deps.now();
+  const lastEnded = Math.max(0, ...prior.map((j) => Date.parse(j.updated_at ?? "") || 0));
+  const runAfterMs =
+    options.spaced && prior.length > 0
+      ? Math.max(now, lastEnded + RECORDING_IMPORT_RETRY_GAP_MS)
+      : now;
+  const job = {
+    type: FINAL_RECORDING_IMPORT_JOB,
+    companyId: row.company_id,
+    payload: { botId: row.id },
+    runAfter: new Date(runAfterMs),
+    maxAttempts: RECORDING_IMPORT_MAX_ATTEMPTS,
+  };
+  if (options.afterCap) {
+    const result = await deps.enqueue(job);
+    if (result.ok) return "queued";
+    return result.code === "23505" ? "exists" : "failed";
+  }
+
+  const seen = new Set(prior.map((p) => p.id));
+  let remaining = RECORDING_IMPORT_MAX_JOBS - seen.size;
+  for (const id of importJobIds(row.id)) {
+    if (remaining <= 0) break;
+    if (seen.has(id)) continue;
+    const result = await deps.enqueue({ ...job, id });
+    if (result.ok) return "queued";
+    if (result.code !== "23505") return "failed";
+    remaining -= 1; // taken by a concurrent caller, or a live job appeared
+  }
+  return "capped";
+}
+
+/**
+ * recording.done for a row: queued, then a job. Follows the event rather
+ * than the write, so a redelivery after a failed enqueue still queues. Any
+ * import already past 'queued' is left to its own job.
+ */
+async function startImport(
+  deps: WebhookDeps,
+  row: Pick<FinalBotRow, "id" | "company_id" | "import_status">,
+): Promise<"queued" | "skipped" | "failed"> {
+  if (row.import_status !== "none" && row.import_status !== "queued") return "skipped";
+  if (row.import_status === "none") {
+    const { error } = await deps.service
+      .from("final_interview_bots")
+      .update({ import_status: "queued", updated_at: new Date(deps.now()).toISOString() })
+      .eq("id", row.id)
+      .eq("company_id", row.company_id)
+      .eq("import_status", "none")
+      .not("provider_recording_id", "is", null);
+    if (error) return "failed";
+  }
+  return (await ensureImportJob(deps, row)) === "failed" ? "failed" : "queued";
+}
+
+/**
+ * Every import job for the row is used up. A copy that is already ready only
+ * needs Recall's delete, which keeps being retried a gap apart until Recall
+ * answers (its retention ends it within a week). Anything else is a failed
+ * import: the host is told, and one more run cleans up what it left.
+ */
+async function settleCappedImport(
+  deps: BotDeps,
+  row: { id: string; company_id: string; provider_recording_id: string },
+  report: ReconcileReport,
+): Promise<void> {
+  const { data, error } = await deps.service
+    .from("final_interview_recordings")
+    .select("id, status")
+    .eq("vendor_recording_id", row.provider_recording_id)
+    .eq("company_id", row.company_id)
+    .maybeSingle();
+  if (error) throw dbError("recording read", error);
+  if ((data as { status: string } | null)?.status === "ready") {
+    if ((await ensureImportJob(deps, row, { spaced: true, afterCap: true })) === "queued") {
+      report.importDeleteRetries += 1;
+    }
+    return;
+  }
+  const failed = await patchRow(
+    deps,
+    row,
+    { import_status: "failed", import_error: RECORDING_IMPORT_ERRORS.retriesExhausted },
+    (q) => q.in("import_status", ["queued", "importing"]),
+  );
+  if (!failed) return;
+  report.importsFailed += 1;
+  console.error(`[final-bot] row ${row.id}: import failed after ${RECORDING_IMPORT_MAX_JOBS} jobs`);
+  if ((await ensureImportFailedAlert(deps, row)) === "queued") report.importAlertsQueued += 1;
+  await ensureImportJob(deps, row, { afterCap: true });
 }
 
 /* ── the Recall webhook ───────────────────────────────────────── */
@@ -1864,9 +2108,12 @@ async function applyLifecycleEvent(
 /**
  * The recording artifact stream. recording.done stores the recording id, on
  * any row including a superseded or finished one, because that media is what
- * the import will copy; the first id is kept. Nothing here touches the
- * status, the import columns or the media. recording.failed raises the
- * failure alert; the schema has no column for it beyond the alert stamp.
+ * the import will copy; the first id is kept. It then queues the import
+ * (recording step 4): import_status 'none' -> 'queued' and one
+ * final_recording_import job. A second, different recording id is not
+ * imported and is left to Recall's retention. Nothing here touches the
+ * status or the media. recording.failed raises the failure alert; the schema
+ * has no column for it beyond the alert stamp.
  */
 async function applyRecordingEvent(
   deps: WebhookDeps,
@@ -1894,10 +2141,17 @@ async function applyRecordingEvent(
     .is("provider_recording_id", null)
     .select("id");
   if (error) return { status: 503, outcome: "db_unavailable" };
-  if (((data ?? []) as unknown[]).length > 0) return { status: 200, outcome: "recording_stored" };
-  if (row.provider_recording_id === event.recordingId) return { status: 200, outcome: "duplicate" };
-  console.warn(`[recall-webhook] row ${row.id}: a second recording id arrived; the first is kept`);
-  return { status: 200, outcome: "recording_kept_first" };
+  const stored = ((data ?? []) as unknown[]).length > 0;
+  if (!stored && row.provider_recording_id !== event.recordingId) {
+    console.warn(
+      `[recall-webhook] row ${row.id}: a second recording id arrived; the first is kept`,
+    );
+    return { status: 200, outcome: "recording_kept_first" };
+  }
+  if ((await startImport(deps, row)) === "failed") {
+    return { status: 503, outcome: "enqueue_failed" };
+  }
+  return { status: 200, outcome: stored ? "recording_stored" : "duplicate" };
 }
 
 /**

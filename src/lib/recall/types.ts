@@ -77,6 +77,29 @@ export type ListBotsResult = {
   truncated: boolean;
 };
 
+/**
+ * GET /recording/{id}/, reduced to what the import reads: who made it, whether
+ * it and its mixed video are done, and the video's signed download URL.
+ */
+export type RecallRecordingInfo = {
+  id: string;
+  /** recording.bot.id: checked against the row before anything is copied or deleted. */
+  botId: string | null;
+  statusCode: string | null;
+  /** media_shortcuts.video_mixed.status.code */
+  videoStatusCode: string | null;
+  /** Signed and short-lived (about 6 hours). Never stored, logged or thrown. */
+  downloadUrl: string | null;
+};
+
+/**
+ * One byte range of the signed download URL. "refused" is a 403 or 404 from
+ * the media host: the URL expired, or the media is gone. Ask Recall again.
+ */
+export type MediaRangeResult =
+  | { outcome: "ok"; bytes: Uint8Array; total: number }
+  | { outcome: "refused" };
+
 export interface RecallClient {
   createBot(
     request: CreateBotRequest,
@@ -88,6 +111,22 @@ export interface RecallClient {
   deleteScheduledBot(botId: string, options?: CallOptions): Promise<DeleteScheduledOutcome>;
   leaveCall(botId: string, options?: CallOptions): Promise<LeaveCallOutcome>;
   deleteRecording(recordingId: string, options?: CallOptions): Promise<DeleteRecordingOutcome>;
+  /** Null on 404. */
+  retrieveRecording(
+    recordingId: string,
+    options?: CallOptions,
+  ): Promise<RecallRecordingInfo | null>;
+  /**
+   * Bytes start..end (inclusive) of a download URL from retrieveRecording. The
+   * API key is never sent with it. The answer must be a 206 for exactly that
+   * range, and the body exactly that long, or it throws.
+   */
+  downloadRange(
+    url: string,
+    start: number,
+    end: number,
+    options?: CallOptions,
+  ): Promise<MediaRangeResult>;
 }
 
 /**
