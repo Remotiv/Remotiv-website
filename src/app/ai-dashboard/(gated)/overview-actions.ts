@@ -73,7 +73,6 @@ type AppRow = {
   job_id: string | null;
   job_title_snapshot: string | null;
   pipeline_stage: string | null;
-  screening_answers: unknown;
   created_at: string | null;
 };
 
@@ -93,7 +92,7 @@ function fullName(r: AppRow): string {
 }
 
 /**
- * Everything the Overview renders, in four queries.
+ * Everything the Overview renders, in five queries.
  *
  * Scoped exactly as the other pages are: jobs on company_id, applications on
  * company_id_snapshot (which survives job deletion, unlike a join through
@@ -118,7 +117,27 @@ export async function fetchOverview(): Promise<OverviewData> {
   const scope = await getJobScope(ctx);
   if (scope.scoped && scope.jobIds.length === 0) return { ...EMPTY };
 
-  const [jobs, apps, history, invites] = await Promise.all([
+  /*
+   * Counted in the database, not from the rows. The only thing Overview asks
+   * of screening_answers is whether there is at least one, and the column
+   * averages ~1.7 KB per row — the single largest thing this page used to
+   * transfer to answer a yes/no question.
+   *
+   * `<> '[]'` is the predicate, verified equal to the old
+   * `Array.isArray(x) && x.length > 0` across every production row and
+   * cross-checked against `screening_answers->0 IS NOT NULL`. The column is
+   * `jsonb NOT NULL DEFAULT '[]'::jsonb` and /api/apply is its only writer, so
+   * there is no null and no non-array case for the two to disagree on.
+   *
+   * Scoped exactly as the applications read below.
+   */
+  const screened = service
+    .from("job_applications")
+    .select("id", { count: "exact", head: true })
+    .eq("company_id_snapshot", ctx.companyId)
+    .neq("screening_answers", "[]");
+
+  const [jobs, apps, history, invites, screenedCount] = await Promise.all([
     pageAll<JobRow>(
       (from, to) => {
         const q = service
@@ -139,7 +158,7 @@ export async function fetchOverview(): Promise<OverviewData> {
         const q = service
           .from("job_applications")
           .select(
-            "id, first_name, last_name, email, job_id, job_title_snapshot, pipeline_stage, screening_answers, created_at",
+            "id, first_name, last_name, email, job_id, job_title_snapshot, pipeline_stage, created_at",
           )
           .eq("company_id_snapshot", ctx.companyId);
         return (scope.scoped ? q.in("job_id", scope.jobIds) : q)
@@ -178,6 +197,19 @@ export async function fetchOverview(): Promise<OverviewData> {
         }
         return answered(count ?? 0);
       }),
+    (scope.scoped ? screened.in("job_id", scope.jobIds) : screened).then(
+      ({ count, error }) => {
+        // Throws rather than degrading to 0, which is what the row read this
+        // replaces already did via pageAll. screenedCount is a bare number the
+        // hero asserts out loud ("N applications arrived"), so a failed count
+        // reading as zero would understate the page's central claim with no
+        // sign anything went wrong.
+        if (error) {
+          throw new Error(`[overview] screened count failed: ${error.message}`);
+        }
+        return count ?? 0;
+      },
+    ),
   ]);
 
   // The stage-history feed keys on application_id, so it is narrowed in
@@ -187,8 +219,10 @@ export async function fetchOverview(): Promise<OverviewData> {
   // feed as unknown, so it renders "we couldn't load this" rather than
   // "nothing has happened in <company> yet".
   const historyRows = history.ok ? history.value : [];
-  const visibleAppIds = new Set(apps.map((a) => a.id));
-  const scopedHistory = scope.scoped
+  // Null for an unscoped role, so an owner's worst case no longer builds a
+  // Set of every application id only to discard it.
+  const visibleAppIds = scope.scoped ? new Set(apps.map((a) => a.id)) : null;
+  const scopedHistory = visibleAppIds
     ? historyRows.filter((h) => h.application_id !== null && visibleAppIds.has(h.application_id))
     : historyRows;
 
@@ -207,9 +241,6 @@ export async function fetchOverview(): Promise<OverviewData> {
 
   const total = apps.length;
   const newThisWeek = apps.filter((a) => isRecent(a.created_at)).length;
-  const screenedCount = apps.filter(
-    (a) => Array.isArray(a.screening_answers) && a.screening_answers.length > 0,
-  ).length;
   const awaitingReview = apps.filter((a) => stageOf(a) === "applied").length;
 
   const funnel: FunnelStep[] = FUNNEL_STAGES.map((stage) => {
