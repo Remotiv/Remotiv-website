@@ -496,6 +496,31 @@ const FILTER_VALUES = new Map([
   ],
 ]);
 
+/**
+ * A filter value approved at ONE read only, matched like an ALLOWLIST entry:
+ * by file, enclosing function and the read's own builder chain. For a shape
+ * that is safe where it stands but must not become a global approval -
+ * `row.company_id` appears 43 times in this tree, each `row` a different
+ * table. Change the query and the entry stops matching; reuse the shape at
+ * any other read and that read fails as untraced.
+ */
+const SITE_FILTER_VALUES = [
+  {
+    file: "lib/final-interviews/alerts.ts",
+    fn: "runFinalBotAlert",
+    query:
+      '.select("first_name").eq("id", row.application_id).eq("company_id_snapshot", row.company_id).maybeSingle()',
+    value: "row.company_id",
+    why:
+      "A column off a final_interview_bots row fetched by primary key from a final_bot_lobby_check " +
+      "queue payload that only the service role writes (bots.ts ensureAlertJob, with the id of a row " +
+      "the code itself just read). Like session.company_id, a cross-row consistency check, not " +
+      "request-scoped tenancy: the bot row's company is fixed by migration 040's composite foreign key " +
+      "to final_interviews, whose trigger (038) already requires the application to belong to that " +
+      "company, and this filter re-asserts it before the first name goes into the host's alert.",
+  },
+];
+
 /* ── the scan ─────────────────────────────────────────────────── */
 
 const isLit = (node, value) =>
@@ -1566,7 +1591,16 @@ test("every declared guard and scoped-read dependency still holds", () => {
 
 test("no company filter value is client-supplied", () => {
   const seen = new Set();
-  for (const site of reads) for (const v of site.values) seen.add(v);
+  const usedSiteEntries = new Set();
+  for (const site of reads) {
+    for (const v of site.values) {
+      const entry = SITE_FILTER_VALUES.find(
+        (e) => e.value === v && e.file === site.file && e.fn === site.fn && e.query === site.chain,
+      );
+      if (entry) usedSiteEntries.add(entry);
+      else seen.add(v);
+    }
+  }
   const unknown = [...seen].filter((v) => !FILTER_VALUES.has(v));
   assert.deepEqual(
     unknown,
@@ -1582,6 +1616,15 @@ test("no company filter value is client-supplied", () => {
   // allowlist entry.
   const unused = [...FILTER_VALUES.keys()].filter((v) => !seen.has(v));
   assert.deepEqual(unused, [], `filter value shapes documented but no longer used: ${unused}`);
+
+  // A site-scoped approval that matches no read is a stale claim too.
+  const staleSite = SITE_FILTER_VALUES.filter((e) => !usedSiteEntries.has(e)).map(
+    (e) => `${e.file} ${e.fn}(): ${e.value}`,
+  );
+  assert.deepEqual(staleSite, [], `site-scoped filter values that match no read: ${staleSite}`);
+  for (const e of SITE_FILTER_VALUES) {
+    assert.ok(e.why.length > 80, `${e.file} ${e.fn}(): justification too thin`);
+  }
 });
 
 test("no table name on the tenant surface is reached by a route the scan cannot follow", () => {

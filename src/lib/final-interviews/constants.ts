@@ -108,6 +108,20 @@ export const RECORDING_BOT_RECORDING_TIMEOUT_S = 10_800;
 /** metadata.integration on every bot Remotiv creates; the only marker reconciliation trusts. */
 export const RECORDING_BOT_INTEGRATION = "remotiv-final-interview";
 
+/* ── recording host alerts (recording step 3) ───────────────────── */
+
+/** The job type for both host alerts; payload.kind says which. JOB_TYPES.FINAL_BOT_LOBBY_CHECK. */
+export const FINAL_BOT_ALERT_JOB = "final_bot_lobby_check";
+export type RecordingAlertKind = "lobby" | "failure";
+/** How long the bot waits in the lobby before the host is told. */
+export const RECORDING_LOBBY_ALERT_DELAY_MS = 2 * 60_000;
+/** Recall call_ended sub codes meaning the bot never got out of the waiting room. */
+export const RECORDING_WAITING_ROOM_FAILURE_SUB_CODES: ReadonlySet<string> = new Set([
+  "timeout_exceeded_waiting_room",
+  "call_ended_by_platform_waiting_room_timeout",
+  "bot_kicked_from_waiting_room",
+]);
+
 /* ── fixed copy ─────────────────────────────────────────────────── */
 
 export const HOST_NEEDS_CALENDAR =

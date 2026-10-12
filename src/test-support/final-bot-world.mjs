@@ -29,6 +29,8 @@ export const APP = "a0000000-0000-4000-8000-000000000001";
 export const FI = "f0000000-0000-4000-8000-000000000001";
 export const BOOKING = "b0000000-0000-4000-8000-000000000001";
 export const MEET = "https://meet.google.com/abc-defg-hij";
+export const HOST = "d0000000-0000-4000-8000-000000000001";
+export const OTHER_MEMBER = "d0000000-0000-4000-8000-000000000002";
 
 /** A booked final round starting `startMs`, its active interview, nothing else. */
 export function makeBotDb(startMs) {
@@ -44,18 +46,75 @@ export function makeBotDb(startMs) {
         final_interview_id: FI,
         scheduled_start: new Date(startMs).toISOString(),
         meeting_url: MEET,
+        host_member_id: HOST,
         booked_at: new Date(startMs - 3 * 86_400_000).toISOString(),
       },
     ],
     final_interviews: [
-      { id: FI, company_id: CO, job_id: JOB, application_id: APP, status: "active" },
+      {
+        id: FI,
+        company_id: CO,
+        job_id: JOB,
+        application_id: APP,
+        status: "active",
+        host_member_id: HOST,
+        interview_type: "cto",
+        custom_label: null,
+      },
     ],
     final_interview_bots: [],
     background_jobs: [],
+    company_members: [
+      { id: HOST, company_id: CO, status: "active", email: "host@acme.test", user_id: "u-host" },
+      {
+        id: OTHER_MEMBER,
+        company_id: CO,
+        status: "active",
+        email: "other@acme.test",
+        user_id: "u-o",
+      },
+    ],
+    job_applications: [{ id: APP, company_id_snapshot: CO, first_name: "Sam" }],
+    auth_users: { "u-host": "host-signin@acme.test" },
   };
 }
 
-const FILTERS = new Set(["eq", "neq", "in", "is", "not", "lt", "lte", "gt", "gte"]);
+const FILTERS = new Set(["eq", "neq", "in", "is", "not", "or", "lt", "lte", "gt", "gte"]);
+
+/** PostgREST list literal ("a","b") or (a,b) to values. */
+const parseList = (text) =>
+  text
+    .replace(/^\(|\)$/g, "")
+    .split(",")
+    .map((v) => v.trim().replace(/^"|"$/g, ""));
+
+/** One or-term, "col.op.value", as a filter call. Supports is.null, eq, lt, gt. */
+function orTerm(term) {
+  const first = term.indexOf(".");
+  const second = term.indexOf(".", first + 1);
+  const col = term.slice(0, first);
+  const op = term.slice(first + 1, second);
+  const raw = term.slice(second + 1).replace(/^"|"$/g, "");
+  if (op === "is") return ["is", col, raw === "null" ? null : raw];
+  if (["eq", "lt", "gt", "lte", "gte"].includes(op)) return [op, col, raw];
+  throw new Error(`world: unsupported or-term ${term}`);
+}
+
+/** Split an or() string on top-level commas, keeping quoted values whole. */
+function orTerms(text) {
+  const out = [];
+  let cur = "";
+  let quoted = false;
+  for (const ch of text) {
+    if (ch === '"') quoted = !quoted;
+    if (ch === "," && !quoted) {
+      out.push(cur);
+      cur = "";
+    } else cur += ch;
+  }
+  if (cur) out.push(cur);
+  return out;
+}
 
 function get(row, col) {
   if (col.includes("->>")) {
@@ -79,7 +138,10 @@ function matches(row, call) {
       return a === null ? v === null || v === undefined : v === a;
     case "not":
       if (a === "is" && b === null) return v !== null && v !== undefined;
+      if (a === "in") return !parseList(b).includes(v);
       throw new Error(`world: unsupported not(${col}, ${a})`);
+    case "or":
+      return orTerms(col).some((term) => matches(row, orTerm(term)));
     case "lt":
       return v !== null && v !== undefined && v < a;
     case "lte":
@@ -222,6 +284,14 @@ export function botWorld(db) {
   });
 
   service.failNext = (table, op = "*", code) => failures.push({ table, op, code });
+  service.auth = {
+    admin: {
+      getUserById: async (id) => ({
+        data: { user: db.auth_users?.[id] ? { email: db.auth_users[id] } : null },
+        error: null,
+      }),
+    },
+  };
   service.hang = (table) => hanging.add(table);
   return service;
 }
@@ -239,6 +309,7 @@ export function makeEnqueue(service, { fail } = {}) {
         status: "queued",
         attempts: 0,
         max_attempts: input.maxAttempts ?? 3,
+        ...(input.runAfter ? { run_after: input.runAfter.toISOString() } : {}),
       })
       .select("id")
       .single();

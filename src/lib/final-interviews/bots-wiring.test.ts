@@ -65,31 +65,36 @@ test("JOB_TYPES holds migration 040's nineteen job types in its order", () => {
   assert.deepEqual(inCode, inMigration);
 });
 
-test("only final_bot_sync has a handler among the five new types", () => {
+test("final_bot_sync (step 2) and final_bot_lobby_check (step 3) have handlers; the other three do not", () => {
   const queue = code(read(QUEUE));
   assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_SYNC, handleFinalBotSync\);/);
+  assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert\);/);
   for (const t of [
-    "FINAL_BOT_LOBBY_CHECK",
     "FINAL_RECORDING_IMPORT",
     "FINAL_RECORDING_IMPORT_WATCHDOG",
     "FINAL_RECORDING_PURGE",
   ]) {
     assert.doesNotMatch(queue, new RegExp(`registerHandler\\(JOB_TYPES\\.${t}\\b`), t);
   }
-  // Nothing outside JOB_TYPES names the four that have no handler yet, so
+  // Nothing outside JOB_TYPES names the three that have no handler yet, so
   // nothing can enqueue them.
   for (const { rel, text } of SOURCES) {
     if (rel === QUEUE) continue;
     assert.doesNotMatch(
       text,
-      /["'](final_bot_lobby_check|final_recording_import|final_recording_import_watchdog|final_recording_purge)["']/,
+      /["'](final_recording_import|final_recording_import_watchdog|final_recording_purge)["']/,
       rel,
     );
   }
   assert.doesNotMatch(
-    code(read(QUEUE)),
-    /JOB_TYPES\.(FINAL_BOT_LOBBY_CHECK|FINAL_RECORDING_IMPORT|FINAL_RECORDING_IMPORT_WATCHDOG|FINAL_RECORDING_PURGE)\b/,
+    queue,
+    /JOB_TYPES\.(FINAL_RECORDING_IMPORT|FINAL_RECORDING_IMPORT_WATCHDOG|FINAL_RECORDING_PURGE)\b/,
   );
+  // The alert job's name is written once, beside JOB_TYPES' own copy.
+  const namers = SOURCES.filter((s) => /["']final_bot_lobby_check["']/.test(s.text)).map(
+    (s) => s.rel,
+  );
+  assert.deepEqual(namers.sort(), ["src/lib/final-interviews/constants.ts", QUEUE].sort());
 });
 
 test("the bot module's job-type literal is JOB_TYPES.FINAL_BOT_SYNC", () => {

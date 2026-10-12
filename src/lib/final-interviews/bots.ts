@@ -10,8 +10,10 @@ import {
   type RecallClient,
 } from "@/lib/recall/client";
 import type { CreateBotRequest } from "@/lib/recall/types";
+import { type HeaderReader, verifyRecallWebhook } from "@/lib/recall/verify";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
+  FINAL_BOT_ALERT_JOB,
   type FinalBotStatus,
   RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S,
   RECORDING_BOT_INTEGRATION,
@@ -22,6 +24,9 @@ import {
   RECORDING_BOT_RECORDING_TIMEOUT_S,
   RECORDING_BOT_RETENTION_HOURS,
   RECORDING_BOT_WAITING_ROOM_TIMEOUT_S,
+  RECORDING_LOBBY_ALERT_DELAY_MS,
+  RECORDING_WAITING_ROOM_FAILURE_SUB_CODES,
+  type RecordingAlertKind,
 } from "./constants";
 
 /**
@@ -153,13 +158,15 @@ export type FinalBotRow = {
   last_event_sub_code: string | null;
   last_event_at: string | null;
   import_status: string;
+  lobby_alert_sent_at: string | null;
+  failure_alert_sent_at: string | null;
   superseded_at: string | null;
   created_at: string;
   updated_at: string;
 };
 
 const BOT_COLUMNS =
-  "id, final_interview_id, company_id, job_id, application_id, booking_id, provider, provider_bot_id, provider_recording_id, join_at, status, last_event_code, last_event_sub_code, last_event_at, import_status, superseded_at, created_at, updated_at";
+  "id, final_interview_id, company_id, job_id, application_id, booking_id, provider, provider_bot_id, provider_recording_id, join_at, status, last_event_code, last_event_sub_code, last_event_at, import_status, lobby_alert_sent_at, failure_alert_sent_at, superseded_at, created_at, updated_at";
 
 export type BookingSnapshot = Pick<
   BookingRow,
@@ -1130,6 +1137,8 @@ export type ReconcileReport = {
   reportedMismatch: number;
   reportedUnownedDispatched: number;
   reportedDuplicateDispatched: number;
+  /** Lobby checks queued for bots whose webhook-time enqueue never happened. */
+  lobbyChecksQueued: number;
   vendorTruncated: boolean;
   vendorError: boolean;
 };
@@ -1174,6 +1183,7 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     reportedMismatch: 0,
     reportedUnownedDispatched: 0,
     reportedDuplicateDispatched: 0,
+    lobbyChecksQueued: 0,
     vendorTruncated: false,
     vendorError: false,
   };
@@ -1317,6 +1327,25 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     if (outcome === "queued") report.requeued += 1;
   }
 
+  // Bots waiting in the lobby for two minutes or more with no alert and no
+  // check queued: the webhook's enqueue was lost, or the status came from an
+  // adoption rather than a webhook. Runs with the flag off.
+  const waiting = await read<{ id: string; company_id: string }>(
+    "waiting bots",
+    deps.service
+      .from("final_interview_bots")
+      .select("id, company_id")
+      .eq("status", "waiting_room")
+      .is("superseded_at", null)
+      .is("lobby_alert_sent_at", null)
+      .lt("last_event_at", new Date(now - RECORDING_LOBBY_ALERT_DELAY_MS).toISOString())
+      .gt("join_at", lookbackIso)
+      .limit(RECONCILE_BATCH),
+  );
+  for (const row of waiting) {
+    if ((await ensureAlertJob(deps, row, "lobby", now)) === "queued") report.lobbyChecksQueued += 1;
+  }
+
   try {
     await reconcileVendor(deps, report, toSync);
   } catch (err) {
@@ -1448,6 +1477,382 @@ export async function finalBotReconcileWanted(
   ]);
   if (active.error || unsaved.error) return false;
   return ((active.data ?? []) as unknown[]).length + ((unsaved.data ?? []) as unknown[]).length > 0;
+}
+
+/* ── host alert jobs ──────────────────────────────────────────── */
+
+/**
+ * Queue a host alert check unless one is already queued or running for this
+ * bot and kind. Migration 040 has no unique index for these jobs, so the read
+ * narrows duplicates and the alert's own conditional claim makes any that
+ * slip through harmless. "failed" means nothing could be confirmed queued.
+ */
+async function ensureAlertJob(
+  deps: Pick<BotDeps, "service" | "enqueue">,
+  row: { id: string; company_id: string },
+  kind: RecordingAlertKind,
+  runAfterMs: number,
+): Promise<"queued" | "exists" | "failed"> {
+  const { data, error } = await deps.service
+    .from("background_jobs")
+    .select("id")
+    .eq("type", FINAL_BOT_ALERT_JOB)
+    .in("status", ["queued", "running"])
+    .eq("payload->>botRowId", row.id)
+    .eq("payload->>kind", kind)
+    .limit(1);
+  if (error) return "failed";
+  if (((data ?? []) as unknown[]).length > 0) return "exists";
+  const result = await deps.enqueue({
+    type: FINAL_BOT_ALERT_JOB,
+    companyId: row.company_id,
+    payload: { botRowId: row.id, kind },
+    runAfter: new Date(runAfterMs),
+    maxAttempts: 3,
+  });
+  return result.ok ? "queued" : "failed";
+}
+
+/* ── the Recall webhook ───────────────────────────────────────── */
+
+export type WebhookDeps = Pick<BotDeps, "service" | "enqueue" | "now">;
+
+/**
+ * What the route answers. 2xx only when the event was applied, recognised as
+ * a duplicate or stale, durably queued, or deliberately ignored; 503 when a
+ * database read, write or enqueue it needed did not happen, so Recall retries.
+ */
+export type WebhookResult = { status: 200 | 401 | 503; outcome: string };
+
+type RecallEvent = {
+  name: string;
+  botId: string | null;
+  metadata: Record<string, string> | null;
+  code: string | null;
+  subCode: string | null;
+  /** Recall's own timestamp for the change; the ordering key. */
+  at: string | null;
+  recordingId: string | null;
+};
+
+const SAFE_CODE = /^[a-z0-9_]{1,64}$/;
+const safeCode = (v: unknown): string | null =>
+  typeof v === "string" && SAFE_CODE.test(v) ? v : null;
+
+/** Recall's `event` + `data.{data,bot,recording}` shape, with anything unsafe dropped. */
+function parseRecallEvent(raw: unknown): RecallEvent | null {
+  if (!raw || typeof raw !== "object") return null;
+  const name = (raw as { event?: unknown }).event;
+  const data = (raw as { data?: unknown }).data;
+  if (
+    typeof name !== "string" ||
+    !/^[a-z_]+\.[a-z_]+$/.test(name) ||
+    !data ||
+    typeof data !== "object"
+  ) {
+    return null;
+  }
+  const d = data as {
+    data?: { code?: unknown; sub_code?: unknown; updated_at?: unknown };
+    bot?: { id?: unknown; metadata?: unknown };
+    recording?: { id?: unknown };
+  };
+  const at =
+    typeof d.data?.updated_at === "string" && Number.isFinite(Date.parse(d.data.updated_at))
+      ? d.data.updated_at
+      : null;
+  const meta = d.bot?.metadata;
+  const metadata =
+    meta && typeof meta === "object" && Object.values(meta).every((v) => typeof v === "string")
+      ? (meta as Record<string, string>)
+      : null;
+  return {
+    name,
+    botId: isRecallId(d.bot?.id) ? d.bot.id : null,
+    metadata,
+    code: safeCode(d.data?.code),
+    subCode: safeCode(d.data?.sub_code),
+    at,
+    recordingId: isRecallId(d.recording?.id) ? d.recording.id : null,
+  };
+}
+
+/** Bot lifecycle events that move the row's status. Every other bot.* event records its code only. */
+const LIFECYCLE_STATUS: ReadonlyMap<string, FinalBotStatus> = new Map([
+  ["bot.in_waiting_room", "waiting_room"],
+  ["bot.in_call_not_recording", "in_call"],
+  ["bot.in_call_recording", "recording"],
+  ["bot.call_ended", "call_ended"],
+  ["bot.done", "done"],
+  ["bot.fatal", "fatal"],
+]);
+
+export function isFailureEvent(name: string, subCode: string | null): boolean {
+  return (
+    name === "bot.fatal" ||
+    name === "bot.recording_permission_denied" ||
+    name === "recording.failed" ||
+    (name === "bot.call_ended" &&
+      subCode !== null &&
+      RECORDING_WAITING_ROOM_FAILURE_SUB_CODES.has(subCode))
+  );
+}
+
+/**
+ * Verify, parse and apply one Recall webhook. Never calls Recall, never
+ * consults the recording flag, never logs the body.
+ */
+export async function receiveRecallWebhook(
+  input: { rawBody: string; header: HeaderReader; secret: string | undefined },
+  overrides: Partial<WebhookDeps> = {},
+): Promise<WebhookResult> {
+  const now = overrides.now ?? Date.now;
+  const verified = verifyRecallWebhook({
+    secret: input.secret,
+    header: input.header,
+    rawBody: input.rawBody,
+    nowMs: now(),
+  });
+  if (!verified.ok) {
+    if (verified.reason === "no_secret" || verified.reason === "bad_secret") {
+      console.error("[recall-webhook] RECALL_WEBHOOK_SECRET is missing or malformed; refusing");
+      return { status: 503, outcome: "not_configured" };
+    }
+    console.warn(`[recall-webhook] rejected: ${verified.reason}`);
+    return { status: 401, outcome: "unauthorized" };
+  }
+
+  let raw: unknown;
+  try {
+    raw = JSON.parse(input.rawBody);
+  } catch {
+    // Signed but not JSON: a retry would not change it.
+    console.error(`[recall-webhook] ${verified.id}: signed payload was not JSON`);
+    return { status: 200, outcome: "ignored_malformed" };
+  }
+
+  try {
+    const deps: WebhookDeps = {
+      service: overrides.service ?? createServiceClient(),
+      enqueue: overrides.enqueue ?? lazyEnqueue,
+      now,
+    };
+    const event = parseRecallEvent(raw);
+    const result = event
+      ? await processRecallEvent(deps, event)
+      : ({ status: 200, outcome: "ignored_malformed" } as const);
+    console.log(`[recall-webhook] ${verified.id} ${event?.name ?? "?"}: ${result.outcome}`);
+    return result;
+  } catch (err) {
+    console.error(
+      `[recall-webhook] ${verified.id}: processing failed (${err instanceof Error ? err.message : "error"})`,
+    );
+    return { status: 503, outcome: "error" };
+  }
+}
+
+/** Apply one parsed event. Exported for tests. */
+export async function processRecallEvent(
+  deps: WebhookDeps,
+  event: RecallEvent,
+): Promise<WebhookResult> {
+  const isBotEvent = event.name.startsWith("bot.");
+  const isRecordingEvent = event.name === "recording.done" || event.name === "recording.failed";
+  if (!isBotEvent && !isRecordingEvent) return { status: 200, outcome: "ignored_event" };
+  if (!event.botId) return { status: 200, outcome: "ignored_no_bot" };
+
+  const { data, error } = await deps.service
+    .from("final_interview_bots")
+    .select(BOT_COLUMNS)
+    .eq("provider_bot_id", event.botId)
+    .maybeSingle();
+  // A failed read says nothing about whether the bot is known. Retry.
+  if (error) return { status: 503, outcome: "db_unavailable" };
+  const row = data as FinalBotRow | null;
+  if (!row) return handleUnknownBot(deps, event);
+
+  if (isRecordingEvent) return applyRecordingEvent(deps, row, event);
+  return applyLifecycleEvent(deps, row, event);
+}
+
+/**
+ * The bot lifecycle stream. One conditional UPDATE, so it is safe against
+ * duplicate, delayed and concurrent deliveries without a read-then-write:
+ *
+ *   - Recall's own timestamp is the watermark: an event no newer than the
+ *     row's last_event_at changes nothing, so a late in_waiting_room cannot
+ *     pull a recording bot back to the lobby and a duplicate is a no-op.
+ *   - 'deleted' and 'superseded' rows never move.
+ *   - 'fatal' is final for this stream: a later bot.done does not hide it.
+ *
+ * Recording events never touch these columns, so the two streams cannot
+ * block each other through the watermark.
+ */
+async function applyLifecycleEvent(
+  deps: WebhookDeps,
+  row: FinalBotRow,
+  event: RecallEvent,
+): Promise<WebhookResult> {
+  let applied = false;
+  if (event.at) {
+    const status = LIFECYCLE_STATUS.get(event.name);
+    const patch: Partial<FinalBotRow> = {
+      last_event_code: event.code ?? event.name.slice("bot.".length),
+      last_event_sub_code: event.subCode,
+      last_event_at: event.at,
+      updated_at: new Date(deps.now()).toISOString(),
+      ...(status ? { status } : {}),
+    };
+    const { data, error } = await deps.service
+      .from("final_interview_bots")
+      .update(patch)
+      .eq("id", row.id)
+      .eq("company_id", row.company_id)
+      .eq("provider_bot_id", event.botId as string)
+      .not("status", "in", '("deleted","superseded","fatal")')
+      .or(`last_event_at.is.null,last_event_at.lt."${event.at}"`)
+      .select("id");
+    if (error) return { status: 503, outcome: "db_unavailable" };
+    applied = ((data ?? []) as unknown[]).length > 0;
+  }
+
+  const live =
+    row.superseded_at === null && row.status !== "deleted" && row.status !== "superseded";
+
+  // The lobby check follows the event, not the write: a redelivery after a
+  // failed enqueue finds its own state already applied and must still queue.
+  if (event.name === "bot.in_waiting_room" && event.at && live && !row.lobby_alert_sent_at) {
+    const current =
+      applied ||
+      (row.last_event_code === event.code &&
+        Date.parse(row.last_event_at ?? "") === Date.parse(event.at));
+    if (current) {
+      const queued = await ensureAlertJob(
+        deps,
+        row,
+        "lobby",
+        Math.max(deps.now(), Date.parse(event.at) + RECORDING_LOBBY_ALERT_DELAY_MS),
+      );
+      if (queued === "failed") return { status: 503, outcome: "enqueue_failed" };
+    }
+  }
+
+  // A failure is a fact whatever order it arrives in.
+  if (isFailureEvent(event.name, event.subCode) && live && !row.failure_alert_sent_at) {
+    if ((await ensureAlertJob(deps, row, "failure", deps.now())) === "failed") {
+      return { status: 503, outcome: "enqueue_failed" };
+    }
+  }
+
+  if (!event.at) return { status: 200, outcome: "ignored_no_timestamp" };
+  return { status: 200, outcome: applied ? "applied" : "stale_or_duplicate" };
+}
+
+/**
+ * The recording artifact stream. recording.done stores the recording id, on
+ * any row including a superseded or finished one, because that media is what
+ * the import will copy; the first id is kept. Nothing here touches the
+ * status, the import columns or the media. recording.failed raises the
+ * failure alert; the schema has no column for it beyond the alert stamp.
+ */
+async function applyRecordingEvent(
+  deps: WebhookDeps,
+  row: FinalBotRow,
+  event: RecallEvent,
+): Promise<WebhookResult> {
+  if (event.name === "recording.failed") {
+    const live =
+      row.superseded_at === null && row.status !== "deleted" && row.status !== "superseded";
+    if (live && !row.failure_alert_sent_at) {
+      if ((await ensureAlertJob(deps, row, "failure", deps.now())) === "failed") {
+        return { status: 503, outcome: "enqueue_failed" };
+      }
+    }
+    return { status: 200, outcome: "recording_failed_noted" };
+  }
+
+  if (!event.recordingId) return { status: 200, outcome: "ignored_no_recording" };
+  const { data, error } = await deps.service
+    .from("final_interview_bots")
+    .update({ provider_recording_id: event.recordingId })
+    .eq("id", row.id)
+    .eq("company_id", row.company_id)
+    .eq("provider_bot_id", event.botId as string)
+    .is("provider_recording_id", null)
+    .select("id");
+  if (error) return { status: 503, outcome: "db_unavailable" };
+  if (((data ?? []) as unknown[]).length > 0) return { status: 200, outcome: "recording_stored" };
+  if (row.provider_recording_id === event.recordingId) return { status: 200, outcome: "duplicate" };
+  console.warn(`[recall-webhook] row ${row.id}: a second recording id arrived; the first is kept`);
+  return { status: 200, outcome: "recording_kept_first" };
+}
+
+/**
+ * A signed event for a bot no row names. Deletion needs proof on every step:
+ *
+ *   not Remotiv's marker, or no valid botRowId/companyId/finalInterviewId
+ *                                  -> ignored, never deleted
+ *   its row exists (id not saved yet, or another bot saved)
+ *                                  -> a sync is queued; Step 2 adopts or sorts it
+ *   row exists but disagrees with the metadata
+ *                                  -> ignored
+ *   its row is genuinely gone      -> the orphan delete, deduplicated by
+ *                                     migration 040's index
+ *
+ * A read or enqueue that fails is a 503, never a cleanup or an "unknown".
+ * No row is ever created from a webhook.
+ */
+async function handleUnknownBot(deps: WebhookDeps, event: RecallEvent): Promise<WebhookResult> {
+  const meta = event.metadata;
+  if (meta?.integration !== RECORDING_BOT_INTEGRATION) {
+    return { status: 200, outcome: "ignored_not_ours" };
+  }
+  if (
+    !isRecallId(meta.botRowId) ||
+    !isRecallId(meta.companyId) ||
+    !isRecallId(meta.finalInterviewId)
+  ) {
+    return { status: 200, outcome: "ignored_unidentified" };
+  }
+
+  const { data, error } = await deps.service
+    .from("final_interview_bots")
+    .select("id, company_id, final_interview_id, booking_id, provider_bot_id")
+    .eq("id", meta.botRowId)
+    .maybeSingle();
+  if (error) return { status: 503, outcome: "db_unavailable" };
+  const row = data as Pick<
+    FinalBotRow,
+    "id" | "company_id" | "final_interview_id" | "booking_id" | "provider_bot_id"
+  > | null;
+
+  if (row) {
+    if (row.company_id !== meta.companyId || row.final_interview_id !== meta.finalInterviewId) {
+      return { status: 200, outcome: "ignored_metadata_mismatch" };
+    }
+    const queued = await enqueueSync(
+      deps,
+      { id: row.booking_id, company_id: row.company_id },
+      null,
+    );
+    if (queued === "enqueue_failed") return { status: 503, outcome: "enqueue_failed" };
+    return {
+      status: 200,
+      outcome: row.provider_bot_id ? "queued_sync_duplicate_bot" : "queued_sync_unsaved_bot",
+    };
+  }
+
+  const result = await deps.enqueue({
+    type: FINAL_BOT_SYNC_JOB,
+    companyId: null,
+    payload: {
+      action: "delete",
+      providerBotId: event.botId,
+      providerRecordingId: event.recordingId,
+    },
+  });
+  if (result.ok || result.code === "23505") return { status: 200, outcome: "queued_cleanup" };
+  return { status: 503, outcome: "enqueue_failed" };
 }
 
 /* ── the job handler ──────────────────────────────────────────── */

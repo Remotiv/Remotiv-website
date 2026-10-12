@@ -4,6 +4,7 @@ import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
 import { handleCvPurge } from "@/lib/cv-purge";
 import { handleSendMessage } from "@/lib/email/candidate/dispatch";
+import { handleFinalBotAlert } from "@/lib/final-interviews/alerts";
 import {
   finalBotReconcileWanted,
   handleFinalBotSync,
@@ -205,14 +206,15 @@ export const JOB_TYPES = {
    */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
   /*
-   * Migration 040, in its order. Only FINAL_BOT_SYNC has a handler. The other
-   * four belong to later recording steps and nothing enqueues them yet; were
-   * one enqueued by mistake, runJob throws for that job alone and it takes the
-   * normal retry-then-dead path without touching any other job.
+   * Migration 040, in its order. FINAL_BOT_SYNC and FINAL_BOT_LOBBY_CHECK have
+   * handlers. The other three belong to later recording steps and nothing
+   * enqueues them yet; were one enqueued by mistake, runJob throws for that job
+   * alone and it takes the normal retry-then-dead path without touching any
+   * other job.
    */
   /** Recording step 2 — schedule, replace, remove and reconcile Recall bots. */
   FINAL_BOT_SYNC: "final_bot_sync",
-  /** Recording step 3 — host alert when the bot waits in the lobby. No handler yet. */
+  /** Recording step 3 — host alerts: lobby (payload.kind "lobby") and failure ("failure"). */
   FINAL_BOT_LOBBY_CHECK: "final_bot_lobby_check",
   /** Recording step 4 — copy the recording into storage. No handler yet. */
   FINAL_RECORDING_IMPORT: "final_recording_import",
@@ -291,6 +293,9 @@ registerHandler(JOB_TYPES.TALENT_RETENTION_PURGE, handleTalentRetentionPurge);
 // Recording step 2. Sync, reconcile and migration 040's orphan delete all
 // arrive as this type, told apart by payload.action inside the handler.
 registerHandler(JOB_TYPES.FINAL_BOT_SYNC, handleFinalBotSync);
+// Recording step 3. Despite the name, both host alerts: payload.kind is
+// "lobby" (still waiting after two minutes) or "failure" (could not record).
+registerHandler(JOB_TYPES.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert);
 
 // ── Enqueue ──────────────────────────────────────────────────
 

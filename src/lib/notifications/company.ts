@@ -54,6 +54,13 @@ export const COMPANY_NOTIFICATION_TYPES = [
   "interview_booked",
   "interview_rescheduled",
   "interview_cancelled",
+  /*
+   * The recording bot's two host alerts (recording step 3). Sent to the host
+   * alone with notifyCompanyMember, never fanned out. Same unconstrained
+   * column as the booking events above, so no migration.
+   */
+  "final_recording_lobby",
+  "final_recording_failed",
   "job_published",
   "job_closed",
   "job_archived",
@@ -95,6 +102,8 @@ const APPLICANT_TYPES = new Set<CompanyNotificationType>([
   "interview_booked",
   "interview_rescheduled",
   "interview_cancelled",
+  "final_recording_lobby",
+  "final_recording_failed",
 ]);
 
 /**
