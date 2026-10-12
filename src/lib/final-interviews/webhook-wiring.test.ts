@@ -109,9 +109,11 @@ test("alerts: one atomic claim on the stamp, the host alone, no fan-out, no fall
   const alerts = code(read(ALERTS));
   const run = body(alerts, "export async function runFinalBotAlert(");
   assert.match(run, /\.update\(\{ \[stamp\]: claimedAt \}\)[\s\S]{0,200}\.is\(stamp, null\)/);
-  assert.match(run, /\.eq\(stamp, claimedAt\)/, "the release only takes back its own claim");
-  assert.match(run, /memberId: host\.id,/);
-  assert.doesNotMatch(alerts, /notifyCompany\(|resolveHostEmail|contact_email/);
+  assert.match(run, /hostId: host\.id,/);
+  assert.doesNotMatch(
+    alerts,
+    /notifyCompany\(|notifyCompanyMember\(|resolveHostEmail|contact_email/,
+  );
   assert.match(run, /\.eq\("company_id_snapshot", row\.company_id\)/);
   assert.match(
     run,
@@ -119,9 +121,100 @@ test("alerts: one atomic claim on the stamp, the host alone, no fan-out, no fall
   );
   // Claim, then send, then bell.
   const claimAt = run.indexOf("is(stamp, null)");
-  const sendAt = run.indexOf("deps.sendEmail(");
-  const bellAt = run.indexOf("deps.notifyMember(");
+  const sendAt = run.indexOf("sendWithLimit(");
+  const bellAt = run.indexOf("await insertBell(deps, bell)");
   assert.ok(claimAt > 0 && sendAt > claimAt && bellAt > sendAt);
+  // The release and the ownership check each match only this attempt's claim.
+  const release = body(alerts, "async function releaseClaim(");
+  assert.equal((release.match(/\.eq\(stamp, claimedAt\)/g) ?? []).length, 2);
+  assert.match(
+    release,
+    /\.update\(\{ \[stamp\]: claimedAt \}\)/,
+    "ownership is read by re-writing our own value",
+  );
+});
+
+test("step 3b: the bell has one fixed id per alert, written to the verified host and company", () => {
+  const alerts = code(read(ALERTS));
+  const bell = body(alerts, "async function insertBell(");
+  assert.match(bell, /const id = bellNotificationId\(input\.row\.id, input\.kind\);/);
+  assert.match(bell, /company_id: input\.companyId,\s*member_id: input\.hostId,/);
+  assert.match(bell, /if \(error\.code === "23505"\) return "inserted";/);
+  assert.match(alerts, /companyId: row\.company_id,/, "the bell takes the bot row's company");
+  assert.match(bell, /\.eq\("id", id\)\s*\.eq\("company_id", input\.companyId\)/);
+  assert.match(
+    body(alerts, "export function bellNotificationId("),
+    /deterministicUuid\(`final-bot-alert-bell:\$\{botRowId\}:\$\{kind\}`\)/,
+  );
+});
+
+test("step 3b: every alert email carries a key tied to its exact text, and send.ts passes it through only when given", () => {
+  const alerts = code(read(ALERTS));
+  assert.match(
+    body(alerts, "export function emailIdempotencyKey("),
+    /`remotiv-final-alert-\$\{kind\}-\$\{botRowId\}-\$\{digest\}`/,
+  );
+  assert.match(alerts, /deps\.sendEmail\(payload, \{ idempotencyKey \}\)/);
+  const send = code(read("src/lib/email/send.ts"));
+  assert.match(send, /options\?: \{ idempotencyKey\?: string \},/);
+  assert.match(
+    send,
+    /options\?\.idempotencyKey\s*\?\s*await client\.emails\.send\(email, \{ idempotencyKey: options\.idempotencyKey \}\)\s*:\s*await client\.emails\.send\(email\);/,
+  );
+});
+
+test("step 3b: failure-alert jobs take one of three fixed ids, and enqueue accepts an explicit id", () => {
+  const bots = code(read(BOTS));
+  const ensure = body(bots, "async function ensureAlertJob(");
+  assert.match(ensure, /for \(const id of failureAlertJobIds\(row\.id\)\)/);
+  assert.match(ensure, /if \(result\.code !== "23505"\) return "failed";\s*remaining -= 1;/);
+  assert.match(ensure, /let remaining = RECORDING_FAILURE_ALERT_MAX_JOBS - seen\.size;/);
+  assert.match(ensure, /maxAttempts: RECORDING_ALERT_MAX_ATTEMPTS,/);
+  assert.match(
+    read("src/lib/final-interviews/constants.ts"),
+    /export const RECORDING_FAILURE_ALERT_MAX_JOBS = 3;/,
+  );
+  assert.match(code(read("src/lib/jobs-queue.ts")), /if \(input\.id\) row\.id = input\.id;/);
+});
+
+test("step 3b: each schedule-time fatal write queues the failure alert, and only once it landed", () => {
+  const bots = code(read(BOTS));
+  const constants = read("src/lib/final-interviews/constants.ts");
+  const codes = [
+    ...constants
+      .slice(
+        constants.indexOf("SCHEDULE_TIME_FAILURE_CODES = ["),
+        constants.indexOf("] as const;", constants.indexOf("SCHEDULE_TIME_FAILURE_CODES = [")),
+      )
+      .matchAll(/"([a-z_]+)"/g),
+  ].map((m) => m[1]);
+  for (const [key, value] of [
+    ["noMeetingUrl", "no_meeting_url"],
+    ["tooLate", "too_late_to_schedule"],
+    ["createFailed", "create_failed"],
+    ["metadataMismatch", "vendor_metadata_mismatch"],
+  ]) {
+    assert.ok(codes.includes(value), value);
+    assert.match(bots, new RegExp(`${key}: "${value}",`), `BOT_EVENT.${key}`);
+  }
+  assert.equal(codes.length, 4);
+  // Four call sites, each behind the write's own success.
+  assert.equal(
+    (bots.match(/if \(marked\) await queueFailureAlert\(deps, row\);/g) ?? []).length,
+    3,
+  );
+  assert.match(
+    bots,
+    /if \(marked && plan\.markLive\.patch\.status === "fatal"\) \{\s*await queueFailureAlert\(deps, plan\.markLive\.row\);/,
+  );
+  // Before the configuration/billing rethrow.
+  const create = bots.indexOf("last_event_code: BOT_EVENT.createFailed");
+  const queued = bots.indexOf("if (marked) await queueFailureAlert(deps, row);", create);
+  const rethrow = bots.indexOf(
+    'if (failureClass === "configuration" || failureClass === "billing") throw jobErr;',
+    create,
+  );
+  assert.ok(create > 0 && queued > create && rethrow > queued);
 });
 
 test("the two notification types exist and land on the applicant", () => {

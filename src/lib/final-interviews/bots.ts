@@ -1,3 +1,4 @@
+import { createHash } from "node:crypto";
 import type { BookingRow } from "@/lib/calendar/bookings";
 import type { BackgroundJob, EnqueueInput, EnqueueResult } from "@/lib/jobs-queue";
 import { JobYield, TerminalJobError, toJobError } from "@/lib/queue/failure-class";
@@ -15,6 +16,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import {
   FINAL_BOT_ALERT_JOB,
   type FinalBotStatus,
+  RECORDING_ALERT_MAX_ATTEMPTS,
   RECORDING_BOT_EVERYONE_LEFT_TIMEOUT_S,
   RECORDING_BOT_INTEGRATION,
   RECORDING_BOT_JOIN_LEAD_MS,
@@ -24,6 +26,7 @@ import {
   RECORDING_BOT_RECORDING_TIMEOUT_S,
   RECORDING_BOT_RETENTION_HOURS,
   RECORDING_BOT_WAITING_ROOM_TIMEOUT_S,
+  RECORDING_FAILURE_ALERT_MAX_JOBS,
   RECORDING_LOBBY_ALERT_DELAY_MS,
   RECORDING_WAITING_ROOM_FAILURE_SUB_CODES,
   type RecordingAlertKind,
@@ -784,7 +787,7 @@ async function adoptVendorBots(
   const owned = found.filter((b) => ownsRow(b, row));
   if (owned.length !== found.length) {
     // Metadata names this row but disagrees about whose it is. Touch nothing.
-    await patchRow(
+    const marked = await patchRow(
       deps,
       row,
       {
@@ -795,6 +798,7 @@ async function adoptVendorBots(
       pendingUnsaved,
     );
     console.error(`[final-bot] row ${row.id}: Recall metadata disagrees with the row; not adopted`);
+    if (marked) await queueFailureAlert(deps, row);
     return;
   }
   const canonical = owned.find((b) => vendorView(b).dispatched) ?? owned[0];
@@ -836,13 +840,16 @@ async function ensureLive(
   const nowIso = () => new Date(deps.now()).toISOString();
   const tooLate = Date.parse(row.join_at) - deps.now() < RECORDING_BOT_MIN_SCHEDULE_LEAD_MS;
   const attempted = CREATE_ATTEMPTED.has(row.last_event_code ?? "");
-  const markTooLate = () =>
-    patchRow(
+  const markTooLate = async () => {
+    const marked = await patchRow(
       deps,
       row,
       { status: "fatal", last_event_code: BOT_EVENT.tooLate, last_event_at: nowIso() },
       pendingUnsaved,
     );
+    if (marked) await queueFailureAlert(deps, row);
+    return marked;
+  };
 
   // Never attempted, so nothing can exist at Recall: no lookup needed.
   if (tooLate && !attempted) return (await markTooLate()) ? "done" : "stale";
@@ -902,7 +909,7 @@ async function ensureLive(
     }
     const jobErr = toBotJobError(err);
     const failureClass = jobErr instanceof TerminalJobError ? jobErr.failureClass : "deterministic";
-    await patchRow(
+    const marked = await patchRow(
       deps,
       row,
       {
@@ -914,6 +921,8 @@ async function ensureLive(
       pendingUnsaved,
     );
     console.error(`[final-bot] row ${row.id}: Recall refused the bot (${failureClass})`);
+    // Before any rethrow: the host must hear about it whatever the class.
+    if (marked) await queueFailureAlert(deps, row);
     // A bad key or an empty balance fails every booking: bury the job so it is seen.
     if (failureClass === "configuration" || failureClass === "billing") throw jobErr;
     return "done";
@@ -1024,7 +1033,11 @@ export async function syncBooking(
       }
     }
     if (plan.markLive) {
-      await patchRow(deps, plan.markLive.row, plan.markLive.patch, pendingUnsaved);
+      const marked = await patchRow(deps, plan.markLive.row, plan.markLive.patch, pendingUnsaved);
+      // no_meeting_url is the only markLive that sets fatal.
+      if (marked && plan.markLive.patch.status === "fatal") {
+        await queueFailureAlert(deps, plan.markLive.row);
+      }
     }
     for (const row of plan.cleanup) {
       cleaned.add(row.id);
@@ -1139,6 +1152,10 @@ export type ReconcileReport = {
   reportedDuplicateDispatched: number;
   /** Lobby checks queued for bots whose webhook-time enqueue never happened. */
   lobbyChecksQueued: number;
+  /** Failure alerts queued for fatal bots that have had none sent. */
+  failureAlertsQueued: number;
+  /** Fatal bots with no alert sent whose failure-alert jobs are used up. */
+  failureAlertsCapped: number;
   vendorTruncated: boolean;
   vendorError: boolean;
 };
@@ -1184,6 +1201,8 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     reportedUnownedDispatched: 0,
     reportedDuplicateDispatched: 0,
     lobbyChecksQueued: 0,
+    failureAlertsQueued: 0,
+    failureAlertsCapped: 0,
     vendorTruncated: false,
     vendorError: false,
   };
@@ -1346,6 +1365,27 @@ export async function reconcileFinalBots(deps: BotDeps): Promise<ReconcileReport
     if ((await ensureAlertJob(deps, row, "lobby", now)) === "queued") report.lobbyChecksQueued += 1;
   }
 
+  // Live fatal bots whose host has not been told: a schedule-time or webhook
+  // enqueue that was lost, or an alert that ended without delivering. Bounded
+  // by the per-row cap in ensureAlertJob, so a host who can never be verified
+  // costs at most three jobs, ever. Runs with the flag off.
+  const fatal = await read<{ id: string; company_id: string }>(
+    "fatal bots",
+    deps.service
+      .from("final_interview_bots")
+      .select("id, company_id")
+      .eq("status", "fatal")
+      .is("superseded_at", null)
+      .is("failure_alert_sent_at", null)
+      .gt("join_at", lookbackIso)
+      .limit(RECONCILE_BATCH),
+  );
+  for (const row of fatal) {
+    const outcome = await ensureAlertJob(deps, row, "failure", now);
+    if (outcome === "queued") report.failureAlertsQueued += 1;
+    if (outcome === "capped") report.failureAlertsCapped += 1;
+  }
+
   try {
     await reconcileVendor(deps, report, toSync);
   } catch (err) {
@@ -1482,17 +1522,49 @@ export async function finalBotReconcileWanted(
 /* ── host alert jobs ──────────────────────────────────────────── */
 
 /**
+ * A UUID derived from a name: the same name always gives the same id. Used as
+ * an explicit primary key, it lets the database refuse a second row (23505)
+ * where migration 040 has no unique index to do it.
+ */
+export function deterministicUuid(name: string): string {
+  const b = createHash("sha256").update(`remotiv:${name}`).digest().subarray(0, 16);
+  b[6] = (b[6] & 0x0f) | 0x50; // version 5 layout
+  b[8] = (b[8] & 0x3f) | 0x80; // RFC 4122 variant
+  const h = b.toString("hex");
+  return `${h.slice(0, 8)}-${h.slice(8, 12)}-${h.slice(12, 16)}-${h.slice(16, 20)}-${h.slice(20)}`;
+}
+
+/** The fixed job ids a bot row's failure alerts may use: there are only RECORDING_FAILURE_ALERT_MAX_JOBS. */
+export function failureAlertJobIds(botRowId: string): string[] {
+  return Array.from({ length: RECORDING_FAILURE_ALERT_MAX_JOBS }, (_, i) =>
+    deterministicUuid(`final-bot-alert:${botRowId}:failure:${i + 1}`),
+  );
+}
+
+/**
  * Queue a host alert check unless one is already queued or running for this
- * bot and kind. Migration 040 has no unique index for these jobs, so the read
- * narrows duplicates and the alert's own conditional claim makes any that
- * slip through harmless. "failed" means nothing could be confirmed queued.
+ * bot and kind; the alert's own conditional claim makes any that slip through
+ * harmless.
+ *
+ * Failure alerts are also capped at RECORDING_FAILURE_ALERT_MAX_JOBS jobs per
+ * bot row, ever, counting every status. The cap is the primary key: each job
+ * takes one of the row's fixed ids, so concurrent callers race on the insert
+ * and the database refuses the loser. A caller counts what it saw, and every
+ * refusal it meets, against the cap, so even a stale read cannot take an id
+ * past it. Jobs queued before step 3b (random ids) count too. Succeeded jobs
+ * are deleted after 30 days (queue-sweep) and failed or dead ones never are;
+ * a row stops being eligible for alerts about a day after its join time, at
+ * most 15 days out, so within its eligible life no id is ever freed.
+ *
+ * "failed" means nothing could be confirmed queued; "capped" means the cap
+ * was already reached.
  */
 async function ensureAlertJob(
   deps: Pick<BotDeps, "service" | "enqueue">,
   row: { id: string; company_id: string },
   kind: RecordingAlertKind,
   runAfterMs: number,
-): Promise<"queued" | "exists" | "failed"> {
+): Promise<"queued" | "exists" | "capped" | "failed"> {
   const { data, error } = await deps.service
     .from("background_jobs")
     .select("id")
@@ -1503,14 +1575,55 @@ async function ensureAlertJob(
     .limit(1);
   if (error) return "failed";
   if (((data ?? []) as unknown[]).length > 0) return "exists";
-  const result = await deps.enqueue({
+
+  const job = {
     type: FINAL_BOT_ALERT_JOB,
     companyId: row.company_id,
     payload: { botRowId: row.id, kind },
     runAfter: new Date(runAfterMs),
-    maxAttempts: 3,
-  });
-  return result.ok ? "queued" : "failed";
+    maxAttempts: RECORDING_ALERT_MAX_ATTEMPTS,
+  };
+  if (kind === "lobby") {
+    // Bounded by the lobby itself: Meet closes its waiting room after 10 minutes.
+    return (await deps.enqueue(job)).ok ? "queued" : "failed";
+  }
+
+  const { data: prior, error: priorErr } = await deps.service
+    .from("background_jobs")
+    .select("id")
+    .eq("type", FINAL_BOT_ALERT_JOB)
+    .eq("payload->>botRowId", row.id)
+    .eq("payload->>kind", "failure")
+    .limit(100);
+  if (priorErr) return "failed";
+  const seen = new Set(((prior ?? []) as { id: string }[]).map((p) => p.id));
+  let remaining = RECORDING_FAILURE_ALERT_MAX_JOBS - seen.size;
+  for (const id of failureAlertJobIds(row.id)) {
+    if (remaining <= 0) break;
+    if (seen.has(id)) continue;
+    const result = await deps.enqueue({ ...job, id });
+    if (result.ok) return "queued";
+    if (result.code !== "23505") return "failed";
+    remaining -= 1; // taken by a concurrent caller
+  }
+  return "capped";
+}
+
+/**
+ * The failure alert for a schedule-time failure, queued after the fatal write
+ * landed. Never fails the sync: a missed enqueue is logged and the reconcile
+ * backstop queues it within minutes.
+ */
+async function queueFailureAlert(
+  deps: Pick<BotDeps, "service" | "enqueue" | "now">,
+  row: { id: string; company_id: string },
+): Promise<void> {
+  const outcome = await ensureAlertJob(deps, row, "failure", deps.now()).catch(
+    () => "failed" as const,
+  );
+  if (outcome === "failed") {
+    console.warn(`[final-bot] row ${row.id}: failure alert not queued; the reconcile will retry`);
+  }
 }
 
 /* ── the Recall webhook ───────────────────────────────────────── */

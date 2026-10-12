@@ -75,6 +75,7 @@ export function makeBotDb(startMs) {
       },
     ],
     job_applications: [{ id: APP, company_id_snapshot: CO, first_name: "Sam" }],
+    notifications_company: [],
     auth_users: { "u-host": "host-signin@acme.test" },
   };
 }
@@ -187,6 +188,8 @@ function liveSyncKey(job) {
 
 /** The constraint a row would break among `others`, or null. */
 function violation(db, table, row, others) {
+  // Every table here has a uuid primary key.
+  if (row.id && others.some((o) => o.id === row.id)) return dup(`${table}_pkey`);
   if (table === "final_interview_bots") {
     if (
       row.superseded_at == null &&
@@ -224,10 +227,15 @@ export function botWorld(db) {
     if (!rows) throw new Error(`unexpected table ${table}`);
     const op = calls.find((c) => ["insert", "update", "delete"].includes(c[0]))?.[0] ?? "select";
     const failAt = failures.findIndex((f) => f.table === table && (f.op === op || f.op === "*"));
-    if (failAt >= 0) {
-      const [f] = failures.splice(failAt, 1);
-      return { data: null, error: { code: f.code ?? "08006", message: "connection reset" } };
-    }
+    const failure = failAt >= 0 ? failures.splice(failAt, 1)[0] : null;
+    const injected = failure && { code: failure.code ?? "08006", message: "connection reset" };
+    if (failure && !failure.applied) return { data: null, error: injected };
+    // applied: the write lands, and the caller is told it failed anyway.
+    const result = run(table, rows, calls, op);
+    return failure ? { data: null, error: result.error ?? injected } : result;
+  });
+
+  function run(table, rows, calls, op) {
     const single = calls.some((c) => c[0] === "maybeSingle" || c[0] === "single");
     const now = new Date().toISOString();
 
@@ -281,9 +289,11 @@ export function botWorld(db) {
       return { data: clone(targets), error: null };
     }
     return { data: single ? clone(targets[0] ?? null) : clone(targets), error: null };
-  });
+  }
 
-  service.failNext = (table, op = "*", code) => failures.push({ table, op, code });
+  /** The next matching query errors; with { applied: true } its write still lands. */
+  service.failNext = (table, op = "*", code, { applied = false } = {}) =>
+    failures.push({ table, op, code, applied });
   service.auth = {
     admin: {
       getUserById: async (id) => ({
@@ -309,6 +319,7 @@ export function makeEnqueue(service, { fail } = {}) {
         status: "queued",
         attempts: 0,
         max_attempts: input.maxAttempts ?? 3,
+        ...(input.id ? { id: input.id } : {}),
         ...(input.runAfter ? { run_after: input.runAfter.toISOString() } : {}),
       })
       .select("id")

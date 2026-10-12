@@ -788,3 +788,180 @@ test("vendorView: only a bot with nothing beyond 'ready' counts as scheduled", (
     assert.notEqual(view(codes).status, "deleted");
   }
 });
+
+/* ── step 3b: schedule-time failures alert the host ───────────── */
+
+const failureJobs = (t) =>
+  t.db.background_jobs.filter(
+    (j) => j.type === "final_bot_lobby_check" && j.payload?.kind === "failure",
+  );
+
+/** One failure job, on the row's first fixed id, with five attempts. */
+function assertOneFailureJob(t, label) {
+  const jobs = failureJobs(t);
+  assert.equal(jobs.length, 1, label);
+  const row = t.live() ?? t.rows()[0];
+  assert.deepEqual(jobs[0].payload, { botRowId: row.id, kind: "failure" }, label);
+  assert.equal(jobs[0].id, bots.failureAlertJobIds(row.id)[0], label);
+  assert.equal(jobs[0].max_attempts, 5, label);
+  assert.equal(jobs[0].company_id, CO, label);
+}
+
+test("no Meet link: the row turns fatal and one failure alert is queued", async () => {
+  const t = setup();
+  t.booking().meeting_url = null;
+  await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+  await t.run();
+  assert.equal(t.live().last_event_code, "no_meeting_url");
+  assertOneFailureJob(t, "no_meeting_url");
+});
+
+test("too late to schedule: one failure alert, and another sync adds none", async () => {
+  const t = setup({ startIn: 9 * MIN });
+  await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+  await t.run();
+  assert.equal(t.live().last_event_code, "too_late_to_schedule");
+  assertOneFailureJob(t, "too_late");
+  await t.deps.enqueue({
+    type: "final_bot_sync",
+    companyId: CO,
+    payload: { action: "sync", bookingId: BOOKING },
+  });
+  await t.run();
+  assert.equal(failureJobs(t).length, 1);
+});
+
+test("create refused: one failure alert, queued before a configuration error is rethrown", async () => {
+  for (const status of [400, 401, 402]) {
+    const t = setup();
+    await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+    t.recall.failNext("createBot", httpError(status));
+    const [run] = await t.run();
+    assert.equal(t.live().last_event_code, "create_failed", String(status));
+    assertOneFailureJob(t, String(status));
+    // 401 is configuration and is rethrown after the alert is queued. 400 and
+    // 402 complete the job: the shared classifier reads Recall's 402 as
+    // deterministic, since its message carries no billing wording.
+    if (status === 401) assert.ok(run.error instanceof TerminalJobError, "401 still rethrows");
+    else assert.equal(run.error, null, String(status));
+  }
+});
+
+test("metadata that disagrees with the row: fatal, one failure alert, nothing adopted", async () => {
+  const t = setup();
+  await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+  const row = t.live();
+  t.recall.add({ id: randomUUID(), metadata: { ...bots.botMetadata(row), companyId: OTHER_CO } });
+  await t.run();
+  assert.equal(t.live().last_event_code, "vendor_metadata_mismatch");
+  assert.equal(t.live().provider_bot_id, null);
+  assert.equal(t.recall.count("createBot"), 0);
+  assertOneFailureJob(t, "mismatch");
+});
+
+test("retryable create failures never alert", async () => {
+  for (const error of [httpError(503), httpError(429), timeoutError()]) {
+    const t = setup();
+    await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+    t.recall.failNext("createBot", error);
+    await t.run();
+    assert.equal(t.live().status, "pending");
+    assert.equal(failureJobs(t).length, 0);
+  }
+});
+
+test("an alert enqueue that fails never fails the sync; the reconcile queues it", async () => {
+  const t = setup({ startIn: 9 * MIN });
+  await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+  const real = t.deps.enqueue;
+  t.deps.enqueue = async (input) =>
+    input.type === "final_bot_lobby_check"
+      ? { ok: false, error: "down", code: "08006" }
+      : real(input);
+  const [run] = await t.run();
+  assert.equal(run.error, null, "the sync completed");
+  assert.equal(t.live().status, "fatal");
+  assert.equal(failureJobs(t).length, 0);
+  t.deps.enqueue = real;
+  const report = await t.reconcile();
+  assert.equal(report.failureAlertsQueued, 1);
+  assertOneFailureJob(t, "backstop");
+});
+
+/* ── step 3b: the bounded backstop ────────────────────────────── */
+
+/** A live fatal row with no alert sent and no job yet. */
+async function fatalWithoutJob() {
+  const t = setup({ startIn: 9 * MIN });
+  await bots.onFinalBookingConfirmed(t.booking(), t.hook);
+  const real = t.deps.enqueue;
+  t.deps.enqueue = async (input) =>
+    input.type === "final_bot_lobby_check" ? { ok: false, error: "down" } : real(input);
+  await t.run();
+  t.deps.enqueue = real;
+  assert.equal(failureJobs(t).length, 0);
+  return t;
+}
+
+const finish = (t, status) => {
+  for (const j of failureJobs(t))
+    if (j.status === "queued" || j.status === "running") j.status = status;
+};
+
+test("the backstop queues a missed alert once, and at most three jobs per bot, ever, whatever their ending", async () => {
+  const t = await fatalWithoutJob();
+  assert.equal((await t.reconcile()).failureAlertsQueued, 1);
+  assert.equal((await t.reconcile()).failureAlertsQueued, 0, "one is still queued");
+  // Each job ends without delivering (say, the host could not be verified).
+  for (const ending of ["succeeded", "dead", "succeeded"]) {
+    finish(t, ending);
+    await t.reconcile();
+  }
+  finish(t, "failed");
+  const last = await t.reconcile();
+  assert.equal(last.failureAlertsQueued, 0);
+  assert.equal(last.failureAlertsCapped, 1);
+  const ids = failureJobs(t).map((j) => j.id);
+  assert.equal(ids.length, 3);
+  assert.deepEqual(new Set(ids), new Set(bots.failureAlertJobIds(t.live().id)));
+  for (let i = 0; i < 5; i++) {
+    finish(t, "succeeded");
+    await t.reconcile();
+  }
+  assert.equal(failureJobs(t).length, 3, "never a fourth");
+});
+
+test("concurrent reconciles cannot take a bot past three failure-alert jobs", async () => {
+  const t = await fatalWithoutJob();
+  for (let round = 0; round < 4; round++) {
+    await Promise.all(Array.from({ length: 6 }, () => t.reconcile()));
+    assert.ok(failureJobs(t).length <= 3, `round ${round}: ${failureJobs(t).length}`);
+    finish(t, "succeeded");
+  }
+  assert.equal(failureJobs(t).length, 3);
+});
+
+test("failure-alert jobs from before the cap count toward it", async () => {
+  const t = await fatalWithoutJob();
+  const row = t.live();
+  t.db.background_jobs.push({
+    id: randomUUID(),
+    type: "final_bot_lobby_check",
+    payload: { botRowId: row.id, kind: "failure" },
+    company_id: CO,
+    status: "dead",
+  });
+  for (let i = 0; i < 5; i++) {
+    await t.reconcile();
+    finish(t, "succeeded");
+  }
+  assert.equal(failureJobs(t).length, 3, "one older job plus two fixed ids");
+});
+
+test("the backstop never queues for a retired bot", async () => {
+  const t = await fatalWithoutJob();
+  t.live().superseded_at = new Date(t.now()).toISOString();
+  const report = await t.reconcile();
+  assert.equal(report.failureAlertsQueued, 0);
+  assert.equal(failureJobs(t).length, 0);
+});

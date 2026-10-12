@@ -23,19 +23,30 @@ export type EmailPayload = {
   replyTo?: string;
 };
 
-export async function sendEmail(payload: EmailPayload): Promise<{ ok: boolean; error?: string }> {
+/**
+ * `idempotencyKey`, when given, is sent as Resend's Idempotency-Key: for 24
+ * hours a repeat with the same key and payload returns the first response and
+ * sends nothing. Callers that omit it send exactly as before.
+ */
+export async function sendEmail(
+  payload: EmailPayload,
+  options?: { idempotencyKey?: string },
+): Promise<{ ok: boolean; error?: string }> {
   const client = getResend();
   if (!client) {
     return { ok: false, error: "Resend not configured" };
   }
   try {
-    const { error } = await client.emails.send({
+    const email = {
       from: `Remotiv <${fromEmail}>`,
       to: payload.to,
       subject: payload.subject,
       html: payload.html,
       replyTo: payload.replyTo,
-    });
+    };
+    const { error } = options?.idempotencyKey
+      ? await client.emails.send(email, { idempotencyKey: options.idempotencyKey })
+      : await client.emails.send(email);
     if (error) {
       console.error("[email] Resend error:", error);
       return { ok: false, error: error.message ?? "Unknown Resend error" };

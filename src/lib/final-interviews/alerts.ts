@@ -1,21 +1,26 @@
+import { createHash } from "node:crypto";
 import { escapeHtml } from "@/lib/email/candidate/render";
 import { sendEmail } from "@/lib/email/send";
 import type { BackgroundJob } from "@/lib/jobs-queue";
-import { notifyCompanyMember } from "@/lib/notifications/company";
+import { resolveHref } from "@/lib/notifications/company";
 import { TerminalJobError } from "@/lib/queue/failure-class";
 import { isRecallId } from "@/lib/recall/client";
 import { createServiceClient } from "@/lib/supabase/server";
+import { deterministicUuid } from "./bots";
 import {
   interviewTypeLabel,
+  RECORDING_ALERT_EMAIL_TIMEOUT_MS,
   RECORDING_BOT_NAME,
   RECORDING_LOBBY_ALERT_DELAY_MS,
   type RecordingAlertKind,
+  SCHEDULE_TIME_FAILURE_CODES,
 } from "./constants";
 
 /**
  * Host alerts for the recording bot: "admit the recorder" when it has waited
  * in the Google Meet lobby for two minutes, and "your interview is not being
- * recorded" when it could not record. Recording step 3.
+ * recorded" when it could not record or could not even be scheduled.
+ * Recording steps 3 and 3b.
  *
  * ── Who is told ──────────────────────────────────────────────
  *
@@ -26,18 +31,48 @@ import {
  * there is no fallback address. The candidate's first name is read through a
  * company-filtered query.
  *
- * ── Once, not twice ──────────────────────────────────────────
+ * ── The claim ────────────────────────────────────────────────
  *
- * The alert is claimed by setting lobby_alert_sent_at or failure_alert_sent_at
- * in ONE conditional UPDATE that only succeeds while the column is null, so two
- * jobs racing for the same bot cannot both win. The claim comes before the
- * send. If the email provider refuses, the claim is released (only if it is
- * still ours) and the job is retried; so a refused email is retried and an
- * accepted one is never repeated. A crash between the claim and the send loses
- * that alert: at most once, by design, because a duplicate "admit the recorder"
- * email is worse than the bell entry alone, and the schema has no outbox to do
- * better. With no address for the host, the bell alone is the delivery and the
- * claim stands.
+ * lobby_alert_sent_at / failure_alert_sent_at is set in ONE conditional UPDATE
+ * that only succeeds while it is null, so two jobs racing for a bot cannot both
+ * go on. Everything after the claim is done by its holder only.
+ *
+ * ── Email: retried, never duplicated within 24 hours ─────────
+ *
+ * Every send carries a Resend idempotency key built from the bot row, the
+ * alert kind and a digest of the exact subject and body, so the key always
+ * accompanies an identical payload. For 24 hours Resend answers a repeat with
+ * the first response and sends nothing. A send waits at most 15 seconds;
+ * Resend's SDK cannot abort, so a timed-out request may still go out, which
+ * is why the key matters. A refused or timed-out send releases the claim and
+ * the queue retries, up to 5 attempts. If the stored facts behind the email
+ * change between attempts (a renamed candidate, a different reason), the
+ * digest changes and that corrected email is sent: at most one per distinct
+ * text.
+ *
+ * ── Bell: at most one per alert, by primary key ──────────────
+ *
+ * The bell row's id is derived from the bot row and the alert kind, so the
+ * database refuses a second one (23505, read as "already there"). An insert
+ * that errors is checked by reading that id back: found counts as delivered,
+ * missing as failed, and an unreadable answer as unconfirmed, which is never
+ * retried blindly.
+ *
+ * ── When the email fails ─────────────────────────────────────
+ *
+ *   not the last attempt  release the claim and retry. If the release
+ *                         reports an error, ownership is checked with a
+ *                         second conditional write: still ours means the
+ *                         release never landed, so the bell goes now and the
+ *                         claim stands; not ours means it did land, so retry;
+ *                         unanswerable means stop without a bell.
+ *   the last attempt      send the bell and keep the claim.
+ *
+ * A bell that definitely failed with no email delivered gives the claim back
+ * and throws, so a retry (or the reconcile, within its cap) can try again.
+ *
+ * Not guaranteed: a crash between the claim and the sends loses that alert; a
+ * host with no verifiable identity is never told; nothing here is exactly once.
  */
 
 type AlertKind = RecordingAlertKind;
@@ -52,21 +87,38 @@ const FAILURE_REASONS: Readonly<Record<string, string>> = {
   google_meet_knocking_disabled: "The meeting settings did not let it ask to join.",
 };
 
+/** The one reason line per schedule-time cause (step 3b), keyed on last_event_code. */
+const SCHEDULE_TIME_REASONS: Readonly<
+  Record<(typeof SCHEDULE_TIME_FAILURE_CODES)[number], string>
+> = {
+  no_meeting_url: "The calendar event has no Google Meet link.",
+  too_late_to_schedule: "It was booked too close to the start time to schedule the recorder.",
+  create_failed: "The recording service could not schedule the recorder.",
+  vendor_metadata_mismatch: "The recording service could not schedule the recorder.",
+};
+
 type Service = ReturnType<typeof createServiceClient>;
 
 export type AlertDeps = {
   service: Service;
-  sendEmail: (payload: { to: string; subject: string; html: string }) => Promise<{
-    ok: boolean;
-    error?: string;
-  }>;
-  notifyMember: typeof notifyCompanyMember;
+  sendEmail: (
+    payload: { to: string; subject: string; html: string },
+    options?: { idempotencyKey?: string },
+  ) => Promise<{ ok: boolean; error?: string }>;
   now: () => number;
+  /** How long to wait for the email provider. Defaults to 15 seconds. */
+  emailTimeoutMs?: number;
 };
+
+/** Where this run sits in the job's retries. */
+export type AlertAttempt = { finalAttempt: boolean };
 
 export type AlertOutcome =
   | "sent"
   | "sent_bell_only"
+  | "bell_after_email_failure"
+  | "email_sent_bell_failed"
+  | "bell_unconfirmed"
   | "already_sent"
   | "gone"
   | "not_live"
@@ -82,6 +134,7 @@ type AlertRow = {
   application_id: string;
   booking_id: string;
   status: string;
+  provider_recording_id: string | null;
   superseded_at: string | null;
   last_event_code: string | null;
   last_event_sub_code: string | null;
@@ -91,7 +144,7 @@ type AlertRow = {
 };
 
 const ALERT_ROW_COLUMNS =
-  "id, company_id, final_interview_id, application_id, booking_id, status, superseded_at, last_event_code, last_event_sub_code, last_event_at, lobby_alert_sent_at, failure_alert_sent_at";
+  "id, company_id, final_interview_id, application_id, booking_id, status, provider_recording_id, superseded_at, last_event_code, last_event_sub_code, last_event_at, lobby_alert_sent_at, failure_alert_sent_at";
 
 const STAMP: Record<AlertKind, "lobby_alert_sent_at" | "failure_alert_sent_at"> = {
   lobby: "lobby_alert_sent_at",
@@ -109,6 +162,21 @@ function inSentence(type: string, label: string): string {
     : label;
 }
 
+export function isScheduleTimeFailure(code: string | null | undefined): boolean {
+  return (SCHEDULE_TIME_FAILURE_CODES as readonly string[]).includes(code ?? "");
+}
+
+/**
+ * Whether the stored facts PROVE the bot was in the call: a recording id
+ * arrived, or it is in the call now. A fatal or finished row's earlier status
+ * is not kept, so anything else is unproven and gets no partial-recording line.
+ */
+export function provablyJoined(row: Pick<AlertRow, "provider_recording_id" | "status">): boolean {
+  return (
+    row.provider_recording_id !== null || row.status === "in_call" || row.status === "recording"
+  );
+}
+
 export function lobbyEmail(label: string, firstName: string): { subject: string; html: string } {
   return {
     subject: `Admit ${RECORDING_BOT_NAME} to record your interview`,
@@ -116,27 +184,57 @@ export function lobbyEmail(label: string, firstName: string): { subject: string;
   };
 }
 
+/** The bot joined or tried to, and could not record. */
 export function failureEmail(
   label: string,
   firstName: string,
   reason: string | null,
+  joined: boolean,
 ): { subject: string; html: string } {
   return {
     subject: `Your ${label} is not being recorded`,
     html: [
       `<p>${escapeHtml(RECORDING_BOT_NAME)} could not record your ${escapeHtml(label)} with ${escapeHtml(firstName)}.${reason ? ` ${escapeHtml(reason)}` : ""}</p>`,
-      "<p>The interview itself is not affected and can go ahead as planned. If any part of it was recorded before this happened, that part is kept.</p>",
+      `<p>The interview itself is not affected and can go ahead as planned.${joined ? " If any part of it was recorded before this happened, that part is kept." : ""}</p>`,
     ].join(""),
   };
 }
 
-function defaultDeps(): AlertDeps {
+/** The recorder could not be scheduled at all, so it never joined. */
+export function scheduleFailureEmail(
+  label: string,
+  firstName: string,
+  code: (typeof SCHEDULE_TIME_FAILURE_CODES)[number],
+): { subject: string; html: string } {
   return {
-    service: createServiceClient(),
-    sendEmail,
-    notifyMember: notifyCompanyMember,
-    now: Date.now,
+    subject: `Your ${label} is not being recorded`,
+    html: [
+      `<p>${escapeHtml(RECORDING_BOT_NAME)} will not be able to join your ${escapeHtml(label)} with ${escapeHtml(firstName)}, so it will not be recorded automatically. ${escapeHtml(SCHEDULE_TIME_REASONS[code])}</p>`,
+      "<p>The interview itself is not affected.</p>",
+    ].join(""),
   };
+}
+
+/** One key per bot row, alert kind and exact email text. */
+export function emailIdempotencyKey(
+  botRowId: string,
+  kind: AlertKind,
+  message: { subject: string; html: string },
+): string {
+  const digest = createHash("sha256")
+    .update(`${message.subject}\n${message.html}`)
+    .digest("hex")
+    .slice(0, 16);
+  return `remotiv-final-alert-${kind}-${botRowId}-${digest}`;
+}
+
+/** The bell row's id: one per bot row and alert kind, so a second insert is refused. */
+export function bellNotificationId(botRowId: string, kind: AlertKind): string {
+  return deterministicUuid(`final-bot-alert-bell:${botRowId}:${kind}`);
+}
+
+function defaultDeps(): AlertDeps {
+  return { service: createServiceClient(), sendEmail, now: Date.now };
 }
 
 /** The host's own address: the member row, then their sign-in address. Never a company inbox. */
@@ -151,10 +249,108 @@ async function hostAddress(
   return (data?.user?.email ?? "").trim() || null;
 }
 
+/** The send, waited on for at most the time limit. A timeout counts as refused. */
+async function sendWithLimit(
+  deps: AlertDeps,
+  payload: { to: string; subject: string; html: string },
+  idempotencyKey: string,
+): Promise<boolean> {
+  let timer: ReturnType<typeof setTimeout> | undefined;
+  const limit = new Promise<{ ok: false }>((resolve) => {
+    timer = setTimeout(
+      () => resolve({ ok: false }),
+      deps.emailTimeoutMs ?? RECORDING_ALERT_EMAIL_TIMEOUT_MS,
+    );
+  });
+  try {
+    const result = await Promise.race([
+      deps.sendEmail(payload, { idempotencyKey }).catch(() => ({ ok: false })),
+      limit,
+    ]);
+    return result.ok;
+  } finally {
+    clearTimeout(timer);
+  }
+}
+
+type BellInput = {
+  row: AlertRow;
+  kind: AlertKind;
+  /** The bot row's company: the host, the applicant and the bell all belong to it. */
+  companyId: string;
+  hostId: string;
+  jobId: string;
+  title: string;
+  body: string;
+};
+
+/** Insert this alert's one bell row, and say whether it is there. */
+async function insertBell(
+  deps: AlertDeps,
+  input: BellInput,
+): Promise<"inserted" | "failed" | "unknown"> {
+  const id = bellNotificationId(input.row.id, input.kind);
+  const type = input.kind === "lobby" ? "final_recording_lobby" : "final_recording_failed";
+  const { error } = await deps.service.from("notifications_company").insert({
+    id,
+    company_id: input.companyId,
+    member_id: input.hostId,
+    type,
+    title: input.title,
+    body: input.body,
+    job_id: input.jobId,
+    application_id: input.row.application_id,
+    href: resolveHref({ type, applicationId: input.row.application_id }),
+  });
+  if (!error) return "inserted";
+  if (error.code === "23505") return "inserted"; // this alert's bell is already there
+  // The write may have landed even though the answer did not: look.
+  const { data, error: readErr } = await deps.service
+    .from("notifications_company")
+    .select("id")
+    .eq("id", id)
+    .eq("company_id", input.companyId)
+    .maybeSingle();
+  if (readErr) return "unknown";
+  return data ? "inserted" : "failed";
+}
+
+/**
+ * Give the claim back after a refused email. "released" when it is free (the
+ * write landed, or ownership shows someone else holds it), "still_ours" when
+ * the release never landed, "unknown" when neither could be confirmed.
+ */
+async function releaseClaim(
+  deps: AlertDeps,
+  row: AlertRow,
+  stamp: "lobby_alert_sent_at" | "failure_alert_sent_at",
+  claimedAt: string,
+): Promise<"released" | "still_ours" | "unknown"> {
+  const { error } = await deps.service
+    .from("final_interview_bots")
+    .update({ [stamp]: null })
+    .eq("id", row.id)
+    .eq("company_id", row.company_id)
+    .eq(stamp, claimedAt);
+  if (!error) return "released";
+  // The release reported an error. Re-writing our own value only matches if
+  // the claim is still exactly ours, so it reads ownership without changing it.
+  const { data, error: checkErr } = await deps.service
+    .from("final_interview_bots")
+    .update({ [stamp]: claimedAt })
+    .eq("id", row.id)
+    .eq("company_id", row.company_id)
+    .eq(stamp, claimedAt)
+    .select("id");
+  if (checkErr) return "unknown";
+  return ((data ?? []) as unknown[]).length > 0 ? "still_ours" : "released";
+}
+
 /** One alert for one bot row. Exported with injectable deps for tests. */
 export async function runFinalBotAlert(
   deps: AlertDeps,
   payload: Record<string, unknown>,
+  attempt: AlertAttempt = { finalAttempt: false },
 ): Promise<AlertOutcome> {
   const botRowId = payload.botRowId;
   const kind = payload.kind;
@@ -268,48 +464,84 @@ export async function runFinalBotAlert(
   if (claimErr) throw dbError("alert claim", claimErr);
   if (((claimed ?? []) as unknown[]).length === 0) return "already_sent";
 
-  const reason =
-    kind === "failure" ? (FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null) : null;
+  const scheduleCode = isScheduleTimeFailure(row.last_event_code)
+    ? (row.last_event_code as (typeof SCHEDULE_TIME_FAILURE_CODES)[number])
+    : null;
   const message =
-    kind === "lobby" ? lobbyEmail(label, firstName) : failureEmail(label, firstName, reason);
-
-  if (address) {
-    const sent = await deps.sendEmail({
-      to: address,
-      subject: message.subject,
-      html: message.html,
-    });
-    if (!sent.ok) {
-      // Give the claim back, but only if it is still the one this job wrote.
-      const { error: releaseErr } = await deps.service
-        .from("final_interview_bots")
-        .update({ [stamp]: null })
-        .eq("id", row.id)
-        .eq("company_id", row.company_id)
-        .eq(stamp, claimedAt);
-      if (releaseErr)
-        console.error(`[final-bot-alert] ${row.id}: ${kind} claim kept after a failed send`);
-      throw new Error(`${kind} alert email was not accepted; retrying`);
-    }
-  }
-
-  await deps.notifyMember({
+    kind === "lobby"
+      ? lobbyEmail(label, firstName)
+      : scheduleCode
+        ? scheduleFailureEmail(label, firstName, scheduleCode)
+        : failureEmail(
+            label,
+            firstName,
+            FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null,
+            provablyJoined(row),
+          );
+  const bell: BellInput = {
+    row,
+    kind,
     companyId: row.company_id,
-    memberId: host.id,
-    type: kind === "lobby" ? "final_recording_lobby" : "final_recording_failed",
+    hostId: host.id,
+    jobId: fi.job_id,
     title: message.subject,
     body:
       kind === "lobby"
         ? "Admit it in Google Meet so the interview can be recorded."
         : "The interview itself is not affected.",
-    jobId: fi.job_id,
-    applicationId: row.application_id,
-  });
-  const outcome: AlertOutcome = address ? "sent" : "sent_bell_only";
+  };
+
+  let emailed: boolean | null = null; // null: the host has no address
+  if (address) {
+    emailed = await sendWithLimit(
+      deps,
+      { to: address, subject: message.subject, html: message.html },
+      emailIdempotencyKey(row.id, kind, message),
+    );
+    if (!emailed && !attempt.finalAttempt) {
+      const release = await releaseClaim(deps, row, stamp, claimedAt);
+      if (release === "released") {
+        throw new Error(`${kind} alert email was not accepted; retrying`);
+      }
+      if (release === "unknown") {
+        // Cannot tell whether the claim is still ours: a bell now could be a
+        // second one if another job has claimed since. Stop without it.
+        console.error(
+          `[final-bot-alert] ${row.id}: ${kind} claim unverifiable after a failed send`,
+        );
+        throw new Error(`${kind} alert claim could not be verified after a failed send`);
+      }
+      // still_ours: the release never landed, so no retry will run. Bell now.
+    }
+  }
+
+  const bellResult = await insertBell(deps, bell);
+  if (bellResult === "unknown") {
+    // Never retried blindly: the claim stands and nothing is resent.
+    console.error(`[final-bot-alert] ${row.id}: ${kind} bell unconfirmed`);
+    return "bell_unconfirmed";
+  }
+  if (bellResult === "failed") {
+    if (emailed) {
+      console.error(`[final-bot-alert] ${row.id}: ${kind} emailed but the bell insert failed`);
+      return "email_sent_bell_failed";
+    }
+    // Nothing reached the host: give the claim back so a retry can try again.
+    await releaseClaim(deps, row, stamp, claimedAt);
+    throw new Error(`${kind} alert bell insert failed and no email was delivered; retrying`);
+  }
+
+  const outcome: AlertOutcome =
+    emailed === true ? "sent" : emailed === false ? "bell_after_email_failure" : "sent_bell_only";
   console.log(`[final-bot-alert] ${row.id}: ${kind} alert ${outcome}`);
   return outcome;
 }
 
 export async function handleFinalBotAlert(job: BackgroundJob): Promise<void> {
-  await runFinalBotAlert(defaultDeps(), (job.payload ?? {}) as Record<string, unknown>);
+  // The queue buries the job once attempts reach max_attempts (planFailure),
+  // so this run is the last when one more failure would do that.
+  const finalAttempt = job.attempts + 1 >= job.max_attempts;
+  await runFinalBotAlert(defaultDeps(), (job.payload ?? {}) as Record<string, unknown>, {
+    finalAttempt,
+  });
 }

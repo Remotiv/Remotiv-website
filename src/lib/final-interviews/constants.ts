@@ -115,6 +115,24 @@ export const FINAL_BOT_ALERT_JOB = "final_bot_lobby_check";
 export type RecordingAlertKind = "lobby" | "failure";
 /** How long the bot waits in the lobby before the host is told. */
 export const RECORDING_LOBBY_ALERT_DELAY_MS = 2 * 60_000;
+/**
+ * last_event_code values a bot row is left with when the recorder could not be
+ * scheduled at all (recording step 3b). Each is terminal and raises the host's
+ * failure alert with the "will not be able to join" wording.
+ */
+export const SCHEDULE_TIME_FAILURE_CODES = [
+  "no_meeting_url",
+  "too_late_to_schedule",
+  "create_failed",
+  "vendor_metadata_mismatch",
+] as const;
+/** Failure-alert jobs one bot row may ever have, whoever queues them. */
+export const RECORDING_FAILURE_ALERT_MAX_JOBS = 3;
+/** Attempts per alert job: about 7.5 minutes of email retries at the queue's backoff. */
+export const RECORDING_ALERT_MAX_ATTEMPTS = 5;
+/** How long an alert waits for the email provider before counting the send as refused. */
+export const RECORDING_ALERT_EMAIL_TIMEOUT_MS = 15_000;
+
 /** Recall call_ended sub codes meaning the bot never got out of the waiting room. */
 export const RECORDING_WAITING_ROOM_FAILURE_SUB_CODES: ReadonlySet<string> = new Set([
   "timeout_exceeded_waiting_room",

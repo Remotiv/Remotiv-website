@@ -308,6 +308,13 @@ export type EnqueueInput = {
   runAfter?: Date;
   /** Overrides the table default of 3. */
   maxAttempts?: number;
+  /**
+   * An explicit primary key instead of the table's random one. A caller that
+   * derives it deterministically gets the database to refuse a duplicate
+   * (23505) without any index of its own: the recording alerts use this to
+   * cap failure-alert jobs per bot.
+   */
+  id?: string;
 };
 
 export type EnqueueResult =
@@ -342,6 +349,7 @@ export async function enqueue(input: EnqueueInput): Promise<EnqueueResult> {
   };
   if (input.runAfter) row.run_after = input.runAfter.toISOString();
   if (input.maxAttempts !== undefined) row.max_attempts = input.maxAttempts;
+  if (input.id) row.id = input.id;
 
   const { data, error } = await service.from("background_jobs").insert(row).select("id").single();
 
