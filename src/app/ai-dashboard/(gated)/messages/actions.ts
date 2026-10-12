@@ -315,31 +315,73 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
 
   /*
    * communication_logs has no job_id, so per-job scoping travels through the
-   * applications belonging to scoped jobs. Resolved ONCE and applied to every
-   * count here as well as to the list query — a filter on the rows but not the
-   * counts is exactly how a tab ends up disagreeing with what is under it.
+   * applications belonging to scoped jobs — but through the JOIN, not through
+   * an application-id allow-list.
+   *
+   * The old shape resolved every application id the member could see and passed
+   * the array to `.in("application_id", allowedApps)`. That list was unbounded.
+   * One uuid costs 39 bytes in a PostgREST query string, so somewhere between
+   * 204 and 415 ids the request line crosses a gateway limit and PostgREST
+   * answers 414 — which supabase-js reports as an `error` beside a null count
+   * rather than throwing. Every `count ?? 0` below would then read 0, so the
+   * page would tell a recruiter they have no messages while the list underneath
+   * showed some. Seven counts, silently wrong, together.
+   *
+   * Filtering on the embedded job_id costs one bounded `.in()` over the
+   * member's jobs instead, and scopedApplicationIds is no longer called here at
+   * all — which is also what removes this site's exposure to its unordered
+   * `.range()` paging.
    */
   const scope = await getJobScope(ctx);
-  // Not absorbed here. Every one of these figures is a claim to the reader,
-  // and an uncounted zero used to be indistinguishable from a counted one.
-  const scoped = await scopedApplicationIds(ctx, scope);
-  if (!scoped.ok) return unavailable();
-  const allowedApps = scoped.value;
-  if (allowedApps !== null && allowedApps.length === 0) {
+  // Fails closed before the database, like fetchRecipients: `.in(col, [])`
+  // matches no rows, but it is not worth a request to learn that.
+  if (isEmptyScope(scope)) {
     return answered({
       all: 0, written: 0, automatic: 0, scheduled: 0,
       sent: 0, failed: 0, sentThisWeek: 0,
     });
   }
 
+  /*
+   * A FUNCTION, deliberately — not a shared builder. postgrest-js filter
+   * methods mutate the builder and return `this` (PostgrestFilterBuilder.ts:171
+   * and friends), so one builder shared across the seven callers below would
+   * accumulate every one of their filters. `.select()` is what clones, so each
+   * call here gets its own request.
+   *
+   * `!inner` is load-bearing twice. It excludes the null application_id that
+   * `.not(ORPHAN_COLUMN, "is", null)` excluded, because a non-null FK always
+   * resolves to a live row. And without it PostgREST builds a LEFT join and the
+   * embedded filters stop restricting the logs at all — the cv-purge.ts:309
+   * failure mode. Verified read-only against production: 146 either way, and
+   * 231 once the join is widened.
+   *
+   * The callers chain `status`, `event` and `sent_at`. job_applications also has
+   * a `status` column, but an unprefixed filter binds to the top-level resource,
+   * so none of them become ambiguous under the join — only the
+   * `job_applications.`-prefixed filters below reach the embed. Verified
+   * read-only against production: `status=eq.new` is impossible on a log and
+   * common on an application, and counts 0 through the embed.
+   */
   const base = () => {
     const q = service
       .from("communication_logs")
-      .select("id", { count: "exact", head: true })
+      .select("id, job_applications!inner(job_id, company_id_snapshot)", {
+        count: "exact",
+        head: true,
+      })
       .eq("company_id", ctx.companyId)
       .neq("status", HIDDEN_STATUS)
-      .not(ORPHAN_COLUMN, "is", null);
-    return allowedApps === null ? q : q.in("application_id", allowedApps);
+      // Unconditional, not inside the scoped branch below. The job-id filter is
+      // what narrows a recruiter; THIS is the tenant boundary on the joined
+      // side, and every role needs it. It also has to be unconditional to be
+      // honest: tenant-isolation.test.ts reads this as source text and cannot
+      // tell a conditional filter from an applied one, so a version that only
+      // filtered when scoped would show green while owners read the join
+      // unguarded. Verified read-only against production: 146 with it and 146
+      // without, so no count moves.
+      .eq("job_applications.company_id_snapshot", ctx.companyId);
+    return scope.scoped ? q.in("job_applications.job_id", scope.jobIds) : q;
   };
 
   const weekAgo = new Date(Date.now() - WEEK_MS).toISOString();
