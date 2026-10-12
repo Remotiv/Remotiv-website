@@ -91,13 +91,25 @@ export interface RecallClient {
 }
 
 /**
+ * The failure part of a RecallApiError message. 402 is Recall refusing for
+ * billing (out of credit); lib/queue/failure-class.ts reads a 402 as billing
+ * only when the message says so, and Recall's body is never copied in, so the
+ * wording is fixed here.
+ */
+function failureText(status: number | null, reason: string | undefined): string {
+  if (status === null) return reason ?? "network error";
+  if (status === 402) return "HTTP 402 payment required";
+  return `HTTP ${status}`;
+}
+
+/**
  * A Recall call that did not succeed.
  *
  * Carries the HTTP status and Recall's error code when it sent one, never the
  * response body, the request body, the URL's query or the key. `status` is
  * what lib/queue/failure-class.ts classifies on: 429, 409 and 5xx retry, 401
- * and 403 are configuration, other 4xx are deterministic. A network failure
- * or timeout has no status and retries.
+ * and 403 are configuration, 402 is billing, other 4xx are deterministic. A
+ * network failure or timeout has no status and retries.
  */
 export class RecallApiError extends Error {
   readonly operation: string;
@@ -114,7 +126,7 @@ export class RecallApiError extends Error {
     retryAfterSeconds?: number | null;
     reason?: string;
   }) {
-    const what = args.status === null ? (args.reason ?? "network error") : `HTTP ${args.status}`;
+    const what = failureText(args.status, args.reason);
     super(`Recall ${args.operation} failed: ${what}${args.code ? ` (${args.code})` : ""}`);
     this.name = "RecallApiError";
     this.operation = args.operation;

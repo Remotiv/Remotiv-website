@@ -477,6 +477,7 @@ test("terminal and retryable Recall errors are told apart", async () => {
   const cases = [
     { error: httpError(400), job: "ok", code: "create_failed", sub: "deterministic_400" },
     { error: httpError(401), job: "terminal", code: "create_failed", sub: "configuration_401" },
+    { error: httpError(402), job: "terminal", code: "create_failed", sub: "billing_402" },
     { error: httpError(503), job: "retry", code: "create_ambiguous", sub: "http_503" },
     { error: httpError(429), job: "retry", code: "create_retry", sub: "http_429" },
   ];
@@ -493,7 +494,7 @@ test("terminal and retryable Recall errors are told apart", async () => {
       assert.equal(row.status, "fatal");
     } else if (c.job === "terminal") {
       assert.ok(run.error instanceof TerminalJobError, c.sub);
-      assert.equal(run.error.failureClass, "configuration");
+      assert.equal(run.error.failureClass, c.sub.split("_")[0]);
       assert.equal(row.status, "fatal");
     } else {
       assert.ok(run.error && !(run.error instanceof TerminalJobError), c.sub);
@@ -839,11 +840,15 @@ test("create refused: one failure alert, queued before a configuration error is 
     const [run] = await t.run();
     assert.equal(t.live().last_event_code, "create_failed", String(status));
     assertOneFailureJob(t, String(status));
-    // 401 is configuration and is rethrown after the alert is queued. 400 and
-    // 402 complete the job: the shared classifier reads Recall's 402 as
-    // deterministic, since its message carries no billing wording.
-    if (status === 401) assert.ok(run.error instanceof TerminalJobError, "401 still rethrows");
-    else assert.equal(run.error, null, String(status));
+    // 401 (configuration) and 402 (billing) are rethrown after the alert is
+    // queued, so the queue records the class. 400 is deterministic and
+    // completes the job.
+    if (status === 400) assert.equal(run.error, null, "400 completes");
+    else {
+      assert.ok(run.error instanceof TerminalJobError, `${status} rethrows`);
+      assert.equal(run.error.failureClass, status === 401 ? "configuration" : "billing");
+      assert.equal(t.live().last_event_sub_code, `${run.error.failureClass}_${status}`);
+    }
   }
 });
 

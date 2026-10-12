@@ -137,7 +137,7 @@ test("retryable: 429 with Retry-After, 409, 507, 5xx, network failure and timeou
   assert.equal(classifyProviderError(net).retryable, true);
 });
 
-test("terminal: 400 is deterministic, 401 and 403 are configuration", async () => {
+test("terminal: 400 is deterministic, 401 and 403 are configuration, 402 is billing", async () => {
   const bad = await caught(
     client([{ status: 400 }]).recall.createBot(createBody, { idempotencyKey: "k" }),
   );
@@ -146,6 +146,23 @@ test("terminal: 400 is deterministic, 401 and 403 are configuration", async () =
   for (const status of [401, 403]) {
     const err = await caught(client([{ status }]).recall.retrieveBot(BOT));
     assert.equal(classifyProviderError(err).failureClass, "configuration", String(status));
+  }
+  // Recall's 402 body is never read, so the billing class comes from the
+  // status alone, with and without an error code, on every call shape.
+  const calls = [
+    (recall) => recall.createBot(createBody, { idempotencyKey: "k" }),
+    (recall) => recall.retrieveBot(BOT),
+    (recall) => recall.leaveCall(BOT),
+  ];
+  for (const call of calls) {
+    for (const body of [undefined, { code: "insufficient_balance", detail: "pay up" }]) {
+      const err = await caught(call(client([{ status: 402, body }]).recall));
+      assert.ok(err instanceof RecallApiError);
+      assert.equal(err.status, 402);
+      assert.equal(err.retryable, false);
+      assert.equal(classifyProviderError(err).failureClass, "billing");
+      assert.ok(!err.message.includes("pay up"));
+    }
   }
 });
 
