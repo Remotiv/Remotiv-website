@@ -50,7 +50,15 @@
  *     (`const T = "job_applications"; .from(T)` is a site, and that shape is
  *     live in this tree), and a name it cannot follow is reported by
  *     INDIRECT_TABLE_REFS rather than skipped — so the unfollowable case fails
- *     loudly instead of passing silently. The residual gap is real and narrow:
+ *     loudly instead of passing silently. The PROJECTION is held to the same
+ *     rule, and was not always: deciding whether a read embeds this table
+ *     needs the `select()` argument as text, that check once required a bare
+ *     literal, and the 32 sites whose projection was a constant or a ternary
+ *     were therefore dropped before the scan had an opinion on them. One of
+ *     the 32 did embed this table. Same-file constants, templates of them,
+ *     concatenations and both branches of a ternary are now read
+ *     (resolveSelectArg), and the four projections that remain unreadable are
+ *     named in UNREADABLE_SELECTS. The residual gap is real and narrow:
  *     a table reached through a PostgREST VIEW or an RPC is invisible, because
  *     neither names this table in the TypeScript at all. No `.from()` in this
  *     tree reads a view, and the five RPCs that exist (unlock_candidate,
@@ -440,6 +448,65 @@ const ALLOWLIST = [
  * to say what the name resolves to and where, so that "it isn't
  * job_applications" is a checked claim rather than an assumption.
  */
+/**
+ * `.select(x)` where x is a projection this scan cannot read to a string.
+ *
+ * The same inversion as INDIRECT_TABLE_REFS, one level in: the risk is not an
+ * unfiltered read, it is a read whose SHAPE is unknown, so whether it embeds
+ * job_applications cannot be decided. Before resolveSelectArg existed, 32
+ * sites on this surface landed here silently; same-file constant resolution
+ * reads 28 of them, and these four are what is left. An entry has to say what
+ * the projection resolves to and where, so that "it does not embed
+ * job_applications" is a checked claim and not an assumption.
+ */
+const UNREADABLE_SELECTS = [
+  {
+    ref:
+      `${DASH}/applicants/final-interview-actions.ts:154 latestBooking(): ` +
+      ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
+    why:
+      "Imported from lib/calendar/bookings.ts, where `export const BOOKING_ROW_COLUMNS = ROW_COLUMNS` " +
+      "at 136 aliases the const declared at 133 — a flat list of 24 interview_bookings columns, " +
+      "`id, company_id, application_id, job_id, host_member_id, duration_minutes, status, ...`, with " +
+      "no parenthesis in it and so no embedded resource of any kind. Unfollowable here for the same " +
+      "reason TIP_TABLE is: this scan is single-file by design.",
+  },
+  {
+    ref:
+      `${DASH}/applicants/final-interview-actions.ts:238 listFinalInterviews(): ` +
+      ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
+    why:
+      "The same imported constant as the entry above, read at a second call site in the same file: " +
+      "lib/calendar/bookings.ts:136, aliasing the 24-column interview_bookings projection at 133. No " +
+      "parenthesis, so no embed. Listed separately rather than counted twice because an occurrence " +
+      "count would stop naming which call sites were actually checked.",
+  },
+  {
+    ref:
+      `${DASH}/jobs/actions.ts:849 assertOwned(): ` +
+      `.select(\`id, company_id, criteria_version, \${SCORING_RELEVANT_COLUMNS.join(", ")}, ` +
+      `\${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}\`) — interpolates a CallExpression, ` +
+      "which no static reading covers",
+    why:
+      "Two array joins, both over module constants of plain jobs column names: " +
+      "SCORING_RELEVANT_COLUMNS (app/ai-dashboard/lib/job-patch.ts:232) is nine strings, title " +
+      "through interview_criteria, and CV_WEIGHT_DIMENSIONS (app/ai-dashboard/lib/job-types.ts:662) " +
+      "contributes four cv_weight_* keys. Evaluating .join() statically would mean an interpreter; " +
+      "the projection is a flat column list either way, with no parenthesis and no embed.",
+  },
+  {
+    ref:
+      "app/jobs/company-filter.ts:88 fetchCompanyJobs(): .select(LIST_SELECT) — " +
+      "LIST_SELECT is not a same-file string const",
+    why:
+      "Imported from lib/jobs.ts, where `export const LIST_SELECT` at 23 is the lean card-grid " +
+      "projection: 24 comma-separated jobs columns, id through listed_on_remotiv. The comment above " +
+      "it and at lib/jobs.ts:181 both record that it DELIBERATELY avoids joins because /jobs is the " +
+      "hottest page on the site — so the one thing this projection is guaranteed not to contain is " +
+      "an embedded resource.",
+  },
+];
+
 const INDIRECT_TABLE_REFS = [
   {
     ref: `${DASH}/tip-actions.ts:32: .from(TIP_TABLE)`,
@@ -731,6 +798,61 @@ function stringConsts(sf) {
   };
   visit(sf);
   return map;
+}
+
+/**
+ * A `select()` argument read as text, by the same rules `.from()` is read by.
+ *
+ * The embedded-read check below needs the projection as a string, and it used
+ * to require a bare literal. That silently dropped every
+ * `.select(SOME_COLUMNS)` and every ternary — 32 sites on this surface — and a
+ * dropped site is one this scan has no OPINION about, which is the single
+ * outcome the rest of this file exists to prevent. One of the 32 turned out to
+ * embed job_applications behind a ternary, unverified for as long as the check
+ * was literal-only.
+ *
+ * So the same-file constant resolution `resolveTableArg` already relies on
+ * applies here too, extended to the composite shapes this tree actually uses.
+ * A ternary resolves to BOTH branches joined, because either branch reaching
+ * the database is enough to make the read real.
+ *
+ * Returns `{ text }` when it could be read and `{ why }` naming the obstacle
+ * when it could not. `{ why }` is a finding, not a pass — see
+ * UNREADABLE_SELECTS.
+ */
+function resolveSelectArg(arg, consts) {
+  if (!arg) return { why: "called with no argument" };
+  if (ts.isStringLiteralLike(arg)) return { text: arg.text };
+  if (ts.isIdentifier(arg)) {
+    return consts.has(arg.text)
+      ? { text: consts.get(arg.text) }
+      : { why: `${arg.text} is not a same-file string const` };
+  }
+  if (ts.isParenthesizedExpression(arg) || ts.isAsExpression(arg)) {
+    return resolveSelectArg(arg.expression, consts);
+  }
+  if (ts.isTemplateExpression(arg)) {
+    let text = arg.head.text;
+    for (const span of arg.templateSpans) {
+      const part = resolveSelectArg(span.expression, consts);
+      if (part.text === undefined) return { why: `interpolates ${part.why}` };
+      text += part.text + span.literal.text;
+    }
+    return { text };
+  }
+  const parts = ts.isConditionalExpression(arg)
+    ? { kind: "ternary", nodes: [arg.whenTrue, arg.whenFalse], glue: "," }
+    : ts.isBinaryExpression(arg) && arg.operatorToken.kind === ts.SyntaxKind.PlusToken
+      ? { kind: "concatenation", nodes: [arg.left, arg.right], glue: "" }
+      : null;
+  if (parts) {
+    const read = parts.nodes.map((node) => resolveSelectArg(node, consts));
+    const blocked = read.find((r) => r.text === undefined);
+    return blocked
+      ? { why: `${parts.kind} ${blocked.why}` }
+      : { text: read.map((r) => r.text).join(parts.glue) };
+  }
+  return { why: `a ${ts.SyntaxKind[arg.kind]}, which no static reading covers` };
 }
 
 /** Does the receiver of this `.from()` go through `.storage`? Then it is a bucket. */
@@ -1193,6 +1315,7 @@ export function scanSource(fileName, text) {
   const consts = stringConsts(sf);
   const sites = [];
   const opaque = [];
+  const unreadable = [];
   const line = (n) => sf.getLineAndCharacterOfPosition(n.getStart(sf)).line + 1;
 
   const visit = (n) => {
@@ -1205,12 +1328,25 @@ export function scanSource(fileName, text) {
         } else if (resolved.table) {
           const { methods, outer } = chainFrom(n);
           const direct = resolved.table === TABLE;
+          const selects = methods.filter((m) => m.name === "select");
+          const projections = selects.map((m) => resolveSelectArg(m.args[0], consts));
           const embedded =
-            !direct &&
-            methods.some(
-              (m) => m.name === "select" && isLit(m.args[0]) && EMBED_RE.test(m.args[0].text),
-            );
-          if (!direct && !embedded) return ts.forEachChild(n, visit);
+            !direct && projections.some((p) => p.text !== undefined && EMBED_RE.test(p.text));
+          if (!direct && !embedded) {
+            // A projection the scan cannot read either names this table or
+            // does not, and there is no way to tell from here. Recorded as a
+            // finding rather than dropped, for the same reason an unfollowable
+            // .from() argument is: a read this scan cannot see must not pass as
+            // one it has cleared.
+            projections.forEach((p, i) => {
+              if (p.text !== undefined) return;
+              const shown = selects[i].args[0]?.getText().replace(/\s+/g, " ") ?? "";
+              unreadable.push(
+                `${fileName}:${line(n)} ${functionName(n)}(): .select(${shown}) — ${p.why}`,
+              );
+            });
+            return ts.forEachChild(n, visit);
+          }
           const bound = boundName(outer);
           const scope = enclosingFunction(n) ?? sf;
           const values = [
@@ -1244,7 +1380,7 @@ export function scanSource(fileName, text) {
     ts.forEachChild(n, visit);
   };
   visit(sf);
-  return { sites, opaque };
+  return { sites, opaque, unreadable };
 }
 
 function sourceFiles(dir) {
@@ -1266,16 +1402,20 @@ const scan = (() => {
   const onSurface = [];
   const offSurface = [];
   const opaqueOnSurface = [];
+  const unreadableOnSurface = [];
   for (const file of sourceFiles(SRC)) {
     const rel = relative(SRC, file);
     const text = readFileSync(file, "utf8");
     if (!text.includes(TABLE) && !/\.from\(/.test(text)) continue;
     const surface = onTenantSurface(rel, text);
-    const { sites, opaque } = scanSource(rel.split(sep).join("/"), text);
+    const { sites, opaque, unreadable } = scanSource(rel.split(sep).join("/"), text);
     for (const s of sites) (surface ? onSurface : offSurface).push(s);
-    if (surface) opaqueOnSurface.push(...opaque);
+    if (surface) {
+      opaqueOnSurface.push(...opaque);
+      unreadableOnSurface.push(...unreadable);
+    }
   }
-  return { onSurface, offSurface, opaqueOnSurface };
+  return { onSurface, offSurface, opaqueOnSurface, unreadableOnSurface };
 })();
 
 const reads = scan.onSurface.filter((s) => !s.write);
@@ -1322,6 +1462,16 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     "an embedded null check mistaken for a filter": wrap(
       'await service.from("application_team_comments").select("id, job_applications!inner(email)").not("job_applications.company_id_snapshot", "is", null);',
     ),
+    // The three shapes resolveSelectArg added. Each hid an embedded read from
+    // the literal-only check; the ternary is the one that was live in this
+    // tree, in fetchMessages.
+    "an embedded read behind a ternary select": wrap(
+      'await service.from("communication_logs").select(head ? "id, job_applications!inner(email)" : "id, body, job_applications!inner(email)").eq("company_id", ctx.companyId);',
+    ),
+    "an embedded read behind a column constant": `const COLS = "id, job_applications!inner(email)";
+      ${wrap('await service.from("communication_logs").select(COLS).eq("company_id", ctx.companyId);')}`,
+    "an embedded read behind an interpolated constant": `const EMBED = "job_applications!inner(email)";
+      ${wrap(`await service.from("communication_logs").select(\`id, \${EMBED}\`).eq("company_id", ctx.companyId);`)}`,
   };
   for (const [name, src] of Object.entries(refused)) {
     assert.ok(unfiltered(src).length > 0, `not refused: ${name}`);
@@ -1342,9 +1492,44 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     "an embedded read filtered on the embedded column": wrap(
       'await service.from("application_team_comments").select("id, job_applications!inner(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
     ),
+    "a ternary select, filtered on the embedded column": wrap(
+      'await service.from("communication_logs").select(head ? "id, job_applications!inner(email)" : "id, body, job_applications!inner(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
   };
   for (const [name, src] of Object.entries(accepted)) {
     assert.deepEqual(unfiltered(src), [], `refused: ${name}`);
+  }
+});
+
+test("a select() the scan cannot read is recorded, not dropped", () => {
+  // The inversion itself. Each of these is a projection that MIGHT embed
+  // job_applications; none can be read statically, and the old behaviour was
+  // to walk past them in silence.
+  const unreadable = (src) => scanSource("x.ts", src).unreadable;
+  const cases = {
+    "an imported constant": wrap('await service.from("communication_logs").select(COLS);'),
+    "a parameter": 'async function f(service, cols) { await service.from("jobs").select(cols); }',
+    "an interpolated call": wrap(`await service.from("jobs").select(\`id, \${COLS.join(", ")}\`);`),
+    "a ternary with one unreadable branch": wrap(
+      'await service.from("jobs").select(head ? "id" : COLS);',
+    ),
+  };
+  for (const [name, src] of Object.entries(cases)) {
+    assert.equal(unreadable(src).length, 1, `not recorded: ${name}`);
+  }
+
+  // And the converse: anything it CAN read is not reported as unreadable, or
+  // the list would fill with noise and stop being read.
+  const quiet = {
+    "a literal with no embed": wrap('await service.from("jobs").select("id, title");'),
+    "a same-file constant": `const COLS = "id, title";
+      ${wrap('await service.from("jobs").select(COLS);')}`,
+    "no select at all": wrap('await service.from("jobs").delete().eq("id", jobId);'),
+    "a resolved embed, which becomes a site instead": `const COLS = "id, job_applications!inner(email)";
+      ${wrap('await service.from("communication_logs").select(COLS);')}`,
+  };
+  for (const [name, src] of Object.entries(quiet)) {
+    assert.deepEqual(unreadable(src), [], `falsely reported: ${name}`);
   }
 });
 
@@ -1624,6 +1809,25 @@ test("no company filter value is client-supplied", () => {
   assert.deepEqual(staleSite, [], `site-scoped filter values that match no read: ${staleSite}`);
   for (const e of SITE_FILTER_VALUES) {
     assert.ok(e.why.length > 80, `${e.file} ${e.fn}(): justification too thin`);
+  }
+});
+
+test("no select() on the tenant surface is unreadable to the scan", () => {
+  const justified = new Set(UNREADABLE_SELECTS.map((r) => r.ref));
+  const unexplained = scan.unreadableOnSurface.filter((r) => !justified.has(r));
+  assert.deepEqual(
+    unexplained,
+    [],
+    "a select() this scan cannot read might embed job_applications; it is not " +
+      `cleared, it is unexamined:\n    ${unexplained.join("\n    ")}`,
+  );
+
+  const stale = UNREADABLE_SELECTS.filter((r) => !scan.unreadableOnSurface.includes(r.ref)).map(
+    (r) => r.ref,
+  );
+  assert.deepEqual(stale, [], `stale unreadable-select entries:\n    ${stale.join("\n    ")}`);
+  for (const r of UNREADABLE_SELECTS) {
+    assert.ok(r.why && r.why.length > 80, `${r.ref}: justification too thin`);
   }
 });
 

@@ -1,7 +1,32 @@
 /**
- * hydrate() reads the candidate through the company filter.
+ * A drifted application is refused by the list query, and by hydrate too.
  *
  *   node --test "src/app/ai-dashboard/(gated)/messages/hydrate-scope.test.ts"
+ *
+ * ── Two layers, tested separately ────────────────────────────
+ *
+ * There are now two independent filters between a drifted application and the
+ * screen, and a test that only exercised the outer one would stop proving
+ * anything about the inner one:
+ *
+ *   OUTER  fetchMessages' list query embeds `job_applications!inner(...)` and
+ *          filters `job_applications.company_id_snapshot`. A log pointing at
+ *          another company's application does not come back AT ALL, for any
+ *          role — the inner join drops the parent row. That is what the
+ *          per-role test below asserts.
+ *   INNER  hydrate() reads the candidate through the same company filter, so a
+ *          foreign application it is handed anyway renders as "Deleted
+ *          applicant" with no name, address or job. Nothing reaches it through
+ *          the outer filter any more, which is exactly why one test below
+ *          configures the fake to IGNORE the embedded filters: otherwise the
+ *          inner layer would be unreachable and silently untested, and a
+ *          regression in it would surface only if the outer one broke first.
+ *
+ * The role split this file used to assert is gone on purpose. It recorded that
+ * owner and admin saw the drifted row named generically while a scoped role
+ * never received it, because scoping ran through an application-id allow-list
+ * read that was itself company-filtered. The list query now carries the tenant
+ * filter on the joined side unconditionally, so no role sees the row.
  *
  * ── The state these tests seed ───────────────────────────────
  *
@@ -23,10 +48,10 @@
  * other.
  *
  * `fetchMessages`, `fetchApplicationMessages`, `hydrate`, `getJobScope`,
- * `scopedApplicationIds`, `canSeeApplication` and `canAccessJob` all run as
- * shipped. Only the session and the database are fakes, and the responder
- * HONOURS the filters it is handed, so an unfiltered read is distinguishable
- * from one that matched nothing.
+ * `canSeeApplication` and `canAccessJob` all run as shipped. Only the session
+ * and the database are fakes, and the responder HONOURS the filters it is
+ * handed — including the embedded ones — so an unfiltered read is
+ * distinguishable from one that matched nothing.
  */
 // @ts-nocheck — same reason as recipients-scope.test.ts: Node's `.ts` specifier
 // vs this repo's tsconfig, which does not set allowImportingTsExtensions.
@@ -129,13 +154,54 @@ const eqOn = (calls, col) => pick(calls, "eq", col)?.[2];
 const inOn = (calls, col) => pick(calls, "in", col)?.[2];
 
 /**
+ * PostgREST's embedded-join semantics, enough of them to tell the three
+ * plausible mistakes apart.
+ *
+ * `select("..., job_applications!inner(job_id, company_id_snapshot)")` joins
+ * each log to its application and, because the join is INNER, a log with no
+ * matching application is dropped and filters named
+ * `job_applications.<column>` restrict the LOG rows. Drop the `!inner` and the
+ * embed becomes a LEFT join: the parent survives regardless and those same
+ * filters narrow only the embedded side, which is a silent no-op from the
+ * list's point of view. Remove the embed from the select and there is nothing
+ * to filter through at all.
+ *
+ * Modelling all three is what lets this fake fail when the filter is deleted,
+ * when `!inner` is weakened, and when the embed is dropped — rather than only
+ * recording that a method was called.
+ */
+function applyEmbed(rows, calls, apps) {
+  const selectText = pick(calls, "select")?.[1];
+  const embed = /job_applications(!\w+)?\s*\(/.exec(
+    typeof selectText === "string" ? selectText : "",
+  );
+  if (!embed) return rows;
+  if (embed[1] !== "!inner") return rows;
+
+  const byId = new Map(apps.map((a) => [a.id, a]));
+  const snapshot = eqOn(calls, "job_applications.company_id_snapshot");
+  const jobs = inOn(calls, "job_applications.job_id");
+  return rows.filter((r) => {
+    const app = byId.get(r.application_id);
+    if (!app) return false;
+    if (snapshot !== undefined && app.company_id_snapshot !== snapshot) return false;
+    if (jobs && !jobs.includes(app.job_id)) return false;
+    return true;
+  });
+}
+
+/**
  * A database that applies the filters it is given.
  *
  * Every narrowing is looked up BY COLUMN NAME rather than by position, so a
  * filter on a mistyped column is simply not found and the read comes back
  * unfiltered — which is what makes the leak test able to fail.
+ *
+ * `honourEmbed: false` makes the log read ignore the embedded join, which is
+ * how the hydrate-layer test reaches hydrate with a row the shipped query
+ * would never return. It is a deliberate deviation, used once and named.
  */
-function world(assignments = []) {
+function world(assignments = [], { honourEmbed = true } = {}) {
   return fakeService((table, calls) => {
     if (table === "job_hiring_team") {
       let rows = assignments.map((job_id) => ({ job_id }));
@@ -171,6 +237,7 @@ function world(assignments = []) {
       for (const c of calls.filter((c) => c[0] === "neq")) {
         rows = rows.filter((r) => r[c[1]] !== c[2]);
       }
+      if (honourEmbed) rows = applyEmbed(rows, calls, [OURS, DRIFTED]);
       const select = pick(calls, "select");
       if (select?.[2]?.head) return { count: rows.length, error: null };
       return { data: rows, error: null };
@@ -180,8 +247,8 @@ function world(assignments = []) {
   });
 }
 
-async function as(role, act, assignments = []) {
-  const service = world(assignments);
+async function as(role, act, assignments = [], options) {
+  const service = world(assignments, options);
   globalThis.__messagesServiceForTests = () => service;
   globalThis.__messagesCtxForTests = ctxFor(role);
   try {
@@ -192,8 +259,13 @@ async function as(role, act, assignments = []) {
   }
 }
 
-const listFor = (role, assignments) =>
-  as(role, () => fetchMessages({ tab: "all", jobId: "", search: "", page: 0 }), assignments);
+const listFor = (role, assignments, options) =>
+  as(
+    role,
+    () => fetchMessages({ tab: "all", jobId: "", search: "", page: 0 }),
+    assignments,
+    options,
+  );
 
 const rowById = (rows, id) => rows.find((r) => r.id === id);
 
@@ -205,20 +277,34 @@ function assertNoForeignTrace(payload, where) {
   }
 }
 
-test("the list does not name a candidate who has drifted to another company", async () => {
+test("the list does not return a log whose application drifted to another company", async () => {
   const { result } = await listFor("owner");
   assert.equal(result.ok, true);
 
   assertNoForeignTrace(result.value, "the Messages list");
 
-  // Degraded, not vanished. The row is still there and still counted — a
-  // disappearing record would be worse than a generically-named one, and would
-  // also put the footer total at odds with the rows under it.
-  assert.equal(result.value.rows.length, 2);
-  assert.equal(result.value.matching, 2);
+  // The row is gone, not degraded. The inner join on the tenant column drops
+  // it, so there is nothing left for hydrate to name — and the footer total
+  // agrees with the rows under it because both queries carry the same filter.
+  assert.equal(result.value.rows.length, 1);
+  assert.equal(result.value.matching, 1);
+  assert.equal(rowById(result.value.rows, "log-drifted"), undefined);
+});
+
+test("hydrate still refuses to name a drifted applicant it is handed anyway", async () => {
+  // The fake ignores the embedded filters here, and ONLY here. The shipped
+  // query no longer lets this row through, so this is the one way to keep the
+  // inner layer under test: if the embed were ever weakened or removed, the
+  // assertions below are what still stand between a foreign candidate's name
+  // and the screen.
+  const { result } = await listFor("owner", [], { honourEmbed: false });
+  assert.equal(result.ok, true);
+  assertNoForeignTrace(result.value, "the Messages list with the embed disabled");
+
+  assert.equal(result.value.rows.length, 2, "the deviation must actually deliver both rows");
 
   const drifted = rowById(result.value.rows, "log-drifted");
-  assert.ok(drifted, "the drifted row must survive the filter");
+  assert.ok(drifted, "the drifted row must reach hydrate for this test to mean anything");
   assert.equal(drifted.candidateName, "Deleted applicant");
   assert.equal(drifted.candidateEmail, "");
   assert.equal(drifted.jobId, null);
@@ -248,7 +334,10 @@ test("the candidate read is filtered on company and costs no extra query", async
   // than beside it, so the page issues no round trip it did not issue before.
   assert.equal(reads.length, 1, "hydrate must not add a second applications read");
   assert.equal(eqOn(reads[0].calls, "company_id_snapshot"), CO);
-  assert.deepEqual(inOn(reads[0].calls, "id"), [OURS.id, DRIFTED.id]);
+  // One id, because the list query already dropped the drifted log. The filter
+  // on this read is asserted all the same: it is the inner layer, and the test
+  // above drives it with a row that reaches it.
+  assert.deepEqual(inOn(reads[0].calls, "id"), [OURS.id]);
 });
 
 test("no role is shown the drifted candidate, and every role still sees its own", async () => {
@@ -268,22 +357,22 @@ test("no role is shown the drifted candidate, and every role still sees its own"
     assert.equal(ours.candidateEmail, "ada@example.test", `${role} lost the address`);
 
     /*
-     * The two roles diverge here, and both are pre-existing behaviour.
+     * No role diverges any more, and that is the change this asserts.
      *
-     * A scoped role's logs are narrowed by scopedApplicationIds, which reads
-     * job_applications filtered on company — so the drifted row never reaches
-     * hydrate at all and is absent from the list. Owner and admin are
-     * unscoped: allowedApps is null, no application read precedes the log
-     * read, and the drifted row arrives at hydrate. That is why owner/admin
-     * were the roles exposed, and why the filter belongs in hydrate.
+     * The embedded tenant filter sits outside the `scope.scoped` branch, so it
+     * applies to the site-wide roles too. Owner and admin used to receive this
+     * row and render it as "Deleted applicant"; they no longer receive it. A
+     * log of this company's pointing at another company's application is a
+     * broken record, and an owner has no more business reading one than a
+     * recruiter does.
      */
-    const drifted = rowById(result.value.rows, "log-drifted");
-    if (role === "owner" || role === "admin") {
-      assert.ok(drifted, `${role} should still see the row, named generically`);
-      assert.equal(drifted.candidateName, "Deleted applicant");
-    } else {
-      assert.equal(drifted, undefined, `${role} should never have had this row`);
-    }
+    assert.equal(
+      rowById(result.value.rows, "log-drifted"),
+      undefined,
+      `${role} was shown a message whose application belongs to another company`,
+    );
+    assert.equal(result.value.rows.length, 1, `${role} saw an unexpected extra row`);
+    assert.equal(result.value.matching, 1, `${role} got a total that disagrees with the rows`);
   }
 });
 

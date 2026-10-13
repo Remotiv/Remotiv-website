@@ -10,7 +10,6 @@ import {
   canAccessJob,
   getJobScope,
   isEmptyScope,
-  scopedApplicationIds,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
@@ -423,23 +422,38 @@ export async function fetchMessages(input: {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
+  /*
+   * Scoped through the JOIN, not through an application-id allow-list — the
+   * same replacement fetchMessageAggregates carries above, for the same reason.
+   *
+   * The old shape resolved every application id the member could see and passed
+   * the array to `.in("application_id", allowedApps)`. That list was unbounded.
+   * Measured against production: one uuid costs 37 bytes in a PostgREST query
+   * string, and the request line stops being answered between 668 and 675 ids
+   * (~25 kB), where PostgREST replies 400. supabase-js reports that as an
+   * `error` beside a null count rather than throwing, so the old `count ?? 0`
+   * read 0 and the page told a recruiter they had no messages — over a list
+   * that also came back empty, because the same filter was on both queries.
+   *
+   * Filtering on the embedded job_id costs one bounded `.in()` over the
+   * member's jobs instead, and scopedApplicationIds is no longer called here at
+   * all — which is also what removes this site's exposure to its unordered
+   * `.range()` paging.
+   */
   const scope = await getJobScope(ctx);
-  // "No messages" is a statement about their history. It must not be made on
-  // an allow-list we could not read.
-  const scoped = await scopedApplicationIds(ctx, scope);
-  if (!scoped.ok) return unavailable();
-  const allowedApps = scoped.value;
-  if (allowedApps !== null && allowedApps.length === 0) {
-    return answered({ rows: [], matching: 0 });
-  }
+  // Fails closed before the database, as the aggregates do: `.in(col, [])`
+  // matches no rows, but it is not worth a request to learn that.
+  if (isEmptyScope(scope)) return answered({ rows: [], matching: 0 });
 
   const tab: MessageTab = input.tab;
   const search = (input.search ?? "").trim();
   const page = Math.max(0, Math.trunc(input.page ?? 0));
 
   // The job filter and the free-text search both live on job_applications, not
-  // on the log, so they resolve to a set of application ids first. Capped: the
-  // filter is a convenience, and an unbounded IN list would overflow the URL.
+  // on the log, so they resolve to a set of application ids first. The caps
+  // here and in build() are NOT URL-limit guards — 500 ids is 18.7 kB and
+  // answers fine, measured. They silently truncate, and they are tracked as
+  // their own follow-up rather than changed in this pass.
   let appIds: string[] | null = null;
   if (input.jobId || search) {
     let q = service
@@ -449,7 +463,12 @@ export async function fetchMessages(input: {
       .limit(1000);
     if (scope.scoped) q = q.in("job_id", scope.jobIds);
     if (input.jobId) q = q.eq("job_id", input.jobId);
-    const { data } = await q;
+    const { data, error } = await q;
+    // An unread filter is not an empty filter. Falling through with `data ??
+    // []` turns a failed request into `appIds = []`, and an empty appIds means
+    // "no applicant matched" — so a broken read would render as a confident
+    // "No messages" for a filter the user can see is set.
+    if (error) return unavailable();
     let rows = (data ?? []) as unknown as AppLite[];
     if (search) {
       const needle = search.toLowerCase();
@@ -469,17 +488,30 @@ export async function fetchMessages(input: {
   const build = (head: boolean) => {
     let q = service
       .from("communication_logs")
+      // One literal projection for both shapes, deliberately. The count request
+      // used to select a shorter list, which made this argument a ternary — and
+      // tenant-isolation.test.ts can only recognise an embedded read of
+      // job_applications when it can read the select() argument as a string
+      // literal. A ternary is dropped before the site is ever recorded, so the
+      // tenant filter below was unverified by the scanner; a negative control
+      // confirmed it, failing the moment this became a literal. `head: true`
+      // returns no body, so the wider projection changes nothing in the
+      // response and the count comes off the same filters and the same join.
       .select(
-        head
-          ? "id"
-          : "id, application_id, event, status, to_address, subject, body, scheduled_for, sent_at, sent_by_name, created_at",
+        "id, application_id, event, status, to_address, subject, body, scheduled_for, sent_at, sent_by_name, created_at, job_applications!inner(job_id, company_id_snapshot)",
         head ? { count: "exact", head: true } : undefined,
       )
       .eq("company_id", ctx.companyId)
       .neq("status", HIDDEN_STATUS)
-      .not(ORPHAN_COLUMN, "is", null);
+      .not(ORPHAN_COLUMN, "is", null)
+      // Unconditional, not inside the scoped branch below. The job-id filter is
+      // what narrows a recruiter; THIS is the tenant boundary on the joined
+      // side, and every role needs it. It also has to be unconditional to be
+      // honest: tenant-isolation.test.ts reads this as source text and cannot
+      // tell a conditional filter from an applied one.
+      .eq("job_applications.company_id_snapshot", ctx.companyId);
 
-    if (allowedApps !== null) q = q.in("application_id", allowedApps);
+    if (scope.scoped) q = q.in("job_applications.job_id", scope.jobIds);
 
     q = applyTab(q, tab);
 
@@ -498,16 +530,31 @@ export async function fetchMessages(input: {
   };
 
   const from = page * MESSAGES_PAGE_SIZE;
-  const [{ count }, { data }] = await Promise.all([
+  const [total, listed] = await Promise.all([
     build(true),
     build(false)
       .order("created_at", { ascending: false })
       .range(from, from + MESSAGES_PAGE_SIZE - 1),
   ]);
 
+  /*
+   * A failed read is not an empty page.
+   *
+   * `count ?? 0` is what made the overflow silent: supabase-js answers a 4xx
+   * with `{ data: null, error, count: null }` instead of throwing, so the page
+   * rendered "No messages" and a zero total. The join removes that particular
+   * 400, but it is not the only way a request fails, and the honest answer to
+   * an unread page is "we could not load this" — which is what Read's
+   * unavailable() renders. A null count beside no error is counted as a failure
+   * too: `count: "exact"` always carries one, so its absence means the response
+   * was not what we asked for, and pagination built on a guess is worse than
+   * none.
+   */
+  if (total.error || listed.error || total.count === null) return unavailable();
+
   return answered({
-    rows: await hydrate(ctx, service, (data ?? []) as unknown as LogRow[]),
-    matching: count ?? 0,
+    rows: await hydrate(ctx, service, (listed.data ?? []) as unknown as LogRow[]),
+    matching: total.count,
   });
 }
 
