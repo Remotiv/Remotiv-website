@@ -66,7 +66,7 @@ test("JOB_TYPES holds migration 040's nineteen job types in its order", () => {
   assert.deepEqual(inCode, inMigration);
 });
 
-test("final_bot_sync (step 2), final_bot_lobby_check (step 3) and final_recording_import (step 4) have handlers; the other two do not", () => {
+test("final_bot_sync (step 2), final_bot_lobby_check (step 3), final_recording_import (step 4) and final_recording_purge (step 6a) have handlers; the watchdog does not", () => {
   const queue = code(read(QUEUE));
   assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_SYNC, handleFinalBotSync\);/);
   assert.match(queue, /registerHandler\(JOB_TYPES\.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert\);/);
@@ -74,23 +74,22 @@ test("final_bot_sync (step 2), final_bot_lobby_check (step 3) and final_recordin
     queue,
     /registerHandler\(JOB_TYPES\.FINAL_RECORDING_IMPORT, handleFinalRecordingImport\);/,
   );
-  for (const t of ["FINAL_RECORDING_IMPORT_WATCHDOG", "FINAL_RECORDING_PURGE"]) {
-    assert.doesNotMatch(queue, new RegExp(`registerHandler\\(JOB_TYPES\\.${t}\\b`), t);
-  }
-  // Nothing outside JOB_TYPES names the two that have no handler, so nothing
-  // can enqueue them.
+  assert.match(
+    queue,
+    /registerHandler\(JOB_TYPES\.FINAL_RECORDING_PURGE, handleFinalRecordingPurge\);/,
+  );
+  assert.doesNotMatch(queue, /registerHandler\(JOB_TYPES\.FINAL_RECORDING_IMPORT_WATCHDOG\b/);
+  // Nothing outside JOB_TYPES names the watchdog, so nothing can enqueue it.
   for (const { rel, text } of SOURCES) {
     if (rel === QUEUE) continue;
-    assert.doesNotMatch(
-      text,
-      /["'](final_recording_import_watchdog|final_recording_purge)["']/,
-      rel,
-    );
+    assert.doesNotMatch(text, /["']final_recording_import_watchdog["']/, rel);
   }
-  assert.doesNotMatch(
-    queue,
-    /JOB_TYPES\.(FINAL_RECORDING_IMPORT_WATCHDOG|FINAL_RECORDING_PURGE)\b/,
+  assert.doesNotMatch(queue, /JOB_TYPES\.FINAL_RECORDING_IMPORT_WATCHDOG\b/);
+  // The purge job's name is written once, beside JOB_TYPES' own copy.
+  const purgeNamers = SOURCES.filter((s) => /["']final_recording_purge["']/.test(s.text)).map(
+    (s) => s.rel,
   );
+  assert.deepEqual(purgeNamers.sort(), ["src/lib/final-interviews/constants.ts", QUEUE].sort());
   // The import job's name is written once, beside JOB_TYPES' own copy.
   const importNamers = SOURCES.filter((s) => /["']final_recording_import["']/.test(s.text)).map(
     (s) => s.rel,

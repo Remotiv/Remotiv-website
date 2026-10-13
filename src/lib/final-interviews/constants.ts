@@ -205,8 +205,22 @@ export const RECORDING_IMPORT_MAX_JOBS = 3;
 export const RECORDING_IMPORT_MAX_ATTEMPTS = 5;
 /** The reconcile waits this long after an import job ends before queueing the next. */
 export const RECORDING_IMPORT_RETRY_GAP_MS = 6 * 60 * 60_000;
-/** A copied recording is deleted this many months after the interview's scheduled start. */
+/**
+ * The figure the recording-ready bell states. Left at 6 until the wording step
+ * (6b) aligns the bell, the candidate notice and the privacy page with
+ * RECORDING_RETENTION_MONTHS. Nothing deletes on this number.
+ */
 export const RECORDING_KEEP_MONTHS = 6;
+/**
+ * Recording step 6a: a copied recording is deleted this many CALENDAR months
+ * after its interview's scheduled start (the booking it was recorded in). A
+ * date past the end of the target month lands on that month's last day.
+ */
+export const RECORDING_RETENTION_MONTHS = 3;
+/** JOB_TYPES.FINAL_RECORDING_PURGE: retention, then the orphan sweep. Daily. */
+export const FINAL_RECORDING_PURGE_JOB = "final_recording_purge";
+/** An unreferenced object or upload must be this old before the sweep removes it. */
+export const RECORDING_ORPHAN_GRACE_MS = 24 * 60 * 60_000;
 /**
  * How long a playback URL lives (recording step 5). Three hours, so a long
  * interview stays seekable to the end without the player losing its source.

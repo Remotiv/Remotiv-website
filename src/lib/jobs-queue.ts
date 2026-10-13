@@ -11,6 +11,7 @@ import {
   RECONCILE_INTERVAL_MS,
 } from "@/lib/final-interviews/bots";
 import { handleFinalRecordingImport } from "@/lib/final-interviews/import";
+import { handleFinalRecordingPurge } from "@/lib/final-interviews/purge";
 import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/interviews/expiry";
 import { handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
@@ -207,10 +208,10 @@ export const JOB_TYPES = {
    */
   TALENT_RETENTION_PURGE: "talent_retention_purge",
   /*
-   * Migration 040, in its order. FINAL_BOT_SYNC, FINAL_BOT_LOBBY_CHECK and
-   * FINAL_RECORDING_IMPORT have handlers. The other two have none and nothing
-   * enqueues them (step 4 restarts imports from the reconcile instead of a
-   * watchdog job); were one enqueued by mistake, runJob throws for that job
+   * Migration 040, in its order. FINAL_BOT_SYNC, FINAL_BOT_LOBBY_CHECK,
+   * FINAL_RECORDING_IMPORT and FINAL_RECORDING_PURGE have handlers. The
+   * watchdog has none and nothing enqueues it (step 4 restarts imports from the
+   * reconcile instead); were it enqueued by mistake, runJob throws for that job
    * alone and it takes the normal retry-then-dead path without touching any
    * other job.
    */
@@ -222,7 +223,7 @@ export const JOB_TYPES = {
   FINAL_RECORDING_IMPORT: "final_recording_import",
   /** Unused: the reconcile restarts stuck imports. No handler. */
   FINAL_RECORDING_IMPORT_WATCHDOG: "final_recording_import_watchdog",
-  /** Recording step 6 — delete recordings past retention. No handler yet. */
+  /** Recording step 6a - retention purge and orphan sweep. Dry run unless RECORDING_PURGE_LIVE. */
   FINAL_RECORDING_PURGE: "final_recording_purge",
 } as const;
 
@@ -301,6 +302,9 @@ registerHandler(JOB_TYPES.FINAL_BOT_LOBBY_CHECK, handleFinalBotAlert);
 // Recording step 4. Copies in parts across runs, handing the job back
 // (JobYield) when its budget runs out; payload.botId names the bot row.
 registerHandler(JOB_TYPES.FINAL_RECORDING_IMPORT, handleFinalRecordingImport);
+// Recording step 6a. Retention, then the orphan sweep; counts only (dry run)
+// unless RECORDING_PURGE_LIVE is "true".
+registerHandler(JOB_TYPES.FINAL_RECORDING_PURGE, handleFinalRecordingPurge);
 
 // ── Enqueue ──────────────────────────────────────────────────
 
@@ -447,6 +451,12 @@ const RECURRING: readonly RecurringJob[] = [
     action: "reconcile",
     when: () => finalBotReconcileWanted(),
   },
+  /*
+   * Recording step 6a: final-interview recordings past retention, and files
+   * no recording row points at. Daily, like the other purges. Read-only (it
+   * counts and logs) until RECORDING_PURGE_LIVE is "true".
+   */
+  { type: JOB_TYPES.FINAL_RECORDING_PURGE, intervalMs: PURGE_INTERVAL_MS },
 ];
 
 /**

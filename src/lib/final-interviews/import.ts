@@ -23,8 +23,8 @@ import {
   RECORDING_IMPORT_PART_BYTES,
   RECORDING_IMPORT_SILENT_ERRORS,
   RECORDING_IMPORT_UPLOADER,
-  RECORDING_KEEP_MONTHS,
   RECORDING_MAX_BYTES,
+  RECORDING_RETENTION_MONTHS,
 } from "./constants";
 
 /**
@@ -57,8 +57,8 @@ import {
  *   6. verify      the stored parts add up to the total, the object's size
  *                  is the total, and bytes 4-7 are the MP4 'ftyp' box.
  *                  Anything else deletes the object and fails the import.
- *   7. ready       recording row 'ready', delete_after = booking start + 6
- *                  months. Never before step 6.
+ *   7. ready       recording row 'ready', delete_after = booking start + 3
+ *                  calendar months (step 6a). Never before step 6.
  *   8. delete      Recall's recording deleted (204, or 404 = already gone),
  *                  only after the object is checked again to be there at its
  *                  verified size, and Recall confirms the recording is this
@@ -192,11 +192,20 @@ export function looksLikeMp4(head: Uint8Array): boolean {
   );
 }
 
-/** The interview's scheduled start plus six months (migration 038's rule). */
+/**
+ * The interview's scheduled start plus RECORDING_RETENTION_MONTHS calendar
+ * months, in UTC, at the same time of day. A day the target month does not
+ * have becomes its last day (31 August + 3 months = 30 November), so the
+ * date never spills into the month after.
+ */
 export function deleteAfterFor(scheduledStart: string): string | null {
   const d = new Date(scheduledStart);
   if (!Number.isFinite(d.getTime())) return null;
-  d.setUTCMonth(d.getUTCMonth() + RECORDING_KEEP_MONTHS);
+  const day = d.getUTCDate();
+  d.setUTCDate(1);
+  d.setUTCMonth(d.getUTCMonth() + RECORDING_RETENTION_MONTHS);
+  const lastDay = new Date(Date.UTC(d.getUTCFullYear(), d.getUTCMonth() + 1, 0)).getUTCDate();
+  d.setUTCDate(Math.min(day, lastDay));
   return d.toISOString();
 }
 

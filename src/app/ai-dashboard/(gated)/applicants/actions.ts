@@ -40,6 +40,7 @@ import {
 } from "@/lib/cv-allowance";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
+import { removeApplicationRecordings } from "@/lib/final-interviews/purge";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { normalizeEmail } from "@/lib/normalize";
@@ -1857,6 +1858,22 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
         error: err,
       });
     }
+  }
+
+  // 1b. Final-interview recording files (recording step 6a), this company's
+  //     only, before the row delete cascades their rows away. Best-effort like
+  //     the CV; the daily recording sweep removes anything left. Ids only in logs.
+  try {
+    const recordings = await removeApplicationRecordings(service, ctx.companyId, applicationId);
+    if (recordings.failed || recordings.removed < recordings.requested) {
+      console.error(
+        `[RECORDING_ORPHAN][applicants] application ${applicationId}: ${recordings.requested - recordings.removed} recording file(s) left for the sweep`,
+      );
+    }
+  } catch {
+    console.error(
+      `[RECORDING_ORPHAN][applicants] application ${applicationId}: recording removal threw`,
+    );
   }
 
   // 2. The row. Scoped again on company_id_snapshot so the DELETE itself

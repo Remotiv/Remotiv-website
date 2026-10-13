@@ -7,6 +7,7 @@ import {
   GetObjectCommand,
   HeadObjectCommand,
   ListMultipartUploadsCommand,
+  ListObjectsV2Command,
   ListPartsCommand,
   S3Client,
   UploadPartCommand,
@@ -37,6 +38,10 @@ import {
  */
 
 export type StoredPart = { partNumber: number; size: number; etag: string };
+/** One object from a bucket listing. lastModified is null when storage gave none. */
+export type ListedObject = { key: string; lastModified: number | null };
+/** One unfinished multipart upload from a bucket listing. */
+export type ListedUpload = { key: string; uploadId: string; initiated: number | null };
 
 /** What the import needs from object storage. One bucket per store. */
 export interface RecordingStore {
@@ -65,7 +70,25 @@ export interface RecordingStore {
     signal?: AbortSignal,
   ): Promise<"completed" | "missing">;
   abortUpload(key: string, uploadId: string, signal?: AbortSignal): Promise<void>;
+  /** Deleting a key that is not there succeeds, as S3's DeleteObject does. */
   deleteObject(key: string, signal?: AbortSignal): Promise<void>;
+  /**
+   * One page of the whole bucket, in key order, after `startAfter`
+   * (ListObjectsV2). `next` is the key to start after for the following page,
+   * or null at the end. Recording step 6a's sweep.
+   */
+  listObjectsPage(
+    options: { startAfter?: string; maxKeys: number },
+    signal?: AbortSignal,
+  ): Promise<{ objects: ListedObject[]; next: string | null }>;
+  /** One page of every unfinished multipart upload in the bucket (ListMultipartUploads). */
+  listUploadsPage(
+    options: { keyMarker?: string; uploadIdMarker?: string; maxUploads: number },
+    signal?: AbortSignal,
+  ): Promise<{
+    uploads: ListedUpload[];
+    next: { keyMarker: string; uploadIdMarker: string } | null;
+  }>;
 }
 
 /** S3 error codes that mean the store itself is set up wrong, not that this request failed. */
@@ -268,6 +291,49 @@ export function createRecordingStore(config: RecordingStoreConfig): RecordingSto
       await call("delete object", () =>
         client.send(new DeleteObjectCommand({ Bucket, Key: key }), { abortSignal: signal }),
       );
+    },
+
+    async listObjectsPage({ startAfter, maxKeys }, signal) {
+      return call("list objects", async () => {
+        const res = await client.send(
+          new ListObjectsV2Command({ Bucket, StartAfter: startAfter, MaxKeys: maxKeys }),
+          { abortSignal: signal },
+        );
+        const objects = (res.Contents ?? [])
+          .filter((o) => o.Key)
+          .map((o) => ({
+            key: o.Key as string,
+            lastModified: o.LastModified ? o.LastModified.getTime() : null,
+          }));
+        const last = objects[objects.length - 1]?.key ?? null;
+        return { objects, next: res.IsTruncated && last ? last : null };
+      });
+    },
+
+    async listUploadsPage({ keyMarker, uploadIdMarker, maxUploads }, signal) {
+      return call("list uploads", async () => {
+        const res = await client.send(
+          new ListMultipartUploadsCommand({
+            Bucket,
+            KeyMarker: keyMarker,
+            UploadIdMarker: uploadIdMarker,
+            MaxUploads: maxUploads,
+          }),
+          { abortSignal: signal },
+        );
+        const uploads = (res.Uploads ?? [])
+          .filter((u) => u.Key && u.UploadId)
+          .map((u) => ({
+            key: u.Key as string,
+            uploadId: u.UploadId as string,
+            initiated: u.Initiated ? u.Initiated.getTime() : null,
+          }));
+        const next =
+          res.IsTruncated && res.NextKeyMarker
+            ? { keyMarker: res.NextKeyMarker, uploadIdMarker: res.NextUploadIdMarker ?? "" }
+            : null;
+        return { uploads, next };
+      });
     },
   };
 }

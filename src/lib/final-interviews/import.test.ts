@@ -173,7 +173,7 @@ test("happy path: copied, verified, ready, Recall deleted, then the bot, then on
   assert.equal(rec.uploaded_by, null);
   assert.equal(rec.uploaded_by_name, "Remotiv automatic import");
   assert.equal(rec.mime_type, "video/mp4");
-  assert.equal(rec.delete_after, "2027-05-05T09:00:00.000Z", "booking start + 6 months");
+  assert.equal(rec.delete_after, "2027-02-05T09:00:00.000Z", "booking start + 3 calendar months");
   assert.equal(t.s3.count("uploadPart"), 3);
   assert.equal(t.recall.count("deleteRecording"), 1);
   const [bell] = t.bells();
@@ -185,6 +185,46 @@ test("happy path: copied, verified, ready, Recall deleted, then the bot, then on
   assert.equal(bell.href, `/ai-dashboard/applicants?applicant=${APP}`);
   assert.doesNotMatch(JSON.stringify(bell), /\.mp4|media\.fake|storage/);
   assert.equal(t.jobs("final_bot_lobby_check").length, 0, "no alert");
+});
+
+test("a rescheduled interview: delete_after counts from the booking the recording was made in", async () => {
+  // The bot recorded the original booking (T0) and was then superseded by a
+  // later booking. Retention runs from the call that was recorded.
+  const t = setup({
+    row: { status: "superseded", superseded_at: at(2 * HOUR) },
+  });
+  t.db.interview_bookings.push({
+    ...t.db.interview_bookings[0],
+    id: "b0000000-0000-4000-8000-000000000099",
+    scheduled_start: "2026-12-31T09:00:00.000Z",
+  });
+  assert.equal((await drive(t)).outcome, "ready");
+  assert.equal(t.rec().delete_after, "2027-02-05T09:00:00.000Z");
+});
+
+test("a failed recording row is terminal: a later run neither revives it nor uploads anything", async () => {
+  const t = setup();
+  // The row a failed import left: same deterministic id, so any retry finds it.
+  t.db.final_interview_recordings.push({
+    id: t.recRowId,
+    final_interview_id: FI,
+    company_id: CO,
+    job_id: JOB,
+    application_id: APP,
+    source: "recall_bot",
+    vendor_recording_id: t.recId,
+    storage_path: t.key,
+    mime_type: "video/mp4",
+    size_bytes: t.file.length,
+    status: "failed",
+    uploaded_by: null,
+  });
+  const { terminal } = await drive(t);
+  assert.ok(terminal instanceof TerminalJobError);
+  assert.equal(t.rec().status, "failed", "never back to pending or ready");
+  assert.equal(t.rec().storage_path, t.key, "a failed row keeps its path");
+  assert.equal(t.s3.count("createUpload") + t.s3.count("uploadPart"), 0);
+  assert.equal(t.recall.count("deleteRecording"), 0);
 });
 
 test("the order: verify, ready row, Recall delete, bot ready, bell", async () => {

@@ -10,6 +10,8 @@
  *                    otherwise), ETags must match; the parts are assembled in
  *                    order and the upload ends. 'missing' when it is gone
  *   abortUpload      ends the upload; a repeat is a no-op
+ *   listObjectsPage  (step 6a) keys in order after startAfter, maxKeys per page
+ *   listUploadsPage  (step 6a) uploads ordered by key then start, after the markers
  *
  * Every call is logged on `calls` as [method, ...args] (bodies by length).
  * Scripting:
@@ -18,15 +20,22 @@
  *   before(method, fn)  runs `fn()` once, at the start of the next call
  *   expireUploads()  every unfinished upload disappears, as Supabase drops
  *                    them after a day
+ *   putObject(key, bytes, { at })  an object stored outside the import flow,
+ *                    with its last-modified time (ms)
+ *   objectTimes / uploads[id].initiatedAt  set to age an object or upload
  *
  * Test-only. Nothing in the application imports this.
  */
 import { createHash } from "node:crypto";
 
 const MIN_PART = 5 * 1024 * 1024;
+/** S3 lists in byte order of the key. */
+const byteOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
 export function fakeS3() {
   const objects = new Map();
+  /** key -> last-modified ms */
+  const objectTimes = new Map();
   const uploads = new Map();
   const calls = [];
   const failures = [];
@@ -55,6 +64,7 @@ export function fakeS3() {
 
   return {
     objects,
+    objectTimes,
     uploads,
     calls,
     count: (method) => calls.filter((c) => c[0] === method).length,
@@ -68,6 +78,10 @@ export function fakeS3() {
     },
     expireUploads() {
       uploads.clear();
+    },
+    putObject(key, bytes, { at = Date.now() } = {}) {
+      objects.set(key, Uint8Array.from(bytes));
+      objectTimes.set(key, at);
     },
 
     async headObject(key) {
@@ -92,7 +106,13 @@ export function fakeS3() {
     async createUpload(key, contentType) {
       const lost = await enter("createUpload", [key, contentType]);
       const id = `upload-${++seq}`;
-      uploads.set(id, { key, contentType, parts: new Map(), initiated: seq });
+      uploads.set(id, {
+        key,
+        contentType,
+        parts: new Map(),
+        initiated: seq,
+        initiatedAt: Date.now(),
+      });
       return finish(lost, id);
     },
     async listParts(key, uploadId) {
@@ -132,6 +152,7 @@ export function fakeS3() {
         offset += c.length;
       }
       objects.set(key, out);
+      objectTimes.set(key, Date.now());
       uploads.delete(uploadId);
       return finish(lost, "completed");
     },
@@ -143,7 +164,42 @@ export function fakeS3() {
     async deleteObject(key) {
       const lost = await enter("deleteObject", [key]);
       objects.delete(key);
+      objectTimes.delete(key);
       return finish(lost, undefined);
+    },
+    async listObjectsPage({ startAfter, maxKeys }) {
+      const lost = await enter("listObjectsPage", [startAfter ?? null, maxKeys]);
+      const keys = [...objects.keys()]
+        .sort()
+        .filter((k) => startAfter === undefined || k > startAfter);
+      const page = keys.slice(0, maxKeys);
+      return finish(lost, {
+        objects: page.map((key) => ({ key, lastModified: objectTimes.get(key) ?? null })),
+        next: keys.length > maxKeys ? page[page.length - 1] : null,
+      });
+    },
+    async listUploadsPage({ keyMarker, uploadIdMarker, maxUploads }) {
+      const lost = await enter("listUploadsPage", [
+        keyMarker ?? null,
+        uploadIdMarker ?? null,
+        maxUploads,
+      ]);
+      const all = [...uploads.entries()]
+        .map(([uploadId, u]) => ({ key: u.key, uploadId, initiated: u.initiatedAt ?? null }))
+        .sort((a, b) => byteOrder(a.key, b.key) || byteOrder(a.uploadId, b.uploadId));
+      const after = all.filter(
+        (u) =>
+          keyMarker === undefined ||
+          u.key > keyMarker ||
+          (u.key === keyMarker && uploadIdMarker !== undefined && u.uploadId > uploadIdMarker),
+      );
+      const page = after.slice(0, maxUploads);
+      const last = page[page.length - 1];
+      return finish(lost, {
+        uploads: page,
+        next:
+          after.length > maxUploads ? { keyMarker: last.key, uploadIdMarker: last.uploadId } : null,
+      });
     },
   };
 }
