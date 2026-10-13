@@ -175,6 +175,8 @@ export function makeDb() {
     final_interview_bots: [],
     final_interview_recordings: [],
     signed_url_logs: [],
+    // Evaluations and the outcome.
+    final_interview_evaluations: [],
   };
 }
 

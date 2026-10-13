@@ -1,5 +1,11 @@
 import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
-import type { FinalDuration, InterviewType } from "./constants";
+import type {
+  FinalDuration,
+  FinalEvaluationBasis,
+  FinalOutcomeStatus,
+  FinalRecommendation,
+  InterviewType,
+} from "./constants";
 
 /**
  * Shapes shared by the server actions and the drawer card. Kept
@@ -107,6 +113,13 @@ export type FinalInterviewView = {
   createdByName: string | null;
   createdAt: string;
   cancelledAt: string | null;
+  completedAt: string | null;
+  /** The booked call's scheduled start has passed. Evaluations and the outcome wait for it. */
+  started: boolean;
+  /** The viewer may add a new evaluation now. After a no-show only an existing one can be edited. */
+  canEvaluate: boolean;
+  /** The viewer may mark this interview completed or no-show, or undo that, now. */
+  canSetOutcome: boolean;
   booking: {
     state: FinalInterviewBookingState;
     durationMinutes: number;
@@ -121,4 +134,44 @@ export type FinalInterviewView = {
     cancelReason: string | null;
   };
   recording: FinalRecordingSummary;
+};
+
+/** One person's evaluation, as the card shows it. */
+export type FinalEvaluationView = {
+  memberId: string;
+  name: string;
+  isYou: boolean;
+  rating: number;
+  recommendation: FinalRecommendation;
+  basis: FinalEvaluationBasis;
+  notes: string | null;
+  submittedAt: string;
+  updatedAt: string;
+  /** updated_at is later than submitted_at. */
+  edited: boolean;
+};
+
+/**
+ * What one interview's evaluations look like to the viewer. Blind until they
+ * submit: before that, `evaluations` is empty and only the count is known.
+ */
+export type FinalEvaluationsView = {
+  canEvaluate: boolean;
+  submittedCount: number;
+  own: FinalEvaluationView | null;
+  /** Everyone's, the viewer's included, newest submission first. Empty until `own` exists. */
+  evaluations: FinalEvaluationView[];
+};
+
+export type SubmitFinalEvaluationInput = {
+  finalInterviewId: string;
+  rating: number;
+  recommendation: string;
+  basis: string;
+  notes?: string | null;
+};
+
+export type SetFinalOutcomeInput = {
+  finalInterviewId: string;
+  status: FinalOutcomeStatus;
 };

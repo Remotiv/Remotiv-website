@@ -5,11 +5,15 @@ import {
   Check,
   CircleDot,
   CircleX,
+  ClipboardList,
   Clock,
+  PenLine,
   Play,
   Plus,
   Send,
   TriangleAlert,
+  Undo2,
+  UserX,
   Video,
   X,
 } from "lucide-react";
@@ -21,6 +25,15 @@ import {
   CUSTOM_LABEL_MAX,
   DEFAULT_FINAL_DURATION,
   FINAL_DURATIONS,
+  FINAL_EVALUATION_BASES,
+  FINAL_EVALUATION_BASIS_LABELS,
+  FINAL_EVALUATION_NOTES_MAX,
+  FINAL_RATINGS,
+  FINAL_RECOMMENDATION_LABELS,
+  FINAL_RECOMMENDATIONS,
+  type FinalEvaluationBasis,
+  type FinalOutcomeStatus,
+  type FinalRecommendation,
   INTERVIEW_TYPE_LABELS,
   INTERVIEW_TYPES,
   type InterviewType,
@@ -30,6 +43,8 @@ import {
 } from "@/lib/final-interviews/constants";
 import type {
   EligibleMember,
+  FinalEvaluationsView,
+  FinalEvaluationView,
   FinalInterviewOptions,
   FinalInterviewView,
 } from "@/lib/final-interviews/types";
@@ -37,9 +52,12 @@ import {
   cancelFinalInterview,
   getFinalInterviewOptions,
   getFinalRecordingPlayback,
+  listFinalEvaluations,
   listFinalInterviews,
   resendFinalInterviewLink,
   scheduleFinalInterview,
+  setFinalInterviewOutcome,
+  submitFinalEvaluation,
 } from "./final-interview-actions";
 
 /**
@@ -75,6 +93,14 @@ import {
  * watch, hiring managers included. There is no download button;
  * controlsList="nodownload" hides the browser's own, which does not stop a
  * determined viewer saving the file.
+ *
+ * ── Evaluations and the outcome ──────────────────────────────
+ *
+ * Once a row's booked call has started, its Evaluations panel can be opened;
+ * that row's evaluations load then, and only for the one open row. Blind
+ * until you submit: before that the panel shows a count. Mark completed /
+ * Mark no-show (and Undo) are drawn from the row's canSetOutcome, which the
+ * server works out from the same rule it enforces.
  */
 
 /* ──────────────────── the drawer's chrome ──────────────────── */
@@ -208,6 +234,24 @@ function RecordingStatus({ line }: { line: RecordingStatusLine }) {
   );
 }
 
+/** How a listed evaluation says where its author saw the interview. */
+const BASIS_SEEN: Record<FinalEvaluationBasis, string> = {
+  attended: "Attended",
+  watched_recording: "Watched the recording",
+};
+
+const OUTCOME_TOAST: Record<FinalOutcomeStatus, string> = {
+  completed: "Marked completed.",
+  no_show: "Marked no-show.",
+  active: "Outcome undone.",
+};
+
+const OUTCOME_LABEL: Record<FinalOutcomeStatus, string> = {
+  completed: "completed",
+  no_show: "no-show",
+  active: "active",
+};
+
 type Player = {
   rowId: string;
   recordingId: string;
@@ -246,6 +290,13 @@ export function FinalInterviewCard({
   const videoRef = useRef<HTMLVideoElement>(null);
   /** The row to hand focus back to when the player closes. */
   const returnFocusTo = useRef<string | null>(null);
+  /** The row whose Evaluations panel is open, at most one. Its evaluations load only then. */
+  const [evalRowId, setEvalRowId] = useState<string | null>(null);
+  const [evals, setEvals] = useState<FinalEvaluationsView | null>(null);
+  const [evalsError, setEvalsError] = useState<string | null>(null);
+  /** The latest row asked for, so a slow answer for another row is dropped. */
+  const evalRequest = useRef<string | null>(null);
+  const [evalDialogRow, setEvalDialogRow] = useState<FinalInterviewView | null>(null);
 
   // Detected in an effect, never during render: the server has no zone.
   useEffect(() => {
@@ -274,8 +325,43 @@ export function FinalInterviewCard({
     setConfirmingId(null);
     setPlayer(null);
     setPlayerError(null);
+    setEvalRowId(null);
+    setEvals(null);
+    setEvalDialogRow(null);
+    evalRequest.current = null;
     void load();
   }, [load]);
+
+  /** One row's evaluations, from the server. Keeps what is shown until the answer arrives. */
+  const loadEvaluations = useCallback(async (rowId: string) => {
+    evalRequest.current = rowId;
+    setEvalsError(null);
+    try {
+      const result = await listFinalEvaluations(rowId);
+      if (evalRequest.current !== rowId) return;
+      if (!result.success) {
+        setEvalsError(result.error);
+        return;
+      }
+      setEvals(result.data);
+    } catch (err) {
+      console.error("[applicants] listFinalEvaluations threw:", err);
+      if (evalRequest.current === rowId) {
+        setEvalsError("Couldn't load the evaluations. Try again.");
+      }
+    }
+  }, []);
+
+  function toggleEvaluations(rowId: string) {
+    if (evalRowId === rowId) {
+      setEvalRowId(null);
+      evalRequest.current = null;
+      return;
+    }
+    setEvalRowId(rowId);
+    setEvals(null);
+    void loadEvaluations(rowId);
+  }
 
   // Focus follows the player: into it when it opens, back to its Watch button
   // when it closes.
@@ -370,6 +456,21 @@ export function FinalInterviewCard({
     await load();
   }
 
+  async function setOutcome(id: string, status: FinalOutcomeStatus) {
+    if (busyId !== null) return;
+    setBusyId(id);
+    try {
+      const result = await setFinalInterviewOutcome({ finalInterviewId: id, status });
+      onToast(result.success ? OUTCOME_TOAST[status] : result.error);
+    } catch (err) {
+      console.error("[applicants] setFinalInterviewOutcome threw:", err);
+      onToast("Couldn't save that - please try again.");
+    } finally {
+      setBusyId(null);
+    }
+    await load();
+  }
+
   const scheduleButton = canManage ? (
     <button
       type="button"
@@ -421,6 +522,8 @@ export function FinalInterviewCard({
                 const recordingId =
                   row.recording.state === "ready" ? row.recording.recordingId : null;
                 const playing = player?.rowId === row.id;
+                const evalOpen = evalRowId === row.id;
+                const marked = row.status === "completed" || row.status === "no_show";
                 return (
                   <li key={row.id} className="py-3.5 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -497,8 +600,64 @@ export function FinalInterviewCard({
                             Cancel
                           </button>
                         )}
+                        {row.canSetOutcome && row.status === "active" && !confirming && (
+                          <>
+                            <button
+                              type="button"
+                              disabled={busyId !== null}
+                              onClick={() => void setOutcome(row.id, "completed")}
+                              className={BTN_QUIET}
+                            >
+                              <Check className="size-[14px]" strokeWidth={2} />
+                              Mark completed
+                            </button>
+                            <button
+                              type="button"
+                              disabled={busyId !== null}
+                              onClick={() => void setOutcome(row.id, "no_show")}
+                              className={BTN_QUIET}
+                            >
+                              <UserX className="size-[14px]" strokeWidth={2} />
+                              Mark no-show
+                            </button>
+                          </>
+                        )}
+                        {row.canSetOutcome && marked && (
+                          <button
+                            type="button"
+                            disabled={busyId !== null}
+                            onClick={() => void setOutcome(row.id, "active")}
+                            aria-label={`Undo ${OUTCOME_LABEL[row.status as FinalOutcomeStatus]}`}
+                            className={BTN_QUIET}
+                          >
+                            <Undo2 className="size-[14px]" strokeWidth={2} />
+                            Undo
+                          </button>
+                        )}
+                        {row.started && (
+                          <button
+                            type="button"
+                            aria-expanded={evalOpen}
+                            aria-controls={`evaluations-${row.id}`}
+                            onClick={() => toggleEvaluations(row.id)}
+                            className={BTN_QUIET}
+                          >
+                            <ClipboardList className="size-[14px]" strokeWidth={2} />
+                            Evaluations
+                          </button>
+                        )}
                       </div>
                     </div>
+
+                    {evalOpen && (
+                      <EvaluationsPanel
+                        id={`evaluations-${row.id}`}
+                        view={evals}
+                        error={evalsError}
+                        zone={zone}
+                        onEvaluate={() => setEvalDialogRow(row)}
+                      />
+                    )}
 
                     {playing && player && (
                       <div className="mt-3 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] p-2.5">
@@ -573,6 +732,20 @@ export function FinalInterviewCard({
         </p>
       )}
 
+      {evalDialogRow && (
+        <EvaluationDialog
+          row={evalDialogRow}
+          own={evals?.own ?? null}
+          onClose={() => setEvalDialogRow(null)}
+          onSaved={(created) => {
+            const rowId = evalDialogRow.id;
+            setEvalDialogRow(null);
+            onToast(created ? "Evaluation submitted." : "Evaluation updated.");
+            void loadEvaluations(rowId);
+          }}
+        />
+      )}
+
       {canManage && formOpen && (
         <ScheduleDialog
           applicationId={applicationId}
@@ -585,6 +758,107 @@ export function FinalInterviewCard({
         />
       )}
     </section>
+  );
+}
+
+/* ───────────────────── one row's evaluations ────────────────── */
+
+/**
+ * Blind until you submit: the server sends only a count until your own
+ * evaluation exists, and this shows exactly what it was sent.
+ */
+function EvaluationsPanel({
+  id,
+  view,
+  error,
+  zone,
+  onEvaluate,
+}: {
+  id: string;
+  view: FinalEvaluationsView | null;
+  error: string | null;
+  zone: string;
+  onEvaluate: () => void;
+}) {
+  let summary = "";
+  if (view) {
+    summary = `${view.submittedCount} submitted`;
+    if (!view.own) {
+      summary += view.canEvaluate ? ". Submit yours to see the others." : ".";
+    }
+  }
+  return (
+    <section
+      id={id}
+      aria-label="Evaluations"
+      className="mt-3 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3"
+    >
+      {error && (
+        <p role="alert" className="m-0 text-[12.5px] font-semibold text-[var(--ai-danger)]">
+          {error}
+        </p>
+      )}
+      {!error && view === null && (
+        <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-surface)]" />
+      )}
+      {!error && view && (
+        <>
+          <div className="flex flex-wrap items-center justify-between gap-2">
+            <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-t1)]">{summary}</p>
+            {view.canEvaluate && (
+              <button type="button" onClick={onEvaluate} className={BTN_QUIET}>
+                <PenLine className="size-[14px]" strokeWidth={2} />
+                {view.own ? "Edit your evaluation" : "Add your evaluation"}
+              </button>
+            )}
+          </div>
+          {view.own && view.evaluations.length > 0 && (
+            <ul className="m-0 mt-2 flex list-none flex-col divide-y divide-[var(--ai-line-soft)] p-0">
+              {view.evaluations.map((e) => (
+                <EvaluationItem key={e.memberId} evaluation={e} zone={zone} />
+              ))}
+            </ul>
+          )}
+        </>
+      )}
+    </section>
+  );
+}
+
+function EvaluationItem({
+  evaluation: e,
+  zone,
+}: {
+  evaluation: FinalEvaluationView;
+  zone: string;
+}) {
+  return (
+    <li className="py-2.5 last:pb-0">
+      <div className="flex flex-wrap items-center gap-x-2.5 gap-y-1">
+        <b className="text-[13px] font-bold text-[var(--ai-t1)]">
+          {e.name}
+          {e.isYou && <span className="font-semibold text-[var(--ai-t3)]"> (you)</span>}
+        </b>
+        <span className="text-[12px] font-bold text-[var(--ai-t2)]">
+          <span className="sr-only">Rating </span>
+          {e.rating}/5
+        </span>
+        <span className="rounded-full bg-[var(--ai-purple-tint)] px-2 py-0.5 text-[11px] font-bold text-[var(--ai-purple-ink)]">
+          {FINAL_RECOMMENDATION_LABELS[e.recommendation]}
+        </span>
+        <span className="text-[12px] text-[var(--ai-t3)]">{BASIS_SEEN[e.basis]}</span>
+      </div>
+      {e.notes && (
+        <p className="m-0 mt-1 whitespace-pre-wrap break-words text-[12.5px] leading-[1.6] text-[var(--ai-t2)]">
+          {e.notes}
+        </p>
+      )}
+      {e.edited && (
+        <p className="m-0 mt-1 text-[11.5px] text-[var(--ai-t4)]">
+          Edited {formatInZone(Date.parse(e.updatedAt), zone)}
+        </p>
+      )}
+    </li>
   );
 }
 
@@ -884,6 +1158,219 @@ function ScheduleDialog({
             <button type="submit" disabled={!canSubmit} className={BTN_PRIMARY}>
               <CalendarClock className="size-[15px]" strokeWidth={1.9} />
               {submitting ? "Sending…" : "Send booking link"}
+            </button>
+          </div>
+        </form>
+      </div>
+    </div>
+  );
+}
+
+/* ──────────────────────── the evaluation form ───────────────────── */
+
+const CHOICE =
+  "inline-flex cursor-pointer items-center gap-2 rounded-xl border px-3 py-2 text-[13px] font-semibold";
+const CHOICE_ON = "border-remotiv-purple bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]";
+const CHOICE_OFF = "border-[var(--ai-line-strong)] text-[var(--ai-t2)]";
+
+/**
+ * Add or edit your own evaluation. Nothing is chosen for you, the basis
+ * included. The server re-checks every field and its message is shown as is.
+ */
+function EvaluationDialog({
+  row,
+  own,
+  onClose,
+  onSaved,
+}: {
+  row: FinalInterviewView;
+  own: FinalEvaluationView | null;
+  onClose: () => void;
+  onSaved: (created: boolean) => void;
+}) {
+  const overlayRef = useRef<HTMLDivElement>(null);
+  const dialogRef = useRef<HTMLDivElement>(null);
+  useModalFocus(dialogRef, true, { onClose, overlayRef, initialFocus: "first" });
+  const id = useId();
+
+  const [rating, setRating] = useState<number | null>(own?.rating ?? null);
+  const [recommendation, setRecommendation] = useState<FinalRecommendation | null>(
+    own?.recommendation ?? null,
+  );
+  const [basis, setBasis] = useState<FinalEvaluationBasis | null>(own?.basis ?? null);
+  const [notes, setNotes] = useState(own?.notes ?? "");
+  const [submitting, setSubmitting] = useState(false);
+  const [error, setError] = useState<string | null>(null);
+
+  const canSubmit =
+    !submitting &&
+    rating !== null &&
+    recommendation !== null &&
+    basis !== null &&
+    notes.trim().length <= FINAL_EVALUATION_NOTES_MAX;
+
+  async function submit() {
+    if (!canSubmit || submitting || rating === null || !recommendation || !basis) return;
+    setSubmitting(true);
+    setError(null);
+    try {
+      const result = await submitFinalEvaluation({
+        finalInterviewId: row.id,
+        rating,
+        recommendation,
+        basis,
+        notes,
+      });
+      if (!result.success) {
+        setError(result.error);
+        return;
+      }
+      onSaved(result.data.created);
+    } catch (err) {
+      console.error("[applicants] submitFinalEvaluation threw:", err);
+      setError("Couldn't save your evaluation - please try again.");
+    } finally {
+      setSubmitting(false);
+    }
+  }
+
+  return (
+    <div
+      ref={overlayRef}
+      className="fixed inset-0 z-[120] flex items-center justify-center bg-[rgba(20,16,32,0.5)] p-4 backdrop-blur-[5px] sm:p-6"
+    >
+      <button
+        type="button"
+        aria-label="Close"
+        onClick={onClose}
+        className="absolute inset-0 cursor-default"
+      />
+      <div
+        ref={dialogRef}
+        role="dialog"
+        aria-modal="true"
+        aria-labelledby={`${id}-title`}
+        className="relative max-h-[90vh] w-full max-w-[520px] overflow-y-auto rounded-3xl bg-white shadow-[0_44px_110px_rgba(0,0,0,0.4)] outline-none"
+      >
+        <div className="bg-[var(--ai-sidebar)] px-5 pb-[22px] pt-6 sm:px-7">
+          <h2
+            id={`${id}-title`}
+            className="m-0 font-heading text-[21px] font-extrabold tracking-[-0.028em] text-white"
+          >
+            {own ? "Edit your evaluation" : "Add your evaluation"}
+          </h2>
+          <p className="m-0 mt-1.5 text-[13px] leading-relaxed text-white/55">
+            {row.label}. You see the others&apos; evaluations once yours is in.
+          </p>
+        </div>
+
+        <form
+          className="px-5 py-6 sm:px-7"
+          onSubmit={(e) => {
+            e.preventDefault();
+            void submit();
+          }}
+        >
+          <div className="flex flex-col gap-4">
+            <fieldset className="m-0 min-w-0 border-0 p-0" aria-describedby={`${id}-rating-hint`}>
+              <legend className={LABEL}>Rating</legend>
+              <div className="flex flex-wrap gap-2">
+                {FINAL_RATINGS.map((r) => (
+                  <label key={r} className={`${CHOICE} ${rating === r ? CHOICE_ON : CHOICE_OFF}`}>
+                    <input
+                      type="radio"
+                      name={`${id}-rating`}
+                      value={r}
+                      checked={rating === r}
+                      onChange={() => setRating(r)}
+                      className="size-3.5 accent-remotiv-purple"
+                    />
+                    {r}
+                  </label>
+                ))}
+              </div>
+              <p id={`${id}-rating-hint`} className="m-0 mt-1 text-[11.5px] text-[var(--ai-t3)]">
+                1 is the lowest, 5 the highest.
+              </p>
+            </fieldset>
+
+            <fieldset className="m-0 min-w-0 border-0 p-0">
+              <legend className={LABEL}>Recommendation</legend>
+              <div className="flex flex-wrap gap-2">
+                {FINAL_RECOMMENDATIONS.map((r) => (
+                  <label
+                    key={r}
+                    className={`${CHOICE} ${recommendation === r ? CHOICE_ON : CHOICE_OFF}`}
+                  >
+                    <input
+                      type="radio"
+                      name={`${id}-recommendation`}
+                      value={r}
+                      checked={recommendation === r}
+                      onChange={() => setRecommendation(r)}
+                      className="size-3.5 accent-remotiv-purple"
+                    />
+                    {FINAL_RECOMMENDATION_LABELS[r]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <fieldset className="m-0 min-w-0 border-0 p-0">
+              <legend className={LABEL}>How you saw the interview</legend>
+              <div className="flex flex-wrap gap-2">
+                {FINAL_EVALUATION_BASES.map((b) => (
+                  <label key={b} className={`${CHOICE} ${basis === b ? CHOICE_ON : CHOICE_OFF}`}>
+                    <input
+                      type="radio"
+                      name={`${id}-basis`}
+                      value={b}
+                      checked={basis === b}
+                      onChange={() => setBasis(b)}
+                      className="size-3.5 accent-remotiv-purple"
+                    />
+                    {FINAL_EVALUATION_BASIS_LABELS[b]}
+                  </label>
+                ))}
+              </div>
+            </fieldset>
+
+            <div>
+              <label htmlFor={`${id}-notes`} className={LABEL}>
+                Notes (optional)
+              </label>
+              <textarea
+                id={`${id}-notes`}
+                value={notes}
+                maxLength={FINAL_EVALUATION_NOTES_MAX}
+                rows={5}
+                onChange={(e) => setNotes(e.target.value)}
+                aria-describedby={`${id}-notes-count`}
+                className={`${FIELD} resize-y`}
+              />
+              <p
+                id={`${id}-notes-count`}
+                className="m-0 mt-1 text-right text-[11.5px] text-[var(--ai-t3)]"
+              >
+                {notes.length.toLocaleString("en-US")} /{" "}
+                {FINAL_EVALUATION_NOTES_MAX.toLocaleString("en-US")}
+              </p>
+            </div>
+
+            {error && (
+              <p role="alert" className="m-0 text-[12.5px] font-semibold text-[var(--ai-danger)]">
+                {error}
+              </p>
+            )}
+          </div>
+
+          <div className="mt-6 flex justify-end gap-2.5">
+            <button type="button" onClick={onClose} disabled={submitting} className={BTN_QUIET}>
+              Cancel
+            </button>
+            <button type="submit" disabled={!canSubmit} className={BTN_PRIMARY}>
+              <Check className="size-[15px]" strokeWidth={2} />
+              {submitting ? "Saving…" : "Submit"}
             </button>
           </div>
         </form>

@@ -462,7 +462,7 @@ const ALLOWLIST = [
 const UNREADABLE_SELECTS = [
   {
     ref:
-      `${DASH}/applicants/final-interview-actions.ts:154 latestBooking(): ` +
+      `${DASH}/applicants/final-interview-actions.ts:174 latestBooking(): ` +
       ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
     why:
       "Imported from lib/calendar/bookings.ts, where `export const BOOKING_ROW_COLUMNS = ROW_COLUMNS` " +
@@ -473,7 +473,7 @@ const UNREADABLE_SELECTS = [
   },
   {
     ref:
-      `${DASH}/applicants/final-interview-actions.ts:238 listFinalInterviews(): ` +
+      `${DASH}/applicants/final-interview-actions.ts:324 listFinalInterviews(): ` +
       ".select(BOOKING_ROW_COLUMNS) — BOOKING_ROW_COLUMNS is not a same-file string const",
     why:
       "The same imported constant as the entry above, read at a second call site in the same file: " +

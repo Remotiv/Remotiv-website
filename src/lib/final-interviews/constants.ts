@@ -476,6 +476,111 @@ export function recordingStatusLine(
   }
 }
 
+/* ── evaluations and the outcome (migration 038) ──────────────── */
+
+export const FINAL_RATINGS = [1, 2, 3, 4, 5] as const;
+
+export const FINAL_RECOMMENDATIONS = ["strong_yes", "yes", "maybe", "no", "strong_no"] as const;
+export type FinalRecommendation = (typeof FINAL_RECOMMENDATIONS)[number];
+export const FINAL_RECOMMENDATION_LABELS: Record<FinalRecommendation, string> = {
+  strong_yes: "Strong yes",
+  yes: "Yes",
+  maybe: "Maybe",
+  no: "No",
+  strong_no: "Strong no",
+};
+
+/** Chosen by the evaluator, never set for them. */
+export const FINAL_EVALUATION_BASES = ["attended", "watched_recording"] as const;
+export type FinalEvaluationBasis = (typeof FINAL_EVALUATION_BASES)[number];
+export const FINAL_EVALUATION_BASIS_LABELS: Record<FinalEvaluationBasis, string> = {
+  attended: "I attended",
+  watched_recording: "I watched the recording",
+};
+
+/**
+ * 038's CHECK counts characters; this counts UTF-16 units, which is never
+ * fewer, so anything this accepts the database accepts too.
+ */
+export const FINAL_EVALUATION_NOTES_MAX = 10_000;
+
+/** The statuses the outcome control may set. cancelled is never one of them. */
+export const FINAL_OUTCOME_STATUSES = ["completed", "no_show", "active"] as const;
+export type FinalOutcomeStatus = (typeof FINAL_OUTCOME_STATUSES)[number];
+
+/**
+ * Has the interview's booked call started? Only the scheduled start of a
+ * BOOKED booking counts: a link that was never booked, or a booking that was
+ * cancelled (which is only possible before it starts), has no start.
+ */
+export function finalInterviewStarted(scheduledStart: string | null, nowMs: number): boolean {
+  if (!scheduledStart) return false;
+  const start = Date.parse(scheduledStart);
+  return Number.isFinite(start) && start <= nowMs;
+}
+
+/** A NEW evaluation: once the call has started, and never for a cancelled or no-show interview. */
+export function canEvaluateFinal(status: string, started: boolean): boolean {
+  return started && (status === "active" || status === "completed");
+}
+
+/**
+ * The outcome moves: active to completed or no_show, and either back to
+ * active. Nothing moves from or to cancelled.
+ */
+export function isFinalOutcomeMove(from: string, to: string): boolean {
+  if (to === "completed" || to === "no_show") return from === "active";
+  if (to === "active") return from === "completed" || from === "no_show";
+  return false;
+}
+
+/** Edited when the last save is later than the first submission. */
+export function isEvaluationEdited(submittedAt: string, updatedAt: string): boolean {
+  return Date.parse(updatedAt) > Date.parse(submittedAt);
+}
+
+export type FinalEvaluationFields = {
+  rating: number;
+  recommendation: FinalRecommendation;
+  basis: FinalEvaluationBasis;
+  notes: string | null;
+};
+
+/** One evaluation's fields, checked as the server will store them. Fixed sentences only. */
+export function validateFinalEvaluation(input: {
+  rating?: unknown;
+  recommendation?: unknown;
+  basis?: unknown;
+  notes?: unknown;
+}): { ok: true; value: FinalEvaluationFields } | { ok: false; error: string } {
+  const { rating, recommendation, basis, notes } = input;
+  if (typeof rating !== "number" || !Number.isInteger(rating) || rating < 1 || rating > 5) {
+    return { ok: false, error: "Choose a rating from 1 to 5." };
+  }
+  if (!(FINAL_RECOMMENDATIONS as readonly unknown[]).includes(recommendation)) {
+    return { ok: false, error: "Choose a recommendation." };
+  }
+  if (!(FINAL_EVALUATION_BASES as readonly unknown[]).includes(basis)) {
+    return { ok: false, error: "Say whether you attended or watched the recording." };
+  }
+  if (notes !== undefined && notes !== null && typeof notes !== "string") {
+    return { ok: false, error: "Notes must be text." };
+  }
+  const trimmed = (notes ?? "").trim();
+  if (trimmed.length > FINAL_EVALUATION_NOTES_MAX) {
+    return { ok: false, error: "Notes can be up to 10,000 characters." };
+  }
+  return {
+    ok: true,
+    value: {
+      rating,
+      recommendation: recommendation as FinalRecommendation,
+      basis: basis as FinalEvaluationBasis,
+      notes: trimmed || null,
+    },
+  };
+}
+
 /* ── fixed copy ─────────────────────────────────────────────────── */
 
 export const HOST_NEEDS_CALENDAR =
@@ -486,3 +591,8 @@ export const ACKNOWLEDGE_RECORDING =
 
 export const NOT_A_BOOKING_ROLE =
   "Only an owner, admin or recruiter can send or cancel interview booking links.";
+
+export const NOT_AN_OUTCOME_ROLE =
+  "Only an owner, admin, recruiter or the interview's host can mark how it went.";
+
+export const NOT_STARTED_YET = "This interview hasn't started yet.";

@@ -19,23 +19,33 @@ import { sendCancellationNotices, sendFinalInterviewLinkEmail } from "@/lib/cale
 import { onFinalBookingCancelled } from "@/lib/final-interviews/bots";
 import {
   CUSTOM_LABEL_MAX,
+  canEvaluateFinal,
   DEFAULT_FINAL_DURATION,
   deriveRecordingSummary,
   FINAL_DURATIONS,
+  FINAL_OUTCOME_STATUSES,
   FINAL_RECORDING_BUCKET,
   FINAL_RECORDING_PLAYBACK_TTL_SECONDS,
+  type FinalEvaluationBasis,
+  type FinalRecommendation,
+  finalInterviewStarted,
   HOST_NEEDS_CALENDAR,
   INTERVIEW_TYPE_LABELS,
   INTERVIEW_TYPES,
   type InterviewType,
   interviewTypeLabel,
+  isEvaluationEdited,
   isFinalDuration,
+  isFinalOutcomeMove,
   isInterviewType,
   MAX_EXTRA_INTERVIEWERS,
   NOT_A_BOOKING_ROLE,
+  NOT_AN_OUTCOME_ROLE,
+  NOT_STARTED_YET,
   RECORDING_UNAVAILABLE,
   type RecordingBotFacts,
   type RecordingRowFacts,
+  validateFinalEvaluation,
 } from "@/lib/final-interviews/constants";
 import {
   isEligibleHost,
@@ -43,10 +53,14 @@ import {
   pickInterviewers,
 } from "@/lib/final-interviews/eligibility";
 import type {
+  FinalEvaluationsView,
+  FinalEvaluationView,
   FinalInterviewBookingState,
   FinalInterviewOptions,
   FinalInterviewView,
   ScheduleFinalInterviewInput,
+  SetFinalOutcomeInput,
+  SubmitFinalEvaluationInput,
 } from "@/lib/final-interviews/types";
 import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -63,6 +77,11 @@ import { createServiceClient } from "@/lib/supabase/server";
  * same token, expiry, availability, claim and calendar event, on the chosen
  * HOST's calendar rather than the sender's. Nothing here moves a pipeline
  * stage, and nothing ever will from this file.
+ *
+ * Evaluations and the outcome (completed / no-show) open once the booked
+ * call's scheduled start has passed. Anyone who can access the job may
+ * evaluate, once, and edit only their own; the outcome is for a booking role
+ * or the interview's host. Neither emails anyone or touches the candidate.
  */
 
 type MutationResult<T = undefined> = { success: true; data: T } | { success: false; error: string };
@@ -94,10 +113,11 @@ type FinalInterviewRow = {
   created_by_name: string | null;
   created_at: string;
   cancelled_at: string | null;
+  completed_at: string | null;
 };
 
 const FI_COLUMNS =
-  "id, company_id, job_id, application_id, interview_type, custom_label, host_member_id, status, created_by_name, created_at, cancelled_at";
+  "id, company_id, job_id, application_id, interview_type, custom_label, host_member_id, status, created_by_name, created_at, cancelled_at, completed_at";
 
 /** The bot columns the card's recording status is derived from (recording step 5). */
 const RECORDING_BOT_COLUMNS =
@@ -162,6 +182,72 @@ async function latestBooking(
     .maybeSingle();
   return (data as BookingRow | null) ?? null;
 }
+
+/**
+ * The scheduled start of the interview's BOOKED booking, or null. At most one
+ * booking per interview is live (038's partial unique index), and a booked one
+ * can only be cancelled before it starts, so this is the call that happened.
+ */
+async function bookedStart(
+  service: Service,
+  companyId: string,
+  finalInterviewId: string,
+): Promise<string | null> {
+  const { data, error } = await service
+    .from("interview_bookings")
+    .select("scheduled_start")
+    .eq("company_id", companyId)
+    .eq("purpose", "final")
+    .eq("final_interview_id", finalInterviewId)
+    .eq("status", "booked")
+    .order("created_at", { ascending: false })
+    .limit(1)
+    .maybeSingle();
+  // A failed read is "not started": fail closed.
+  if (error) return null;
+  return (data as { scheduled_start: string | null } | null)?.scheduled_start ?? null;
+}
+
+/** A booking role, or this interview's host. Hiring managers who are not the host may not. */
+function mayMarkOutcome(ctx: CompanyContext, fi: FinalInterviewRow): boolean {
+  return canManageBookings(ctx.role) || fi.host_member_id === ctx.memberId;
+}
+
+/**
+ * Display names for members of this company. company_members.name and .email
+ * are null for every owner; the company's contact name is the owner's.
+ */
+async function memberNames(
+  ctx: CompanyContext,
+  service: Service,
+  memberIds: string[],
+): Promise<Map<string, string>> {
+  const names = new Map<string, string>();
+  if (memberIds.length === 0) return names;
+  const { data } = await service
+    .from("company_members")
+    .select("id, name, email, role")
+    .eq("company_id", ctx.companyId)
+    .in("id", memberIds);
+  for (const m of (data ?? []) as {
+    id: string;
+    name: string | null;
+    email: string | null;
+    role: string;
+  }[]) {
+    names.set(
+      m.id,
+      m.name?.trim() ||
+        m.email?.trim() ||
+        (m.role === "owner" ? ctx.company.contact_name?.trim() : "") ||
+        "Team member",
+    );
+  }
+  return names;
+}
+
+const isId = (value: unknown): value is string =>
+  typeof value === "string" && value.length > 0 && value.length <= 100;
 
 function bookingState(row: BookingRow | null): FinalInterviewBookingState {
   if (!row) return "not_sent";
@@ -300,40 +386,27 @@ export async function listFinalInterviews(
     ]);
   }
 
-  const memberIds = [
+  // The booked booking's start, per interview. A failed bookings read leaves
+  // every interview "not started", so nothing opens on a guess.
+  const bookedStarts = new Map<string, string | null>();
+  for (const b of (bookings ?? []) as BookingRow[]) {
+    if (b.status === "booked" && b.final_interview_id && !bookedStarts.has(b.final_interview_id))
+      bookedStarts.set(b.final_interview_id, b.scheduled_start ?? null);
+  }
+
+  const names = await memberNames(ctx, service, [
     ...new Set([
       ...interviews.map((fi) => fi.host_member_id),
       ...[...extraByInterview.values()].flat(),
     ]),
-  ];
-  const { data: memberRows } = await service
-    .from("company_members")
-    .select("id, name, email, role")
-    .eq("company_id", ctx.companyId)
-    .in("id", memberIds);
-  const names = new Map<string, string>();
-  for (const m of (memberRows ?? []) as {
-    id: string;
-    name: string | null;
-    email: string | null;
-    role: string;
-  }[]) {
-    // company_members.name and .email are null for every owner; the company's
-    // contact name is the owner's.
-    names.set(
-      m.id,
-      m.name?.trim() ||
-        m.email?.trim() ||
-        (m.role === "owner" ? ctx.company.contact_name?.trim() : "") ||
-        "Team member",
-    );
-  }
+  ]);
   const named = (memberId: string) => ({ memberId, name: names.get(memberId) ?? "Team member" });
 
   return {
     success: true,
     data: interviews.map((fi) => {
       const booking = latest.get(fi.id) ?? null;
+      const started = finalInterviewStarted(bookedStarts.get(fi.id) ?? null, nowMs);
       return {
         id: fi.id,
         interviewType: fi.interview_type as InterviewType,
@@ -344,6 +417,10 @@ export async function listFinalInterviews(
         createdByName: fi.created_by_name,
         createdAt: fi.created_at,
         cancelledAt: fi.cancelled_at,
+        completedAt: fi.completed_at,
+        started,
+        canEvaluate: canEvaluateFinal(fi.status, started),
+        canSetOutcome: started && fi.status !== "cancelled" && mayMarkOutcome(ctx, fi),
         booking: {
           state: bookingState(booking),
           durationMinutes: booking?.duration_minutes ?? DEFAULT_FINAL_DURATION,
@@ -798,4 +875,252 @@ export async function cancelFinalInterview(
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: { removedFromCalendar } };
+}
+
+/* ── evaluations ────────────────────────────────────────────────── */
+
+const EVALUATION_COLUMNS =
+  "id, member_id, rating, recommendation, basis, notes, submitted_at, updated_at";
+
+type EvaluationRow = {
+  id: string;
+  member_id: string;
+  rating: number;
+  recommendation: FinalRecommendation;
+  basis: FinalEvaluationBasis;
+  notes: string | null;
+  submitted_at: string;
+  updated_at: string;
+};
+
+const EVALUATIONS_UNREADABLE = "Couldn't load the evaluations. Try again.";
+/** Editing an EXISTING evaluation: also after a no-show, never after a cancellation. */
+function canEditFinalEvaluation(status: string, started: boolean): boolean {
+  return canEvaluateFinal(status, started) || (started && status === "no_show");
+}
+
+const EVALUATIONS_CANCELLED = "Evaluations are closed for a cancelled interview.";
+const NEW_EVALUATIONS_CLOSED =
+  "This interview was marked no-show, so new evaluations are closed. Existing ones can still be edited.";
+
+/**
+ * One interview's evaluations, blind until the viewer has submitted their own.
+ *
+ * Before that, the viewer's row is looked for and, when there is none, only
+ * the ids are read to count them: nobody else's rating, recommendation or
+ * notes is read at all. Once their own exists, every evaluation is returned.
+ */
+export async function listFinalEvaluations(
+  finalInterviewId: string,
+): Promise<MutationResult<FinalEvaluationsView>> {
+  if (!isId(finalInterviewId)) return { success: false, error: NOT_FOUND };
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+  const gate = await gateFinalInterview(ctx, service, finalInterviewId);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { fi } = gate;
+
+  const started = finalInterviewStarted(
+    await bookedStart(service, ctx.companyId, fi.id),
+    Date.now(),
+  );
+  // A new evaluation, for the blind view; once the viewer has one, whether they may edit it.
+  const canEvaluate = canEvaluateFinal(fi.status, started);
+
+  const { data: ownData, error: ownErr } = await service
+    .from("final_interview_evaluations")
+    .select(EVALUATION_COLUMNS)
+    .eq("company_id", ctx.companyId)
+    .eq("final_interview_id", fi.id)
+    .eq("member_id", ctx.memberId)
+    .maybeSingle();
+  if (ownErr) {
+    console.error(`[final-interview] evaluation read failed (${ownErr.code ?? "db"})`);
+    return { success: false, error: EVALUATIONS_UNREADABLE };
+  }
+
+  if (!ownData) {
+    const { data: ids, error: countErr } = await service
+      .from("final_interview_evaluations")
+      .select("id")
+      .eq("company_id", ctx.companyId)
+      .eq("final_interview_id", fi.id);
+    if (countErr) {
+      console.error(`[final-interview] evaluation count failed (${countErr.code ?? "db"})`);
+      return { success: false, error: EVALUATIONS_UNREADABLE };
+    }
+    return {
+      success: true,
+      data: { canEvaluate, submittedCount: (ids ?? []).length, own: null, evaluations: [] },
+    };
+  }
+
+  const { data: allData, error: allErr } = await service
+    .from("final_interview_evaluations")
+    .select(EVALUATION_COLUMNS)
+    .eq("company_id", ctx.companyId)
+    .eq("final_interview_id", fi.id)
+    .order("submitted_at", { ascending: false });
+  if (allErr) {
+    console.error(`[final-interview] evaluations read failed (${allErr.code ?? "db"})`);
+    return { success: false, error: EVALUATIONS_UNREADABLE };
+  }
+  const rows = (allData ?? []) as EvaluationRow[];
+  const names = await memberNames(ctx, service, [...new Set(rows.map((r) => r.member_id))]);
+  const evaluations: FinalEvaluationView[] = rows.map((r) => ({
+    memberId: r.member_id,
+    name: names.get(r.member_id) ?? "Team member",
+    isYou: r.member_id === ctx.memberId,
+    rating: r.rating,
+    recommendation: r.recommendation,
+    basis: r.basis,
+    notes: r.notes,
+    submittedAt: r.submitted_at,
+    updatedAt: r.updated_at,
+    edited: isEvaluationEdited(r.submitted_at, r.updated_at),
+  }));
+  return {
+    success: true,
+    data: {
+      canEvaluate: canEditFinalEvaluation(fi.status, started),
+      submittedCount: evaluations.length,
+      own: evaluations.find((e) => e.isYou) ?? null,
+      evaluations,
+    },
+  };
+}
+
+/**
+ * Add or edit the viewer's OWN evaluation. Every write names the viewer's
+ * member id, so no one can write anyone else's row. submitted_at is set once,
+ * on the first save; every later save moves only updated_at. After a no-show
+ * an existing evaluation can still be edited, but no new one is added; a
+ * cancelled interview takes neither.
+ */
+export async function submitFinalEvaluation(
+  input: SubmitFinalEvaluationInput,
+): Promise<MutationResult<{ created: boolean }>> {
+  if (!isId(input?.finalInterviewId)) return { success: false, error: NOT_FOUND };
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+  const gate = await gateFinalInterview(ctx, service, input.finalInterviewId);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { fi } = gate;
+
+  if (fi.status === "cancelled") return { success: false, error: EVALUATIONS_CANCELLED };
+  const started = finalInterviewStarted(
+    await bookedStart(service, ctx.companyId, fi.id),
+    Date.now(),
+  );
+  if (!canEditFinalEvaluation(fi.status, started)) {
+    return { success: false, error: NOT_STARTED_YET };
+  }
+
+  const checked = validateFinalEvaluation(input);
+  if (!checked.ok) return { success: false, error: checked.error };
+  const now = new Date().toISOString();
+
+  const updateOwn = () =>
+    service
+      .from("final_interview_evaluations")
+      .update({ ...checked.value, updated_at: now })
+      .eq("company_id", ctx.companyId)
+      .eq("final_interview_id", fi.id)
+      .eq("member_id", ctx.memberId)
+      .select("id");
+
+  const SAVE_FAILED = "Couldn't save your evaluation. Try again.";
+  const updated = await updateOwn();
+  if (updated.error) {
+    console.error(`[final-interview] evaluation update failed (${updated.error.code ?? "db"})`);
+    return { success: false, error: SAVE_FAILED };
+  }
+  if ((updated.data ?? []).length > 0) return { success: true, data: { created: false } };
+  // The update above was the existence check: no row of theirs, so this would be new.
+  if (!canEvaluateFinal(fi.status, started)) {
+    return { success: false, error: NEW_EVALUATIONS_CLOSED };
+  }
+
+  const { error: insertErr } = await service.from("final_interview_evaluations").insert({
+    final_interview_id: fi.id,
+    company_id: ctx.companyId,
+    member_id: ctx.memberId,
+    ...checked.value,
+    submitted_at: now,
+    updated_at: now,
+  });
+  if (!insertErr) return { success: true, data: { created: true } };
+  if (insertErr.code === "23505") {
+    // A second tab submitted first: this save becomes an edit of that row.
+    const retried = await updateOwn();
+    if (!retried.error && (retried.data ?? []).length > 0) {
+      return { success: true, data: { created: false } };
+    }
+  }
+  console.error(`[final-interview] evaluation insert failed (${insertErr.code ?? "db"})`);
+  return { success: false, error: SAVE_FAILED };
+}
+
+/* ── the outcome ────────────────────────────────────────────────── */
+
+/**
+ * Mark an interview completed or no-show, or undo either back to active.
+ * Conditional on the status read a moment ago, so two people pressing at
+ * once cannot stack moves. No stage change, no email, nothing the candidate
+ * sees.
+ */
+export async function setFinalInterviewOutcome(
+  input: SetFinalOutcomeInput,
+): Promise<MutationResult<{ status: SetFinalOutcomeInput["status"] }>> {
+  if (!isId(input?.finalInterviewId)) return { success: false, error: NOT_FOUND };
+  const target = input.status;
+  if (!(FINAL_OUTCOME_STATUSES as readonly unknown[]).includes(target)) {
+    return { success: false, error: "Choose completed, no-show or undo." };
+  }
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+  const gate = await gateFinalInterview(ctx, service, input.finalInterviewId);
+  if (!gate.ok) return { success: false, error: gate.error };
+  const { fi } = gate;
+
+  if (!mayMarkOutcome(ctx, fi)) return { success: false, error: NOT_AN_OUTCOME_ROLE };
+  if (fi.status === "cancelled") {
+    return { success: false, error: "A cancelled interview can't be marked." };
+  }
+  const started = finalInterviewStarted(
+    await bookedStart(service, ctx.companyId, fi.id),
+    Date.now(),
+  );
+  if (!started) return { success: false, error: NOT_STARTED_YET };
+  if (!isFinalOutcomeMove(fi.status, target)) {
+    return {
+      success: false,
+      error: "This interview has already been marked. Refresh to see where it stands.",
+    };
+  }
+
+  const now = new Date().toISOString();
+  const { data, error } = await service
+    .from("final_interviews")
+    .update({
+      status: target,
+      completed_at: target === "completed" ? now : null,
+      updated_at: now,
+    })
+    .eq("id", fi.id)
+    .eq("company_id", ctx.companyId)
+    .eq("status", fi.status)
+    .select("id");
+  if (error) {
+    console.error(`[final-interview] outcome write failed (${error.code ?? "db"})`);
+    return { success: false, error: "Couldn't save that. Try again." };
+  }
+  if ((data ?? []).length === 0) {
+    return {
+      success: false,
+      error: "This interview changed while you were looking. Refresh and try again.",
+    };
+  }
+  revalidatePath("/ai-dashboard/applicants");
+  return { success: true, data: { status: target } };
 }
