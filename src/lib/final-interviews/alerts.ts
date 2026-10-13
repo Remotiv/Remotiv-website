@@ -9,14 +9,19 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { deterministicUuid } from "./bots";
 import {
   interviewTypeLabel,
+  isScheduleTimeFailure,
   RECORDING_ALERT_EMAIL_TIMEOUT_MS,
   RECORDING_BOT_NAME,
+  RECORDING_FAILURE_REASONS,
   RECORDING_IMPORT_SILENT_ERRORS,
   RECORDING_KEEP_MONTHS,
   RECORDING_LOBBY_ALERT_DELAY_MS,
+  RECORDING_SCHEDULE_FAILURE_REASONS,
   type RecordingAlertKind,
-  SCHEDULE_TIME_FAILURE_CODES,
+  type SCHEDULE_TIME_FAILURE_CODES,
 } from "./constants";
+
+export { isScheduleTimeFailure };
 
 /**
  * Host alerts for the recording bot: "admit the recorder" when it has waited
@@ -93,25 +98,11 @@ import {
 
 type AlertKind = RecordingAlertKind;
 
-/** Fixed sentences only: Recall's own text never reaches an email. */
-const FAILURE_REASONS: Readonly<Record<string, string>> = {
-  timeout_exceeded_waiting_room: "It was not admitted from the waiting room in time.",
-  call_ended_by_platform_waiting_room_timeout:
-    "Google Meet closed its waiting room before it was admitted.",
-  bot_kicked_from_waiting_room: "It was removed from the waiting room.",
-  google_meet_bot_blocked: "Google Meet did not let it join the call.",
-  google_meet_knocking_disabled: "The meeting settings did not let it ask to join.",
-};
-
-/** The one reason line per schedule-time cause (step 3b), keyed on last_event_code. */
-const SCHEDULE_TIME_REASONS: Readonly<
-  Record<(typeof SCHEDULE_TIME_FAILURE_CODES)[number], string>
-> = {
-  no_meeting_url: "The calendar event has no Google Meet link.",
-  too_late_to_schedule: "It was booked too close to the start time to schedule the recorder.",
-  create_failed: "The recording service could not schedule the recorder.",
-  vendor_metadata_mismatch: "The recording service could not schedule the recorder.",
-};
+/*
+ * The reason lines (RECORDING_FAILURE_REASONS, RECORDING_SCHEDULE_FAILURE_REASONS)
+ * live in constants.ts, so the Final interviews card gives the same sentence
+ * the email does. Fixed sentences only: Recall's own text never reaches an email.
+ */
 
 type Service = ReturnType<typeof createServiceClient>;
 
@@ -195,10 +186,6 @@ function inSentence(type: string, label: string): string {
     : label;
 }
 
-export function isScheduleTimeFailure(code: string | null | undefined): boolean {
-  return (SCHEDULE_TIME_FAILURE_CODES as readonly string[]).includes(code ?? "");
-}
-
 /**
  * Whether the stored facts PROVE the bot was in the call: a recording id
  * arrived, or it is in the call now. A fatal or finished row's earlier status
@@ -242,7 +229,7 @@ export function scheduleFailureEmail(
   return {
     subject: `Your ${label} is not being recorded`,
     html: [
-      `<p>${escapeHtml(RECORDING_BOT_NAME)} will not be able to join your ${escapeHtml(label)} with ${escapeHtml(firstName)}, so it will not be recorded automatically. ${escapeHtml(SCHEDULE_TIME_REASONS[code])}</p>`,
+      `<p>${escapeHtml(RECORDING_BOT_NAME)} will not be able to join your ${escapeHtml(label)} with ${escapeHtml(firstName)}, so it will not be recorded automatically. ${escapeHtml(RECORDING_SCHEDULE_FAILURE_REASONS[code])}</p>`,
       "<p>The interview itself is not affected.</p>",
     ].join(""),
   };
@@ -409,7 +396,7 @@ function alertEmail(
   return failureEmail(
     label,
     firstName,
-    FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null,
+    RECORDING_FAILURE_REASONS[row.last_event_sub_code ?? ""] ?? null,
     provablyJoined(row),
   );
 }

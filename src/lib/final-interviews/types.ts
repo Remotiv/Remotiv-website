@@ -2,7 +2,7 @@ import type { CompanyRole } from "@/app/ai-dashboard/lib/company-roles";
 import type { FinalDuration, InterviewType } from "./constants";
 
 /**
- * Shapes shared by the server actions and, in step 3b, the drawer card. Kept
+ * Shapes shared by the server actions and the drawer card. Kept
  * out of the "use server" module, which may only export async functions.
  */
 
@@ -47,6 +47,56 @@ export type FinalInterviewBookingState =
   | "booked"
   | "booking_cancelled";
 
+/**
+ * What the Final interviews card says about one interview's recording
+ * (recording step 5). Derived on the server from the live bot row of the
+ * interview's current booking and the interview's ready recording, if any.
+ *
+ *   none          no bot row: recording is off, or never scheduled. The card
+ *                 shows nothing new.
+ *   scheduled     the recorder will join at joinAt
+ *   waiting       in the Google Meet waiting room
+ *   in_call       in the call, not recording yet
+ *   recording     recording has started
+ *   saving        the call ended, or the import is copying it
+ *   ready         a recording can be watched (recordingId)
+ *   not_recorded  the recorder failed or could not be scheduled (reason)
+ *   save_failed   the import failed
+ *   deleted       saved, then deleted by the retention purge
+ *   gone          saved, but its recording row is missing or not ready: an
+ *                 inconsistency, said plainly rather than hidden
+ *   unavailable   the recording facts could not be read; never shown as none
+ */
+export type FinalRecordingState =
+  | "none"
+  | "scheduled"
+  | "waiting"
+  | "in_call"
+  | "recording"
+  | "saving"
+  | "ready"
+  | "not_recorded"
+  | "save_failed"
+  | "deleted"
+  | "gone"
+  | "unavailable";
+
+export type FinalRecordingSummary = {
+  state: FinalRecordingState;
+  /** scheduled: when the recorder joins. */
+  joinAt: string | null;
+  /** not_recorded: the same reason line the host's email gives, if there is one. */
+  reason: string | null;
+  /** ready: the recording to ask playback for. Never a storage path or a URL. */
+  recordingId: string | null;
+  /** ready: when it was recorded (its booking's start) or uploaded. */
+  recordedAt: string | null;
+  /** ready: made by the recorder, or uploaded by a person. */
+  origin: "recorder" | "upload" | null;
+  /** ready: it came from an earlier booking than the interview's current one. */
+  fromEarlierBooking: boolean;
+};
+
 export type FinalInterviewView = {
   id: string;
   interviewType: InterviewType;
@@ -70,4 +120,5 @@ export type FinalInterviewView = {
     cancelledBy: string | null;
     cancelReason: string | null;
   };
+  recording: FinalRecordingSummary;
 };

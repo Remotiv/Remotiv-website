@@ -20,7 +20,10 @@ import { onFinalBookingCancelled } from "@/lib/final-interviews/bots";
 import {
   CUSTOM_LABEL_MAX,
   DEFAULT_FINAL_DURATION,
+  deriveRecordingSummary,
   FINAL_DURATIONS,
+  FINAL_RECORDING_BUCKET,
+  FINAL_RECORDING_PLAYBACK_TTL_SECONDS,
   HOST_NEEDS_CALENDAR,
   INTERVIEW_TYPE_LABELS,
   INTERVIEW_TYPES,
@@ -30,6 +33,9 @@ import {
   isInterviewType,
   MAX_EXTRA_INTERVIEWERS,
   NOT_A_BOOKING_ROLE,
+  RECORDING_UNAVAILABLE,
+  type RecordingBotFacts,
+  type RecordingRowFacts,
 } from "@/lib/final-interviews/constants";
 import {
   isEligibleHost,
@@ -92,6 +98,13 @@ type FinalInterviewRow = {
 
 const FI_COLUMNS =
   "id, company_id, job_id, application_id, interview_type, custom_label, host_member_id, status, created_by_name, created_at, cancelled_at";
+
+/** The bot columns the card's recording status is derived from (recording step 5). */
+const RECORDING_BOT_COLUMNS =
+  "final_interview_id, booking_id, status, join_at, import_status, last_event_code, last_event_sub_code, last_event_at, provider_recording_id, superseded_at";
+/** Recording rows, any status, for the list. Deliberately no storage_path: playback reads that. */
+const RECORDING_ROW_COLUMNS =
+  "id, final_interview_id, source, vendor_recording_id, status, uploaded_at, created_at, deleted_by";
 
 /* ── guards ─────────────────────────────────────────────────────── */
 
@@ -218,20 +231,60 @@ export async function listFinalInterviews(
   if (interviews.length === 0) return { success: true, data: [] };
   const ids = interviews.map((fi) => fi.id);
 
-  const [{ data: bookings }, { data: extra }] = await Promise.all([
-    service
-      .from("interview_bookings")
-      .select(BOOKING_ROW_COLUMNS)
-      .eq("company_id", ctx.companyId)
-      .eq("purpose", "final")
-      .in("final_interview_id", ids)
-      .order("created_at", { ascending: false }),
-    service
-      .from("final_interview_interviewers")
-      .select("final_interview_id, member_id")
-      .eq("company_id", ctx.companyId)
-      .in("final_interview_id", ids),
-  ]);
+  // One read per table for every interview on the card, all company-filtered:
+  // the recording facts never cost a query per row.
+  const [{ data: bookings, error: bookingsErr }, { data: extra }, botsRes, recordingsRes] =
+    await Promise.all([
+      service
+        .from("interview_bookings")
+        .select(BOOKING_ROW_COLUMNS)
+        .eq("company_id", ctx.companyId)
+        .eq("purpose", "final")
+        .in("final_interview_id", ids)
+        .order("created_at", { ascending: false }),
+      service
+        .from("final_interview_interviewers")
+        .select("final_interview_id, member_id")
+        .eq("company_id", ctx.companyId)
+        .in("final_interview_id", ids),
+      service
+        .from("final_interview_bots")
+        .select(RECORDING_BOT_COLUMNS)
+        .eq("company_id", ctx.companyId)
+        .in("final_interview_id", ids),
+      service
+        .from("final_interview_recordings")
+        .select(RECORDING_ROW_COLUMNS)
+        .eq("company_id", ctx.companyId)
+        .in("final_interview_id", ids),
+    ]);
+  // A failed read is never shown as "no recording": the card says it could not tell.
+  const recordingReadFailed = Boolean(bookingsErr || botsRes.error || recordingsRes.error);
+  if (recordingReadFailed) {
+    console.error(
+      `[final-interview] recording status read failed (${bookingsErr?.code ?? botsRes.error?.code ?? recordingsRes.error?.code ?? "db"})`,
+    );
+  }
+  const botsByInterview = new Map<string, RecordingBotFacts[]>();
+  for (const b of (botsRes.data ?? []) as (RecordingBotFacts & { final_interview_id: string })[]) {
+    botsByInterview.set(b.final_interview_id, [
+      ...(botsByInterview.get(b.final_interview_id) ?? []),
+      b,
+    ]);
+  }
+  const recordingsByInterview = new Map<string, RecordingRowFacts[]>();
+  for (const r of (recordingsRes.data ?? []) as (RecordingRowFacts & {
+    final_interview_id: string;
+  })[]) {
+    recordingsByInterview.set(r.final_interview_id, [
+      ...(recordingsByInterview.get(r.final_interview_id) ?? []),
+      r,
+    ]);
+  }
+  const bookingStarts = new Map<string, string | null>(
+    ((bookings ?? []) as BookingRow[]).map((b) => [b.id, b.scheduled_start ?? null]),
+  );
+  const nowMs = Date.now();
 
   // Newest booking per interview: the list is already newest first.
   const latest = new Map<string, BookingRow>();
@@ -304,8 +357,127 @@ export async function listFinalInterviews(
           cancelledBy: booking?.cancelled_by ?? null,
           cancelReason: booking?.cancel_reason ?? null,
         },
+        recording: recordingReadFailed
+          ? RECORDING_UNAVAILABLE
+          : deriveRecordingSummary({
+              currentBookingId: booking?.id ?? null,
+              bots: botsByInterview.get(fi.id) ?? [],
+              recordings: recordingsByInterview.get(fi.id) ?? [],
+              bookingStarts,
+              nowMs,
+            }),
       };
     }),
+  };
+}
+
+/* ── recording playback (recording step 5) ──────────────────────── */
+
+const NO_RECORDING = "Recording not found in your workspace.";
+
+/**
+ * A signed URL to watch one ready recording, minted only when Watch is
+ * pressed. Anyone who may view the candidate may watch: owner, admin,
+ * recruiter or a hiring manager on the job.
+ *
+ * Every link is checked on the server, from the recording outwards:
+ *
+ *   recording      this company's, by id
+ *   job access     canAccessJob on the recording's job, checked once here
+ *   interview      this company's, and on the same job and application
+ *   application    this company's (company_id_snapshot), on the same job
+ *   ready          status 'ready' with a storage path
+ *
+ * storage_path is read here and never returned. The signed URL itself carries
+ * the object key, {company_id}/{final_interview_id}/{recording_id}.mp4: ids
+ * only, no names or emails. The URL lives three hours so a long interview
+ * stays seekable. Each grant is written to signed_url_logs like the
+ * interview-answer and CV grants; a failed log write never blocks a grant.
+ */
+export async function getFinalRecordingPlayback(
+  recordingId: string,
+): Promise<MutationResult<{ url: string; expiresAt: string }>> {
+  if (typeof recordingId !== "string" || !recordingId || recordingId.length > 100) {
+    return { success: false, error: NO_RECORDING };
+  }
+  const ctx = await getCompanyContext();
+  const service = createServiceClient();
+
+  const { data: recData, error: recErr } = await service
+    .from("final_interview_recordings")
+    .select("id, final_interview_id, job_id, application_id, status, storage_path")
+    .eq("id", recordingId)
+    .eq("company_id", ctx.companyId)
+    .maybeSingle();
+  if (recErr) {
+    console.error(`[final-interview] recording read failed (${recErr.code ?? "db"})`);
+    return { success: false, error: "Couldn't load that recording. Try again." };
+  }
+  const rec = recData as {
+    id: string;
+    final_interview_id: string;
+    job_id: string;
+    application_id: string;
+    status: string;
+    storage_path: string | null;
+  } | null;
+  if (!rec) return { success: false, error: NO_RECORDING };
+
+  if (!(await canAccessJob(ctx, rec.job_id))) return { success: false, error: NO_RECORDING };
+
+  const [{ data: fiData }, { data: appData }] = await Promise.all([
+    service
+      .from("final_interviews")
+      .select("id, job_id, application_id")
+      .eq("id", rec.final_interview_id)
+      .eq("company_id", ctx.companyId)
+      .maybeSingle(),
+    service
+      .from("job_applications")
+      .select("id, job_id")
+      .eq("id", rec.application_id)
+      .eq("company_id_snapshot", ctx.companyId)
+      .maybeSingle(),
+  ]);
+  const fi = fiData as { job_id: string; application_id: string } | null;
+  const app = appData as { job_id: string | null } | null;
+  if (
+    !fi ||
+    !app ||
+    fi.job_id !== rec.job_id ||
+    fi.application_id !== rec.application_id ||
+    app.job_id !== rec.job_id
+  ) {
+    return { success: false, error: NO_RECORDING };
+  }
+
+  if (rec.status !== "ready" || !rec.storage_path) {
+    return { success: false, error: "This recording isn't ready to watch." };
+  }
+
+  const { data: signed, error: signErr } = await service.storage
+    .from(FINAL_RECORDING_BUCKET)
+    .createSignedUrl(rec.storage_path, FINAL_RECORDING_PLAYBACK_TTL_SECONDS);
+  if (signErr || !signed?.signedUrl) {
+    console.error("[final-interview] recording playback sign failed");
+    return { success: false, error: "Couldn't load that recording. Try again." };
+  }
+
+  const { error: logErr } = await service.from("signed_url_logs").insert({
+    user_id: ctx.user.id,
+    // The application id, as the CV and interview-answer grants record it.
+    candidate_id: rec.application_id,
+    source_table: "final_interview_recordings",
+    was_admin: false,
+  });
+  if (logErr) console.error(`[signed_url_logs insert] (${logErr.code ?? "db"})`);
+
+  return {
+    success: true,
+    data: {
+      url: signed.signedUrl,
+      expiresAt: new Date(Date.now() + FINAL_RECORDING_PLAYBACK_TTL_SECONDS * 1000).toISOString(),
+    },
   };
 }
 

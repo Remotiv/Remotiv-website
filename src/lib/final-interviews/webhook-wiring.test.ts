@@ -260,10 +260,12 @@ test("no log line in the webhook, alerts or verifier carries a body, secret or p
 
 test("hyphens, never em dashes, in the alert copy", () => {
   const alerts = read(ALERTS);
-  const copy = alerts.slice(
-    alerts.indexOf("const FAILURE_REASONS"),
-    alerts.indexOf("type Service"),
-  );
+  // The reason lines moved to constants.ts in recording step 5, shared with the card.
+  const constants = read("src/lib/final-interviews/constants.ts");
+  const from = constants.indexOf("export const RECORDING_FAILURE_REASONS");
+  const to = constants.indexOf("export function isScheduleTimeFailure");
+  assert.ok(from > 0 && to > from, "the reason lines were found");
+  const copy = constants.slice(from, to);
   const emails = alerts.slice(
     alerts.indexOf("export function lobbyEmail"),
     alerts.indexOf("function defaultDeps"),

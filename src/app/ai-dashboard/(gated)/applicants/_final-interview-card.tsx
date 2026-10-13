@@ -1,6 +1,18 @@
 "use client";
 
-import { CalendarClock, Check, CircleX, Clock, Plus, Send, Video } from "lucide-react";
+import {
+  CalendarClock,
+  Check,
+  CircleDot,
+  CircleX,
+  Clock,
+  Play,
+  Plus,
+  Send,
+  TriangleAlert,
+  Video,
+  X,
+} from "lucide-react";
 import { useCallback, useEffect, useId, useRef, useState } from "react";
 import { type CompanyRole, canManageBookings } from "@/app/ai-dashboard/lib/company-roles";
 import { useModalFocus } from "@/hooks/use-modal-focus";
@@ -13,6 +25,8 @@ import {
   INTERVIEW_TYPES,
   type InterviewType,
   MAX_EXTRA_INTERVIEWERS,
+  type RecordingStatusLine,
+  recordingStatusLine,
 } from "@/lib/final-interviews/constants";
 import type {
   EligibleMember,
@@ -22,6 +36,7 @@ import type {
 import {
   cancelFinalInterview,
   getFinalInterviewOptions,
+  getFinalRecordingPlayback,
   listFinalInterviews,
   resendFinalInterviewLink,
   scheduleFinalInterview,
@@ -49,6 +64,17 @@ import {
  * The list is fetched when this card mounts, which only happens on the open
  * applicant's Interviews pane. The scheduling options (who may host, who may
  * join) are fetched only when the Schedule form opens.
+ *
+ * ── The recording (recording step 5) ─────────────────────────
+ *
+ * Each row says what is happening with its recording, from the summary the
+ * list carries; a row whose recording is off shows nothing new. A ready
+ * recording plays inline. Its signed URL is asked for only when Watch is
+ * pressed, never with the list, and is fetched again once if the player
+ * reports an error (an expired URL, say). Everyone who sees the card may
+ * watch, hiring managers included. There is no download button;
+ * controlsList="nodownload" hides the browser's own, which does not stop a
+ * determined viewer saving the file.
  */
 
 /* ──────────────────── the drawer's chrome ──────────────────── */
@@ -161,6 +187,35 @@ function StatusBadge({ badge: { label, cls, icon: Icon } }: { badge: Badge }) {
   );
 }
 
+const TONE: Record<RecordingStatusLine["tone"], { cls: string; icon: typeof Check }> = {
+  info: { cls: "text-[var(--ai-t2)]", icon: CircleDot },
+  warn: { cls: "text-[var(--ai-amber-ink)]", icon: TriangleAlert },
+  bad: { cls: "text-[var(--ai-danger)]", icon: CircleX },
+  ready: { cls: "text-[var(--ai-mint-ink)]", icon: Check },
+};
+
+/** The row's recording line: words first, colour second. */
+function RecordingStatus({ line }: { line: RecordingStatusLine }) {
+  const { cls, icon: Icon } = TONE[line.tone];
+  return (
+    <p className={`m-0 mt-1.5 flex items-start gap-1.5 text-[12.5px] leading-[1.5] ${cls}`}>
+      <Icon className="mt-[3px] size-3.5 shrink-0" strokeWidth={2.2} aria-hidden="true" />
+      <span className="min-w-0">
+        <span className="font-semibold">{line.text}</span>
+        {line.detail && <span className="text-[var(--ai-t3)]"> · {line.detail}</span>}
+      </span>
+    </p>
+  );
+}
+
+type Player = {
+  rowId: string;
+  recordingId: string;
+  url: string;
+  /** Whether the one fresh-URL retry has been used. */
+  retried: boolean;
+};
+
 /* ───────────────────────── the card ───────────────────────── */
 
 export function FinalInterviewCard({
@@ -182,6 +237,15 @@ export function FinalInterviewCard({
   const [confirmingId, setConfirmingId] = useState<string | null>(null);
   const [formOpen, setFormOpen] = useState(false);
   const [zone, setZone] = useState("UTC");
+  /** The open inline player, at most one on the card. */
+  const [player, setPlayer] = useState<Player | null>(null);
+  /** The row whose playback URL is being fetched. */
+  const [watchingId, setWatchingId] = useState<string | null>(null);
+  const [playerError, setPlayerError] = useState<{ rowId: string; message: string } | null>(null);
+  const watchButtons = useRef(new Map<string, HTMLButtonElement>());
+  const videoRef = useRef<HTMLVideoElement>(null);
+  /** The row to hand focus back to when the player closes. */
+  const returnFocusTo = useRef<string | null>(null);
 
   // Detected in an effect, never during render: the server has no zone.
   useEffect(() => {
@@ -208,8 +272,71 @@ export function FinalInterviewCard({
   useEffect(() => {
     setRows(null);
     setConfirmingId(null);
+    setPlayer(null);
+    setPlayerError(null);
     void load();
   }, [load]);
+
+  // Focus follows the player: into it when it opens, back to its Watch button
+  // when it closes.
+  const playerRowId = player?.rowId ?? null;
+  useEffect(() => {
+    if (playerRowId) {
+      videoRef.current?.focus();
+      return;
+    }
+    const back = returnFocusTo.current;
+    if (back) {
+      returnFocusTo.current = null;
+      watchButtons.current.get(back)?.focus();
+    }
+  }, [playerRowId]);
+
+  /** Ask for a playback URL. Only ever called from a click or a player error. */
+  async function fetchPlayback(rowId: string, recordingId: string, retried: boolean) {
+    setWatchingId(rowId);
+    setPlayerError(null);
+    try {
+      const result = await getFinalRecordingPlayback(recordingId);
+      if (!result.success) {
+        setPlayer(null);
+        setPlayerError({ rowId, message: result.error });
+        return;
+      }
+      setPlayer({ rowId, recordingId, url: result.data.url, retried });
+    } catch (err) {
+      console.error("[applicants] getFinalRecordingPlayback threw:", err);
+      setPlayer(null);
+      setPlayerError({ rowId, message: "Couldn't load the recording. Try again." });
+    } finally {
+      setWatchingId(null);
+    }
+  }
+
+  function watch(rowId: string, recordingId: string) {
+    if (watchingId !== null) return;
+    returnFocusTo.current = rowId;
+    void fetchPlayback(rowId, recordingId, false);
+  }
+
+  function closePlayer() {
+    setPlayer(null);
+    setPlayerError(null);
+  }
+
+  /** An expired or failed URL is replaced once; a second failure is reported. */
+  function onPlayerError() {
+    if (!player) return;
+    if (!player.retried) {
+      void fetchPlayback(player.rowId, player.recordingId, true);
+      return;
+    }
+    setPlayerError({
+      rowId: player.rowId,
+      message: "The recording couldn't be played. Try again.",
+    });
+    setPlayer(null);
+  }
 
   async function resend(id: string) {
     if (busyId !== null) return;
@@ -288,6 +415,12 @@ export function FinalInterviewCard({
                 const actions = actionsFor(row);
                 const busy = busyId === row.id;
                 const confirming = confirmingId === row.id;
+                const recordingLine = recordingStatusLine(row.recording, (iso) =>
+                  formatInZone(Date.parse(iso), zone),
+                );
+                const recordingId =
+                  row.recording.state === "ready" ? row.recording.recordingId : null;
+                const playing = player?.rowId === row.id;
                 return (
                   <li key={row.id} className="py-3.5 first:pt-0 last:pb-0">
                     <div className="flex flex-wrap items-start justify-between gap-3">
@@ -313,9 +446,25 @@ export function FinalInterviewCard({
                             Reason given: {row.booking.cancelReason}
                           </p>
                         )}
+                        {recordingLine && <RecordingStatus line={recordingLine} />}
                       </div>
 
                       <div className="flex shrink-0 flex-wrap items-center gap-2">
+                        {recordingId && !playing && (
+                          <button
+                            type="button"
+                            ref={(el) => {
+                              if (el) watchButtons.current.set(row.id, el);
+                              else watchButtons.current.delete(row.id);
+                            }}
+                            disabled={watchingId !== null}
+                            onClick={() => watch(row.id, recordingId)}
+                            className={BTN_QUIET}
+                          >
+                            <Play className="size-[14px]" strokeWidth={2} />
+                            {watchingId === row.id ? "Loading…" : "Watch"}
+                          </button>
+                        )}
                         {row.booking.state === "booked" && row.booking.meetingUrl && (
                           <a
                             href={row.booking.meetingUrl}
@@ -350,6 +499,41 @@ export function FinalInterviewCard({
                         )}
                       </div>
                     </div>
+
+                    {playing && player && (
+                      <div className="mt-3 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] p-2.5">
+                        {/* biome-ignore lint/a11y/useMediaCaption: meeting recordings have no transcript or caption track yet */}
+                        <video
+                          ref={videoRef}
+                          key={player.url}
+                          src={player.url}
+                          controls
+                          preload="metadata"
+                          controlsList="nodownload"
+                          playsInline
+                          onError={onPlayerError}
+                          aria-label={`Recording of the ${row.label}`}
+                          className="block max-h-[60vh] w-full rounded-lg bg-black"
+                        />
+                        <div className="mt-2 flex items-center justify-between gap-2">
+                          <p className="m-0 text-[11.5px] text-[var(--ai-t3)]">
+                            {watchingId === row.id ? "Refreshing the recording…" : row.label}
+                          </p>
+                          <button type="button" onClick={closePlayer} className={BTN_QUIET}>
+                            <X className="size-[14px]" strokeWidth={2} />
+                            Close
+                          </button>
+                        </div>
+                      </div>
+                    )}
+                    {playerError?.rowId === row.id && (
+                      <p
+                        role="alert"
+                        className="m-0 mt-2 text-[12.5px] font-semibold text-[var(--ai-danger)]"
+                      >
+                        {playerError.message}
+                      </p>
+                    )}
 
                     {canManage && confirming && (
                       <div className="mt-3 flex flex-wrap items-center gap-2 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">

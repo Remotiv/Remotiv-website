@@ -171,6 +171,10 @@ export function makeDb() {
     final_interviews: [],
     final_interview_interviewers: [],
     interview_bookings: [],
+    // Recording step 5: the card's recording status and playback.
+    final_interview_bots: [],
+    final_interview_recordings: [],
+    signed_url_logs: [],
   };
 }
 
