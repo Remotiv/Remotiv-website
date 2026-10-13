@@ -244,6 +244,8 @@ export const RECORDING_IMPORT_ERRORS = {
   noVideo: "no_video",
   ownerMismatch: "owner_mismatch",
   duplicate: "duplicate_recording",
+  /** Remotiv's copy confirmed missing or invalid, and Recall's confirmed gone (404). */
+  copyLost: "copy_lost",
   retriesExhausted: "retries_exhausted",
 } as const;
 

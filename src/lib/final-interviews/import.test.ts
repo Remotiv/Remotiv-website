@@ -36,7 +36,11 @@ const bots = await import("./bots.ts");
 const alerts = await import("./alerts.ts");
 const { JobYield, TerminalJobError } = await import("../queue/failure-class.ts");
 const { RecordingStoreError, getRecordingStore } = await import("../storage-s3.ts");
-const { RECORDING_IMPORT_PART_BYTES: PART, RECORDING_MAX_BYTES } = await import("./constants.ts");
+const {
+  RECORDING_IMPORT_PART_BYTES: PART,
+  RECORDING_MAX_BYTES,
+  deriveRecordingSummary,
+} = await import("./constants.ts");
 
 const MIN = 60_000;
 const HOUR = 60 * MIN;
@@ -735,29 +739,214 @@ test("Recall 204, bot write fails, next run gets 404: the copy is confirmed and 
   assert.equal(t.jobs("final_bot_lobby_check").length, 0, "not failed, nobody alerted");
 });
 
-test("Recall 404 with Remotiv's copy missing: never ready, never failed, nothing deleted", async () => {
+/* ── both copies gone: terminal copy_lost ─────────────────────── */
+
+const importFailedAlerts = (t) =>
+  t.jobs("final_bot_lobby_check").filter((j) => j.payload.kind === "import_failed");
+
+/** The card's state, from the rows as they are. */
+const cardState = (t) =>
+  deriveRecordingSummary({
+    currentBookingId: BOOKING,
+    bots: t.db.final_interview_bots.filter((b) => b.final_interview_id === FI),
+    recordings: t.db.final_interview_recordings,
+    bookingStarts: new Map([[BOOKING, at(0)]]),
+    nowMs: t.clock.now,
+  }).state;
+
+/** Every way a terminal copy_lost import must look, and stay. */
+async function assertCopyLost(t) {
+  assert.equal(t.row().import_status, "failed");
+  assert.equal(t.row().import_error, "copy_lost");
+  assert.equal(t.rec().status, "failed", "no ready row left pointing at nothing");
+  assert.equal(t.s3.objects.has(t.key), false);
+  assert.equal(importFailedAlerts(t).length, 1, "one alert");
+  assert.equal(t.bells().filter((b) => b.type === "final_recording_ready").length, 0);
+  assert.equal(t.jobs("final_recording_import").length, 0, "no further import job");
+  assert.equal(cardState(t), "save_failed");
+
+  // A rerun, and reconcile (twice), restart nothing and alert nothing more.
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "already_failed");
+  const r1 = await bots.reconcileFinalBots(reconcileDeps(t));
+  const r2 = await bots.reconcileFinalBots(reconcileDeps(t));
+  for (const r of [r1, r2]) {
+    assert.deepEqual(
+      [r.importsQueued, r.importsFailed, r.importDeleteRetries, r.importAlertsQueued],
+      [0, 0, 0, 0],
+    );
+  }
+  assert.equal(t.jobs("final_recording_import").length, 0, "reconcile queued no import");
+  assert.equal(importFailedAlerts(t).length, 1);
+
+  // An import job already queued before the loss runs and changes nothing.
+  t.db.background_jobs.push({
+    id: bots.importJobIds(t.bot.id)[1],
+    type: "final_recording_import",
+    status: "queued",
+    payload: { botId: t.bot.id },
+    updated_at: at(HOUR),
+  });
+  const { deleteObject: _cleanUpAgain, ...before } = work(t);
+  assert.equal((await drive(t)).outcome, "already_failed");
+  const { deleteObject: _, ...after } = work(t);
+  assert.deepEqual(after, before, "nothing copied or uploaded, Recall not asked to delete");
+  assert.equal(t.s3.objects.has(t.key), false);
+  assert.equal(t.row().import_error, "copy_lost");
+  assert.equal(t.rec().status, "failed", "never revived");
+  assert.equal(importFailedAlerts(t).length, 1);
+  assert.equal(cardState(t), "save_failed");
+}
+
+test("both copies gone (ours missing, Recall 404): one terminal failure, one alert, the card says save_failed", async () => {
   const t = setup();
   await deletedThenWriteFailed(t);
   t.s3.objects.delete(t.key);
-  await assert.rejects(
-    imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
-    (e) => !(e instanceof TerminalJobError) && /Recall's copy kept/.test(e.message),
-  );
-  assert.equal(t.row().import_status, "importing");
-  assert.equal(t.rec().status, "ready", "the row is not failed either");
-  assert.equal(t.bells().length, 0);
-  assert.equal(t.jobs("final_bot_lobby_check").length, 0);
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "failed");
+  assert.equal(t.recall.count("deleteRecording"), 1, "Recall's delete is not asked again");
+  await assertCopyLost(t);
 });
 
-test("Recall 404 with Remotiv's copy the right size but not an MP4: never ready", async () => {
+test("both copies gone (ours the right size but not an MP4, Recall 404): the same, and the bad object removed", async () => {
   const t = setup();
   await deletedThenWriteFailed(t);
-  const o = t.s3.objects.get(t.key);
-  o.set([0, 0, 0, 0], 4);
+  t.s3.objects.get(t.key).set([0, 0, 0, 0], 4);
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "failed");
+  await assertCopyLost(t);
+});
+
+test("both copies gone (ours the wrong size, Recall 404): the same", async () => {
+  const t = setup();
+  await deletedThenWriteFailed(t);
+  t.s3.objects.set(t.key, t.s3.objects.get(t.key).slice(0, 100));
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "failed");
+  await assertCopyLost(t);
+});
+
+test("ours missing but Recall still has it: never lost, never deleted at Recall, retried", async () => {
+  const t = setup();
+  t.recall.failNext("deleteRecording", httpError(503, "delete recording"));
   await assert.rejects(imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO));
+  t.s3.objects.delete(t.key);
+  for (let i = 0; i < 3; i++) {
+    await assert.rejects(
+      imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
+      (e) => !(e instanceof TerminalJobError) && /Recall's copy kept/.test(e.message),
+    );
+  }
+  assert.equal(t.recall.media.has(t.recId), true, "Recall's copy kept");
+  assert.equal(t.recall.count("deleteRecording"), 1, "only the first, failed, delete");
   assert.equal(t.row().import_status, "importing");
-  assert.equal(t.bells().length, 0);
-  assert.ok(t.s3.objects.has(t.key), "and it is not deleted");
+  assert.equal(t.row().import_error, null);
+  assert.equal(t.rec().status, "ready");
+  assert.equal(importFailedAlerts(t).length, 0);
+  // Recall's retention ends it: once Recall answers 404, both copies are gone.
+  t.recall.media.delete(t.recId);
+  for (const b of t.recall.bots.values()) b.recordings = [];
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "failed");
+  assert.equal(t.row().import_error, "copy_lost");
+  assert.equal(importFailedAlerts(t).length, 1);
+});
+
+const TRANSIENT = [
+  [
+    "storage's head check fails",
+    (t) =>
+      t.s3.failNext(
+        "headObject",
+        new RecordingStoreError("head object", 503, "ServiceUnavailable"),
+      ),
+  ],
+  [
+    "storage's head check is a network error",
+    (t) => t.s3.failNext("headObject", new RecordingStoreError("head object", null, null)),
+  ],
+  [
+    "storage's header read fails",
+    (t) => t.s3.failNext("readHead", new RecordingStoreError("read object", 500, "InternalError")),
+  ],
+  [
+    "Recall's lookup fails",
+    (t) => t.recall.failNext("retrieveRecording", httpError(503, "retrieve recording")),
+  ],
+  [
+    "Recall's lookup times out",
+    (t) => t.recall.failNext("retrieveRecording", timeoutError("retrieve recording")),
+  ],
+];
+
+for (const [name, fail] of TRANSIENT) {
+  test(`inconclusive, never lost: ${name}, and the copy is retried`, async () => {
+    // Both copies are in fact gone; only a conclusive answer may say so.
+    const t = setup();
+    await deletedThenWriteFailed(t);
+    t.s3.objects.get(t.key).set([0, 0, 0, 0], 4);
+    fail(t);
+    await assert.rejects(
+      imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
+      (e) => !(e instanceof TerminalJobError),
+    );
+    assert.equal(t.row().import_status, "importing");
+    assert.equal(t.row().import_error, null);
+    assert.equal(t.rec().status, "ready", "not failed on an inconclusive answer");
+    assert.ok(t.s3.objects.has(t.key), "nothing deleted");
+    assert.equal(importFailedAlerts(t).length, 0);
+    // The next run gets conclusive answers and only then calls it lost.
+    assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "failed");
+    assert.equal(t.row().import_error, "copy_lost");
+  });
+}
+
+test("inconclusive with our copy intact: a failed header read is retried, then the import finishes", async () => {
+  const t = setup();
+  await deletedThenWriteFailed(t);
+  t.s3.failNext("readHead", new RecordingStoreError("read object", 503, null));
+  await assert.rejects(imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO));
+  assert.equal(t.rec().status, "ready");
+  assert.equal(await imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO), "ready");
+  assertImported(t);
+});
+
+test("copy_lost: a crash after the row is failed, before the bot is, still ends failed and alerted", async () => {
+  const t = setup();
+  await deletedThenWriteFailed(t);
+  t.s3.objects.delete(t.key);
+  // The claim is a bot-row write too: fail only the one after Recall's answer.
+  t.recall.before("retrieveRecording", () => t.service.failNext("final_interview_bots", "update"));
+  await assert.rejects(imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO));
+  assert.equal(t.rec().status, "failed");
+  assert.equal(t.row().import_status, "importing");
+  assert.notEqual(cardState(t), "ready", "the card never offers it");
+  // Later runs leave the closed row alone; reconcile's cap fails the bot.
+  await assert.rejects(
+    imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
+    (e) => e instanceof TerminalJobError,
+  );
+  t.row().updated_at = at(HOUR);
+  t.db.background_jobs.push(...deadJobs(t));
+  const report = await bots.reconcileFinalBots(reconcileDeps(t));
+  assert.equal(report.importsFailed, 1);
+  assert.equal(report.importDeleteRetries, 0, "not the ready-copy delete loop");
+  assert.equal(t.row().import_status, "failed");
+  assert.equal(importFailedAlerts(t).length, 1);
+  assert.equal(cardState(t), "save_failed");
+});
+
+test("copy_lost: the row is failed only while still ready at the same path", async () => {
+  const t = setup();
+  await deletedThenWriteFailed(t);
+  t.s3.objects.delete(t.key);
+  // Someone else moved the row on (the retention purge deleted it) mid-run.
+  t.recall.before("retrieveRecording", () => {
+    t.rec().status = "deleted";
+  });
+  await assert.rejects(
+    imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
+    (e) =>
+      !(e instanceof TerminalJobError) && /changed before it could be marked lost/.test(e.message),
+  );
+  assert.equal(t.rec().status, "deleted", "not overwritten");
+  assert.equal(t.row().import_status, "importing");
+  assert.equal(importFailedAlerts(t).length, 0);
 });
 
 test("the job's company must be the row's", async () => {

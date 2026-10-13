@@ -64,6 +64,9 @@ import {
  *                  verified size, and Recall confirms the recording is this
  *                  bot's. A failed delete leaves the bot 'importing' and the
  *                  next run retries the delete only: nothing is uploaded again.
+ *                  If our copy is confirmed missing or invalid AND Recall
+ *                  answers 404, both copies are gone: the row is failed, the
+ *                  bot failed 'copy_lost', the host alerted, no more retries.
  *   9. bot ready   import_status 'ready'. Never before step 8, because 040's
  *                  orphan guard reads 'ready' as "Recall's copy is gone".
  *  10. bell        the host's final_recording_ready bell, after step 9.
@@ -553,23 +556,20 @@ async function markReady(run: Run, rec: RecordingRow): Promise<"ready" | "duplic
  * Then import_status 'ready', then the bell.
  */
 async function finishWithDelete(run: Run, rec: RecordingRow, key: string): Promise<ImportOutcome> {
-  // Remotiv's copy is confirmed first, every time: its size, and its MP4
-  // header. Only with it confirmed does Recall's 404 below mean "already
-  // deleted" (say by an earlier run whose bot-row write then failed) rather
-  // than "lost". A copy that fails this is never failed or deleted here: the
-  // bot stays importing, Recall's copy (if any) is kept, and a later run looks again.
+  // Remotiv's copy is checked first, every time. Only a CONCLUSIVE answer
+  // counts: storage said 404 (missing), or the object was read and is not the
+  // recording (wrong size or no MP4 header: invalid). Any storage error throws
+  // here and the run is retried, so an outage is never taken for a loss.
   const head = await run.store.headObject(key, storeSignal(run, "head object"));
-  const intact =
-    head?.size === rec.size_bytes &&
-    looksLikeMp4(await run.store.readHead(key, HEAD_BYTES, storeSignal(run, "read object")));
-  if (!intact) {
-    console.error(
-      `[final-recording] bot ${run.row.id}: ready copy failed its check; Recall's copy kept`,
-    );
-    throw new Error(
-      "recording import: the ready copy is not where it should be; Recall's copy kept",
-    );
+  let local: "intact" | "missing" | "invalid" = "missing";
+  if (head) {
+    local =
+      head.size === rec.size_bytes &&
+      looksLikeMp4(await run.store.readHead(key, HEAD_BYTES, storeSignal(run, "read object")))
+        ? "intact"
+        : "invalid";
   }
+  // Null only on Recall's own 404; any other answer throws and is retried.
   const info = await run.deps.recall.retrieveRecording(
     run.row.provider_recording_id,
     callOptions(run, "retrieve recording"),
@@ -579,6 +579,20 @@ async function finishWithDelete(run: Run, rec: RecordingRow, key: string): Promi
     throw new TerminalJobError(
       "deterministic",
       "Recall's recording is not this bot's; not deleted",
+    );
+  }
+  if (local !== "intact") {
+    if (!info) {
+      // Both copies are gone: nothing is left to save or to delete.
+      await markCopyLost(run, rec);
+      throw new ImportFailure(RECORDING_IMPORT_ERRORS.copyLost);
+    }
+    // Recall still has it. A ready row never returns to pending, so there is
+    // no re-copy path; Recall's copy is kept and a later run looks again. Its
+    // retention ends this within 7 days, and then both copies are gone.
+    console.error(`[final-recording] bot ${run.row.id}: ready copy ${local}; Recall's copy kept`);
+    throw new Error(
+      "recording import: the ready copy is not where it should be; Recall's copy kept",
     );
   }
   await assertClaim(run);
@@ -593,6 +607,29 @@ async function finishWithDelete(run: Run, rec: RecordingRow, key: string): Promi
   }
   await sendReadyBell(run.deps, run.row.id);
   return "ready";
+}
+
+/**
+ * Both copies are gone: the ready row that points at a missing or invalid
+ * object becomes 'failed', guarded on still being ready at the same path, so
+ * the card never offers a recording that is not there. The row goes first: a
+ * failed bot over a ready row would keep offering it. failImport then fails
+ * the bot (copy_lost), alerts the host once, and removes what is left.
+ */
+async function markCopyLost(run: Run, rec: RecordingRow): Promise<void> {
+  await assertClaim(run);
+  const { data, error } = await run.deps.service
+    .from("final_interview_recordings")
+    .update({ status: "failed" })
+    .eq("id", rec.id)
+    .eq("company_id", run.row.company_id)
+    .eq("status", "ready")
+    .eq("storage_path", rec.storage_path as string)
+    .select("id");
+  if (error) throw dbError("recording lost", error);
+  if (((data ?? []) as unknown[]).length === 0) {
+    throw new Error("recording import: the recording row changed before it could be marked lost");
+  }
 }
 
 async function sendReadyBell(deps: ImportDeps, botId: string): Promise<void> {
@@ -652,8 +689,9 @@ async function copyAndFinish(run: Run): Promise<ImportOutcome> {
   if (rec?.status === "ready")
     return finishWithDelete(run, rec, recordingStoragePath(run.row, rec.id));
   if (rec && rec.status !== "pending") {
-    // The import fails the bot row before the recording row, so a closed row
-    // under an importing bot was closed by something else: leave it alone.
+    // The import fails the bot row before the recording row (copy_lost aside,
+    // which a crash can stop between the two), so a closed row under an
+    // importing bot is left alone: reconcile's cap fails the bot.
     throw new TerminalJobError("deterministic", `the recording row is ${rec.status}`);
   }
 
