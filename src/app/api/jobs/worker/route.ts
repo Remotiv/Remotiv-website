@@ -240,8 +240,9 @@ async function drain() {
 
       try {
         await runJob(job, createJobContext(deadlineAt));
-        await completeJob(job.id);
-        summary.succeeded += 1;
+        // Counted only once the write is confirmed under this run's lease. A
+        // lost lease means the row is another run's now: nothing to count.
+        if ((await completeJob(job)) === "succeeded") summary.succeeded += 1;
       } catch (err) {
         if (err instanceof JobYield) {
           // Stopped itself before a call that would not fit. Progress is
@@ -252,6 +253,8 @@ async function drain() {
           continue;
         }
         // One bad job must never abort the batch — or, now, its pool slot.
+        // Counted, and alerted on, only once the write is confirmed under this
+        // run's lease; lease_lost and db_error count nothing.
         const outcome = await failJob(job, err);
         if (outcome === "dead") {
           summary.dead += 1;
@@ -262,7 +265,7 @@ async function drain() {
             type: job.type,
             failureClass: err instanceof TerminalJobError ? err.failureClass : "retryable",
           });
-        } else {
+        } else if (outcome === "queued") {
           summary.failed += 1;
         }
         console.error(`[worker] job ${job.id} (${job.type}) failed:`, err);

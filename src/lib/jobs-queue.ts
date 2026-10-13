@@ -664,9 +664,26 @@ export async function claimJobs(limit = 5): Promise<BackgroundJob[]> {
 
 // ── Completion ───────────────────────────────────────────────
 
-export async function completeJob(jobId: string): Promise<void> {
+/**
+ * What a completion or failure write did. Only a confirmed write may be
+ * counted or alerted on:
+ *
+ *   lease_lost  0 rows matched: this run no longer holds the job (its lease
+ *               expired and it was reclaimed, maybe re-claimed and running
+ *               elsewhere). The row belongs to whoever holds it now.
+ *   db_error    the update itself failed. Logged; the row is still this run's
+ *               lease, and the stale-lease reclaim returns it to the queue.
+ */
+export type LeaseWriteFailure = "lease_lost" | "db_error";
+
+/**
+ * Mark the job succeeded, conditional on still holding the lease, as
+ * releaseJob and yieldJob are: a run that outlived its lease must not
+ * overwrite the row another run has since claimed.
+ */
+export async function completeJob(job: BackgroundJob): Promise<"succeeded" | LeaseWriteFailure> {
   const service = createServiceClient();
-  const { error } = await service
+  const { data, error } = await service
     .from("background_jobs")
     .update({
       status: "succeeded" satisfies JobStatus,
@@ -675,9 +692,20 @@ export async function completeJob(jobId: string): Promise<void> {
       last_error: null,
       updated_at: new Date().toISOString(),
     })
-    .eq("id", jobId);
+    .eq("id", job.id)
+    .eq("status", "running")
+    .eq("locked_by", job.locked_by ?? "")
+    .select("id");
 
-  if (error) console.error("[jobs-queue] completeJob failed:", error);
+  if (error) {
+    console.error("[jobs-queue] completeJob failed:", error);
+    return "db_error";
+  }
+  if ((data ?? []).length === 0) {
+    console.warn(`[jobs-queue] completeJob: lease lost on ${job.id}; not marked succeeded`);
+    return "lease_lost";
+  }
+  return "succeeded";
 }
 
 /**
@@ -730,18 +758,34 @@ export async function releaseJob(job: BackgroundJob): Promise<void> {
  * `attempts` is taken from the leased row rather than re-read, so two
  * concurrent failures can't both read the same stale count and write the same
  * incremented value. The lease already guarantees a single owner, so this is
- * belt-and-braces.
+ * belt-and-braces. Conditional on still holding the lease, like completeJob.
  */
-export async function failJob(job: BackgroundJob, err: unknown): Promise<"queued" | "dead"> {
+export async function failJob(
+  job: BackgroundJob,
+  err: unknown,
+): Promise<"queued" | "dead" | LeaseWriteFailure> {
   const service = createServiceClient();
   // A TerminalJobError (lib/queue/failure-class.ts) is buried on the spot with
   // its class in last_error: a 400, a missing key, an empty balance or a reply
   // the parser rejects at temperature 0 would fail identically twice more.
   const plan = planFailure(job, err, Date.now());
 
-  const { error } = await service.from("background_jobs").update(plan).eq("id", job.id);
+  const { data, error } = await service
+    .from("background_jobs")
+    .update(plan)
+    .eq("id", job.id)
+    .eq("status", "running")
+    .eq("locked_by", job.locked_by ?? "")
+    .select("id");
 
-  if (error) console.error("[jobs-queue] failJob failed:", error);
+  if (error) {
+    console.error("[jobs-queue] failJob failed:", error);
+    return "db_error";
+  }
+  if ((data ?? []).length === 0) {
+    console.warn(`[jobs-queue] failJob: lease lost on ${job.id}; failure not recorded`);
+    return "lease_lost";
+  }
   return plan.status;
 }
 
