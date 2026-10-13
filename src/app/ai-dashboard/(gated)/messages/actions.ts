@@ -449,13 +449,32 @@ export async function fetchMessages(input: {
   const search = (input.search ?? "").trim();
   const page = Math.max(0, Math.trunc(input.page ?? 0));
 
-  // The job filter and the free-text search both live on job_applications, not
-  // on the log, so they resolve to a set of application ids first. The caps
-  // here and in build() are NOT URL-limit guards — 500 ids is 18.7 kB and
-  // answers fine, measured. They silently truncate, and they are tracked as
-  // their own follow-up rather than changed in this pass.
+  /*
+   * This read resolves applicant NAMES only. The job filter used to come
+   * through here as well, and that was a leak.
+   *
+   * The old shape turned the chosen job into a list of application ids and gave
+   * it to `.in("application_id", …)` on the log query. With a search also
+   * present that list became one side of an `or()` — and an `or()` is a
+   * disjunction, so the `subject.ilike` side matched logs on EVERY job the
+   * viewer could see. Measured on production: an owner filtering to the busiest
+   * job and searching a broad needle was served 144 rows where 47 were that
+   * job's. The filter could not be rescued from here, because the job predicate
+   * cannot join the disjunction: PostgREST answers PGRST100 for an `or()`
+   * spanning a parent column and an embedded one (measured). To bind the whole
+   * disjunction it has to AND with it, which means it has to sit on the builder
+   * — see build() below.
+   *
+   * It is still narrowed by the chosen job, even though the builder's `eq` is
+   * what enforces correctness now. The caps here and in build() are NOT
+   * URL-limit guards — 500 ids is 18.5 kB and answers fine, measured — they
+   * silently truncate, and keeping this filter spends the 1000/300 budget on
+   * the one job rather than across every application in scope. Dropping it
+   * would make the name search begin truncating at a LOWER applicant count
+   * than it does today. The truncation is its own follow-up.
+   */
   let appIds: string[] | null = null;
-  if (input.jobId || search) {
+  if (search) {
     let q = service
       .from("job_applications")
       .select("id, first_name, last_name, email, job_title_snapshot, jobs(title)")
@@ -469,22 +488,23 @@ export async function fetchMessages(input: {
     // "no applicant matched" — so a broken read would render as a confident
     // "No messages" for a filter the user can see is set.
     if (error) return unavailable();
-    let rows = (data ?? []) as unknown as AppLite[];
-    if (search) {
-      const needle = search.toLowerCase();
-      rows = rows.filter((r) =>
-        [r.first_name, r.last_name, r.email, roleOf(r, "")]
-          .filter(Boolean)
-          .join(" ")
-          .toLowerCase()
-          .includes(needle),
-      );
-    }
+    // Unguarded now: the only way into this block is a non-empty search, so the
+    // `if (search)` that used to wrap this was always true once the job filter
+    // stopped entering here.
+    const needle = search.toLowerCase();
+    const rows = ((data ?? []) as unknown as AppLite[]).filter((r) =>
+      [r.first_name, r.last_name, r.email, roleOf(r, "")]
+        .filter(Boolean)
+        .join(" ")
+        .toLowerCase()
+        .includes(needle),
+    );
     appIds = rows.map((r) => r.id);
   }
 
-  // A search that matches no applicant still has to match subjects, so the
-  // id filter is only applied as one side of an OR when a search is present.
+  // A search that matches no applicant still has to match subjects, so the id
+  // list is only ever one side of an OR. The job filter is no longer one of its
+  // sides; it is an embedded predicate that ANDs with the whole disjunction.
   const build = (head: boolean) => {
     let q = service
       .from("communication_logs")
@@ -513,18 +533,22 @@ export async function fetchMessages(input: {
 
     if (scope.scoped) q = q.in("job_applications.job_id", scope.jobIds);
 
+    // The job filter, on the same embedded column the scope above uses.
+    // Measured against production: two filters on one embedded column AND, in
+    // either order — neither overwrites the other — so a job outside the
+    // member's scope intersects to nothing instead of being honoured.
+    // Unconditional with respect to search, deliberately: this is the predicate
+    // the subject side of the or() below cannot escape, and exactness at any
+    // applicant count is what the id list could not give.
+    if (input.jobId) q = q.eq("job_applications.job_id", input.jobId);
+
     q = applyTab(q, tab);
 
     if (appIds !== null) {
-      if (search) {
-        const idList = appIds.slice(0, 300);
-        q = idList.length
-          ? q.or(`subject.ilike.%${search}%,application_id.in.(${idList.join(",")})`)
-          : q.ilike("subject", `%${search}%`);
-      } else {
-        // Job filter with no search: an empty set really means no results.
-        q = q.in("application_id", appIds.slice(0, 500));
-      }
+      const idList = appIds.slice(0, 300);
+      q = idList.length
+        ? q.or(`subject.ilike.%${search}%,application_id.in.(${idList.join(",")})`)
+        : q.ilike("subject", `%${search}%`);
     }
     return q;
   };
