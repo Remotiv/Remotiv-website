@@ -54,15 +54,15 @@ test("durations: 30, 45 or 60, defaulting to 60", () => {
   assert.equal(MAX_EXTRA_INTERVIEWERS, 5);
 });
 
-test("the recording notice, version v1, word for word, with the company's name", () => {
-  assert.equal(RECORDING_NOTICE_VERSION, "v1");
+test("the recording notice, version v2, word for word, with the company's name", () => {
+  assert.equal(RECORDING_NOTICE_VERSION, "v2");
   assert.equal(
     recordingNoticeText("Acme"),
-    "This interview will be recorded. The recording will be available only to authorized members of Acme's hiring team and will be deleted after 6 months.",
+    "This interview will be recorded by Remotiv Recorder, an automated participant that joins the Google Meet call. The recording is processed by Recall.ai on Remotiv's behalf, is available only to authorized members of Acme's hiring team, and is deleted 3 months after the interview.",
   );
   assert.equal(
     recordingNoticeText("  "),
-    "This interview will be recorded. The recording will be available only to authorized members of the company's hiring team and will be deleted after 6 months.",
+    "This interview will be recorded by Remotiv Recorder, an automated participant that joins the Google Meet call. The recording is processed by Recall.ai on Remotiv's behalf, is available only to authorized members of the company's hiring team, and is deleted 3 months after the interview.",
   );
   assert.equal(
     ACKNOWLEDGE_RECORDING,

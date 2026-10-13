@@ -14,8 +14,8 @@ import {
   RECORDING_BOT_NAME,
   RECORDING_FAILURE_REASONS,
   RECORDING_IMPORT_SILENT_ERRORS,
-  RECORDING_KEEP_MONTHS,
   RECORDING_LOBBY_ALERT_DELAY_MS,
+  RECORDING_RETENTION_MONTHS,
   RECORDING_SCHEDULE_FAILURE_REASONS,
   type RecordingAlertKind,
   type SCHEDULE_TIME_FAILURE_CODES,
@@ -667,7 +667,7 @@ export async function notifyRecordingReady(
     hostId: fi.host_member_id,
     jobId: fi.job_id,
     title: `The recording of your ${label} is saved`,
-    body: `It is kept with the applicant and deleted after ${RECORDING_KEEP_MONTHS} months.`,
+    body: `It is kept with the applicant and deleted ${RECORDING_RETENTION_MONTHS} months after the interview.`,
   });
 }
 

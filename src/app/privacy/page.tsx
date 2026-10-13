@@ -66,6 +66,19 @@ import { Navbar } from "@/components/navbar";
  *                                   Google's verification needs the Limited
  *                                   Use sentence word for word; the copy test
  *                                   pins it.
+ *   Final interview recordings      section 14, with sections 3, 5 and 6.
+ *   (recording step 6b)             RECORDING_RETENTION_MONTHS (3) in
+ *                                   src/lib/final-interviews/constants.ts, from
+ *                                   the booking's scheduled start. Recall.ai's
+ *                                   copy: deleted by the import once ours is
+ *                                   saved, else by RECORDING_BOT_RETENTION_HOURS
+ *                                   (<= 168, set on every bot). Playback grants
+ *                                   are written to signed_url_logs. No
+ *                                   transcription or AI touches these files.
+ *                                   The retention purge deletes only once
+ *                                   RECORDING_PURGE_LIVE is "true": it must be on
+ *                                   before recording is. Pinned by
+ *                                   src/lib/privacy-final-interview.test.ts.
  *
  * NOT white-label. A company's careers page links here, and it still says
  * Remotiv — because Remotiv is the processor holding the data, whoever the
@@ -92,7 +105,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "7 October 2026";
+const LAST_UPDATED = "13 October 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -209,6 +222,17 @@ export default function PrivacyPage() {
             screen shown before recording starts, so there is a record of what you were told and
             when.
           </P>
+          <P>
+            A final interview held on a Google Meet call with a company&apos;s hiring team is
+            recorded differently. See{" "}
+            <Link
+              href="#final-interviews"
+              className="font-medium text-remotiv-purple underline underline-offset-2"
+            >
+              Final interview recordings
+            </Link>{" "}
+            in section 14.
+          </P>
 
           <H3>When you contact us</H3>
           <P>
@@ -264,10 +288,10 @@ export default function PrivacyPage() {
 
           <H2>3. How long we keep it</H2>
           <P>
-            Two things here expire on their own. Nothing else does. The two that do are enforced by
-            jobs that run every day; they are not a statement of intent, they are code that deletes.
-            Everything else we keep until you ask us to remove it, and we would rather say that than
-            describe a deletion that does not happen.
+            Three things here expire on their own. Nothing else does. The three that do are enforced
+            by jobs that run every day; they are not a statement of intent, they are code that
+            deletes. Everything else we keep until you ask us to remove it, and we would rather say
+            that than describe a deletion that does not happen.
           </P>
 
           <H3>CVs sent to a company: 24 months from the day you apply</H3>
@@ -295,6 +319,12 @@ export default function PrivacyPage() {
             Where an interview was scored, the scorecard is kept with the application after the
             recording goes, including the short quotes from your answers that it cites as its
             evidence.
+          </P>
+
+          <H3>Final interview recordings: 3 months</H3>
+          <P>
+            Recordings of final interviews held on Google Meet are deleted 3 months after the
+            interview. Section 14 explains how they are made and who can see them.
           </P>
 
           <H3>Talent-pool profiles, and CVs sent to Remotiv&apos;s own roles: no expiry date</H3>
@@ -400,7 +430,8 @@ export default function PrivacyPage() {
             <li>
               <strong className="font-semibold text-[#111]">Japan</strong> — our database and all
               file storage, including CVs and interview recordings, are hosted by Supabase in their
-              Tokyo region.
+              Tokyo region. Final interview recordings are made through Recall.ai in its Tokyo
+              region before they reach our storage.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">United States</strong> — interview
@@ -438,6 +469,12 @@ export default function PrivacyPage() {
               <strong className="font-semibold text-[#111]">Anthropic</strong> — receives the text
               of your CV and the transcripts of your interview answers, together with the
               requirements of the role, in order to produce the scores described in section 7.
+            </li>
+            <li>
+              <strong className="font-semibold text-[#111]">Recall.ai</strong> - runs Remotiv
+              Recorder, which records final interviews held on Google Meet. It holds a recording
+              only until Remotiv has saved its own copy, and in any case for no more than 7 days.
+              See section 14.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Resend</strong> — our email provider.
@@ -688,7 +725,62 @@ export default function PrivacyPage() {
             , including the Limited Use requirements.
           </P>
 
-          <H2>14. Contact</H2>
+          <section id="final-interviews" className="scroll-mt-28">
+            <H2>14. Final interview recordings</H2>
+            <P>
+              Some companies hiring through Remotiv hold a final interview with you on a Google Meet
+              call with members of their hiring team. When they do, Remotiv records that call. This
+              is separate from the recorded video interviews described in sections 1 and 3.
+            </P>
+            <UL>
+              <li>
+                <strong className="font-semibold text-[#111]">What is recorded.</strong> The video
+                and audio of the Google Meet call, including everyone taking part: you and the
+                interviewers.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">Who records it.</strong> An automated
+                participant called Remotiv Recorder joins the call. It is run through Recall.ai,
+                which processes the recording on Remotiv&apos;s behalf, in its Tokyo (Japan) region.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">How you are told.</strong> Before you
+                can choose a time, the booking page tells you the interview will be recorded, and
+                you must confirm that you understand. We keep a record of when you confirmed and
+                which version of the notice you saw. The interviewers are told in the calendar
+                invitation. Remotiv Recorder appears in the call under that name, and where the
+                meeting asks guests to wait to be let in, the host admits it from the Google Meet
+                waiting room.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">Where it is stored.</strong> When the
+                call ends, the recording is copied into Remotiv&apos;s private storage with Supabase
+                in Japan. Recall.ai&apos;s copy is deleted as soon as Remotiv has saved its own, and
+                in any case within 7 days.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">Who can watch it.</strong> Only
+                authorized members of the hiring team of the company that held the interview. When
+                an authorized user requests a viewing link, we record who requested it and when. The
+                link is valid for up to 3 hours.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">How long we keep it.</strong> It is
+                deleted automatically 3 months after the interview, or sooner if your application is
+                deleted. A record that the recording existed and was deleted is kept.
+              </li>
+              <li>
+                <strong className="font-semibold text-[#111]">What it is not used for.</strong>{" "}
+                Remotiv does not transcribe final interview recordings, does not score them with AI,
+                and does not use them to train AI models.
+              </li>
+            </UL>
+            <P>
+              To ask for a recording to be deleted sooner, email <Mail />.
+            </P>
+          </section>
+
+          <H2>15. Contact</H2>
           <P>
             For anything in this policy — access, correction, deletion, or a question about what we
             hold — email <Mail />. For anything else, our{" "}

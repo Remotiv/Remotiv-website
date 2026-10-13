@@ -1,7 +1,9 @@
 "use client";
 
 import { AlertTriangle, Calendar, Check, Clock, Globe, Video, X } from "lucide-react";
+import Link from "next/link";
 import { useCallback, useEffect, useMemo, useState } from "react";
+import { RECORDING_PRIVACY_HREF } from "@/lib/final-interviews/constants";
 import { errorCopyFor } from "./_error-copy";
 
 /**
@@ -759,6 +761,15 @@ export function BookingClient({ token }: { token: string }) {
                 <p className="m-0 text-sm leading-relaxed text-gray-700">
                   {state.recordingNotice.text}
                 </p>
+                {/* A new tab, so reading it never loses the booking in progress. */}
+                <Link
+                  href={RECORDING_PRIVACY_HREF}
+                  target="_blank"
+                  rel="noopener noreferrer"
+                  className="mt-2 inline-block text-sm font-medium text-remotiv-purple underline underline-offset-2"
+                >
+                  How we handle interview recordings
+                </Link>
                 <label className="mt-3 flex cursor-pointer items-start gap-2.5 text-sm text-gray-800">
                   <input
                     id="recording-ack"

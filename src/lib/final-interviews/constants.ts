@@ -56,12 +56,20 @@ export const MAX_EXTRA_INTERVIEWERS = 5;
  * The recording notice the candidate must acknowledge before booking. The
  * version is stored with the acknowledgement, so a later change to the wording
  * bumps the version and the old acknowledgements still say what was shown.
+ * Bookings acknowledged under v1 stay valid: nothing re-reads the stored
+ * version or asks again.
+ *
+ * v2 (recording step 6b): names the recorder and Recall.ai, and the 3-month
+ * retention. Every fact in it is pinned in src/lib/privacy-final-interview.test.ts.
  */
-export const RECORDING_NOTICE_VERSION = "v1";
+export const RECORDING_NOTICE_VERSION = "v2";
+
+/** Where the notice links for the detail: the privacy page's Final interview recordings section. */
+export const RECORDING_PRIVACY_HREF = "/privacy#final-interviews";
 
 export function recordingNoticeText(companyName: string): string {
   const company = companyName.trim() || "the company";
-  return `This interview will be recorded. The recording will be available only to authorized members of ${company}'s hiring team and will be deleted after 6 months.`;
+  return `This interview will be recorded by ${RECORDING_BOT_NAME}, an automated participant that joins the Google Meet call. The recording is processed by Recall.ai on Remotiv's behalf, is available only to authorized members of ${company}'s hiring team, and is deleted ${RECORDING_RETENTION_MONTHS} months after the interview.`;
 }
 
 /* ── recording bot (migration 040) ──────────────────────────────── */
@@ -93,6 +101,8 @@ export type FinalBotImportStatus = (typeof FINAL_BOT_IMPORT_STATUSES)[number];
 
 /** The participant name candidates and interviewers see in the call. */
 export const RECORDING_BOT_NAME = "Remotiv Recorder";
+/** The line a final round's calendar event carries for the host and interviewers (step 6b). */
+export const RECORDING_HOST_HEADS_UP = `This interview will be recorded. ${RECORDING_BOT_NAME} will ask to join - please admit it in Google Meet.`;
 /** The bot is told to join this long before the interview starts. */
 export const RECORDING_BOT_JOIN_LEAD_MS = 60_000;
 /**
@@ -205,12 +215,6 @@ export const RECORDING_IMPORT_MAX_JOBS = 3;
 export const RECORDING_IMPORT_MAX_ATTEMPTS = 5;
 /** The reconcile waits this long after an import job ends before queueing the next. */
 export const RECORDING_IMPORT_RETRY_GAP_MS = 6 * 60 * 60_000;
-/**
- * The figure the recording-ready bell states. Left at 6 until the wording step
- * (6b) aligns the bell, the candidate notice and the privacy page with
- * RECORDING_RETENTION_MONTHS. Nothing deletes on this number.
- */
-export const RECORDING_KEEP_MONTHS = 6;
 /**
  * Recording step 6a: a copied recording is deleted this many CALENDAR months
  * after its interview's scheduled start (the booking it was recorded in). A

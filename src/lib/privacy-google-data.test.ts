@@ -27,8 +27,9 @@ const CONNECTIONS = read("src/lib/calendar/connections.ts");
 /** The section's source, from its heading to the next one. */
 const SECTION = (() => {
   const start = PAGE.indexOf("<H2>13. Google user data</H2>");
-  const end = PAGE.indexOf("<H2>14. Contact</H2>");
-  assert.ok(start > 0 && end > start, "section 13 must sit between its heading and Contact");
+  // Section 14 (final interview recordings, step 6b) now sits between 13 and Contact.
+  const end = PAGE.indexOf('<section id="final-interviews"');
+  assert.ok(start > 0 && end > start, "section 13 must sit between its heading and section 14");
   return PAGE.slice(start, end);
 })();
 

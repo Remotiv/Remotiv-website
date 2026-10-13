@@ -28,6 +28,7 @@ import {
 } from "@/lib/final-interviews/bots";
 import {
   interviewTypeLabel,
+  RECORDING_HOST_HEADS_UP,
   RECORDING_NOTICE_VERSION,
   recordingNoticeText,
 } from "@/lib/final-interviews/constants";
@@ -415,6 +416,7 @@ export async function POST(request: Request, { params }: { params: Promise<{ tok
       description: label
         ? [
             `${label} with ${candidateName || "the candidate"} for ${jobTitle}.`,
+            RECORDING_HOST_HEADS_UP,
             `Candidate timezone: ${candidateTimezone}.`,
             recordingNoticeText(companyName),
             "Arranged through Remotiv.",

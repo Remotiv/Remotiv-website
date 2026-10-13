@@ -220,11 +220,12 @@ test("scheduling writes the interview, its interviewers and a final-round link, 
   assert.equal(email.subject, "CTO interview with Acme");
   assert.equal(email.sentByName, "Hana Host", "named sender: outside the automatic-send index");
   assert.match(email.html, /\/book\//);
-  // The apostrophe in "Acme's" is HTML-escaped, so the notice is matched in two
-  // halves either side of it.
-  const [before, after] = recordingNoticeText("Acme").split("Acme's");
+  // Apostrophes ("Remotiv's", "Acme's") are HTML-escaped, so the notice is
+  // matched in the pieces either side of each one.
+  const pieces = recordingNoticeText("Acme").split("'");
+  assert.ok(pieces.length > 1);
   assert.ok(
-    email.html.includes(before) && email.html.includes(after),
+    pieces.every((piece) => email.html.includes(piece)),
     "the notice is in the email",
   );
   assert.doesNotMatch(email.html, /—/);
