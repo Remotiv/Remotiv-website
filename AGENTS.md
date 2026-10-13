@@ -4,6 +4,12 @@
 This version has breaking changes — APIs, conventions, and file structure may all differ from your training data. Read the relevant guide in `node_modules/next/dist/docs/` before writing any code. Heed deprecation notices.
 <!-- END:nextjs-agent-rules -->
 
+## Standing Constraints
+
+These are hard rules, not preferences.
+
+- **Never echo any part of a credential — not the value, not a prefix, not a truncated sample, not a pattern label.** If a probe or sweep needs to report which secret it used, report the variable name only (e.g. `SUPABASE_SERVICE_ROLE_KEY`), never its contents. This covers project-identifying URLs too. Watch for the indirect leaks: `execFileSync`/`execSync` error messages embed the full argv, and a "safe" truncation such as `cut -c1-12` is still part of the secret.
+
 ## Learned User Preferences
 
 - When converting a design (HTML/Figma), match the original pixel-for-pixel — padding, colors, font sizes, content, and layout must be exact; the user repeatedly flags discrepancies in navbar, hero, footer, inquiry form, and outer page padding
