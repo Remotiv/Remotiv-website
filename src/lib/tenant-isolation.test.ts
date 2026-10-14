@@ -613,8 +613,35 @@ const isCompanyKey = (node) => isLit(node) && COMPANY_KEYS.has(node.text);
  * reads this table's columns without ever naming it in `.from()`. A scan that
  * only looks at `.from()` misses it completely — confirmed by negative control
  * 3, where exactly this shape passed silently before this was added.
+ *
+ * Three spellings are matched that a narrower pattern missed, all of them real
+ * PostgREST: an embed renamed with `alias:`, an FK disambiguation hint before
+ * the join modifier (`job_applications!fk_logs_app!inner(…)`), and whitespace
+ * around either. An embed this pattern cannot see is a read with no opinion
+ * attached, which is the one outcome this file exists to prevent.
  */
-const EMBED_RE = new RegExp(`(^|[,(\\s])${TABLE}(!\\w+)?\\s*\\(`);
+const EMBED_RE = new RegExp(
+  `(?:^|[,(\\s])(?:[A-Za-z_]\\w*\\s*:\\s*)?${TABLE}((?:!\\w+)*)\\s*\\(`,
+  "g",
+);
+
+/**
+ * Every embed of this table in a projection, with the join each one asks for.
+ *
+ * PostgREST puts the join in the hints: `!inner` is an INNER join and anything
+ * else — no hint, `!left`, or an FK hint alone — is a LEFT join. The difference
+ * is load-bearing. A filter keyed on an embedded column restricts which
+ * embedded rows are attached, not which parent rows come back; across an INNER
+ * join a parent with no surviving embed is dropped, across a LEFT join it is
+ * returned with the embed nulled out. So the same filter that isolates one
+ * query leaks in the other, and the only thing separating them is the hint.
+ */
+function embedsIn(text) {
+  return [...text.matchAll(EMBED_RE)].map((m) => ({
+    hints: m[1],
+    join: /!inner\b/.test(m[1]) ? "INNER" : "LEFT",
+  }));
+}
 
 /** The base of a builder chain: `service` in `service.from(t).select()`. */
 function chainRoot(node) {
@@ -747,6 +774,11 @@ function functionName(node) {
  * the single-expression form. The chain ROOT has to be the bound name, so a
  * filter on a sibling query inside the same `Promise.all([...])` is not
  * credited to this one.
+ *
+ * The key is returned alongside the value because the two company spellings are
+ * not interchangeable: `company_id_snapshot` restricts the table being read,
+ * `job_applications.company_id_snapshot` restricts an embedded resource, and
+ * which one was written decides whether the join type matters.
  */
 function filtersOn(scope, name) {
   const found = [];
@@ -758,7 +790,9 @@ function filtersOn(scope, name) {
       isCompanyKey(n.arguments[0])
     ) {
       const root = chainRoot(n.expression.expression);
-      if (ts.isIdentifier(root) && root.text === name) found.push(n.arguments[1]);
+      if (ts.isIdentifier(root) && root.text === name) {
+        found.push({ key: n.arguments[0].text, value: n.arguments[1] });
+      }
     }
     ts.forEachChild(n, visit);
   };
@@ -1330,8 +1364,13 @@ export function scanSource(fileName, text) {
           const direct = resolved.table === TABLE;
           const selects = methods.filter((m) => m.name === "select");
           const projections = selects.map((m) => resolveSelectArg(m.args[0], consts));
-          const embedded =
-            !direct && projections.some((p) => p.text !== undefined && EMBED_RE.test(p.text));
+          const embeds = direct
+            ? []
+            : projections.flatMap((p) => (p.text === undefined ? [] : embedsIn(p.text)));
+          const embedded = embeds.length > 0;
+          // The weakest embed wins: a ternary with one `!inner` branch and one
+          // plain branch can still reach the database down the plain one.
+          const embedJoin = embeds.every((e) => e.join === "INNER") ? "INNER" : "LEFT";
           if (!direct && !embedded) {
             // A projection the scan cannot read either names this table or
             // does not, and there is no way to tell from here. Recorded as a
@@ -1349,12 +1388,13 @@ export function scanSource(fileName, text) {
           }
           const bound = boundName(outer);
           const scope = enclosingFunction(n) ?? sf;
-          const values = [
+          const company = [
             ...methods
               .filter((m) => m.name === "eq" && isCompanyKey(m.args[0]))
-              .map((m) => m.args[1]),
+              .map((m) => ({ key: m.args[0].text, value: m.args[1] })),
             ...(bound ? filtersOn(scope, bound) : []),
           ];
+          const values = company.map((f) => f.value);
           sites.push({
             file: fileName,
             line: line(n),
@@ -1363,6 +1403,9 @@ export function scanSource(fileName, text) {
             indirect: !isLit(arg, TABLE),
             embedded,
             via: embedded ? resolved.table : null,
+            embedJoin: embedded ? embedJoin : null,
+            filteredOnEmbed: company.some((f) => f.key === `${TABLE}.${COMPANY_COLUMN}`),
+            filteredOnParent: company.some((f) => f.key === COMPANY_COLUMN),
             filtered: values.length > 0,
             values: values.map((v) => v.getText().replace(/\s+/g, " ")),
             chain: chainText(methods),
@@ -1420,6 +1463,23 @@ const scan = (() => {
 
 const reads = scan.onSurface.filter((s) => !s.write);
 
+/**
+ * A read whose only company filter is keyed on an embedded column the join does
+ * not honour.
+ *
+ * `.select("id, job_applications(company_id_snapshot)")` with
+ * `.eq("job_applications.company_id_snapshot", ctx.companyId)` reads as isolated
+ * and is not. The filter decides which embedded rows are attached; a LEFT join
+ * keeps the parent row either way, so every parent row still comes back and the
+ * embed is simply null for the other companies'. `!inner` is what turns that
+ * filter into a restriction on the parent, and it is one word.
+ *
+ * `filteredOnParent` is the exemption: a query that also filters its own
+ * `company_id_snapshot` is restricted whatever the embed does.
+ */
+const leaksAcrossLeftJoin = (s) =>
+  s.embedded && s.embedJoin === "LEFT" && s.filteredOnEmbed && !s.filteredOnParent;
+
 /* ── the scanner discriminates ────────────────────────────────── */
 
 const wrap = (body) => `async function f(service, ctx) { ${body} }`;
@@ -1428,7 +1488,7 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
   const unfiltered = (src) => {
     const { sites } = scanSource("x.ts", src);
     assert.ok(sites.length > 0, `no site found at all: ${src}`);
-    return sites.filter((s) => !s.filtered);
+    return sites.filter((s) => !s.filtered || leaksAcrossLeftJoin(s));
   };
 
   // Each of these must be reported as unfiltered.
@@ -1472,6 +1532,27 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
       ${wrap('await service.from("communication_logs").select(COLS).eq("company_id", ctx.companyId);')}`,
     "an embedded read behind an interpolated constant": `const EMBED = "job_applications!inner(email)";
       ${wrap(`await service.from("communication_logs").select(\`id, \${EMBED}\`).eq("company_id", ctx.companyId);`)}`,
+    // The accepted case below, with the one word that makes it safe removed.
+    // Each of these spells a LEFT join, so the filter on the embedded column
+    // nulls the embed out and returns the parent row regardless.
+    "a plain embed, filtered on the embedded column": wrap(
+      'await service.from("communication_logs").select("id, job_applications(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "an explicit !left embed, filtered on the embedded column": wrap(
+      'await service.from("communication_logs").select("id, job_applications!left(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "an FK hint with no join modifier": wrap(
+      'await service.from("communication_logs").select("id, job_applications!fk_logs_app(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "an aliased plain embed": wrap(
+      'await service.from("communication_logs").select("id, app:job_applications(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "a ternary whose other branch drops !inner": wrap(
+      'await service.from("communication_logs").select(head ? "id, job_applications!inner(email)" : "id, body, job_applications(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "a builder filtered on the embedded column across a plain embed": wrap(
+      'let q = service.from("communication_logs").select("id, job_applications(email)"); q = q.eq("job_applications.company_id_snapshot", ctx.companyId); await q;',
+    ),
   };
   for (const [name, src] of Object.entries(refused)) {
     assert.ok(unfiltered(src).length > 0, `not refused: ${name}`);
@@ -1494,6 +1575,16 @@ test("the scanner refuses every unsafe shape and accepts the safe ones", () => {
     ),
     "a ternary select, filtered on the embedded column": wrap(
       'await service.from("communication_logs").select(head ? "id, job_applications!inner(email)" : "id, body, job_applications!inner(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    // The join check must not fire on these. The first keeps `!inner` behind an
+    // FK hint, where the join modifier is no longer the last thing in the
+    // string. The second is a LEFT join whose parent carries its own filter, so
+    // nothing depends on the embed restricting anything.
+    "an FK-hinted !inner embed, filtered on the embedded column": wrap(
+      'await service.from("communication_logs").select("id, job_applications!fk_logs_app!inner(email)").eq("job_applications.company_id_snapshot", ctx.companyId);',
+    ),
+    "a plain embed whose parent is filtered on its own column": wrap(
+      'await service.from("communication_logs").select("id, job_applications(email)").eq("company_id_snapshot", ctx.companyId);',
     ),
   };
   for (const [name, src] of Object.entries(accepted)) {
@@ -1560,9 +1651,64 @@ test("the scanner sees aliased tables and flags table names it cannot follow", (
     'await s.from("communication_logs").select("id, body").eq("id", x);',
     'await s.from("communication_logs").select("id, job_applications_count").eq("id", x);',
     'await s.from("talent_claim_tokens").select("id").eq("source_table", "job_applications");',
+    // The case that actually probes the embed pattern's boundary: a DIFFERENT
+    // table whose name starts with this one, with the parenthesis that makes it
+    // an embed. The near-miss above has no parenthesis, so it never could.
+    'await s.from("communication_logs").select("id, job_applications_archive(email)").eq("id", x);',
   ]) {
     assert.deepEqual(scanSource("x.ts", src).sites, [], `false positive: ${src}`);
   }
+
+  // Embed spellings PostgREST accepts and a narrower pattern could not see. An
+  // embed the scan misses is a read it has no opinion about, which is worse
+  // than one it refuses: these must each resolve to exactly one site, with the
+  // join read off the hints rather than off the hint being last.
+  const visible = {
+    "an FK hint before the join modifier": [
+      'await s.from("communication_logs").select("id, job_applications!fk_logs_app!inner(email)").eq("id", x);',
+      "INNER",
+    ],
+    "an FK hint alone, which is a LEFT join": [
+      'await s.from("communication_logs").select("id, job_applications!fk_logs_app(email)").eq("id", x);',
+      "LEFT",
+    ],
+    "a renamed embed": [
+      'await s.from("communication_logs").select("id, app:job_applications!inner(email)").eq("id", x);',
+      "INNER",
+    ],
+    "a renamed plain embed": [
+      'await s.from("communication_logs").select("id, app:job_applications(email)").eq("id", x);',
+      "LEFT",
+    ],
+    "whitespace before the parenthesis": [
+      'await s.from("communication_logs").select("id, job_applications!inner (email)").eq("id", x);',
+      "INNER",
+    ],
+    "an explicit !left": [
+      'await s.from("communication_logs").select("id, job_applications!left(email)").eq("id", x);',
+      "LEFT",
+    ],
+  };
+  for (const [name, [src, join]] of Object.entries(visible)) {
+    const { sites } = scanSource("x.ts", src);
+    assert.equal(sites.length, 1, `embed invisible to the scan: ${name}`);
+    assert.equal(sites[0].embedded, true, `not recorded as embedded: ${name}`);
+    assert.equal(sites[0].embedJoin, join, `join misread: ${name}`);
+  }
+});
+
+test("a tenancy filter through an embedded resource is only credited to an INNER join", () => {
+  const leaky = scan.onSurface.filter(leaksAcrossLeftJoin);
+  assert.deepEqual(
+    leaky.map((s) => `${s.file}:${s.line} ${s.fn}(): ${s.chain}`),
+    [],
+    `A filter keyed "${TABLE}.${COMPANY_COLUMN}" says which embedded rows to attach, not
+which parent rows to return. Across a LEFT join — a plain embed, "!left", or an FK
+hint with no join modifier — a parent row whose ${TABLE} belongs to another
+company is STILL RETURNED, with the embed nulled out, so the read is not isolated
+even though it looks it. Fix by spelling the embed "${TABLE}!inner(…)", or by
+filtering the parent's own "${COMPANY_COLUMN}" as well.`,
+  );
 });
 
 test("a declared guard is checked, not taken on faith", () => {
