@@ -54,6 +54,11 @@ export const CV_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     generation: 2,
     reason: "instruction isolation - candidate text declared data",
   },
+  "cv-scoring-v13": {
+    generation: 2,
+    reason:
+      "temperature sent only to models that accept it; thinking turned off; text read from first text block; max_tokens/refusal now explicit errors - the default model's request is unchanged",
+  },
 };
 
 export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
@@ -74,6 +79,11 @@ export const INTERVIEW_SCORING_GENERATIONS: Record<string, GenerationEntry> = {
     generation: 1,
     reason:
       "rollup told how many answers it has and which it has not - summary shape, no number moves",
+  },
+  "interview-scoring-v9": {
+    generation: 1,
+    reason:
+      "temperature sent only to models that accept it; thinking turned off; text read from first text block; max_tokens/refusal now explicit errors - the default model's request is unchanged",
   },
 };
 

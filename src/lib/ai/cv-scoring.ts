@@ -28,6 +28,12 @@ import {
 import { createServiceClient } from "@/lib/supabase/server";
 import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
 import {
+  acceptsTemperature,
+  assertCompleteStop,
+  extractText,
+  thinkingOffParams,
+} from "./model-params";
+import {
   type Confidence,
   type DimensionScore,
   type EvidenceItem,
@@ -112,8 +118,17 @@ export {
  * section below declares those sections data, and the user message fences
  * them. No band, dimension or evidence rule changed - see
  * scoring-generations.ts, where v12 sits in the same generation as v11.
+ *
+ * v13 - model readiness (lib/ai/model-params.ts). temperature is sent only to
+ * models that accept it; thinking is turned off where the model would think
+ * by default; the answer is read from the first text block, not position 0;
+ * and a max_tokens or refusal stop is now a named error instead of reaching
+ * the parser as truncated text. On the default model (Sonnet 4.5) the request
+ * is byte-identical to v12 - same prompt, temperature 0, same max_tokens - so
+ * v13 stays in v12's generation. Rows scored on a 5.x model differ in
+ * sampling, and ai_model on the row says which model that was.
  */
-export const PROMPT_VERSION = "cv-scoring-v12";
+export const PROMPT_VERSION = "cv-scoring-v13";
 
 /** Swappable without a deploy; the resolved value is stored on every row. */
 export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
@@ -146,13 +161,11 @@ export function resolveScoringModel(): string {
  *     where it is repeatably wrong. Residual spread after this change is the
  *     part the rubric owns, which is exactly what this pass is isolating.
  *
- * CAUTION on model swaps: `temperature` is REJECTED WITH A 400 on Opus 4.7 and
- * later, Sonnet 5, and Fable 5 — the parameter was removed on those models.
- * It is accepted on Sonnet 4.5, which is what DEFAULT_SCORING_MODEL resolves
- * to. Pointing AI_SCORING_MODEL at a newer model therefore fails every scoring
- * call until this is removed. That failure is loud (every application lands on
- * status 'failed' with the API's message), not silent, so it is documented
- * here rather than branched on.
+ * Model swaps: `temperature` is REJECTED WITH A 400 on Opus 4.7 and later,
+ * Sonnet 5 and 5.5, Haiku 5.5 and Fable 5. Since v13 it is sent only where
+ * acceptsTemperature (lib/ai/model-params.ts) says the model takes it, so
+ * Sonnet 4.5, the default, still gets exactly this 0 and the newer models get
+ * none.
  */
 const SCORING_TEMPERATURE = 0;
 
@@ -1067,7 +1080,10 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
       {
         model,
         max_tokens: MAX_TOKENS,
-        temperature: SCORING_TEMPERATURE,
+        // Only where the model accepts it: on Sonnet 4.5 this is exactly the
+        // temperature 0 it always sent; 5.x models reject the field outright.
+        ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
+        ...thinkingOffParams(model),
         // Same text as the plain-string form this replaces — a single text block
         // renders identically — with a cache breakpoint on it. The rubric is
         // byte-identical on every call and ~3.7k tokens, so re-sending it at full
@@ -1116,8 +1132,10 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
   }
   logCacheUsage(response.usage);
 
-  const block = response.content[0];
-  const text = block && block.type === "text" ? block.text : "";
+  // A cut-off or declined reply is named for what it is, and the answer is the
+  // first text block: newer models can put a thinking block first.
+  assertCompleteStop(response, model);
+  const text = extractText(response, model);
   const outcome = parseScoreJson(text);
   if (!outcome.ok) {
     // Malformed is malformed: a missing overall, a fifth dimension, a numeric

@@ -26,8 +26,10 @@ const interview = src("interview-scoring.ts");
 const version = (text) => text.match(/export const PROMPT_VERSION = "([^"]+)"/)[1];
 
 test("versions moved for the isolation change", () => {
-  assert.equal(version(cv), "cv-scoring-v12");
-  assert.equal(version(interview), "interview-scoring-v8");
+  // Moved again since, for model readiness (cv v13, interview v9); the
+  // isolation versions stay in the map below.
+  assert.equal(version(cv), "cv-scoring-v13");
+  assert.equal(version(interview), "interview-scoring-v9");
 });
 
 test("CV scorer: the system prompt declares candidate sections data, and the user message fences them", () => {

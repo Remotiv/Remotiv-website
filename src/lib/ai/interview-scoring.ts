@@ -38,6 +38,12 @@ import {
   ScoringSkipped,
   verifyEvidence,
 } from "./cv-scoring";
+import {
+  acceptsTemperature,
+  assertCompleteStop,
+  extractText,
+  thinkingOffParams,
+} from "./model-params";
 import { parseAnswerJson, stripCodeFences } from "./score-parsers";
 import {
   answerRunDecision,
@@ -173,8 +179,14 @@ import {
  * pattern; several get the cross-answer comparison as before. The appended
  * coverage sentence now counts questions asked, matching the review page.
  * No band, rule or evidence requirement changed - same generation as v7.
+ *
+ * v9 - model readiness, the same change as cv-scoring v13 (lib/ai/
+ * model-params.ts): temperature only where the model accepts it, thinking
+ * turned off where it would be on by default, text read from the first text
+ * block, max_tokens and refusal stops named. On the default model the
+ * requests are byte-identical to v8, so v9 stays in v8's generation.
  */
-export const PROMPT_VERSION = "interview-scoring-v8";
+export const PROMPT_VERSION = "interview-scoring-v9";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
@@ -508,7 +520,8 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
       {
         model,
         max_tokens: MAX_TOKENS,
-        temperature: SCORING_TEMPERATURE,
+        ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
+        ...thinkingOffParams(model),
         system: [{ type: "text", text: SYSTEM_PROMPT }],
         messages: [{ role: "user", content: buildUserMessage(input) }],
       },
@@ -543,8 +556,8 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
     );
   }
 
-  const block = response.content[0];
-  const text = block && block.type === "text" ? block.text : "";
+  assertCompleteStop(response, model);
+  const text = extractText(response, model);
   const outcome = parseAnswerJson(text);
   if (!outcome.ok) {
     // A missing or non-numeric score is malformed, not zero. Same path as
@@ -881,7 +894,8 @@ export async function summariseSession(
       {
         model,
         max_tokens: 700,
-        temperature: SCORING_TEMPERATURE,
+        ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
+        ...thinkingOffParams(model),
         system: [{ type: "text", text: SESSION_SYSTEM_PROMPT }],
         messages: [
           {
@@ -902,8 +916,8 @@ export async function summariseSession(
     });
     if (!("content" in response)) throw new Error("rollup: streamed response");
 
-    const block = response.content[0];
-    const raw = block && block.type === "text" ? block.text : "";
+    assertCompleteStop(response, model);
+    const raw = extractText(response, model);
     const parsed = JSON.parse(stripCodeFences(raw)) as Record<string, unknown>;
 
     return {
