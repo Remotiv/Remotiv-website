@@ -96,10 +96,18 @@ import {
   deleteApplicationComment,
   dismissShortlistFlagAction,
   fetchCompanyApplicant,
+  fetchScreeningAnswers,
   rescoreApplication,
   updateApplicationComment,
   updateApplicationStage,
 } from "./actions";
+import { buildApplicantsCsv, CSV_EXPORT_MAX, type CsvApplicant } from "./csv-export";
+import {
+  type ScreeningState,
+  screeningCard,
+  screeningCount,
+  selectScreening,
+} from "./screening-state";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -170,8 +178,15 @@ const TOP_MATCH_MIN_SCORE = 90;
 /** Even in a strong field the chip has to stay scarce to mean anything. */
 const TOP_MATCH_MAX_CHIPS = 10;
 
-/** Rows per page, list and cards alike. */
-const PAGE_SIZE = 20;
+/**
+ * Rows per page, list and cards alike.
+ *
+ * The same constant the export is capped at, not a second 20 that happens to
+ * match: the button exports the current page, and the server read refuses more
+ * than CSV_EXPORT_MAX ids. Were these to drift apart, a full page would export
+ * nothing at all — and nothing in the type system would notice.
+ */
+const PAGE_SIZE = CSV_EXPORT_MAX;
 
 /** "Review top 10" shows this many, best first. */
 const TOP_N = 10;
@@ -437,11 +452,6 @@ function LimeHighlight({ children }: { children: React.ReactNode }) {
       {children}
     </span>
   );
-}
-
-/** RFC-4180 escaping: quote the field and double any embedded quotes. */
-function csvCell(value: string): string {
-  return `"${value.replace(/"/g, '""')}"`;
 }
 
 // ── Score ring (pending state only, until Step 4) ────────────
@@ -1432,6 +1442,7 @@ function ScoredDimension({ dimension: d }: { dimension: ScoreDimensionRow }) {
 
 function ApplicantDrawer({
   row,
+  screeningState,
   showScoringTip,
   history,
   scoreDetail,
@@ -1474,6 +1485,15 @@ function ApplicantDrawer({
   onStep,
 }: {
   row: CompanyApplicantRow;
+  /**
+   * The screening read, still keyed by the applicant it was started for.
+   *
+   * Passed raw rather than pre-resolved so the id comparison happens against
+   * the row being RENDERED here — the drawer steps between applicants while a
+   * read is in flight, and matching at the point of use is what makes one
+   * candidate's answers under another's name unrepresentable.
+   */
+  screeningState: ScreeningState;
   /** Undismissed per member. The render condition below narrows it further. */
   showScoringTip: boolean;
   history: StageHistoryRow[];
@@ -1554,6 +1574,15 @@ function ApplicantDrawer({
    * directly below it showed a full scorecard.
    */
   const headerScore: ApplicantScore = scoreDetail ?? row.score;
+
+  // Resolved against row.id, so a response that arrived for the previously
+  // open applicant reads as "loading" rather than as this one's answers.
+  const screening = selectScreening(screeningState, row.id);
+  const screeningView = screeningCard(screening);
+  // Null until the answers are known. The Review summary's source line is
+  // omitted on null rather than quoting a count of 0, which reads as "the job
+  // asked nothing" — a different claim from "we have not loaded it yet".
+  const screeningAnswerCount = screeningCount(screening);
 
   // The Communication tab's single list. Both directions are in flight
   // separately, so the skeleton stands until neither is still arriving —
@@ -1987,37 +2016,57 @@ function ApplicantDrawer({
                 )}
               </PaneCard>
 
-              {row.screening_answers.length > 0 && (
+              {/* Absent entirely when the job asked nothing — same as before.
+                  But an unreadable answer set is NOT that: "empty" is a claim
+                  about the job, and making it on the strength of a failed read
+                  leaves the reader no way to tell the difference. */}
+              {screeningView !== "empty" && (
                 <PaneCard title="Screening questions">
-                  {/* Provenance stated ONCE here rather than repeated on every
+                  {screeningView === "failed" && (
+                    <p
+                      className={`${TIMELINE_NOTICE} border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
+                    >
+                      The screening answers couldn&apos;t be loaded. That isn&apos;t the same as the
+                      candidate answering nothing — close and reopen to try again.
+                    </p>
+                  )}
+                  {screeningView === "loading" && (
+                    <div className="flex flex-col gap-3">
+                      <div className="h-[11px] w-2/3 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+                      <div className="h-[11px] w-1/2 animate-pulse rounded-full bg-[var(--ai-inset)]" />
+                    </div>
+                  )}
+                  {screening.status === "ready" && screening.answers.length > 0 && (
+                    <>
+                      {/* Provenance stated ONCE here rather than repeated on every
                     pill. The pills then stay short enough to sit inline beside
                     the answer, and this line can say the thing a pill never
                     could — that nobody verified any of it. */}
-                  <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
-                    Answered by the candidate at apply time and checked against the thresholds you
-                    set. Self-reported — not verified by Remotiv.
-                  </p>
-                  <div className="flex flex-col gap-[9px]">
-                    {row.screening_answers.map((a) => (
-                      <div
-                        key={a.question_id}
-                        className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
-                      >
-                        <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs leading-snug text-[var(--ai-t3)]">
-                          {a.question}
-                          {/* Sits on the question, not the answer: "required" is
+                      <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
+                        Answered by the candidate at apply time and checked against the thresholds
+                        you set. Self-reported — not verified by Remotiv.
+                      </p>
+                      <div className="flex flex-col gap-[9px]">
+                        {screening.answers.map((a) => (
+                          <div
+                            key={a.question_id}
+                            className="rounded-xl border border-[var(--ai-line)] px-[13px] py-[11px] transition-colors hover:border-[var(--ai-line-strong)] hover:bg-[var(--ai-inset)]"
+                          >
+                            <p className="mb-1.5 flex flex-wrap items-center gap-1.5 text-xs leading-snug text-[var(--ai-t3)]">
+                              {a.question}
+                              {/* Sits on the question, not the answer: "required" is
                             a property of what the employer asked, and an
                             unmatched essential is what turns a below-threshold
                             answer into a listed missing requirement. */}
-                          {a.essential && (
-                            <span className="shrink-0 rounded-full bg-[var(--ai-purple-tint)] px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
-                              Essential
-                            </span>
-                          )}
-                        </p>
-                        <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
-                          {a.answer_label || a.answer || "—"}
-                          {/* The snapshot's own `matched` flag, scored at apply
+                              {a.essential && (
+                                <span className="shrink-0 rounded-full bg-[var(--ai-purple-tint)] px-[7px] py-px text-[10px] font-bold uppercase tracking-[0.06em] text-[var(--ai-purple-ink)]">
+                                  Essential
+                                </span>
+                              )}
+                            </p>
+                            <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
+                              {a.answer_label || a.answer || "—"}
+                              {/* The snapshot's own `matched` flag, scored at apply
                             time — never re-derived here.
 
                             Deliberately NOT green. A mint success pill reads as
@@ -2034,21 +2083,23 @@ function ApplicantDrawer({
                             different and wrong one. Absent on every snapshot
                             written before the mode existed, so `!== false` keeps
                             those rendering exactly as they always did. */}
-                          {a.scored !== false && (
-                            <span
-                              className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
-                                a.matched
-                                  ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
-                                  : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
-                              }`}
-                            >
-                              {a.matched ? "Meets threshold" : "Below threshold"}
-                            </span>
-                          )}
-                        </p>
+                              {a.scored !== false && (
+                                <span
+                                  className={`shrink-0 rounded-full px-2 py-[2.5px] text-[10.5px] font-semibold ${
+                                    a.matched
+                                      ? "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]"
+                                      : "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]"
+                                  }`}
+                                >
+                                  {a.matched ? "Meets threshold" : "Below threshold"}
+                                </span>
+                              )}
+                            </p>
+                          </div>
+                        ))}
                       </div>
-                    ))}
-                  </div>
+                    </>
+                  )}
                 </PaneCard>
               )}
             </div>
@@ -2357,10 +2408,16 @@ function ApplicantDrawer({
                       {/* Real, unlike most of the design's sub-lines. The
                           answers are frozen at apply time and the scorer is
                           handed them as context alongside the CV, so the count
-                          on the row is the count the model read. */}
-                      <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">
-                        {summarySource(row.screening_answers.length)}
-                      </span>
+                          is the count the model read.
+
+                          The scorecard arrives before the answers do, so this
+                          clause waits for them instead of claiming the CV was
+                          the only input. */}
+                      {screeningAnswerCount !== null && (
+                        <span className="text-right text-[11px] font-medium text-[var(--ai-t3)]">
+                          {summarySource(screeningAnswerCount)}
+                        </span>
+                      )}
                     </div>
                     <p className="m-0 text-[13px] leading-[1.72] text-[var(--ai-t2)]">
                       {scoreDetail.summary}
@@ -4283,11 +4340,18 @@ export function ApplicantsClient({
   const [historyLoading, setHistoryLoading] = useState(false);
   const [historyFailed, setHistoryFailed] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
+  /**
+   * The screening answers, from the same read as scoreDetail and carrying the
+   * id they belong to. See screening-state.ts for why the id travels with them.
+   */
+  const [screeningState, setScreeningState] = useState<ScreeningState>(null);
   /** The unscored card's facts, from the same read as scoreDetail. */
   const [scoring, setScoring] = useState<ApplicantScoringFacts | null>(null);
   /** The team's thread, loaded with the rest of the detail. */
   const [comments, setComments] = useState<ApplicantComment[]>([]);
   const [scoreSaving, setScoreSaving] = useState(false);
+  /** The export's screening read is in flight — the button says so and blocks. */
+  const [exporting, setExporting] = useState(false);
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, ApplicantScore>>({});
 
@@ -4500,6 +4564,7 @@ export function ApplicantsClient({
     if (!openId) {
       setHistory([]);
       setScoreDetail(null);
+      setScreeningState(null);
       setComments([]);
       return;
     }
@@ -4507,6 +4572,7 @@ export function ApplicantsClient({
     setHistoryLoading(true);
     setHistoryFailed(false);
     setHistory([]);
+    setScreeningState(null);
     setComments([]);
     fetchCompanyApplicant(openId)
       .then((read) => {
@@ -4516,10 +4582,20 @@ export function ApplicantsClient({
         // gives no hint that anything went wrong.
         if (!read.ok) {
           setHistoryFailed(true);
+          // Keyed to openId, so this failure can only ever render under the
+          // applicant it was read for.
+          setScreeningState({ id: openId, answers: null });
           return;
         }
         setHistory(read.value?.history ?? []);
         setScoreDetail(read.value?.scoreDetail ?? null);
+        // No detail row is not an empty answer set — it is an answer set we
+        // did not get, so it stays a failure rather than becoming "No
+        // screening questions" under the candidate's name.
+        setScreeningState({
+          id: openId,
+          answers: read.value ? read.value.screening_answers : null,
+        });
         setScoring(read.value?.scoring ?? null);
         setComments(read.value?.comments ?? []);
       })
@@ -4527,6 +4603,7 @@ export function ApplicantsClient({
         if (cancelled) return;
         setHistory([]);
         setScoreDetail(null);
+        setScreeningState({ id: openId, answers: null });
         setScoring(null);
         setComments([]);
       })
@@ -4839,12 +4916,6 @@ export function ApplicantsClient({
   }
 
   /**
-   * Client-side CSV of the rows currently on screen — no server action needed,
-   * since the data is already in the browser. Mirrors the visible columns
-   * exactly. `cv_path` is never included (and never reaches the client at all);
-   * CVs are only reachable through the audited signed-URL route.
-   */
-  /**
    * CSV of the CURRENT PAGE, not the whole result set.
    *
    * Page-wise because the button sits beside a paginated list and "Export"
@@ -4852,61 +4923,68 @@ export function ApplicantsClient({
    * label says so explicitly.
    *
    * Columns deliberately include the AI score, confidence and the screening
-   * result — the three things a recruiter actually sorts on, and all of them
-   * were missing. `cv_path` and signed URLs are NEVER included: the path is a
-   * capability that would bypass the ownership gate and the signed_url_logs
-   * audit, so CVs stay reachable only through the audited route.
+   * result — the three things a recruiter actually sorts on. `cv_path` and
+   * signed URLs are NEVER included: the path is a capability that would bypass
+   * the ownership gate and the signed_url_logs audit, so CVs stay reachable
+   * only through the audited route.
+   *
+   * Async because the screening column is no longer in the list payload — it
+   * is read for this page only, under the same company and job scope as the
+   * list. The read is allowed to fail; the EXPORT is not allowed to proceed
+   * when it does. A file with blank screening cells is indistinguishable from
+   * a file reporting that nobody answered anything, and a recruiter filtering
+   * that spreadsheet would act on it. So on any failure, or any missing
+   * applicant in the response, this returns before a Blob exists.
+   *
+   * Everything that can be formatted wrongly — escaping, column order, the
+   * threshold arithmetic, the completeness check — is in csv-export.ts, where
+   * a test can execute it.
    */
-  function exportCsv() {
-    if (paged.length === 0) return;
+  async function exportCsv() {
+    if (paged.length === 0 || exporting) return;
 
-    const header = [
-      "Candidate",
-      "Email",
-      "Job",
-      "Stage",
-      "AI score",
-      "Score status",
-      "Confidence",
-      "Screening",
-      "Applied",
-    ];
+    setExporting(true);
+    let read: Awaited<ReturnType<typeof fetchScreeningAnswers>>;
+    try {
+      read = await fetchScreeningAnswers(paged.map((r) => r.id));
+    } catch {
+      read = { ok: false };
+    }
+    setExporting(false);
 
-    const screeningCell = (r: CompanyApplicantRow): string => {
-      // Counted over TESTED questions only, both sides. A numeric_mode 'none'
-      // question has no threshold to meet, so including it in the denominator
-      // would report "2/3 thresholds met" on a candidate who met both of the
-      // two that existed.
-      const tested = r.screening_answers.filter((a) => a.scored !== false);
-      if (r.screening_answers.length === 0) return "No questions";
-      if (tested.length === 0) return "No thresholds set";
-      const met = tested.filter((a) => a.matched).length;
-      return `${met}/${tested.length} thresholds met`;
-    };
+    if (!read.ok) {
+      setToast({
+        message:
+          "Couldn't read the screening answers, so no file was written. The list is unaffected — try the export again.",
+        tone: "error",
+      });
+      return;
+    }
 
-    const lines = [
-      header.map(csvCell).join(","),
-      ...paged.map((r) =>
-        [
-          fullName(r),
-          r.email,
-          r.job_title,
-          PIPELINE_STAGE_LABELS[stageOf(r)],
-          r.score.status === "scored" && r.score.overall != null ? String(r.score.overall) : "",
-          r.score.adjusted ? "Adjusted" : r.score.status,
-          r.score.confidence ?? "",
-          screeningCell(r),
-          new Date(r.created_at).toISOString().slice(0, 10),
-        ]
-          .map(csvCell)
-          .join(","),
-      ),
-    ];
+    const applicants: CsvApplicant[] = paged.map((r) => ({
+      id: r.id,
+      name: fullName(r),
+      email: r.email,
+      job_title: r.job_title,
+      stage: stageOf(r),
+      score: r.score,
+      created_at: r.created_at,
+    }));
 
-    // BOM so Excel reads UTF-8 names correctly.
-    const blob = new Blob([`﻿${lines.join("\r\n")}`], {
-      type: "text/csv;charset=utf-8;",
-    });
+    const built = buildApplicantsCsv(applicants, read.value);
+    if (!built.ok) {
+      console.error(
+        `[applicants] export refused, screening answers missing for ${built.missing.length} of ${applicants.length}`,
+      );
+      setToast({
+        message:
+          "Couldn't read every applicant's screening answers, so no file was written. The list is unaffected — try the export again.",
+        tone: "error",
+      });
+      return;
+    }
+
+    const blob = new Blob([built.csv], { type: "text/csv;charset=utf-8;" });
     const url = URL.createObjectURL(blob);
     const a = document.createElement("a");
     a.href = url;
@@ -5000,11 +5078,11 @@ export function ApplicantsClient({
             <button
               type="button"
               onClick={exportCsv}
-              disabled={paged.length === 0}
+              disabled={paged.length === 0 || exporting}
               className="inline-flex items-center gap-2 whitespace-nowrap rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-[11px] text-[13.5px] font-semibold text-[var(--ai-t2)] transition-colors hover:border-[var(--ai-sidebar)] hover:bg-[var(--ai-sidebar)] hover:text-white disabled:cursor-not-allowed disabled:opacity-50 disabled:hover:border-[var(--ai-line-strong)] disabled:hover:bg-[var(--ai-surface)] disabled:hover:text-[var(--ai-t2)]"
             >
               <Download className="size-[15px]" strokeWidth={1.9} />
-              Export page
+              {exporting ? "Exporting…" : "Export page"}
             </button>
             {/* A view MODE, not a filter: it narrows whatever the tabs, job
                 filter and search already selected, so the two compose. Active
@@ -5437,6 +5515,7 @@ export function ApplicantsClient({
            */
           key={openRow.id}
           row={openRow}
+          screeningState={screeningState}
           showScoringTip={showScoringTip}
           clock={clock}
           history={history}

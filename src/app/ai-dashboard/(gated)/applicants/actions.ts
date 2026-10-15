@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { CSV_EXPORT_MAX } from "@/app/ai-dashboard/(gated)/applicants/csv-export";
 import { actionFailed, actionIncomplete, queueFailed } from "@/app/ai-dashboard/lib/action-errors";
 import {
   type AddApplicantDuplicate,
@@ -63,9 +64,23 @@ const CV_BUCKET = "cvs";
  * can derive `has_cv`. `cv_url` is the legacy public-URL column kept for rows
  * that predate the private bucket. `cv_delete_after` is selected for the same
  * reason — it is what separates an expired CV from one never supplied.
+ *
+ * `screening_answers` is NOT here. It is a jsonb that measured 63.5% of this
+ * projection's bytes and is read by the drawer and the CSV only, so it is
+ * selected by APPLICANT_DETAIL_COLUMNS instead. The rule this restores is the
+ * one already written over the scorecard read below: the jsonb columns are
+ * drawer-only, never in the list.
  */
-const APPLICANT_COLUMNS =
-  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, screening_answers, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, source, cv_path, cv_url, cv_delete_after, shortlist_flagged_at, shortlist_flag_reason, jobs(title)";
+const APPLICANT_LIST_COLUMNS =
+  "id, first_name, last_name, email, phone, linkedin_url, job_id, job_title_snapshot, city, country, years_experience, notice_period, availability, created_at, pipeline_stage, source, cv_path, cv_url, cv_delete_after, shortlist_flagged_at, shortlist_flag_reason, jobs(title)";
+
+/**
+ * The list's columns plus the drawer's jsonb. Derived by concatenation rather
+ * than written out again: two hand-maintained lists drift the first time a
+ * column is added to one of them, and the drift is invisible because both
+ * queries still succeed.
+ */
+const APPLICANT_DETAIL_COLUMNS = `${APPLICANT_LIST_COLUMNS}, screening_answers`;
 
 type ApplicantQueryRow = {
   id: string;
@@ -76,7 +91,6 @@ type ApplicantQueryRow = {
   linkedin_url: string | null;
   job_id: string | null;
   job_title_snapshot: string | null;
-  screening_answers: unknown;
   city: string | null;
   country: string | null;
   years_experience: number | null;
@@ -92,6 +106,20 @@ type ApplicantQueryRow = {
   shortlist_flag_reason: string | null;
   jobs: { title: string | null } | null;
 };
+
+/** What APPLICANT_DETAIL_COLUMNS returns: the list row plus the drawer's jsonb. */
+type ApplicantDetailQueryRow = ApplicantQueryRow & { screening_answers: unknown };
+
+/**
+ * A stored screening_answers jsonb, shaped.
+ *
+ * A non-array — a missing key, or a row written before the column existed —
+ * reads as "no questions", which is the same value a job that asked none
+ * stores. Both mean nothing to show.
+ */
+function toScreeningAnswers(v: unknown): ScreeningAnswerSnapshot[] {
+  return Array.isArray(v) ? (v as ScreeningAnswerSnapshot[]) : [];
+}
 
 /** Summary columns for the list; the drawer selects the jsonb on top. */
 const SCORE_SUMMARY_COLUMNS =
@@ -238,9 +266,6 @@ function toRow(r: ApplicantQueryRow, score?: ScoreSummaryRow): CompanyApplicantR
     job_id: r.job_id,
     // Live title first; the snapshot is what survives a deleted job.
     job_title: r.jobs?.title?.trim() || r.job_title_snapshot?.trim() || "—",
-    screening_answers: Array.isArray(r.screening_answers)
-      ? (r.screening_answers as ScreeningAnswerSnapshot[])
-      : [],
     city: r.city,
     country: r.country,
     years_experience: r.years_experience,
@@ -409,7 +434,7 @@ export async function fetchCompanyApplicants(
   for (let from = 0; ; from += PAGE) {
     let q = service
       .from("job_applications")
-      .select(APPLICANT_COLUMNS)
+      .select(APPLICANT_LIST_COLUMNS)
       .eq("company_id_snapshot", ctx.companyId);
 
     if (scope.scoped) q = q.in("job_id", scope.jobIds);
@@ -455,6 +480,63 @@ export async function fetchCompanyApplicants(
 }
 
 /**
+ * Screening answers for the applicants on one page, for the CSV export.
+ *
+ * The export's screening column used to come free, because the list carried
+ * the jsonb for every applicant to serve a column read on twenty of them. It
+ * no longer does, so the export fetches what it needs — and only what it
+ * needs.
+ *
+ * Capped at one page rather than chunked. Chunking is what the score summaries
+ * do, and it is right there because that read covers the whole list; here the
+ * only caller is one page of a paginated table, so a version that accepted
+ * thousands of ids would be a new way to pull this jsonb for the entire table
+ * through an export button. Over the cap is a refusal, and no query is issued.
+ *
+ * Scoped exactly like the list: company first, then the caller's job scope. An
+ * id outside either simply does not come back, and the caller writes no file
+ * when an id it asked for is missing — so an out-of-scope id cannot be
+ * exported as a blank cell.
+ */
+export async function fetchScreeningAnswers(
+  ids: string[],
+): Promise<Read<Record<string, ScreeningAnswerSnapshot[]>>> {
+  if (ids.length === 0) return answered({});
+  if (ids.length > CSV_EXPORT_MAX) {
+    console.error(
+      `[applicants] fetchScreeningAnswers refused ${ids.length} ids, cap is ${CSV_EXPORT_MAX}`,
+    );
+    return unavailable();
+  }
+
+  const ctx = await getCompanyContext();
+  const scope = await getJobScope(ctx);
+  // An answer: assigned to no roles means none of these ids are readable.
+  if (scope.scoped && scope.jobIds.length === 0) return answered({});
+
+  const service = createServiceClient();
+  let q = service
+    .from("job_applications")
+    .select("id, screening_answers")
+    .eq("company_id_snapshot", ctx.companyId)
+    .in("id", ids);
+
+  if (scope.scoped) q = q.in("job_id", scope.jobIds);
+
+  const { data, error } = await q;
+  if (error) {
+    console.error("[applicants] fetchScreeningAnswers failed:", error);
+    return unavailable();
+  }
+
+  const out: Record<string, ScreeningAnswerSnapshot[]> = {};
+  for (const r of (data ?? []) as { id: string; screening_answers: unknown }[]) {
+    out[r.id] = toScreeningAnswers(r.screening_answers);
+  }
+  return answered(out);
+}
+
+/**
  * One applicant plus their stage history, for the detail drawer. Same tenant
  * boundary as the list — a client-supplied id proves nothing about who owns
  * the row.
@@ -467,7 +549,7 @@ export async function fetchCompanyApplicant(
 
   const { data, error } = await service
     .from("job_applications")
-    .select(APPLICANT_COLUMNS)
+    .select(APPLICANT_DETAIL_COLUMNS)
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId)
     .maybeSingle();
@@ -480,7 +562,7 @@ export async function fetchCompanyApplicant(
     return unavailable();
   }
 
-  const row = data as unknown as ApplicantQueryRow | null;
+  const row = data as unknown as ApplicantDetailQueryRow | null;
   if (!row) return answered(null);
 
   // The drawer is a read of one applicant, so the list's .in() never ran.
@@ -578,6 +660,7 @@ export async function fetchCompanyApplicant(
 
   return answered({
     applicant: toRow(row, sRow ?? undefined),
+    screening_answers: toScreeningAnswers(row.screening_answers),
     history: (histData ?? []) as StageHistoryRow[],
     scoreDetail,
     scoring: await readScoringFacts(service, ctx.companyId, applicationId, {

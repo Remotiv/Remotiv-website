@@ -51,7 +51,6 @@ export type CompanyApplicantRow = {
   job_id: string | null;
   /** Live jobs.title, falling back to the frozen job_title_snapshot. */
   job_title: string;
-  screening_answers: ScreeningAnswerSnapshot[];
   city: string | null;
   country: string | null;
   years_experience: number | null;
@@ -373,6 +372,15 @@ export type ApplicantScoringFacts = {
 
 export type CompanyApplicantDetail = {
   applicant: CompanyApplicantRow;
+  /**
+   * Drawer-only, and deliberately NOT on CompanyApplicantRow.
+   *
+   * Measured at 63.5% of the list payload — 1,578 B of the 2,485 B an average
+   * row cost — for a jsonb only the drawer and the CSV ever read. Keeping it off
+   * the row type is what stops it being transferred for every applicant on the
+   * page to serve the one that is open.
+   */
+  screening_answers: ScreeningAnswerSnapshot[];
   history: StageHistoryRow[];
   /** Full scorecard for the drawer. Null when never scored. */
   scoreDetail: ApplicantScoreDetail | null;
