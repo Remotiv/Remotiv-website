@@ -67,15 +67,18 @@ test("requestCvScore stays free of cap logic", () => {
   assert.doesNotMatch(request, /allowance|capacity|consume|release|cv_scored|limit/i);
 });
 
-test("the reservation sits after the last free skip and before scoreCv", () => {
+test("the reservation sits after the last free skip and before the paid scoring", () => {
   const lastFreeSkip = handler.indexOf("cvText.length < MIN_CV_TEXT_CHARS");
   const scoringOff = handler.indexOf("await skip(SCORING_OFF_REASON);");
   const reserve = handler.indexOf("await consumeCvAllowance(service, companyId, app.id);");
-  const paid = handler.indexOf("card = await scoreCv(");
+  // scoreCvRuns is scoreCv once, or three times for a median (AI_SCORING_RUNS):
+  // either way the one reservation above covers it.
+  const paid = handler.indexOf("card = await scoreCvRuns(");
   assert.ok(scoringOff > 0 && lastFreeSkip > scoringOff, "free skips found");
   assert.ok(reserve > lastFreeSkip, "reserve after the free skips");
   assert.ok(paid > reserve, "reserve before the paid call");
   assert.equal(handler.match(/consumeCvAllowance\(/g).length, 1);
+  assert.equal(handler.match(/await scoreCv(Runs)?\(/g).length, 1, "one paid scoring call");
 });
 
 test("the slot is released in a finally unless the score was persisted, and persisted only after the write", () => {

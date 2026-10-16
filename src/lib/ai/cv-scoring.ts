@@ -26,6 +26,7 @@ import {
 } from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
 import { CV_WEIGHT_DEFAULT } from "@/lib/weights";
+import { medianOfRuns, resolveScoringRuns } from "./median-runs";
 import {
   acceptsTemperature,
   assertCompleteStop,
@@ -1380,6 +1381,56 @@ async function writeScoreRow(row: Record<string, unknown>): Promise<{ error: str
   return { error: error?.message ?? null };
 }
 
+/** A failed run with one of these classes is not retried: the whole job fails, as with one run. */
+const FINAL_FAILURE_CLASSES: ReadonlySet<string> = new Set(["billing", "configuration"]);
+
+/**
+ * scoreCv, once or as a median of three (AI_SCORING_RUNS, see median-runs.ts).
+ *
+ * With AI_SCORING_RUNS unset or 1 this IS scoreCv: same request, same card,
+ * nothing logged. With 3, three complete scorings run in parallel inside the
+ * job's own deadline, and the stored card is the one whose final overall -
+ * after the job's weights, because scoreCv applies them - is the median (the
+ * lower of two if only two succeeded). Tokens are the total across the runs
+ * that returned a card. The allowance is reserved once, by the caller.
+ */
+export async function scoreCvRuns(
+  input: ScoreInput,
+  ctx?: JobContext,
+  applicationId?: string,
+): Promise<Scorecard> {
+  const runs = resolveScoringRuns();
+  if (runs === 1) return scoreCv(input, ctx);
+
+  const outcome = await medianOfRuns<Scorecard>({
+    runs,
+    attempt: () => scoreCv(input, ctx),
+    overall: (card) => card.overall_score,
+    isFinal: (err, retry) =>
+      err instanceof ScoringSkipped ||
+      // Out of budget before the first call yields the job, as today. Before a
+      // retry it only means there is no time for one.
+      (err instanceof JobYield && !retry) ||
+      FINAL_FAILURE_CLASSES.has(classifyProviderError(err).failureClass),
+    canRetry: () =>
+      !ctx || (!ctx.signal.aborted && ctx.remainingMs() >= MIN_PROVIDER_CALL_BUDGET_MS),
+  });
+
+  const cards = outcome.results.flatMap((r) => (r.ok ? [r.value] : []));
+  console.log("[cv-scoring] scored", runs, "times", {
+    applicationId,
+    overalls: outcome.results.map((r) => (r.ok ? r.value.overall_score : null)),
+    chosen: outcome.chosen.overall_score,
+    rule: outcome.rule,
+    retried: outcome.results.filter((r) => r.retried).length,
+  });
+  return {
+    ...outcome.chosen,
+    input_tokens: cards.reduce((sum, c) => sum + c.input_tokens, 0),
+    output_tokens: cards.reduce((sum, c) => sum + c.output_tokens, 0),
+  };
+}
+
 /**
  * The `ai_cv_score` job handler.
  *
@@ -1524,7 +1575,7 @@ export async function handleAiCvScore(
   let card: Scorecard;
   try {
     try {
-      card = await scoreCv(
+      card = await scoreCvRuns(
         {
           cvText,
           screeningAnswers,
@@ -1559,6 +1610,7 @@ export async function handleAiCvScore(
           },
         },
         ctx,
+        app.id,
       );
     } catch (err) {
       if (err instanceof ScoringSkipped) {
