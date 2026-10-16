@@ -1,4 +1,5 @@
-import { answered, type Read, unavailable } from "@/lib/supabase/read";
+import { cache } from "react";
+import { answered, orElse, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
   type CompanyContext,
@@ -46,19 +47,56 @@ export function isEmptyScope(scope: JobScope): boolean {
 }
 
 /**
- * The jobs this viewer may see.
+ * The jobs this viewer may see, with a failed lookup reported as such.
  *
  * A scoped member with no assignments returns an EMPTY list, not an absent
  * filter. Callers must short-circuit on it rather than issuing `.in("id", [])`
  * — see `scopeJobIds`. Falling open here would hand an unassigned recruiter
  * the whole company, which is the exact failure this module exists to prevent.
+ *
+ * ── Why this returns a Read and getJobScope does not ─────────
+ *
+ * The empty list is two different facts wearing one shape: "assigned to no
+ * jobs" and "we could not find out". For a filter those are interchangeable,
+ * because both narrow to nothing and neither leaks. For a COUNT they are not:
+ * an unreadable scope would produce a well-formed zero that nothing had
+ * failed to produce, and a zero nobody doubts is worse than an error.
+ *
+ * So the distinction is made available here, and `getJobScope` keeps the
+ * fail-closed collapse for the nineteen callers whose only use of the scope is
+ * to narrow a query. One implementation, two entry points — the alternative
+ * was changing a signature with twenty-one call sites, which is how the two
+ * behaviours drift apart.
+ *
+ * ── Why this is cache()d, and why it is a correctness fix ────
+ *
+ * One Applicants render asks this question four times: the page itself, the
+ * list, the counts batch and the assignable-jobs read. Four independent reads
+ * of one permission fact are four independent chances to fail, and the failures
+ * disagree — the counts batch succeeding on an empty scope while the page's own
+ * read fails, or the reverse, puts figures above a table that says the reader is
+ * assigned to no roles. A page contradicting itself about who you are is worse
+ * than either honest outcome, and it is purely an artefact of asking twice.
+ *
+ * cache() makes it one read and one answer per request. It changes nothing
+ * about WHAT is resolved — same query, same fail-closed wrapper, same
+ * boundaries. React memoises the returned PROMISE, so the four callers share a
+ * single in-flight request rather than racing four.
+ *
+ * Keyed on argument identity: object arguments go into a WeakMap by reference,
+ * so this only memoises if every caller passes the SAME ctx object. They do —
+ * `getCompanyContext` is itself cache()d with zero arguments, so within one
+ * render every `await getCompanyContext()` yields the identical object. If that
+ * ever stopped being true the failure is benign: cache() would simply miss and
+ * we would be back to today's four reads, with no widening of access.
  */
-export async function getJobScope(ctx: CompanyContext): Promise<JobScope> {
-  if (!isJobScopedRole(ctx.role)) return { scoped: false };
+export const readJobScope = cache(async (ctx: CompanyContext): Promise<Read<JobScope>> => {
+  if (!isJobScopedRole(ctx.role)) return answered({ scoped: false });
 
   // A scoped role with no member row cannot be on any team. Treated as no
-  // access rather than full access — the safe direction.
-  if (!ctx.memberId) return { scoped: true, jobIds: [] };
+  // access rather than full access — the safe direction. This is an ANSWER:
+  // nothing failed, there is simply nothing to be on.
+  if (!ctx.memberId) return answered({ scoped: true, jobIds: [] });
 
   const service = createServiceClient();
   const { data, error } = await service
@@ -69,11 +107,8 @@ export async function getJobScope(ctx: CompanyContext): Promise<JobScope> {
     .limit(2000);
 
   if (error) {
-    // A failed read must not widen visibility. An empty scope shows the
-    // "not assigned yet" state, which is wrong but harmless; falling open
-    // would leak another team's candidates.
     console.error("[job-scope] hiring team read failed:", error);
-    return { scoped: true, jobIds: [] };
+    return unavailable();
   }
 
   const jobIds = [
@@ -83,7 +118,20 @@ export async function getJobScope(ctx: CompanyContext): Promise<JobScope> {
         .filter((id): id is string => Boolean(id)),
     ),
   ];
-  return { scoped: true, jobIds };
+  return answered({ scoped: true, jobIds });
+});
+
+/**
+ * The jobs this viewer may see, failing closed.
+ *
+ * An unreadable hiring-team row collapses to the empty scope: a failed read
+ * must not widen visibility, and for every caller that only narrows a query
+ * the empty scope is the correct, safe outcome. Callers that PRESENT the
+ * emptiness to the reader — a count, or an empty-state sentence — must use
+ * `readJobScope` instead and propagate the unknown.
+ */
+export async function getJobScope(ctx: CompanyContext): Promise<JobScope> {
+  return orElse(await readJobScope(ctx), { scoped: true, jobIds: [] });
 }
 
 /**

@@ -402,6 +402,48 @@ export type CompanyApplicantQuery = {
 };
 
 /**
+ * Every population figure the Applicants page states, counted server-side.
+ *
+ * ── Why these are not derived from the rows ──────────────────
+ *
+ * They used to be: the page loaded every applicant and took `.length` of
+ * filtered arrays. That is exactly right while the array IS the population and
+ * silently wrong the moment it is a page of it — and each number would go
+ * wrong independently, so there would be no single symptom to notice.
+ *
+ * `total` is NOT fetched. It is the sum of the seven stage counts, because
+ * `pipeline_stage` is NOT NULL with a CHECK over exactly these seven values,
+ * so the seven partition the table and the sum is exact. Fetching it
+ * separately would make the funnel's percentages a ratio of two numbers read
+ * at two different moments, which can print 101%.
+ *
+ * Every field is nullable, and null means UNREADABLE, never zero. A genuine
+ * zero is 0. The page renders null as an em dash: a count that fails must not
+ * be indistinguishable from an answer of none.
+ */
+export type ApplicantCounts = {
+  /** Per-stage population. Keys are exactly PIPELINE_STAGES. */
+  stages: Record<PipelineStage, number | null>;
+  /**
+   * The sum of `stages`, or null if ANY stage is null.
+   *
+   * Never a partial sum. Six readable stages out of seven would produce a
+   * plausible total that is quietly short by one stage's worth of people.
+   */
+  total: number | null;
+  /** Applied within the last seven days. */
+  newThisWeek: number | null;
+  /**
+   * Jobs with at least one application in the filtered population.
+   *
+   * Preserves today's definition exactly: `status` and `archived_at` are
+   * ignored, so a closed role with applicants still counts. Whether this
+   * should mean live roles only is a product question, not this change.
+   */
+  openRoles: number | null;
+};
+
+/**
  * A job a candidate can be added to, for the Add candidate form's select.
  *
  * Deliberately NOT derived from the applicant rows the way the list's job

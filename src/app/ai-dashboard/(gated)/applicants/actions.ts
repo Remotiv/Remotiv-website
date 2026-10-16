@@ -6,6 +6,7 @@ import { actionFailed, actionIncomplete, queueFailed } from "@/app/ai-dashboard/
 import {
   type AddApplicantDuplicate,
   type ApplicantComment,
+  type ApplicantCounts,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type ApplicantScoringFacts,
@@ -29,7 +30,7 @@ import {
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob, getJobScope } from "@/app/ai-dashboard/lib/job-scope";
+import { canAccessJob, getJobScope, readJobScope } from "@/app/ai-dashboard/lib/job-scope";
 import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
@@ -335,7 +336,16 @@ export async function countFlaggedApplicants(
   query: CompanyApplicantQuery = {},
 ): Promise<Read<number>> {
   const ctx = await getCompanyContext();
-  const scope = await getJobScope(ctx);
+  /*
+   * readJobScope, not getJobScope. getJobScope collapses an unreadable
+   * hiring-team row into the empty scope, which the line below would then turn
+   * into `answered(0)` — a confident zero produced by a read that FAILED, and
+   * the badge would show it with nothing anywhere indicating a problem. The
+   * empty list still returns 0, because that one is a true answer.
+   */
+  const scopeRead = await readJobScope(ctx);
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
   // An answer: on no jobs, nothing can be flagged.
   if (scope.scoped && scope.jobIds.length === 0) return answered(0);
 
@@ -358,7 +368,239 @@ export async function countFlaggedApplicants(
     console.error("[applicants] countFlaggedApplicants failed:", error.message);
     return unavailable();
   }
-  return answered(count ?? 0);
+  const flagged = countOf(count);
+  if (flagged === null) {
+    console.error("[applicants] countFlaggedApplicants: no count on a successful response");
+    return unavailable();
+  }
+  return answered(flagged);
+}
+
+/**
+ * A count header, or null when the response did not carry one.
+ *
+ * `count ?? 0` was wrong, and not in a theoretical way. postgrest-js derives
+ * the count from the `content-range` response header and only when the request
+ * carried a matching `Prefer: count=` — see postgrest-js
+ * `processResponse`, which initialises `count = null` and assigns it ONLY if
+ * both are present:
+ *
+ *     if (countHeader && contentRange && contentRange.length > 1)
+ *       count = parseInt(contentRange[1]);
+ *
+ * `error` is set only on a non-2xx. So a 200 whose `content-range` was stripped
+ * or rewritten — by a proxy, a gateway, a CDN — yields `count: null` with
+ * `error: null`, and `?? 0` published that as a hard zero over a company with
+ * two thousand applicants. Nothing on the page would have looked broken.
+ *
+ * `parseInt` is the second half: PostgREST answers `*\/*` when it cannot supply
+ * a total, and `parseInt("*")` is NaN, not a number. NaN would reach the
+ * surface and render the literal string "NaN", so it is folded in here rather
+ * than guarded at the one call site that happens to format.
+ *
+ * A real 0 is a real answer and passes through untouched.
+ */
+function countOf(count: number | null | undefined): number | null {
+  return typeof count === "number" && Number.isFinite(count) ? count : null;
+}
+
+/** Seven days, the window the "+N this week" chip has always described. */
+const COUNT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
+
+/**
+ * Every population figure the Applicants page states, counted in the database.
+ *
+ * ── What this replaces, and why it is not an optimisation ────
+ *
+ * The page loaded every applicant and took `.length` of client-side filtered
+ * arrays. That is exact while the array IS the population and silently wrong
+ * the moment it is a page of it. This adds round trips and makes the page no
+ * faster; its job is to make the numbers true over the whole population.
+ *
+ * ── Nine queries, fixed, parallel ───────────────────────────
+ *
+ * Seven per-stage counts, "new this week", and "open roles". The number of
+ * requests is a function of `PIPELINE_STAGES.length` — it does not grow with
+ * the applicant count, and nothing here is per-row or per-job, so the
+ * `Promise.all` is bounded by construction and needs no limiter.
+ *
+ * Every one is `count: "exact", head: true`: the number arrives in
+ * Content-Range and not one row is transferred.
+ *
+ * ── The total is a SUM, not a tenth query ───────────────────
+ *
+ * `pipeline_stage` is NOT NULL with a CHECK constraint over exactly these
+ * seven values, so the seven counts partition the filtered population and
+ * their sum is the total. Verified against production: the seven sum to the
+ * table's own row count exactly.
+ *
+ * That matters because the funnel prints "% of total". A separately fetched
+ * total would be read at a different moment from the stage it is divided by,
+ * so an application inserted between the two responses makes the page print
+ * 101%. Deriving it removes the skew rather than tolerating it: the parts and
+ * the whole now come from one set of responses and always agree.
+ *
+ * If ANY stage is unavailable the total is unavailable too — never a partial
+ * sum, which would be a plausible number quietly short by one stage's worth of
+ * people. The visible consequence is intended: six stage cells showing numbers
+ * above a dashed total and dashed percentages. That is a page reporting what
+ * it knows and what it does not, not a half-rendered one.
+ *
+ * ── Scope ───────────────────────────────────────────────────
+ *
+ * `readJobScope` is resolved ONCE and the resolved value reused by all nine,
+ * so a batch cannot be built from two different answers to the same permission
+ * question and the hiring-team row is read once rather than nine times. An
+ * unreadable scope short-circuits before any query is issued — see
+ * countFlaggedApplicants for why that is not `0`.
+ *
+ * Each query carries the company filter in its OWN builder chain. The open
+ * roles count is the one read here that is not on job_applications, and it
+ * carries BOTH `jobs.company_id` and `job_applications.company_id_snapshot`
+ * across the `!inner` join — the embed is what makes it a count of parent
+ * rows, and the snapshot filter is what makes it a tenant boundary rather than
+ * a filter on a LEFT join.
+ */
+export async function fetchApplicantCounts(
+  query: CompanyApplicantQuery = {},
+): Promise<Read<ApplicantCounts>> {
+  const ctx = await getCompanyContext();
+  const scopeRead = await readJobScope(ctx);
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
+
+  // An answer, and the discriminating case for every "unavailable is not zero"
+  // test here: assigned to no roles means there is genuinely nobody, so every
+  // figure is a true 0 rather than an unknown.
+  if (scope.scoped && scope.jobIds.length === 0) {
+    return answered({
+      stages: Object.fromEntries(PIPELINE_STAGES.map((s) => [s, 0])) as Record<
+        PipelineStage,
+        number
+      >,
+      total: 0,
+      newThisWeek: 0,
+      openRoles: 0,
+    });
+  }
+
+  const service = createServiceClient();
+
+  /** The two scope layers every count below shares, applied per chain. */
+  const applications = () => {
+    let q = service
+      .from("job_applications")
+      .select("id", { count: "exact", head: true })
+      .eq("company_id_snapshot", ctx.companyId);
+    if (scope.scoped) q = q.in("job_id", scope.jobIds);
+    // Narrows WITHIN the scope, never past it: the .in() above still applies,
+    // so asking for an unassigned job counts nothing rather than its rows.
+    if (query.jobId) q = q.eq("job_id", query.jobId);
+    return q;
+  };
+
+  const since = new Date(Date.now() - COUNT_WEEK_MS).toISOString();
+
+  const openRolesQuery = () => {
+    let q = service
+      .from("jobs")
+      /*
+       * `job_applications!inner(id)` counts PARENT rows that have at least one
+       * application — PostgREST has no DISTINCT, and this is the shape that
+       * answers "how many roles have someone in them" without one.
+       *
+       * No `deleted_at` filter, deliberately. It preserves today's figure
+       * exactly: the number came from the distinct job_ids on the loaded
+       * applications, which includes a job since deleted as long as the
+       * application still points at it. `status` and `archived_at` are ignored
+       * for the same reason. Whether this should mean live roles only is a
+       * product decision, not this change — and measured against production
+       * today both readings give the same number.
+       */
+      .select("id, job_applications!inner(id)", { count: "exact", head: true })
+      .eq("company_id", ctx.companyId)
+      // The tenant boundary. `jobs.company_id` above is the parent's own
+      // filter; this one restricts the joined child, and it is on the snapshot
+      // rather than a second company_id for the same reason the list is.
+      .eq("job_applications.company_id_snapshot", ctx.companyId);
+    if (scope.scoped) q = q.in("id", scope.jobIds);
+    if (query.jobId) q = q.eq("id", query.jobId);
+    return q;
+  };
+
+  /**
+   * One head-count, resolved to a number or to null. It cannot reject.
+   *
+   * The containment is the point. These nine were a `Promise.all` holding a
+   * `Promise.all`, so a single rejection rejected the inner array, which
+   * rejected the outer, which threw out of this action — nine figures lost to
+   * one, and the eight that answered fine discarded with them. Catching per
+   * count means the level above is a `Promise.all` over promises that cannot
+   * reject, which is itself a promise that cannot reject, at both levels.
+   *
+   * How likely is a rejection? Rarer than it sounds, and in this client's
+   * configuration I could not find a reachable path. supabase-js answers
+   * `{ data, error }` rather than throwing, and postgrest-js goes further: with
+   * `shouldThrowOnError` false — which is the shipped config, since
+   * createServiceClient passes no custom fetch and never calls `.throwOnError()`
+   * — it attaches its own `res.catch` and converts fetch failure, DNS failure,
+   * an AbortError and a malformed JSON body into ordinary
+   * `{ error, count: null, status: 0 }` results. So this catch guards against a
+   * future `.throwOnError()`, a client-level option or a fetch wrapper, not
+   * against something that happens today. The live failure mode is the one
+   * below it: a 200 that carries no count.
+   */
+  const countOnce = async (
+    label: string,
+    build: () => PromiseLike<{ count: number | null; error: { message: string } | null }>,
+  ): Promise<number | null> => {
+    try {
+      const { count, error } = await build();
+      if (error) {
+        console.error(`[applicants] count ${label} failed:`, error.message);
+        return null;
+      }
+      const n = countOf(count);
+      if (n === null) {
+        console.error(`[applicants] count ${label}: no count on a successful response`);
+      }
+      return n;
+    } catch (cause) {
+      console.error(
+        `[applicants] count ${label} threw:`,
+        cause instanceof Error ? cause.message : cause,
+      );
+      return null;
+    }
+  };
+
+  // All nine are issued before the first await: countOnce runs synchronously
+  // into `build()`, so wrapping them costs no round trip.
+  const [stageResults, weekCount, rolesCount] = await Promise.all([
+    Promise.all(
+      PIPELINE_STAGES.map((stage) =>
+        countOnce(`stage ${stage}`, () => applications().eq("pipeline_stage", stage)),
+      ),
+    ),
+    countOnce("new this week", () => applications().gte("created_at", since)),
+    countOnce("open roles", () => openRolesQuery()),
+  ]);
+
+  const stages = Object.fromEntries(
+    PIPELINE_STAGES.map((stage, i) => [stage, stageResults[i]]),
+  ) as Record<PipelineStage, number | null>;
+
+  const stageValues = PIPELINE_STAGES.map((s) => stages[s]);
+  const total = stageValues.some((n) => n === null)
+    ? null
+    : stageValues.reduce((a, b) => (a ?? 0) + (b ?? 0), 0);
+
+  return answered({
+    stages,
+    total,
+    newThisWeek: weekCount,
+    openRoles: rolesCount,
+  });
 }
 
 /**
@@ -422,7 +664,12 @@ export async function fetchCompanyApplicants(
    * to those as well. That is why the filter lives here rather than at each
    * call site: there is one query, so there is one place to get it wrong.
    */
-  const scope = await getJobScope(ctx);
+  const scopeRead = await readJobScope(ctx);
+  // Unreadable scope is not "assigned to no roles": that renders the empty
+  // state, whose copy tells the reader they are on no jobs yet. Same shape,
+  // different claim — so the unknown travels and `loadFailed` speaks instead.
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
   // An answer: assigned to no roles means no applicants to list.
   if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 

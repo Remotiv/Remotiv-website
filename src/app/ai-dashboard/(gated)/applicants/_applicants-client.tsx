@@ -53,6 +53,7 @@ import {
 import {
   type AddApplicantDuplicate,
   type ApplicantComment,
+  type ApplicantCounts,
   type ApplicantScore,
   type ApplicantScoreDetail,
   type ApplicantScoringFacts,
@@ -95,12 +96,24 @@ import {
   deleteApplication,
   deleteApplicationComment,
   dismissShortlistFlagAction,
+  fetchApplicantCounts,
   fetchCompanyApplicant,
   fetchScreeningAnswers,
   rescoreApplication,
   updateApplicationComment,
   updateApplicationStage,
 } from "./actions";
+import {
+  type CountsState,
+  countLabel,
+  countsKey,
+  countsView,
+  ledeCount,
+  requestCounts,
+  seedCounts,
+  settleCounts,
+  stagePercent,
+} from "./counts-state";
 import { buildApplicantsCsv, CSV_EXPORT_MAX, type CsvApplicant } from "./csv-export";
 import {
   type ScreeningState,
@@ -116,9 +129,12 @@ const GRID =
   "grid grid-cols-[46px_minmax(0,2.1fr)_1.35fr_104px_1fr_0.8fr_40px] items-center gap-[14px] px-5";
 
 /**
- * The funnel and the stage tabs both key off pipeline stage, counted from the
- * same rows the table renders — including any optimistic edit — so a moved
- * candidate can never be in one place in the funnel and another in the list.
+ * The funnel and the stage tabs both key off pipeline stage, counted in the
+ * database over the whole population rather than over the rendered rows.
+ *
+ * Five of the seven stages. Offer and Rejected are deliberately absent from
+ * the funnel, so these percentages do not sum to 100 and are not meant to —
+ * each is that stage's share of the total, not of the ones shown.
  */
 const FUNNEL_STEPS: ReadonlyArray<{
   stage: PipelineStage;
@@ -4027,8 +4043,7 @@ export function ApplicantsClient({
   applicants: initialApplicants,
   assignableJobs,
   loadFailed,
-  newThisWeek,
-  openRoles,
+  initialCounts,
   companyName,
   replyToAddress,
   manualTemplates,
@@ -4054,8 +4069,13 @@ export function ApplicantsClient({
   assignableJobs: AssignableJob[];
   /** The list could not be READ. Distinct from "this pipeline is empty". */
   loadFailed: boolean;
-  newThisWeek: number;
-  openRoles: number;
+  /**
+   * Every population figure, counted server-side and resolved in the page's
+   * first wave — so the first paint carries true numbers rather than a
+   * skeleton. Null when the whole batch failed; a single unreadable count
+   * arrives as a null FIELD. Either way the surfaces draw an em dash, never 0.
+   */
+  initialCounts: ApplicantCounts | null;
   companyName: string;
   replyToAddress: string | null;
   manualTemplates: ManualTemplate[];
@@ -4103,6 +4123,57 @@ export function ApplicantsClient({
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null);
   /** The id mid-dismiss, so one chip disables without freezing the list. */
   const [dismissing, setDismissing] = useState<string | null>(null);
+
+  /*
+   * ── The population figures ──────────────────────────────────
+   *
+   * Seeded from the server pass, so there is no first-paint skeleton and no
+   * browser round trip on load. Re-read only when the job filter moves or a
+   * mutation changes who is in the pipeline.
+   *
+   * The reducer is in counts-state.ts and the sequence counter is a ref here,
+   * because the reducer cannot mint the number and stay pure — and deriving it
+   * from the previous state inside a reducer would double-count under
+   * StrictMode's deliberate double invocation.
+   */
+  const [counts, setCounts] = useState<CountsState>(() =>
+    seedCounts(countsKey(null), initialCounts),
+  );
+  const countsSeq = useRef(0);
+  const view = countsView(counts);
+
+  /**
+   * Re-read the counts for the filter now showing.
+   *
+   * Every response is tagged with the key it was asked for AND the sequence
+   * number of its request, and `settleCounts` applies only the newest. Job A →
+   * job B → job A leaves two outstanding requests both carrying key A, so the
+   * key alone would let the older one land on top of the newer.
+   */
+  const refreshCounts = useCallback((jobId: string | null) => {
+    const key = countsKey(jobId);
+    const seq = ++countsSeq.current;
+    setCounts((prev) => requestCounts(prev, key, seq));
+    fetchApplicantCounts(jobId ? { jobId } : {})
+      .then((read) => {
+        setCounts((prev) => settleCounts(prev, { key, seq, counts: read.ok ? read.value : null }));
+      })
+      .catch(() => {
+        setCounts((prev) => settleCounts(prev, { key, seq, counts: null }));
+      });
+  }, []);
+
+  // Skips the very first run: the server already answered for "all", and
+  // re-asking on mount would spend nine head-counts to learn what the page was
+  // rendered with.
+  const countsPrimed = useRef(false);
+  useEffect(() => {
+    if (!countsPrimed.current) {
+      countsPrimed.current = true;
+      return;
+    }
+    refreshCounts(jobFilter === "all" ? null : jobFilter);
+  }, [jobFilter, refreshCounts]);
 
   /*
    * The Flagged badge, from a server aggregate.
@@ -4184,6 +4255,9 @@ export function ApplicantsClient({
     } else {
       setToast("Candidate added. Scoring their CV now.");
     }
+    // One more person in the pipeline — see deleteApplicant for why this is
+    // not left to router.refresh().
+    refreshCounts(jobFilter === "all" ? null : jobFilter);
     router.refresh();
   }
   // Seeded from ?q= so a topbar search result lands on this list already
@@ -4369,13 +4443,6 @@ export function ApplicantsClient({
     [applicants, stageOverrides, scoreOverrides],
   );
 
-  const stageCounts = useMemo(() => {
-    const counts: Record<string, number> = {};
-    for (const s of PIPELINE_STAGES) counts[s] = 0;
-    for (const r of rows) counts[stageOf(r)] += 1;
-    return counts;
-  }, [rows]);
-
   /** Distinct jobs present in the result set — no extra query needed. */
   const jobOptions = useMemo(() => {
     const seen = new Map<string, string>();
@@ -4547,6 +4614,10 @@ export function ApplicantsClient({
     // guard below reports the applicant we just deleted as a broken link.
     closePanel();
     setToast(`${fullName(target)} deleted`);
+    // The population changed. router.refresh() re-sends the rows but the
+    // counts come from an action, and re-seeding from the server pass would
+    // overwrite a job-filtered batch with the unfiltered one.
+    refreshCounts(jobFilter === "all" ? null : jobFilter);
     router.refresh();
   }
 
@@ -4721,6 +4792,17 @@ export function ApplicantsClient({
     }
 
     setToast(`Moved to ${PIPELINE_STAGE_LABELS[next]}`);
+
+    /*
+     * The funnel and the stage tabs are server counts now, so a move has to be
+     * re-read rather than recomputed from `stageOverrides`. The optimistic
+     * paint still moves the ROW immediately; the figures lag by one round trip
+     * and say so while they do. That is the honest trade: an optimistic
+     * decrement here would be arithmetic on a number this page did not
+     * compute, and it would drift the moment two reviewers moved people at
+     * once.
+     */
+    refreshCounts(jobFilter === "all" ? null : jobFilter);
 
     // Pull the trail back so the new entry (and its author) is real, not
     // guessed client-side. Skipped if the drawer has since moved on.
@@ -5066,9 +5148,7 @@ export function ApplicantsClient({
               {/* Present tense: CV scoring is shipped and on by default per job,
                   and the default sort is by score. The old future tense contradicted
                   the welcome modal one screen earlier. */}
-              {applicants.length === 0
-                ? "No one has applied yet. "
-                : `${applicants.length} ${applicants.length === 1 ? "person has" : "people have"} applied across your open roles. `}
+              {ledeCount(view.total)}
               Each new application is <LimeHighlight>scored against the job</LimeHighlight>, unless
               you&apos;ve switched scoring off for that role.
             </p>
@@ -5112,17 +5192,34 @@ export function ApplicantsClient({
 
         {quotaBanner}
 
-        {/* Dark hero strip */}
+        {/* Dark hero strip. Every figure in it is a server count, so every one
+            can be unknown — `countLabel` draws an em dash rather than a 0, and
+            `aria-busy` plus the subline say when the figures are being
+            refreshed instead of letting the previous filter's stand as this
+            one's. */}
         <DashboardHero
           eyebrow="Total applicants"
-          value={applicants.length}
-          delta={newThisWeek > 0 ? <HeroDelta>+{newThisWeek} this week</HeroDelta> : null}
-          subline={`Across ${openRoles} open ${openRoles === 1 ? "role" : "roles"}`}
+          value={countLabel(view.total)}
+          delta={
+            view.newThisWeek !== null && view.newThisWeek > 0 ? (
+              <HeroDelta>+{view.newThisWeek} this week</HeroDelta>
+            ) : null
+          }
+          subline={
+            view.updating
+              ? "Updating totals…"
+              : `Across ${countLabel(view.openRoles)} open ${view.openRoles === 1 ? "role" : "roles"}`
+          }
         >
-          <div className="flex flex-wrap items-stretch min-[840px]:flex-nowrap">
+          <div
+            aria-busy={view.updating}
+            className={`flex flex-wrap items-stretch transition-opacity min-[840px]:flex-nowrap ${
+              view.updating ? "opacity-50" : ""
+            }`}
+          >
             {FUNNEL_STEPS.map((step, i) => {
-              const value = stageCounts[step.stage] ?? 0;
-              const pct = applicants.length > 0 ? Math.round((value / applicants.length) * 100) : 0;
+              const value = view.stages[step.stage];
+              const pct = stagePercent(value, view.total);
               return (
                 <div
                   key={step.stage}
@@ -5142,15 +5239,20 @@ export function ApplicantsClient({
                     {PIPELINE_STAGE_LABELS[step.stage]}
                   </div>
                   <div className="mb-2.5 font-heading text-[26px] font-extrabold leading-none tracking-[-0.025em] text-white">
-                    {value}
+                    {countLabel(value)}
                   </div>
                   <div className="h-1 overflow-hidden rounded-[3px] bg-white/10">
                     <i
                       className="block h-full origin-left rounded-[3px]"
-                      style={{ background: step.bar, width: `${pct}%` }}
+                      style={{ background: step.bar, width: `${pct ?? 0}%` }}
                     />
                   </div>
-                  <p className="m-0 mt-2 text-[11px] text-white/[0.38]">{pct}% of total</p>
+                  {/* An unknown share is a dash, not 0%. A 0%-wide bar is
+                      indistinguishable from an empty stage, so the number
+                      beside it is what has to carry the distinction. */}
+                  <p className="m-0 mt-2 text-[11px] text-white/[0.38]">
+                    {pct === null ? "— of total" : `${pct}% of total`}
+                  </p>
                 </div>
               );
             })}
@@ -5163,14 +5265,20 @@ export function ApplicantsClient({
             {/* The 5-tab strip is wider than a phone. It scrolls WITHIN itself
                 (max-w-full + overflow-x-auto) so it can never widen the page. */}
             <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
-              <TabButton on={tab === "all"} count={applicants.length} onClick={() => setTab("all")}>
+              <TabButton
+                on={tab === "all"}
+                count={view.total}
+                updating={view.updating}
+                onClick={() => setTab("all")}
+              >
                 All
               </TabButton>
               {TAB_STAGES.map((s) => (
                 <TabButton
                   key={s}
                   on={tab === s}
-                  count={stageCounts[s] ?? 0}
+                  count={view.stages[s]}
+                  updating={view.updating}
                   onClick={() => setTab(s)}
                 >
                   {PIPELINE_STAGE_LABELS[s]}
@@ -5848,11 +5956,15 @@ export function ApplicantsClient({
 function TabButton({
   on,
   count,
+  updating,
   onClick,
   children,
 }: {
   on: boolean;
-  count: number;
+  /** A server count. Null is unknown — drawn as an em dash, never as 0. */
+  count: number | null;
+  /** The figure is being re-read. Dimmed so it does not read as current. */
+  updating: boolean;
   onClick: () => void;
   children: React.ReactNode;
 }) {
@@ -5868,11 +5980,12 @@ function TabButton({
     >
       {children}
       <span
-        className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
+        aria-busy={updating}
+        className={`rounded-full px-1.5 py-px text-[10.5px] font-bold tabular-nums transition-opacity ${
           on ? "bg-white/20 text-white" : "bg-black/[0.07]"
-        }`}
+        } ${updating ? "opacity-50" : ""}`}
       >
-        {count}
+        {countLabel(count)}
       </span>
     </button>
   );
