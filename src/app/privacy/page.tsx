@@ -105,7 +105,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "13 October 2026";
+const LAST_UPDATED = "16 October 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -435,8 +435,8 @@ export default function PrivacyPage() {
             </li>
             <li>
               <strong className="font-semibold text-[#111]">United States</strong> — interview
-              recordings sent to OpenAI for transcription, CV text and transcripts sent to Anthropic
-              for scoring, and email sent through Resend.
+              recordings sent to OpenAI for transcription, CV text, screening answers and interview
+              transcripts sent to OpenAI or Anthropic for scoring, and email sent through Resend.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Global</strong> — Google, for interview
@@ -463,12 +463,19 @@ export default function PrivacyPage() {
             <li>
               <strong className="font-semibold text-[#111]">OpenAI</strong> — receives the
               recording of your video interview answers, video and audio together, in order to
-              transcribe them.
+              transcribe them. It may also receive the text of your CV, your screening answers, the
+              details you gave on the application form, the transcripts of your interview answers
+              and the requirements of the role, in order to produce the scores and summaries
+              described in section 7.
             </li>
             <li>
-              <strong className="font-semibold text-[#111]">Anthropic</strong> — receives the text
-              of your CV and the transcripts of your interview answers, together with the
-              requirements of the role, in order to produce the scores described in section 7.
+              <strong className="font-semibold text-[#111]">Anthropic</strong> — may receive the
+              same information as OpenAI, for the same scoring. We use one of the two for scoring at
+              a time, depending on how our system is set up. Anthropic also receives the text of CVs
+              added to the Remotiv talent pool, to fill in profile fields, and talent-pool profile
+              summaries (never your email address or phone number) when a company searches the pool.
+              It also receives the messages you type into the chat assistant on our website, in
+              order to answer them.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Recall.ai</strong> - runs Remotiv
@@ -500,24 +507,26 @@ export default function PrivacyPage() {
 
           <Callout>
             <strong className="font-semibold text-[#111]">
-              About the recording we send to OpenAI, plainly:
+              About what we send to OpenAI and Anthropic, plainly:
             </strong>{" "}
-            we send it under OpenAI&apos;s standard API terms. OpenAI{" "}
+            we send it under each provider&apos;s standard commercial API terms. Neither{" "}
             <strong className="font-semibold text-[#111]">
-              does not use API data to train its models by default
+              uses API data to train its models by default
             </strong>
-            , and under standard API retention data may be held for up to 30 days for abuse
-            monitoring, unless different retention controls apply to our account. Our own six-month
-            deletion covers our copy of your recording and transcript; it does not reach theirs.
-            Their handling is governed by their policy, not this one.
+            . Under their standard terms each may keep what we send for up to 30 days (in
+            OpenAI&apos;s case for abuse monitoring), unless different retention controls apply to
+            our account. The deletion periods in section 3 cover our copies; they do not reach
+            theirs. Their handling is governed by their own policies, not this one.
           </Callout>
 
           <H2>7. How AI is used, exactly</H2>
           <P>
-            We use AI to read and score applications. Specifically: the text of your CV is scored
-            against the requirements of the role, and your interview answers are transcribed and
-            scored against a written rubric. Those scores are stored on your application, and they
-            are used to rank candidates and to flag some for closer attention.
+            We use AI to read and score applications. Specifically: the text of your CV, with your
+            screening answers and the details you gave on the application form, is scored against
+            the requirements of the role, and your interview answers are transcribed and scored
+            against a written rubric. The AI also writes a short summary of each scorecard. Those
+            scores are stored on your application, and they are used to rank candidates and to flag
+            some for closer attention.
           </P>
           <P>
             A person makes every hiring decision. Nothing in our system automatically rejects,

@@ -88,7 +88,10 @@ test("N3: the scoring row is conditional on the flag; the recording row is not",
 });
 
 test("C7-24: the consent card names the processors that receive the interview", () => {
-  assert.match(flow, /Transcribing is done for us by OpenAI, and any AI scoring by Anthropic/);
+  assert.match(
+    flow,
+    /Transcribing is done for us by OpenAI, and any AI scoring by OpenAI or Anthropic/,
+  );
   assert.match(flow, /href="\/privacy"/);
   assert.match(flow, /^import Link from "next\/link";$/m);
 });

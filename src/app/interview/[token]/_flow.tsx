@@ -1763,13 +1763,14 @@ function Consent({
         />
       </div>
 
-      {/* The rows above name the company as the reader. Two processors also
-          receive the interview and neither was named here: transcription runs
-          on every confirmed answer, AI scoring only where it is enabled. Sits
-          outside the four-row block so it does not dilute them, and inside what
-          the checkbox below agrees to. */}
+      {/* The rows above name the company as the reader. The processors that
+          receive the interview were not named there: OpenAI transcribes every
+          confirmed answer, and AI scoring, only where it is enabled, runs on
+          OpenAI or Anthropic depending on how scoring is set up. Sits outside
+          the four-row block so it does not dilute them, and inside what the
+          checkbox below agrees to. */}
       <p className="m-0 mb-4 text-[12.5px] leading-relaxed text-[var(--t3)]">
-        Transcribing is done for us by OpenAI, and any AI scoring by Anthropic. Our{" "}
+        Transcribing is done for us by OpenAI, and any AI scoring by OpenAI or Anthropic. Our{" "}
         <Link href="/privacy" target="_blank" rel="noopener noreferrer" className="underline">
           privacy policy
         </Link>{" "}
