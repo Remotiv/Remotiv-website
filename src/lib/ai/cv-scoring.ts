@@ -2,7 +2,6 @@ import {
   CV_LIMIT_REACHED_REASON,
   SCORING_OFF_REASON,
 } from "@/app/ai-dashboard/lib/applicant-types";
-import { getAnthropic } from "@/lib/anthropic";
 import { consumeCvAllowance, releaseCvAllowance } from "@/lib/cv-allowance";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
@@ -40,6 +39,7 @@ import {
   parseScoreJson,
   type Strength,
 } from "./score-parsers";
+import { createScoringMessage, type ScoringMessage } from "./scoring-transport";
 
 // The parsers and the result shapes live in score-parsers.ts (pure, tested);
 // re-exported here so the interview scorer, the recompute job and the
@@ -1066,7 +1066,6 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
   }
 
   const model = resolveScoringModel();
-  const anthropic = getAnthropic();
 
   // Inside the worker: never open a call the deadline would kill, hand the SDK
   // our signal and a timeout inside the budget, and turn its own retries off
@@ -1074,9 +1073,10 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
   assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_cv_score before model call");
   const remainingAtStart = ctx ? ctx.remainingMs() : null;
   const callStarted = Date.now();
-  let response: Awaited<ReturnType<typeof anthropic.messages.create>>;
+  let response: ScoringMessage;
   try {
-    response = await anthropic.messages.create(
+    // claude-* to Anthropic exactly as before; gpt-* to OpenAI (scoring-transport.ts).
+    response = await createScoringMessage(
       {
         model,
         max_tokens: MAX_TOKENS,

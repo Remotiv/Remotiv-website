@@ -7,7 +7,6 @@ import {
   summarySentenceLimit,
   type UnscoredAnswer,
 } from "@/lib/ai/rollup-coverage";
-import { getAnthropic } from "@/lib/anthropic";
 import { assessTranscript } from "@/lib/interviews/assessable";
 import { readScoringSnapshot, resolveQuestionMeta } from "@/lib/interviews/question-meta";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
@@ -51,6 +50,7 @@ import {
   type ExistingSessionScore,
   sessionAlreadyComplete,
 } from "./scorecard-resume";
+import { createScoringMessage, type ScoringMessage } from "./scoring-transport";
 
 /**
  * AI interview scoring — the plumbing, not yet the judgement.
@@ -190,6 +190,15 @@ export const PROMPT_VERSION = "interview-scoring-v9";
 
 /** Same env var as the CV scorer — one model setting for the product. */
 export { resolveScoringModel };
+
+/**
+ * The model for interview scoring (answers and the session summary):
+ * AI_INTERVIEW_SCORING_MODEL when set, otherwise the CV scorer's setting, so
+ * with it unset nothing changes.
+ */
+export function resolveInterviewScoringModel(): string {
+  return process.env.AI_INTERVIEW_SCORING_MODEL?.trim() || resolveScoringModel();
+}
 
 /**
  * Off unless explicitly enabled.
@@ -507,16 +516,16 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
     );
   }
 
-  const model = resolveScoringModel();
+  const model = resolveInterviewScoringModel();
   // Inside the worker: never open a call the deadline would kill, hand the SDK
   // our signal and a timeout inside the budget, and turn its own retries off
   // so the queue is the single retry controller (Phase 5, P2/P13).
   assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before answer call");
   const remainingAtStart = ctx ? ctx.remainingMs() : null;
   const callStarted = Date.now();
-  let response: Awaited<ReturnType<ReturnType<typeof getAnthropic>["messages"]["create"]>>;
+  let response: ScoringMessage;
   try {
-    response = await getAnthropic().messages.create(
+    response = await createScoringMessage(
       {
         model,
         max_tokens: MAX_TOKENS,
@@ -886,11 +895,11 @@ export async function summariseSession(
 
   // Budget is checked by the CALLER (the handler) so a yield here propagates
   // as a yield; inside this try it would be swallowed into "no summary".
-  const model = resolveScoringModel();
+  const model = resolveInterviewScoringModel();
   const remainingAtStart = ctx ? ctx.remainingMs() : null;
   const callStarted = Date.now();
   try {
-    const response = await getAnthropic().messages.create(
+    const response = await createScoringMessage(
       {
         model,
         max_tokens: 700,
@@ -1070,7 +1079,7 @@ export async function handleAiScorecard(
   }
 
   const service = createServiceClient();
-  const model = resolveScoringModel();
+  const model = resolveInterviewScoringModel();
 
   const { data: sessionData, error: sessionErr } = await service
     .from("interview_sessions")
