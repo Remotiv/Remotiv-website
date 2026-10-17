@@ -474,11 +474,65 @@ export type AnswerScoreInput = {
 // REJECTED rather than read as 0. The two rollup clamps below stay here: they
 // shape prose, not numbers.
 
-/** At most twelve words, enforced rather than trusted. */
+/**
+ * The prompt asks for at most twelve words; models often write 13 to 16.
+ * Up to VERDICT_WORDS_KEPT the verdict is kept whole, because a whole sentence
+ * reads better than one cut at twelve. Past that it is cut to 16 words, any
+ * trailing punctuation or connective ("and", "with", "the"...) is dropped, and
+ * an ellipsis says so - a cut used to end mid-phrase with no sign it was cut.
+ */
+const VERDICT_WORDS_KEPT = 16;
+const VERDICT_TRAILING_WORDS: ReadonlySet<string> = new Set([
+  "a",
+  "an",
+  "and",
+  "are",
+  "as",
+  "at",
+  "but",
+  "by",
+  "for",
+  "in",
+  "is",
+  "of",
+  "on",
+  "or",
+  "the",
+  "to",
+  "was",
+  "were",
+  "with",
+]);
+
 function clampVerdict(v: unknown): string | null {
   if (typeof v !== "string") return null;
   const words = v.trim().split(/\s+/).filter(Boolean);
-  return words.length === 0 ? null : words.slice(0, 12).join(" ");
+  if (words.length === 0) return null;
+  if (words.length <= VERDICT_WORDS_KEPT) return words.join(" ");
+  const kept = words.slice(0, VERDICT_WORDS_KEPT);
+  for (;;) {
+    const last = kept[kept.length - 1].replace(/[,;:.!?\-–—]+$/, "");
+    if (last && !VERDICT_TRAILING_WORDS.has(last.toLowerCase())) {
+      kept[kept.length - 1] = last;
+      break;
+    }
+    if (kept.length === 1) {
+      kept[0] = last || kept[0];
+      break;
+    }
+    kept.pop();
+  }
+  return `${kept.join(" ")}…`;
+}
+
+/**
+ * Whether one more provider call fits the job's budget: the floor
+ * assertProviderBudget enforces, as a yes/no. Used only for the single retry
+ * of a reply that could not be parsed - when it says no, the job fails as it
+ * always did rather than yielding.
+ */
+function canRetryWithinBudget(ctx: JobContext | undefined): boolean {
+  return !ctx || (!ctx.signal.aborted && ctx.remainingMs() >= MIN_PROVIDER_CALL_BUDGET_MS);
 }
 
 /**
@@ -521,57 +575,81 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
   // our signal and a timeout inside the budget, and turn its own retries off
   // so the queue is the single retry controller (Phase 5, P2/P13).
   assertProviderBudget(ctx, MIN_PROVIDER_CALL_BUDGET_MS, "ai_scorecard before answer call");
-  const remainingAtStart = ctx ? ctx.remainingMs() : null;
-  const callStarted = Date.now();
-  let response: ScoringMessage;
-  try {
-    response = await createScoringMessage(
-      {
+  const request = {
+    model,
+    max_tokens: MAX_TOKENS,
+    ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
+    ...thinkingOffParams(model),
+    system: [{ type: "text" as const, text: SYSTEM_PROMPT }],
+    messages: [{ role: "user" as const, content: buildUserMessage(input) }],
+  };
+  const call = async (): Promise<ScoringMessage> => {
+    const remainingAtStart = ctx ? ctx.remainingMs() : null;
+    const callStarted = Date.now();
+    let response: ScoringMessage;
+    try {
+      response = await createScoringMessage(
+        request,
+        providerRequestOptions(ctx, providerTimeoutMs),
+      );
+    } catch (err) {
+      const c = classifyProviderError(err);
+      logProviderCall({
+        jobType: "ai_scorecard",
+        provider: "anthropic",
         model,
-        max_tokens: MAX_TOKENS,
-        ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
-        ...thinkingOffParams(model),
-        system: [{ type: "text", text: SYSTEM_PROMPT }],
-        messages: [{ role: "user", content: buildUserMessage(input) }],
-      },
-      providerRequestOptions(ctx, providerTimeoutMs),
-    );
-  } catch (err) {
-    const c = classifyProviderError(err);
+        durationMs: Date.now() - callStarted,
+        remainingAtStartMs: remainingAtStart,
+        outcome: ctx?.signal.aborted ? "aborted" : "error",
+        failureClass: c.failureClass,
+        status: c.status,
+      });
+      throw toJobError(err);
+    }
     logProviderCall({
       jobType: "ai_scorecard",
       provider: "anthropic",
       model,
       durationMs: Date.now() - callStarted,
       remainingAtStartMs: remainingAtStart,
-      outcome: ctx?.signal.aborted ? "aborted" : "error",
-      failureClass: c.failureClass,
-      status: c.status,
+      outcome: "ok",
     });
-    throw toJobError(err);
-  }
-  logProviderCall({
-    jobType: "ai_scorecard",
-    provider: "anthropic",
-    model,
-    durationMs: Date.now() - callStarted,
-    remainingAtStartMs: remainingAtStart,
-    outcome: "ok",
-  });
-  if (!("content" in response)) {
-    throw new TerminalJobError(
-      "deterministic",
-      "Model returned a stream where a message was expected.",
-    );
-  }
+    if (!("content" in response)) {
+      throw new TerminalJobError(
+        "deterministic",
+        "Model returned a stream where a message was expected.",
+      );
+    }
+    return response;
+  };
 
+  let response = await call();
+  let inputTokens = response.usage?.input_tokens ?? 0;
+  let outputTokens = response.usage?.output_tokens ?? 0;
   assertCompleteStop(response, model);
-  const text = extractText(response, model);
-  const outcome = parseAnswerJson(text);
+  let text = extractText(response, model);
+  let outcome = parseAnswerJson(text);
+  if (!outcome.ok && canRetryWithinBudget(ctx)) {
+    // A reply that is not valid JSON, or not the schema, is tried ONCE more
+    // with the same request (Haiku 5.5: about 1 in 90). Only this failure is
+    // retried: a provider error, a refusal or a max_tokens stop keep their own
+    // paths above and below. Both replies' tokens are counted.
+    console.warn("[interview-scoring] malformed answer reply, retrying once", {
+      model,
+      reason: outcome.reason,
+      chars: text.length,
+    });
+    response = await call();
+    inputTokens += response.usage?.input_tokens ?? 0;
+    outputTokens += response.usage?.output_tokens ?? 0;
+    assertCompleteStop(response, model);
+    text = extractText(response, model);
+    outcome = parseAnswerJson(text);
+  }
   if (!outcome.ok) {
     // A missing or non-numeric score is malformed, not zero. Same path as
     // unparseable JSON: the handler records `failed` with the reason. TERMINAL
-    // for this answer: at temperature 0 a retry returns the same bytes.
+    // for this answer after the one retry above.
     throw new TerminalJobError(
       "deterministic",
       `Model returned malformed answer JSON: ${outcome.reason} (${text.length} chars, model ${model}).`,
@@ -636,8 +714,8 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
     strengths,
     concerns,
     missing: parsed.missing,
-    inputTokens: response.usage?.input_tokens ?? 0,
-    outputTokens: response.usage?.output_tokens ?? 0,
+    inputTokens,
+    outputTokens,
   };
 }
 
@@ -896,38 +974,52 @@ export async function summariseSession(
   // Budget is checked by the CALLER (the handler) so a yield here propagates
   // as a yield; inside this try it would be swallowed into "no summary".
   const model = resolveInterviewScoringModel();
-  const remainingAtStart = ctx ? ctx.remainingMs() : null;
-  const callStarted = Date.now();
-  try {
-    const response = await createScoringMessage(
+  const request = {
+    model,
+    max_tokens: 700,
+    ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
+    ...thinkingOffParams(model),
+    system: [{ type: "text" as const, text: SESSION_SYSTEM_PROMPT }],
+    messages: [
       {
-        model,
-        max_tokens: 700,
-        ...(acceptsTemperature(model) ? { temperature: SCORING_TEMPERATURE } : {}),
-        ...thinkingOffParams(model),
-        system: [{ type: "text", text: SESSION_SYSTEM_PROMPT }],
-        messages: [
-          {
-            role: "user",
-            content: `${header}\n\nOverall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
-          },
-        ],
+        role: "user" as const,
+        content: `${header}\n\nOverall score (already computed, weighted): ${input.overall}${criteriaBlock}\n\n${body}`,
       },
-      providerRequestOptions(ctx, providerTimeoutMs),
-    );
-    logProviderCall({
-      jobType: "ai_scorecard",
-      provider: "anthropic",
-      model,
-      durationMs: Date.now() - callStarted,
-      remainingAtStartMs: remainingAtStart,
-      outcome: "ok",
-    });
-    if (!("content" in response)) throw new Error("rollup: streamed response");
+    ],
+  };
+  let remainingAtStart = ctx ? ctx.remainingMs() : null;
+  let callStarted = Date.now();
+  try {
+    const call = async (): Promise<ScoringMessage> => {
+      remainingAtStart = ctx ? ctx.remainingMs() : null;
+      callStarted = Date.now();
+      const response = await createScoringMessage(
+        request,
+        providerRequestOptions(ctx, providerTimeoutMs),
+      );
+      logProviderCall({
+        jobType: "ai_scorecard",
+        provider: "anthropic",
+        model,
+        durationMs: Date.now() - callStarted,
+        remainingAtStartMs: remainingAtStart,
+        outcome: "ok",
+      });
+      if (!("content" in response)) throw new Error("rollup: streamed response");
+      assertCompleteStop(response, model);
+      return response;
+    };
 
-    assertCompleteStop(response, model);
-    const raw = extractText(response, model);
-    const parsed = JSON.parse(stripCodeFences(raw)) as Record<string, unknown>;
+    let response = await call();
+    let parsed = parseRollupJson(extractText(response, model));
+    if (!parsed && canRetryWithinBudget(ctx)) {
+      // Same single retry as the answer call: only a reply that is not a JSON
+      // object is tried again; everything else keeps today's path.
+      console.warn("[interview-scoring] malformed rollup reply, retrying once", { model });
+      response = await call();
+      parsed = parseRollupJson(extractText(response, model));
+    }
+    if (!parsed) throw new Error("rollup: reply was not a JSON object");
 
     return {
       verdict: clampVerdict(parsed.verdict),
@@ -956,6 +1048,18 @@ export async function summariseSession(
     });
     console.error("[interview-scoring] session rollup failed:", err);
     return { verdict: null, summary: null, confidence: "low", criteria: [] };
+  }
+}
+
+/** The rollup reply as an object, or null when it is not valid JSON or not an object. */
+function parseRollupJson(raw: string): Record<string, unknown> | null {
+  try {
+    const value: unknown = JSON.parse(stripCodeFences(raw));
+    return value !== null && typeof value === "object" && !Array.isArray(value)
+      ? (value as Record<string, unknown>)
+      : null;
+  } catch {
+    return null;
   }
 }
 
