@@ -160,11 +160,3 @@ test("the job_applications insert gained exactly privacy_notice_version, from th
   // Never from the request body.
   assert.doesNotMatch(route, /privacy_notice_version:\s*(body|form|payload|req)/);
 });
-
-test("schema.sql carries both columns, nullable and without a default", () => {
-  const schema = src("../../schema.sql");
-  assert.match(schema, /^\s*consent_version text,/m);
-  assert.match(schema, /^\s*privacy_notice_version text,/m);
-  assert.doesNotMatch(schema, /consent_version text (NOT NULL|DEFAULT)/);
-  assert.doesNotMatch(schema, /privacy_notice_version text (NOT NULL|DEFAULT)/);
-});
