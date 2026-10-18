@@ -65,7 +65,8 @@ export function providerTimeoutMs(remainingMs: number): number {
 
 export type ProviderCallLog = {
   jobType: string;
-  provider: "anthropic" | "openai-whisper";
+  /** Who answered: Anthropic or OpenAI for a scoring call (by model, see scoringProvider), Whisper for transcription. */
+  provider: "anthropic" | "openai" | "openai-whisper";
   model?: string;
   durationMs: number;
   /** Budget the call had when it started; null outside the worker. */

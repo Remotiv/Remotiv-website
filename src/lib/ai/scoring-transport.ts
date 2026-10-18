@@ -27,6 +27,11 @@ export type ScoringMessage = {
   } | null;
 };
 
+/** The provider a scoring call goes to, for the [provider-call] log line: gpt-* is OpenAI, the rest Anthropic. */
+export function scoringProvider(model: string): "anthropic" | "openai" {
+  return isOpenAIModel(model) ? "openai" : "anthropic";
+}
+
 export async function createScoringMessage(
   request: ScoringRequest,
   options?: ScoringRequestOptions,

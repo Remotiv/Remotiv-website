@@ -50,7 +50,7 @@ import {
   type ExistingSessionScore,
   sessionAlreadyComplete,
 } from "./scorecard-resume";
-import { createScoringMessage, type ScoringMessage } from "./scoring-transport";
+import { createScoringMessage, type ScoringMessage, scoringProvider } from "./scoring-transport";
 
 /**
  * AI interview scoring — the plumbing, not yet the judgement.
@@ -596,7 +596,7 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
       const c = classifyProviderError(err);
       logProviderCall({
         jobType: "ai_scorecard",
-        provider: "anthropic",
+        provider: scoringProvider(model),
         model,
         durationMs: Date.now() - callStarted,
         remainingAtStartMs: remainingAtStart,
@@ -608,7 +608,7 @@ export async function scoreAnswer(input: AnswerScoreInput, ctx?: JobContext): Pr
     }
     logProviderCall({
       jobType: "ai_scorecard",
-      provider: "anthropic",
+      provider: scoringProvider(model),
       model,
       durationMs: Date.now() - callStarted,
       remainingAtStartMs: remainingAtStart,
@@ -999,7 +999,7 @@ export async function summariseSession(
       );
       logProviderCall({
         jobType: "ai_scorecard",
-        provider: "anthropic",
+        provider: scoringProvider(model),
         model,
         durationMs: Date.now() - callStarted,
         remainingAtStartMs: remainingAtStart,
@@ -1038,7 +1038,7 @@ export async function summariseSession(
     const c = classifyProviderError(err);
     logProviderCall({
       jobType: "ai_scorecard",
-      provider: "anthropic",
+      provider: scoringProvider(model),
       model,
       durationMs: Date.now() - callStarted,
       remainingAtStartMs: remainingAtStart,

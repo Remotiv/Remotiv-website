@@ -40,7 +40,7 @@ import {
   parseScoreJson,
   type Strength,
 } from "./score-parsers";
-import { createScoringMessage, type ScoringMessage } from "./scoring-transport";
+import { createScoringMessage, type ScoringMessage, scoringProvider } from "./scoring-transport";
 
 // The parsers and the result shapes live in score-parsers.ts (pure, tested);
 // re-exported here so the interview scorer, the recompute job and the
@@ -1113,7 +1113,7 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
     const c = classifyProviderError(err);
     logProviderCall({
       jobType: "ai_cv_score",
-      provider: "anthropic",
+      provider: scoringProvider(model),
       model,
       durationMs: Date.now() - callStarted,
       remainingAtStartMs: remainingAtStart,
@@ -1125,7 +1125,7 @@ export async function scoreCv(input: ScoreInput, ctx?: JobContext): Promise<Scor
   }
   logProviderCall({
     jobType: "ai_cv_score",
-    provider: "anthropic",
+    provider: scoringProvider(model),
     model,
     durationMs: Date.now() - callStarted,
     remainingAtStartMs: remainingAtStart,
