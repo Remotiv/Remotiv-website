@@ -131,8 +131,15 @@ export {
  */
 export const PROMPT_VERSION = "cv-scoring-v13";
 
-/** Swappable without a deploy; the resolved value is stored on every row. */
-export const DEFAULT_SCORING_MODEL = "claude-sonnet-4-5";
+/**
+ * Swappable without a deploy; the resolved value is stored on every row.
+ *
+ * The default is what scoring lands on if AI_SCORING_MODEL is ever unset, so
+ * it has to be a model that is still served: Claude Haiku 5.5 (model-params.ts
+ * sends it no temperature and thinking off). It was claude-sonnet-4-5, which
+ * retires on 30 Nov 2026. Production sets the variable explicitly.
+ */
+export const DEFAULT_SCORING_MODEL = "claude-haiku-5-5";
 
 export function resolveScoringModel(): string {
   return process.env.AI_SCORING_MODEL?.trim() || DEFAULT_SCORING_MODEL;

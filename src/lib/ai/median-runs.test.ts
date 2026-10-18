@@ -311,7 +311,7 @@ test("AI_SCORING_RUNS=3: three parallel calls, the median card stored, tokens su
   assert.equal(row.verdict, "run-2", "the whole card is the median run's, not a blend");
   assert.equal(row.input_tokens, 30);
   assert.equal(row.output_tokens, 15);
-  assert.equal(row.ai_model, "claude-sonnet-4-5");
+  assert.equal(row.ai_model, "claude-haiku-5-5");
   assert.deepEqual(r.rpcs, ["consume_allowance"], "reserved once, never released");
   // One line: the run overalls and the choice, numbers and the id only.
   const line = runLog(r);

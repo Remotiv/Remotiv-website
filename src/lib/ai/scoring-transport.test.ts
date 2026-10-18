@@ -174,7 +174,7 @@ test("gpt-* goes to OpenAI; Anthropic is never called", async () => {
   }
 });
 
-test("all three call sites, model unset: Anthropic, claude-sonnet-4-5, today's fields", async () => {
+test("all three call sites, model unset: Anthropic, the claude-haiku-5-5 default, thinking off, no temperature", async () => {
   const sites = [
     ["cv", SCORECARD, () => scoreCv(CV_INPUT), 3000],
     ["answer", ANSWER, () => scoreAnswer(ANSWER_INPUT), 2000],
@@ -189,12 +189,13 @@ test("all three call sites, model unset: Anthropic, claude-sonnet-4-5, today's f
       const { request } = f.anthropic[0];
       assert.deepEqual(
         Object.keys(request),
-        ["model", "max_tokens", "temperature", "system", "messages"],
+        ["model", "max_tokens", "thinking", "system", "messages"],
         site,
       );
-      assert.equal(request.model, "claude-sonnet-4-5");
+      assert.equal(request.model, "claude-haiku-5-5");
       assert.equal(request.max_tokens, max);
-      assert.equal(request.temperature, 0);
+      assert.deepEqual(request.thinking, { type: "disabled" });
+      assert.equal("temperature" in request, false);
     } finally {
       f.restore();
     }
@@ -236,7 +237,7 @@ test("all three call sites on gpt-6-luna: OpenAI, the reply parsed and verified 
 });
 
 test("interview model: unset falls back to AI_SCORING_MODEL; set, it is its own", async () => {
-  assert.equal(await withEnv({}, () => resolveInterviewScoringModel()), "claude-sonnet-4-5");
+  assert.equal(await withEnv({}, () => resolveInterviewScoringModel()), "claude-haiku-5-5");
   assert.equal(
     await withEnv({ AI_SCORING_MODEL: "claude-haiku-5-5" }, () => resolveInterviewScoringModel()),
     "claude-haiku-5-5",
@@ -250,7 +251,7 @@ test("interview model: unset falls back to AI_SCORING_MODEL; set, it is its own"
   );
   assert.equal(
     await withEnv({ AI_INTERVIEW_SCORING_MODEL: "  " }, () => resolveInterviewScoringModel()),
-    "claude-sonnet-4-5",
+    "claude-haiku-5-5",
     "blank = unset",
   );
 
@@ -269,7 +270,7 @@ test("interview model: unset falls back to AI_SCORING_MODEL; set, it is its own"
   try {
     await withEnv(env, () => scoreCv(CV_INPUT));
     assert.equal(f.anthropic.length, 1, "CV scoring unchanged");
-    assert.equal(f.anthropic[0].request.model, "claude-sonnet-4-5");
+    assert.equal(f.anthropic[0].request.model, "claude-haiku-5-5");
     assert.equal(f.openai.length, 0);
   } finally {
     f.restore();

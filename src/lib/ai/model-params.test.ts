@@ -219,12 +219,49 @@ const ANSWER_INPUT = {
   transcript: "I traced a race in the ledger writer and fixed the lock ordering.",
 };
 
-test("production is unchanged: on the default Sonnet 4.5 both scorers send temperature 0 and no thinking field", async () => {
+test("the default is Haiku 5.5: with AI_SCORING_MODEL unset both scorers send thinking off and no temperature", async () => {
   await withModel(undefined, async () => {
     const cv = fakeModel(textReply(SCORECARD_JSON));
     await scoreCv(SCORE_INPUT);
     assert.equal(cv.length, 1);
-    assert.equal(cv[0].model, "claude-sonnet-4-5");
+    assert.equal(cv[0].model, "claude-haiku-5-5");
+    assert.deepEqual(Object.keys(cv[0]), ["model", "max_tokens", "thinking", "system", "messages"]);
+    assert.deepEqual(cv[0].thinking, { type: "disabled" });
+    assert.equal("temperature" in cv[0], false);
+    assert.equal(cv[0].max_tokens, 3000);
+
+    const answer = fakeModel(textReply(ANSWER_JSON));
+    await scoreAnswer(ANSWER_INPUT);
+    assert.equal(answer[0].model, "claude-haiku-5-5");
+    assert.deepEqual(Object.keys(answer[0]), [
+      "model",
+      "max_tokens",
+      "thinking",
+      "system",
+      "messages",
+    ]);
+    assert.deepEqual(answer[0].thinking, { type: "disabled" });
+    assert.equal("temperature" in answer[0], false);
+    assert.equal(answer[0].max_tokens, 2000);
+  });
+});
+
+test("an explicit claude-haiku-5-5 is the same request as the default; an explicit claude-sonnet-4-5 still sends temperature 0", async () => {
+  const unset = await withModel(undefined, async () => {
+    const r = fakeModel(textReply(SCORECARD_JSON));
+    await scoreCv(SCORE_INPUT);
+    return r[0];
+  });
+  const set = await withModel("claude-haiku-5-5", async () => {
+    const r = fakeModel(textReply(SCORECARD_JSON));
+    await scoreCv(SCORE_INPUT);
+    return r[0];
+  });
+  assert.deepEqual(set, unset);
+
+  await withModel("claude-sonnet-4-5", async () => {
+    const cv = fakeModel(textReply(SCORECARD_JSON));
+    await scoreCv(SCORE_INPUT);
     assert.deepEqual(Object.keys(cv[0]), [
       "model",
       "max_tokens",
@@ -233,36 +270,8 @@ test("production is unchanged: on the default Sonnet 4.5 both scorers send tempe
       "messages",
     ]);
     assert.equal(cv[0].temperature, 0);
-    assert.equal(cv[0].max_tokens, 3000);
     assert.equal("thinking" in cv[0], false);
-
-    const answer = fakeModel(textReply(ANSWER_JSON));
-    await scoreAnswer(ANSWER_INPUT);
-    assert.deepEqual(Object.keys(answer[0]), [
-      "model",
-      "max_tokens",
-      "temperature",
-      "system",
-      "messages",
-    ]);
-    assert.equal(answer[0].temperature, 0);
-    assert.equal(answer[0].max_tokens, 2000);
-    assert.equal("thinking" in answer[0], false);
   });
-});
-
-test("an explicit claude-sonnet-4-5 is the same request as the default", async () => {
-  const unset = await withModel(undefined, async () => {
-    const r = fakeModel(textReply(SCORECARD_JSON));
-    await scoreCv(SCORE_INPUT);
-    return r[0];
-  });
-  const set = await withModel("claude-sonnet-4-5", async () => {
-    const r = fakeModel(textReply(SCORECARD_JSON));
-    await scoreCv(SCORE_INPUT);
-    return r[0];
-  });
-  assert.deepEqual(set, unset);
 });
 
 test("Sonnet 5.5: no temperature, thinking between_tools, and a leading thinking block is read past", async () => {
