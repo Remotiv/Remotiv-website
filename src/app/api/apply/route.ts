@@ -8,6 +8,7 @@ import { queueApplicationReceived } from "@/lib/email/candidate/triggers";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import { normalizeEmail, normalizePhone } from "@/lib/normalize";
 import { extractPdfTextServer, stripInvalidPgChars } from "@/lib/pdf-text";
+import { PRIVACY_NOTICE_VERSION } from "@/lib/privacy-version";
 import { type NumericMode, resolveNumericMode } from "@/lib/screening";
 import { createServiceClient } from "@/lib/supabase/server";
 import { isValidEmail } from "@/lib/validators";
@@ -736,6 +737,10 @@ export async function POST(request: NextRequest) {
         source_detail: cap(strip(attrDetail ?? attrSource), 120),
         referrer: cap(strip(attrReferrer), 120),
         landing_path: cap(strip(attrLanding), 200),
+        // Which privacy notice the form linked to at apply time (lib/
+        // privacy-version.ts). A server constant, never client input; rows
+        // from before this existed stay NULL.
+        privacy_notice_version: PRIVACY_NOTICE_VERSION,
       })
       .select("id")
       .single();

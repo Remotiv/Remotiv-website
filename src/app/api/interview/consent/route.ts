@@ -1,6 +1,7 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import { INTERVIEW_CONSENT_VERSION } from "@/lib/interviews/consent";
 import { resolveSessionByToken } from "@/lib/interviews/session";
 
 export const runtime = "nodejs";
@@ -14,7 +15,9 @@ export const dynamic = "force-dynamic";
  * still consented to those two being stored, and the timestamp has to say so.
  *
  * Idempotent: re-consenting keeps the FIRST timestamp, because that is the
- * moment they actually agreed.
+ * moment they actually agreed. The version of the consent text they saw is
+ * written alongside it, from the server's constant (lib/interviews/consent.ts),
+ * never from the client; rows from before versions were recorded stay NULL.
  */
 export async function POST(request: Request) {
   let body: { token?: string };
@@ -49,7 +52,7 @@ export async function POST(request: Request) {
   if (!resolved.row.consent_at) {
     await createServiceClient()
       .from("interview_sessions")
-      .update({ consent_at: new Date().toISOString() })
+      .update({ consent_at: new Date().toISOString(), consent_version: INTERVIEW_CONSENT_VERSION })
       .eq("id", resolved.row.id)
       .is("consent_at", null);
   }
