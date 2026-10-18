@@ -1,5 +1,6 @@
 import "server-only";
 
+import { extractText, thinkingOffParams } from "@/lib/ai/model-params";
 import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
 
 /**
@@ -269,12 +270,15 @@ export async function extractTalentFieldsFromCv(
     const response = await anthropic.messages.create({
       model: AI_MATCHING_MODEL,
       max_tokens: CV_EXTRACT_MAX_TOKENS,
+      ...thinkingOffParams(AI_MATCHING_MODEL),
       system: SYSTEM_PROMPT,
       messages: [{ role: "user", content: `CV TEXT:\n${input}` }],
     });
-
-    const block = response.content[0];
-    const raw = block && block.type === "text" ? block.text : "";
+    // The first text block, past any thinking block; "" when there is none, so
+    // the empty-reply handling below is unchanged.
+    const raw = response.content.some((b) => b.type === "text")
+      ? extractText(response, AI_MATCHING_MODEL)
+      : "";
     if (!raw) {
       console.error("[cv-extract] empty response from Claude");
       return null;
@@ -391,12 +395,15 @@ export async function extractBasicFieldsFromCv(
     const response = await anthropic.messages.create({
       model: AI_MATCHING_MODEL,
       max_tokens: BASIC_FIELDS_MAX_TOKENS,
+      ...thinkingOffParams(AI_MATCHING_MODEL),
       system: BASIC_SYSTEM_PROMPT,
       messages: [{ role: "user", content: `CV TEXT:\n${input}` }],
     });
-
-    const block = response.content[0];
-    const raw = block && block.type === "text" ? block.text : "";
+    // The first text block, past any thinking block; "" when there is none, so
+    // the empty-reply handling below is unchanged.
+    const raw = response.content.some((b) => b.type === "text")
+      ? extractText(response, AI_MATCHING_MODEL)
+      : "";
     if (!raw) {
       console.error("[cv-extract:basic] empty response from Claude");
       return null;

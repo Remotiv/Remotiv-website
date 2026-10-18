@@ -13,6 +13,7 @@ import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { publicTalent } from "@/lib/talent-visibility";
 import { createServiceClient } from "@/lib/supabase/server";
 import { getAnthropic, AI_MATCHING_MODEL } from "@/lib/anthropic";
+import { extractText, thinkingOffParams } from "@/lib/ai/model-params";
 
 // ── Types ────────────────────────────────────────────────────
 
@@ -327,12 +328,15 @@ export async function rankWithClaude(
     const response = await anthropic.messages.create({
       model: AI_MATCHING_MODEL,
       max_tokens: CLAUDE_MAX_TOKENS,
+      ...thinkingOffParams(AI_MATCHING_MODEL),
       system: systemPrompt,
       messages: [{ role: "user", content: userMessage }],
     });
-
-    const block = response.content[0];
-    const text = block && block.type === "text" ? block.text : "";
+    // The first text block, past any thinking block; "" when there is none, so
+    // the non-JSON handling below is unchanged.
+    const text = response.content.some((b) => b.type === "text")
+      ? extractText(response, AI_MATCHING_MODEL)
+      : "";
 
     const parsed = parseMatchJson(text);
     if (!parsed) {

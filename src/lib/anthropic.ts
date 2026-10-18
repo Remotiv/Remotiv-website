@@ -1,6 +1,14 @@
 import Anthropic from "@anthropic-ai/sdk";
 
-export const AI_MATCHING_MODEL = "claude-haiku-4-5-20251001";
+/**
+ * The model behind the assist features: talent matching, CV extraction and the
+ * job-wizard generators. The alias, not a dated snapshot, so that
+ * thinkingOffParams (lib/ai/model-params.ts) recognises it: Haiku 5.5 thinks
+ * by default and rejects sampling parameters, so every call site spreads
+ * thinkingOffParams(AI_MATCHING_MODEL) and reads the reply with extractText.
+ * Moved from claude-haiku-4-5-20251001, whose support ended on 15 Oct 2026.
+ */
+export const AI_MATCHING_MODEL = "claude-haiku-5-5";
 
 // Construct the client lazily (per call) rather than at module import.
 // In Next.js, process.env may not be populated at import time for route

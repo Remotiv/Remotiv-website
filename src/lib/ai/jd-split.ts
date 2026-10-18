@@ -1,4 +1,5 @@
 import "server-only";
+import { acceptsTemperature, extractText, thinkingOffParams } from "@/lib/ai/model-params";
 import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
 import { isUseful, type JdGroup, splittableLines, toGroups } from "@/lib/jd/partition";
 
@@ -121,9 +122,11 @@ export async function proposeSplit(box: string): Promise<JdSplitOutcome> {
          * 0, for the same reason the CV scorer uses 0: sampling variety is a
          * feature when writing prose and a defect when partitioning a document
          * someone is about to publish. The same paste twice should not put the
-         * boundary in two different places.
+         * boundary in two different places. Sent only to models that accept
+         * it: Haiku 5.5 returns a 400 for any sampling parameter.
          */
-        temperature: 0,
+        ...(acceptsTemperature(AI_MATCHING_MODEL) ? { temperature: 0 } : {}),
+        ...thinkingOffParams(AI_MATCHING_MODEL),
         system: SYSTEM_PROMPT,
         messages: [
           {
@@ -134,8 +137,11 @@ export async function proposeSplit(box: string): Promise<JdSplitOutcome> {
       },
       { signal: AbortSignal.timeout(TIMEOUT_MS) },
     );
-    const block = response.content[0];
-    raw = block && block.type === "text" ? block.text : "";
+    // The first text block, past any thinking block; "" when there is none, so
+    // the not_json handling below is unchanged.
+    raw = response.content.some((b) => b.type === "text")
+      ? extractText(response, AI_MATCHING_MODEL)
+      : "";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const timedOut = /abort|timeout/i.test(message);

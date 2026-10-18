@@ -1,4 +1,5 @@
 import "server-only";
+import { extractText, thinkingOffParams } from "@/lib/ai/model-params";
 import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
 import type { ScreeningQuestion } from "@/lib/jobs";
 import type { NumericMode } from "@/lib/screening";
@@ -250,6 +251,7 @@ export async function generateScreeningQuestions(input: {
       {
         model: AI_MATCHING_MODEL,
         max_tokens: MAX_TOKENS,
+        ...thinkingOffParams(AI_MATCHING_MODEL),
         // Unpinned, like the other generators. Two roles at one company should
         // not get the same five questions.
         system: SYSTEM_PROMPT,
@@ -257,8 +259,11 @@ export async function generateScreeningQuestions(input: {
       },
       { signal: AbortSignal.timeout(TIMEOUT_MS) },
     );
-    const block = response.content[0];
-    raw = block && block.type === "text" ? block.text : "";
+    // The first text block, past any thinking block; "" when there is none, so
+    // the empty / not_json handling below is unchanged.
+    raw = response.content.some((b) => b.type === "text")
+      ? extractText(response, AI_MATCHING_MODEL)
+      : "";
   } catch (err) {
     const message = err instanceof Error ? err.message : String(err);
     const timedOut = /abort|timeout/i.test(message);
