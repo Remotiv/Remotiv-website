@@ -8,7 +8,7 @@
  */
 // @ts-nocheck — same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
-import { readdirSync, readFileSync, statSync } from "node:fs";
+import { existsSync, readdirSync, readFileSync, statSync } from "node:fs";
 import { join, relative } from "node:path";
 import { test } from "node:test";
 import { fileURLToPath } from "node:url";
@@ -51,7 +51,9 @@ function appFiles() {
     }
   };
   walk(SRC);
-  walk(join(ROOT, "scripts"));
+  // scripts/ is untracked: scanned when present, skipped on a clean checkout.
+  const scripts = join(ROOT, "scripts");
+  if (existsSync(scripts)) walk(scripts);
   return out.map((path) => ({
     rel: relative(ROOT, path),
     text: strip(readFileSync(path, "utf8")),
