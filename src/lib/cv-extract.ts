@@ -7,9 +7,12 @@ import { AI_MATCHING_MODEL, getAnthropic } from "@/lib/anthropic";
  * CV → structured-profile extraction via Claude Haiku.
  *
  * Built to be wired into `moveApplicationToTalent` later — this file is
- * intentionally isolated and unwired. Call `extractTalentFieldsFromCv(cv_text)`
- * to get a typed, validated, capped profile object, or `null` on any failure
- * (missing key, network throw, malformed JSON, bad shape). Never throws.
+ * intentionally isolated and unwired. Call `extractTalentFields(cv_text)` to
+ * get a typed, validated, capped profile object, or a failure that says WHY
+ * (no text, no key, billing, rate limit, timeout, model error, unusable
+ * reply) so an admin screen can say something truer than "couldn't read CV".
+ * `extractTalentFieldsFromCv` is the same call with `null` for any failure.
+ * Neither throws.
  *
  * The output shape mirrors the 14 wizard columns on `job_applications`
  * exactly (see /api/apply Phase 2b parsing), so callers can write the result
@@ -252,16 +255,64 @@ Rules:
 // ── Main export ─────────────────────────────────────────────
 
 /**
- * Extract structured profile fields from a CV's plain text using Claude Haiku.
- * Returns a fully sanitised, insert-safe object or `null` on ANY failure
- * (empty/missing input, missing API key, network throw, malformed JSON, bad
- * shape). Never throws.
+ * Why an extraction produced no profile. Fixed names, so the admin screens
+ * can map each to a plain sentence; the provider's own text stays in the log.
+ *
+ *   no_text                     the application has no CV text
+ *   no_key                      ANTHROPIC_API_KEY missing, or the key refused (401/403)
+ *   billing                     402, or a 400/429 whose message is about credit or billing
+ *   rate_limited_or_overloaded  429 or 529: try again shortly
+ *   timeout                     the call was aborted or timed out
+ *   model_error                 a retired model (404) or any other 4xx/5xx
+ *   bad_reply                   an empty reply, or one that is not JSON
  */
-export async function extractTalentFieldsFromCv(
-  cvText: string,
-): Promise<ExtractedTalentFields | null> {
+export type CvExtractFailure =
+  | "no_text"
+  | "no_key"
+  | "billing"
+  | "rate_limited_or_overloaded"
+  | "timeout"
+  | "model_error"
+  | "bad_reply";
+
+export type CvExtractOutcome =
+  | { ok: true; fields: ExtractedTalentFields }
+  | { ok: false; reason: CvExtractFailure };
+
+const BILLING_RE = /credit balance|insufficient[_ ](quota|credits|funds)|payment required|billing/i;
+const MISSING_KEY_RE = /API[_ ]KEY is not (set|configured)|API key is not (set|configured)/i;
+
+/** The failure class of a thrown provider error. Mirrors lib/queue/failure-class, in this file's vocabulary. */
+function classifyExtractError(err: unknown): CvExtractFailure {
+  const message = err instanceof Error ? err.message : String(err ?? "");
+  const status =
+    err && typeof err === "object" && typeof (err as { status?: unknown }).status === "number"
+      ? ((err as { status: number }).status as number)
+      : null;
+  if (MISSING_KEY_RE.test(message)) return "no_key";
+  if (status === 401 || status === 403) return "no_key";
+  if (status === 402) return "billing";
+  if ((status === 400 || status === 429) && BILLING_RE.test(message)) return "billing";
+  if (status === 429 || status === 529) return "rate_limited_or_overloaded";
+  if (status === 408) return "timeout";
+  if (status !== null) return "model_error";
+  if (
+    (err instanceof Error && err.name === "AbortError") ||
+    /abort|timed? ?out|timeout/i.test(message)
+  ) {
+    return "timeout";
+  }
+  return "model_error";
+}
+
+/**
+ * Extract structured profile fields from a CV's plain text using Claude Haiku.
+ * Returns a fully sanitised, insert-safe object, or the reason there is none.
+ * Never throws.
+ */
+export async function extractTalentFields(cvText: string): Promise<CvExtractOutcome> {
   if (typeof cvText !== "string" || cvText.trim().length === 0) {
-    return null;
+    return { ok: false, reason: "no_text" };
   }
   const input = cvText.slice(0, CV_TEXT_INPUT_CAP);
 
@@ -280,8 +331,8 @@ export async function extractTalentFieldsFromCv(
       ? extractText(response, AI_MATCHING_MODEL)
       : "";
     if (!raw) {
-      console.error("[cv-extract] empty response from Claude");
-      return null;
+      console.error("[cv-extract] empty response from Claude (bad_reply)");
+      return { ok: false, reason: "bad_reply" };
     }
 
     const stripped = stripCodeFences(raw);
@@ -290,19 +341,28 @@ export async function extractTalentFieldsFromCv(
       parsed = JSON.parse(stripped);
     } catch {
       console.error(
-        "[cv-extract] non-JSON response from Claude:",
+        "[cv-extract] non-JSON response from Claude (bad_reply):",
         stripped.slice(0, 200),
       );
-      return null;
+      return { ok: false, reason: "bad_reply" };
     }
-    return sanitiseOutput(parsed);
+    return { ok: true, fields: sanitiseOutput(parsed) };
   } catch (err) {
+    const reason = classifyExtractError(err);
     console.error(
-      "[cv-extract] extraction failed:",
+      `[cv-extract] extraction failed (${reason}):`,
       err instanceof Error ? err.message : err,
     );
-    return null;
+    return { ok: false, reason };
   }
+}
+
+/** The same extraction, with `null` for any failure, for callers that need no reason. */
+export async function extractTalentFieldsFromCv(
+  cvText: string,
+): Promise<ExtractedTalentFields | null> {
+  const outcome = await extractTalentFields(cvText);
+  return outcome.ok ? outcome.fields : null;
 }
 
 // ============================================================================

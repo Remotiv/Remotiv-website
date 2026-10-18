@@ -4,12 +4,12 @@ import {
   moveApplicationToTalent,
 } from "@/app/admin/applications/actions";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
-import { extractTalentFieldsFromCv } from "@/lib/cv-extract";
+import { type CvExtractFailure, extractTalentFields } from "@/lib/cv-extract";
 import { createServiceClient } from "@/lib/supabase/server";
 import { adminApplicationScope } from "@/lib/admin-scope";
 
 // Reuses the canonical move logic with ZERO replication:
-//   - extractTalentFieldsFromCv  → AI fields off stored cv_text
+//   - extractTalentFields        → AI fields off stored cv_text, or why not
 //   - moveApplicationToTalent     → insert/dedupe/archived-restore/avatar.
 //                                   That action creates rows pending + hidden
 //                                   until an admin approves; this route never
@@ -35,9 +35,13 @@ type RowResult = {
   result:
     | "moved"
     | "skipped_already"
+    /** No CV text to read. */
     | "skipped_no_ai"
     | "skipped_no_email"
+    /** The AI could not extract a profile; `reason` says why. No talent row is created. */
+    | "failed_ai"
     | "failed";
+  reason?: CvExtractFailure;
   error?: string;
 };
 
@@ -127,6 +131,8 @@ export async function POST(request: Request) {
   let skippedAlready = 0;
   let skippedNoAi = 0;
   let skippedNoEmail = 0;
+  let failedAi = 0;
+  const failedAiReasons: Partial<Record<CvExtractFailure, number>> = {};
   let failed = 0;
 
   // 3. Process sequentially to respect the 60s budget + avoid Anthropic spikes.
@@ -149,12 +155,16 @@ export async function POST(request: Request) {
     }
 
     try {
-      const ai = await extractTalentFieldsFromCv(app.cv_text);
-      if (ai === null) {
-        skippedNoAi++;
-        results.push({ id: app.id, result: "skipped_no_ai" });
+      const outcome = await extractTalentFields(app.cv_text);
+      if (!outcome.ok) {
+        // Counted apart from "no CV text": the admin is told the AI failed and
+        // the most common reason, not that the CV was unreadable.
+        failedAi++;
+        failedAiReasons[outcome.reason] = (failedAiReasons[outcome.reason] ?? 0) + 1;
+        results.push({ id: app.id, result: "failed_ai", reason: outcome.reason });
         continue;
       }
+      const ai = outcome.fields;
 
       const employmentHistory = (ai.employment_history ?? []).map((e) => ({
         title: e.title ?? "",
@@ -215,6 +225,8 @@ export async function POST(request: Request) {
     skipped_already: skippedAlready,
     skipped_no_ai: skippedNoAi,
     skipped_no_email: skippedNoEmail,
+    failed_ai: failedAi,
+    failed_ai_reasons: failedAiReasons,
     failed,
     results,
   });

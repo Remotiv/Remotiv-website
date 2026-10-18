@@ -3,8 +3,9 @@ import { requireAdmin } from "@/app/admin/lib/role-guards";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { createServiceClient } from "@/lib/supabase/server";
 import {
-  extractTalentFieldsFromCv,
+  type CvExtractFailure,
   type ExtractedTalentFields,
+  extractTalentFields,
 } from "@/lib/cv-extract";
 import { adminApplicationScope } from "@/lib/admin-scope";
 import { stripInvalidPgChars } from "@/lib/pdf-text";
@@ -24,7 +25,8 @@ export type ExtractCvResponse =
   | {
       ok: true;
       prefill: ExtractedTalentFields | null;
-      reason?: "no_cv" | "extraction_failed";
+      /** Why `prefill` is null: no CV text, or the extraction's failure class. */
+      reason?: "no_cv" | CvExtractFailure;
       cached?: boolean;
     }
   | {
@@ -211,15 +213,17 @@ export async function POST(request: Request) {
       } satisfies ExtractCvResponse);
     }
 
-    // 7. Call the AI util. It NEVER throws — null on any failure.
-    const prefill = await extractTalentFieldsFromCv(r.cv_text as string);
-    if (prefill === null) {
+    // 7. Call the AI util. It NEVER throws — a failure comes back with its
+    //    class, which the client turns into a plain sentence for the admin.
+    const outcome = await extractTalentFields(r.cv_text as string);
+    if (!outcome.ok) {
       return NextResponse.json({
         ok: true,
         prefill: null,
-        reason: "extraction_failed",
+        reason: outcome.reason,
       } satisfies ExtractCvResponse);
     }
+    const prefill = outcome.fields;
 
     // 8. Cache write — best-effort, fire-and-forget. If this errors, the
     //    move flow still works (the modal already has the prefill in hand).

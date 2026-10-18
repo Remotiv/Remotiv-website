@@ -47,7 +47,7 @@ const AddToBatchModal = dynamic(
 import { PaginationControls, paginate } from "./pagination-controls";
 import { ScreeningAnswersView, ScreeningBadge } from "./screening-answers-view";
 import { StatusBadge } from "./_shared/status-badge";
-import type { ExtractedTalentFields } from "@/lib/cv-extract";
+import type { CvExtractFailure, ExtractedTalentFields } from "@/lib/cv-extract";
 import {
   updateApplicationStatus,
   toggleApplicationTag,
@@ -761,12 +761,61 @@ function TalentFilterChips({
 type BulkMoveTotals = {
   moved: number;
   alreadyInTalent: number;
+  /** No CV text to read. */
   noCv: number;
   noEmail: number;
+  /** The AI could not extract a profile; the reasons say why. */
+  failedAi: number;
+  failedAiReasons: Record<string, number>;
   failed: number;
   requested: number;
   eligibleCompleted: number;
 };
+
+/**
+ * What the admin is told when the AI could not pre-fill a profile. Fixed
+ * sentences per failure class; the provider's own text never reaches a screen.
+ * `no_cv` is the single route's "no CV text" answer, `no_text` the util's.
+ */
+const AI_PREFILL_MESSAGE: Record<"no_cv" | CvExtractFailure, string> = {
+  no_cv: "This CV has no readable text. Please fill the form manually.",
+  no_text: "This CV has no readable text. Please fill the form manually.",
+  no_key:
+    "AI pre-fill is unavailable (account or key problem). Please fill the form manually and tell the tech team.",
+  billing:
+    "AI pre-fill is unavailable (account or key problem). Please fill the form manually and tell the tech team.",
+  rate_limited_or_overloaded:
+    "AI is busy right now. Try again in a minute, or fill the form manually.",
+  timeout: "AI is busy right now. Try again in a minute, or fill the form manually.",
+  model_error: "AI pre-fill failed this time. Try again, or fill the form manually.",
+  bad_reply: "AI pre-fill failed this time. Try again, or fill the form manually.",
+};
+const AI_PREFILL_FALLBACK_MESSAGE =
+  "AI couldn't pre-fill from this CV — please fill the form manually.";
+
+function prefillFailureMessage(reason: unknown): string {
+  return typeof reason === "string" && reason in AI_PREFILL_MESSAGE
+    ? AI_PREFILL_MESSAGE[reason as keyof typeof AI_PREFILL_MESSAGE]
+    : AI_PREFILL_FALLBACK_MESSAGE;
+}
+
+/** The bulk result's one-line explanation: the most common failure reason, in plain words. */
+const AI_FAILURE_WORDS: Record<CvExtractFailure, string> = {
+  no_text: "no CV text",
+  no_key: "account or key problem",
+  billing: "account or key problem",
+  rate_limited_or_overloaded: "AI was busy",
+  timeout: "AI timed out",
+  model_error: "AI error",
+  bad_reply: "unusable AI reply",
+};
+
+function mostCommonAiFailure(reasons: Record<string, number>): string | null {
+  const top = Object.entries(reasons).sort((a, b) => b[1] - a[1])[0];
+  if (!top || top[1] === 0) return null;
+  const words = AI_FAILURE_WORDS[top[0] as CvExtractFailure] ?? "AI error";
+  return `most common: ${words} (${top[1]})`;
+}
 
 // Centered results dialog shown after a Bulk Move to Talent run completes.
 // Mirrors the project's centered-modal chrome (pricing-modal / apply-modal):
@@ -799,6 +848,7 @@ function BulkResultModal({
     { label: "Moved to Talent", value: totals.moved, tone: "good" },
     { label: "Already in Talent", value: totals.alreadyInTalent, tone: "muted" },
     { label: "Couldn't read CV", value: totals.noCv, tone: "muted" },
+    { label: "AI pre-fill failed", value: totals.failedAi, tone: "bad" },
     { label: "No email on file", value: totals.noEmail, tone: "muted" },
     { label: "Not eligible — no CV text yet", value: notEligible, tone: "muted" },
     { label: "Failed", value: totals.failed, tone: "bad" },
@@ -877,6 +927,15 @@ function BulkResultModal({
           ))}
         </ul>
 
+        {totals.failedAi > 0 && (
+          <p className="mt-3 text-xs text-gray-500">
+            AI pre-fill failed for {totals.failedAi}
+            {mostCommonAiFailure(totals.failedAiReasons)
+              ? ` — ${mostCommonAiFailure(totals.failedAiReasons)}`
+              : ""}
+            . No profile was created for them; try again later or move them one at a time.
+          </p>
+        )}
         {totals.moved > 0 && (
           <p className="mt-3 text-xs text-gray-500">
             Moved candidates now show "✓ Already in Talent" in the list.
@@ -959,15 +1018,7 @@ export function ApplicationsDashboard({
   const [bulkProgress, setBulkProgress] = useState<string | null>(null);
   // Completion results modal (opened after a run finishes; null = closed).
   const [bulkResult, setBulkResult] = useState<{
-    totals: {
-      moved: number;
-      alreadyInTalent: number;
-      noCv: number;
-      noEmail: number;
-      failed: number;
-      requested: number;
-      eligibleCompleted: number;
-    };
+    totals: BulkMoveTotals;
   } | null>(null);
 
   // keep state in sync with server-refreshed props
@@ -991,11 +1042,13 @@ export function ApplicationsDashboard({
 
     setIsBulkMoving(true);
     setBulkProgress("Starting…");
-    const totals = {
+    const totals: BulkMoveTotals = {
       moved: 0,
       alreadyInTalent: 0,
       noCv: 0,
       noEmail: 0,
+      failedAi: 0,
+      failedAiReasons: {},
       failed: 0,
       requested: 0,
       eligibleCompleted: 0,
@@ -1017,6 +1070,8 @@ export function ApplicationsDashboard({
           skipped_already?: number;
           skipped_no_ai?: number;
           skipped_no_email?: number;
+          failed_ai?: number;
+          failed_ai_reasons?: Record<string, number>;
           failed?: number;
           requested?: number;
           eligibleCompleted?: number;
@@ -1066,6 +1121,10 @@ export function ApplicationsDashboard({
           totals.alreadyInTalent += chunkData.skipped_already ?? 0;
           totals.noCv += chunkData.skipped_no_ai ?? 0;
           totals.noEmail += chunkData.skipped_no_email ?? 0;
+          totals.failedAi += chunkData.failed_ai ?? 0;
+          for (const [reason, n] of Object.entries(chunkData.failed_ai_reasons ?? {})) {
+            totals.failedAiReasons[reason] = (totals.failedAiReasons[reason] ?? 0) + n;
+          }
           totals.failed += chunkData.failed ?? 0;
           totals.requested += chunkData.requested ?? 0;
           totals.eligibleCompleted += chunkData.eligibleCompleted ?? 0;
@@ -1080,7 +1139,7 @@ export function ApplicationsDashboard({
         }
 
         setBulkProgress(
-          `moved ${totals.moved} · already in talent ${totals.alreadyInTalent} · failed ${totals.failed}`,
+          `moved ${totals.moved} · already in talent ${totals.alreadyInTalent} · AI failed ${totals.failedAi} · failed ${totals.failed}`,
         );
         if (i + CHUNK < ids.length) {
           await new Promise((resolve) => setTimeout(resolve, 300));
@@ -1134,10 +1193,11 @@ export function ApplicationsDashboard({
     if (extractingId) return;  // debounce
     setExtractingId(app.id);
     let prefill: ExtractedTalentFields | null = null;
-    // Server returned 200 ok=true but with no prefill payload (no_cv or
-    // extraction_failed). Distinguished from a network/parse failure so the
-    // admin sees a useful "AI couldn't pre-fill" toast rather than nothing.
+    // Server returned 200 ok=true but with no prefill payload. Its `reason`
+    // (no CV text, or the extraction's failure class) picks the toast, so the
+    // admin learns whether to retry, fill the form, or call the tech team.
     let serverReturnedEmpty = false;
+    let emptyReason: unknown;
     const controller = new AbortController();
     const timeoutId = setTimeout(() => controller.abort(), 60_000);
     try {
@@ -1148,13 +1208,14 @@ export function ApplicationsDashboard({
         signal: controller.signal,
       });
       const json = (await res.json().catch(() => null)) as
-        | { ok: true; prefill: ExtractedTalentFields | null }
+        | { ok: true; prefill: ExtractedTalentFields | null; reason?: unknown }
         | { ok: false }
         | null;
       if (json && json.ok) {
         prefill = json.prefill ?? null;
         if (prefill === null) {
           serverReturnedEmpty = true;
+          emptyReason = json.reason;
         }
       }
     } catch {
@@ -1165,9 +1226,7 @@ export function ApplicationsDashboard({
       setPrefillData(prefill);
       setMoveTarget(app);
       if (serverReturnedEmpty) {
-        setToast(
-          "AI couldn't pre-fill from this CV — please fill the form manually.",
-        );
+        setToast(prefillFailureMessage(emptyReason));
       }
     }
   }
