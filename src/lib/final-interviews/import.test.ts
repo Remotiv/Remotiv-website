@@ -56,11 +56,11 @@ function mp4(size) {
 }
 const same = (a, b) => a.length === b.length && a.every((v, i) => v === b[i]);
 
-function setup({ size = PART + 4321, bytes, row = {}, store = true, media = {} } = {}) {
+function setup({ size = PART + 4321, bytes, row = {}, store = true, media = {}, s3Options } = {}) {
   const db = makeBotDb(T0);
   const service = botWorld(db);
   const recall = fakeRecall();
-  const s3 = fakeS3();
+  const s3 = fakeS3(s3Options);
   const providerBotId = randomUUID();
   recall.add({ id: providerBotId });
   const file = bytes ?? mp4(size);
@@ -440,6 +440,112 @@ test("the stored object is the wrong size: deleted, failed, nothing ready", asyn
   assert.equal(t.row().import_error, "size_mismatch");
   assert.equal(t.rec().status, "failed");
   assert.equal(t.s3.objects.size, 0);
+  assert.equal(t.recall.count("deleteRecording"), 0);
+});
+
+/* ── storage that does not report part sizes (Supabase) ───────── */
+
+// Supabase's ListParts gives PartNumber, LastModified and ETag, no Size; the
+// store parses that to size null (storage-s3.test.ts). Bot d08329c7 failed 15
+// times on 15 Oct 2026 because a null size was read as 0 and its part "wrong".
+const NO_SIZES = { omitPartSizes: true };
+
+/** Records complete, verify and delete as they happen, with the rows' state at each. */
+function watchOrder(t) {
+  const seen = [];
+  t.s3.before("completeUpload", () => seen.push(["complete", t.rec()?.status]));
+  t.s3.before("readHead", () => seen.push(["verify", t.rec()?.status, t.s3.objects.has(t.key)]));
+  t.recall.before("deleteRecording", () =>
+    seen.push(["delete", t.rec().status, t.row().import_status]),
+  );
+  return seen;
+}
+
+for (const [label, size, partsPerRun] of [
+  ["one part (the 15 Oct file's size)", 1_500_758, Number.POSITIVE_INFINITY],
+  ["three parts, one per run", 2 * PART + 99, 1],
+]) {
+  test(`no part sizes from storage, ${label}: complete, verify, ready, Recall deleted, in that order`, async () => {
+    const t = setup({ size, s3Options: NO_SIZES });
+    const seen = watchOrder(t);
+    const { outcome, errors } = await drive(t, { partsPerRun });
+    assert.equal(outcome, "ready");
+    assert.deepEqual(errors, [], "no run failed on the missing sizes");
+    assert.deepEqual(seen, [
+      ["complete", "pending"],
+      ["verify", "pending", true],
+      ["delete", "ready", "importing"],
+    ]);
+    assertImported(t);
+    assert.equal(t.s3.count("uploadPart"), t.parts(), "each part uploaded once");
+    assert.equal(
+      t.s3.count("createUpload"),
+      1,
+      "the upload is kept across runs, never judged wrong",
+    );
+    assert.equal(t.s3.count("abortUpload"), 0);
+    assert.equal(t.recall.count("deleteRecording"), 1);
+  });
+}
+
+test("no part sizes from storage, but the finished object is the wrong size: failed, Recall not deleted", async () => {
+  const t = setup({ size: 2 * PART + 99, s3Options: NO_SIZES });
+  const complete = t.s3.completeUpload;
+  t.s3.completeUpload = async (...args) => {
+    const r = await complete(...args);
+    const o = t.s3.objects.get(t.key);
+    t.s3.objects.set(t.key, o.slice(0, o.length - 1));
+    return r;
+  };
+  assert.equal((await drive(t)).outcome, "failed");
+  assert.equal(t.row().import_status, "failed");
+  assert.equal(t.row().import_error, "size_mismatch");
+  assert.equal(t.rec().status, "failed", "never ready");
+  assert.equal(t.s3.objects.size, 0, "the object is deleted");
+  assert.equal(t.recall.count("deleteRecording"), 0);
+  assert.equal(t.recall.media.has(t.recId), true, "Recall's copy is kept");
+});
+
+test("no part sizes from storage, but not an MP4: failed, Recall not deleted", async () => {
+  const bytes = mp4(1_500_758);
+  bytes.set([0, 0, 0, 0], 4);
+  const t = setup({ bytes, s3Options: NO_SIZES });
+  assert.equal((await drive(t)).outcome, "failed");
+  assert.equal(t.row().import_error, "not_mp4");
+  assert.equal(t.rec().status, "failed", "never ready");
+  assert.equal(t.s3.objects.size, 0);
+  assert.equal(t.recall.count("deleteRecording"), 0);
+  assert.equal(t.recall.media.has(t.recId), true, "Recall's copy is kept");
+});
+
+test("sizes reported: an unfinished upload holding a part of the wrong size is aborted and started again", async () => {
+  const t = setup({ size: 2 * PART + 99 });
+  const stale = await t.s3.createUpload(t.key, "video/mp4");
+  await t.s3.uploadPart(t.key, stale, 1, mp4(PART - 1));
+  const { outcome } = await drive(t);
+  assert.equal(outcome, "ready");
+  assert.ok(
+    t.s3.calls.some((c) => c[0] === "abortUpload" && c[2] === stale),
+    "the wrong-layout upload is aborted",
+  );
+  assert.equal(t.s3.count("createUpload"), 2, "the stale one, then a fresh one");
+  assertImported(t);
+});
+
+test("sizes reported: a just-uploaded part listed at the wrong size is never assembled, Recall not deleted", async () => {
+  const t = setup({ size: 1_500_758 });
+  const list = t.s3.listParts;
+  t.s3.listParts = async (...args) => {
+    const parts = await list(...args);
+    return parts?.map((p) => ({ ...p, size: p.size - 1 }));
+  };
+  await assert.rejects(
+    imp.runRecordingImport(t.deps, { botId: t.bot.id }, CO),
+    /storage holds 0 of 1 parts; retrying/,
+  );
+  assert.equal(t.s3.count("completeUpload"), 0, "never assembled");
+  assert.equal(t.s3.objects.size, 0);
+  assert.equal(t.rec().status, "pending", "not ready");
   assert.equal(t.recall.count("deleteRecording"), 0);
 });
 

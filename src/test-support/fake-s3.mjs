@@ -5,7 +5,9 @@
  *
  *   uploadPart       replaces a part uploaded again under the same number;
  *                    NoSuchUpload (404) once the upload is gone
- *   listParts        null once the upload is gone
+ *   listParts        null once the upload is gone; with { omitPartSizes: true }
+ *                    every part's size is null, as Supabase's ListParts gives
+ *                    no Size (src/lib/storage-s3.ts parses that to null)
  *   completeUpload   every part but the last at least 5 MiB (EntityTooSmall
  *                    otherwise), ETags must match; the parts are assembled in
  *                    order and the upload ends. 'missing' when it is gone
@@ -32,7 +34,7 @@ const MIN_PART = 5 * 1024 * 1024;
 /** S3 lists in byte order of the key. */
 const byteOrder = (a, b) => (a < b ? -1 : a > b ? 1 : 0);
 
-export function fakeS3() {
+export function fakeS3({ omitPartSizes = false } = {}) {
   const objects = new Map();
   /** key -> last-modified ms */
   const objectTimes = new Map();
@@ -121,7 +123,11 @@ export function fakeS3() {
       if (!u || u.key !== key) return finish(lost, null);
       const parts = [...u.parts.entries()]
         .sort((a, b) => a[0] - b[0])
-        .map(([partNumber, p]) => ({ partNumber, size: p.bytes.length, etag: p.etag }));
+        .map(([partNumber, p]) => ({
+          partNumber,
+          size: omitPartSizes ? null : p.bytes.length,
+          etag: p.etag,
+        }));
       return finish(lost, parts);
     },
     async uploadPart(key, uploadId, partNumber, body) {

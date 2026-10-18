@@ -37,7 +37,11 @@ import {
  * carry the operation, the HTTP status and S3's error code only.
  */
 
-export type StoredPart = { partNumber: number; size: number; etag: string };
+/**
+ * One uploaded part. `size` is null when storage does not report it: Supabase's
+ * ListParts gives PartNumber, LastModified and ETag only.
+ */
+export type StoredPart = { partNumber: number; size: number | null; etag: string };
 /** One object from a bucket listing. lastModified is null when storage gave none. */
 export type ListedObject = { key: string; lastModified: number | null };
 /** One unfinished multipart upload from a bucket listing. */
@@ -219,7 +223,11 @@ export function createRecordingStore(config: RecordingStoreConfig): RecordingSto
           );
           for (const p of res.Parts ?? []) {
             if (p.PartNumber && p.ETag) {
-              parts.push({ partNumber: p.PartNumber, size: Number(p.Size ?? 0), etag: p.ETag });
+              parts.push({
+                partNumber: p.PartNumber,
+                size: typeof p.Size === "number" ? p.Size : null,
+                etag: p.ETag,
+              });
             }
           }
           if (!res.IsTruncated || !res.NextPartNumberMarker) break;

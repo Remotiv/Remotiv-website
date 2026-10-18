@@ -426,7 +426,10 @@ async function openUpload(run: Run, key: string): Promise<string> {
 
 /**
  * Stored parts that match the layout for `total`; "gone" when storage no
- * longer has the upload, "wrong" when it holds parts of another layout.
+ * longer has the upload, "wrong" when it holds parts of another layout. A part
+ * whose size storage does not report (Supabase's ListParts omits it) is judged
+ * by its number only: unknown is never wrong. The finished object's size is
+ * checked against the total after completing, in verifyObject, either way.
  */
 async function usableParts(
   run: Run,
@@ -439,7 +442,8 @@ async function usableParts(
   const count = Math.ceil(total / RECORDING_IMPORT_PART_BYTES);
   for (const p of parts) {
     const { start, end } = partRange(p.partNumber, total);
-    if (p.partNumber < 1 || p.partNumber > count || p.size !== end - start + 1) return "wrong";
+    if (p.partNumber < 1 || p.partNumber > count) return "wrong";
+    if (p.size !== null && p.size !== end - start + 1) return "wrong";
   }
   return parts;
 }
@@ -493,8 +497,12 @@ async function copyParts(run: Run, rec: RecordingRow, key: string): Promise<void
       `recording import: storage holds ${Array.isArray(stored) ? stored.length : 0} of ${count} parts; retrying`,
     );
   }
-  const sum = stored.reduce((acc, p) => acc + p.size, 0);
-  if (sum !== total) throw new ImportFailure(RECORDING_IMPORT_ERRORS.sizeMismatch);
+  // Summed only when storage reported every size; otherwise verifyObject decides.
+  const sizes = stored.map((p) => p.size);
+  if (sizes.every((s): s is number => s !== null)) {
+    const sum = sizes.reduce((acc, s) => acc + s, 0);
+    if (sum !== total) throw new ImportFailure(RECORDING_IMPORT_ERRORS.sizeMismatch);
+  }
   await assertClaim(run);
   // "missing" means it completed on an earlier run whose answer was lost, or
   // it was aborted; the object check that follows decides which.
