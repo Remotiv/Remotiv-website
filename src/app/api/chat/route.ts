@@ -1,12 +1,16 @@
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
+import { thinkingOffParams } from "@/lib/ai/model-params";
 import { getAnthropic } from "@/lib/anthropic";
 
 export const runtime = "nodejs";
 
 // Haiku — cheapest model; chat replies are short (max_tokens 300) so each
-// turn costs a fraction of a cent.
-const CHAT_MODEL = "claude-haiku-4-5-20251001";
+// turn costs a fraction of a cent. The alias, so thinkingOffParams recognises
+// it: Haiku 5.5 thinks by default, which would spend the 300 tokens on
+// thinking and bill for it, and it rejects sampling parameters. Moved from
+// claude-haiku-4-5-20251001, whose support ended on 15 Oct 2026.
+const CHAT_MODEL = "claude-haiku-5-5";
 const MAX_MESSAGES = 20;
 const MAX_MESSAGE_CHARS = 2000;
 const MAX_REPLY_TOKENS = 300;
@@ -100,10 +104,13 @@ export async function POST(request: NextRequest) {
     const response = await anthropic.messages.create({
       model: CHAT_MODEL,
       max_tokens: MAX_REPLY_TOKENS,
+      ...thinkingOffParams(CHAT_MODEL),
       system: SYSTEM_PROMPT,
       messages,
     });
 
+    // Text blocks only: a thinking block, should one ever arrive, is never
+    // shown to the visitor.
     const reply = response.content
       .filter((block) => block.type === "text")
       .map((block) => block.text)
