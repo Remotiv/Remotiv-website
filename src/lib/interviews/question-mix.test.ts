@@ -20,7 +20,7 @@ const {
   QUESTION_MIX_POLICY_VERSION,
   QUESTION_MIX_TABLE,
   questionMixFor,
-  resolveQuestionMix,
+  cvSupportsQuestions,
   SESSION_FILL,
   SESSION_OVERHEAD_MINUTES,
 } = await import("./question-mix.ts");
@@ -55,7 +55,7 @@ test("the table: each length gives its counts, half and half, an odd question to
   }
 });
 
-test("every row fits its session for a candidate drawing both follow-ups on every answer", () => {
+test("every row fits its session at the AVERAGE question time (provisional: relies on the time rule)", () => {
   for (const row of QUESTION_MIX_TABLE) {
     const total = row.job + row.cv;
     const budget = Math.floor(
@@ -64,7 +64,7 @@ test("every row fits its session for a candidate drawing both follow-ups on ever
     assert.equal(total, budget, `${row.minutes} min: the row is the budget`);
     assert.ok(
       total * MINUTES_PER_FOLLOWED_UP_QUESTION + SESSION_OVERHEAD_MINUTES <= row.minutes,
-      `${row.minutes} min: never more questions than fit`,
+      `${row.minutes} min: never more questions than fit at the average`,
     );
   }
 });
@@ -91,9 +91,12 @@ test("an unknown length falls back to the nearest lower row, and never throws", 
   assert.equal(questionMixFor(Number.POSITIVE_INFINITY).session_minutes, 15);
 });
 
-test("empty or too short a CV: every question becomes a job question, the total unchanged", () => {
+test("the split never changes: a thin CV still has its CV slots, it just cannot fill them", () => {
+  // The mix is the same for every candidate; question-mix.ts exposes no way to
+  // move a CV slot to the job side. Whether a slot holds a CV question or a
+  // general experience one is live-questions.ts's call, from this check.
   const mix = questionMixFor(30);
-  const allJob = { ...mix, job_questions: 8, cv_questions: 0 };
+  assert.deepEqual([mix.job_questions, mix.cv_questions, mix.total], [4, 4, 8]);
   for (const cv of [
     null,
     undefined,
@@ -106,18 +109,12 @@ test("empty or too short a CV: every question becomes a job question, the total 
     ).text,
     "x".repeat(MIN_CV_CHARS_FOR_CV_QUESTIONS - 1),
   ]) {
-    assert.deepEqual(resolveQuestionMix(mix, cv), allJob, JSON.stringify(cv)?.slice(0, 40));
+    assert.equal(cvSupportsQuestions(cv), false, JSON.stringify(cv)?.slice(0, 40));
   }
-  assert.deepEqual(resolveQuestionMix(mix, "x".repeat(MIN_CV_CHARS_FOR_CV_QUESTIONS)), mix);
-  assert.deepEqual(resolveQuestionMix(mix, REAL_CV), mix, "a real CV keeps the mix");
-});
-
-test("resolving never changes the mix it was given", () => {
-  const mix = questionMixFor(30);
-  const before = JSON.stringify(mix);
-  resolveQuestionMix(mix, "");
-  assert.equal(JSON.stringify(mix), before);
-  assert.notEqual(resolveQuestionMix(mix, REAL_CV), mix, "a copy, not the same object");
+  assert.equal(cvSupportsQuestions("x".repeat(MIN_CV_CHARS_FOR_CV_QUESTIONS)), true);
+  assert.equal(cvSupportsQuestions(REAL_CV), true, "a real CV can carry CV questions");
+  const mixModule = readFileSync(new URL("./question-mix.ts", import.meta.url), "utf8");
+  assert.doesNotMatch(mixModule, /export function resolveQuestionMix/, "no all-job rule");
 });
 
 test("the CV minimum is the CV scorer's: a CV too short to score is too short to ask about", () => {

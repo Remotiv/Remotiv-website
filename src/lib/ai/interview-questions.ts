@@ -80,7 +80,7 @@ const MAX_SECTION_CHARS = 4_000;
  * unrecognised competency as "Other" and reveals a free-text box, which is a
  * fine escape hatch for a person and a poor default for a generator.
  */
-const COMPETENCIES = [
+export const COMPETENCIES = [
   "Communication",
   "Problem solving",
   "Technical depth",

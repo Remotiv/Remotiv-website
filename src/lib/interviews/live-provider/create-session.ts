@@ -1,4 +1,6 @@
+import { removeCandidateName } from "@/lib/interviews/candidate-name";
 import { sanitizeCvForInterview } from "@/lib/interviews/cv-sanitize";
+import { type FrozenLiveQuestionSet, isFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
 import type { CreateSessionInput } from "./types";
 
 /**
@@ -21,14 +23,19 @@ import type { CreateSessionInput } from "./types";
  * a caller that already did it loses nothing.
  */
 
-/** A frozen question as the session holds it: it may carry marking fields, which are never copied. */
-export type FrozenQuestion = {
-  position: number;
-  text: string;
-  rubric?: unknown;
-  competency?: unknown;
-  weight?: unknown;
-};
+/**
+ * ── Only frozen questions, and still only position and text ──
+ *
+ * `questions` must be a set read from the session by readFrozenQuestionSet
+ * (frozen-questions.ts); anything else, a plain array or a copy, is refused.
+ * The set also carries each question's source, competency and private scoring
+ * guide; none of them is copied.
+ *
+ * ── The name goes too ────────────────────────────────────────
+ *
+ * The CV is sanitised, then the candidate's full name and surname are
+ * removed (candidate-name.ts). The first name is sent on its own field.
+ */
 
 export class CreateSessionInputError extends Error {
   constructor(detail: string) {
@@ -41,8 +48,9 @@ export function buildCreateSessionInput(input: {
   remotivSessionId: string;
   interviewerName: string;
   interviewMinutes: number;
-  questions: readonly FrozenQuestion[];
+  questions: FrozenLiveQuestionSet;
   candidateFirstName: string | null;
+  candidateLastName: string | null;
   cvText: string | null;
 }): CreateSessionInput {
   const sessionId = input.remotivSessionId.trim();
@@ -54,10 +62,16 @@ export function buildCreateSessionInput(input: {
       "interview length must be a positive whole number of minutes",
     );
   }
-  if (input.questions.length === 0) throw new CreateSessionInputError("no questions");
+  if (!isFrozenQuestionSet(input.questions)) {
+    throw new CreateSessionInputError("questions must be the frozen set read from the session");
+  }
+  if (input.questions.session_id !== sessionId) {
+    throw new CreateSessionInputError("the frozen questions belong to another session");
+  }
+  if (input.questions.questions.length === 0) throw new CreateSessionInputError("no questions");
 
   const positions = new Set<number>();
-  const questions = input.questions
+  const questions = input.questions.questions
     .map((q) => {
       if (!Number.isInteger(q.position) || q.position < 1 || positions.has(q.position)) {
         throw new CreateSessionInputError("question positions must be unique whole numbers from 1");
@@ -76,6 +90,9 @@ export function buildCreateSessionInput(input: {
     interview_minutes: input.interviewMinutes,
     questions,
     candidate_first_name: firstName,
-    cv_text: sanitizeCvForInterview(input.cvText).text,
+    cv_text: removeCandidateName(sanitizeCvForInterview(input.cvText).text, {
+      firstName: input.candidateFirstName,
+      lastName: input.candidateLastName,
+    }).text,
   };
 }

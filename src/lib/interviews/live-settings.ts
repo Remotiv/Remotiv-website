@@ -198,9 +198,10 @@ function buildLiveSettings(input: {
       follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
       follow_up_rules: FOLLOW_UP_RULES,
       // The policy's mix for this session's length, copied now so a later
-      // change to the table never reaches an interview already sent. The
-      // empty-CV rule (resolveQuestionMix) is applied where the questions are
-      // written, which is the first place the candidate's CV is read.
+      // change to the table never reaches an interview already sent. Whether
+      // a CV slot holds a CV or a general experience question is decided where
+      // the questions are written (live-questions.ts), the first place the
+      // candidate's CV is read; the split itself never changes.
       question_mix: questionMixFor(MAX_SESSION_SECONDS / 60),
     },
   };

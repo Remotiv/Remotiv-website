@@ -15,6 +15,7 @@ register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
 
 const { buildCreateSessionInput, CreateSessionInputError } = await import("./create-session.ts");
 const { createFakeLiveProvider } = await import("./fake-provider.ts");
+const { readFrozenQuestionSet } = await import("../frozen-questions.ts");
 
 const SAMPLE = JSON.parse(
   readFileSync(new URL("./__fixtures__/sample-export.json", import.meta.url), "utf8"),
@@ -23,30 +24,66 @@ const SAMPLE = JSON.parse(
 const RUBRIC_TEXT = "A strong answer names the queue, the retry policy and the alert threshold.";
 const COMPETENCY = "Production ownership";
 
-/** Frozen questions as a session holds them: with every marking field filled in. */
-const FROZEN = [
-  {
-    position: 2,
-    text: "Tell me about an API you designed for high traffic.",
-    rubric: RUBRIC_TEXT,
-    competency: COMPETENCY,
-    weight: 3,
-  },
-  {
-    position: 1,
-    text: "Tell me a little about yourself.",
-    rubric: { strong: RUBRIC_TEXT },
-    competency: "Introduction",
-    weight: 1,
-  },
-  {
-    position: 3,
-    text: "Your CV mentions a report you sped up. How did you find the bottleneck?",
-    rubric: [RUBRIC_TEXT],
-    competency: COMPETENCY,
-    weight: 2,
-  },
-];
+const SESSION = "5b0f2c1e-0000-4000-8000-000000000001";
+
+/**
+ * The questions as a frozen session holds them, read the only way the builder
+ * accepts: text in questions_snapshot, the marking fields and source in
+ * scoring_snapshot, the marker in live_settings.
+ */
+function frozenRow(sessionId = SESSION) {
+  const qs = [
+    {
+      position: 2,
+      text: "Tell me about an API you designed for high traffic.",
+      source: "job",
+      competency: COMPETENCY,
+    },
+    {
+      position: 1,
+      text: "Tell me a little about yourself.",
+      source: "general_experience",
+      competency: "Communication",
+    },
+    {
+      position: 3,
+      text: "Your CV mentions a report you sped up. How did you find the bottleneck?",
+      source: "cv",
+      competency: COMPETENCY,
+    },
+  ];
+  return {
+    id: sessionId,
+    live_settings: {
+      v: 2,
+      questions_frozen: {
+        at: "2026-10-19T09:00:00.000Z",
+        prompt_version: "live-questions-v1",
+        policy_version: "question-mix-v1",
+        model: "claude-haiku-5-5",
+        calls: 1,
+        input_tokens: 1,
+        output_tokens: 1,
+        rewritten: 0,
+        replaced: 0,
+      },
+    },
+    questions_snapshot: qs.map((q) => ({
+      id: `q-${q.position}`,
+      position: q.position,
+      question: q.text,
+    })),
+    scoring_snapshot: qs.map((q) => ({
+      position: q.position,
+      question_id: `q-${q.position}`,
+      competency: q.competency,
+      rubric: RUBRIC_TEXT,
+      weight: 3,
+      source: q.source,
+    })),
+  };
+}
+const FROZEN = readFrozenQuestionSet(frozenRow());
 
 const CV = [
   "Alex Example",
@@ -57,11 +94,12 @@ const CV = [
 
 function input(overrides = {}) {
   return buildCreateSessionInput({
-    remotivSessionId: "5b0f2c1e-0000-4000-8000-000000000001",
+    remotivSessionId: SESSION,
     interviewerName: "Sarah",
     interviewMinutes: 30,
     questions: FROZEN,
     candidateFirstName: "Alex",
+    candidateLastName: "Example",
     cvText: CV,
     ...overrides,
   });
@@ -80,10 +118,12 @@ function allKeys(v, out = new Set()) {
 
 /* ── the create-session input ─────────────────────────────────── */
 
-test("the input never carries a rubric, competency or weight, at any depth", () => {
+test("the input never carries a guide, rubric, source, competency or weight, at any depth", () => {
   const built = input();
   const keys = allKeys(built);
-  for (const k of ["rubric", "competency", "weight"]) assert.ok(!keys.has(k), `${k} is absent`);
+  for (const k of ["rubric", "scoring_guide", "source", "competency", "weight", "question_id"]) {
+    assert.ok(!keys.has(k), `${k} is absent`);
+  }
   const json = JSON.stringify(built);
   assert.ok(!json.includes(RUBRIC_TEXT), "no rubric text anywhere");
   assert.ok(!json.includes(COMPETENCY), "no competency label anywhere");
@@ -124,6 +164,8 @@ test("the CV is always sanitised: no email, phone, link or address reaches the p
   assert.match(built.cv_text, /\[link\]/);
   assert.match(built.cv_text, /\[address\]/);
   assert.match(built.cv_text, /Northwind Logistics - Backend Engineer \(2021 - Present\)/);
+  assert.ok(!built.cv_text.includes("Example"), "the full name and surname are removed");
+  assert.match(built.cv_text, /\[candidate\]/);
   assert.equal(input({ cvText: null }).cv_text, "");
 });
 
@@ -133,9 +175,9 @@ test("bad input is refused before anything is sent", () => {
     ["no interviewer", { interviewerName: "" }],
     ["zero minutes", { interviewMinutes: 0 }],
     ["fractional minutes", { interviewMinutes: 12.5 }],
-    ["no questions", { questions: [] }],
-    ["duplicate positions", { questions: [FROZEN[0], { ...FROZEN[1], position: 2 }] }],
-    ["an empty question", { questions: [{ position: 1, text: "  " }] }],
+    ["plain questions, not a frozen set", { questions: FROZEN.questions.map((q) => ({ ...q })) }],
+    ["a copy of the frozen set", { questions: structuredClone(FROZEN) }],
+    ["another session's frozen set", { questions: readFrozenQuestionSet(frozenRow("other")) }],
   ]) {
     assert.throws(() => input(overrides), CreateSessionInputError, label);
   }

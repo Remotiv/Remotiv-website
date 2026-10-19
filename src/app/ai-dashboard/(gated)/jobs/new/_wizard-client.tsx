@@ -683,6 +683,8 @@ const HINT_CLS = "mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]";
  * live length there is, so this line cannot disagree with what is sent.
  */
 const AI_VIDEO_QUESTION_MIX_LINE = describeQuestionMix(questionMixFor(MAX_SESSION_SECONDS / 60));
+/** The job slots are the job's own questions, word for word: it needs at least this many. */
+const AI_VIDEO_JOB_QUESTIONS = questionMixFor(MAX_SESSION_SECONDS / 60).job_questions;
 
 /*
  * Step-rail states, transcribed from the designer's v2 `.step` spec. The rail
@@ -2869,7 +2871,7 @@ export function WizardClient({
                               both, in no enforced order. */}
                           <OptionRow
                             title="AI Video Interview"
-                            desc="A live spoken interview. Candidates answer out loud on camera while an AI interviewer asks this job's questions, and it can ask up to 2 follow-ups on an answer. Use it instead of the async screen, or as well."
+                            desc="A live spoken interview. Candidates answer out loud on camera while an AI interviewer asks questions about this job and their CV, and it can ask up to 2 follow-ups on an answer. Use it instead of the async screen, or as well."
                             on={state.avatar_interview_enabled}
                             onToggle={() =>
                               set("avatar_interview_enabled", !state.avatar_interview_enabled)
@@ -2886,6 +2888,15 @@ export function WizardClient({
                               onChange={(v) => set("avatar_interviewer_name", v)}
                             />
                             <p className={HINT_CLS}>{AI_VIDEO_QUESTION_MIX_LINE}</p>
+                            {state.interview_questions.filter((q) => q.question.trim()).length <
+                              AI_VIDEO_JOB_QUESTIONS && (
+                              <p className="mt-1.5 text-xs text-[#C4362F]">
+                                AI Video Interview needs at least {AI_VIDEO_JOB_QUESTIONS} interview
+                                questions on this job. Every candidate is asked the first{" "}
+                                {AI_VIDEO_JOB_QUESTIONS}, word for word. Add them on the Interview
+                                questions step.
+                              </p>
+                            )}
                           </OptionRow>
 
                           {/* LIVE today, unlike the four interview options —
