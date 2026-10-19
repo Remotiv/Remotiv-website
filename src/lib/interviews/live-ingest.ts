@@ -33,10 +33,10 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *      written. A refused export writes nothing.
  *   2. Each turn's audio is fetched from the provider and checked (present,
  *      non-empty, an accepted type, inside the size cap) before any upload.
- *   3. Audio is uploaded to {sessionId}/t{sequence}.{exportHash8}.{ext}. The
+ *   3. Audio is uploaded to {sessionId}/t{sequence}.{exportHash16}.{ext}. The
  *      export's hash is in the FILE NAME, so two different exports can never
  *      write the same file, and a retry of the same export writes the same
- *      paths with the same bytes. Not a {exportHash8}/ subfolder: migration
+ *      paths with the same bytes. Not a {exportHash16}/ subfolder: migration
  *      021's media_path check is {sessionId}/t{sequence}.*, and the purge lists
  *      a session's folder without descending into subfolders.
  *   4. EVERY turn in ONE insert statement: Postgres applies all of it or none
@@ -131,6 +131,12 @@ export type LiveQuestionFacts = {
   /** The candidate's speech on this question, all turns. */
   answer_ms: number;
   wording_differs: boolean;
+  /**
+   * A candidate turn of this question is timing_suspect: its offsets are not
+   * trusted. For the scoring commit: not scored automatically until checked
+   * against the audio.
+   */
+  needs_check: boolean;
 };
 
 export type LiveOutcome = {
@@ -148,7 +154,23 @@ export type LiveOutcome = {
   /** Positions whose spoken wording strays from the frozen text. */
   wording_flags: number[];
   outcome: LiveOutcomeCode;
-  restart_allowed: boolean;
+  /**
+   * False while any candidate turn is not yet transcribed and settled
+   * (live-transcribe.ts). A non-final outcome is NOT DECIDED: restart
+   * eligibility is null and nothing may be scored from it.
+   */
+  final: boolean;
+  /** Null while the outcome is not final: not decided yet. */
+  restart_allowed: boolean | null;
+  /**
+   * A person must look: a question needs_check (timing suspect) or a candidate
+   * turn's transcription failed for good. See needsReview().
+   */
+  needs_review: boolean;
+  /** Sequences of candidate turns whose transcription failed after every retry. */
+  transcription_failed_turns: number[];
+  /** Bumped on every settle; the compare-and-set that keeps a stale settle from writing. */
+  settle_rev: number;
   answered_count: number;
   skipped_count: number;
   not_reached_count: number;
@@ -159,6 +181,7 @@ export type LiveOutcome = {
 type OutcomeFields = Pick<
   LiveOutcome,
   | "outcome"
+  | "final"
   | "restart_allowed"
   | "answered_count"
   | "skipped_count"
@@ -167,11 +190,15 @@ type OutcomeFields = Pick<
   | "completion_percent"
 >;
 
-/** The outcome of a set of question statuses (decision D2). */
+/**
+ * The outcome of a set of question statuses (decision D2). `final` says
+ * whether every answer is settled; until it is, restart eligibility is null.
+ */
 export function outcomeFrom(
   questions: readonly Pick<LiveQuestionFacts, "status">[],
   providerStatus: ExportStatusCode,
   attempt: number,
+  final: boolean,
 ): OutcomeFields {
   const total = questions.length;
   const answered = questions.filter((q) => q.status === "answered").length;
@@ -187,7 +214,10 @@ export function outcomeFrom(
           : "abandoned";
   return {
     outcome,
-    restart_allowed: outcome === "technical_failure" || (outcome === "abandoned" && attempt === 1),
+    final,
+    restart_allowed: !final
+      ? null
+      : outcome === "technical_failure" || (outcome === "abandoned" && attempt === 1),
     answered_count: answered,
     skipped_count: skipped,
     not_reached_count: notReached,
@@ -197,10 +227,27 @@ export function outcomeFrom(
 }
 
 /**
- * TODO(transcription commit): call once a candidate turn of `position` is
- * transcribed. Real words confirm the answer; none (silence, a cough, noise)
- * downgrade it to skipped, and the counts and the outcome are worked out
- * again. Pure: the caller writes the result back to live_outcome.
+ * Whether the session needs a person: any question needs_check, or any turn
+ * failed transcription. The per-question flags and the failed list stay as
+ * they are; this is the session-level summary of both.
+ */
+export function needsReview(
+  questions: readonly Pick<LiveQuestionFacts, "needs_check">[],
+  failedTurns: readonly number[],
+): boolean {
+  return failedTurns.length > 0 || questions.some((q) => q.needs_check);
+}
+
+/** Whether an outcome may be acted on: restart, ranking, scoring. Only a final one. */
+export function isOutcomeDecided(outcome: Pick<LiveOutcome, "final"> | null): boolean {
+  return outcome?.final === true;
+}
+
+/**
+ * One question's answer settled by its transcript: real words confirm it;
+ * none (silence, a cough, noise) downgrade it to skipped, and the counts and
+ * the outcome are worked out again. `final` is left as it is: the settle in
+ * live-transcribe.ts decides it from every turn. Pure.
  */
 export function confirmAnswer(
   outcome: LiveOutcome,
@@ -217,8 +264,43 @@ export function confirmAnswer(
   return {
     ...outcome,
     questions,
-    ...outcomeFrom(questions, outcome.provider_status_code, attempt),
+    ...outcomeFrom(questions, outcome.provider_status_code, attempt, outcome.final),
   };
+}
+
+/**
+ * The only words a repeat may say before the question, case and punctuation
+ * aside. Anything else (a hint, a rephrase) makes it a different question.
+ */
+export const REPEAT_LEAD_INS = [
+  "Let me repeat the question.",
+  "Sure, here it is again.",
+  "Of course.",
+] as const;
+
+function normaliseWording(text: string): string {
+  return text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[\u2018\u2019']/g, "")
+    .replace(/[^\p{L}\p{N}]+/gu, " ")
+    .trim();
+}
+
+/**
+ * Whether a marked repeat asks the frozen question as given: the same words
+ * once case, punctuation and spacing are set aside, alone or after one of
+ * REPEAT_LEAD_INS.
+ */
+export function repeatMatchesQuestion(frozenText: string, spoken: string): boolean {
+  const q = normaliseWording(frozenText);
+  const r = normaliseWording(spoken);
+  if (!q) return false;
+  if (r === q) return true;
+  if (!r.endsWith(` ${q}`)) return false;
+  const lead = r.slice(0, r.length - q.length).trim();
+  return REPEAT_LEAD_INS.some((l) => normaliseWording(l) === lead);
 }
 
 export type LiveIngestErrorCode =
@@ -228,6 +310,7 @@ export type LiveIngestErrorCode =
   | "wrong_session"
   | "unknown_question_position"
   | "duplicate_base_question"
+  | "repeat_wording"
   | "too_many_follow_ups"
   | "missing_audio"
   | "bad_audio"
@@ -298,9 +381,40 @@ export function assessLiveExport(
       ? (byId.get(t.responds_to_provider_turn_id)?.question_position ?? null)
       : null);
 
+  // An overlap is expected only after an interviewer turn marked interrupted.
+  const suspect: number[] = [];
+  let lastInterviewer: LiveTurn | null = null;
+  for (const t of turns) {
+    if (t.speaker === "interviewer") {
+      lastInterviewer = t;
+      continue;
+    }
+    if (
+      lastInterviewer &&
+      !lastInterviewer.interrupted &&
+      lastInterviewer.offset_ms + lastInterviewer.duration_ms > t.offset_ms
+    ) {
+      suspect.push(t.sequence);
+    }
+  }
+  const suspectSet = new Set(suspect);
+
   const questions: LiveQuestionFacts[] = [];
   const wordingFlags: number[] = [];
   for (const q of frozen.questions) {
+    // A marked repeat asks the frozen question as given, or it is not a repeat.
+    for (const t of turns) {
+      if (
+        t.repeat &&
+        t.question_position === q.position &&
+        !repeatMatchesQuestion(q.text, t.text ?? "")
+      ) {
+        throw new LiveIngestError(
+          "repeat_wording",
+          `turn ${t.sequence} is marked a repeat of position ${q.position} but asks something else`,
+        );
+      }
+    }
     const asked = turns.filter(
       (t) => t.kind === "base_question" && t.question_position === q.position,
     );
@@ -338,25 +452,13 @@ export function assessLiveExport(
       ).length,
       answer_ms: answerMs,
       wording_differs: wordingDiffers,
+      needs_check: spoken.some((t) => suspectSet.has(t.sequence)),
     });
   }
 
-  // An overlap is expected only after an interviewer turn marked interrupted.
-  const suspect: number[] = [];
-  let lastInterviewer: LiveTurn | null = null;
-  for (const t of turns) {
-    if (t.speaker === "interviewer") {
-      lastInterviewer = t;
-      continue;
-    }
-    if (
-      lastInterviewer &&
-      !lastInterviewer.interrupted &&
-      lastInterviewer.offset_ms + lastInterviewer.duration_ms > t.offset_ms
-    ) {
-      suspect.push(t.sequence);
-    }
-  }
+  // Final only when there is nothing to transcribe; otherwise live-transcribe
+  // settles it once every candidate turn is done.
+  const final = !turns.some((t) => t.speaker === "candidate");
 
   return {
     v: LIVE_OUTCOME_VERSION,
@@ -368,7 +470,10 @@ export function assessLiveExport(
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
     wording_flags: wordingFlags,
-    ...outcomeFrom(questions, parsed.status.code, attempt),
+    needs_review: needsReview(questions, []),
+    transcription_failed_turns: [],
+    settle_rev: 0,
+    ...outcomeFrom(questions, parsed.status.code, attempt, final),
   };
 }
 
@@ -411,9 +516,14 @@ export function exportHash(parsed: ParsedExport): string {
 
 type StoredAudio = { path: string; mime: string; bytes: Uint8Array; sha256: string };
 
-/** {sessionId}/t{sequence}.{exportHash8}.{ext}: one export's files never meet another's. */
+/**
+ * {sessionId}/t{sequence}.{exportHash16}.{ext}: one export's files never meet
+ * another's. Sixteen hex characters (64 bits) of the hash. Migration 021's
+ * check, media_path like {sessionId}/t{sequence}.%, accepts any suffix after
+ * the dot, so the length needs no migration.
+ */
 export function audioPath(sessionId: string, sequence: number, hash: string, ext: string): string {
-  return `${sessionId}/t${sequence}.${hash.slice(0, 8)}.${ext}`;
+  return `${sessionId}/t${sequence}.${hash.slice(0, 16)}.${ext}`;
 }
 
 type StoredTurn = { id: string; sequence: number; media_sha256: string; media_path: string | null };

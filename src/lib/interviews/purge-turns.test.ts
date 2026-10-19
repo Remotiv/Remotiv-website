@@ -221,7 +221,7 @@ test("the orphan sweep keeps old turn audio a turn points at, and removes what n
 test("a losing save's files (another export hash, nothing references them) are swept after the grace", async () => {
   const db = await world();
   const winner = filesOf(db, LATER);
-  const loser = winner.map((p) => p.replace(/\.[0-9a-f]{8}\.wav$/, ".0badf00d.wav"));
+  const loser = winner.map((p) => p.replace(/\.[0-9a-f]{16}\.wav$/, ".0badf00d0badf00d.wav"));
   for (const p of loser)
     db.objects.set(p, {
       bytes: new Uint8Array([7]),

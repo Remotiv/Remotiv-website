@@ -33,7 +33,11 @@ const {
   audioPath,
   confirmAnswer,
   exportHash,
+  isOutcomeDecided,
   LiveIngestError,
+  outcomeFrom,
+  REPEAT_LEAD_INS,
+  repeatMatchesQuestion,
   saveLiveExport,
   turnRowId,
 } = await import("./live-ingest.ts");
@@ -165,7 +169,7 @@ test("the commit 2 fixture lands as 32 valid rows, in order, with the right kind
   for (const r of rows) {
     // Scoped by the export's hash, in the file name: {session}/t{seq}.{hash8}.wav.
     assert.equal(r.media_path, audioPath(SESSION, r.sequence, outcome.export_hash, "wav"));
-    assert.match(r.media_path, new RegExp(`^${SESSION}/t${r.sequence}\\.[0-9a-f]{8}\\.wav$`));
+    assert.match(r.media_path, new RegExp(`^${SESSION}/t${r.sequence}\\.[0-9a-f]{16}\\.wav$`));
     const name =
       FIXTURE.turns[r.sequence - 1].audio_file ??
       FIXTURE.turns[r.sequence - 1].interviewer_audio_file;
@@ -215,10 +219,18 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect, outcome p
     ],
     ["partial", 5, 1, 2, 8, 63],
   );
-  assert.equal(outcome.restart_allowed, false);
+  // Provisional until every answer is transcribed: no restart decision yet.
+  assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
+  assert.equal(isOutcomeDecided(outcome), false);
   // Every candidate turn of the sample starts while the interviewer is still speaking, unmarked.
   assert.equal(outcome.timing_suspect, true);
   assert.equal(outcome.timing_suspect_turns.length, 13);
+  // So every answered question needs a check, and the session a person.
+  assert.deepEqual(
+    outcome.questions.map((q) => q.needs_check),
+    [true, true, true, true, true, false, false, false],
+  );
+  assert.deepEqual([outcome.needs_review, outcome.transcription_failed_turns], [true, []]);
   assert.deepEqual(outcome.wording_flags, []);
   assert.equal(outcome.provider_status, "candidate_ended");
   assert.match(outcome.export_hash, /^[0-9a-f]{64}$/);
@@ -455,18 +467,30 @@ function cleanExport({ asked = 8, answerMs = () => 20_000, status = "completed" 
   };
 }
 
+/** The assessment as it will stand once every answer is transcribed and confirmed: final. */
+function decidedAssess(parsed, frozen, attempt) {
+  const f = assessLiveExport(parsed, frozen, attempt);
+  assert.equal(
+    f.final,
+    !parsed.turns.some((t) => t.speaker === "candidate"),
+    "provisional at save",
+  );
+  return { ...f, ...outcomeFrom(f.questions, f.provider_status_code, attempt, true) };
+}
+
 test("all answered: completed, 8 of 8, 100%", () => {
-  const f = assessLiveExport(cleanExport(), frozenOf(), 1);
+  const f = decidedAssess(cleanExport(), frozenOf(), 1);
   assert.deepEqual(
     [f.outcome, f.answered_count, f.total, f.completion_percent, f.restart_allowed],
     ["completed", 8, 8, 100, false],
   );
   assert.ok(f.questions.every((q) => q.status === "answered"));
+  assert.deepEqual([f.questions.some((q) => q.needs_check), f.needs_review], [false, false]);
   assert.equal(f.timing_suspect, false);
 });
 
 test('a 2-second answer ("Yes, three years") is answered; a silent question is skipped', () => {
-  const f = assessLiveExport(
+  const f = decidedAssess(
     cleanExport({ answerMs: (p) => (p === 3 ? 0 : p === 6 ? 2_000 : 20_000) }),
     frozenOf(),
     1,
@@ -481,22 +505,18 @@ test('a 2-second answer ("Yes, three years") is answered; a silent question is s
 });
 
 test("reached the end with only 3 answered: completed, no restart", () => {
-  const f = assessLiveExport(
-    cleanExport({ answerMs: (p) => (p <= 3 ? 20_000 : 0) }),
-    frozenOf(),
-    1,
-  );
+  const f = decidedAssess(cleanExport({ answerMs: (p) => (p <= 3 ? 20_000 : 0) }), frozenOf(), 1);
   assert.deepEqual(
     [f.outcome, f.answered_count, f.skipped_count, f.not_reached_count, f.restart_allowed],
     ["completed", 3, 5, 0, false],
   );
   // Reaching the end wins over a provider error at the very end: every question was seen.
-  const late = assessLiveExport(cleanExport({ status: "provider_error" }), frozenOf(), 1);
+  const late = decidedAssess(cleanExport({ status: "provider_error" }), frozenOf(), 1);
   assert.deepEqual([late.outcome, late.restart_allowed], ["completed", false]);
 });
 
 test("ended early: 4-7 answered is partial; 0-3 is abandoned, restart once; provider end is technical_failure", () => {
-  const partial = assessLiveExport(
+  const partial = decidedAssess(
     cleanExport({ asked: 4, status: "candidate_ended" }),
     frozenOf(),
     1,
@@ -512,7 +532,7 @@ test("ended early: 4-7 answered is partial; 0-3 is abandoned, restart once; prov
     "not_reached",
   ]);
 
-  const abandoned = assessLiveExport(
+  const abandoned = decidedAssess(
     cleanExport({ asked: 3, status: "candidate_ended" }),
     frozenOf(),
     1,
@@ -526,14 +546,10 @@ test("ended early: 4-7 answered is partial; 0-3 is abandoned, restart once; prov
     ],
     ["abandoned", 3, 38, true],
   );
-  const second = assessLiveExport(
-    cleanExport({ asked: 3, status: "candidate_ended" }),
-    frozenOf(),
-    2,
-  );
+  const second = decidedAssess(cleanExport({ asked: 3, status: "candidate_ended" }), frozenOf(), 2);
   assert.equal(second.restart_allowed, false, "abandoned again on the restart: no further restart");
 
-  const tech = assessLiveExport(cleanExport({ asked: 7, status: "provider_error" }), frozenOf(), 2);
+  const tech = decidedAssess(cleanExport({ asked: 7, status: "provider_error" }), frozenOf(), 2);
   assert.deepEqual([tech.outcome, tech.restart_allowed], ["technical_failure", true]);
 });
 
@@ -632,6 +648,89 @@ test("an UNMARKED second base question for a position is still refused", () => {
   );
 });
 
+test("a repeat may differ in case, punctuation and spacing, and lead in only with an agreed phrase", () => {
+  const q = "Tell me about a time you owned a project end to end.";
+  assert.equal(REPEAT_LEAD_INS.length, 3);
+  const ok = [
+    q,
+    "tell me about a time you OWNED a project, end-to-end",
+    "  Tell me about a time   you owned a project end to end?  ",
+    // Each agreed lead-in, with its case and punctuation changed.
+    ...REPEAT_LEAD_INS.map((l) => `${l} ${q}`),
+    "LET ME REPEAT THE QUESTION: tell me about a time you owned a project end to end",
+    "Sure - here it is again... Tell me about a time you owned a project end to end.",
+    "of course, tell me about a time you owned a project end to end?",
+  ];
+  for (const spoken of ok) assert.equal(repeatMatchesQuestion(q, spoken), true, spoken);
+  const refused = [
+    // A hint is not a lead-in.
+    `Remember to mention reliability. ${q}`,
+    // A short lead-in that is not on the list.
+    `Sure, let me repeat that for you: ${q}`,
+    `No worries. ${q}`,
+    // Two agreed lead-ins together are not one of them.
+    `Of course. Let me repeat the question. ${q}`,
+    "Tell me about a time you owned a team end to end.",
+    "Tell me about a time you owned a project.",
+    `${q} And what went wrong?`,
+    "Let me repeat the question.",
+    "",
+  ];
+  for (const spoken of refused) assert.equal(repeatMatchesQuestion(q, spoken), false, spoken);
+});
+
+test("a changed question marked as a repeat is refused; an agreed lead-in is kept", () => {
+  const base = parseExport(structuredClone(REPEAT));
+  const i = base.turns.findIndex((t) => t.repeat);
+  const position = base.turns[i].question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  const withText = (text) => {
+    const p = structuredClone(base);
+    p.turns[i] = { ...p.turns[i], text };
+    return p;
+  };
+
+  assert.equal(
+    assessLiveExport(withText(frozenText), frozenOf(), 1).questions[position - 1].repeats,
+    1,
+  );
+  assert.equal(
+    assessLiveExport(withText(`Of course. ${frozenText.toUpperCase()}`), frozenOf(), 1).questions[
+      position - 1
+    ].repeats,
+    1,
+  );
+  for (const text of [
+    `Remember to mention reliability. ${frozenText}`,
+    "Let me repeat the question. What would you change about your last team?",
+  ]) {
+    assert.throws(
+      () => assessLiveExport(withText(text), frozenOf(), 1),
+      (e) => e instanceof LiveIngestError && e.code === "repeat_wording",
+      text,
+    );
+  }
+});
+
+test("audio paths carry 16 hex of the export hash, and pass migration 021's path check", () => {
+  const like = (value, pattern) =>
+    new RegExp(
+      `^${pattern
+        .replace(/[.*+?^${}()|[\]\\]/g, "\\$&")
+        .replace(/%/g, ".*")
+        .replace(/_/g, ".")}$`,
+    ).test(value);
+  const a = "0123456789abcdef".repeat(4);
+  const b = `${a.slice(0, 8)}ffffffff${a.slice(16)}`;
+  const path = audioPath(SESSION, 7, a, "wav");
+  assert.equal(path, `${SESSION}/t7.0123456789abcdef.wav`);
+  // media_path like session_id || '/t' || sequence || '.%'
+  assert.equal(like(path, `${SESSION}/t7.%`), true);
+  assert.equal(like(path, `${SESSION}/t17.%`), false);
+  // Two exports whose hashes share the first 8 hex no longer share a file name.
+  assert.notEqual(audioPath(SESSION, 7, b, "wav"), path);
+});
+
 /* ── the transcription commit's hook ──────────────────────────── */
 
 test("confirmAnswer: real words confirm; none downgrade to skipped and the outcome is worked out again", async () => {
@@ -644,6 +743,7 @@ test("confirmAnswer: real words confirm; none downgrade to skipped and the outco
   );
   assert.equal(confirmed.outcome, "partial");
   // Two answers turn out to be silence: 3 answered is abandoned, restart once.
+  // Not final yet (the settle in live-transcribe.ts decides that), so no restart decision.
   const down = confirmAnswer(confirmAnswer(outcome, 4, false, 1), 5, false, 1);
   assert.deepEqual(
     [down.questions[3].status, down.questions[4].status, down.questions[4].confirmed],
@@ -651,7 +751,7 @@ test("confirmAnswer: real words confirm; none downgrade to skipped and the outco
   );
   assert.deepEqual(
     [down.outcome, down.answered_count, down.skipped_count, down.restart_allowed],
-    ["abandoned", 3, 3, true],
+    ["abandoned", 3, 3, null],
   );
   assert.equal(outcome.questions[3].status, "answered", "pure: the input is unchanged");
 });

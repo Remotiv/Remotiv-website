@@ -83,9 +83,18 @@ export async function handleTranscribe(
   job: {
     id: string;
     payload: Record<string, unknown>;
+    attempts?: number;
+    max_attempts?: number;
   },
   ctx?: JobContext,
 ): Promise<void> {
+  // An AI Video Interview turn ({ turnId }), not an async answer: its own
+  // handler. Loaded lazily: live-transcribe.ts imports this module.
+  if (typeof job.payload?.turnId === "string") {
+    const { handleLiveTurnTranscribe } = await import("./live-transcribe");
+    return handleLiveTurnTranscribe(job, ctx);
+  }
+
   const payload = readTranscribePayload(job.payload);
   if (!payload) {
     throw new Error(`transcribe: payload.answerId missing (job ${job.id})`);
@@ -403,7 +412,7 @@ export type TranscriptSegment = {
   noSpeech?: number;
 };
 
-function toStoredSegments(raw: unknown): TranscriptSegment[] {
+export function toStoredSegments(raw: unknown): TranscriptSegment[] {
   if (!Array.isArray(raw)) return [];
   const out: TranscriptSegment[] = [];
   for (const item of raw) {

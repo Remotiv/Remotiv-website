@@ -122,7 +122,17 @@ function orMatches(row, clause) {
   });
 }
 
+/** A column, or a JSON path: `col->key` gives the value, `col->>key` its text, as PostgREST does. */
 function get(row, col) {
+  if (col.includes("->>")) {
+    const [c, k] = col.split("->>");
+    const v = row[c]?.[k];
+    return v === undefined || v === null
+      ? null
+      : typeof v === "object"
+        ? JSON.stringify(v)
+        : String(v);
+  }
   if (!col.includes("->")) return row[col] ?? null;
   const [c, k] = col.split("->");
   return row[c]?.[k] ?? null;
@@ -148,6 +158,7 @@ export function fakeLiveDb(initial = {}) {
     interview_sessions: [],
     interview_turns: [],
     interview_answers: [],
+    background_jobs: [],
     ...structuredClone(initial),
   };
   /** path -> { bytes, contentType, createdAt } */
@@ -274,6 +285,12 @@ export function fakeLiveDb(initial = {}) {
             entries.sort((a, b) => (a.name < b.name ? -1 : 1));
           }
           return { data: entries.slice(offset, offset + limit), error: null };
+        },
+        async download(path) {
+          if (takeFault("storage", "download")) return { data: null, error: { message: "fault" } };
+          const o = objects.get(path);
+          if (!o) return { data: null, error: { message: "not found" } };
+          return { data: new Blob([o.bytes]), error: null };
         },
         async remove(paths) {
           const gone = [];
