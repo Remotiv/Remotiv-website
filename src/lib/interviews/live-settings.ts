@@ -2,6 +2,7 @@ import "server-only";
 import { JOB_INTERVIEWER_NAME_MAX } from "@/app/ai-dashboard/lib/job-types";
 import type { createServiceClient } from "@/lib/supabase/server";
 import { liveInterviewsAvailableFor } from "./live-availability";
+import { questionMixFor } from "./question-mix";
 import {
   LIVE_SETTINGS_VERSION,
   type LiveSettings,
@@ -196,6 +197,11 @@ function buildLiveSettings(input: {
       max_session_seconds: MAX_SESSION_SECONDS,
       follow_up_rules_version: FOLLOW_UP_RULES_VERSION,
       follow_up_rules: FOLLOW_UP_RULES,
+      // The policy's mix for this session's length, copied now so a later
+      // change to the table never reaches an interview already sent. The
+      // empty-CV rule (resolveQuestionMix) is applied where the questions are
+      // written, which is the first place the candidate's CV is read.
+      question_mix: questionMixFor(MAX_SESSION_SECONDS / 60),
     },
   };
 }

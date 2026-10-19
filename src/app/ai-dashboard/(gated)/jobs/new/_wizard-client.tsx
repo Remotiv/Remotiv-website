@@ -55,6 +55,7 @@ import {
   weightsAreEqual,
 } from "@/app/ai-dashboard/lib/job-types";
 import { useModalFocus } from "@/hooks/use-modal-focus";
+import { describeQuestionMix, questionMixFor } from "@/lib/interviews/question-mix";
 import {
   ANSWER_SECONDS_MAX,
   ANSWER_SECONDS_MIN,
@@ -64,6 +65,7 @@ import {
   type InterviewLengthId,
   type InterviewQuestionInput,
   MAX_QUESTIONS,
+  MAX_SESSION_SECONDS,
   MIN_QUESTIONS,
   PREP_SECONDS_MAX,
   PREP_SECONDS_MIN,
@@ -673,6 +675,14 @@ function replaceSummary(mustHaves: number, criteria: number): string {
 const INPUT_ERR_CLS = "border-[#E0524B] ring-[3px] ring-[#E0524B]/[0.14] focus:border-[#E0524B]";
 const TEXTAREA_CLS = `${INPUT_CLS} min-h-24 resize-y leading-relaxed`;
 const LABEL_CLS = "mb-[7px] block text-xs font-semibold text-[var(--ai-t2)]";
+const HINT_CLS = "mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]";
+
+/**
+ * Read-only: how many job and CV questions every AI Video Interview has. The
+ * same policy the invite freezes (lib/interviews/question-mix.ts), for the one
+ * live length there is, so this line cannot disagree with what is sent.
+ */
+const AI_VIDEO_QUESTION_MIX_LINE = describeQuestionMix(questionMixFor(MAX_SESSION_SECONDS / 60));
 
 /*
  * Step-rail states, transcribed from the designer's v2 `.step` spec. The rail
@@ -998,7 +1008,7 @@ function InterviewerNameField({
           {error}
         </p>
       )}
-      <p id={hintId} className="mt-[7px] text-xs leading-relaxed text-[var(--ai-t3)]">
+      <p id={hintId} className={HINT_CLS}>
         {hint} Up to {JOB_INTERVIEWER_NAME_MAX} characters.
       </p>
     </div>
@@ -2875,6 +2885,7 @@ export function WizardClient({
                               value={state.avatar_interviewer_name}
                               onChange={(v) => set("avatar_interviewer_name", v)}
                             />
+                            <p className={HINT_CLS}>{AI_VIDEO_QUESTION_MIX_LINE}</p>
                           </OptionRow>
 
                           {/* LIVE today, unlike the four interview options —

@@ -5,6 +5,8 @@
  * able to import these without dragging next/headers into its bundle.
  */
 
+import type { QuestionMix } from "./question-mix";
+
 export const SESSION_STATUSES = [
   "invited",
   "started",
@@ -58,8 +60,11 @@ export const INTERVIEW_KIND_LABELS: Record<InterviewKind, string> = {
  * consent screen already tells the candidate there may be up to two follow-ups.
  */
 export type LiveSettings = {
-  /** Snapshot format. Bump when a reader could misread an older row. */
-  v: 1;
+  /**
+   * Snapshot format. Bump when a reader could misread an older row.
+   * 1: before the question mix. 2: with question_mix (AVI commit 3).
+   */
+  v: 1 | 2;
   interviewer_name: string;
   language: string;
   max_follow_ups_per_base_question: number;
@@ -79,10 +84,35 @@ export type LiveSettings = {
     scope: string;
     never: string[];
   };
+  /**
+   * How many job and CV questions this session has, copied from
+   * lib/interviews/question-mix.ts at invite. Readers use this copy, never
+   * the table, so a later policy change leaves sessions already sent alone.
+   * Null on a v1 row, which predates it.
+   */
+  question_mix: QuestionMix | null;
 };
 
-/** The current snapshot format. A row written under an older `v` is refused. */
-export const LIVE_SETTINGS_VERSION = 1;
+/** The current snapshot format, written by every new invite. v1 rows are still read. */
+export const LIVE_SETTINGS_VERSION = 2;
+
+/** The stored question mix, narrowed: whole numbers, job + CV = total, at least one question. */
+function readQuestionMix(raw: unknown): QuestionMix | null {
+  if (!raw || typeof raw !== "object" || Array.isArray(raw)) return null;
+  const m = raw as Record<string, unknown>;
+  const policyVersion = nonEmptyString(m.policy_version, 64);
+  const whole = (v: unknown): v is number => typeof v === "number" && Number.isInteger(v) && v >= 0;
+  const { session_minutes: minutes, job_questions: job, cv_questions: cv, total } = m;
+  if (!policyVersion || !whole(minutes) || !whole(job) || !whole(cv) || !whole(total)) return null;
+  if (minutes < 1 || total < 1 || job + cv !== total) return null;
+  return {
+    policy_version: policyVersion,
+    session_minutes: minutes,
+    job_questions: job,
+    cv_questions: cv,
+    total,
+  };
+}
 
 /** Locked: at most 2 follow-ups per base question, the same for every candidate. */
 export const MAX_FOLLOW_UPS_PER_BASE_QUESTION = 2;
@@ -126,7 +156,10 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
   if (!raw || typeof raw !== "object" || Array.isArray(raw)) return bad("is not an object");
   const o = raw as Record<string, unknown>;
 
-  if (o.v !== LIVE_SETTINGS_VERSION) return bad(`has version ${JSON.stringify(o.v)}`);
+  if (o.v !== 1 && o.v !== LIVE_SETTINGS_VERSION) {
+    return bad(`has version ${JSON.stringify(o.v)}`);
+  }
+  const version: LiveSettings["v"] = o.v;
 
   const interviewerName = nonEmptyString(o.interviewer_name, LIVE_INTERVIEWER_NAME_CEILING);
   if (!interviewerName) return bad("has no usable interviewer_name");
@@ -168,14 +201,19 @@ export function readLiveSettings(raw: unknown, sessionId: string): LiveSettings 
     never.push(line);
   }
 
+  // v2 rows must carry a usable mix; a v1 row predates it and reads as null.
+  const questionMix = version === 1 ? null : readQuestionMix(o.question_mix);
+  if (version !== 1 && !questionMix) return bad("has no usable question_mix");
+
   return {
-    v: LIVE_SETTINGS_VERSION,
+    v: version,
     interviewer_name: interviewerName,
     language,
     max_follow_ups_per_base_question: followUps,
     max_session_seconds: seconds,
     follow_up_rules_version: rulesVersion,
     follow_up_rules: { when, scope, never },
+    question_mix: questionMix,
   };
 }
 
