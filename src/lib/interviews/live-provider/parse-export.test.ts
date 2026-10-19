@@ -423,3 +423,131 @@ test("an error names the rule and the turn, never the content", () => {
     assert.doesNotMatch(err.message, /SECRET-CONTENT-MARKER|observer/);
   }
 });
+
+/* ── interruptions (agreed with the provider, 19 Oct 2026) ────── */
+
+test("interruption: false and no stop time unless sent; a marked interruption is parsed", () => {
+  const plain = parseExport(fixture());
+  assert.ok(plain.turns.every((t) => t.interrupted === false && t.audio_stopped_ms === null));
+
+  const f = fixture();
+  // Turn 0 is the first base question (offset 3256, 10210 long); the candidate cut in.
+  f.turns[0].interrupted = true;
+  f.turns[0].audio_stopped_ms = f.turns[0].offset_ms + 900;
+  const r = parseExport(f);
+  assert.equal(r.turns[0].interrupted, true);
+  assert.equal(r.turns[0].audio_stopped_ms, f.turns[0].offset_ms + 900);
+  // The overlap after a marked interruption is expected, so it is not warned about.
+  assert.equal(r.warnings.overlaps.count, 12);
+  assert.ok(!r.warnings.overlaps.turns.some((o) => o.sequence === 2));
+
+  const s = fixture();
+  s.turns[0].interrupted = true;
+  s.turns[0].audio_stopped_seconds = (s.turns[0].offset_ms + 1500) / 1000;
+  assert.equal(parseExport(s).turns[0].audio_stopped_ms, s.turns[0].offset_ms + 1500);
+});
+
+for (const [label, breakIt] of [
+  [
+    "interrupted on a candidate turn",
+    (f) => {
+      f.turns[1].interrupted = true;
+    },
+  ],
+  [
+    "a stop time without interrupted",
+    (f) => {
+      f.turns[0].audio_stopped_ms = f.turns[0].offset_ms + 100;
+    },
+  ],
+  [
+    "a stop time before the turn starts",
+    (f) => {
+      f.turns[0].interrupted = true;
+      f.turns[0].audio_stopped_ms = f.turns[0].offset_ms - 1;
+    },
+  ],
+  [
+    "a stop time after the turn ends",
+    (f) => {
+      f.turns[0].interrupted = true;
+      f.turns[0].audio_stopped_ms = f.turns[0].offset_ms + f.turns[0].audio_duration_ms + 1;
+    },
+  ],
+  [
+    "interrupted that is not a boolean",
+    (f) => {
+      f.turns[0].interrupted = "yes";
+    },
+  ],
+]) {
+  test(`refused: ${label} (bad_interruption)`, () => {
+    const f = fixture();
+    breakIt(f);
+    assert.throws(() => parseExport(f), refusedWith("bad_interruption"));
+  });
+}
+
+/* ── repeats (agreed with the provider, 19 Oct 2026) ──────────── */
+
+const REPEAT = JSON.parse(
+  readFileSync(new URL("./__fixtures__/sample-export-repeat.json", import.meta.url), "utf8"),
+);
+
+test("repeat variant: a marked repeat is a procedural turn at the question's position, flagged repeat", () => {
+  const r = parseExport(structuredClone(REPEAT));
+  assert.equal(r.turns.length, 34);
+  const rep = r.turns.find((t) => t.provider_turn_id === "30000000-0000-4000-8000-000000000002");
+  assert.deepEqual([rep.kind, rep.question_position, rep.repeat], ["procedural", 2, true]);
+  const reminder = r.turns.find(
+    (t) => t.provider_turn_id === "30000000-0000-4000-8000-000000000001",
+  );
+  assert.deepEqual(
+    [reminder.kind, reminder.question_position, reminder.repeat],
+    ["procedural", 2, false],
+  );
+  assert.equal(
+    r.turns.filter((t) => t.kind === "base_question").length,
+    6,
+    "no extra main question",
+  );
+  assert.ok(parseExport(fixture()).turns.every((t) => t.repeat === false));
+});
+
+test("repeat: turn_type repeat is the same as a base_question marked is_repeat", () => {
+  const f = structuredClone(REPEAT);
+  const i = f.turns.findIndex((t) => t.is_repeat === true);
+  delete f.turns[i].is_repeat;
+  f.turns[i].turn_type = "repeat";
+  const rep = parseExport(f).turns[i];
+  assert.deepEqual([rep.kind, rep.question_position, rep.repeat], ["procedural", 2, true]);
+});
+
+for (const [label, breakIt] of [
+  [
+    "is_repeat on a follow-up",
+    (f) => {
+      f.turns[5].is_repeat = true;
+    },
+  ],
+  [
+    "is_repeat that is not a boolean",
+    (f) => {
+      f.turns[0].is_repeat = "yes";
+    },
+  ],
+  [
+    "a repeat that names no question",
+    (f) => {
+      f.turns[0].turn_type = "repeat";
+      delete f.turns[0].question_id;
+      delete f.turns[0].base_question_id;
+    },
+  ],
+]) {
+  test(`refused: ${label} (bad_repeat)`, () => {
+    const f = fixture();
+    breakIt(f);
+    assert.throws(() => parseExport(f), refusedWith("bad_repeat"));
+  });
+}

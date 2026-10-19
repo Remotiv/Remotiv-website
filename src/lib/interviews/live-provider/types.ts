@@ -84,13 +84,27 @@ export type LiveTurn = {
   text: string | null;
   offset_ms: number;
   duration_ms: number;
+  /**
+   * Interviewer turns only: the candidate cut the interviewer off. The only
+   * case in which a candidate turn may start before the interviewer turn
+   * before it has ended (rule agreed with the provider, 19 Oct 2026).
+   */
+  interrupted: boolean;
+  /** For an interrupted turn: where on the session clock the interviewer's audio stopped. */
+  audio_stopped_ms: number | null;
+  /**
+   * A marked repeat of a question already asked (after an interruption, a
+   * silence, or on request). Always a procedural turn at the question's
+   * position: never a second main question, never a follow-up.
+   */
+  repeat: boolean;
   /** Session start plus offset_ms, then plus duration_ms: one clock for every turn. */
   started_at: string;
   ended_at: string;
   audio_file_name: string | null;
 };
 
-/** A candidate turn that starts before the interviewer turn before it has finished. */
+/** A candidate turn that starts before the interviewer turn before it has finished, with no interruption marked. */
 export type TurnOverlap = { sequence: number; overlap_ms: number };
 
 export type ParsedExport = {
@@ -107,9 +121,14 @@ export type ParsedExport = {
   };
 };
 
+/** One turn's audio, as the provider hands it over. */
+export type TurnAudio = { bytes: Uint8Array; mime_type: string | null };
+
 export interface LiveInterviewProvider {
   createSession(input: CreateSessionInput): Promise<CreateSessionResult>;
   deleteSession(providerSessionId: string): Promise<void>;
+  /** The audio of one turn of the session, by the file name the export gives it. */
+  fetchAudio(providerSessionId: string, fileName: string): Promise<TurnAudio>;
   /** The provider's export, narrowed and checked. Throws LiveExportError on broken input. */
   parseExport(raw: unknown): ParsedExport;
 }

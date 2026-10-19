@@ -38,6 +38,18 @@ import { INTERVIEW_BUCKET } from "./session";
  * That combination is also what lets the drawer distinguish the two cases
  * without a new column: a question that was never answered has NO row, while a
  * purged answer has a row with recorded_at set and video_path null.
+ *
+ * ── AI Video Interview turns (migration 021) ─────────────────
+ *
+ * Same schedule: a session past delete_after. REMOVED from every turn: the
+ * audio object, the interviewer's text, the candidate's transcript, its timed
+ * segments and error, and the follow-up reason (it describes the answer).
+ * KEPT, as the hiring record: speaker, kind, question position, follow-up
+ * index, timings, interruption, and the audio's type, size and hash.
+ * content_purged_at marks the turn purged; media_path is cleared only once its
+ * object is confirmed gone, so a failed delete is retried on the next run.
+ * The turn audio is in the session's folder, so the same folder sweep removes
+ * it, and the orphan sweep counts it as referenced while a turn points at it.
  */
 
 /** How old an unreferenced object must be before the sweep will remove it. */
@@ -63,6 +75,8 @@ const ID_CHUNK = 100;
 const BUDGET_MS = 18_000;
 
 type Service = ReturnType<typeof createServiceClient>;
+
+type TurnRow = { id: string; session_id: string; media_path: string | null };
 
 type AnswerRow = {
   id: string;
@@ -158,6 +172,7 @@ export async function handleInterviewPurge(job: {
   let rowsCleared = 0;
   let removalFailures = 0;
   let orphansRemoved = 0;
+  let turnsPurged = 0;
   let truncated = false;
 
   // ── Phase 1 — sessions past their retention date ──
@@ -213,6 +228,13 @@ export async function handleInterviewPurge(job: {
 
       if (aErr) throw new Error(`purge: answers: ${aErr.message}`);
       const answers = (aData ?? []) as AnswerRow[];
+
+      // AI Video Interview turns of the same due sessions.
+      const turns = await purgeDueTurns(service, ids, now);
+      turnsPurged += turns.purged;
+      objectsRemoved += turns.objectsRemoved;
+      removalFailures += turns.retrying;
+
       if (answers.length === 0) continue;
 
       const bySession = new Map<string, AnswerRow[]>();
@@ -306,13 +328,87 @@ export async function handleInterviewPurge(job: {
 
   console.log(
     `[purge] job ${job.id}: sessions=${sessionsPurged} objects=${objectsRemoved} ` +
-      `rows=${rowsCleared} retrying=${removalFailures} orphans=${orphansRemoved}` +
+      `rows=${rowsCleared} turns=${turnsPurged} retrying=${removalFailures} orphans=${orphansRemoved}` +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }
 
 /**
- * Collect objects that no answer row points at.
+ * Clear the content of every not-yet-purged turn of these due sessions.
+ *
+ * Selects turns still holding content (content_purged_at null) or still
+ * pointing at an object (media_path set), so a turn whose object delete failed
+ * is picked up again, and a fully purged turn is never touched twice.
+ */
+async function purgeDueTurns(
+  service: Service,
+  sessionIds: string[],
+  now: string,
+): Promise<{ purged: number; objectsRemoved: number; retrying: number }> {
+  const { data, error } = await service
+    .from("interview_turns")
+    .select("id, session_id, media_path")
+    .in("session_id", sessionIds)
+    .or("content_purged_at.is.null,media_path.not.is.null");
+  if (error) throw new Error(`purge: turns: ${error.message}`);
+  const turns = (data ?? []) as TurnRow[];
+  const bySession = new Map<string, TurnRow[]>();
+  for (const t of turns) {
+    const list = bySession.get(t.session_id);
+    if (list) list.push(t);
+    else bySession.set(t.session_id, [t]);
+  }
+
+  let purged = 0;
+  let objectsRemoved = 0;
+  let retrying = 0;
+  const words = {
+    text: null,
+    transcript: null,
+    transcript_segments: null,
+    transcript_error: null,
+    follow_up_reason: null,
+    content_purged_at: now,
+  };
+  for (const [sessionId, rows] of bySession) {
+    let sweep: Awaited<ReturnType<typeof removeSessionObjects>>;
+    try {
+      sweep = await removeSessionObjects(service, sessionId);
+    } catch (err) {
+      // Storage unreachable: leave the turns as they are for the next run.
+      console.error(`[purge] turns ${sessionId}: ${(err as Error).message}`);
+      retrying += rows.length;
+      continue;
+    }
+    objectsRemoved += sweep.removed.size;
+    const present = new Set(sweep.present);
+    const gone: string[] = [];
+    const kept: string[] = [];
+    for (const t of rows) {
+      const objectGone =
+        !t.media_path || !present.has(t.media_path) || sweep.removed.has(t.media_path);
+      (objectGone ? gone : kept).push(t.id);
+    }
+    if (gone.length > 0) {
+      const { error: e } = await service
+        .from("interview_turns")
+        .update({ ...words, media_path: null })
+        .in("id", gone);
+      if (e) throw new Error(`purge: clear turns: ${e.message}`);
+      purged += gone.length;
+    }
+    if (kept.length > 0) {
+      // The words go now; the path stays until its object is confirmed gone.
+      const { error: e } = await service.from("interview_turns").update(words).in("id", kept);
+      if (e) throw new Error(`purge: clear turn words: ${e.message}`);
+      retrying += kept.length;
+    }
+  }
+  return { purged, objectsRemoved, retrying };
+}
+
+/**
+ * Collect objects that no answer row or turn points at.
  *
  * ── Where orphans come from ──────────────────────────────────
  *
@@ -381,10 +477,21 @@ async function sweepOrphans(service: Service, startedAt: number): Promise<number
         console.error(`[purge] orphan sweep: refs: ${refErr.message}`);
         continue;
       }
+      // Turn audio (AI Video Interview) lives in the same folder.
+      const { data: turnRefs, error: turnRefErr } = await service
+        .from("interview_turns")
+        .select("media_path")
+        .eq("session_id", sessionId)
+        .not("media_path", "is", null);
+      if (turnRefErr) {
+        console.error(`[purge] orphan sweep: turn refs: ${turnRefErr.message}`);
+        continue;
+      }
       const referenced = new Set(
-        ((refData ?? []) as { video_path: string | null }[])
-          .map((r) => r.video_path)
-          .filter((p): p is string => Boolean(p)),
+        [
+          ...((refData ?? []) as { video_path: string | null }[]).map((r) => r.video_path),
+          ...((turnRefs ?? []) as { media_path: string | null }[]).map((r) => r.media_path),
+        ].filter((p): p is string => Boolean(p)),
       );
 
       const orphans = stale

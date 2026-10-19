@@ -49,6 +49,25 @@ import type {
  * it is still playing, by 6 to 11 seconds. If that is the candidate's audio
  * starting early, its transcript would carry the interviewer's words. It is
  * returned as a warning per turn until the provider says what the offsets mean.
+ *
+ * ── Interruptions (agreed with the provider, 19 Oct 2026) ────
+ *
+ * An interviewer turn the candidate cut off carries `interrupted: true` and,
+ * optionally, `audio_stopped_ms` (or `_seconds`): where the interviewer's audio
+ * stopped, between the turn's start and end. A candidate turn that starts
+ * inside an interrupted turn is the one overlap that is expected, so it is not
+ * warned about. `interrupted` on a candidate turn, a stop time on a turn not
+ * marked interrupted, or a stop time outside the turn, is refused.
+ *
+ * ── Repeats (agreed with the provider, 19 Oct 2026) ──────────
+ *
+ * The interviewer may repeat a question after an interruption, after a
+ * silence, or when asked. A repeat is marked, either as turn_type "repeat" or
+ * as a base_question with `is_repeat: true`, and becomes a PROCEDURAL turn at
+ * the question's position with `repeat: true`: it adds no main question, no
+ * follow-up and no scoring entry. A repeat must name its question. An
+ * unmarked second base_question for a position is still a second main
+ * question, and live-ingest.ts refuses it.
  */
 
 export type LiveExportErrorCode =
@@ -68,7 +87,9 @@ export type LiveExportErrorCode =
   | "bad_follow_up"
   | "bad_question_position"
   | "missing_responds_to"
-  | "unknown_responds_to";
+  | "unknown_responds_to"
+  | "bad_interruption"
+  | "bad_repeat";
 
 /** A broken export. The message names the rule and the turn's index, never its content. */
 export class LiveExportError extends Error {
@@ -102,6 +123,7 @@ const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
   clarification: "clarification",
   procedural: "procedural",
   acknowledgment: "procedural",
+  repeat: "procedural",
 };
 const CANDIDATE_TYPES: ReadonlySet<string> = new Set(["answer"]);
 
@@ -210,6 +232,14 @@ export function parseExport(raw: unknown): ParsedExport {
     } else if (turnType === null || !CANDIDATE_TYPES.has(turnType)) {
       throw new LiveExportError("unknown_turn_type", "candidate turn_type", i);
     }
+    if (t.is_repeat !== undefined && t.is_repeat !== null && typeof t.is_repeat !== "boolean") {
+      throw new LiveExportError("bad_repeat", "is_repeat must be true or false", i);
+    }
+    if (t.is_repeat === true && turnType !== "base_question") {
+      throw new LiveExportError("bad_repeat", "only a base_question is marked is_repeat", i);
+    }
+    const repeat = turnType === "repeat" || t.is_repeat === true;
+    if (repeat) kind = "procedural";
 
     const offsetMs = millis(t, "offset_ms", "offset_seconds");
     if (offsetMs === null || offsetMs < 0) {
@@ -265,6 +295,9 @@ export function parseExport(raw: unknown): ParsedExport {
     if (questionPosition === null && kind !== null && kind !== "procedural") {
       throw new LiveExportError("bad_question_position", "the turn names no question", i);
     }
+    if (repeat && questionPosition === null) {
+      throw new LiveExportError("bad_repeat", "a repeat names no question", i);
+    }
 
     const respondsTo = nonEmpty(t.responds_to_turn_id);
     if (respondsTo === null) {
@@ -277,6 +310,27 @@ export function parseExport(raw: unknown): ParsedExport {
         "responds_to_turn_id is not another turn",
         i,
       );
+    }
+
+    if (
+      t.interrupted !== undefined &&
+      t.interrupted !== null &&
+      typeof t.interrupted !== "boolean"
+    ) {
+      throw new LiveExportError("bad_interruption", "interrupted must be true or false", i);
+    }
+    const interrupted = t.interrupted === true;
+    if (interrupted && speaker !== "interviewer") {
+      throw new LiveExportError("bad_interruption", "only an interviewer turn is interrupted", i);
+    }
+    const stoppedMs = millis(t, "audio_stopped_ms", "audio_stopped_seconds");
+    if (stoppedMs !== null) {
+      if (!interrupted) {
+        throw new LiveExportError("bad_interruption", "a stop time needs interrupted: true", i);
+      }
+      if (stoppedMs < offsetMs || stoppedMs > offsetMs + durationMs) {
+        throw new LiveExportError("bad_interruption", "the stop time is outside the turn", i);
+      }
     }
 
     const startedTurn = plusMs(startedAt, offsetMs);
@@ -292,6 +346,9 @@ export function parseExport(raw: unknown): ParsedExport {
       text,
       offset_ms: offsetMs,
       duration_ms: durationMs,
+      interrupted,
+      audio_stopped_ms: stoppedMs,
+      repeat,
       started_at: startedTurn,
       ended_at: plusMs(startedTurn, durationMs),
       audio_file_name: nonEmpty(
@@ -308,7 +365,8 @@ export function parseExport(raw: unknown): ParsedExport {
       lastInterviewer = turn;
       continue;
     }
-    if (!lastInterviewer) continue;
+    // A marked interruption is the overlap that is expected.
+    if (!lastInterviewer || lastInterviewer.interrupted) continue;
     const overlap = lastInterviewer.offset_ms + lastInterviewer.duration_ms - turn.offset_ms;
     if (overlap > 0) overlaps.push({ sequence: turn.sequence, overlap_ms: overlap });
   }
