@@ -1,4 +1,5 @@
 import {
+  APPLICANT_PAGE_SIZE,
   type ApplicantScore,
   PIPELINE_STAGE_LABELS,
   type PipelineStage,
@@ -24,12 +25,14 @@ import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 /**
  * The most applicants one export may cover.
  *
- * The same number as the list's page size, because the button exports the
- * current page: the label says "Export page" and the filename names it. It is
- * enforced on the server read as well, so the screening jsonb can never be
- * pulled for the whole table through the export path.
+ * DERIVED from the list's page size, not a second 20 that happens to match,
+ * because the button exports the current page: the label says "Export page" and
+ * the filename names it. It is enforced on the server read as well, so the
+ * screening jsonb can never be pulled for the whole table through the export
+ * path — and a page size raised above a hardcoded cap would make a full page
+ * export nothing at all.
  */
-export const CSV_EXPORT_MAX = 20;
+export const CSV_EXPORT_MAX = APPLICANT_PAGE_SIZE;
 
 /** RFC-4180 escaping: quote the field and double any embedded quotes. */
 function csvCell(value: string): string {

@@ -43,11 +43,17 @@ export type CountsKey = string;
 /**
  * The filter identity, as a string.
  *
- * Only `jobId` is in it. `search` and the Flagged chip are deliberately NOT:
- * search runs client-side over the loaded rows and keying on it would fire a
- * batch of head-counts per keystroke, and the Flagged chip narrows the LIST
- * rather than the population the hero describes — its own badge is already a
- * server aggregate and stays that way.
+ * Only `jobId` is in it. `search` and the Flagged chip are deliberately NOT,
+ * and the reason for search has CHANGED: it used to run client-side over the
+ * loaded rows, so the counts could not have been keyed on it even in
+ * principle. It is a server query now, so they could be — and still are not,
+ * because these figures describe the population a reader is working through
+ * and a search narrows the view of it. Keying on search would also fire a
+ * batch of head-counts per debounce window.
+ *
+ * The Flagged chip is out for the unchanged reason: it narrows the LIST rather
+ * than the population the hero describes, and its own badge is already a
+ * server aggregate.
  */
 export function countsKey(jobId: string | null): CountsKey {
   return jobId ?? "all";
@@ -144,6 +150,16 @@ export type CountsView = {
   openRoles: number | null;
   stages: Record<PipelineStage, number | null>;
   /**
+   * Everyone the viewer may see, ignoring every filter. Drives one sentence:
+   * whether an empty table says "No applicants yet" or "Nothing in this view".
+   *
+   * Null is load-bearing here in a way it is not for the figures above, which
+   * draw an em dash. There is no em dash available in a sentence, so the empty
+   * copy must fall through to the neutral wording rather than pick either
+   * claim — see `emptyCopy`.
+   */
+  grandTotal: number | null;
+  /**
    * The figures are being refreshed, or are for a filter the reader has since
    * moved off. Either way the surface must say so.
    */
@@ -174,6 +190,7 @@ export function countsView(state: CountsState): CountsView {
     newThisWeek: shown?.newThisWeek ?? null,
     openRoles: shown?.openRoles ?? null,
     stages: shown?.stages ?? NO_STAGES,
+    grandTotal: shown?.grandTotal ?? null,
     updating: state.pending || (shown !== null && state.shownKey !== state.key),
   };
 }

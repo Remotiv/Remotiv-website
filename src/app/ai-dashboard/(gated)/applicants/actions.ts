@@ -5,6 +5,7 @@ import { CSV_EXPORT_MAX } from "@/app/ai-dashboard/(gated)/applicants/csv-export
 import { actionFailed, actionIncomplete, queueFailed } from "@/app/ai-dashboard/lib/action-errors";
 import {
   type AddApplicantDuplicate,
+  APPLICANT_PAGE_SIZE,
   type ApplicantComment,
   type ApplicantCounts,
   type ApplicantScore,
@@ -13,6 +14,7 @@ import {
   type AssignableJob,
   COMMENT_MAX,
   type CompanyApplicantDetail,
+  type CompanyApplicantPage,
   type CompanyApplicantQuery,
   type CompanyApplicantRow,
   PIPELINE_STAGE_LABELS,
@@ -26,12 +28,18 @@ import {
   type ScoreStatus,
   type ScoreStrengthRow,
   type StageHistoryRow,
+  TOP_SCORED_LIMIT,
   WORTH_A_LOOK_STAGES,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import { getCompanyContext, requireCompanyRole } from "@/app/ai-dashboard/lib/company-guards";
 import { type CompanyContext, canChangeStage } from "@/app/ai-dashboard/lib/company-roles";
-import { canAccessJob, getJobScope, readJobScope } from "@/app/ai-dashboard/lib/job-scope";
-import { sanitiseSearchTerm } from "@/app/ai-dashboard/lib/search-query";
+import {
+  canAccessJob,
+  getJobScope,
+  type JobScope,
+  readJobScope,
+} from "@/app/ai-dashboard/lib/job-scope";
+import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
 import {
@@ -133,11 +141,49 @@ type ScoreSummaryRow = {
   human_adjusted_score: number | null;
   confidence: string | null;
   error: string | null;
+  effective_score: number | null;
 };
+
+/**
+ * The score fields as an EMBED on job_applications, rather than a second query
+ * joined in JavaScript.
+ *
+ * `effective_score` is in the list because PostgREST will only order a parent by
+ * an embedded column if that column is in the embed's own select list — leaving
+ * it out answers 42703 rather than quietly ordering by something else.
+ *
+ * Concatenated from SCORE_SUMMARY_COLUMNS for the reason APPLICANT_DETAIL_COLUMNS
+ * is: two hand-maintained field lists drift the first time a column is added to
+ * one of them, and the drift is invisible because both queries still succeed.
+ */
+const SCORE_EMBED_FIELDS = `${SCORE_SUMMARY_COLUMNS}, effective_score`;
+
+/**
+ * The list's projection.
+ *
+ * The embed is `!left` and must stay `!left`. `!inner` returns only applications
+ * that have a score row — measured at 146 of 3,788 in production — so it would
+ * hide 96.1% of applicants from the view the page opens on. Nothing in the
+ * scanner catches that substitution; the unscored-visibility test is the guard.
+ */
+const APPLICANT_LIST_SELECT = `${APPLICANT_LIST_COLUMNS}, application_scores!left(${SCORE_EMBED_FIELDS})`;
+
+/**
+ * "Review top 10" and the top-match chips, which are claims about the score and
+ * so may only contain scored candidates.
+ *
+ * `!inner` is deliberate HERE, and it is what restricts the result to
+ * applications that have a score row at all. It is NOT sufficient on its own: it
+ * says nothing about whether that row holds a number, and a skipped or failed
+ * card is a row. The caller adds `effective_score IS NOT NULL`, which restricts
+ * the parent precisely because this join is INNER rather than LEFT.
+ */
+const TOP_SCORED_SELECT = `${APPLICANT_LIST_COLUMNS}, application_scores!inner(${SCORE_EMBED_FIELDS})`;
 
 /** An applicant with no score row at all reads as pending, not as an error. */
 const NO_SCORE: ApplicantScore = {
   status: "pending",
+  ai_status: "pending",
   overall: null,
   ai_overall: null,
   adjusted: false,
@@ -149,18 +195,44 @@ const NO_SCORE: ApplicantScore = {
  * A human override wins over the model's number wherever a score is shown —
  * that is the whole point of the column. `adjusted` lets the UI say so rather
  * than passing a human judgement off as the AI's.
+ *
+ * ── `overall` here and `effective_score` in the database are one rule ───────
+ *
+ * The list is ORDERED by application_scores.effective_score and DISPLAYS this
+ * `overall`. They must agree on every row or the page is ranked by a number it
+ * does not show. Both are
+ *
+ *   status = 'scored' OR human_adjusted_score IS NOT NULL
+ *     ? (human_adjusted ?? overall)
+ *     : null
+ *
+ * one in SQL and one here. The second disjunct is what makes a recruiter's
+ * correction to a CV the model SKIPPED rank where it displays: gating on
+ * `status` alone would show their number and sort the row last, which is the
+ * original defect inverted. The first disjunct is what keeps a FAILED re-score
+ * from ranking on the stale overall_score it still carries. See test category 8.
+ *
+ * `!= null` and not a truthiness test: an adjustment to 0 is a real judgement —
+ * "I looked, and no" — and must rank at the bottom rather than read as absent.
+ *
+ * A LEFT embed with no match arrives as `null`, which is the same absence as the
+ * `undefined` the old JavaScript join produced for a missing map entry.
  */
-function toScore(r: ScoreSummaryRow | undefined): ApplicantScore {
+function toScore(r: ScoreSummaryRow | null | undefined): ApplicantScore {
   if (!r) return NO_SCORE;
-  const status = (r.status ?? "pending") as ScoreStatus;
+  const aiStatus = (r.status ?? "pending") as ScoreStatus;
   const adjusted = r.human_adjusted_score != null;
+  const status: ScoreStatus = adjusted ? "scored" : aiStatus;
   const overall = status === "scored" ? (r.human_adjusted_score ?? r.overall_score) : null;
   return {
     status,
+    ai_status: aiStatus,
     overall,
     // The model's number travels alongside the override rather than being
     // replaced by it — the UI shows both, and the difference IS the signal.
-    ai_overall: status === "scored" ? r.overall_score : null,
+    // On the AI's OWN status: a failed attempt's leftover number is not a
+    // comparison, it is a number nobody is standing behind.
+    ai_overall: aiStatus === "scored" ? r.overall_score : null,
     adjusted,
     confidence: (r.confidence as ScoreConfidence | null) ?? null,
     error: r.error,
@@ -417,22 +489,27 @@ const COUNT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  * the moment it is a page of it. This adds round trips and makes the page no
  * faster; its job is to make the numbers true over the whole population.
  *
- * ── Nine queries, fixed, parallel ───────────────────────────
+ * ── Ten queries, fixed, parallel ────────────────────────────
  *
- * Seven per-stage counts, "new this week", and "open roles". The number of
- * requests is a function of `PIPELINE_STAGES.length` — it does not grow with
- * the applicant count, and nothing here is per-row or per-job, so the
- * `Promise.all` is bounded by construction and needs no limiter.
+ * Seven per-stage counts, "new this week", "open roles", and the unfiltered
+ * grand total. The number of requests is a function of
+ * `PIPELINE_STAGES.length` — it does not grow with the applicant count, and
+ * nothing here is per-row or per-job, so the `Promise.all` is bounded by
+ * construction and needs no limiter.
  *
  * Every one is `count: "exact", head: true`: the number arrives in
  * Content-Range and not one row is transferred.
  *
- * ── The total is a SUM, not a tenth query ───────────────────
+ * ── The funnel total is a SUM, not another query ────────────
  *
  * `pipeline_stage` is NOT NULL with a CHECK constraint over exactly these
  * seven values, so the seven counts partition the filtered population and
  * their sum is the total. Verified against production: the seven sum to the
  * table's own row count exactly.
+ *
+ * `grandTotal` is a separate read and not a contradiction of that: it is a
+ * different number, counted without the job filter, so it cannot be a sum of
+ * these seven. See ApplicantCounts.grandTotal.
  *
  * That matters because the funnel prints "% of total". A separately fetched
  * total would be read at a different moment from the stage it is divided by,
@@ -448,9 +525,9 @@ const COUNT_WEEK_MS = 7 * 24 * 60 * 60 * 1000;
  *
  * ── Scope ───────────────────────────────────────────────────
  *
- * `readJobScope` is resolved ONCE and the resolved value reused by all nine,
+ * `readJobScope` is resolved ONCE and the resolved value reused by all ten,
  * so a batch cannot be built from two different answers to the same permission
- * question and the hiring-team row is read once rather than nine times. An
+ * question and the hiring-team row is read once rather than ten times. An
  * unreadable scope short-circuits before any query is issued — see
  * countFlaggedApplicants for why that is not `0`.
  *
@@ -481,22 +558,34 @@ export async function fetchApplicantCounts(
       total: 0,
       newThisWeek: 0,
       openRoles: 0,
+      grandTotal: 0,
     });
   }
 
   const service = createServiceClient();
 
-  /** The two scope layers every count below shares, applied per chain. */
-  const applications = () => {
+  /**
+   * The two scope layers every count below shares, applied per chain.
+   *
+   * Scope only — never the tab, the flag or the search term. Those are the
+   * list's filters; these counts describe the population the list is drawn
+   * FROM, which is what makes "12 of 300" a meaningful sentence.
+   */
+  const scoped = () => {
     let q = service
       .from("job_applications")
       .select("id", { count: "exact", head: true })
       .eq("company_id_snapshot", ctx.companyId);
     if (scope.scoped) q = q.in("job_id", scope.jobIds);
+    return q;
+  };
+
+  /** Scope plus the job filter — what the stage counts and the funnel describe. */
+  const applications = () => {
+    const q = scoped();
     // Narrows WITHIN the scope, never past it: the .in() above still applies,
     // so asking for an unassigned job counts nothing rather than its rows.
-    if (query.jobId) q = q.eq("job_id", query.jobId);
-    return q;
+    return query.jobId ? q.eq("job_id", query.jobId) : q;
   };
 
   const since = new Date(Date.now() - COUNT_WEEK_MS).toISOString();
@@ -531,10 +620,10 @@ export async function fetchApplicantCounts(
   /**
    * One head-count, resolved to a number or to null. It cannot reject.
    *
-   * The containment is the point. These nine were a `Promise.all` holding a
+   * The containment is the point. These ten were a `Promise.all` holding a
    * `Promise.all`, so a single rejection rejected the inner array, which
-   * rejected the outer, which threw out of this action — nine figures lost to
-   * one, and the eight that answered fine discarded with them. Catching per
+   * rejected the outer, which threw out of this action — ten figures lost to
+   * one, and the nine that answered fine discarded with them. Catching per
    * count means the level above is a `Promise.all` over promises that cannot
    * reject, which is itself a promise that cannot reject, at both levels.
    *
@@ -574,9 +663,9 @@ export async function fetchApplicantCounts(
     }
   };
 
-  // All nine are issued before the first await: countOnce runs synchronously
+  // All ten are issued before the first await: countOnce runs synchronously
   // into `build()`, so wrapping them costs no round trip.
-  const [stageResults, weekCount, rolesCount] = await Promise.all([
+  const [stageResults, weekCount, rolesCount, grandTotal] = await Promise.all([
     Promise.all(
       PIPELINE_STAGES.map((stage) =>
         countOnce(`stage ${stage}`, () => applications().eq("pipeline_stage", stage)),
@@ -584,6 +673,9 @@ export async function fetchApplicantCounts(
     ),
     countOnce("new this week", () => applications().gte("created_at", since)),
     countOnce("open roles", () => openRolesQuery()),
+    // `scoped()`, not `applications()` — this one deliberately ignores the job
+    // filter. See ApplicantCounts.grandTotal.
+    countOnce("grand total", () => scoped()),
   ]);
 
   const stages = Object.fromEntries(
@@ -600,44 +692,109 @@ export async function fetchApplicantCounts(
     total,
     newThisWeek: weekCount,
     openRoles: rolesCount,
+    grandTotal,
   });
 }
 
 /**
- * Score summaries for a set of applications, keyed by application_id.
+ * A list row with its embedded score. To-ONE, so an object or null — never an
+ * array.
  *
- * Fetched in id batches rather than one giant `.in()` — a few thousand uuids
- * overflow the PostgREST request URL, the same limit the applicants list
- * already range-pages around.
+ * Measured against production rather than read off the dump: `application_id`
+ * carries a UNIQUE constraint, so PostgREST resolves the embed as to-one and a
+ * row with no score answers `null`. A to-many embed would answer `[]`, and the
+ * two need different mapping, so the shape was probed both ways — unscored rows
+ * returned `null`, scored rows returned an object.
  */
-async function fetchScoreSummaries(
+type ApplicantListQueryRow = ApplicantQueryRow & {
+  application_scores: ScoreSummaryRow | null;
+};
+
+/**
+ * One read of `job_applications` carrying company scope, job scope and every
+ * page filter — all on the PARENT.
+ *
+ * ── Why the select string is a parameter ─────────────────────
+ *
+ * Because there are two of these reads, the list and "Review top 10", and they
+ * differ ONLY in their projection — the list embeds scores `!left`, the top
+ * query `!inner`. Their filters have to be identical: "Review top 10" is a
+ * claim about the list the reader is looking at, so a filter the list applies
+ * and the top query does not would make the chip name someone the page is not
+ * showing. Sharing the chain is what makes that true by construction instead of
+ * by two developers remembering.
+ *
+ * ── Why the filters are on the parent ───────────────────────
+ *
+ * That placement is the tenant boundary, not a style choice. Across a LEFT
+ * embed a filter on an embedded column does not restrict the parent at all, so
+ * company scope on `application_scores.company_id` would read as scoping while
+ * returning every company's rows. It stays on `company_id_snapshot`, which also
+ * survives job deletion — `job_id` is ON DELETE SET NULL, so a scope joined
+ * through `jobs.company_id` would silently drop those applicants.
+ */
+function listQuery(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
-  applicationIds: string[],
-): Promise<Map<string, ScoreSummaryRow>> {
-  const byId = new Map<string, ScoreSummaryRow>();
-  const CHUNK = 200;
+  scope: JobScope,
+  query: CompanyApplicantQuery,
+  select: string,
+  options: { count?: "exact"; head?: boolean } = {},
+) {
+  let out = service
+    .from("job_applications")
+    .select(select, options)
+    .eq("company_id_snapshot", companyId);
 
-  for (let i = 0; i < applicationIds.length; i += CHUNK) {
-    const chunk = applicationIds.slice(i, i + CHUNK);
-    const { data, error } = await service
-      .from("application_scores")
-      .select(SCORE_SUMMARY_COLUMNS)
-      .eq("company_id", companyId)
-      .in("application_id", chunk);
+  if (scope.scoped) out = out.in("job_id", scope.jobIds);
+  // A client-supplied job filter narrows WITHIN the scope, never past it — the
+  // .in() above still applies, so asking for an unassigned job returns nothing
+  // rather than that job's applicants.
+  if (query.jobId) out = out.eq("job_id", query.jobId);
 
-    if (error) {
-      // A scoring outage must not blank the applicants list — every row simply
-      // reads as pending, which is what it looks like before scoring anyway.
-      console.error("[applicants] score summary query failed:", error);
-      return byId;
-    }
-    for (const r of (data ?? []) as ScoreSummaryRow[]) {
-      byId.set(r.application_id, r);
-    }
+  /*
+   * The Applied tab also has to claim the NULLs. `toRow` coalesces a null stage
+   * to 'applied', so those rows render under Applied and the tab has to select
+   * them or its own rows go missing from it.
+   */
+  if (query.stage) {
+    out =
+      query.stage === "applied"
+        ? out.or("pipeline_stage.eq.applied,pipeline_stage.is.null")
+        : out.eq("pipeline_stage", query.stage);
   }
-  return byId;
+
+  // Both halves of showsWorthALook: the mark is KEPT on a row that moved on, so
+  // the stage gate is what stops the chip counting rows the list won't mark.
+  if (query.flaggedOnly) {
+    out = out
+      .not("shortlist_flagged_at", "is", null)
+      .in("pipeline_stage", WORTH_A_LOOK_STAGES as unknown as string[]);
+  }
+
+  /*
+   * One `.or()` per word, so the words are ANDed and their order stops
+   * mattering. postgrest-js appends each as its own `or=` parameter and
+   * PostgREST ANDs them — a single `.or()` holding every word would OR them
+   * instead, widening the search to anyone matching any one word.
+   */
+  for (const token of searchTokens(query.search ?? "")) {
+    out = out.or(`first_name.ilike.%${token}%,last_name.ilike.%${token}%,email.ilike.%${token}%`);
+  }
+
+  return out;
 }
+
+/**
+ * PostgREST's "Requested range not satisfiable".
+ *
+ * Measured boundary: an offset EQUAL to the total answers 206 with zero rows,
+ * and only an offset strictly GREATER than the total fails this way. So page 1
+ * of an empty result is a normal empty response, and this code means the page
+ * number has outrun a population that shrank — a stale `?page=`, or rows
+ * filtered away while the number stayed put.
+ */
+const RANGE_NOT_SATISFIABLE = "PGRST103";
 
 /**
  * Every applicant belonging to the viewer's company. Readable by any active
@@ -652,17 +809,13 @@ async function fetchScoreSummaries(
  */
 export async function fetchCompanyApplicants(
   query: CompanyApplicantQuery = {},
-): Promise<Read<CompanyApplicantRow[]>> {
+): Promise<Read<CompanyApplicantPage>> {
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
-  const search = (query.search ?? "").trim();
-
   /*
-   * Per-job scoping, applied to the ROWS — and, because every count and stat
-   * card on the Applicants page is derived from this same array client-side,
-   * to those as well. That is why the filter lives here rather than at each
-   * call site: there is one query, so there is one place to get it wrong.
+   * Per-job scoping, applied to the ROWS. The filter lives here rather than at
+   * each call site: there is one query, so there is one place to get it wrong.
    */
   const scopeRead = await readJobScope(ctx);
   // Unreadable scope is not "assigned to no roles": that renders the empty
@@ -671,59 +824,175 @@ export async function fetchCompanyApplicants(
   if (!scopeRead.ok) return unavailable();
   const scope = scopeRead.value;
   // An answer: assigned to no roles means no applicants to list.
-  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
+  if (scope.scoped && scope.jobIds.length === 0) return answered({ rows: [], total: 0 });
 
-  // Range-paged: job_applications has hit the PostgREST 1000-row cap before,
-  // and an unbounded select silently truncates rather than erroring.
-  const PAGE = 1000;
-  const rows: ApplicantQueryRow[] = [];
+  /*
+   * A factory, because the out-of-range path below re-issues the same filters
+   * as a head count. Two hand-copied filter chains are how a count ends up
+   * describing a different population from the rows it is printed beside.
+   */
+  const build = (head: boolean) =>
+    listQuery(service, ctx.companyId, scope, query, APPLICANT_LIST_SELECT, {
+      count: "exact",
+      head,
+    });
 
-  for (let from = 0; ; from += PAGE) {
-    let q = service
-      .from("job_applications")
-      .select(APPLICANT_LIST_COLUMNS)
-      .eq("company_id_snapshot", ctx.companyId);
+  /*
+   * ── Why the ordered column is a string with parentheses ──────
+   *
+   * `order("effective_score", { referencedTable: "application_scores" })` is
+   * the wrong tool and fails SILENTLY. It emits
+   * `application_scores.order=…`, which orders rows *within* the embed — for a
+   * to-one embed that is a no-op — and leaves the parent unordered. Measured:
+   * 200 OK, ten unscored rows, no error anywhere. The parent form is
+   * `order=application_scores(effective_score)…`, which postgrest-js produces
+   * only when the parentheses are in the column string.
+   *
+   * `nullslast` is explicit and mandatory: DESC defaults to NULLS FIRST, which
+   * would stack every unscored applicant above every scored one — and roughly
+   * two-thirds of this company's applicants are unscored.
+   *
+   * `id.asc` last is not a tidiness tiebreaker. Without a unique final term
+   * Postgres may order ties differently between the two requests that fetch two
+   * adjacent pages, and it was measured in production doing exactly that: 2
+   * applicants returned twice and 2 dropped entirely. It failed at 1 boundary
+   * in 5, which is worse than failing at all of them.
+   */
+  const ordered = <T extends ReturnType<typeof build>>(q: T) =>
+    query.sort === "newest"
+      ? q.order("created_at", { ascending: false, nullsFirst: false }).order("id")
+      : q
+          .order("application_scores(effective_score)", { ascending: false, nullsFirst: false })
+          .order("created_at", { ascending: false, nullsFirst: false })
+          .order("id");
 
-    if (scope.scoped) q = q.in("job_id", scope.jobIds);
-    // A client-supplied job filter narrows WITHIN the scope, never past it —
-    // the .in() above still applies, so asking for an unassigned job returns
-    // nothing rather than that job's applicants.
-    if (query.jobId) q = q.eq("job_id", query.jobId);
-    if (search) {
-      const safe = sanitiseSearchTerm(search);
-      q = q.or(`first_name.ilike.%${safe}%,last_name.ilike.%${safe}%,email.ilike.%${safe}%`);
+  const page = Math.max(1, Math.trunc(query.page ?? 1) || 1);
+  const from = (page - 1) * APPLICANT_PAGE_SIZE;
+
+  const { data, error, count } = await ordered(build(false)).range(
+    from,
+    from + APPLICANT_PAGE_SIZE - 1,
+  );
+
+  if (error) {
+    /*
+     * A page past the end of a population that shrank. Zero rows IS the honest
+     * answer for that window, so it must not read as a failed load — but the
+     * total has to come back, because the total is what lets the caller clamp
+     * to a page that exists. postgrest-js discards the count on a non-2xx, so
+     * it is re-read with one head request. Bounded at one: the retry carries no
+     * range and so cannot miss again.
+     */
+    if (error.code === RANGE_NOT_SATISFIABLE) {
+      const { count: total, error: countError } = await build(true);
+      if (countError) {
+        console.error("[applicants] out-of-range page: count failed:", countError.message);
+        return unavailable();
+      }
+      return answered({ rows: [], total: countOf(total) });
     }
-
-    const { data, error } = await q
-      .order("created_at", { ascending: false })
-      .range(from, from + PAGE - 1);
-
-    if (error) {
-      /*
-       * NOTE: fetchCompanyApplicants (PLURAL) — the list. Not
-       * fetchCompanyApplicant (singular, the drawer detail) a few functions
-       * below; they differ by one letter and sit in the same file.
-       *
-       * An empty list is a claim about their pipeline. A failed search that
-       * returns [] renders `No applicants match "sarah"` and tells the reader
-       * to try a different spelling — so the copy itself directs the retype,
-       * and every retry fails identically.
-       */
-      console.error("[applicants] fetchCompanyApplicants failed:", error);
-      return unavailable();
-    }
-
-    const batch = (data ?? []) as unknown as ApplicantQueryRow[];
-    rows.push(...batch);
-    if (batch.length < PAGE) break;
+    /*
+     * NOTE: fetchCompanyApplicants (PLURAL) — the list. Not
+     * fetchCompanyApplicant (singular, the drawer detail) a few functions
+     * below; they differ by one letter and sit in the same file.
+     *
+     * An empty list is a claim about their pipeline. A failed search that
+     * returns [] renders `No applicants match "sarah"` and tells the reader
+     * to try a different spelling — so the copy itself directs the retype,
+     * and every retry fails identically.
+     */
+    console.error("[applicants] fetchCompanyApplicants failed:", error);
+    return unavailable();
   }
 
-  const scores = await fetchScoreSummaries(
-    service,
-    ctx.companyId,
-    rows.map((r) => r.id),
-  );
-  return answered(rows.map((r) => toRow(r, scores.get(r.id))));
+  const rows = (data ?? []) as unknown as ApplicantListQueryRow[];
+  return answered({
+    rows: rows.map((r) => toRow(r, r.application_scores ?? undefined)),
+    // countOf, not `count ?? 0`: a 200 whose content-range was stripped would
+    // otherwise publish a hard zero over a populated pipeline.
+    total: countOf(count),
+  });
+}
+
+/**
+ * The best TOP_SCORED_LIMIT scored applicants in the current view — "Review top
+ * 10", and the rows the "Top match" chips are drawn from.
+ *
+ * ── Why this is a second query and not a slice of the page ───
+ *
+ * Because it is a claim about the whole filtered population, not about page 1.
+ * The client used to rank every loaded applicant and take the first ten, which
+ * was correct only because it held everyone. A slice of a 20-row page would
+ * silently become "the best of the twenty we happen to be showing" — and on
+ * page 3 it would mean nothing at all.
+ *
+ * ── Two gates, and why neither alone would do ────────────────
+ *
+ * `!inner` restricts the parent to applications that HAVE a score row, and the
+ * embed filter restricts it further — which it can only do because this join is
+ * INNER. Across the list's LEFT embed the very same filter would not restrict
+ * the parent at all.
+ *
+ *   !inner                       a candidate with no score row has no number by
+ *                                definition, and under a LEFT join would come
+ *                                back with a null embed and sort into the view.
+ *   effective_score IS NOT NULL  having a row is not having a number. A pending
+ *                                card, or a scored one the model returned no
+ *                                number for, is a row — and it would take a
+ *                                place from someone who has a score.
+ *
+ * There is no longer a third gate on `status`, and that is deliberate: see the
+ * comment at the filter for why adding one back is a defect under (B), not
+ * belt-and-braces.
+ *
+ * ── Three-state, like every other read here ──────────────────
+ *
+ * `unavailable()` for a failed read, `answered([])` for "nobody is scored yet".
+ * The difference is visible: an empty answer hides the "Review top" button,
+ * while a failed read must not, because hiding it would tell the reader there
+ * is nothing to review.
+ */
+export async function fetchTopScoredApplicants(
+  query: CompanyApplicantQuery = {},
+): Promise<Read<CompanyApplicantRow[]>> {
+  const ctx = await getCompanyContext();
+
+  const scopeRead = await readJobScope(ctx);
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
+  // An answer: assigned to no roles means nobody to rank.
+  if (scope.scoped && scope.jobIds.length === 0) return answered([]);
+
+  const service = createServiceClient();
+
+  const { data, error } = await listQuery(service, ctx.companyId, scope, query, TOP_SCORED_SELECT)
+    // ONE gate, not two. `effective_score IS NOT NULL` is now the whole
+    // question: the widened generated column already answers null unless
+    // status='scored' OR a human put a number on the row, so this filter is
+    // exactly the set that has a number to rank by.
+    //
+    // A second `.eq("status","scored")` beside it used to be belt-and-braces and
+    // under (B) is a defect: it would refuse a reviewer's correction to a CV the
+    // model skipped, so the list would rank that candidate first and show their
+    // score while the "Top match" chip and "Review top 10" denied they were
+    // scored at all — the divergence this column was widened to close, moved
+    // from the list to the chips.
+    .not("application_scores.effective_score", "is", null)
+    // The same three terms as the list's Best Match, for the same reasons — and
+    // the tiebreaker matters here too: without it two readers can be shown
+    // different "top 10"s from the same data.
+    .order("application_scores(effective_score)", { ascending: false, nullsFirst: false })
+    .order("created_at", { ascending: false, nullsFirst: false })
+    .order("id")
+    .limit(TOP_SCORED_LIMIT);
+
+  if (error) {
+    console.error("[applicants] fetchTopScoredApplicants failed:", error);
+    return unavailable();
+  }
+
+  const rows = (data ?? []) as unknown as ApplicantListQueryRow[];
+  return answered(rows.map((r) => toRow(r, r.application_scores ?? undefined)));
 }
 
 /**
@@ -1175,12 +1444,19 @@ export async function updateApplicationStage(
  * exists. Not-found, not-yours and no-score-yet are three different failures
  * but the first two return the SAME message, so an id from another company
  * can't be confirmed by probing.
+ *
+ * Returns the job it cleared so the write can re-assert it instead of
+ * inheriting authorization from a check several statements earlier — the same
+ * argument the `company_id` filter beside it already makes. No shipped path
+ * reassigns `job_applications.job_id`, so this is not closing a live race; it
+ * makes the write's scope legible at the write, and would catch a future
+ * reassignment feature rather than silently honouring a stale clearance.
  */
 async function assertAdjustableScore(
   service: ReturnType<typeof createServiceClient>,
   applicationId: string,
   ctx: CompanyContext,
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true; jobId: string | null } | { ok: false; error: string }> {
   const companyId = ctx.companyId;
   const { data } = await service
     .from("job_applications")
@@ -1216,7 +1492,33 @@ async function assertAdjustableScore(
       error: "There's no AI score to correct yet. Score this CV first.",
     };
   }
-  return { ok: true };
+  return { ok: true, jobId: target.job_id };
+}
+
+/**
+ * Message for a correction whose row no longer matches the clearance.
+ *
+ * Deliberately not actionFailed(): nothing failed. The write was refused
+ * because the row moved out from under the check, and the only useful
+ * instruction is to look again.
+ */
+const SCORE_MOVED = "This applicant moved while you were editing. Reopen them and try again.";
+
+/**
+ * Re-assert `job_id` on a score write.
+ *
+ * Split out because the column is NULLABLE and PostgREST spells `= NULL` as
+ * `is`, not `eq` — `.eq("job_id", null)` matches no row, which would turn every
+ * correction on an unassigned application into a silent no-op. Live right now
+ * all 148 score rows carry a non-null job_id matching their application's, so
+ * the null arm is unreachable in production and exists so that staying correct
+ * does not depend on that remaining true.
+ */
+function atJob<T extends { eq(c: string, v: string): T; is(c: string, v: null): T }>(
+  write: T,
+  jobId: string | null,
+): T {
+  return jobId === null ? write.is("job_id", null) : write.eq("job_id", jobId);
 }
 
 /**
@@ -1250,7 +1552,7 @@ export async function adjustScore(
 
   const note = (feedback ?? "").trim().slice(0, SCORE_FEEDBACK_MAX);
 
-  const { error } = await service
+  const write = service
     .from("application_scores")
     .update({
       human_adjusted_score: score,
@@ -1264,7 +1566,10 @@ export async function adjustScore(
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId);
 
+  const { data: written, error } = await atJob(write, allowed.jobId).select("application_id");
+
   if (error) return { success: false, error: actionFailed("save your adjustment", error) };
+  if (!written?.length) return { success: false, error: SCORE_MOVED };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };
@@ -1275,6 +1580,15 @@ export async function adjustScore(
  *
  * Nulls all five columns together — a half-cleared row (a score with no author,
  * or an author with no score) would read as corrupt in the calibration set.
+ *
+ * Gated on a score row EXISTING and nothing more: clearing must work from any
+ * status, because the statuses one might be tempted to exclude are exactly the
+ * ones a correction most needs removing from. A reviewer who typed a number on
+ * a failed or skipped CV and then thought better of it has to be able to take
+ * it back, and under (B) that is more true, not less — an adjustment is now the
+ * only thing making such a row rank and display at all, so refusing to clear it
+ * would strand a number nobody stands behind at the top of Best Match with no
+ * way down.
  */
 export async function clearScoreAdjustment(
   applicationId: string,
@@ -1285,7 +1599,7 @@ export async function clearScoreAdjustment(
   const allowed = await assertAdjustableScore(service, applicationId, ctx);
   if (!allowed.ok) return { success: false, error: allowed.error };
 
-  const { error } = await service
+  const write = service
     .from("application_scores")
     .update({
       human_adjusted_score: null,
@@ -1297,7 +1611,10 @@ export async function clearScoreAdjustment(
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId);
 
+  const { data: written, error } = await atJob(write, allowed.jobId).select("application_id");
+
   if (error) return { success: false, error: actionFailed("revert to the AI score", error) };
+  if (!written?.length) return { success: false, error: SCORE_MOVED };
 
   revalidatePath("/ai-dashboard/applicants");
   return { success: true, data: undefined };

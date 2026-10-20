@@ -57,8 +57,10 @@ import {
   type ApplicantScore,
   type ApplicantScoreDetail,
   type ApplicantScoringFacts,
+  type ApplicantSort,
   type AssignableJob,
   COMMENT_MAX,
+  type CompanyApplicantPage,
   type CompanyApplicantRow,
   CV_LIMIT_REACHED_REASON,
   PIPELINE_STAGE_LABELS,
@@ -69,6 +71,8 @@ import {
   type ScoreDimensionRow,
   type StageHistoryRow,
   showsWorthALook,
+  TOP_MATCH_MIN_SCORE,
+  TOP_SCORED_LIMIT,
 } from "@/app/ai-dashboard/lib/applicant-types";
 import {
   type CompanyRole,
@@ -98,7 +102,9 @@ import {
   dismissShortlistFlagAction,
   fetchApplicantCounts,
   fetchCompanyApplicant,
+  fetchCompanyApplicants,
   fetchScreeningAnswers,
+  fetchTopScoredApplicants,
   rescoreApplication,
   updateApplicationComment,
   updateApplicationStage,
@@ -114,7 +120,30 @@ import {
   settleCounts,
   stagePercent,
 } from "./counts-state";
-import { buildApplicantsCsv, CSV_EXPORT_MAX, type CsvApplicant } from "./csv-export";
+import { buildApplicantsCsv, type CsvApplicant } from "./csv-export";
+import {
+  clampPage,
+  decodeListUrl,
+  dropRow,
+  encodeListUrl,
+  encodePanelUrl,
+  filterKey,
+  type ListRequest,
+  type ListState,
+  type ListUrlState,
+  listKey,
+  listQueryFor,
+  listView,
+  populationIndex,
+  rangeStart,
+  requestList,
+  SEARCH_DEBOUNCE_MS,
+  type StepTarget,
+  seedList,
+  settleList,
+  stepRow,
+  stepTarget,
+} from "./list-state";
 import {
   type ScreeningState,
   screeningCard,
@@ -182,40 +211,17 @@ const STAGE_PILL: Record<PipelineStage, { cls: string; dot: string }> = {
   },
 };
 
-/**
- * A "Top match" chip marks a GENUINE top match, not merely first place.
+/*
+ * The chip threshold, the page size, the "top N" and the sort union all moved
+ * to applicant-types.ts in this pass.
  *
- * Ranking first in a weak field is not an achievement — before this rule a
- * candidate scoring 12 wore the same lime chip as one scoring 94. The chip now
- * requires an absolute score, so when nobody clears the bar NO chip appears,
- * which is the honest outcome.
+ * Not tidying: every one of them is now enforced by a query. The page size is
+ * the `.range()` width, "top N" is the top-scored read's `.limit()`, and the
+ * sort union is what the action switches its ORDER BY on. A second copy here
+ * would be a number the browser believes and the database does not — and the
+ * disagreement would show up as rows silently missing from a page boundary,
+ * which is the exact defect this pass exists to fix.
  */
-const TOP_MATCH_MIN_SCORE = 90;
-/** Even in a strong field the chip has to stay scarce to mean anything. */
-const TOP_MATCH_MAX_CHIPS = 10;
-
-/**
- * Rows per page, list and cards alike.
- *
- * The same constant the export is capped at, not a second 20 that happens to
- * match: the button exports the current page, and the server read refuses more
- * than CSV_EXPORT_MAX ids. Were these to drift apart, a full page would export
- * nothing at all — and nothing in the type system would notice.
- */
-const PAGE_SIZE = CSV_EXPORT_MAX;
-
-/** "Review top 10" shows this many, best first. */
-const TOP_N = 10;
-
-/**
- * How the list is ordered. "best" is the default and always has been.
- *
- * Plain component state, deliberately — the stage tab, the job filter and the
- * "Review top" mode are all plain state too, and only `search` is seeded from
- * the URL. A sort that survived a reload while the stage tab did not would be
- * the odd one out.
- */
-type SortMode = "best" | "newest";
 
 /**
  * The applicant panel's tabs.
@@ -249,49 +255,6 @@ type PanelTab = (typeof PANEL_TABS)[number]["key"];
 /** Guards the URL: ?tab=nonsense falls back to Profile rather than a blank pane. */
 function isPanelTab(value: string | null): value is PanelTab {
   return PANEL_TABS.some((t) => t.key === value);
-}
-
-/**
- * Best match: score descending, unscored last, newest first among unscored.
- *
- * ── The tail block ───────────────────────────────────────────
- *
- * `status === "scored"` is the whole test, so `pending`, `failed` and
- * `skipped` are one undifferentiated group at the bottom. That is intentional
- * — in all three cases there is no number, and ordering them against each
- * other would invent a ranking out of an absence — but it does mean a brand
- * new application sits below every scored one however weak or old those are.
- * That is what the "Newest" mode exists to escape.
- *
- * ── Equal scores are NOT tie-broken here ─────────────────────
- *
- * Two rows on the same score return 0, and they hold their incoming order
- * because Array.prototype.sort is stable and the fetch arrives
- * `created_at desc` (see actions.ts, `.order("created_at", …)`). So equal
- * scores read newest-first by a coincidence of two facts, not because this
- * comparator says so. It is fine today. It breaks silently — no error, just a
- * quietly wrong order — if that ORDER BY is ever changed or a caller sorts the
- * rows before they get here. Add an explicit date tiebreak rather than
- * re-deriving why it used to work.
- */
-function compareByScore(a: CompanyApplicantRow, b: CompanyApplicantRow): number {
-  const sa = a.score.status === "scored" ? a.score.overall : null;
-  const sb = b.score.status === "scored" ? b.score.overall : null;
-  if (sa !== null && sb !== null) return sb - sa;
-  if (sa !== null) return -1;
-  if (sb !== null) return 1;
-  return compareByNewest(a, b);
-}
-
-/**
- * Newest: date descending, and nothing else.
- *
- * No score term, not even as a tiebreak. The reason someone reaches for this
- * mode is that a new unscored application is invisible under best-match, so a
- * rule that let any score pull a row upward would defeat it.
- */
-function compareByNewest(a: CompanyApplicantRow, b: CompanyApplicantRow): number {
-  return new Date(b.created_at).getTime() - new Date(a.created_at).getTime();
 }
 
 /**
@@ -428,14 +391,39 @@ function adjustmentByline(detail: ApplicantScoreDetail | null, local: boolean): 
  *
  * Either half is absent on older rows, so the separator follows what actually
  * survived instead of being assumed.
+ *
+ * Silent unless the MODEL's own attempt succeeded. `ai_model` is NOT NULL, so a
+ * skipped CV still carries a model name, and a row the AI never read would
+ * otherwise credit its number to "Model v10" — under (B) that number can be a
+ * reviewer's, and attributing it to the model is the one claim this line must
+ * never make.
  */
 function scoreProvenance(detail: ApplicantScoreDetail | null, local: boolean): string {
-  if (!detail) return "";
+  if (detail?.ai_status !== "scored") return "";
   const parts: string[] = [];
   if (detail.ai_model) parts.push(`Model ${detail.ai_model}`);
   const when = fmtDay(detail.scored_at, local);
   if (when) parts.push(`scored ${when}`);
   return parts.length > 0 ? ` ${parts.join(" · ")}.` : "";
+}
+
+/**
+ * What the number beside the ring actually is.
+ *
+ * Both of the old branches describe an AI score, and under (B) the ring can be
+ * showing a reviewer's own number on a CV the model never read — where
+ * "scored against this job's stated requirements" is simply false, and the
+ * confidence line can't fire because there is no model confidence to report.
+ * So the AI's own status is asked first; the two original branches are
+ * unchanged beneath it.
+ */
+function scoreLede(score: ApplicantScore): string {
+  if (score.adjusted && score.ai_status !== "scored") {
+    return "Scored by a reviewer. The AI did not produce a score for this CV.";
+  }
+  return score.confidence
+    ? "Based on how much the CV actually showed."
+    : "Scored against this job's stated requirements.";
 }
 
 /** Pipeline stage for a row — the real column, since Step 2d. */
@@ -768,8 +756,10 @@ function Pagination({
 }: {
   page: number;
   pageCount: number;
-  total: number;
-  grandTotal: number;
+  /** The filtered population. Null is unreadable — an em dash, never a 0. */
+  total: number | null;
+  /** The workspace population, for the "(filtered from N)" aside. */
+  grandTotal: number | null;
   rangeStart: number;
   rangeEnd: number;
   onPage: (p: number) => void;
@@ -780,8 +770,13 @@ function Pagination({
         <b className="text-remotiv-purple">
           {rangeStart}–{rangeEnd}
         </b>{" "}
-        of {total}
-        {total !== grandTotal && (
+        of {countLabel(total)}
+        {/* Both numbers have to be KNOWN before this can claim they differ.
+            Either one unreadable makes "filtered from" unprovable, so the
+            aside is omitted rather than shown against an em dash — and a null
+            total would otherwise never equal grandTotal and the aside would
+            appear on every failed count. */}
+        {total !== null && grandTotal !== null && total !== grandTotal && (
           <span className="text-[var(--ai-t3)]"> (filtered from {grandTotal})</span>
         )}
       </span>
@@ -908,14 +903,22 @@ function FlagReasonLine({ reason }: { reason: string | null }) {
 
 function ApplicantCard({
   row,
-  index,
+  rank,
   isTop,
   selected,
   onOpen,
   clock,
 }: {
   row: CompanyApplicantRow;
-  index: number;
+  /**
+   * The row's 1-based position in the filtered population — "21" on page 2.
+   *
+   * Was a 0-based `index` the caller built from a 0-based page offset and this
+   * component incremented. The offset is now `rangeStart`, which is 1-based by
+   * contract because the pager's "21–40" needs the same number, so the +1
+   * moved out of here rather than being applied twice.
+   */
+  rank: number;
   /** Genuine top match — see TOP_MATCH_MIN_SCORE, not "first in the list". */
   isTop: boolean;
   selected: boolean;
@@ -955,7 +958,7 @@ function ApplicantCard({
             isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
           }`}
         >
-          {String(index + 1).padStart(2, "0")}
+          {String(rank).padStart(2, "0")}
         </span>
         <span
           className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
@@ -1499,6 +1502,7 @@ function ApplicantDrawer({
   onTabChange,
   position,
   onStep,
+  stepBusy,
 }: {
   row: CompanyApplicantRow;
   /**
@@ -1562,12 +1566,21 @@ function ApplicantDrawer({
   tab: PanelTab;
   onTabChange: (tab: PanelTab) => void;
   /**
-   * Where this applicant sits in the list as displayed, or null when the panel
-   * was deep-linked to someone the current filters exclude — prev/next then
-   * has no sequence to walk and hides itself.
+   * Where this applicant sits in the FILTERED POPULATION — "21 of 128", not a
+   * position on the page. Null when the panel was deep-linked to someone the
+   * current filters exclude, or when the population is unreadable: prev/next
+   * then has no sequence to walk and hides itself rather than offering a dead
+   * arrow.
    */
   position: { index: number; total: number } | null;
   onStep: (delta: number) => void;
+  /**
+   * A step that crosses a page boundary is a server read, and until it lands
+   * the row under `position.index` is not on screen. Both arrows go disabled
+   * for the duration, so a second click cannot be resolved against the page
+   * being left.
+   */
+  stepBusy: boolean;
 }) {
   const panelRef = useRef<HTMLDivElement>(null);
   const tint = getTint(row.id);
@@ -1723,7 +1736,7 @@ function ApplicantDrawer({
                 <button
                   type="button"
                   onClick={() => onStep(-1)}
-                  disabled={position.index === 0}
+                  disabled={stepBusy || position.index === 0}
                   aria-label="Previous applicant"
                   className={PANEL_ICON_BTN}
                 >
@@ -1735,7 +1748,7 @@ function ApplicantDrawer({
                 <button
                   type="button"
                   onClick={() => onStep(1)}
-                  disabled={position.index >= position.total - 1}
+                  disabled={stepBusy || position.index >= position.total - 1}
                   aria-label="Next applicant"
                   className={PANEL_ICON_BTN}
                 >
@@ -2229,9 +2242,7 @@ function ApplicantDrawer({
                         </span>
                       )}
                       <span>
-                        {headerScore.confidence
-                          ? "Based on how much the CV actually showed."
-                          : "Scored against this job's stated requirements."}
+                        {scoreLede(headerScore)}
                         {/* NOT "completed": screening_score is the weighted
                             share of thresholds MET (computeScreeningScore
                             counts a.matched), so someone who answered
@@ -2245,11 +2256,20 @@ function ApplicantDrawer({
                     {/* When a human has overridden, the AI's own number stays
                         on screen beside theirs. Hiding it would leave nothing
                         to calibrate against — the pair, and the gap between
-                        them, is the whole signal this feature collects. */}
-                    {headerScore.adjusted && headerScore.ai_overall != null && (
+                        them, is the whole signal this feature collects.
+
+                        Keyed on `adjusted` alone, not on ai_overall: under (B)
+                        a reviewer can score a CV the model skipped, and there
+                        is then no AI number to show. The byline still has to
+                        run — it is the only thing on the card saying whose
+                        judgement the ring is, and dropping it would leave the
+                        number reading as the AI's. */}
+                    {headerScore.adjusted && (
                       <p className="m-0 mt-[9px] text-[12.5px] leading-[1.55] text-[var(--ai-t2)]">
                         <span className="font-semibold text-[var(--ai-t1)]">
-                          AI scored {headerScore.ai_overall}
+                          {headerScore.ai_overall != null
+                            ? `AI scored ${headerScore.ai_overall}`
+                            : "Scored by hand"}
                         </span>
                         {adjustmentByline(scoreDetail, clock.local)}
                       </p>
@@ -2413,7 +2433,18 @@ function ApplicantDrawer({
               <TipCard tipKey="cv_scoring" />
             )}
 
-            {scoreDetail?.status === "scored" && (
+            {/* The AI's OWN status, not the synthesized one. Everything below
+                is the model's output — its summary, its dimensions, its
+                evidence, its reading of the must-haves — so the question is
+                whether the model produced a scorecard, not whether the row has
+                a number. Under (B) those diverge: a reviewer scoring a CV the
+                model skipped makes `status` 'scored' while no scorecard exists,
+                and this gate would then render empty dimensions, four empty
+                Evidence boxes that are documented to mean "the model found
+                none", and a must-haves line asserting "this score was written
+                before the job named its N must-haves" about a score the model
+                never wrote. */}
+            {scoreDetail?.ai_status === "scored" && (
               <>
                 {scoreDetail.summary && (
                   <div className={`${CARD_SURFACE} mb-7 px-[22px] py-5`}>
@@ -4040,9 +4071,10 @@ function DetailRow({ label, value }: { label: string; value: string }) {
 export function ApplicantsClient({
   viewerRole,
   viewerMemberId,
-  applicants: initialApplicants,
+  initialPage,
+  servedRequest,
+  initialTopScored,
   assignableJobs,
-  loadFailed,
   initialCounts,
   companyName,
   replyToAddress,
@@ -4059,16 +4091,38 @@ export function ApplicantsClient({
    * mutation re-derives it server-side and puts it on the statement itself.
    */
   viewerMemberId: string;
-  applicants: CompanyApplicantRow[];
   /**
-   * Every role the viewer may file a manual add under — NOT derived from the
-   * rows, which can only offer jobs that already have applicants. Empty when
-   * there are none, or when the read failed; either way the Add button is dead
-   * and says why.
+   * ONE page of applicants, already filtered, ordered and counted server-side,
+   * plus the filtered total. Null when the read failed — which an empty page
+   * cannot express, since "nobody matches" and "nothing was read" draw the
+   * same table.
+   */
+  initialPage: CompanyApplicantPage | null;
+  /**
+   * The request `initialPage` answers, decoded from the URL by the server pass.
+   *
+   * The mount fetch is skipped by comparing the rendered request against this,
+   * so it has to be what was actually read rather than the action's defaults.
+   * A link carrying `?stage=screening&page=3` is served those rows, says so
+   * here, and costs no second round trip; the defaults would have claimed page
+   * 1 of everybody and the skip would have believed it.
+   */
+  servedRequest: ListRequest;
+  /**
+   * The ten best scored applicants over the whole population, for "Review top
+   * 10" and the "Top match" chips. Null when that read failed, so the chips
+   * stay off rather than asserting nobody cleared the bar.
+   */
+  initialTopScored: CompanyApplicantRow[] | null;
+  /**
+   * Every role the viewer may file a manual add under, and now also every role
+   * the job filter offers.
+   *
+   * It could never be derived from the rows for the Add form — a job with no
+   * applicants yet is exactly the one you are adding the first to — and as of
+   * this pass the filter cannot derive it either, because the rows are a page.
    */
   assignableJobs: AssignableJob[];
-  /** The list could not be READ. Distinct from "this pipeline is empty". */
-  loadFailed: boolean;
   /**
    * Every population figure, counted server-side and resolved in the page's
    * first wave — so the first paint carries true numbers rather than a
@@ -4108,17 +4162,139 @@ export function ApplicantsClient({
   const canAddApplicant = canCreateJobs(viewerRole);
   const router = useRouter();
 
-  // Local copy so a delete can drop the row immediately. Re-synced whenever
-  // the server sends a fresh list, the same pattern the jobs list uses.
-  const [applicants, setApplicants] = useState<CompanyApplicantRow[]>(initialApplicants);
-  useEffect(() => {
-    setApplicants(initialApplicants);
-  }, [initialApplicants]);
+  /*
+   * ── The URL holds the filters ───────────────────────────────
+   *
+   * Not a copy of them: the URL IS the state, and every filter below is read
+   * out of it rather than held beside it. Two stores would have to be
+   * reconciled, and the reconciliation is where this normally goes wrong —
+   * a write echoes back and clobbers a newer value, or Back updates one store
+   * and not the other.
+   *
+   * With one store, Back and Forward need no handling at all. They change the
+   * query string, `useSearchParams` reports it, and the list re-reads for the
+   * same reason it re-reads when a tab is clicked. A refresh is covered by the
+   * server pass decoding the same URL — see `servedRequest`.
+   *
+   * ── Why the native history API and not router.push ──────────
+   *
+   * `page.tsx` now reads `searchParams`, so it is dynamic on them: a
+   * `router.push` to the same route with a new query string re-runs that whole
+   * server pass — seven parallel database reads — to produce rows this
+   * component is about to fetch for itself. `window.history.pushState` is the
+   * documented way to move the URL without a navigation, and it still feeds
+   * `useSearchParams`. So a filter change costs exactly one read, as it did
+   * when the filters were component state.
+   */
+  const pathname = usePathname();
+  const searchParams = useSearchParams();
+  // Memoised on the STRING, not the params object: a value comparison cannot
+  // be defeated by a new wrapper identity for an unchanged query string, and
+  // `request` has to be stable or the fetch effect below re-reads every render.
+  const paramString = searchParams.toString();
+  const urlState = useMemo(() => decodeListUrl(new URLSearchParams(paramString)), [paramString]);
+  const request = urlState.request;
+  const topOnly = urlState.topOnly;
+  const tab: "all" | PipelineStage = request.stage ?? "all";
+  const jobFilter = request.jobId ?? "all";
+  const flaggedOnly = request.flaggedOnly;
+  const sort = request.sort;
+  const page = request.page;
 
-  const [tab, setTab] = useState<"all" | PipelineStage>("all");
-  const [jobFilter, setJobFilter] = useState("all");
-  /** The Flagged chip: a filter alongside the stage tabs, not one of them. */
-  const [flaggedOnly, setFlaggedOnly] = useState(false);
+  /**
+   * Write a list state to the address bar.
+   *
+   * `window.location.search` rather than `paramString` as the base: two writes
+   * in one handler must compose, and the second one needs what the first just
+   * wrote. The hook's value is a render ago.
+   */
+  const writeUrl = useCallback(
+    (next: ListUrlState, mode: "push" | "replace") => {
+      const qs = encodeListUrl(next, window.location.search);
+      const url = qs ? `${pathname}?${qs}` : pathname;
+      if (mode === "push") window.history.pushState(null, "", url);
+      else window.history.replaceState(null, "", url);
+    },
+    [pathname],
+  );
+
+  /**
+   * Move one or more filters, and go back to page 1 unless a page is named.
+   *
+   * The page reset used to be an effect watching every filter. It belongs
+   * here: page 4 of the previous result set means nothing under a new filter,
+   * and doing it in the same write avoids a render that asks the server for a
+   * page the reader will never see.
+   *
+   * `push` by default, so Back undoes a filter rather than leaving the page —
+   * which is what it did when no filter change ever reached the history stack.
+   * `replace` is for the writes that are not decisions: the debounced search,
+   * the out-of-range clamp, and a drawer step that happens to turn the page.
+   */
+  const setFilters = useCallback(
+    (over: Partial<ListRequest> & { topOnly?: boolean }, mode: "push" | "replace" = "push") => {
+      const { topOnly: nextTop, ...fields } = over;
+      /*
+       * The base is DECODED FROM THE LIVE URL, not from the `request` this
+       * render closed over. Two reasons, and both are load-bearing:
+       *
+       *   - It composes. A handler that moves a filter and then writes again
+       *     gets the first write's result, not a value from a render ago.
+       *   - It makes this callback stable. Keyed on `request`, its identity
+       *     changed on every filter move, which restarted the search debounce
+       *     timer below each time any unrelated filter moved.
+       */
+      const live = decodeListUrl(new URLSearchParams(window.location.search));
+      writeUrl(
+        {
+          request: { ...live.request, ...fields, page: fields.page ?? 1 },
+          topOnly: nextTop ?? live.topOnly,
+        },
+        mode,
+      );
+    },
+    [writeUrl],
+  );
+
+  /*
+   * ── The page of rows ────────────────────────────────────────
+   *
+   * Seeded from the server pass, so the first paint needs no round trip, and
+   * re-read whenever anything the query depends on moves. The reducer is in
+   * list-state.ts and the sequence counter is a ref, for the same reason the
+   * counts below use that shape: a reducer cannot mint the number and stay
+   * pure, and deriving it from previous state would double-count under
+   * StrictMode's deliberate double invocation.
+   *
+   * `initialPage` is the FIRST page under the default filters. Every later page
+   * is a fetch, so unlike the old prop this one is not re-synced on every
+   * server render — doing so would throw a reader on page 4 back to page 1
+   * each time an unrelated mutation called router.refresh().
+   */
+  const [list, setList] = useState<ListState>(() => seedList(listKey(servedRequest), initialPage));
+  const listSeq = useRef(0);
+  const pageView = listView(list);
+  /*
+   * The request the rows on screen were read for.
+   *
+   * It starts at what the SERVER answered, which is how the mount fetch is
+   * skipped — and skipping it by key rather than by an "is this the first
+   * run" flag is what keeps the skip honest when the two disagree. They can
+   * still disagree: `?applicant=` and `?tab=` are not part of the request, so
+   * a URL carrying only those is served the default page and matches, while a
+   * URL the server could not fully honour would not.
+   */
+  const servedKey = useRef(listKey(servedRequest));
+
+  /*
+   * The ten best scored, over the whole population.
+   *
+   * Its own read because it is a claim about everyone and the list is a page.
+   * Null is "unread", which is why the chips and the Review-top button both
+   * check it rather than treating an empty array as "nobody qualified".
+   */
+  const [topScored, setTopScored] = useState<CompanyApplicantRow[] | null>(initialTopScored);
+
   /** Server aggregate over the workspace — never a count of rendered rows. */
   const [flaggedCount, setFlaggedCount] = useState<number | null>(null);
   /** The id mid-dismiss, so one chip disables without freezing the list. */
@@ -4204,9 +4380,9 @@ export function ApplicantsClient({
    * Dismiss a flag optimistically, reverting if the server refuses.
    *
    * The row is re-rendered without its chip immediately — a dismiss that waits
-   * on a round trip feels broken — and `router.refresh()` reconciles with the
-   * server afterwards. On failure the toast says so and the refresh puts the
-   * chip back, so the UI never keeps a lie.
+   * on a round trip feels broken — and the re-read reconciles with the server
+   * afterwards. On failure the toast says so and the re-read puts the chip
+   * back, so the UI never keeps a lie.
    */
   async function dismissFlag(id: string) {
     if (dismissing) return;
@@ -4217,8 +4393,14 @@ export function ApplicantsClient({
     if (!result.success) {
       setToast({ message: result.error, tone: "error" });
     }
-    // Either way: success needs the row's stored flag cleared, failure needs the
-    // optimistic change undone. One refresh covers both.
+    /*
+     * Either way: success needs the row's stored flag cleared, failure needs
+     * the optimistic change undone. One re-read covers both — and it has to be
+     * this rather than router.refresh(), because the flag is a column of a row
+     * that is no longer a prop. Under the Flagged chip the row also has to
+     * LEAVE the page, which only a re-read can do.
+     */
+    refreshList(request);
     router.refresh();
   }
 
@@ -4255,24 +4437,62 @@ export function ApplicantsClient({
     } else {
       setToast("Candidate added. Scoring their CV now.");
     }
-    // One more person in the pipeline — see deleteApplicant for why this is
-    // not left to router.refresh().
+    // One more person in the pipeline — see handleDelete for why neither the
+    // rows nor the counts can be left to router.refresh().
     refreshCounts(jobFilter === "all" ? null : jobFilter);
+    refreshList(request);
     router.refresh();
   }
-  // Seeded from ?q= so a topbar search result lands on this list already
-  // filtered, rather than on an unfiltered page the reader has to search again.
-  const searchParams = useSearchParams();
-  const [search, setSearch] = useState(() => searchParams.get("q") ?? "");
+  /*
+   * ── The search box ──────────────────────────────────────────
+   *
+   * The one filter with local state as well as a URL param, and it needs both:
+   * the box has to show every keystroke, while the FILTER is the debounced
+   * value — a request per character would have the reader watching answers to
+   * prefixes of what they typed.
+   *
+   * Two stores means a reconciliation, and `typedSearch` is what makes it
+   * safe. The URL changes for two different reasons and they need opposite
+   * handling: our own debounced write echoing back must be ignored (the box
+   * already holds a newer value, and copying the echo over it drops the
+   * characters typed since), while Back, Forward or a pasted link must
+   * overwrite the box. The ref records what we wrote, so the echo is
+   * recognisable and everything else is foreign by elimination.
+   */
+  const urlSearch = request.search;
+  const typedSearch = useRef(urlSearch);
+  const [search, setSearch] = useState(urlSearch);
+
+  useEffect(() => {
+    if (urlSearch === typedSearch.current) return;
+    typedSearch.current = urlSearch;
+    setSearch(urlSearch);
+  }, [urlSearch]);
+
+  /*
+   * `replace`, not `push`: a committed search term is not a decision the way
+   * picking a tab is, and a reader typing a name with pauses in it would
+   * otherwise mint an entry per pause and have to press Back six times to
+   * leave the page. Same reasoning as the panel's URL below.
+   */
+  useEffect(() => {
+    if (search === urlSearch) return;
+    const t = setTimeout(() => {
+      typedSearch.current = search;
+      setFilters({ search }, "replace");
+    }, SEARCH_DEBOUNCE_MS);
+    return () => clearTimeout(t);
+  }, [search, urlSearch, setFilters]);
   /**
    * Opened from ?applicant=, so a notification about ONE candidate opens that
    * candidate.
    *
-   * No filter is touched to get there. `rows` holds every applicant this member
-   * can see — the server pages the whole set in, and the tab, job filter and
-   * pagination are applied further down for display only — so the drawer opens
-   * on someone the current view is not showing, which is the point: a link from
-   * the bell should not depend on which tab was left selected.
+   * No filter is touched to get there, and none needs to be. The link used to
+   * work because `rows` held every applicant the member could see, so the id
+   * always resolved locally; `rows` is now one page of twenty, and the id
+   * usually will not be on it. What resolves the link instead is the drawer's
+   * own detail read — see `offPageRow` and `openRow` — so a link from the bell
+   * still does not depend on which tab, page or filter was left selected.
    *
    * ── Why an effect and NOT a useState initialiser ─────────────
    *
@@ -4302,8 +4522,21 @@ export function ApplicantsClient({
 
   const deepLinkId = searchParams.get("applicant");
   const [openId, setOpenId] = useState<string | null>(null);
+  /*
+   * The URL wins outright, INCLUDING when it names nobody.
+   *
+   * The guard this replaces kept the open candidate whenever the URL had none,
+   * which could not tell "this history entry predates the panel" from "nothing
+   * changed". Back onto an entry pushed by a filter move before the panel
+   * opened then left the panel open over a URL that said it was shut.
+   *
+   * Keyed on `deepLinkId` alone, which is what makes the unconditional write
+   * safe: opening sets the state and then the param, so this runs only once the
+   * param has caught up and the write is a no-op. Adding `openId` to the deps
+   * would fire it during that gap and close the panel just opened.
+   */
   useEffect(() => {
-    if (deepLinkId) setOpenId(deepLinkId);
+    setOpenId(deepLinkId);
   }, [deepLinkId]);
 
   /**
@@ -4328,23 +4561,23 @@ export function ApplicantsClient({
    *
    * `replace`, not `push`: stepping through twelve applicants should not put
    * twelve entries in the history stack for Back to walk out of one at a time.
-   * `scroll: false` because the list behind is exactly where it was.
+   *
+   * `window.history`, not `router.replace`, for the reason `writeUrl` gives —
+   * `page.tsx` is dynamic on the query string now, so a router navigation to
+   * open a panel would re-run seven database reads to change nothing on the
+   * server. It also kept the scroll position, which the native call does by
+   * not being a navigation at all.
+   *
+   * `window.location.search` rather than the hook's value, so that a handler
+   * which moves a filter AND opens a panel composes instead of the second
+   * write reverting the first.
    */
-  const pathname = usePathname();
   const syncPanelUrl = useCallback(
     (applicantId: string | null, tab: PanelTab) => {
-      const params = new URLSearchParams(searchParams.toString());
-      if (applicantId) {
-        params.set("applicant", applicantId);
-        params.set("tab", tab);
-      } else {
-        params.delete("applicant");
-        params.delete("tab");
-      }
-      const qs = params.toString();
-      router.replace(qs ? `${pathname}?${qs}` : pathname, { scroll: false });
+      const qs = encodePanelUrl(window.location.search, applicantId, tab);
+      window.history.replaceState(null, "", qs ? `${pathname}?${qs}` : pathname);
     },
-    [router, pathname, searchParams],
+    [pathname],
   );
 
   const openApplicant = useCallback(
@@ -4367,10 +4600,105 @@ export function ApplicantsClient({
     },
     [syncPanelUrl, openId],
   );
-  /** "Review top 10" — a view mode over the same filtered set, not a filter. */
-  const [topOnly, setTopOnly] = useState(false);
-  const [sort, setSort] = useState<SortMode>("best");
-  const [page, setPage] = useState(1);
+  /**
+   * Re-read the page for a request.
+   *
+   * A callback rather than only an effect because a mutation has to be able to
+   * ask for the rows again without changing the request. The rows used to be a
+   * prop, so `router.refresh()` reconciled them; it cannot now — it re-runs the
+   * server pass, and this component deliberately ignores the page prop after
+   * mount so a reader on page 4 is not thrown back to page 1. Every handler
+   * that changes who is on the page therefore calls this.
+   */
+  const refreshList = useCallback((r: ListRequest) => {
+    const key = listKey(r);
+    const seq = ++listSeq.current;
+    setList((prev) => requestList(prev, key, seq));
+    fetchCompanyApplicants(listQueryFor(r))
+      .then((read) => {
+        setList((prev) => settleList(prev, { key, seq, page: read.ok ? read.value : null }));
+      })
+      .catch(() => {
+        setList((prev) => settleList(prev, { key, seq, page: null }));
+      });
+  }, []);
+
+  const listPrimed = useRef(false);
+  useEffect(() => {
+    /*
+     * The mount fetch is skipped by KEY, not by "is this the first run".
+     *
+     * `servedRequest` is what the server pass actually read — it decodes the
+     * same URL through the same codec — so on a cold load the keys match and
+     * there is no round trip. The comparison is still a comparison rather than
+     * a first-run flag because the two CAN disagree: a filter moved before
+     * hydration completes changes `request` on the same first run, and a
+     * first-run flag would skip the fetch and leave the unfiltered page under
+     * a filled-in toolbar.
+     */
+    if (!listPrimed.current) {
+      listPrimed.current = true;
+      if (listKey(request) === servedKey.current) return;
+    }
+    refreshList(request);
+  }, [request, refreshList]);
+
+  /*
+   * The top ten, re-read when a FILTER moves but not when the page or the sort
+   * does — neither changes which ten are best.
+   *
+   * No sequence guard here, and it needs one less than the list does: the
+   * filter key is checked against the request in flight, and the worst a late
+   * response can do is replace ten chip ids with ten others for the same
+   * filters. The list cannot take that risk because its rows are a page of an
+   * ordering, and a stale page under a current filter is a different claim.
+   */
+  const topPrimed = useRef(false);
+  const topKey = filterKey(request);
+  /*
+   * `request` carries the sort and the page, and neither changes which ten are
+   * best — so depending on it would re-read the top ten on every page turn and
+   * flicker the chips for no reason. `topKey` IS the filter half of that same
+   * request, which is the dependency this effect actually has; the rule cannot
+   * see that one is derived from the other.
+   */
+  // biome-ignore lint/correctness/useExhaustiveDependencies: keyed on the filter half of `request` — see above
+  useEffect(() => {
+    if (!topPrimed.current) {
+      topPrimed.current = true;
+      return;
+    }
+    let live = true;
+    setTopScored(null);
+    fetchTopScoredApplicants(listQueryFor(request))
+      .then((read) => {
+        if (live) setTopScored(read.ok ? read.value : null);
+      })
+      .catch(() => {
+        if (live) setTopScored(null);
+      });
+    return () => {
+      live = false;
+    };
+  }, [topKey]);
+
+  /*
+   * A page number past the end, corrected once the total is known.
+   *
+   * The clamp cannot happen before the read, because the total that defines
+   * the range is what the read returns. So an out-of-range page costs one
+   * extra round trip and then settles — `fetchCompanyApplicants` answers it
+   * with no rows and a true total specifically so there is something to clamp
+   * against. Writing `page` here re-runs the effect above exactly once, since
+   * the clamped value is in range and the comparison then holds.
+   */
+  useEffect(() => {
+    const clamped = clampPage(page, pageView.total);
+    // `replace`: a page that does not exist was never a place the reader
+    // chose, so Back must not return them to it.
+    if (clamped !== page) setFilters({ page: clamped }, "replace");
+  }, [page, pageView.total, setFilters]);
+
   const [deleteTarget, setDeleteTarget] = useState<CompanyApplicantRow | null>(null);
   const [deleting, setDeleting] = useState(false);
   /** The Add candidate form: open, mid-submit, and its two failure shapes. */
@@ -4415,6 +4743,14 @@ export function ApplicantsClient({
   const [historyFailed, setHistoryFailed] = useState(false);
   const [scoreDetail, setScoreDetail] = useState<ApplicantScoreDetail | null>(null);
   /**
+   * The open applicant's own row, when they are not on the page in front of
+   * the reader — a `?applicant=` deep link to page 9, typically.
+   *
+   * It comes from the drawer's existing detail read, which has always returned
+   * it, so this costs no request. See that read for why it is safe.
+   */
+  const [offPageRow, setOffPageRow] = useState<CompanyApplicantRow | null>(null);
+  /**
    * The screening answers, from the same read as scoreDetail and carrying the
    * id they belong to. See screening-state.ts for why the id travels with them.
    */
@@ -4429,9 +4765,18 @@ export function ApplicantsClient({
   /** Same optimistic-override trick as stageOverrides, for the list's ring. */
   const [scoreOverrides, setScoreOverrides] = useState<Record<string, ApplicantScore>>({});
 
+  /*
+   * The page's rows with the optimistic overlays applied.
+   *
+   * The overlays are unchanged, and they still key by id — but they now only
+   * ever find rows on the page in front of the reader, which is all they were
+   * ever used for. An override for a row that has since paged away simply
+   * matches nothing, and is dropped with the rest when the read it anticipated
+   * lands.
+   */
   const rows = useMemo(
     () =>
-      applicants.map((r) => {
+      pageView.rows.map((r) => {
         const stage =
           stageOverrides[r.id] && stageOverrides[r.id] !== r.pipeline_stage
             ? stageOverrides[r.id]
@@ -4440,91 +4785,99 @@ export function ApplicantsClient({
         if (stage === r.pipeline_stage && score === r.score) return r;
         return { ...r, pipeline_stage: stage, score };
       }),
-    [applicants, stageOverrides, scoreOverrides],
+    [pageView.rows, stageOverrides, scoreOverrides],
   );
 
-  /** Distinct jobs present in the result set — no extra query needed. */
-  const jobOptions = useMemo(() => {
-    const seen = new Map<string, string>();
-    for (const r of rows) {
-      if (r.job_id && !seen.has(r.job_id)) seen.set(r.job_id, r.job_title);
-    }
-    return [...seen.entries()];
-  }, [rows]);
-
-  /** Everything the tabs, job filter, flag and search select — in no order. */
-  const matching = useMemo(() => {
-    const q = search.trim().toLowerCase();
-    return rows.filter((r) => {
-      if (tab !== "all" && stageOf(r) !== tab) return false;
-      if (jobFilter !== "all" && r.job_id !== jobFilter) return false;
-      if (flaggedOnly && !showsWorthALook(r)) return false;
-      if (q) {
-        const blob = `${fullName(r)} ${r.email}`.toLowerCase();
-        if (!blob.includes(q)) return false;
-      }
-      return true;
-    });
-  }, [rows, tab, jobFilter, search, flaggedOnly]);
+  /*
+   * ── What the filtering used to be ───────────────────────────
+   *
+   * `matching`, `byScore` and `filtered` lived here: three passes over the
+   * whole population to apply the tabs, the job filter, the flag chip and the
+   * search, then to sort twice. They are gone, and so is the reason they were
+   * sound — they were computed over every applicant, and `rows` is now twenty.
+   *
+   * Re-deriving any of them from `rows` would be the defect this pass exists
+   * to remove: a filter applied to one page answers about that page while the
+   * label above it claims to answer about the role. Every one of them is now a
+   * clause in the query, and `pageView` is the answer.
+   */
 
   /**
-   * The same set, ALWAYS in score order, whatever the display sort is.
+   * The roles the job filter offers, from the company's own jobs.
    *
-   * "Top match" and "Review top 10" are claims about the score and have to be
-   * computed from a score-ranked list. Reading them off the displayed order
-   * would make "Review top 10" show the ten most RECENT scored candidates the
-   * moment someone switches to Newest — a label asserting something the data
-   * behind it no longer says.
+   * Was the distinct jobs present in the loaded rows, which was free and
+   * correct only while "the loaded rows" meant everybody. Against a page it
+   * would offer whichever handful of roles happened to land on it, and
+   * selecting a role would then remove it from its own dropdown.
    */
-  const byScore = useMemo(() => [...matching].sort(compareByScore), [matching]);
+  const jobOptions = useMemo<[string, string][]>(
+    () => assignableJobs.map((j) => [j.id, j.title]),
+    [assignableJobs],
+  );
 
-  /** What the list actually renders. The only thing the sort control changes. */
-  const filtered = useMemo(
-    () => (sort === "newest" ? [...matching].sort(compareByNewest) : byScore),
-    [matching, byScore, sort],
+  /**
+   * The ten best scored, with the optimistic overlays applied to them too.
+   *
+   * Still a claim about the whole filtered population rather than the page —
+   * it just comes from a query that says so now, instead of from a sort over
+   * everybody in memory. The overlay matters here because a rescore from the
+   * drawer should change the chip, and the chip's row may not be on the page.
+   */
+  const topRows = useMemo(
+    () =>
+      (topScored ?? []).map((r) => {
+        const score = scoreOverrides[r.id] ?? r.score;
+        return score === r.score ? r : { ...r, score };
+      }),
+    [topScored, scoreOverrides],
   );
 
   /**
    * The ids wearing a "Top match" chip: scored >= 90, best first, capped.
-   * Computed over the WHOLE result set rather than the current page so a
-   * candidate doesn't gain or lose the chip by being paginated — and off
-   * `byScore` rather than `filtered` so it cannot change with the sort either.
+   *
+   * The cap USED to be its own constant and is now structural — the read
+   * returns ten, so the chips cannot exceed ten. The score floor is still a
+   * floor: ranking in the top ten of a weak field earns no chip, which is why
+   * this filters rather than just taking the ids it was handed.
    */
   const topMatchIds = useMemo(() => {
     const ids = new Set<string>();
-    for (const r of byScore) {
-      if (ids.size >= TOP_MATCH_MAX_CHIPS) break;
+    for (const r of topRows) {
       if (r.score.status === "scored" && (r.score.overall ?? 0) >= TOP_MATCH_MIN_SCORE) {
         ids.add(r.id);
       }
     }
     return ids;
-  }, [byScore]);
+  }, [topRows]);
 
-  /** Scored candidates only — "top 10" of a pending list would be arbitrary. */
-  const topTen = useMemo(
-    () => byScore.filter((r) => r.score.status === "scored").slice(0, TOP_N),
-    [byScore],
-  );
+  /*
+   * What the table draws, and the pager's arithmetic.
+   *
+   * "Review top 10" needs no paging: the read is limited to ten and the page
+   * holds twenty, so it is always exactly one page. That was true before as
+   * well — TOP_N was below PAGE_SIZE — but it was true by coincidence of two
+   * constants rather than because a query said so.
+   */
+  const paged = topOnly ? topRows : rows;
+  const total = topOnly ? topRows.length : pageView.total;
+  const pageCount = topOnly ? 1 : (pageView.pageCount ?? 1);
+  const safePage = topOnly ? 1 : page;
+  const pageStart = topOnly ? (topRows.length === 0 ? 0 : 1) : rangeStart(page, rows.length);
 
-  /** What the list actually renders before paging. */
-  const visible = topOnly ? topTen : filtered;
-
-  const pageCount = Math.max(1, Math.ceil(visible.length / PAGE_SIZE));
-  // Clamp rather than reset: deleting the last row of the last page should
-  // land on the new last page, not throw the user back to page 1.
-  const safePage = Math.min(page, pageCount);
-  const pageStart = (safePage - 1) * PAGE_SIZE;
-  const paged = visible.slice(pageStart, pageStart + PAGE_SIZE);
-
-  // Any change to what is being filtered resets to the first page — staying on
-  // page 4 of a result set that now has one page shows an empty list.
-  // biome-ignore lint/correctness/useExhaustiveDependencies: resets on filter change, not on page change
-  useEffect(() => {
-    setPage(1);
-  }, [tab, jobFilter, search, topOnly, flaggedOnly, sort]);
-
-  const openRow = openId ? (rows.find((r) => r.id === openId) ?? null) : null;
+  /*
+   * The open applicant: the page, then the top ten, then the drawer's own read.
+   *
+   * It used to be a lookup in `rows`, which held everybody. `rows` is now
+   * twenty people, so the last fallback is what keeps a valid `?applicant=`
+   * link working — it resolves whoever the drawer actually fetched, whatever
+   * page they are on. `topRows` is checked too, since "Review top 10" is the
+   * other set genuinely in memory.
+   */
+  const openRow = openId
+    ? (rows.find((r) => r.id === openId) ??
+      topRows.find((r) => r.id === openId) ??
+      (offPageRow?.id === openId ? offPageRow : null))
+    : null;
 
   /**
    * The refusal sentence, dated in the reader's timezone off the page clock —
@@ -4538,56 +4891,142 @@ export function ApplicantsClient({
     : "";
 
   /**
-   * Where the open applicant sits in the sequence prev/next walks.
+   * Where the open applicant sits on the page in front of the reader.
    *
-   * `visible` rather than `rows`: stepping follows the order and the filters
-   * the list is actually showing, so "next" means the next person on screen
-   * rather than the next one in the unfiltered fetch.
-   *
-   * -1 when the panel was opened from a deep link to someone the current
-   * filters exclude — `rows` holds everyone, `visible` does not. The control
-   * hides itself in that case rather than stepping somewhere arbitrary.
+   * An offset into `paged`, so -1 means "not on this page" — a `?applicant=`
+   * deep link to someone twelve pages away, resolved by the drawer's own read.
+   * The control hides itself in that case: there is no sequence to step
+   * through, and a dead arrow says less than no arrow.
    */
-  const openIndex = openId ? visible.findIndex((r) => r.id === openId) : -1;
+  const openIndex = openId ? paged.findIndex((r) => r.id === openId) : -1;
+
+  /*
+   * ── Stepping across a page boundary ─────────────────────────
+   *
+   * Prev/next walks the FILTERED POPULATION, not the twenty rows on screen.
+   * When the step stays on the page it is the lookup it always was; when it
+   * does not, the destination is in a page nobody has read yet, so the step is
+   * a page turn plus an offset to open once the rows land.
+   *
+   * `pendingStep` is that promise, and it is deliberately a piece of state
+   * rather than a chained await: the read goes through the same sequence-
+   * guarded path as every other, so what resolves the step is a page ARRIVING
+   * for the right request, not a particular promise settling. A filter moving
+   * mid-flight therefore cannot open a stranger — `stepRow` checks the key the
+   * rows were read for, and page 2 of one filter is page 2 of another by
+   * number alone.
+   */
+  const [pendingStep, setPendingStep] = useState<StepTarget | null>(null);
+
+  /**
+   * Stepping is unavailable while a step is in flight, and while the rows on
+   * screen belong to a different request than the one being displayed.
+   *
+   * Not politeness — correctness. `openIndex` is an offset into the rows now
+   * drawn, and `request.page` is the page being fetched. While those two
+   * disagree, combining them addresses a row in the population that nobody
+   * asked for: an offset of 19 read against page 2 is index 39, which is two
+   * pages from where the reader actually is.
+   */
+  const stepping = pendingStep !== null;
+  const canStep = !stepping && !pageView.updating;
 
   const stepApplicant = useCallback(
     (delta: number) => {
-      const target = openIndex + delta;
-      const next = visible[target];
-      if (!next) return;
-      openApplicant(next.id);
-      // The dimmed list follows, so closing the panel doesn't leave the reader
-      // on a page that no longer holds the person they were just reading.
-      setPage(Math.floor(target / PAGE_SIZE) + 1);
+      if (!canStep) return;
+      /*
+       * "Review top 10" is one page by construction — the read is limited to
+       * ten and a page holds twenty — so its stepping is the page-local lookup
+       * and there is no boundary to cross.
+       */
+      if (topOnly) {
+        const next = paged[openIndex + delta];
+        if (next) openApplicant(next.id);
+        return;
+      }
+      const target = stepTarget(request, openIndex, delta, pageView.total);
+      if (!target) return;
+      if (target.request.page === request.page) {
+        const next = paged[target.offset];
+        if (next) openApplicant(next.id);
+        return;
+      }
+      setPendingStep(target);
+      // `replace`: twelve steps must not be twelve history entries, for the
+      // same reason the panel's own URL is a replace.
+      setFilters({ page: target.request.page }, "replace");
     },
-    [visible, openIndex, openApplicant],
+    [canStep, topOnly, paged, openIndex, request, pageView.total, openApplicant, setFilters],
   );
 
-  /**
-   * A deep link whose candidate isn't here.
+  /*
+   * The pending step, resolved when its page lands.
    *
-   * `openRow` is looked up in `rows`, so a missing id already fails safely —
-   * the drawer simply doesn't render. That silence is the problem: the click
-   * appears to do nothing, which reads as a broken bell rather than as a
-   * candidate who has since been deleted. Say which.
-   *
-   * Deletion is the likely cause and the one applicant_deleted anticipates, but
-   * it is not the only one: a scoped member who opens someone else's link is
-   * also looking at an id that is not in their `rows`. The wording covers both
-   * rather than asserting a deletion that may not have happened.
-   *
-   * Reported once per id. `rows` changes on every optimistic stage or score
-   * edit, and a toast that reappears on each of those would be worse than the
-   * silence it replaces.
+   * A FAILED read clears it rather than waiting: the page the reader stepped
+   * to is not coming, the table says so, and a step left pending would leave
+   * both arrows dead until they closed the panel.
    */
+  useEffect(() => {
+    if (!pendingStep) return;
+    if (pageView.failed) {
+      setPendingStep(null);
+      return;
+    }
+    const landed = stepRow(pendingStep, {
+      key: list.shownKey,
+      updating: pageView.updating,
+      rows: paged,
+    });
+    if (!landed) return;
+    setPendingStep(null);
+    openApplicant(landed.id);
+  }, [pendingStep, list.shownKey, pageView.updating, pageView.failed, paged, openApplicant]);
+
+  /**
+   * "21 of 128" — the position in the filtered population, not on the page.
+   *
+   * While a cross-page step is in flight the DESTINATION is reported, which is
+   * the only correct answer available: the rows on screen are still the page
+   * being left, so `openIndex` describes the old page while `request.page` is
+   * already the new one, and combining them would read twenty out.
+   *
+   * Null when the population size is unknown or the open applicant is not on
+   * the page — the two cases where no position can be stated honestly.
+   */
+  const stepPosition = ((): { index: number; total: number } | null => {
+    if (total === null) return null;
+    if (pendingStep) {
+      return { index: populationIndex(pendingStep.request.page, pendingStep.offset), total };
+    }
+    if (openIndex < 0) return null;
+    return { index: populationIndex(safePage, openIndex), total };
+  })();
+
+  /**
+   * A deep link whose candidate really isn't there.
+   *
+   * The test used to be "absent from `rows`", and `rows` used to be everyone.
+   * It is now twenty people, so that test would fire this toast at a recruiter
+   * following a perfectly good link to someone on page 9 — telling them a
+   * candidate they can see in their inbox "may have been deleted". The read
+   * above decides instead, and it only reports a NULL answer: no such
+   * applicant, or not this reader's.
+   *
+   * Deletion is the likely cause and the one applicant_deleted anticipates,
+   * but a scoped member opening a colleague's link gets the same null. The
+   * wording covers both rather than asserting a deletion that may not have
+   * happened.
+   *
+   * Reported once per id, because the drawer's read re-runs on reopen.
+   */
+  const [deadLink, setDeadLink] = useState<string | null>(null);
   const deadLinkReportedFor = useRef<string | null>(null);
   useEffect(() => {
-    if (!deepLinkId || deadLinkReportedFor.current === deepLinkId) return;
-    if (rows.some((r) => r.id === deepLinkId)) return;
-    deadLinkReportedFor.current = deepLinkId;
-    setOpenId((current) => (current === deepLinkId ? null : current));
+    if (!deadLink || deadLinkReportedFor.current === deadLink) return;
+    deadLinkReportedFor.current = deadLink;
+    setOpenId((current) => (current === deadLink ? null : current));
     setToast("That applicant isn't in your list — they may have been deleted.");
-  }, [deepLinkId, rows, setToast]);
+  }, [deadLink, setToast]);
 
   /**
    * Permanent delete. Optimistic: the row leaves the list immediately and is
@@ -4608,16 +5047,19 @@ export function ApplicantsClient({
       return;
     }
 
-    setApplicants((prev) => prev.filter((a) => a.id !== target.id));
+    // The row leaves the page at once, and the total comes down with it so the
+    // pager and "of 143" do not keep counting someone who is gone. The refetch
+    // below is what backfills the twentieth row; see dropRow.
+    setList((prev) => dropRow(prev, target.id));
     setDeleteTarget(null);
     // Not setOpenId(null): the id has to leave the URL too, or the dead-link
     // guard below reports the applicant we just deleted as a broken link.
     closePanel();
     setToast(`${fullName(target)} deleted`);
-    // The population changed. router.refresh() re-sends the rows but the
-    // counts come from an action, and re-seeding from the server pass would
-    // overwrite a job-filtered batch with the unfiltered one.
+    // The population changed, and neither the rows nor the counts are props
+    // any more, so both have to be re-asked explicitly.
     refreshCounts(jobFilter === "all" ? null : jobFilter);
+    refreshList(request);
     router.refresh();
   }
 
@@ -4658,6 +5100,27 @@ export function ApplicantsClient({
           setScreeningState({ id: openId, answers: null });
           return;
         }
+        /*
+         * The row itself, which this read has always returned and the client
+         * has always discarded — it had no use for it while `rows` held every
+         * applicant.
+         *
+         * It is the off-page deep link's answer. `?applicant=` from a
+         * notification email names someone who may be on page 9, and keeping
+         * this is the difference between opening their drawer and telling
+         * their recruiter they "may have been deleted". The action already
+         * scopes it on company_id_snapshot AND canAccessJob, answering null
+         * for an applicant who is not the reader's, so holding the row grants
+         * no access the drawer did not already have.
+         */
+        setOffPageRow(read.value?.applicant ?? null);
+        /*
+         * A null answer is the only honest basis for the dead-link toast: the
+         * applicant does not exist, or is not this reader's. Absence from the
+         * current page is not evidence of either, and that is what the guard
+         * used to test.
+         */
+        if (!read.value) setDeadLink(openId);
         setHistory(read.value?.history ?? []);
         setScoreDetail(read.value?.scoreDetail ?? null);
         // No detail row is not an empty answer set — it is an answer set we
@@ -4803,6 +5266,13 @@ export function ApplicantsClient({
      * once.
      */
     refreshCounts(jobFilter === "all" ? null : jobFilter);
+    /*
+     * And the page itself, because a stage move can change who belongs on it:
+     * under a stage tab the row leaves, and under Best Match the ordering is
+     * untouched but the twentieth row is not. The optimistic override keeps the
+     * pill correct in the meantime.
+     */
+    refreshList(request);
 
     // Pull the trail back so the new entry (and its author) is real, not
     // guessed client-side. Skipped if the drawer has since moved on.
@@ -4994,6 +5464,8 @@ export function ApplicantsClient({
       setScoreDetail(read.value?.scoreDetail ?? null);
       setScoring(read.value?.scoring ?? null);
     }
+    // The row's score status moved with the CV, and the row is not a prop.
+    refreshList(request);
     router.refresh();
   }
 
@@ -5089,15 +5561,30 @@ export function ApplicantsClient({
      * the candidate is not in the system. Naming the query at all invites
      * re-examining it, so this says the search never ran.
      */
-    if (loadFailed) {
+    /*
+     * `pageView.failed`, not a `loadFailed` prop.
+     *
+     * The prop said only whether the SERVER pass failed, which was the whole
+     * story while the rows were a prop. Every filter move is now its own read
+     * that can fail on its own, and `seedList` already folds the server pass's
+     * verdict into this same field — so one field covers both and there is no
+     * second source of truth to drift.
+     */
+    if (pageView.failed) {
       return {
         title: "We couldn't run that search",
         text: "A different spelling won't help — this is on our side, not your query. Reload the page to try again.",
       };
     }
-    if (search.trim()) {
+    /*
+     * The term IN THE URL, because this copy describes the rows on screen and
+     * the URL is what the rows answer. Reading the live box would flip to
+     * "Nothing in this view" the instant a reader cleared it, while the table
+     * still held the search's own results. Already trimmed by the codec.
+     */
+    if (urlSearch) {
       return {
-        title: `No applicants match “${search.trim()}”`,
+        title: `No applicants match “${urlSearch}”`,
         text: "Try a different name or email, or clear your search to see everyone.",
       };
     }
@@ -5110,7 +5597,20 @@ export function ApplicantsClient({
         text: "You'll see applicants for the roles you're on. Ask an owner or admin to add you to a job's hiring team.",
       };
     }
-    if (applicants.length === 0) {
+    /*
+     * A claim about the WORKSPACE, so it is read off the workspace count.
+     *
+     * This used to be `applicants.length === 0`, which was sound while that
+     * array was the whole population and is a lie now that it is one page: a
+     * reviewer sitting on an empty Offer tab would be told their company has
+     * no applicants while a hundred sit one tab away.
+     *
+     * `=== 0` rather than a falsy check, so an UNREADABLE count (null) falls
+     * through to the neutral copy below. "No applicants yet" over a failed
+     * head-count is the same lie arrived at a different way, and a reader has
+     * no way to tell — there is no em dash to put in a sentence.
+     */
+    if (view.grandTotal === 0) {
       return {
         title: "No applicants yet",
         text: "When someone applies to one of your published roles, they'll appear here — scored and ranked by your AI recruiter.",
@@ -5171,11 +5671,23 @@ export function ApplicantsClient({
             <button
               type="button"
               onClick={() => {
-                if (!topOnly && topTen.length === 0) {
+                /*
+                 * Three outcomes, not two. `topScored` is null when the read
+                 * has not landed or failed, and an empty array when nobody
+                 * qualified — the old code could not tell them apart because
+                 * the top ten were a slice of an array that was always there.
+                 * Entering the mode on an unread set would show an empty
+                 * table, so the honest refusal says the read is the problem.
+                 */
+                if (!topOnly && topScored === null) {
+                  setToast("We couldn't read the top-scored applicants — reload to try again.");
+                  return;
+                }
+                if (!topOnly && topRows.length === 0) {
                   setToast("No applicants have been scored yet");
                   return;
                 }
-                setTopOnly((p) => !p);
+                setFilters({ topOnly: !topOnly });
               }}
               aria-pressed={topOnly}
               className={`inline-flex items-center gap-2 whitespace-nowrap rounded-xl px-[17px] py-[11px] text-[13.5px] font-semibold transition-all ${
@@ -5185,7 +5697,7 @@ export function ApplicantsClient({
               }`}
             >
               <Zap className="size-[15px]" strokeWidth={1.9} />
-              {topOnly ? "Show all" : `Review top ${TOP_N}`}
+              {topOnly ? "Show all" : `Review top ${TOP_SCORED_LIMIT}`}
             </button>
           </div>
         </div>
@@ -5269,7 +5781,7 @@ export function ApplicantsClient({
                 on={tab === "all"}
                 count={view.total}
                 updating={view.updating}
-                onClick={() => setTab("all")}
+                onClick={() => setFilters({ stage: null })}
               >
                 All
               </TabButton>
@@ -5279,7 +5791,7 @@ export function ApplicantsClient({
                   on={tab === s}
                   count={view.stages[s]}
                   updating={view.updating}
-                  onClick={() => setTab(s)}
+                  onClick={() => setFilters({ stage: s })}
                 >
                   {PIPELINE_STAGE_LABELS[s]}
                 </TabButton>
@@ -5291,7 +5803,7 @@ export function ApplicantsClient({
               <button
                 type="button"
                 aria-pressed={flaggedOnly}
-                onClick={() => setFlaggedOnly((v) => !v)}
+                onClick={() => setFilters({ flaggedOnly: !flaggedOnly })}
                 className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-[6px] text-[12.5px] font-semibold transition-colors ${
                   flaggedOnly
                     ? "border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white"
@@ -5330,7 +5842,7 @@ export function ApplicantsClient({
               */}
               <select
                 value={sort}
-                onChange={(e) => setSort(e.target.value as SortMode)}
+                onChange={(e) => setFilters({ sort: e.target.value as ApplicantSort })}
                 aria-label="Sort applicants"
                 className={`${TOOLBAR_SELECT} shrink-0`}
               >
@@ -5340,7 +5852,9 @@ export function ApplicantsClient({
 
               <select
                 value={jobFilter}
-                onChange={(e) => setJobFilter(e.target.value)}
+                onChange={(e) =>
+                  setFilters({ jobId: e.target.value === "all" ? null : e.target.value })
+                }
                 aria-label="Filter by job"
                 className={`${TOOLBAR_SELECT} max-w-[45%] shrink min-[630px]:max-w-none`}
               >
@@ -5396,7 +5910,7 @@ export function ApplicantsClient({
             </div>
           </div>
 
-          {filtered.length === 0 && (
+          {paged.length === 0 && (
             <div className="flex flex-col items-center px-6 pb-16 pt-[60px] text-center">
               <div className="mb-[18px] flex size-[66px] items-center justify-center rounded-[20px] bg-[var(--ai-purple-tint)] text-remotiv-purple">
                 <Users className="size-7" strokeWidth={1.7} />
@@ -5417,12 +5931,18 @@ export function ApplicantsClient({
           {topOnly && (
             <div className="flex flex-wrap items-center justify-between gap-3 border-b border-[var(--ai-line)] bg-[var(--ai-purple-tint)] px-5 py-2.5">
               <p className="m-0 text-[12.5px] font-semibold text-[var(--ai-purple-ink)]">
-                Showing the top {topTen.length} scored applicant
-                {topTen.length === 1 ? "" : "s"} of {filtered.length}.
+                {/* The denominator is the FILTERED population, which is a
+                    server count and so can be unknown — and there is no em
+                    dash available mid-sentence. So an unreadable total drops
+                    the "of N" clause rather than inventing one; the top ten
+                    themselves are still a fact worth stating. */}
+                Showing the top {topRows.length} scored applicant
+                {topRows.length === 1 ? "" : "s"}
+                {pageView.total === null ? "." : ` of ${pageView.total}.`}
               </p>
               <button
                 type="button"
-                onClick={() => setTopOnly(false)}
+                onClick={() => setFilters({ topOnly: false })}
                 className="text-[12.5px] font-bold text-remotiv-purple underline-offset-2 hover:underline"
               >
                 Show all applicants
@@ -5430,102 +5950,126 @@ export function ApplicantsClient({
             </div>
           )}
 
-          {paged.length > 0 && (
-            <div data-twin-narrow className="min-[1049px]:hidden">
-              {paged.map((r, i) => (
-                <ApplicantCard
-                  key={r.id}
-                  row={r}
-                  index={pageStart + i}
-                  isTop={topMatchIds.has(r.id)}
-                  selected={openId === r.id}
-                  onOpen={() => openApplicant(r.id)}
-                  clock={clock}
-                />
-              ))}
-            </div>
-          )}
+          {/*
+            The rows answer a request the reader may have moved off.
+            ──────────────────────────────────────────────────────
 
-          {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
-              kept as a belt-and-braces guard; at >=1049px the grid fits. */}
-          <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
-            <div className="min-w-[960px]">
-              <div
-                className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
-              >
-                <span>#</span>
-                <span>Candidate</span>
-                <span>Job</span>
-                <span>CV score</span>
-                <span>Stage</span>
-                <span>Applied</span>
-                <span />
-              </div>
+            `updating` is not decoration. The rows used to be a pure function
+            of state and so could be neither stale nor absent; they are a
+            RESPONSE now, and the gap between picking a filter and its page
+            arriving is one the reader will otherwise fill by clicking a row
+            that belongs to the previous question.
 
-              {paged.map((r, i) => {
-                const tint = getTint(r.id);
-                const applied = fmtApplied(r.created_at, clock);
-                const stage = stageOf(r);
-                const pill = STAGE_PILL[stage];
-                const isTop = topMatchIds.has(r.id);
-                const rank = pageStart + i;
+            They are deliberately kept on screen rather than cleared — a table
+            that collapses to empty on every keystroke is worse — so the dim
+            plus `aria-busy` is the whole of what distinguishes "these are
+            yours" from "these were yours a moment ago".
 
-                return (
-                  <button
+            `topOnly` is excluded: that mode reads from `topScored`, which this
+            flag says nothing about.
+          */}
+          <div
+            aria-busy={!topOnly && pageView.updating}
+            className={`transition-opacity ${!topOnly && pageView.updating ? "opacity-50" : ""}`}
+          >
+            {paged.length > 0 && (
+              <div data-twin-narrow className="min-[1049px]:hidden">
+                {paged.map((r, i) => (
+                  <ApplicantCard
                     key={r.id}
-                    type="button"
-                    onClick={() => openApplicant(r.id)}
-                    className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
-                      openId === r.id
-                        ? "bg-[var(--ai-purple-tint)]"
-                        : showsWorthALook(r)
-                          ? "bg-remotiv-purple/[0.035]"
-                          : "bg-[var(--ai-surface)]"
-                    }`}
-                  >
-                    {/* Always on for a flagged row — the accent is what makes a
-                          flag findable while scrolling, so it does not wait for a
-                          hover the way the default row's does. */}
-                    <span
-                      aria-hidden
-                      className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
-                        openId === r.id || showsWorthALook(r)
-                          ? "opacity-100"
-                          : "opacity-0 group-hover:opacity-100"
-                      }`}
-                    />
-                    <span
-                      className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
-                        isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                    row={r}
+                    rank={pageStart + i}
+                    isTop={topMatchIds.has(r.id)}
+                    selected={openId === r.id}
+                    onOpen={() => openApplicant(r.id)}
+                    clock={clock}
+                  />
+                ))}
+              </div>
+            )}
+
+            {/* Desktop table — unchanged above the breakpoint. overflow-x-auto is
+              kept as a belt-and-braces guard; at >=1049px the grid fits. */}
+            <div data-twin-wide className="hidden overflow-x-auto min-[1049px]:block">
+              <div className="min-w-[960px]">
+                <div
+                  className={`${GRID} border-b border-[var(--ai-line)] bg-[var(--ai-inset)] py-[11px] text-[10.5px] font-bold uppercase tracking-[0.08em] text-[var(--ai-t3)]`}
+                >
+                  <span>#</span>
+                  <span>Candidate</span>
+                  <span>Job</span>
+                  <span>CV score</span>
+                  <span>Stage</span>
+                  <span>Applied</span>
+                  <span />
+                </div>
+
+                {paged.map((r, i) => {
+                  const tint = getTint(r.id);
+                  const applied = fmtApplied(r.created_at, clock);
+                  const stage = stageOf(r);
+                  const pill = STAGE_PILL[stage];
+                  const isTop = topMatchIds.has(r.id);
+                  const rank = pageStart + i;
+
+                  return (
+                    <button
+                      key={r.id}
+                      type="button"
+                      onClick={() => openApplicant(r.id)}
+                      className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
+                        openId === r.id
+                          ? "bg-[var(--ai-purple-tint)]"
+                          : showsWorthALook(r)
+                            ? "bg-remotiv-purple/[0.035]"
+                            : "bg-[var(--ai-surface)]"
                       }`}
                     >
-                      {String(rank + 1).padStart(2, "0")}
-                    </span>
-
-                    <div className="flex min-w-0 items-center gap-3">
+                      {/* Always on for a flagged row — the accent is what makes a
+                          flag findable while scrolling, so it does not wait for a
+                          hover the way the default row's does. */}
                       <span
-                        className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
-                        style={{
-                          background: tint.bg,
-                          color: tint.fg,
-                          boxShadow: isTop
-                            ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
-                            : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
-                        }}
+                        aria-hidden
+                        className={`absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple transition-opacity ${
+                          openId === r.id || showsWorthALook(r)
+                            ? "opacity-100"
+                            : "opacity-0 group-hover:opacity-100"
+                        }`}
+                      />
+                      <span
+                        className={`font-heading text-sm font-extrabold tabular-nums tracking-[-0.02em] transition-colors group-hover:text-remotiv-purple ${
+                          isTop ? "text-[var(--ai-purple-ink)]" : "text-[var(--ai-t4)]"
+                        }`}
                       >
-                        {initials(r.first_name, r.last_name, r.email)}
+                        {/* `rank` is already 1-based — `rangeStart` is, because
+                          the pager's "21–40" reads off the same number. */}
+                        {String(rank).padStart(2, "0")}
                       </span>
-                      <div className="min-w-0">
-                        {/* .nm is a flex container, so truncation lives on the
+
+                      <div className="flex min-w-0 items-center gap-3">
+                        <span
+                          className="flex size-10 shrink-0 items-center justify-center rounded-full text-[13px] font-bold"
+                          style={{
+                            background: tint.bg,
+                            color: tint.fg,
+                            boxShadow: isTop
+                              ? "0 0 0 2px var(--ai-surface), 0 0 0 3.5px #49D7A7"
+                              : "0 0 0 2px var(--ai-surface), 0 0 0 3.5px rgba(20,16,32,0.07)",
+                          }}
+                        >
+                          {initials(r.first_name, r.last_name, r.email)}
+                        </span>
+                        <div className="min-w-0">
+                          {/* .nm is a flex container, so truncation lives on the
                               INNER span — otherwise the Top-match flag clips. */}
-                        <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
-                          <span className="min-w-0 truncate">{fullName(r)}</span>
-                          {isTop && (
-                            <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
-                              Top match
-                            </span>
-                          )}
-                          {/* Display-only, exactly as ApplicantCard renders it.
+                          <p className="m-0 flex min-w-0 items-center gap-2 text-[14.5px] font-bold leading-tight tracking-[-0.01em] text-[var(--ai-t1)]">
+                            <span className="min-w-0 truncate">{fullName(r)}</span>
+                            {isTop && (
+                              <span className="shrink-0 rounded-[5px] bg-remotiv-lime px-[7px] py-0.5 text-[9.5px] font-extrabold uppercase tracking-[0.06em] text-[#2F3A00]">
+                                Top match
+                              </span>
+                            )}
+                            {/* Display-only, exactly as ApplicantCard renders it.
                               Passing onDismiss puts a <button> inside this row's
                               <button>, which is invalid HTML: the parser closes
                               the row early and reparents everything after the
@@ -5537,49 +6081,50 @@ export function ApplicantsClient({
                               they broke. Dismissal lives in the drawer's
                               Worth-a-look banner, one click away on the row the
                               reader is already pointing at. */}
-                          {showsWorthALook(r) && <WorthALookChip />}
-                        </p>
-                        {showsWorthALook(r) ? (
-                          <FlagReasonLine reason={r.shortlist.reason} />
-                        ) : (
-                          <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
-                            {r.email}
+                            {showsWorthALook(r) && <WorthALookChip />}
                           </p>
-                        )}
+                          {showsWorthALook(r) ? (
+                            <FlagReasonLine reason={r.shortlist.reason} />
+                          ) : (
+                            <p className="m-0 mt-0.5 truncate text-[12.5px] text-[var(--ai-t3)]">
+                              {r.email}
+                            </p>
+                          )}
+                        </div>
                       </div>
-                    </div>
 
-                    {/* min-w-0 on the flex parent and truncate on the title, so
+                      {/* min-w-0 on the flex parent and truncate on the title, so
                         a long role name shortens rather than pushing the chip
                         out of the cell. The chip never shrinks — it is two
                         words or it is wrong. */}
-                    <div className="flex min-w-0 items-center gap-1.5">
-                      <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
-                        {r.job_title}
+                      <div className="flex min-w-0 items-center gap-1.5">
+                        <span className="min-w-0 truncate rounded-lg border border-[var(--ai-line-soft)] bg-[var(--ai-inset)] px-2.5 py-[5px] text-[12.5px] font-semibold text-[var(--ai-t2)]">
+                          {r.job_title}
+                        </span>
+                        {r.added_manually && <AddedByTeamChip />}
+                      </div>
+
+                      <ScoreRing score={r.score} />
+
+                      <span
+                        className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
+                      >
+                        <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
+                        {PIPELINE_STAGE_LABELS[stage]}
                       </span>
-                      {r.added_manually && <AddedByTeamChip />}
-                    </div>
 
-                    <ScoreRing score={r.score} />
+                      <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
+                        {applied.main}
+                        <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
+                          {applied.sub}
+                        </small>
+                      </span>
 
-                    <span
-                      className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
-                    >
-                      <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                      {PIPELINE_STAGE_LABELS[stage]}
-                    </span>
-
-                    <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
-                      {applied.main}
-                      <small className="mt-px block text-[11.5px] text-[var(--ai-t4)]">
-                        {applied.sub}
-                      </small>
-                    </span>
-
-                    <span />
-                  </button>
-                );
-              })}
+                      <span />
+                    </button>
+                  );
+                })}
+              </div>
             </div>
           </div>
 
@@ -5592,11 +6137,15 @@ export function ApplicantsClient({
             <Pagination
               page={safePage}
               pageCount={pageCount}
-              total={visible.length}
-              grandTotal={applicants.length}
-              rangeStart={visible.length === 0 ? 0 : pageStart + 1}
-              rangeEnd={pageStart + paged.length}
-              onPage={setPage}
+              total={total}
+              grandTotal={view.grandTotal}
+              /* `pageStart` is already the 1-based index of the page's first
+                 row — `rangeStart` computes it from the page number, where the
+                 old local was a 0-based offset into an in-memory array and
+                 needed the +1 here. */
+              rangeStart={pageStart}
+              rangeEnd={pageStart === 0 ? 0 : pageStart + paged.length - 1}
+              onPage={(n) => setFilters({ page: n })}
             />
           </div>
         </div>
@@ -5657,8 +6206,9 @@ export function ApplicantsClient({
           }}
           tab={panelTab}
           onTabChange={selectPanelTab}
-          position={openIndex >= 0 ? { index: openIndex, total: visible.length } : null}
+          position={stepPosition}
           onStep={stepApplicant}
+          stepBusy={!canStep}
           onEmail={() => setComposerOpen(true)}
           onToast={setToast}
           onClose={closePanel}
@@ -5861,12 +6411,14 @@ export function ApplicantsClient({
                     <button
                       type="button"
                       onClick={() => {
-                        // The drawer resolves against the unfiltered rows, so
-                        // it will open regardless — but the stage tab drives
-                        // prev/next, and landing in a pane that doesn't list
-                        // them makes those arrows jump somewhere unrelated.
-                        setTab("all");
-                        setOpenId(addDuplicate.applicationId);
+                        // Clearing the stage tab first, because prev/next walks
+                        // the filtered population: landing in a pane that does
+                        // not list this person makes those arrows jump
+                        // somewhere unrelated. Both writes land, in order,
+                        // because each reads `window.location.search` rather
+                        // than a render-time snapshot of it.
+                        setFilters({ stage: null });
+                        openApplicant(addDuplicate.applicationId);
                         setAddOpen(false);
                       }}
                       className="mt-2 text-[12.5px] font-bold text-[var(--ai-amber-ink)] underline underline-offset-2 hover:opacity-80"

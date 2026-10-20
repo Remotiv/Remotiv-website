@@ -1,5 +1,5 @@
 /**
- * fetchApplicantCounts — the nine new head-counts — run as shipped against a
+ * fetchApplicantCounts — the ten new head-counts — run as shipped against a
  * fake database.
  *
  *   node --test "src/app/ai-dashboard/(gated)/applicants/counts-read-scope.test.ts"
@@ -8,7 +8,7 @@
  *
  * Every figure the Applicants page states used to be `array.length` over rows
  * the list had already fetched, so all twenty inherited the list's single
- * company filter. Counting in the database replaces that with NINE new reads,
+ * company filter. Counting in the database replaces that with TEN new reads,
  * each of which carries its own boundary — and a count leaks differently from
  * a list. A list that over-selects shows you a stranger's name, which is
  * noticeable. A count that over-selects shows you a slightly larger number,
@@ -129,7 +129,7 @@ function run(
     // when it returns something, so the response-shape tests below can hand back
     // a shape the fixture cannot produce — `count: null` on a 2xx — or throw, and
     // every other test keeps the fixture it was written against. Receives the eq
-    // map so a test can single out ONE of the nine.
+    // map so a test can single out ONE of the ten.
     override = null,
   } = {},
 ) {
@@ -209,7 +209,7 @@ const teamQueries = (service) => service.queries.filter((q) => q.table === "job_
 
 // ── 1. The numbers themselves ───────────────────────────────
 
-test("an owner's nine figures are counted over the whole company and nothing else", async () => {
+test("an owner's ten figures are counted over the whole company and nothing else", async () => {
   const { read } = await run("owner");
 
   assert.equal(read.ok, true);
@@ -227,6 +227,18 @@ test("an owner's nine figures are counted over the whole company and nothing els
     total: 7,
     newThisWeek: 3, // a1 a3 a5
     openRoles: 2, // J1 J2 — not J4, whose only application is CO2's
+    /*
+     * Equal to `total` HERE and not in general: this read carries no job
+     * filter, so the filtered population and the workspace population are the
+     * same seven people. They part company in the job-filter tests below, which
+     * is the only reason this figure exists — it is what lets an empty Offer tab
+     * say "Nothing in this view" instead of telling a company with applicants
+     * that it has none.
+     *
+     * It is its own read rather than a reuse of `total` for the same reason, so
+     * it carries its own tenant filter and is asserted by the chain test below.
+     */
+    grandTotal: 7,
   });
 });
 
@@ -314,7 +326,9 @@ test("every applications count carries company_id_snapshot on its own chain", as
   const { service } = await run("owner");
 
   const queries = appQueries(service);
-  assert.equal(queries.length, PIPELINE_STAGES.length + 1);
+  // Seven stages, newThisWeek, and grandTotal. `total` is the SUM of the stages
+  // rather than a read of its own, so it is not among them.
+  assert.equal(queries.length, PIPELINE_STAGES.length + 2);
   for (const q of queries) {
     assert.equal(
       eqMap(q.calls).company_id_snapshot,
@@ -378,6 +392,13 @@ test("a member genuinely on no jobs gets true zeros and issues NO count", async 
     total: 0,
     newThisWeek: 0,
     openRoles: 0,
+    // A TRUE zero, and the one figure here where that is a substantive claim
+    // rather than arithmetic: it is what makes the empty table say "No
+    // applicants yet". Correct, because a member on no jobs may see nobody —
+    // and distinct from the unreadable-scope test below, where every figure is
+    // null precisely because the same sentence must not be stated on no
+    // evidence.
+    grandTotal: 0,
   });
   // Not `.in("job_id", [])` — an empty IN list is the shape that falls open.
   assert.deepEqual(appQueries(service), []);
@@ -632,11 +653,11 @@ test("Flagged shape 4 — count: null, error: set — is unavailable, as it alwa
 
 // ── 4c. A rejection, not an error object ────────────────────
 
-test("one of the nine REJECTS: the other eight stand and nothing throws", async () => {
+test("one of the ten REJECTS: the other nine stand and nothing throws", async () => {
   /*
-   * The nine were a Promise.all holding a Promise.all, so one rejection
+   * The ten were a Promise.all holding a Promise.all, so one rejection
    * rejected the inner array, rejected the outer, and threw out of the action —
-   * taking eight good figures and the page with it.
+   * taking nine good figures and the page with it.
    *
    * How reachable is this? Not very: supabase-js answers `{ data, error }`
    * rather than throwing, and postgrest-js converts fetch failure, DNS failure,
@@ -698,7 +719,7 @@ test("the Open roles rejection is contained too, on the outer level", async () =
   assert.equal(read.value.newThisWeek, 3);
 });
 
-test("all nine rejecting is nine nulls, not a thrown page", async () => {
+test("all ten rejecting is ten nulls, not a thrown page", async () => {
   let read = null;
   await assert.doesNotReject(async () => {
     ({ read } = await run(
@@ -719,15 +740,20 @@ test("all nine rejecting is nine nulls, not a thrown page", async () => {
   assert.equal(read.value.total, null);
   assert.equal(read.value.newThisWeek, null);
   assert.equal(read.value.openRoles, null);
+  // The one figure here that is not rendered as an em dash. It decides a
+  // SENTENCE — "No applicants yet" against "Nothing in this view" — and there
+  // is no dash to put in prose, so a 0 would be read as a fact about their
+  // pipeline with nothing on screen to qualify it.
+  assert.equal(read.value.grandTotal, null);
 });
 
 // ── 5. The shape of the reads ───────────────────────────────
 
-test("all nine reads are head-counts: no row is transferred", async () => {
+test("all ten reads are head-counts: no row is transferred", async () => {
   const { service } = await run("owner");
 
   const all = [...appQueries(service), jobsQuery(service)];
-  assert.equal(all.length, 9);
+  assert.equal(all.length, 10);
   for (const q of all) {
     const select = call(q.calls, "select");
     assert.deepEqual(
@@ -739,8 +765,8 @@ test("all nine reads are head-counts: no row is transferred", async () => {
 });
 
 test("the request count is fixed, and does not grow with the population", async () => {
-  // The claim that makes nine queries acceptable: it is nine for an empty
-  // company and nine for a large one. A per-applicant or per-job read here
+  // The claim that makes ten queries acceptable: it is ten for an empty
+  // company and ten for a large one. A per-applicant or per-job read here
   // would be the thing that turned a count into a latency problem.
   const big = Array.from({ length: 500 }, (_, i) => ({
     id: `big-${i}`,
@@ -753,8 +779,8 @@ test("the request count is fixed, and does not grow with the population", async 
   const small = await run("owner");
   const large = await run("owner", {}, { apps: [...APPS, ...big] });
 
-  assert.equal(small.service.queries.length, 9);
-  assert.equal(large.service.queries.length, 9);
+  assert.equal(small.service.queries.length, 10);
+  assert.equal(large.service.queries.length, 10);
   assert.equal(large.read.value.total, 507);
 });
 

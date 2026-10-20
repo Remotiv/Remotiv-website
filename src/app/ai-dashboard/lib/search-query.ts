@@ -40,3 +40,48 @@
 export function sanitiseSearchTerm(raw: string): string {
   return raw.replace(/[%,()]/g, " ");
 }
+
+/**
+ * How many words of a typed term are sent as filters.
+ *
+ * A pasted paragraph would otherwise become one `or=` parameter per word, and
+ * the request URL is what breaks first. Dropping the tail WIDENS the search
+ * rather than narrowing it — fewer ANDed terms match more rows — so the result
+ * is always a superset of what was asked for, never a subset. That is the
+ * direction a search box should fail in: too many results are visible, a
+ * silently missing candidate is not.
+ */
+export const SEARCH_TOKEN_MAX = 6;
+
+/**
+ * A typed term as the words a server-side search ANDs together.
+ *
+ * ── Why words, and not the whole string ──────────────────────
+ *
+ * The client used to match a CONCATENATED `"${fullName} ${email}"` blob, so
+ * `includes()` spanned the gap between fields. Three separate `ilike`s cannot:
+ * no single column contains "sarah smith", so the term that matched a blob
+ * matches no column. Splitting into words and requiring EVERY word to match
+ * SOME column restores it — a suffix of one field and a prefix of the next are
+ * each wholly inside a column, which is why every blob match survives.
+ *
+ * It is also deliberately WIDER than the blob was. Word order stops mattering,
+ * so "Smith Sarah" now finds Sarah Smith, which the blob did not. The change is
+ * visible as extra results, never as missing ones.
+ *
+ * ── Sanitise FIRST, then split. Not the other way round ──────
+ *
+ * This is correctness, not tidiness. `,` is the separator in PostgREST's
+ * `or=(col.op.val,col.op.val)` grammar, so a comma surviving into a word would
+ * split one filter into two. sanitiseSearchTerm turns `% , ( )` into spaces,
+ * which is exactly where the word boundaries then fall — so "Smith,Jones"
+ * arrives as two ANDed words, which is what a reader typing it meant.
+ *
+ * `_` and `*` still pass through as wildcards, per the note above.
+ */
+export function searchTokens(raw: string): string[] {
+  return sanitiseSearchTerm(raw)
+    .split(/\s+/)
+    .filter((t) => t.length > 0)
+    .slice(0, SEARCH_TOKEN_MAX);
+}

@@ -172,19 +172,43 @@ export const SCORE_FEEDBACK_MAX = 1_000;
 
 /** Summary attached to every applicant row. Null when never scored. */
 export type ApplicantScore = {
+  /**
+   * Is there a number to show and rank by?
+   *
+   * 'scored' when the AI scored the CV OR a human put a number on it — a
+   * recruiter correcting a CV the model skipped has scored it, and the page
+   * must not call that unscored. So this is NOT the stored column; it is the
+   * question the ring, the sort and the Worth-a-look threshold all ask.
+   */
   status: ScoreStatus;
   /**
+   * What the AI's own attempt did — the stored `application_scores.status`,
+   * never synthesized.
+   *
+   * Separate from `status` because (B) splits one word into two questions. Only
+   * this one may gate the AI's scorecard: the Evidence boxes render all four
+   * always, and the empty must-haves box says "this score was written before
+   * the job named its must-haves", which is a lie on a CV the model never read.
+   */
+  ai_status: ScoreStatus;
+  /**
    * human_adjusted_score when a human has overridden, otherwise the AI's
-   * overall_score. Null unless status is 'scored'.
+   * overall_score. Null unless `status` is 'scored'.
    */
   overall: number | null;
   /**
-   * The MODEL's own number, always — never replaced by the override.
+   * The MODEL's own number — never replaced by the override, and null unless
+   * the model's own attempt SUCCEEDED.
    *
    * Carried separately so an adjusted score can be shown next to what the AI
    * actually said. Collapsing the two would destroy the only comparison the
    * calibration data rests on: without the original, an override records that
    * a human disagreed but not by how much or in which direction.
+   *
+   * Gated on `ai_status`, not `status`. A re-score that FAILED leaves the
+   * previous attempt's overall_score in the row; presenting that as "the AI
+   * said 80" beside a human's 65 would invite a comparison against a number
+   * the model is no longer standing behind.
    */
   ai_overall: number | null;
   /** True when `overall` came from a human override rather than the model. */
@@ -393,12 +417,81 @@ export type CompanyApplicantDetail = {
   comments: ApplicantComment[];
 };
 
-/** Filters accepted by fetchCompanyApplicants. */
+/**
+ * How many candidates "Review top N" shows, and the most "Top match" chips the
+ * list will ever draw.
+ *
+ * One constant for both because they are now one query. The chips used to be
+ * capped client-side over the whole loaded population; the server returns this
+ * many scored rows best-first, and the chips are the high-scoring prefix of
+ * exactly that list — so the two cannot disagree about who is in the top N.
+ */
+export const TOP_SCORED_LIMIT = 10;
+
+/**
+ * The score a "Top match" chip asserts.
+ *
+ * A chip marks a GENUINE top match, not merely first place: ranking first in a
+ * weak field is not an achievement, and before this rule a candidate scoring 12
+ * wore the same lime chip as one scoring 94. When nobody clears the bar NO chip
+ * appears, which is the honest outcome.
+ *
+ * Compared against the same number the server ORDERS by — `effective_score`,
+ * i.e. `human_adjusted_score ?? overall_score` — so the chips are a true prefix
+ * of the ranking rather than a second opinion about it.
+ */
+export const TOP_MATCH_MIN_SCORE = 90;
+
+/**
+ * The list's sort options.
+ *
+ * Shared rather than declared in the client because the SERVER now applies the
+ * order. A second copy of the union is how the two ends end up disagreeing
+ * about what "best" means, and the disagreement would show as rows in the wrong
+ * order rather than as a type error.
+ */
+export type ApplicantSort = "best" | "newest";
+
+/**
+ * Rows per page. The server pages, so this is the window it RETURNS — not a
+ * client-side slice of a larger array it already holds.
+ *
+ * It lives here, and `CSV_EXPORT_MAX` derives from it, because the export
+ * covers the current page and the server read refuses more ids than the cap.
+ * Three independent 20s — the query's range, the client's slice and the export
+ * cap — would drift the first time one of them changed, and a page larger than
+ * the cap exports nothing at all with nothing in the type system noticing.
+ */
+export const APPLICANT_PAGE_SIZE = 20;
+
+/** Filters accepted by fetchCompanyApplicants. Every one is applied server-side. */
 export type CompanyApplicantQuery = {
   /** Restrict to one job. Must belong to the caller's company. */
   jobId?: string;
   /** Case-insensitive match across name and email. */
   search?: string;
+  /** The stage tab. Omitted means every stage. */
+  stage?: PipelineStage;
+  flaggedOnly?: boolean;
+  /** Defaults to "best". */
+  sort?: ApplicantSort;
+  /** 1-based. Out-of-range pages return no rows, not an error. */
+  page?: number;
+};
+
+/**
+ * One page of applicants plus the size of the population it was drawn from.
+ *
+ * `total` is the FILTERED total, and it arrives in the same response's
+ * `content-range` — so it costs no extra request and cannot disagree with the
+ * rows it describes, which two reads at two moments could.
+ *
+ * `null` means no count came back, which is NOT zero. The page renders an em
+ * dash and keeps its rows: a count that failed must not read as "none".
+ */
+export type CompanyApplicantPage = {
+  rows: CompanyApplicantRow[];
+  total: number | null;
 };
 
 /**
@@ -441,6 +534,22 @@ export type ApplicantCounts = {
    * should mean live roles only is a product question, not this change.
    */
   openRoles: number | null;
+  /**
+   * Everyone the viewer may see, with NO tab, job, flag or search applied.
+   *
+   * The one number here that ignores the filters, and it exists to keep one
+   * sentence honest. The empty state used to pick its copy off the loaded
+   * array: empty meant "No applicants yet". That was sound while the array was
+   * the whole population and becomes a lie the moment it is a page of it — a
+   * recruiter whose stage tab happens to be empty would be told their company
+   * has no applicants at all while thousands sit one tab away.
+   *
+   * So "No applicants yet" is now a claim about THIS number, and an empty page
+   * with a non-zero grandTotal says "Nothing in this view" instead. It ignores
+   * `jobId` as well as the rest: a role nobody has applied to yet still sits in
+   * a company with applicants, and the "yet" copy talks about the company.
+   */
+  grandTotal: number | null;
 };
 
 /**
