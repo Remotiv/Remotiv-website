@@ -121,8 +121,16 @@ function world(overrides = {}) {
       },
     ],
     job_applications: [
-      { id: APP, job_id: JOB, first_name: "Alex", last_name: "Example", cv_text: CV },
+      {
+        id: APP,
+        job_id: JOB,
+        company_id_snapshot: CO,
+        first_name: "Alex",
+        last_name: "Example",
+        cv_text: CV,
+      },
     ],
+    job_question_scoring_guides: [],
     writes: 0,
   };
 }
@@ -141,6 +149,16 @@ function service(state) {
       filters.every(([op, col, val]) =>
         op === "eq" ? get(row, col) === val : get(row, col) === val,
       );
+    const upsert = calls.find((c) => c[0] === "upsert");
+    if (upsert) {
+      // The job guide: one per job and wording, "on conflict do nothing".
+      const r = upsert[1];
+      const taken = rows.some(
+        (x) => x.job_id === r.job_id && x.question_sha256 === r.question_sha256,
+      );
+      if (!taken) rows.push(structuredClone(r));
+      return { data: taken ? [] : [structuredClone(r)], error: null };
+    }
     const hit = rows.filter(match);
     const update = calls.find((c) => c[0] === "update");
     if (update) {
@@ -175,13 +193,33 @@ const replyFor = (variant) => ({
   })),
 });
 
+/** The job guide writer's reply (live-guides.ts), for a job question with no rubric. */
+const JOB_GUIDE = {
+  strong:
+    "Names the incident, what the candidate did first, the fix they shipped and what changed after.",
+  weak: "Describes the team's response without the candidate's own part, or gives no outcome.",
+};
+const isGuideCall = (request) =>
+  typeof request.system === "string" &&
+  request.system.startsWith("You write the private scoring guide");
+
 function client(replies) {
   const requests = [];
+  const guideRequests = [];
   let i = 0;
   return {
     requests,
+    guideRequests,
     messages: {
       async create(request) {
+        if (isGuideCall(request)) {
+          guideRequests.push(request);
+          return {
+            content: [{ type: "text", text: JSON.stringify(JOB_GUIDE) }],
+            stop_reason: "end_turn",
+            usage: { input_tokens: 300, output_tokens: 80 },
+          };
+        }
         requests.push(request);
         await new Promise((r) => setImmediate(r));
         const r =
@@ -236,16 +274,25 @@ test("prepare writes once and freezes: text in the candidate snapshot, the rest 
     set.questions.slice(0, 4).map((q) => [q.position, q.text, q.question_id]),
     [1, 2, 3, 4].map((p) => [p, AUTHORED[p - 1], `job-q-${p}`]),
   );
-  // With the recruiter's own marking, or none where they left it empty.
+  // With the recruiter's own marking; where they left the rubric empty, the job's guide.
   assert.deepEqual(
-    set.questions.slice(0, 4).map((q) => [q.competency, q.scoring_guide, q.weight]),
+    set.questions.slice(0, 4).map((q) => [q.competency, q.scoring_guide, q.guide_source, q.weight]),
     [
-      ["Technical depth", "The recruiter's own rubric for question 1.", 4],
-      [null, null, 2],
-      ["Technical depth", "The recruiter's own rubric for question 3.", 2],
-      ["Technical depth", "The recruiter's own rubric for question 4.", 2],
+      ["Technical depth", "The recruiter's own rubric for question 1.", "recruiter", 4],
+      [null, `Strong answer: ${JOB_GUIDE.strong} Weak answer: ${JOB_GUIDE.weak}`, "ai", 2],
+      ["Technical depth", "The recruiter's own rubric for question 3.", "recruiter", 2],
+      ["Technical depth", "The recruiter's own rubric for question 4.", "recruiter", 2],
     ],
   );
+  assert.ok(set.questions.slice(4).every((q) => q.guide_source === "ai"));
+  // Written once, for the job, and never sent anything about the candidate.
+  assert.equal(ai.guideRequests.length, 1);
+  assert.equal(state.job_question_scoring_guides.length, 1);
+  assert.deepEqual(
+    [state.job_question_scoring_guides[0].job_id, state.job_question_scoring_guides[0].source],
+    [JOB, "ai"],
+  );
+  assert.doesNotMatch(JSON.stringify(ai.guideRequests), /Alex|Example|Northwind|example\.com/);
   assert.ok(!set.questions.some((q) => q.text === AUTHORED[4]), "the fifth is not asked");
   const row = state.interview_sessions[0];
   for (const q of row.questions_snapshot) {
@@ -297,6 +344,7 @@ test("two candidates for the same job: the same job questions word for word, dif
   state.job_applications.push({
     id: APP_B,
     job_id: JOB,
+    company_id_snapshot: CO,
     first_name: "Sam",
     last_name: "Sample",
     cv_text:
@@ -314,6 +362,11 @@ test("two candidates for the same job: the same job questions word for word, dif
     AUTHORED.slice(0, 4),
   );
   assert.notDeepEqual(cv(a.set), cv(b.set), "each candidate's CV questions are their own");
+  // The job's guide for the question with no rubric: written once, frozen the same into both.
+  const guideOf = (set) => set.questions.find((q) => q.position === 2).scoring_guide;
+  assert.equal(ai.guideRequests.length, 1, "one generation for the job, not one per candidate");
+  assert.equal(guideOf(a.set), guideOf(b.set));
+  assert.equal(state.job_question_scoring_guides.length, 1);
   for (const req of ai.requests) {
     for (const q of AUTHORED.slice(0, 4))
       assert.ok(req.messages[0].content.includes(q), "shown to avoid overlap");

@@ -265,7 +265,8 @@ const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
 //     grammar from a second-language speaker talking, not a content weakness.
 //     Rule 5 forbids scoring it and rule 6 forbids mentioning it.
 
-const SCORE_BANDS = `85-100 — Answers what was asked, completely, with specifics that could be
+/** The 0-100 bands. Shared with the live scorer (live-interview-scoring.ts): one scale for both. */
+export const SCORE_BANDS = `85-100 — Answers what was asked, completely, with specifics that could be
          checked: named things, actual figures, concrete outcomes. Nothing
          material to the question is left unaddressed in the time available.
 70-84  — Answers the question with real substance and some concrete detail,
@@ -1132,6 +1133,8 @@ type SessionRow = {
   id: string;
   company_id: string;
   job_id: string | null;
+  /** 'live' sessions are scored by lib/interviews/live-scoring.ts. */
+  kind: string | null;
   status: string;
   questions_snapshot: unknown;
   /** The marking scheme frozen at invite (migration 028). Null on legacy sessions. */
@@ -1187,7 +1190,7 @@ export async function handleAiScorecard(
 
   const { data: sessionData, error: sessionErr } = await service
     .from("interview_sessions")
-    .select("id, company_id, job_id, status, questions_snapshot, scoring_snapshot")
+    .select("id, company_id, job_id, kind, status, questions_snapshot, scoring_snapshot")
     .eq("id", sessionId)
     .maybeSingle();
 
@@ -1201,6 +1204,11 @@ export async function handleAiScorecard(
   if (!session) {
     skipJob("ai_scorecard", job.id, `session ${sessionId} no longer exists`);
     return;
+  }
+  // An AI Video Interview has turns, not answers: its own scorer, its own table.
+  if (session.kind === "live") {
+    const { handleLiveScorecard } = await import("@/lib/interviews/live-scoring");
+    return handleLiveScorecard(job, ctx);
   }
 
   /** Session-level skip. Records WHY, so a reviewer never sees a blank panel. */

@@ -1,10 +1,12 @@
 import "server-only";
 import {
+  isOutcomeDecided,
   type LiveOutcome,
   type LiveQuestionFacts,
   needsReview,
   outcomeFrom,
 } from "@/lib/interviews/live-ingest";
+import { excludedFailedTurns, type LiveActionRow } from "@/lib/interviews/live-resolutions";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { type TranscriptSegment, toStoredSegments } from "@/lib/interviews/transcribe";
 import {
@@ -56,7 +58,15 @@ import { createServiceClient } from "@/lib/supabase/server";
  * retry used, or a failure no retry can fix) is marked failed, the outcome
  * stays final: false, transcription_failed_turns lists it and needs_review is
  * set: a person must look.
- * No turn is ever dropped.
+ * No turn is ever dropped. A person may retry it, or exclude its question
+ * (live-recovery.ts); an excluded failed turn counts as resolved for `final`,
+ * and its question is left out of scoring, never zero.
+ *
+ * ── Scoring, once decided ────────────────────────────────────
+ *
+ * The settle that makes the outcome decided asks for the session's scorecard
+ * (live-scoring.ts), when live scoring is on (LIVE_INTERVIEW_SCORING_ENABLED). It does not know or care
+ * where the transcripts came from.
  *
  * ── Never overwritten, never stale ───────────────────────────
  *
@@ -142,12 +152,14 @@ export type CandidateTurnState = {
 
 /**
  * The outcome with every answered question settled against its transcripts,
- * and final set from the turns. Pure.
+ * and final set from the turns: every one transcribed, or failed and excluded
+ * by a person (`excluded`, by sequence). Pure.
  */
 export function settleOutcome(
   outcome: LiveOutcome,
   turns: readonly CandidateTurnState[],
   attempt: number,
+  excluded: ReadonlySet<number> = new Set(),
 ): LiveOutcome {
   const questions: LiveQuestionFacts[] = outcome.questions.map((q) => {
     if (q.status !== "answered") return q;
@@ -165,7 +177,11 @@ export function settleOutcome(
     return { ...q, confirmed: false };
   });
   const failed = turns.filter((t) => t.transcript_status === "failed").map((t) => t.sequence);
-  const final = turns.every((t) => t.transcript_status === "done");
+  const final = turns.every(
+    (t) =>
+      t.transcript_status === "done" ||
+      (t.transcript_status === "failed" && excluded.has(t.sequence)),
+  );
   return {
     ...outcome,
     questions,
@@ -187,14 +203,29 @@ type TurnRow = {
   transcript_segments: TranscriptSegment[] | null;
 };
 
+/** Called once, by the settle that makes the outcome decided. */
+export type OnDecided = (service: Service, sessionId: string) => Promise<void>;
+
 /**
- * Read the session's turns and outcome, settle, and write it back with a
- * compare-and-set on settle_rev; on losing, read again. Returns the stored
- * outcome, or null when the session has none.
+ * Ask for the scorecard. Reads live scoring's own switch
+ * (LIVE_INTERVIEW_SCORING_ENABLED, as live-scoring.ts does) here, so that with
+ * it off the scorer is never even loaded.
+ */
+const requestScoringWhenDecided: OnDecided = async (service, sessionId) => {
+  if (process.env.LIVE_INTERVIEW_SCORING_ENABLED?.trim() !== "true") return;
+  const { requestLiveScoring } = await import("@/lib/interviews/live-scoring");
+  await requestLiveScoring(service, sessionId);
+};
+
+/**
+ * Read the session's turns, recovery log and outcome, settle, and write it
+ * back with a compare-and-set on settle_rev; on losing, read again. Returns
+ * the stored outcome, or null when the session has none.
  */
 export async function settleLiveOutcome(
   service: Service,
   sessionId: string,
+  opts: { onDecided?: OnDecided } = {},
 ): Promise<LiveOutcome | null> {
   for (let i = 0; i < SETTLE_TRIES; i++) {
     const { data: session, error: sErr } = await service
@@ -205,6 +236,13 @@ export async function settleLiveOutcome(
     if (sErr) throw new Error(`live transcribe: session read failed (${sErr.code ?? "db"})`);
     const s = session as { attempt: number | null; live_outcome: LiveOutcome | null } | null;
     if (!s?.live_outcome) return null;
+
+    const { data: actionRows, error: aErr } = await service
+      .from("live_interview_actions")
+      .select("action, decision, question_position, turn_id, turn_sequence, created_at")
+      .eq("session_id", sessionId)
+      .order("created_at", { ascending: true });
+    if (aErr) throw new Error(`live transcribe: action read failed (${aErr.code ?? "db"})`);
 
     const { data: rows, error: tErr } = await service
       .from("interview_turns")
@@ -229,8 +267,12 @@ export async function settleLiveOutcome(
         transcript_segments: t.transcript_segments,
       }));
 
+    const excluded = excludedFailedTurns(
+      (actionRows ?? []) as LiveActionRow[],
+      all.filter((t) => t.speaker === "candidate"),
+    );
     const before = s.live_outcome;
-    const next = settleOutcome(before, candidates, s.attempt ?? 1);
+    const next = settleOutcome(before, candidates, s.attempt ?? 1, excluded);
     let write = service
       .from("interview_sessions")
       .update({ live_outcome: next })
@@ -243,7 +285,12 @@ export async function settleLiveOutcome(
         : write.eq("live_outcome->>settle_rev", String(before.settle_rev));
     const { data: landed, error: wErr } = await write.select("id");
     if (wErr) throw new Error(`live transcribe: outcome write failed (${wErr.code ?? "db"})`);
-    if (((landed ?? []) as unknown[]).length > 0) return next;
+    if (((landed ?? []) as unknown[]).length > 0) {
+      if (!isOutcomeDecided(before) && isOutcomeDecided(next)) {
+        await (opts.onDecided ?? requestScoringWhenDecided)(service, sessionId);
+      }
+      return next;
+    }
   }
   throw new Error("live transcribe: the outcome kept changing under the settle");
 }
@@ -310,7 +357,12 @@ export type Transcriber = (
   ctx?: JobContext,
 ) => Promise<WhisperResult>;
 
-export type LiveTranscribeDeps = { service: Service; transcribe: Transcriber };
+export type LiveTranscribeDeps = {
+  service: Service;
+  transcribe: Transcriber;
+  /** What the settle that decides the outcome does next. Defaults to asking for the scorecard. */
+  onDecided?: OnDecided;
+};
 
 type JobLike = {
   id: string;
@@ -410,7 +462,7 @@ export async function handleLiveTurnTranscribe(
   // Done is final: a finished transcript is never replaced. Settle anyway, in
   // case the run that wrote it stopped before settling.
   if (turn.transcript_status === "done" || !turn.media_path) {
-    await settleLiveOutcome(service, turn.session_id);
+    await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
     return;
   }
 
@@ -420,7 +472,7 @@ export async function handleLiveTurnTranscribe(
       : false;
   const giveUp = async (message: string) => {
     await markTurnFailed(service, turnId, message);
-    await settleLiveOutcome(service, turn.session_id);
+    await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
     console.error(`[live-transcribe] turn ${turnId}: transcription failed for good`);
   };
 
@@ -472,7 +524,7 @@ export async function handleLiveTurnTranscribe(
     .in("transcript_status", ["pending", "failed"]);
   if (wErr) throw new Error(`live transcribe: transcript write failed (${wErr.code ?? "db"})`);
 
-  const settled = await settleLiveOutcome(service, turn.session_id);
+  const settled = await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
   console.log(
     `[live-transcribe] turn ${turnId}: done; session ${turn.session_id} ${settled?.final ? "final" : "provisional"} ${settled?.outcome ?? ""}`,
   );

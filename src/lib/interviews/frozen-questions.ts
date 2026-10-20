@@ -8,7 +8,8 @@
  *   scoring_snapshot     the marking scheme (migration 028), which no
  *                        candidate-facing read may select: position, question
  *                        id, competency, the private scoring guide (as
- *                        `rubric`, the scorer's field), weight, and `source`.
+ *                        `rubric`, the scorer's field), who wrote that guide
+ *                        (`guide_source`), weight, and `source`.
  *
  * ── Job questions are the job's own ──────────────────────────
  *
@@ -35,6 +36,7 @@
 
 export const LIVE_QUESTION_SOURCES = ["job", "cv", "general_experience"] as const;
 export type LiveQuestionSource = (typeof LIVE_QUESTION_SOURCES)[number];
+export type GuideSource = "recruiter" | "ai";
 
 export type FrozenLiveQuestion = {
   readonly question_id: string;
@@ -48,6 +50,12 @@ export type FrozenLiveQuestion = {
    * candidate or the provider. Null only on a job question with no rubric.
    */
   readonly scoring_guide: string | null;
+  /**
+   * Who wrote the guide: the recruiter (a job question's own rubric) or Remotiv's
+   * AI (a CV or general question, or a job question's job-level guide from
+   * lib/interviews/live-guides.ts). Absent on sets frozen before it was recorded.
+   */
+  readonly guide_source?: GuideSource | null;
   /** The job's weight for a job question; null (Normal) for the rest. */
   readonly weight: number | null;
 };
@@ -156,6 +164,8 @@ export function readFrozenQuestionSet(row: {
     const competency = str(s?.competency);
     const guide = str(s?.rubric);
     const weight = typeof s?.weight === "number" && s.weight > 0 ? s.weight : null;
+    const guideSource =
+      s?.guide_source === "recruiter" || s?.guide_source === "ai" ? s.guide_source : null;
     if (!id || !text || s?.question_id !== id) return bad(`are incomplete at position ${i + 1}`);
     if (!(LIVE_QUESTION_SOURCES as readonly unknown[]).includes(source)) {
       return bad(`have no source at position ${i + 1}`);
@@ -172,6 +182,7 @@ export function readFrozenQuestionSet(row: {
         source: source as LiveQuestionSource,
         competency,
         scoring_guide: guide,
+        guide_source: guide ? guideSource : null,
         weight,
       }),
     );
@@ -209,6 +220,7 @@ export function snapshotsFor(questions: readonly FrozenLiveQuestion[]): {
       question_id: q.question_id,
       competency: q.competency,
       rubric: q.scoring_guide,
+      guide_source: q.scoring_guide ? (q.guide_source ?? null) : null,
       weight: q.weight,
       source: q.source,
     })),

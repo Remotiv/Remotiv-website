@@ -11,6 +11,7 @@ import {
   readFrozenQuestionSet,
   snapshotsFor,
 } from "@/lib/interviews/frozen-questions";
+import { ensureJobQuestionGuide } from "@/lib/interviews/live-guides";
 import {
   LIVE_QUESTIONS_PROMPT_VERSION,
   type LiveQuestionsClient,
@@ -31,6 +32,12 @@ import { createServiceClient } from "@/lib/supabase/server";
  * rewritten, so every candidate invited under the same questions hears the
  * same text in the same order. A job with fewer authored questions than job
  * slots is refused before any model call: the model never fills a job slot.
+ *
+ * Every question is frozen with a private scoring guide. A job question the
+ * recruiter gave no rubric gets the JOB's guide (live-guides.ts): written once
+ * for the job and wording, shared by every candidate, frozen here with
+ * guide_source 'ai'. A recruiter's rubric is frozen with guide_source
+ * 'recruiter'.
  *
  * ── CV slots: written per candidate ──────────────────────────
  *
@@ -84,6 +91,7 @@ export type PrepareErrorCode =
   | "job_not_found"
   | "application_not_found"
   | "freeze_lost"
+  | "guide_failed"
   | "db_error";
 
 /** The session cannot be given frozen questions. Ids only in the message. */
@@ -161,6 +169,7 @@ function jobQuestionsFromInvite(row: SessionRow, count: number): FrozenLiveQuest
       source: "job",
       competency: m?.competency ?? null,
       scoring_guide: m?.rubric ?? null,
+      guide_source: m?.rubric ? "recruiter" : null,
       weight: m?.weight ?? null,
     });
   }
@@ -205,11 +214,37 @@ export async function prepareLiveQuestions(
   if (jobErr) throw new PrepareLiveQuestionsError("db_error", sessionId);
   if (!job) throw new PrepareLiveQuestionsError("job_not_found", sessionId);
 
+  // A job question with no rubric is marked against the job's own guide.
+  const guided: FrozenLiveQuestion[] = [];
+  for (const q of jobQuestions) {
+    if (q.scoring_guide) {
+      guided.push(q);
+      continue;
+    }
+    try {
+      const g = await ensureJobQuestionGuide(
+        deps.service,
+        {
+          jobId: row.job_id,
+          companyId: row.company_id,
+          jobTitle: (job as { title: string | null }).title,
+          question: q.text,
+          competency: q.competency,
+        },
+        { client: deps.client },
+      );
+      guided.push({ ...q, scoring_guide: g.guide, guide_source: g.source });
+    } catch {
+      throw new PrepareLiveQuestionsError("guide_failed", sessionId);
+    }
+  }
+
   const { data: app, error: appErr } = await deps.service
     .from("job_applications")
     .select("first_name, last_name, cv_text")
     .eq("id", row.application_id)
     .eq("job_id", row.job_id)
+    .eq("company_id_snapshot", row.company_id)
     .maybeSingle();
   if (appErr) throw new PrepareLiveQuestionsError("db_error", sessionId);
   if (!app) throw new PrepareLiveQuestionsError("application_not_found", sessionId);
@@ -231,7 +266,7 @@ export async function prepareLiveQuestions(
   );
 
   const questions: FrozenLiveQuestion[] = [
-    ...jobQuestions,
+    ...guided,
     ...written.questions.map((q) => ({
       question_id: deps.newId(),
       position: mix.job_questions + q.slot,
@@ -239,6 +274,7 @@ export async function prepareLiveQuestions(
       source: q.source,
       competency: q.competency,
       scoring_guide: q.scoring_guide,
+      guide_source: "ai" as const,
       weight: null,
     })),
   ];

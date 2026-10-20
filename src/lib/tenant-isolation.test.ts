@@ -586,6 +586,19 @@ const SITE_FILTER_VALUES = [
       "to final_interviews, whose trigger (038) already requires the application to belong to that " +
       "company, and this filter re-asserts it before the first name goes into the host's alert.",
   },
+  {
+    file: "lib/interviews/live-question-freeze.ts",
+    fn: "prepareLiveQuestions",
+    query:
+      '.select("first_name, last_name, cv_text").eq("id", row.application_id).eq("job_id", row.job_id).eq("company_id_snapshot", row.company_id).maybeSingle()',
+    value: "row.company_id",
+    why:
+      "A column off an interview_sessions row read by primary key (readSession) for a live session " +
+      "id the server itself holds; no request field reaches it. Like session.company_id, a cross-row " +
+      "consistency check, not request-scoped tenancy: the application must belong to the session's " +
+      "company and job before its CV is read for question writing. The file joined the surface when " +
+      "it began passing companyId to the job guide writer (live-guides.ts).",
+  },
 ];
 
 /* ── the scan ─────────────────────────────────────────────────── */

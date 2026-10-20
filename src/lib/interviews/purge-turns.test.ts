@@ -242,3 +242,64 @@ test("a losing save's files (another export hash, nothing references them) are s
     "the winner's files are kept",
   );
 });
+
+test("live scores of a due session lose their rationales and quotes, keep every number; a later session is untouched", async () => {
+  const db = await world();
+  const scored = (id) => ({
+    session_id: id,
+    status: "scored",
+    overall_score: 58,
+    scored_count: 2,
+    answered_count: 5,
+    skipped_count: 1,
+    total: 8,
+    completion_percent: 63,
+    outcome: "partial",
+    partial: true,
+    ai_model: "claude-haiku-5-5",
+    prompt_version: "live-interview-scoring-v1",
+    rev: 3,
+    questions: [
+      {
+        position: 1,
+        status: "scored",
+        score: 70,
+        confidence: "high",
+        rationale: "Specific about their own work.",
+        quotes: ["I rebuilt the import service"],
+      },
+      { position: 6, status: "lowest", score: 0, confidence: null, rationale: null, quotes: [] },
+      {
+        position: 7,
+        status: "left_out",
+        score: null,
+        confidence: null,
+        rationale: null,
+        quotes: [],
+      },
+    ],
+  });
+  db.tables.live_interview_scores.push(scored(DUE), scored(LATER));
+  const lines = await purge();
+  const due = db.tables.live_interview_scores.find((r) => r.session_id === DUE);
+  assert.deepEqual(
+    due.questions.map((q) => [q.position, q.status, q.score, q.confidence, q.rationale, q.quotes]),
+    [
+      [1, "scored", 70, "high", null, []],
+      [6, "lowest", 0, null, null, []],
+      [7, "left_out", null, null, null, []],
+    ],
+  );
+  assert.deepEqual(
+    [due.overall_score, due.scored_count, due.completion_percent, due.partial, due.rev],
+    [58, 2, 63, true, 4],
+  );
+  assert.deepEqual(
+    db.tables.live_interview_scores.find((r) => r.session_id === LATER),
+    scored(LATER),
+  );
+  assert.ok(lines.some((l) => l.includes("live_scores=1")));
+  // A second run finds nothing left to clear.
+  const again = await purge();
+  assert.ok(again.some((l) => l.includes("live_scores=0")));
+});

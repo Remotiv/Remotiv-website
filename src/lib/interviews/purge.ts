@@ -1,6 +1,7 @@
 import "server-only";
 import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
+import { purgeLiveScoreWords } from "./live-score-purge";
 import { INTERVIEW_BUCKET } from "./session";
 
 /**
@@ -50,6 +51,12 @@ import { INTERVIEW_BUCKET } from "./session";
  * object is confirmed gone, so a failed delete is retried on the next run.
  * The turn audio is in the session's folder, so the same folder sweep removes
  * it, and the orphan sweep counts it as referenced while a turn points at it.
+ *
+ * ── Live interview scores (migration 042) ────────────────────
+ *
+ * Same schedule. REMOVED from every question's score: the rationale and the
+ * quotes (the candidate's words). KEPT: scores, statuses, counts and the
+ * overall. See live-score-purge.ts.
  */
 
 /** How old an unreferenced object must be before the sweep will remove it. */
@@ -173,6 +180,7 @@ export async function handleInterviewPurge(job: {
   let removalFailures = 0;
   let orphansRemoved = 0;
   let turnsPurged = 0;
+  let scoresCleared = 0;
   let truncated = false;
 
   // ── Phase 1 — sessions past their retention date ──
@@ -234,6 +242,7 @@ export async function handleInterviewPurge(job: {
       turnsPurged += turns.purged;
       objectsRemoved += turns.objectsRemoved;
       removalFailures += turns.retrying;
+      scoresCleared += await purgeLiveScoreWords(service, ids);
 
       if (answers.length === 0) continue;
 
@@ -328,7 +337,7 @@ export async function handleInterviewPurge(job: {
 
   console.log(
     `[purge] job ${job.id}: sessions=${sessionsPurged} objects=${objectsRemoved} ` +
-      `rows=${rowsCleared} turns=${turnsPurged} retrying=${removalFailures} orphans=${orphansRemoved}` +
+      `rows=${rowsCleared} turns=${turnsPurged} live_scores=${scoresCleared} retrying=${removalFailures} orphans=${orphansRemoved}` +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }
