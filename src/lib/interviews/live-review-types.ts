@@ -8,6 +8,8 @@
  * CV. They are not filtered out of these shapes; they have no field to land in.
  */
 
+import type { LiveReviewVideo } from "./live-video-timeline";
+
 export type LiveReviewState = "in_progress" | "completed" | "partial" | "incomplete";
 
 export type LiveReviewHeader = {
@@ -73,6 +75,8 @@ export type LiveReviewQuote = {
   /** The candidate turn the quote is in, for the jump to its audio. */
   turnId: string | null;
   startSeconds: number | null;
+  /** The quote's moment on the conversation clock, for the jump in the camera video. */
+  atMs: number | null;
 };
 
 export type LiveReviewQuestion = {
@@ -101,6 +105,8 @@ export type LiveReviewView = {
   attempt: LiveReviewAttempt;
   header: LiveReviewHeader;
   questions: LiveReviewQuestion[];
+  /** The candidate's camera video: confirmed pieces, gaps, and whether it is complete. */
+  video: LiveReviewVideo;
 };
 
 export type LiveActionResult = { ok: true } | { ok: false; error: string };

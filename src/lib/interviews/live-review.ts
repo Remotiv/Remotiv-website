@@ -39,6 +39,7 @@ import {
   type StoredQuestionScore,
 } from "@/lib/interviews/live-scoring";
 import { hasRealWords } from "@/lib/interviews/live-transcribe";
+import { type VideoPieceRow, videoTimeline } from "@/lib/interviews/live-video-timeline";
 import { findQuoteStart } from "@/lib/interviews/quote-timestamps";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import type { TranscriptSegment } from "@/lib/interviews/transcribe";
@@ -148,6 +149,8 @@ export type ReviewTurnRow = {
   transcript_error: string | null;
   media_path: string | null;
   content_purged_at: string | null;
+  /** Where the turn starts on the conversation clock (the camera video shares it). */
+  offset_ms?: number | null;
 };
 
 const SOURCE_LABEL: Record<string, string> = {
@@ -266,6 +269,8 @@ export function buildLiveReviewView(input: {
   >;
   frozenQuestions: readonly { position: number; source: string; text: string }[];
   turns: readonly ReviewTurnRow[];
+  /** The session's camera-video pieces (migration 044). None when no video was recorded. */
+  videoPieces?: readonly VideoPieceRow[];
   actions: readonly LiveActionRow[];
   row: LiveScoreRow | null;
   attempt: LiveReviewView["attempt"];
@@ -410,10 +415,15 @@ export function buildLiveReviewView(input: {
               turn && Array.isArray(turn.transcript_segments)
                 ? (turn.transcript_segments as TranscriptSegment[])
                 : null;
+            const startSeconds = turn ? findQuoteStart(quote, segments) : null;
             return {
               text: quote,
               turnId: turn?.id ?? null,
-              startSeconds: turn ? findQuoteStart(quote, segments) : null,
+              startSeconds,
+              atMs:
+                turn && typeof turn.offset_ms === "number"
+                  ? turn.offset_ms + Math.round((startSeconds ?? 0) * 1000)
+                  : null,
             };
           })
         : [];
@@ -445,13 +455,14 @@ export function buildLiveReviewView(input: {
     attempt: input.attempt,
     header: headerFor(outcome, input.row),
     questions,
+    video: videoTimeline(input.videoPieces ?? []),
   };
 }
 
 /* ── loading ──────────────────────────────────────────────────── */
 
 const TURN_COLUMNS =
-  "id, sequence, speaker, kind, question_position, responds_to_turn_id, text, transcript, transcript_status, transcript_segments, transcript_error, media_path, content_purged_at";
+  "id, sequence, speaker, kind, question_position, responds_to_turn_id, text, transcript, transcript_status, transcript_segments, transcript_error, media_path, content_purged_at, offset_ms";
 
 /**
  * The review of one live session, or null when the viewer may not see it (not
@@ -496,7 +507,7 @@ export async function loadLiveReview(
     row = (data as LiveScoreRow | null) ?? null;
   }
 
-  const [{ data: turnRows }, { data: actionRows }] = await Promise.all([
+  const [{ data: turnRows }, { data: actionRows }, { data: pieceRows }] = await Promise.all([
     service.from("interview_turns").select(TURN_COLUMNS).eq("session_id", session.id),
     service
       .from("live_interview_actions")
@@ -504,6 +515,12 @@ export async function loadLiveReview(
       .eq("session_id", session.id)
       .eq("company_id", ctx.companyId)
       .order("created_at", { ascending: true }),
+    // media_path is read only to know a file exists (videoTimeline); none is returned.
+    service
+      .from("live_video_pieces")
+      .select("piece_index, status, started_ms, duration_ms, is_last, media_path")
+      .eq("session_id", session.id)
+      .eq("company_id", ctx.companyId),
   ]);
 
   const frozen = readFrozenQuestionSet(session);
@@ -519,6 +536,7 @@ export async function loadLiveReview(
     frozenQuestions,
     turns: (turnRows ?? []) as ReviewTurnRow[],
     actions: (actionRows ?? []) as LiveActionRow[],
+    videoPieces: (pieceRows ?? []) as VideoPieceRow[],
     row,
     attempt: {
       number: earlier.length + 1,
@@ -574,6 +592,58 @@ export async function signLiveTurnAudio(
       user_id: ctx.user.id,
       candidate_id: session.application_id,
       source_table: "interview_turns",
+      was_admin: false,
+    })
+    .then(({ error: e }: { error: { message: string } | null }) => {
+      if (e) console.error("[signed_url_logs insert]", e.message);
+    });
+  return { ok: true, url: signed.signedUrl };
+}
+
+/**
+ * A signed URL for ONE confirmed piece of the candidate's camera video, after
+ * the same gate as the page, for 5 minutes; logged to signed_url_logs. The
+ * piece's path is read server-side and never returned. The video holds the
+ * candidate's camera and microphone only: Sarah's voice plays from her turns.
+ */
+export async function signLiveVideoPiece(
+  ctx: CompanyContext,
+  sessionId: string,
+  pieceIndex: number,
+  deps: LiveReviewDeps = defaultDeps(),
+): Promise<LiveAudioResult> {
+  const notYours: LiveAudioResult = { ok: false, error: "That interview isn't in your workspace." };
+  if (!Number.isInteger(pieceIndex) || pieceIndex < 0) return { ok: false, error: "Bad request." };
+  const session = await gateLiveSession(ctx, sessionId, deps);
+  if (!session) return notYours;
+  const { data } = await deps.service
+    .from("live_video_pieces")
+    .select("status, media_path, content_purged_at")
+    .eq("session_id", session.id)
+    .eq("company_id", ctx.companyId)
+    .eq("piece_index", pieceIndex)
+    .maybeSingle();
+  const piece = data as {
+    status: string;
+    media_path: string | null;
+    content_purged_at: string | null;
+  } | null;
+  if (piece?.status !== "confirmed")
+    return { ok: false, error: "That part of the video wasn't saved." };
+  if (!piece.media_path) {
+    return { ok: false, error: "This recording was deleted after six months." };
+  }
+  const { data: signed, error } = await deps.service.storage
+    .from(INTERVIEW_BUCKET)
+    .createSignedUrl(piece.media_path, PLAYBACK_TTL_SECONDS);
+  if (error || !signed?.signedUrl)
+    return { ok: false, error: "Couldn't load that video. Try again." };
+  deps.service
+    .from("signed_url_logs")
+    .insert({
+      user_id: ctx.user.id,
+      candidate_id: session.application_id,
+      source_table: "live_video_pieces",
       was_admin: false,
     })
     .then(({ error: e }: { error: { message: string } | null }) => {

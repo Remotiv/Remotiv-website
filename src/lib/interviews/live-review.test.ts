@@ -28,7 +28,7 @@ const STUBS = {
   ].join("\\n"),
   "next/navigation": "export function useRouter() { return { refresh() {} }; }",
   "next/link": "export default function Link({ href, children, ...rest }) { return globalThis.__h('a', { href, ...rest }, children); }",
-  "../live-actions": "export async function getLiveTurnAudioUrl() { return { ok: false, error: 'test' }; } export async function runLiveReviewAction() { return { ok: true }; }",
+  "../live-actions": "export async function getLiveTurnAudioUrl() { return { ok: false, error: 'test' }; } export async function runLiveReviewAction() { return { ok: true }; } export async function getLiveVideoPieceUrl() { return { ok: false, error: 'test' }; }",
 };
 export async function resolve(specifier, context, next) {
   if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
@@ -410,6 +410,7 @@ function completedInput() {
     transcript_error: null,
     media_path: `s/t${sequence}.wav`,
     content_purged_at: null,
+    offset_ms: sequence * 10_000,
     ...extra,
   });
   const entry = (position, s) => ({
@@ -488,8 +489,9 @@ test("completed: 'Completed', the overall, no partial label", () => {
     [v.header.state, v.header.label, v.header.overall, v.header.partial],
     ["completed", "Completed", 76, false],
   );
+  // Turn d starts at 40 s on the conversation clock; the quote 2 s into it.
   assert.deepEqual(byPos(v, 2).quotes, [
-    { text: "ran the profiler and found", turnId: "d", startSeconds: 2 },
+    { text: "ran the profiler and found", turnId: "d", startSeconds: 2, atMs: 42_000 },
   ]);
   const html = render(v);
   assert.match(html, /data-outcome="completed"/);

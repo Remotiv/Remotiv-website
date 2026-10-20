@@ -2,7 +2,11 @@
 
 import { revalidatePath } from "next/cache";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
-import { runLiveRecovery, signLiveTurnAudio } from "@/lib/interviews/live-review";
+import {
+  runLiveRecovery,
+  signLiveTurnAudio,
+  signLiveVideoPiece,
+} from "@/lib/interviews/live-review";
 import type {
   LiveActionResult,
   LiveAudioResult,
@@ -38,4 +42,14 @@ export async function runLiveReviewAction(request: LiveRecoveryRequest): Promise
   const result = await runLiveRecovery(ctx, request);
   if (result.ok) revalidatePath(`/ai-dashboard/interviews/${request.sessionId}`);
   return result;
+}
+
+/** A signed URL for one confirmed piece of the candidate's camera video. */
+export async function getLiveVideoPieceUrl(
+  sessionId: string,
+  pieceIndex: number,
+): Promise<LiveAudioResult> {
+  const ctx = await viewer();
+  if (!ctx) return { ok: false, error: "Sign in to your workspace first." };
+  return signLiveVideoPiece(ctx, sessionId, pieceIndex);
 }

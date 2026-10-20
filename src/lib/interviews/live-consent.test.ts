@@ -20,6 +20,7 @@ register(
   `data:text/javascript,${encodeURIComponent(`
 const STUBS = {
   "server-only": "",
+  "@/lib/supabase/server": "export function createServiceClient() { throw new Error('test: pass a service'); }",
   "@/components/navbar": "export function Navbar() { return null; }",
   "next/link": "export default function Link({ href, children, ...rest }) { return globalThis.__h('a', { href, ...rest }, children); }",
 };
@@ -51,6 +52,8 @@ const { recordLiveConsent, requireLiveConsent } = await import("./live-consent-r
 const { PRIVACY_NOTICE_VERSION } = await import("../privacy-version.ts");
 const { default: PrivacyPage } = await import("../../app/privacy/page.tsx");
 const { LiveInterviewsSection } = await import("../../app/privacy/_live-interviews-section.tsx");
+const { reservePieceUpload, confirmPiece } = await import("./live-video.ts");
+const { hashSessionToken } = await import("./tokens.ts");
 const { fakeLiveDb } = await import("../../test-support/fake-live-db.mjs");
 
 const CO = "7aad434d-0000-4000-8000-000000000001";
@@ -177,6 +180,31 @@ test("no consent can be recorded, and no provider session proven, while the text
     false,
   );
   assert.equal(liveConsentGiven({ consent_at: null, consent_version: "live-v1" }), false);
+});
+
+test("the camera video endpoints refuse everything while the text is unfinished, even with live-v1 saved", async () => {
+  const token = "live-consent-video-token-0123456789";
+  const db = fakeLiveDb({
+    interview_sessions: [
+      {
+        id: SESSION,
+        company_id: CO,
+        kind: "live",
+        status: "started",
+        token_hash: hashSessionToken(token),
+        expires_at: new Date(Date.now() + 86_400_000).toISOString(),
+        live_ended_at: null,
+        consent_at: "2026-10-20T09:00:00.000Z",
+        consent_version: "live-v1",
+      },
+    ],
+  });
+  const deps = { service: db.service, fetchHead: async () => new Uint8Array(16) };
+  const piece = { token, piece: 0, mimeType: "video/webm", startedAtMs: 0, durationMs: 1000 };
+  assert.equal((await reservePieceUpload(piece, deps)).body.code, "consent_required");
+  assert.equal((await confirmPiece(piece, deps)).body.code, "consent_required");
+  assert.equal(db.tables.live_video_pieces.length, 0, "nothing reserved");
+  assert.equal(db.signedUploads.length, 0, "no upload URL");
 });
 
 /* ── the public privacy page ──────────────────────────────────── */

@@ -207,6 +207,114 @@ export function checkScoringRow(table, row, allRows, tables) {
   if (!row.actor_user_id) fail("live_interview_actions_not_null");
 }
 
+const TERMINAL = ["submitted", "expired", "cancelled", "abandoned"];
+
+/**
+ * Migration 044 on interview_sessions: a live session's end is the database's
+ * time, stamped at the first terminal status or first write, then set once.
+ */
+export function stampLiveEnded(row, old, nowMs = Date.now()) {
+  if (row.kind !== "live") return row;
+  if (old?.live_ended_at) {
+    if (row.live_ended_at !== old.live_ended_at) {
+      throw Object.assign(new Error("live_ended_at is set once"), { code: "P0001" });
+    }
+    return row;
+  }
+  if (row.live_ended_at || TERMINAL.includes(row.status)) {
+    row.live_ended_at = new Date(nowMs).toISOString();
+  }
+  return row;
+}
+
+/** Migration 044's constraints and triggers on live_video_pieces. Throws as Postgres would. */
+export function checkVideoPiece(row, old, allRows, tables, nowMs = Date.now()) {
+  const fail = (name, code = "23514") => {
+    throw Object.assign(new Error(`violates ${name}`), { code, constraint: name });
+  };
+  const session = tables.interview_sessions.find((s) => s.id === row.session_id);
+  if (!session) fail("live_video_pieces_session_fk", "23503");
+  if (session.kind !== "live") fail("live_video_pieces_live_only", "P0001");
+  if (session.company_id !== row.company_id) fail("live_video_pieces_company", "P0001");
+  if (!(Number.isInteger(row.piece_index) && row.piece_index >= 0 && row.piece_index <= 199))
+    fail("live_video_pieces_index_range");
+  if (!["pending", "confirmed"].includes(row.status)) fail("live_video_pieces_status");
+  if (!["video/webm", "video/mp4"].includes(row.mime_type)) fail("live_video_pieces_mime");
+  const ext = row.mime_type === "video/mp4" ? "mp4" : "webm";
+  if (row.media_path != null && row.media_path !== `${row.session_id}/v${row.piece_index}.${ext}`)
+    fail("live_video_pieces_media_path");
+  if (row.media_path == null && row.content_purged_at == null)
+    fail("live_video_pieces_media_present");
+  if (
+    (row.bytes != null && !(row.bytes >= 1 && row.bytes <= 52428800)) ||
+    (row.duration_ms != null && !(row.duration_ms >= 1 && row.duration_ms <= 180000)) ||
+    (row.started_ms != null && !(row.started_ms >= 0))
+  )
+    fail("live_video_pieces_limits");
+  if (
+    row.status === "confirmed"
+      ? !(
+          row.confirmed_at &&
+          row.bytes != null &&
+          row.started_ms != null &&
+          row.duration_ms != null
+        )
+      : row.confirmed_at != null || row.is_last
+  )
+    fail("live_video_pieces_confirmed_fields");
+  if (
+    allRows.some(
+      (o) =>
+        o !== row &&
+        o !== old &&
+        o.session_id === row.session_id &&
+        o.piece_index === row.piece_index,
+    )
+  )
+    fail("live_video_pieces_one_per_index", "23505");
+  // The guard trigger.
+  const ended = session.live_ended_at ? Date.parse(session.live_ended_at) : null;
+  const guard = (msg) => fail(msg, "P0001");
+  if (!old) {
+    if (row.status !== "pending") guard("reserved before it is confirmed");
+    if (ended !== null || !["invited", "started"].includes(session.status))
+      guard("the interview has ended");
+    return;
+  }
+  const strip = (r) => {
+    const { media_path: _m, content_purged_at: _c, ...rest } = r;
+    return JSON.stringify(rest, Object.keys(rest).sort());
+  };
+  if (
+    row.session_id !== old.session_id ||
+    row.company_id !== old.company_id ||
+    row.piece_index !== old.piece_index ||
+    row.mime_type !== old.mime_type ||
+    row.reserved_at !== old.reserved_at ||
+    (row.media_path != null && row.media_path !== old.media_path) ||
+    (old.content_purged_at != null && row.content_purged_at !== old.content_purged_at)
+  )
+    guard("a piece keeps its reservation");
+  if (old.status === "confirmed") {
+    if (strip(row) !== strip(old)) guard("a confirmed piece is never replaced");
+    return;
+  }
+  if (row.status === "pending") {
+    if (strip(row) !== strip(old))
+      guard("a reserved piece changes only by being confirmed, or by retention");
+    return;
+  }
+  if (
+    old.media_path == null ||
+    old.content_purged_at != null ||
+    row.media_path == null ||
+    row.content_purged_at != null
+  )
+    guard("a purged piece is never confirmed");
+  if (ended === null && TERMINAL.includes(session.status)) guard("ended without a recorded end");
+  if (ended !== null && nowMs > ended + 30 * 60_000) guard("the upload window closed");
+}
+
 const SCORING_TABLES = [
   "job_question_scoring_guides",
   "live_interview_scores",
@@ -237,6 +345,15 @@ const SCORING_DEFAULTS = {
     actor_name: null,
   },
   job_question_scoring_guides: { competency: null, ai_model: null, prompt_version: null },
+  live_video_pieces: {
+    status: "pending",
+    bytes: null,
+    started_ms: null,
+    duration_ms: null,
+    is_last: false,
+    confirmed_at: null,
+    content_purged_at: null,
+  },
 };
 
 /** The key `ignoreDuplicates` skips on, per table. */
@@ -300,6 +417,8 @@ export function fakeLiveDb(initial = {}) {
     job_question_scoring_guides: [],
     live_interview_scores: [],
     live_interview_actions: [],
+    live_video_pieces: [],
+    signed_url_logs: [],
     ...structuredClone(initial),
   };
   /** path -> { bytes, contentType, createdAt } */
@@ -308,6 +427,8 @@ export function fakeLiveDb(initial = {}) {
   /** Uploads left before the next one fails; null when no upload fault is set. */
   let uploadsBeforeFault = null;
   const keepOnce = new Set();
+  /** Every signed upload URL handed out: { path, upsert }. */
+  const signedUploads = [];
   const counts = {
     uploads: 0,
     turnInserts: 0,
@@ -356,6 +477,11 @@ export function fakeLiveDb(initial = {}) {
             row.id = row.id ?? crypto.randomUUID();
             row.created_at = new Date(actionClock).toISOString();
           }
+          if (table === "live_video_pieces") {
+            row.id = row.id ?? crypto.randomUUID();
+            row.reserved_at = row.reserved_at ?? new Date().toISOString();
+          }
+          if (table === "interview_sessions") stampLiveEnded(row, null);
           return row;
         });
         const ignore = upsert[0] === "upsert" && upsert[2]?.ignoreDuplicates;
@@ -367,6 +493,8 @@ export function fakeLiveDb(initial = {}) {
           for (const r of fresh) checkTurnRow(r, after, tables.interview_sessions);
         if (SCORING_TABLES.includes(table))
           for (const r of fresh) checkScoringRow(table, r, after, tables);
+        if (table === "live_video_pieces")
+          for (const r of fresh) checkVideoPiece(r, null, after, tables);
         rows.push(...fresh);
         if (table === "interview_turns") counts.turnInserts += 1;
         if (table === "live_interview_scores") counts.scoreWrites += fresh.length;
@@ -383,6 +511,10 @@ export function fakeLiveDb(initial = {}) {
           });
         }
         const next = hit.map((r) => ({ ...r, ...structuredClone(update[1]) }));
+        for (const [i, r] of next.entries()) {
+          if (table === "interview_sessions") stampLiveEnded(r, hit[i]);
+          if (table === "live_video_pieces") checkVideoPiece(r, hit[i], rows, tables);
+        }
         const after = rows.map((r) => next[hit.indexOf(r)] ?? r);
         if (table === "interview_turns") {
           for (const r of next) checkTurnRow(r, after, tables.interview_sessions);
@@ -429,17 +561,18 @@ export function fakeLiveDb(initial = {}) {
           counts.uploads += 1;
           return { data: { path }, error: null };
         },
-        async list(prefix, { limit = 100, offset = 0 } = {}) {
+        async list(prefix, { limit = 100, offset = 0, search = "" } = {}) {
           const entries = [];
           if (prefix === "") {
             const folders = [...new Set([...objects.keys()].map((k) => k.split("/")[0]))].sort();
             for (const f of folders) entries.push({ name: f, id: null, created_at: null });
           } else {
             for (const [k, o] of objects) {
-              if (k.startsWith(`${prefix}/`)) {
+              if (k.startsWith(`${prefix}/${search}`)) {
                 entries.push({
                   name: k.slice(prefix.length + 1),
                   id: k,
+                  metadata: { size: o.bytes.length, mimetype: o.contentType ?? null },
                   created_at: new Date(o.createdAt).toISOString(),
                 });
               }
@@ -447,6 +580,17 @@ export function fakeLiveDb(initial = {}) {
             entries.sort((a, b) => (a.name < b.name ? -1 : 1));
           }
           return { data: entries.slice(offset, offset + limit), error: null };
+        },
+        /** A signed upload URL that carries its path and whether it may overwrite (upsert). */
+        async createSignedUploadUrl(path, opts = {}) {
+          signedUploads.push({ path, upsert: opts.upsert === true });
+          return {
+            data: {
+              signedUrl: `https://storage.test/upload/${path}?upsert=${opts.upsert === true}`,
+              path,
+            },
+            error: null,
+          };
         },
         async createSignedUrl(path, ttl) {
           if (!objects.has(path)) return { data: null, error: { message: "not found" } };
@@ -481,6 +625,16 @@ export function fakeLiveDb(initial = {}) {
     tables,
     objects,
     counts,
+    signedUploads,
+    /** Upload through a URL from createSignedUploadUrl, as the browser does: create-only unless it said upsert. */
+    async putSigned(url, bytes, contentType) {
+      const u = new URL(url);
+      const path = decodeURIComponent(u.pathname.replace(/^\/upload\//, ""));
+      return service.storage.from("interview-videos").upload(path, bytes, {
+        upsert: u.searchParams.get("upsert") === "true",
+        contentType,
+      });
+    },
     failNext(table, op) {
       faults.push({ table, op });
     },

@@ -12,7 +12,13 @@ import type {
   LiveReviewTurn,
   LiveReviewView,
 } from "@/lib/interviews/live-review-types";
-import { getLiveTurnAudioUrl, runLiveReviewAction } from "../live-actions";
+import {
+  clock,
+  type LiveReviewVideo,
+  type LiveVideoPiece,
+  videoPositionAt,
+} from "@/lib/interviews/live-video-timeline";
+import { getLiveTurnAudioUrl, getLiveVideoPieceUrl, runLiveReviewAction } from "../live-actions";
 
 /**
  * The recruiter review of an AI Video Interview. Everything shown comes from
@@ -64,6 +70,11 @@ const TURN_STATE_TEXT: Record<string, string> = {
 };
 
 type AudioState = { turnId: string; url: string; start: number } | null;
+type VideoState = { index: number; url: string; seek: number } | null;
+
+/** Safeguard C, said where the reviewer looks. */
+const VIDEO_SOUND_NOTE =
+  "The video has the candidate's camera and microphone. Sarah's voice is not in it: play her lines in the conversation below.";
 
 export function LiveReviewClient({
   view,
@@ -87,6 +98,30 @@ export function LiveReviewClient({
     const r = await getLiveTurnAudioUrl(view.sessionId, turnId);
     if (r.ok) setAudio({ turnId, url: r.url, start });
     else setAudioError(r.error);
+  };
+
+  // The camera video: one confirmed piece at a time, in order, each a fresh 5-minute link.
+  const [video, setVideo] = useState<VideoState>(null);
+  const [videoError, setVideoError] = useState<string | null>(null);
+  const openPiece = async (index: number, seek = 0) => {
+    setVideoError(null);
+    const r = await getLiveVideoPieceUrl(view.sessionId, index);
+    if (r.ok) setVideo({ index, url: r.url, seek });
+    else setVideoError(r.error);
+  };
+  const playable = view.video.pieces.filter((p) => p.hasVideo);
+  const nextPiece = () => {
+    const at = playable.findIndex((p) => p.index === video?.index);
+    const next = playable[at + 1];
+    if (next) void openPiece(next.index);
+  };
+  const watchAt = (atMs: number) => {
+    const pos = videoPositionAt(atMs, view.video.pieces);
+    if (!pos) {
+      setVideoError(`No video at ${clock(atMs)}: that part was not saved.`);
+      return;
+    }
+    void openPiece(pos.index, pos.offsetSeconds);
   };
 
   return (
@@ -178,6 +213,14 @@ export function LiveReviewClient({
         </p>
       )}
 
+      <VideoSection
+        video={view.video}
+        playing={video}
+        error={videoError}
+        onStart={() => playable[0] && void openPiece(playable[0].index)}
+        onEnded={nextPiece}
+      />
+
       {view.questions.map((q) => (
         <QuestionCard
           key={q.position}
@@ -186,9 +229,97 @@ export function LiveReviewClient({
           acting={acting}
           audio={audio}
           onPlay={play}
+          pieces={view.video.pieces}
+          onWatch={watchAt}
         />
       ))}
     </div>
+  );
+}
+
+function incompleteNote(missing: number): string {
+  if (missing === 0) return "The recording is incomplete.";
+  return `The recording is incomplete: ${missing} ${missing === 1 ? "part was" : "parts were"} not saved.`;
+}
+
+function VideoSection({
+  video,
+  playing,
+  error,
+  onStart,
+  onEnded,
+}: {
+  video: LiveReviewVideo;
+  playing: VideoState;
+  error: string | null;
+  onStart: () => void;
+  onEnded: () => void;
+}) {
+  let body: React.ReactNode;
+  if (!video.recorded) {
+    body = <p className={`m-0 ${MUTED}`}>No camera video was recorded for this interview.</p>;
+  } else if (video.purged && video.pieces.every((p) => !p.hasVideo)) {
+    body = <p className={`m-0 ${MUTED}`}>This video was deleted after six months.</p>;
+  } else {
+    body = (
+      <>
+        {playing ? (
+          // biome-ignore lint/a11y/useMediaCaption: the transcript of every turn is printed below.
+          <video
+            key={playing.url}
+            className="w-full rounded-xl bg-black"
+            controls
+            autoPlay
+            src={playing.url}
+            data-video-piece={playing.index}
+            onLoadedMetadata={(e) => {
+              e.currentTarget.currentTime = playing.seek;
+            }}
+            onEnded={onEnded}
+          />
+        ) : (
+          <button
+            type="button"
+            className={BUTTON}
+            onClick={onStart}
+            disabled={video.pieces.length === 0}
+          >
+            Play video
+          </button>
+        )}
+        {video.gaps.length > 0 && (
+          <ul className="m-0 mt-3 flex list-none flex-col gap-1 p-0" data-video-gaps>
+            {video.gaps.map((g) => (
+              <li key={g.fromMs} className={MUTED}>
+                Video missing from {clock(g.fromMs)}{" "}
+                {g.toMs === null ? "to the end" : `to ${clock(g.toMs)}`}
+              </li>
+            ))}
+          </ul>
+        )}
+        {!video.complete && (
+          <p className={`m-0 mt-2 ${MUTED}`} data-video-incomplete>
+            {incompleteNote(video.missingPieces.length)}
+          </p>
+        )}
+      </>
+    );
+  }
+  return (
+    <section className={CARD} aria-label="Camera video" data-video>
+      <p className="m-0 mb-3 text-xs font-bold uppercase tracking-wide text-[var(--ai-t3)]">
+        Camera video
+      </p>
+      {body}
+      <p className={`m-0 mt-3 ${MUTED}`} data-video-sound>
+        {VIDEO_SOUND_NOTE}
+      </p>
+      {error && (
+        <p role="alert" className="m-0 mt-2 text-sm text-[var(--ai-peach-ink)]">
+          {error}
+        </p>
+      )}
+    </section>
   );
 }
 
@@ -198,12 +329,16 @@ function QuestionCard({
   acting,
   audio,
   onPlay,
+  pieces,
+  onWatch,
 }: {
   q: LiveReviewQuestion;
   sessionId: string;
   acting: boolean;
   audio: AudioState;
   onPlay: (turnId: string, start?: number) => void;
+  pieces: readonly LiveVideoPiece[];
+  onWatch: (atMs: number) => void;
 }) {
   return (
     <article className={CARD} data-question={q.position}>
@@ -252,6 +387,16 @@ function QuestionCard({
               >
                 “{quote.text}”
               </button>
+              {quote.atMs !== null && videoPositionAt(quote.atMs, pieces) && (
+                <button
+                  type="button"
+                  className="ml-2 text-xs text-[var(--ai-t3)] underline"
+                  data-watch={quote.atMs}
+                  onClick={() => quote.atMs !== null && onWatch(quote.atMs)}
+                >
+                  Watch
+                </button>
+              )}
             </li>
           ))}
         </ul>

@@ -57,6 +57,16 @@ import { INTERVIEW_BUCKET } from "./session";
  * Same schedule. REMOVED from every question's score: the rationale and the
  * quotes (the candidate's words). KEPT: scores, statuses, counts and the
  * overall. See live-score-purge.ts.
+ *
+ * ── Live interview camera video (migration 044) ──────────────
+ *
+ * Same schedule. Every piece's object is in the session's folder, so the same
+ * folder sweep removes it; each piece row then has its media_path cleared and
+ * content_purged_at stamped (044 allows exactly that, pending or confirmed),
+ * only once its object is confirmed gone, so a failed delete is retried on
+ * the next run. The orphan sweep counts a CONFIRMED piece's path as
+ * referenced: a reserved piece never confirmed is not, and its upload is
+ * swept after the 24-hour grace like any other orphan.
  */
 
 /** How old an unreferenced object must be before the sweep will remove it. */
@@ -180,6 +190,7 @@ export async function handleInterviewPurge(job: {
   let removalFailures = 0;
   let orphansRemoved = 0;
   let turnsPurged = 0;
+  let piecesPurged = 0;
   let scoresCleared = 0;
   let truncated = false;
 
@@ -243,6 +254,10 @@ export async function handleInterviewPurge(job: {
       objectsRemoved += turns.objectsRemoved;
       removalFailures += turns.retrying;
       scoresCleared += await purgeLiveScoreWords(service, ids);
+      const video = await purgeDueVideoPieces(service, ids, now);
+      piecesPurged += video.purged;
+      objectsRemoved += video.objectsRemoved;
+      removalFailures += video.retrying;
 
       if (answers.length === 0) continue;
 
@@ -337,7 +352,7 @@ export async function handleInterviewPurge(job: {
 
   console.log(
     `[purge] job ${job.id}: sessions=${sessionsPurged} objects=${objectsRemoved} ` +
-      `rows=${rowsCleared} turns=${turnsPurged} live_scores=${scoresCleared} retrying=${removalFailures} orphans=${orphansRemoved}` +
+      `rows=${rowsCleared} turns=${turnsPurged} live_scores=${scoresCleared} video_pieces=${piecesPurged} retrying=${removalFailures} orphans=${orphansRemoved}` +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }
@@ -411,6 +426,58 @@ async function purgeDueTurns(
       const { error: e } = await service.from("interview_turns").update(words).in("id", kept);
       if (e) throw new Error(`purge: clear turn words: ${e.message}`);
       retrying += kept.length;
+    }
+  }
+  return { purged, objectsRemoved, retrying };
+}
+
+/**
+ * Clear every live video piece of these due sessions (migration 044). The
+ * objects go with the session's folder; a row's media_path is cleared, and
+ * content_purged_at stamped, only once its object is confirmed gone.
+ */
+async function purgeDueVideoPieces(
+  service: Service,
+  sessionIds: string[],
+  now: string,
+): Promise<{ purged: number; objectsRemoved: number; retrying: number }> {
+  const { data, error } = await service
+    .from("live_video_pieces")
+    .select("id, session_id, media_path")
+    .in("session_id", sessionIds)
+    .not("media_path", "is", null);
+  if (error) throw new Error(`purge: video pieces: ${error.message}`);
+  const bySession = new Map<string, { id: string; media_path: string }[]>();
+  for (const p of (data ?? []) as { id: string; session_id: string; media_path: string }[]) {
+    const list = bySession.get(p.session_id);
+    if (list) list.push(p);
+    else bySession.set(p.session_id, [p]);
+  }
+  let purged = 0;
+  let objectsRemoved = 0;
+  let retrying = 0;
+  for (const [sessionId, rows] of bySession) {
+    let sweep: Awaited<ReturnType<typeof removeSessionObjects>>;
+    try {
+      sweep = await removeSessionObjects(service, sessionId);
+    } catch (err) {
+      console.error(`[purge] video ${sessionId}: ${(err as Error).message}`);
+      retrying += rows.length;
+      continue;
+    }
+    objectsRemoved += sweep.removed.size;
+    const present = new Set(sweep.present);
+    const gone = rows
+      .filter((p) => !present.has(p.media_path) || sweep.removed.has(p.media_path))
+      .map((p) => p.id);
+    retrying += rows.length - gone.length;
+    if (gone.length > 0) {
+      const { error: e } = await service
+        .from("live_video_pieces")
+        .update({ media_path: null, content_purged_at: now })
+        .in("id", gone);
+      if (e) throw new Error(`purge: clear video pieces: ${e.message}`);
+      purged += gone.length;
     }
   }
   return { purged, objectsRemoved, retrying };
@@ -496,10 +563,23 @@ async function sweepOrphans(service: Service, startedAt: number): Promise<number
         console.error(`[purge] orphan sweep: turn refs: ${turnRefErr.message}`);
         continue;
       }
+      // Live interview camera video: a CONFIRMED piece is referenced; a
+      // reserved piece's upload that was never confirmed is not.
+      const { data: pieceRefs, error: pieceRefErr } = await service
+        .from("live_video_pieces")
+        .select("media_path")
+        .eq("session_id", sessionId)
+        .eq("status", "confirmed")
+        .not("media_path", "is", null);
+      if (pieceRefErr) {
+        console.error(`[purge] orphan sweep: video piece refs: ${pieceRefErr.message}`);
+        continue;
+      }
       const referenced = new Set(
         [
           ...((refData ?? []) as { video_path: string | null }[]).map((r) => r.video_path),
           ...((turnRefs ?? []) as { media_path: string | null }[]).map((r) => r.media_path),
+          ...((pieceRefs ?? []) as { media_path: string | null }[]).map((r) => r.media_path),
         ].filter((p): p is string => Boolean(p)),
       );
 
