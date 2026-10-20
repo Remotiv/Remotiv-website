@@ -1,6 +1,8 @@
 import type { Metadata } from "next";
 import Link from "next/link";
 import { Navbar } from "@/components/navbar";
+import { livePrivacySection } from "@/lib/interviews/live-consent";
+import { LiveInterviewsSection } from "./_live-interviews-section";
 
 /**
  * Remotiv's privacy policy.
@@ -156,6 +158,10 @@ function Mail() {
 }
 
 export default function PrivacyPage() {
+  // Section 15, AI video interviews: rendered only once no fact in it is a
+  // placeholder (lib/interviews/live-consent.ts). Until then the page is
+  // exactly as it was, Contact included as section 15.
+  const liveSection = livePrivacySection();
   return (
     <>
       <Navbar />
@@ -233,6 +239,17 @@ export default function PrivacyPage() {
             </Link>{" "}
             in section 14.
           </P>
+          {liveSection && (
+            <P>
+              {liveSection.linkFromSection1}{" "}
+              <Link
+                href={`#${liveSection.id}`}
+                className="font-medium text-remotiv-purple underline underline-offset-2"
+              >
+                {liveSection.title}
+              </Link>
+            </P>
+          )}
 
           <H3>When you contact us</H3>
           <P>
@@ -789,7 +806,9 @@ export default function PrivacyPage() {
             </P>
           </section>
 
-          <H2>15. Contact</H2>
+          {liveSection && <LiveInterviewsSection section={liveSection} />}
+
+          {liveSection ? <H2>16. Contact</H2> : <H2>15. Contact</H2>}
           <P>
             For anything in this policy — access, correction, deletion, or a question about what we
             hold — email <Mail />. For anything else, our{" "}

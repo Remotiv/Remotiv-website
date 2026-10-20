@@ -1,6 +1,7 @@
 import { removeCandidateName } from "@/lib/interviews/candidate-name";
 import { sanitizeCvForInterview } from "@/lib/interviews/cv-sanitize";
 import { type FrozenLiveQuestionSet, isFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
+import { isLiveConsentProof, type LiveConsentProof } from "@/lib/interviews/live-consent-record";
 import type { CreateSessionInput } from "./types";
 
 /**
@@ -35,6 +36,14 @@ import type { CreateSessionInput } from "./types";
  *
  * The CV is sanitised, then the candidate's full name and surname are
  * removed (candidate-name.ts). The first name is sent on its own field.
+ *
+ * ── Only after the candidate's consent is saved ──────────────
+ *
+ * `consent` must be the proof requireLiveConsent (live-consent-record.ts)
+ * returns for THIS session after reading consent_at and consent_version
+ * 'live-v1' from its row. Without one, no provider session can be built: a
+ * declined screen or a consent that failed to save never reaches the
+ * provider.
  */
 
 export class CreateSessionInputError extends Error {
@@ -52,9 +61,16 @@ export function buildCreateSessionInput(input: {
   candidateFirstName: string | null;
   candidateLastName: string | null;
   cvText: string | null;
+  consent: LiveConsentProof;
 }): CreateSessionInput {
   const sessionId = input.remotivSessionId.trim();
   if (!sessionId) throw new CreateSessionInputError("no session id");
+  if (!isLiveConsentProof(input.consent)) {
+    throw new CreateSessionInputError("no saved live consent: the interview cannot start");
+  }
+  if (input.consent.session_id !== sessionId) {
+    throw new CreateSessionInputError("the saved consent belongs to another session");
+  }
   const interviewerName = input.interviewerName.trim();
   if (!interviewerName) throw new CreateSessionInputError("no interviewer name");
   if (!Number.isInteger(input.interviewMinutes) || input.interviewMinutes <= 0) {

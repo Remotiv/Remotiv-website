@@ -13,6 +13,16 @@ import { register } from "node:module";
 import { test } from "node:test";
 
 register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
+// The live consent text is stubbed as final here, so a consent proof can be made for the
+// builder. The real text, with its placeholders, is tested in live-consent.test.ts.
+register(
+  `data:text/javascript,${encodeURIComponent(`
+const READY = "export const LIVE_INTERVIEW_CONSENT_VERSION = 'live-v1'; export function liveConsentReady() { return true; } export function liveConsentGiven(r) { return r.consent_at !== null && r.consent_version === 'live-v1'; }";
+export async function resolve(specifier, context, next) {
+  if (specifier === "@/lib/interviews/live-consent") return { url: "data:text/javascript," + encodeURIComponent(READY), shortCircuit: true };
+  return next(specifier, context);
+}`)}`,
+);
 register(
   `data:text/javascript,${encodeURIComponent(`
 export async function resolve(specifier, context, next) {
@@ -34,6 +44,21 @@ const { buildCreateSessionInput, CreateSessionInputError } = await import(
   "./live-provider/create-session.ts"
 );
 const { questionMixFor } = await import("./question-mix.ts");
+const { requireLiveConsent } = await import("./live-consent-record.ts");
+/** The consent proof for a session whose row carries live-v1. */
+const consentFor = (sessionId) =>
+  requireLiveConsent(
+    fakeService(() => ({
+      data: {
+        id: sessionId,
+        kind: "live",
+        consent_at: "2026-10-20T09:00:00.000Z",
+        consent_version: "live-v1",
+      },
+      error: null,
+    })),
+    sessionId,
+  );
 const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
 
 const SESSION = "5b0f2c1e-0000-4000-8000-000000000001";
@@ -515,6 +540,7 @@ test("the provider gets the frozen text and position only: no guide, source or c
     candidateFirstName: "Alex",
     candidateLastName: "Example",
     cvText: CV,
+    consent: await consentFor(SESSION),
   });
   assert.deepEqual(
     input.questions,
@@ -549,6 +575,7 @@ test("the provider builder refuses questions that were not read frozen from this
     candidateFirstName: "Alex",
     candidateLastName: "Example",
     cvText: CV,
+    consent: await consentFor(SESSION),
   };
   for (const questions of [
     set.questions.map((q) => ({ position: q.position, text: q.text })),

@@ -12,8 +12,20 @@ import { register } from "node:module";
 import { test } from "node:test";
 
 register(new URL("../../../test-support/node-resolve.mjs", import.meta.url));
+// The live consent text is stubbed as final here, so a consent proof can be made for the
+// builder. The real text, with its placeholders, is tested in live-consent.test.ts.
+register(
+  `data:text/javascript,${encodeURIComponent(`
+const READY = "export const LIVE_INTERVIEW_CONSENT_VERSION = 'live-v1'; export function liveConsentReady() { return true; } export function liveConsentGiven(r) { return r.consent_at !== null && r.consent_version === 'live-v1'; }";
+export async function resolve(specifier, context, next) {
+  if (specifier === "@/lib/interviews/live-consent") return { url: "data:text/javascript," + encodeURIComponent(READY), shortCircuit: true };
+  return next(specifier, context);
+}`)}`,
+);
 
 const { buildCreateSessionInput, CreateSessionInputError } = await import("./create-session.ts");
+const { requireLiveConsent } = await import("../live-consent-record.ts");
+const { fakeService } = await import("../../../test-support/fake-postgrest.mjs");
 const { createFakeLiveProvider } = await import("./fake-provider.ts");
 const { readFrozenQuestionSet } = await import("../frozen-questions.ts");
 
@@ -85,6 +97,22 @@ function frozenRow(sessionId = SESSION) {
 }
 const FROZEN = readFrozenQuestionSet(frozenRow());
 
+/** The consent proof for a session whose row carries live-v1, as requireLiveConsent reads it. */
+const consentFor = (sessionId) =>
+  requireLiveConsent(
+    fakeService(() => ({
+      data: {
+        id: sessionId,
+        kind: "live",
+        consent_at: "2026-10-20T09:00:00.000Z",
+        consent_version: "live-v1",
+      },
+      error: null,
+    })),
+    sessionId,
+  );
+const CONSENT = await consentFor(SESSION);
+
 const CV = [
   "Alex Example",
   "Backend Engineer | alex.example@example.com | +92 300 0000000 | linkedin.com/in/alex-example",
@@ -101,6 +129,7 @@ function input(overrides = {}) {
     candidateFirstName: "Alex",
     candidateLastName: "Example",
     cvText: CV,
+    consent: CONSENT,
     ...overrides,
   });
 }
@@ -235,4 +264,33 @@ test("fake: each session gets its own id; the sample itself is never changed", a
   assert.equal(fake.exportOf(b.providerSessionId).turns.length, SAMPLE.turns.length);
   assert.equal(JSON.stringify(SAMPLE), before);
   assert.throws(() => fake.exportOf("fake-session-99"), /no session/);
+});
+
+test("no provider session without the candidate's saved live consent, for this session", async () => {
+  assert.throws(() => input({ consent: undefined }), /no saved live consent/);
+  assert.throws(
+    () => input({ consent: { session_id: SESSION, consent_at: "x", consent_version: "live-v1" } }),
+    /no saved live consent/,
+    "a look-alike object is not a proof",
+  );
+  const other = await consentFor("5b0f2c1e-0000-4000-8000-0000000000ff");
+  assert.throws(() => input({ consent: other }), /belongs to another session/);
+  for (const row of [
+    { id: SESSION, kind: "live", consent_at: null, consent_version: null },
+    { id: SESSION, kind: "live", consent_at: "2026-10-20T09:00:00.000Z", consent_version: "v2" },
+    {
+      id: SESSION,
+      kind: "async",
+      consent_at: "2026-10-20T09:00:00.000Z",
+      consent_version: "live-v1",
+    },
+  ]) {
+    await assert.rejects(
+      requireLiveConsent(
+        fakeService(() => ({ data: row, error: null })),
+        SESSION,
+      ),
+      /live consent/,
+    );
+  }
 });

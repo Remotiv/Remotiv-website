@@ -1,4 +1,5 @@
 import "server-only";
+import { liveConsentReady } from "@/lib/interviews/live-consent";
 
 /**
  * Which companies may send AI Video Interviews at all.
@@ -27,9 +28,16 @@ import "server-only";
  *
  * Called FIRST inside gateLiveInterviewInvite, so no send can pass the gate
  * without passing this — one lock, not two to keep in step.
+ *
+ * ── And never while the consent text is unfinished ───────────
+ *
+ * While the live consent text (live-consent.ts) still holds a placeholder,
+ * no company is available, allowlisted or not: an invite would lead to a
+ * consent screen that cannot be shown.
  */
 export function liveInterviewsAvailableFor(companyId: string): boolean {
   if (!companyId) return false;
+  if (!liveConsentReady()) return false;
   const allowed = (process.env.AI_VIDEO_INTERVIEW_COMPANY_IDS ?? "")
     .split(",")
     .map((id) => id.trim())

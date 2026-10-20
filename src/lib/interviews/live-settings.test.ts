@@ -16,6 +16,11 @@ register(
   `data:text/javascript,${encodeURIComponent(`
 export async function resolve(specifier, context, next) {
   if (specifier === "server-only") return { url: "data:text/javascript,", shortCircuit: true };
+  // The live consent text as final, so the allowlist alone decides here. The
+  // real text keeps live closed while it has placeholders: live-consent.test.ts.
+  if (specifier === "@/lib/interviews/live-consent") {
+    return { url: "data:text/javascript," + encodeURIComponent("export function liveConsentReady() { return true; }"), shortCircuit: true };
+  }
   return next(specifier, context);
 }`)}`,
 );
