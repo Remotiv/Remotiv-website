@@ -58,7 +58,7 @@ const SESSION = "5b0f2c1e-0000-4000-8000-0000000000f9";
 const DASHES = /[–—]/;
 
 /** The approved live-v1 wording. A change to any word must bump the version and this. */
-const LIVE_V1_SHA256 = "0974b46cf561daf457fd028f467888529338a47ee858de6fa0f90b0c0669e72d";
+const LIVE_V1_SHA256 = "772f010f7894c87a589ab34f46e5be15ef510b84865d0f503a384e15e12ede93";
 
 test("live-v1 is its own version, pinned to the approved wording; async v2 is untouched", () => {
   assert.equal(LIVE_INTERVIEW_CONSENT_VERSION, "live-v1");
@@ -89,7 +89,18 @@ test("the approved wording, word for word where it matters", () => {
     all,
     /Remotiv schedules the recordings and transcripts for deletion six months after you were invited\./,
   );
-  assert.match(all, /receives your first name and your CV with your contact details removed/);
+  assert.match(
+    all,
+    /Remotiv's AI interview system receives your first name and your CV with your contact details removed/,
+  );
+  assert.match(
+    all,
+    /run on servers from RunPod \(our cloud computing provider\) in the Czech Republic and Iceland/,
+  );
+  assert.match(
+    all,
+    /The interview server keeps its copy for 30 days, then deletes it automatically\./,
+  );
   const privacy = JSON.stringify(LIVE_PRIVACY_SECTION);
   assert.match(
     privacy,
@@ -98,21 +109,26 @@ test("the approved wording, word for word where it matters", () => {
   assert.doesNotMatch(privacy, /ended early, there is no overall score/);
   assert.match(
     privacy,
+    /The interview server keeps its copy for 30 days, then deletes it automatically\./,
+  );
+  assert.match(privacy, /In addition to section 5: the Czech Republic and Iceland/);
+  const runpod = LIVE_PRIVACY_SECTION.blocks
+    .flatMap((b) => (b.kind === "ul" ? b.items : []))
+    .find((i) => i.lead === "RunPod");
+  assert.match(runpod.text, /cloud computing provider, hosts Remotiv's AI interview system/);
+  // The interview system is Remotiv's own: never a partner, never a named third party.
+  assert.doesNotMatch(all, /partner/i);
+  assert.doesNotMatch(privacy, /partner/i);
+  assert.match(
+    privacy,
     /Remotiv schedules the recordings, the transcripts and Sarah's words for deletion six months after you were invited/,
   );
 });
 
 test("placeholders are still in both texts, so neither can be shown", () => {
   const found = new Set(placeholdersIn([LIVE_CONSENT, LIVE_PRIVACY_SECTION]));
-  for (const p of [
-    "[PARTNER NAME]",
-    "[PARTNER SERVER REGION]",
-    "[PARTNER RETENTION]",
-    "[CONFIRM: CAMERA VIDEO]",
-    "[CONFIRM: D4 TRANSCRIPTION]",
-  ]) {
-    assert.ok(found.has(p), p);
-  }
+  // Two facts still to confirm; the partner placeholders are gone, replaced by real values.
+  assert.deepEqual([...found].sort(), ["[CONFIRM: CAMERA VIDEO]", "[CONFIRM: D4 TRANSCRIPTION]"]);
   assert.equal(liveConsentReady(), false);
   assert.equal(livePrivacyReady(), false);
   assert.equal(liveConsentScreen("Northwind"), null, "the consent screen has nothing to show");

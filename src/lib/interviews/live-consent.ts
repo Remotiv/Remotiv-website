@@ -12,9 +12,8 @@
  *
  * ── Placeholders, never invented facts ───────────────────────
  *
- * Facts not yet confirmed are written as [PARTNER NAME], [PARTNER SERVER
- * REGION], [PARTNER RETENTION], [CONFIRM: CAMERA VIDEO] and [CONFIRM: D4
- * TRANSCRIPTION]. While any remains:
+ * Facts not yet confirmed are written as [CONFIRM: CAMERA VIDEO] and
+ * [CONFIRM: D4 TRANSCRIPTION]. While any remains:
  *
  *   liveConsentScreen()   returns null: the screen has nothing to show
  *   liveConsentReady()    is false: liveInterviewsAvailableFor refuses every
@@ -28,7 +27,8 @@
  * ── Copy ─────────────────────────────────────────────────────
  *
  * Plain English, regular hyphens only. `{company}` is the hiring company's
- * name, filled in by liveConsentScreen.
+ * name, filled in by liveConsentScreen. The interview system is Remotiv's
+ * own, hosted by RunPod; the text never calls it a partner.
  *
  * Plain module: the candidate screen and the public privacy page import it.
  */
@@ -50,15 +50,15 @@ export const LIVE_CONSENT = {
     },
     {
       lead: "You're being recorded",
-      body: "[CONFIRM: CAMERA VIDEO] Your camera video is recorded and stored by Remotiv. The spoken conversation, your voice and Sarah's, is handled by our AI interview partner, [PARTNER NAME], on servers in [PARTNER SERVER REGION]. Remotiv keeps a copy of the audio, and {company}'s hiring team can watch and listen to it.",
+      body: "[CONFIRM: CAMERA VIDEO] Your camera video is recorded and stored by Remotiv. The spoken conversation, your voice and Sarah's, is handled by Remotiv's AI interview system, run on servers from RunPod (our cloud computing provider) in the Czech Republic and Iceland. Remotiv keeps a copy of the audio, and {company}'s hiring team can watch and listen to it.",
     },
     {
       lead: "How your answers become text",
-      body: "[CONFIRM: D4 TRANSCRIPTION] [PARTNER NAME] transcribes your answers with its own speech system, which it runs itself.",
+      body: "[CONFIRM: D4 TRANSCRIPTION] Remotiv's AI interview system transcribes your answers with its own speech system, which we run ourselves.",
     },
     {
       lead: "Where the questions come from",
-      body: "{company} wrote the questions about the role. Remotiv's AI wrote the questions about your CV. So that Sarah can ask relevant follow-up questions, [PARTNER NAME] receives your first name and your CV with your contact details removed.",
+      body: "{company} wrote the questions about the role. Remotiv's AI wrote the questions about your CV. So that Sarah can ask relevant follow-up questions, Remotiv's AI interview system receives your first name and your CV with your contact details removed.",
     },
     {
       lead: "A person makes the decision",
@@ -66,7 +66,7 @@ export const LIVE_CONSENT = {
     },
     {
       lead: "Kept for 6 months, then deleted",
-      body: "Remotiv schedules the recordings and transcripts for deletion six months after you were invited. [PARTNER NAME] keeps its copy for [PARTNER RETENTION].",
+      body: "Remotiv schedules the recordings and transcripts for deletion six months after you were invited. The interview server keeps its copy for 30 days, then deletes it automatically.",
     },
     {
       lead: "Answer in your own words",
@@ -105,8 +105,12 @@ export const LIVE_PRIVACY_SECTION = {
       kind: "ul",
       items: [
         {
-          lead: "[PARTNER NAME]",
-          text: "our AI interview partner, runs the conversation on servers in [PARTNER SERVER REGION]. It receives your voice during the interview, your first name, the questions, and your CV with your email, phone number, links and address removed, so Sarah can ask relevant follow-up questions. [CONFIRM: D4 TRANSCRIPTION] It transcribes your answers with its own speech system. It keeps its copy for [PARTNER RETENTION].",
+          lead: "Remotiv's AI interview system",
+          text: "runs the conversation. It receives your voice during the interview, your first name, the questions, and your CV with your email, phone number, links and address removed, so Sarah can ask relevant follow-up questions. [CONFIRM: D4 TRANSCRIPTION] It transcribes your answers with its own speech system, which we run ourselves. The interview server keeps its copy for 30 days, then deletes it automatically.",
+        },
+        {
+          lead: "RunPod",
+          text: "our cloud computing provider, hosts Remotiv's AI interview system on its servers in the Czech Republic and Iceland.",
         },
         {
           lead: "Anthropic",
@@ -139,7 +143,7 @@ export const LIVE_PRIVACY_SECTION = {
     { kind: "h3", text: "Where it goes" },
     {
       kind: "p",
-      text: "In addition to section 5: [PARTNER SERVER REGION], for the conversation with [PARTNER NAME].",
+      text: "In addition to section 5: the Czech Republic and Iceland, where RunPod hosts Remotiv's AI interview system and the conversation is processed.",
     },
   ] satisfies PrivacyBlock[],
 } as const;
