@@ -2,7 +2,7 @@
  * An in-memory database and storage bucket for the AI Video Interview save and
  * purge tests, built on fake-postgrest.mjs. Unlike that fake, this one APPLIES
  * what it is asked: eq / in / is / lte / or filters, insert and upsert, update,
- * and storage upload / list / remove.
+ * and storage upload / list / remove / createSignedUrl.
  *
  * interview_turns rows are checked against the constraints of migrations 021,
  * 022 and 041 on every insert and update, and a multi-row insert lands whole
@@ -447,6 +447,13 @@ export function fakeLiveDb(initial = {}) {
             entries.sort((a, b) => (a.name < b.name ? -1 : 1));
           }
           return { data: entries.slice(offset, offset + limit), error: null };
+        },
+        async createSignedUrl(path, ttl) {
+          if (!objects.has(path)) return { data: null, error: { message: "not found" } };
+          return {
+            data: { signedUrl: `https://storage.test/signed/${path}?ttl=${ttl}` },
+            error: null,
+          };
         },
         async download(path) {
           if (takeFault("storage", "download")) return { data: null, error: { message: "fault" } };
