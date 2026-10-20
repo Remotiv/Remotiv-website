@@ -35,6 +35,14 @@ import {
   watchMediaPermissions,
 } from "./_permissions";
 import { useTabLock } from "./_tab-lock";
+import {
+  CONSENT_AGAIN,
+  CONSENT_SAVE_FAILED,
+  type ConsentResume,
+  consentStep,
+  isConsentRequired,
+  saveConsent,
+} from "./_consent-gate";
 
 /**
  * The candidate flow: Welcome → Consent → Tech check → Recording → Review.
@@ -318,6 +326,10 @@ export function InterviewFlow({
 
   const [agreed, setAgreed] = useState(false);
   const [agreeErr, setAgreeErr] = useState(false);
+  const [consentSaving, setConsentSaving] = useState(false);
+  const [consentSaveErr, setConsentSaveErr] = useState(false);
+  /** Set when the server asked for consent again: what to go back to once it is saved. */
+  const [consentResume, setConsentResume] = useState<ConsentResume>(null);
 
   const [camCheck, setCamCheck] = useState<CheckState>("pend");
   const [micCheck, setMicCheck] = useState<CheckState>("pend");
@@ -863,17 +875,21 @@ export function InterviewFlow({
       blob: Blob,
       position: number,
       seconds: number,
-    ): Promise<{ ok: true } | { ok: false; error: string; retryable: boolean }> => {
+    ): Promise<
+      { ok: true } | { ok: false; error: string; retryable: boolean; consentRequired?: boolean }
+    > => {
       const kind = blob.type.includes("mp4") ? "mp4" : "webm";
       const contentType = kind === "mp4" ? "video/mp4" : "video/webm";
 
-      const readError = async (res: Response, fallback: string) => {
+      const readBody = async (res: Response): Promise<unknown> => {
         try {
-          return ((await res.json()) as { error?: string }).error ?? fallback;
+          return await res.json();
         } catch {
-          return fallback;
+          return null;
         }
       };
+      const bodyError = (body: unknown, fallback: string) =>
+        (body as { error?: string } | null)?.error ?? fallback;
 
       /*
        * Which failures are worth trying again.
@@ -901,10 +917,13 @@ export function InterviewFlow({
         };
       }
       if (!signed.ok) {
+        const body = await readBody(signed);
         return {
           ok: false,
           retryable: retryableStatus(signed.status),
-          error: await readError(signed, "Couldn't start that upload."),
+          // The server asks for consent again: the page shows the consent screen.
+          consentRequired: isConsentRequired(signed.status, body),
+          error: bodyError(body, "Couldn't start that upload."),
         };
       }
       const { url } = (await signed.json()) as { url?: string };
@@ -935,10 +954,12 @@ export function InterviewFlow({
         };
       }
       if (!confirmed.ok) {
+        const body = await readBody(confirmed);
         return {
           ok: false,
           retryable: retryableStatus(confirmed.status),
-          error: await readError(confirmed, "Your answer uploaded but didn't save."),
+          consentRequired: isConsentRequired(confirmed.status, body),
+          error: bodyError(body, "Your answer uploaded but didn't save."),
         };
       }
 
@@ -1037,8 +1058,23 @@ export function InterviewFlow({
    * a mobile network usually clears within seconds and is not something a
    * candidate should have to think about.
    */
+  /**
+   * The server asked for consent again (it has no saved agreement to the
+   * current text). Show the consent screen; nothing else changes, and an
+   * answer still on the device stays in pendingRef for the upload after.
+   */
+  const askConsentAgain = useCallback(
+    (resume: Exclude<ConsentResume, null>) => {
+      setConsentResume(resume);
+      setConsentSaveErr(false);
+      setScreen("consent");
+      announce(CONSENT_AGAIN[resume], { assertive: true });
+    },
+    [announce],
+  );
+
   const attemptUpload = useCallback(
-    async (blob: Blob, position: number, seconds: number): Promise<boolean> => {
+    async (blob: Blob, position: number, seconds: number): Promise<"ok" | "failed" | "consent"> => {
       setUploadError(null);
       let lastError: string | null = null;
       for (let attempt = 1; attempt <= UPLOAD_AUTO_ATTEMPTS; attempt += 1) {
@@ -1046,11 +1082,13 @@ export function InterviewFlow({
         const result = await uploadAnswer(blob, position, seconds);
         if (result.ok) {
           setUploadAttempt(0);
-          return true;
+          return "ok";
         }
 
         setUploadError(result.error);
         lastError = result.error;
+        // Not a failure to retry: the answer waits while the candidate agrees.
+        if (result.consentRequired) return "consent";
         // A 415 or a 409 will fail identically next time. Stop immediately
         // rather than making someone wait through a scripted failure.
         if (!result.retryable) break;
@@ -1069,7 +1107,7 @@ export function InterviewFlow({
         `${lastError ?? "That answer didn't upload."} Your answer is still on this device. Use Retry when you have signal.`,
         { assertive: true },
       );
-      return false;
+      return "failed";
     },
     [uploadAnswer, announce],
   );
@@ -1110,10 +1148,14 @@ export function InterviewFlow({
     if (!pending) return;
     setPhase("uploading");
     setUploadPct(0);
-    const ok = await attemptUpload(pending.blob, pending.position, pending.seconds);
-    if (ok) commitAnswer(pending.index, pending.seconds);
-    else setPhase("uploadfailed");
-  }, [attemptUpload, commitAnswer]);
+    const outcome = await attemptUpload(pending.blob, pending.position, pending.seconds);
+    if (outcome === "ok") {
+      commitAnswer(pending.index, pending.seconds);
+      return;
+    }
+    setPhase("uploadfailed");
+    if (outcome === "consent") askConsentAgain("upload");
+  }, [attemptUpload, commitAnswer, askConsentAgain]);
 
   /** Runs once the recorder has flushed. Practice is discarded here. */
   async function handleStopped(mime: string, parts: Blob[]) {
@@ -1171,13 +1213,14 @@ export function InterviewFlow({
     // including an unexpected throw.
     pendingRef.current = { blob, position: question.position, seconds, index: qi };
 
-    const ok = await attemptUpload(blob, question.position, seconds);
-    if (ok) {
+    const outcome = await attemptUpload(blob, question.position, seconds);
+    if (outcome === "ok") {
       commitAnswer(qi, seconds);
       return;
     }
     // The recording is still in pendingRef. Nothing is lost yet.
     setPhase("uploadfailed");
+    if (outcome === "consent") askConsentAgain("upload");
   }
 
   // Re-pointed on every render, so onstop always calls today's closure.
@@ -1286,23 +1329,36 @@ export function InterviewFlow({
   // ── Consent ────────────────────────────────────────────────
 
   async function acceptConsent() {
-    if (!agreed) {
+    // Saved on the server, or the candidate does not continue: upload-url,
+    // confirm and submit all refuse without it (lib/interviews/consent.ts).
+    const step = await consentStep({
+      agreed,
+      saving: consentSaving,
+      resume: consentResume,
+      save: async () => {
+        setConsentSaving(true);
+        setConsentSaveErr(false);
+        const saved = await saveConsent(token);
+        setConsentSaving(false);
+        return saved;
+      },
+    });
+    if (step.kind === "not_agreed") {
       // A disabled button would not explain itself; the error names the gate.
       setAgreeErr(true);
       notify("Please confirm you agree to be recorded", "error");
       return;
     }
-    try {
-      await fetch("/api/interview/consent", {
-        method: "POST",
-        headers: { "content-type": "application/json" },
-        body: JSON.stringify({ token }),
-      });
-    } catch {
-      // Consent is stamped server-side and is idempotent; a failed stamp must
-      // not block someone who has already agreed on screen.
+    if (step.kind === "busy") return;
+    if (step.kind === "save_failed") {
+      setConsentSaveErr(true);
+      notify(CONSENT_SAVE_FAILED, "error");
+      return;
     }
-    setScreen("tech");
+    // Back to whatever the server interrupted; a waiting answer uploads now.
+    setConsentResume(null);
+    setScreen(step.screen);
+    if (step.retryUpload) void retryUpload();
   }
 
   // ── Review ─────────────────────────────────────────────────
@@ -1318,7 +1374,13 @@ export function InterviewFlow({
         headers: { "content-type": "application/json" },
         body: JSON.stringify({ token }),
       });
-      const body = (await res.json()) as { error?: string };
+      const body = (await res.json()) as { error?: string; code?: string };
+      if (isConsentRequired(res.status, body)) {
+        // Asked again before submitting; the answers are all saved already.
+        setSubmitting(false);
+        askConsentAgain("submit");
+        return;
+      }
       if (!res.ok) {
         const message = body.error ?? "Couldn't submit. Please try again.";
         setSubmitErr(message);
@@ -1457,6 +1519,9 @@ export function InterviewFlow({
               companyName={session.companyName}
               agreed={agreed}
               error={agreeErr}
+              saving={consentSaving}
+              saveError={consentSaveErr}
+              again={consentResume ? CONSENT_AGAIN[consentResume] : null}
               onToggle={(v) => {
                 setAgreed(v);
                 setAgreeErr(false);
@@ -1706,16 +1771,25 @@ function Fact({
   );
 }
 
-function Consent({
+export function Consent({
   companyName,
   agreed,
   error,
+  saving,
+  saveError,
+  again,
   onToggle,
   onContinue,
 }: {
   companyName: string;
   agreed: boolean;
   error: boolean;
+  /** The agreement is being saved. */
+  saving: boolean;
+  /** Saving the agreement failed: say so, and offer Try again. */
+  saveError: boolean;
+  /** Why the screen came back mid-interview, or null the first time. */
+  again: string | null;
   onToggle: (v: boolean) => void;
   onContinue: () => void;
 }) {
@@ -1727,6 +1801,15 @@ function Consent({
       <p className="m-0 mb-5 text-sm leading-relaxed text-[var(--t2)]">
         Please read these — they matter.
       </p>
+      {again && (
+        // Spoken by askConsentAgain through the page's one announcer, not a region of its own.
+        <p
+          data-consent-again
+          className="m-0 mb-4 rounded-[14px] border border-[var(--line)] bg-[var(--inset)] p-3.5 text-[13.5px] leading-relaxed text-[var(--t1)]"
+        >
+          {again}
+        </p>
+      )}
 
       {/* Four distinct icons carrying four distinct meanings. A single generic
           glyph on all four would flatten "you're being recorded" and "a person
@@ -1795,8 +1878,17 @@ function Consent({
         </span>
       </label>
 
-      <button type="button" onClick={onContinue} className="iv-btn iv-purple">
-        Continue
+      {saveError && (
+        // Spoken through notify(), like every other error on this page.
+        <p
+          className="m-0 mb-3 text-[13.5px] font-semibold text-[var(--red)]"
+          data-consent-save-error
+        >
+          {CONSENT_SAVE_FAILED}
+        </p>
+      )}
+      <button type="button" onClick={onContinue} disabled={saving} className="iv-btn iv-purple">
+        {saveError ? "Try again" : "Continue"}
         <ArrowRight className="size-[17px]" strokeWidth={2.2} />
       </button>
     </div>

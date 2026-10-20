@@ -1,6 +1,11 @@
 import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
+import {
+  asyncConsentGiven,
+  CONSENT_REQUIRED,
+  CONSENT_REQUIRED_MESSAGE,
+} from "@/lib/interviews/consent";
 import { requestScorecard } from "@/lib/interviews/scorecard";
 import { resolveSessionByToken } from "@/lib/interviews/session";
 
@@ -51,6 +56,14 @@ export async function POST(request: Request) {
   }
   if (resolved.session.state !== "ready") {
     return NextResponse.json({ error: "This interview is closed." }, { status: 409 });
+  }
+
+  // Saved consent to the current text, before anything is stored (lib/interviews/consent.ts).
+  if (!asyncConsentGiven(resolved.row)) {
+    return NextResponse.json(
+      { error: CONSENT_REQUIRED_MESSAGE, code: CONSENT_REQUIRED },
+      { status: 403 },
+    );
   }
 
   const missing = resolved.session.questions.filter(

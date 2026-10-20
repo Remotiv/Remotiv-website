@@ -47,6 +47,8 @@ type SessionRow = {
    * off it.
    */
   consent_at: string | null;
+  /** Which consent text consent_at agreed to (lib/interviews/consent.ts). Null before versions. */
+  consent_version: string | null;
   submitted_at: string | null;
   expires_at: string;
   questions_snapshot: SnapshotQuestion[] | null;
@@ -107,7 +109,7 @@ export async function resolveSessionByToken(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, submitted_at, expires_at, questions_snapshot",
+      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, consent_version, submitted_at, expires_at, questions_snapshot",
     )
     .eq("token_hash", hashSessionToken(rawToken))
     .maybeSingle();

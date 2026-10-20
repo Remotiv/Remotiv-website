@@ -2,6 +2,11 @@ import { NextResponse } from "next/server";
 import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimitByKey } from "@/app/api/_lib/rate-limit";
 import {
+  asyncConsentGiven,
+  CONSENT_REQUIRED,
+  CONSENT_REQUIRED_MESSAGE,
+} from "@/lib/interviews/consent";
+import {
   answerPath,
   INTERVIEW_BUCKET,
   resolveSessionByToken,
@@ -74,6 +79,14 @@ export async function POST(request: Request) {
   if (!resolved) return fail(404, "This interview link isn't valid.");
   if (resolved.session.state !== "ready") {
     return fail(409, "This interview is no longer accepting answers.");
+  }
+
+  // Saved consent to the current text, before anything is stored (lib/interviews/consent.ts).
+  if (!asyncConsentGiven(resolved.row)) {
+    return NextResponse.json(
+      { error: CONSENT_REQUIRED_MESSAGE, code: CONSENT_REQUIRED },
+      { status: 403 },
+    );
   }
 
   const position = Number(body.position);
