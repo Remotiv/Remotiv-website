@@ -195,9 +195,16 @@ export function countsView(state: CountsState): CountsView {
   };
 }
 
-/** A count for display: the number, or an em dash when it is not known. */
+/**
+ * A count for display: the number, or a hyphen when it is not known.
+ *
+ * A hyphen, not an em dash: Remotiv's user-visible copy never uses em dashes.
+ * The character carries a load-bearing distinction either way — unknown is a
+ * hyphen, an actual zero is "0" — so a count that failed to load can never be
+ * read as "nobody".
+ */
 export function countLabel(n: number | null): string {
-  return n === null ? "—" : String(n);
+  return n === null ? "-" : String(n);
 }
 
 /**
@@ -205,8 +212,8 @@ export function countLabel(n: number | null): string {
  *
  * Three outcomes, and the third is the point: an unknown total says NOTHING
  * about how many people have applied. "No one has applied yet" is a claim
- * about their pipeline and would be the exact lie the em dash elsewhere exists
- * to prevent, stated in prose where no dash can warn the reader. The sentence
+ * about their pipeline and would be the exact lie the unknown-count hyphen
+ * exists to prevent, stated in prose where no dash can warn the reader. The sentence
  * that follows stands alone, so omitting the clause leaves readable copy.
  */
 export function ledeCount(total: number | null): string {

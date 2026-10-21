@@ -15,7 +15,9 @@ import { jobVisual } from "@/app/ai-dashboard/lib/category-icons";
 import {
   PIPELINE_STAGE_LABELS,
   type PipelineStage,
+  pipelineStageLabel,
 } from "@/app/ai-dashboard/lib/applicant-types";
+import { overviewStagePill } from "@/app/ai-dashboard/lib/stage-pill";
 import { DashboardHeroStatement } from "@/app/ai-dashboard/_components/dashboard-hero";
 import { PageContainer } from "@/app/ai-dashboard/_components/page-container";
 import type {
@@ -42,16 +44,6 @@ const FUNNEL_DOT: Record<PipelineStage, string> = {
   offer: "#9886FE",
   hired: "#D9F972",
   rejected: "#E0524B",
-};
-
-const STAGE_PILL: Record<PipelineStage, string> = {
-  applied: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
-  screening: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
-  shortlisted: "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]",
-  interview: "bg-[var(--ai-sky-tint)] text-[var(--ai-sky-ink)]",
-  offer: "bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]",
-  hired: "bg-remotiv-green text-[var(--ai-mint-ink)]",
-  rejected: "bg-[#FBEAE8] text-[#B02A24]",
 };
 
 const ACTIVITY_DOT: Record<ActivityItem["kind"], string> = {
@@ -399,9 +391,9 @@ function ApplicantRow({ row, index }: { row: RecentApplicant; index: number }) {
       </div>
       <span className="flex shrink-0 items-center gap-2.5">
         <span
-          className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ${STAGE_PILL[row.stage]}`}
+          className={`whitespace-nowrap rounded-full px-2.5 py-1 text-[11px] font-bold ${overviewStagePill(row.stage)}`}
         >
-          {PIPELINE_STAGE_LABELS[row.stage]}
+          {pipelineStageLabel(row.stage)}
         </span>
         <small className="hidden whitespace-nowrap text-[11.5px] text-[var(--ai-t4)] min-[525px]:block">
           {timeAgo(row.createdAt)}

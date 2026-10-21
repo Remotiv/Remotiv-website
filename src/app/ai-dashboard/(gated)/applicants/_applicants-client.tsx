@@ -66,6 +66,7 @@ import {
   PIPELINE_STAGE_LABELS,
   PIPELINE_STAGES,
   type PipelineStage,
+  pipelineStageLabel,
   SCORE_FEEDBACK_MAX,
   SCORING_OFF_REASON,
   type ScoreDimensionRow,
@@ -86,10 +87,12 @@ import {
   BAND_PILL,
   scoreBand as bandKey,
 } from "@/app/ai-dashboard/lib/score-bands";
+import { stagePill } from "@/app/ai-dashboard/lib/stage-pill";
 import { unscoredCardState } from "@/app/ai-dashboard/lib/unscored-card";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { placeholderFor } from "@/lib/whatsapp/inbound-display";
 import { InterviewPanel } from "./_interview-panel";
+import { StageTabs } from "./_stage-tabs";
 import {
   addApplicationComment,
   addCompanyApplicant,
@@ -176,40 +179,6 @@ const FUNNEL_STEPS: ReadonlyArray<{
   { stage: "interview", dot: "#4C8DD9", bar: "#4C8DD9" },
   { stage: "hired", dot: "#D9F972", bar: "#D9F972" },
 ];
-
-const TAB_STAGES: ReadonlyArray<PipelineStage> = ["applied", "shortlisted", "interview", "hired"];
-
-const STAGE_PILL: Record<PipelineStage, { cls: string; dot: string }> = {
-  applied: {
-    cls: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
-    dot: "bg-[var(--ai-t4)]",
-  },
-  screening: {
-    cls: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
-    dot: "bg-[var(--ai-amber-dot)]",
-  },
-  shortlisted: {
-    cls: "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]",
-    dot: "bg-remotiv-green",
-  },
-  interview: {
-    cls: "bg-[var(--ai-sky-tint)] text-[var(--ai-sky-ink)]",
-    dot: "bg-[#4C8DD9]",
-  },
-  offer: {
-    cls: "bg-[var(--ai-purple-tint)] text-[var(--ai-purple-ink)]",
-    dot: "bg-remotiv-purple",
-  },
-  // Hired is the only solid fill.
-  hired: {
-    cls: "bg-remotiv-green text-[var(--ai-mint-ink)]",
-    dot: "bg-[var(--ai-mint-ink)]",
-  },
-  rejected: {
-    cls: "bg-[#FBEAE8] text-[#B02A24]",
-    dot: "bg-[#E0524B]",
-  },
-};
 
 /*
  * The chip threshold, the page size, the "top N" and the sort union all moved
@@ -343,7 +312,7 @@ function useIsHydrated(): boolean {
 
 function fmtApplied(iso: string, clock: PageClock): { main: string; sub: string } {
   const d = new Date(iso);
-  if (Number.isNaN(d.getTime())) return { main: "—", sub: "" };
+  if (Number.isNaN(d.getTime())) return { main: "-", sub: "" };
   const abs = d.toLocaleDateString("en-GB", {
     day: "2-digit",
     month: "short",
@@ -928,7 +897,7 @@ function ApplicantCard({
   const tint = getTint(row.id);
   const applied = fmtApplied(row.created_at, clock);
   const stage = stageOf(row);
-  const pill = STAGE_PILL[stage];
+  const pill = stagePill(stage);
   const worthALook = showsWorthALook(row);
 
   return (
@@ -1006,7 +975,7 @@ function ApplicantCard({
           className={`inline-flex shrink-0 items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
         >
           <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-          {PIPELINE_STAGE_LABELS[stage]}
+          {pipelineStageLabel(stage)}
         </span>
       </div>
 
@@ -1121,7 +1090,7 @@ function ScoreAdjustForm({
           value={note}
           onChange={(e) => setNote(e.target.value)}
           maxLength={SCORE_FEEDBACK_MAX}
-          placeholder="Optional, but this is the part that teaches us something — e.g. “Undervalued 6 years of agency work because the CV lists clients, not employers.”"
+          placeholder="Optional, but this is the part that teaches us something - e.g. “Undervalued 6 years of agency work because the CV lists clients, not employers.”"
           className="mt-1.5 min-h-20 w-full resize-y rounded-[9px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-2.5 py-2 text-[13px] leading-relaxed text-[var(--ai-t1)] outline-none focus:border-remotiv-purple"
         />
       </div>
@@ -1164,7 +1133,7 @@ function AdjustmentRecord({
   return (
     <div className="mx-6 mb-[22px] rounded-2xl bg-[var(--ai-inset)] px-[18px] py-4">
       <p className="m-0 text-[13px] font-semibold text-[var(--ai-t1)]">
-        Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "—"}
+        Adjusted to {detail.overall} from the AI&apos;s {detail.ai_overall ?? "-"}
         <span className="font-normal text-[var(--ai-t3)]">{adjustmentByline(detail, local)}</span>
       </p>
       {detail.human_feedback && (
@@ -1381,7 +1350,7 @@ function mustHaveCount(detail: ApplicantScoreDetail): string {
   }
   // No "0 of N" for a card that predates the list: nothing was judged and
   // failed, the question was never put.
-  return detail.job_must_have_count === 0 ? "None" : "—";
+  return detail.job_must_have_count === 0 ? "None" : "-";
 }
 
 /**
@@ -1701,7 +1670,7 @@ function ApplicantDrawer({
       tabIndex={-1}
       role="dialog"
       aria-modal="true"
-      aria-label={`${name} — applicant detail`}
+      aria-label={`${name} - applicant detail`}
       className="fixed right-0 top-0 z-[95] flex h-[var(--vh-full)] w-full max-w-[min(96%,1100px)] flex-col bg-[var(--ai-surface)] shadow-[-24px_0_70px_rgba(20,16,32,0.24)] outline-none"
     >
       {/* Panel header. White, per the design: everything above the body is one
@@ -1976,7 +1945,7 @@ function ApplicantDrawer({
                   <div className="mt-2.5 flex items-center gap-2">
                     <AddedByTeamChip />
                     <span className="min-w-0 text-[12px] leading-relaxed text-[var(--ai-t4)]">
-                      Not emailed — they didn't apply through the job board.
+                      Not emailed - they didn't apply through the job board.
                     </span>
                   </div>
                 )}
@@ -2056,7 +2025,7 @@ function ApplicantDrawer({
                       className={`${TIMELINE_NOTICE} border-[var(--ai-danger)]/30 bg-[var(--ai-danger-tint)] text-[var(--ai-danger)]`}
                     >
                       The screening answers couldn&apos;t be loaded. That isn&apos;t the same as the
-                      candidate answering nothing — close and reopen to try again.
+                      candidate answering nothing - close and reopen to try again.
                     </p>
                   )}
                   {screeningView === "loading" && (
@@ -2073,7 +2042,7 @@ function ApplicantDrawer({
                     could — that nobody verified any of it. */}
                       <p className="m-0 mb-2.5 text-[11.5px] leading-snug text-[var(--ai-t3)]">
                         Answered by the candidate at apply time and checked against the thresholds
-                        you set. Self-reported — not verified by Remotiv.
+                        you set. Self-reported - not verified by Remotiv.
                       </p>
                       <div className="flex flex-col gap-[9px]">
                         {screening.answers.map((a) => (
@@ -2094,7 +2063,7 @@ function ApplicantDrawer({
                               )}
                             </p>
                             <p className="flex flex-wrap items-center gap-2 text-sm font-bold text-[var(--ai-t1)]">
-                              {a.answer_label || a.answer || "—"}
+                              {a.answer_label || a.answer || "-"}
                               {/* The snapshot's own `matched` flag, scored at apply
                             time — never re-derived here.
 
@@ -2277,7 +2246,7 @@ function ApplicantDrawer({
 
                     <p className="m-0 mt-[11px] max-w-[520px] border-t border-[var(--ai-line-soft)] pt-[11px] text-[11px] leading-[1.6] text-[var(--ai-t3)]">
                       Scored from written application text only. Remotiv AI does not analyse face,
-                      voice or accent, and the score is advisory — a person decides.
+                      voice or accent, and the score is advisory - a person decides.
                       {scoreProvenance(scoreDetail, clock.local)}
                     </p>
                   </div>
@@ -2528,7 +2497,7 @@ function ApplicantDrawer({
                           {mh.item}
                           {mh.status === "not_found" && (
                             <>
-                              {" — "}
+                              {" - "}
                               <b className="font-bold text-[var(--ai-t1)]">not evidenced</b>
                             </>
                           )}
@@ -2666,7 +2635,7 @@ function ApplicantDrawer({
                   failed rather than blaming the whole card. */}
               {messagesFailed && (
                 <p className="m-0 text-[13px] leading-relaxed text-[var(--ai-danger)]">
-                  Couldn't load the messages sent to this candidate just now — nothing has been
+                  Couldn't load the messages sent to this candidate just now - nothing has been
                   lost. Close the panel and reopen it to try again.
                 </p>
               )}
@@ -2690,13 +2659,13 @@ function ApplicantDrawer({
               )}
               {messagesTruncated && (
                 <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
-                  Older messages aren't shown — this trail carries the most recent{" "}
+                  Older messages aren't shown - this trail carries the most recent{" "}
                   {APPLICATION_MESSAGE_CAP} sent.
                 </p>
               )}
               {inboundTruncated && (
                 <p className="m-0 pt-1 text-[12px] leading-relaxed text-[var(--ai-t3)]">
-                  Older replies aren't shown — this trail carries the most recent{" "}
+                  Older replies aren't shown - this trail carries the most recent{" "}
                   {APPLICATION_INBOUND_CAP} received.
                 </p>
               )}
@@ -3040,13 +3009,13 @@ function Who({ name }: { name: string }) {
 
 /** A real stage pill, rendered mid-sentence rather than described in words. */
 function TimelineStagePill({ stage }: { stage: PipelineStage }) {
-  const pill = STAGE_PILL[stage];
+  const pill = stagePill(stage);
   return (
     <span
       className={`mx-0.5 inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-2 py-[3px] align-baseline text-[11px] font-bold ${pill.cls}`}
     >
       <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} aria-hidden="true" />
-      {PIPELINE_STAGE_LABELS[stage]}
+      {pipelineStageLabel(stage)}
     </span>
   );
 }
@@ -3320,7 +3289,7 @@ function messageEvents(messages: CandidateMessage[], local: boolean): TimelineEv
           <Who name={name} /> {verb}
           {m.kind === "failed" && (
             <>
-              {" — "}
+              {" - "}
               <span
                 className={`ml-0.5 inline-flex items-center rounded-[5px] px-[7px] py-0.5 align-baseline text-[9.5px] font-extrabold uppercase tracking-[0.06em] ${FAILED_BADGE.cls}`}
               >
@@ -3579,7 +3548,7 @@ function TimelinePane({
           <p
             className={`${TIMELINE_NOTICE} border-[var(--ai-line-strong)] bg-[var(--ai-inset)] text-[var(--ai-t2)]`}
           >
-            Older messages aren't shown — this feed carries the most recent{" "}
+            Older messages aren't shown - this feed carries the most recent{" "}
             {APPLICATION_MESSAGE_CAP}. Stage changes and comments above are complete.
           </p>
         )}
@@ -3742,7 +3711,7 @@ function CommentsPane({
       {!loading && comments.length === 0 && (
         <p className="m-0 mt-3.5 border-t border-[var(--ai-line-soft)] pt-3.5 text-[11.5px] leading-relaxed text-[var(--ai-t4)]">
           No comments yet. Comments are attributed and timestamped, and you can reply to one, or
-          edit and delete your own — your teammates&apos; stay as they wrote them.
+          edit and delete your own - your teammates&apos; stay as they wrote them.
         </p>
       )}
 
@@ -3905,7 +3874,7 @@ function CommentActions({
         </button>
       )}
       {mine && editLocked && (
-        <small className="text-[11px] text-[var(--ai-t4)]">Replied to — editing closed</small>
+        <small className="text-[11px] text-[var(--ai-t4)]">Replied to - editing closed</small>
       )}
       {(mine || moderator) && (
         <button
@@ -5025,7 +4994,7 @@ export function ApplicantsClient({
     if (!deadLink || deadLinkReportedFor.current === deadLink) return;
     deadLinkReportedFor.current = deadLink;
     setOpenId((current) => (current === deadLink ? null : current));
-    setToast("That applicant isn't in your list — they may have been deleted.");
+    setToast("That applicant isn't in your list - they may have been deleted.");
   }, [deadLink, setToast]);
 
   /**
@@ -5038,7 +5007,7 @@ export function ApplicantsClient({
     try {
       result = await deleteApplication(target.id);
     } catch {
-      result = { success: false, error: "Couldn't delete — please try again." };
+      result = { success: false, error: "Couldn't delete - please try again." };
     }
     setDeleting(false);
 
@@ -5243,7 +5212,7 @@ export function ApplicantsClient({
     try {
       result = await updateApplicationStage(id, next);
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
 
     setSavingId(null);
@@ -5319,7 +5288,7 @@ export function ApplicantsClient({
     try {
       result = await adjustScore(id, score, feedback);
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
     setScoreSaving(false);
 
@@ -5365,7 +5334,7 @@ export function ApplicantsClient({
     try {
       result = await clearScoreAdjustment(id);
     } catch {
-      result = { success: false, error: "Couldn't save — please try again." };
+      result = { success: false, error: "Couldn't save - please try again." };
     }
     setScoreSaving(false);
 
@@ -5403,7 +5372,7 @@ export function ApplicantsClient({
     try {
       result = await rescoreApplication(id);
     } catch {
-      result = { success: false, error: "Couldn't queue a re-score — please try again." };
+      result = { success: false, error: "Couldn't queue a re-score - please try again." };
     }
     setRescoringId(null);
     if (!result.success) {
@@ -5412,8 +5381,8 @@ export function ApplicantsClient({
     }
     setToast(
       result.data.outcome === "already_queued"
-        ? "Scoring is already queued for this applicant — the card appears here shortly."
-        : "Re-score queued — the new card appears here shortly.",
+        ? "Scoring is already queued for this applicant - the card appears here shortly."
+        : "Re-score queued - the new card appears here shortly.",
     );
     // The card now has a live job to report. Pull the facts so it says
     // "in progress" rather than keeping the old skip on screen.
@@ -5509,7 +5478,7 @@ export function ApplicantsClient({
     if (!read.ok) {
       setToast({
         message:
-          "Couldn't read the screening answers, so no file was written. The list is unaffected — try the export again.",
+          "Couldn't read the screening answers, so no file was written. The list is unaffected - try the export again.",
         tone: "error",
       });
       return;
@@ -5532,7 +5501,7 @@ export function ApplicantsClient({
       );
       setToast({
         message:
-          "Couldn't read every applicant's screening answers, so no file was written. The list is unaffected — try the export again.",
+          "Couldn't read every applicant's screening answers, so no file was written. The list is unaffected - try the export again.",
         tone: "error",
       });
       return;
@@ -5573,7 +5542,7 @@ export function ApplicantsClient({
     if (pageView.failed) {
       return {
         title: "We couldn't run that search",
-        text: "A different spelling won't help — this is on our side, not your query. Reload the page to try again.",
+        text: "A different spelling won't help - this is on our side, not your query. Reload the page to try again.",
       };
     }
     /*
@@ -5613,7 +5582,7 @@ export function ApplicantsClient({
     if (view.grandTotal === 0) {
       return {
         title: "No applicants yet",
-        text: "When someone applies to one of your published roles, they'll appear here — scored and ranked by your AI recruiter.",
+        text: "When someone applies to one of your published roles, they'll appear here - scored and ranked by your AI recruiter.",
       };
     }
     return {
@@ -5680,7 +5649,7 @@ export function ApplicantsClient({
                  * table, so the honest refusal says the read is the problem.
                  */
                 if (!topOnly && topScored === null) {
-                  setToast("We couldn't read the top-scored applicants — reload to try again.");
+                  setToast("We couldn't read the top-scored applicants - reload to try again.");
                   return;
                 }
                 if (!topOnly && topRows.length === 0) {
@@ -5763,7 +5732,7 @@ export function ApplicantsClient({
                       indistinguishable from an empty stage, so the number
                       beside it is what has to carry the distinction. */}
                   <p className="m-0 mt-2 text-[11px] text-white/[0.38]">
-                    {pct === null ? "— of total" : `${pct}% of total`}
+                    {pct === null ? "- of total" : `${pct}% of total`}
                   </p>
                 </div>
               );
@@ -5774,56 +5743,16 @@ export function ApplicantsClient({
         {/* Panel */}
         <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
           <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-            {/* The 5-tab strip is wider than a phone. It scrolls WITHIN itself
-                (max-w-full + overflow-x-auto) so it can never widen the page. */}
-            <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
-              <TabButton
-                on={tab === "all"}
-                count={view.total}
-                updating={view.updating}
-                onClick={() => setFilters({ stage: null })}
-              >
-                All
-              </TabButton>
-              {TAB_STAGES.map((s) => (
-                <TabButton
-                  key={s}
-                  on={tab === s}
-                  count={view.stages[s]}
-                  updating={view.updating}
-                  onClick={() => setFilters({ stage: s })}
-                >
-                  {PIPELINE_STAGE_LABELS[s]}
-                </TabButton>
-              ))}
-
-              {/* A FILTER, not a stage — it composes with whichever tab is on,
-                  because "flagged, in Screening" is a question worth asking. Its
-                  badge is the server aggregate, not filtered.length. */}
-              <button
-                type="button"
-                aria-pressed={flaggedOnly}
-                onClick={() => setFilters({ flaggedOnly: !flaggedOnly })}
-                className={`inline-flex shrink-0 items-center gap-1.5 rounded-full border px-3 py-[6px] text-[12.5px] font-semibold transition-colors ${
-                  flaggedOnly
-                    ? "border-[var(--ai-sidebar)] bg-[var(--ai-sidebar)] text-white"
-                    : "border-[var(--ai-line-strong)] bg-[var(--ai-surface)] text-[var(--ai-t2)] hover:text-[var(--ai-t1)]"
-                }`}
-              >
-                Flagged
-                {typeof flaggedCount === "number" && flaggedCount > 0 && (
-                  <span
-                    className={`rounded-full px-[6px] py-px text-[10.5px] font-bold tabular-nums ${
-                      flaggedOnly
-                        ? "bg-white/20 text-white"
-                        : "bg-remotiv-purple/10 text-remotiv-purple"
-                    }`}
-                  >
-                    {flaggedCount}
-                  </span>
-                )}
-              </button>
-            </div>
+            <StageTabs
+              tab={tab}
+              total={view.total}
+              stageCounts={view.stages}
+              updating={view.updating}
+              flaggedOnly={flaggedOnly}
+              flaggedCount={flaggedCount}
+              onSelectStage={(stage) => setFilters({ stage })}
+              onToggleFlagged={() => setFilters({ flaggedOnly: !flaggedOnly })}
+            />
 
             {/* Full-width on phones so the selects + search stack under the tabs
                 instead of forcing the toolbar wider than the viewport.
@@ -5898,7 +5827,7 @@ export function ApplicantsClient({
                   }}
                   title={
                     assignableJobs.length === 0
-                      ? "Create a job first — a candidate has to be added to a role."
+                      ? "Create a job first - a candidate has to be added to a role."
                       : "Add a candidate whose CV reached you outside the job board."
                   }
                   className="flex shrink-0 items-center gap-[7px] rounded-[10px] bg-remotiv-purple px-[13px] py-[8px] text-[13px] font-bold text-white transition-opacity hover:opacity-90 disabled:cursor-not-allowed disabled:opacity-45"
@@ -6008,7 +5937,7 @@ export function ApplicantsClient({
                   const tint = getTint(r.id);
                   const applied = fmtApplied(r.created_at, clock);
                   const stage = stageOf(r);
-                  const pill = STAGE_PILL[stage];
+                  const pill = stagePill(stage);
                   const isTop = topMatchIds.has(r.id);
                   const rank = pageStart + i;
 
@@ -6110,7 +6039,7 @@ export function ApplicantsClient({
                         className={`inline-flex items-center gap-1.5 justify-self-start whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${pill.cls}`}
                       >
                         <span className={`size-[5px] shrink-0 rounded-full ${pill.dot}`} />
-                        {PIPELINE_STAGE_LABELS[stage]}
+                        {pipelineStageLabel(stage)}
                       </span>
 
                       <span className="whitespace-nowrap text-[13px] text-[var(--ai-t2)]">
@@ -6243,7 +6172,7 @@ export function ApplicantsClient({
               applicationId: openRow.id,
               name: fullName(openRow),
               email: openRow.email ?? "",
-              jobTitle: openRow.job_title ?? "—",
+              jobTitle: openRow.job_title ?? "-",
             },
           ]}
           templates={manualTemplates}
@@ -6297,7 +6226,7 @@ export function ApplicantsClient({
                       else will: they are not told they were added. */}
                   <p className="m-0 mt-1 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
                     For a CV that reached you outside the job board. They're filed at Applied and
-                    scored like any other application — and they aren't emailed.
+                    scored like any other application - and they aren't emailed.
                   </p>
                 </div>
                 <button
@@ -6388,7 +6317,7 @@ export function ApplicantsClient({
                     className={`${ADD_FIELD} file:mr-3 file:cursor-pointer file:rounded-md file:border-0 file:bg-[var(--ai-inset)] file:px-2.5 file:py-1 file:text-[12px] file:font-bold file:text-[var(--ai-t2)]`}
                   />
                   <p className="m-0 mt-1.5 text-[11.5px] text-[var(--ai-t4)]">
-                    PDF, up to 5 MB. Everything else — phone, location, history — is read from it.
+                    PDF, up to 5 MB. Everything else - phone, location, history - is read from it.
                   </p>
                 </div>
 
@@ -6502,43 +6431,5 @@ export function ApplicantsClient({
 
       <Toast state={toast} />
     </PageContainer>
-  );
-}
-
-function TabButton({
-  on,
-  count,
-  updating,
-  onClick,
-  children,
-}: {
-  on: boolean;
-  /** A server count. Null is unknown — drawn as an em dash, never as 0. */
-  count: number | null;
-  /** The figure is being re-read. Dimmed so it does not read as current. */
-  updating: boolean;
-  onClick: () => void;
-  children: React.ReactNode;
-}) {
-  return (
-    <button
-      type="button"
-      onClick={onClick}
-      className={`flex items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
-        on
-          ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
-          : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
-      }`}
-    >
-      {children}
-      <span
-        aria-busy={updating}
-        className={`rounded-full px-1.5 py-px text-[10.5px] font-bold tabular-nums transition-opacity ${
-          on ? "bg-white/20 text-white" : "bg-black/[0.07]"
-        } ${updating ? "opacity-50" : ""}`}
-      >
-        {countLabel(count)}
-      </span>
-    </button>
   );
 }

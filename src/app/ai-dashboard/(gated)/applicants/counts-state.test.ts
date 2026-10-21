@@ -21,7 +21,7 @@
  *
  *   3. A failed count rendered as 0. "0 applicants" over a company with two
  *      thousand of them is believed instantly, because nothing about it looks
- *      broken. Hence the discriminating pair: unknown draws an em dash, a true
+ *      broken. Hence the discriminating pair: unknown draws a hyphen, a true
  *      zero still draws 0.
  *
  * There is no DOM test runner in this repo, so a rendering assertion is not
@@ -147,7 +147,7 @@ test("a settled response for a key the reader has since left stays updating", ()
 
 // ── 3. Unknown is not zero ──────────────────────────────────
 
-test("a true zero renders 0 and an unknown renders an em dash", () => {
+test("a true zero renders 0 and an unknown renders a hyphen", () => {
   // The discriminating pair. Without the first half, "unavailable on failure"
   // passes trivially by never showing a number at all.
   const zeros = seedCounts(
@@ -175,9 +175,22 @@ test("a true zero renders 0 and an unknown renders an em dash", () => {
 
   const failed = countsView(seedCounts(countsKey(null), null));
   assert.equal(failed.total, null);
-  assert.equal(countLabel(failed.total), "—");
-  assert.equal(countLabel(failed.stages.applied), "—");
-  assert.equal(countLabel(failed.openRoles), "—");
+  // A hyphen, not an em dash: Remotiv's user-visible copy never uses em dashes.
+  assert.equal(countLabel(failed.total), "-");
+  assert.equal(countLabel(failed.stages.applied), "-");
+  assert.equal(countLabel(failed.openRoles), "-");
+
+  // The whole point of the character: unknown must not read as nothing.
+  assert.notEqual(countLabel(failed.total), countLabel(zeroView.total));
+});
+
+test("no count label is an em dash, and unknown stays distinguishable from zero", () => {
+  assert.equal(countLabel(null), "-");
+  assert.equal(countLabel(0), "0");
+  assert.notEqual(countLabel(null), countLabel(0));
+  for (const n of [null, 0, 1, 7, 145, 3820]) {
+    assert.doesNotMatch(countLabel(n), /—/, `countLabel(${n}) must not use an em dash`);
+  }
 });
 
 test("a failed batch drops the last-known figures rather than relabelling them", () => {

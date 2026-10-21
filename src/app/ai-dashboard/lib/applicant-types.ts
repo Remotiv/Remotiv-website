@@ -39,6 +39,33 @@ export const PIPELINE_STAGE_LABELS: Record<PipelineStage, string> = {
   rejected: "Rejected",
 };
 
+/** What a stage this build does not know is called on screen. Never "Applied". */
+export const UNKNOWN_STAGE_LABEL = "Unknown stage";
+
+/**
+ * Label for a stage value that reached the client from the database rather than
+ * from `PIPELINE_STAGES`.
+ *
+ * The CHECK constraint on `job_applications.pipeline_stage` is the real domain;
+ * `PIPELINE_STAGES` is a copy of it. If an eighth stage is ever added to the
+ * database, rows carrying it render through here and degrade to a neutral
+ * label instead of an empty one.
+ *
+ * Containment, NOT equivalence: an unknown stage still gets no filter chip, and
+ * `isPipelineStage` still rejects it as a URL parameter, so it stays
+ * unfilterable. **Adding a stage to the database REQUIRES adding it to
+ * `PIPELINE_STAGES`** — this only stops the UI breaking in the meantime.
+ *
+ * `Object.hasOwn`, not `??`: a plain object inherits from `Object.prototype`,
+ * so indexing it with "__proto__" or "toString" returns a truthy non-label and
+ * `??` never fires. Own-key only.
+ */
+export function pipelineStageLabel(stage: string): string {
+  return Object.hasOwn(PIPELINE_STAGE_LABELS, stage)
+    ? PIPELINE_STAGE_LABELS[stage as PipelineStage]
+    : UNKNOWN_STAGE_LABEL;
+}
+
 /** One row of the company Applicants table. */
 export type CompanyApplicantRow = {
   id: string;
