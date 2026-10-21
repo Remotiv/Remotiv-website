@@ -13,8 +13,8 @@ import { countLabel } from "./counts-state";
  *
  * Extracted from _applicants-client.tsx so the rendered markup can be asserted
  * directly (stage-tabs.test.ts renders it through react-dom/server). The whole
- * strip moved, container included, because the scroll container and the chips
- * are one claim: chips that cannot compress inside a box that cannot widen.
+ * strip moved, container included, because the container and the chips are one
+ * claim: chips that cannot compress inside a box that wraps rather than scrolls.
  */
 
 /**
@@ -54,10 +54,15 @@ export function StageTabs({
   onToggleFlagged: () => void;
 }) {
   return (
-    // Eight chips are wider than a phone. The strip scrolls WITHIN itself
-    // (max-w-full + overflow-x-auto) so it can never widen the page, and every
-    // chip is shrink-0 so they scroll instead of compressing.
-    <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+    // Nine chips are 913px wide and a 360px phone gives the strip 362px, so
+    // they WRAP onto three rows. They used to scroll sideways instead, which
+    // put Screening, Offer and Rejected off the right edge — the same stages
+    // the hand-written list of four had dropped, hidden again by a different
+    // mechanism. A filter nobody can see is a filter nobody uses, so every
+    // chip stays on screen at every width and the strip grows downwards.
+    // shrink-0 is still on every chip: wrapping moves them to the next row,
+    // compressing would squeeze nine labels into one unreadable row.
+    <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
       <TabButton
         stage="all"
         on={tab === "all"}

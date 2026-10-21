@@ -12,10 +12,11 @@
  * (lib/stage-pill.ts) is executed directly instead, with an eighth stage no
  * build has heard of, and each of the four sites is pinned to it from source.
  *
- * What is deliberately NOT tested: that the strip scrolls, or that chips resist
- * compression. node:test has no DOM and no layout engine, so nothing has a
- * width and any such assertion would pass whatever the CSS said. The classes
- * that produce the behaviour are pinned; the behaviour is a browser check.
+ * What is deliberately NOT tested: that the strip wraps onto three rows, or
+ * that chips resist compression. node:test has no DOM and no layout engine, so
+ * nothing has a width and any such assertion would pass whatever the CSS said.
+ * The classes that produce the behaviour are pinned; the behaviour itself was
+ * measured in a browser (nine chips, 913px, three rows at 360px).
  *
  *   node --test "src/app/ai-dashboard/(gated)/applicants/stage-tabs.test.ts"
  */
@@ -189,11 +190,20 @@ test("the strip's dash comes from countLabel, so the rule holds at one place", (
   assert.equal(countLabel(0), "0");
 });
 
-/* ── scroll + shrink: class pins, explicitly not layout claims ───── */
+/* ── wrap + shrink: class pins, explicitly not layout claims ────── */
 
-test("the chip container keeps its own scroll box", () => {
+test("the chip container wraps instead of scrolling sideways", () => {
   const container = strip().slice(0, strip().indexOf("<button"));
-  assert.match(container, /overflow-x-auto/, "the strip must scroll within itself");
+  assert.match(container, /flex-wrap/, "the strip must wrap so every chip stays reachable");
+  // The regression this closes: a sideways scroll put Screening, Offer and
+  // Rejected off the right edge, hiding the three stages the hand-written
+  // list of four had dropped.
+  assert.doesNotMatch(
+    container,
+    /overflow-x-(?:auto|scroll)/,
+    "the strip must not scroll sideways — off-screen chips are hidden filters",
+  );
+  assert.doesNotMatch(container, /flex-nowrap/, "flex-nowrap would cancel the wrapping");
   assert.match(container, /max-w-full/, "the strip must never widen the page");
 });
 
