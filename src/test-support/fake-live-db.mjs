@@ -419,6 +419,8 @@ export function fakeLiveDb(initial = {}) {
     live_interview_actions: [],
     live_video_pieces: [],
     signed_url_logs: [],
+    interview_answer_scores: [],
+    interview_session_scores: [],
     ...structuredClone(initial),
   };
   /** path -> { bytes, contentType, createdAt } */

@@ -238,6 +238,12 @@ export type InterviewSessionDetail = {
    */
   canScore: boolean;
   purged: boolean;
+  /**
+   * Past delete_after: the AI's explanations, summary and quotes were deleted
+   * (async-score-purge.ts) and are not sent. Scores, the verdict and the
+   * reviewers' notes remain.
+   */
+  evidenceDeleted: boolean;
   notes: InterviewNote[];
   /** The viewer, so a note can offer edit/delete on their own rows only. */
   viewerMemberId: string;

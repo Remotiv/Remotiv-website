@@ -9,6 +9,7 @@ import {
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { readInterviewKind } from "@/lib/interviews/types";
 import { createServiceClient } from "@/lib/supabase/server";
+import { retentionPassed } from "./async-score-purge";
 import { readScoringSnapshot, resolveQuestionMeta } from "./question-meta";
 import { findQuoteStart } from "./quote-timestamps";
 import type {
@@ -40,6 +41,11 @@ import type { TranscriptSegment } from "./transcribe";
  * reviewer page holding one turns a dashboard session into a probe against
  * every object in it. Playback goes through a server action that re-resolves
  * the session and mints a short signed URL — see (gated)/interviews/actions.ts.
+ *
+ * And past a session's delete_after, the AI's written explanations and the
+ * candidate's quotes in its scores, even before the purge has cleared them
+ * (async-score-purge.ts). The numbers, the verdict and the reviewers' notes
+ * are still sent.
  *
  * ── Scoping ──────────────────────────────────────────────────
  *
@@ -193,6 +199,7 @@ export async function listInterviewSessions(
       service,
       ctx.companyId,
       sessions.map((s) => s.id),
+      new Set(sessions.filter((s) => retentionPassed(s.delete_after, Date.now())).map((s) => s.id)),
     ),
   ]);
 
@@ -469,7 +476,14 @@ export async function loadInterviewSession(
     }
   }
 
-  const answerScores = await fetchAnswerScores(service, ctx.companyId, row.id, segmentsById);
+  const evidenceDeleted = retentionPassed(row.delete_after, Date.now());
+  const answerScores = await fetchAnswerScores(
+    service,
+    ctx.companyId,
+    row.id,
+    segmentsById,
+    evidenceDeleted,
+  );
   for (const a of answers) a.score = answerScores.get(a.id) ?? null;
 
   /*
@@ -525,7 +539,14 @@ export async function loadInterviewSession(
    * the segments already in hand.
    */
   const score = withPlacedCriteria(
-    (await fetchSessionScores(service, ctx.companyId, [row.id])).get(row.id) ?? null,
+    (
+      await fetchSessionScores(
+        service,
+        ctx.companyId,
+        [row.id],
+        new Set(evidenceDeleted ? [row.id] : []),
+      )
+    ).get(row.id) ?? null,
     answers.map((a) => ({ id: a.id, segments: segmentsById.get(a.id) ?? null })),
   );
 
@@ -572,6 +593,7 @@ export async function loadInterviewSession(
     canDelete: await canAccessJob(ctx, row.job_id ?? ""),
     canScore,
     purged: answers.length > 0 && answers.every((a) => a.purged),
+    evidenceDeleted,
     /*
      * Notes SURVIVE the purge. They are a reviewer's own words about a
      * candidate, not the candidate's media — the six-month promise covers the
@@ -611,6 +633,8 @@ async function fetchAnswerScores(
   companyId: string,
   sessionId: string,
   segments: Map<string, TranscriptSegment[]>,
+  /** Past delete_after: the explanations and quotes are not sent. */
+  wordsDeleted: boolean,
 ): Promise<Map<string, AnswerScoreView>> {
   const out = new Map<string, AnswerScoreView>();
   const { data } = await service
@@ -690,12 +714,13 @@ async function fetchAnswerScores(
       aiScore: r.score,
       shownScore: r.human_adjusted_score ?? r.score,
       confidence: r.confidence,
-      reasoning: r.reasoning,
-      strengths: pair(r.strengths),
-      concerns: pair(r.concerns),
-      missing: Array.isArray(r.missing)
-        ? (r.missing as unknown[]).filter((x): x is string => typeof x === "string")
-        : [],
+      reasoning: wordsDeleted ? null : r.reasoning,
+      strengths: wordsDeleted ? [] : pair(r.strengths),
+      concerns: wordsDeleted ? [] : pair(r.concerns),
+      missing:
+        !wordsDeleted && Array.isArray(r.missing)
+          ? (r.missing as unknown[]).filter((x): x is string => typeof x === "string")
+          : [],
       adjustment: toAdjustment(
         r.human_adjusted_score,
         r.adjusted_by_name,
@@ -719,6 +744,8 @@ async function fetchSessionScores(
   service: ReturnType<typeof createServiceClient>,
   companyId: string,
   sessionIds: string[],
+  /** Sessions past delete_after: their summary and criterion quotes are not sent. */
+  wordsDeleted: ReadonlySet<string>,
 ): Promise<Map<string, InterviewScore>> {
   const out = new Map<string, InterviewScore>();
   for (let i = 0; i < sessionIds.length; i += 100) {
@@ -749,14 +776,15 @@ async function fetchSessionScores(
         r.status === "scored" || r.status === "failed" || r.status === "skipped"
           ? r.status
           : "pending";
+      const deleted = wordsDeleted.has(r.session_id);
       out.set(r.session_id, {
         status,
         overall: r.overall_score,
         humanScore: r.human_adjusted_score,
         verdict: r.verdict,
-        summary: r.summary,
+        summary: deleted ? null : r.summary,
         confidence: r.confidence,
-        criteria: normaliseCriteria(r.criteria),
+        criteria: normaliseCriteria(r.criteria).map((c) => (deleted ? { ...c, quote: "" } : c)),
         error: r.error,
         scoredAt: r.scored_at,
         adjustment: toAdjustment(

@@ -8,6 +8,12 @@ import {
   type UnscoredAnswer,
 } from "@/lib/ai/rollup-coverage";
 import { assessTranscript } from "@/lib/interviews/assessable";
+import {
+  ANSWER_WORDS_CLEARED,
+  clearCriteriaQuotes,
+  purgeAsyncScoreWords,
+  retentionPassed,
+} from "@/lib/interviews/async-score-purge";
 import { readScoringSnapshot, resolveQuestionMeta } from "@/lib/interviews/question-meta";
 import { maybeFlagForShortlist } from "@/lib/interviews/shortlist";
 import { skipJob } from "@/lib/job-skip";
@@ -237,6 +243,10 @@ function lowerConfidence(c: Confidence): Confidence {
  * where a reviewer's correction can be read, then overwritten by a score
  * computed before it existed; stripping cannot.
  */
+/** The skipped scorecard of a session first asked to score after its retention date. */
+export const RETENTION_SKIP_REASON =
+  "Not scored: the recordings and transcripts were deleted six months after the invitation, as scheduled.";
+
 const HUMAN_OVERRIDE_COLUMNS: readonly string[] = [
   "human_adjusted_score",
   "human_feedback",
@@ -1087,7 +1097,33 @@ export function buildUserMessage(input: AnswerScoreInput): string {
 
 // ── Persistence ──────────────────────────────────────────────
 
-async function writeAnswerScore(row: Record<string, unknown>): Promise<{ error: string | null }> {
+/**
+ * Past the session's delete_after, a score keeps its numbers and stores no
+ * words (async-score-purge.ts). Checked before the write, so a job that
+ * started before the date and finishes after it writes none; and again after
+ * it, because the purge may have run between that check and this write: then
+ * the session is cleared again here rather than waiting for the next run.
+ */
+async function afterScoreWrite(
+  service: ReturnType<typeof createServiceClient>,
+  sessionId: unknown,
+  deleteAfter: string | null,
+): Promise<void> {
+  if (typeof sessionId !== "string" || !retentionPassed(deleteAfter, Date.now())) return;
+  try {
+    await purgeAsyncScoreWords(service, [sessionId]);
+  } catch (err) {
+    // The scheduled purge clears it on its next run.
+    console.error(
+      `[interview-scoring] session ${sessionId}: clear words past retention: ${(err as Error).message}`,
+    );
+  }
+}
+
+async function writeAnswerScore(
+  row: Record<string, unknown>,
+  deleteAfter: string | null,
+): Promise<{ error: string | null }> {
   const service = createServiceClient();
 
   const payload: Record<string, unknown> = {};
@@ -1105,14 +1141,19 @@ async function writeAnswerScore(row: Record<string, unknown>): Promise<{ error: 
       { answerId: row.answer_id, refused },
     );
   }
+  if (retentionPassed(deleteAfter, Date.now())) Object.assign(payload, ANSWER_WORDS_CLEARED);
 
   const { error } = await service
     .from("interview_answer_scores")
     .upsert(payload, { onConflict: "answer_id" });
+  await afterScoreWrite(service, row.session_id, deleteAfter);
   return { error: error?.message ?? null };
 }
 
-async function writeSessionScore(row: Record<string, unknown>): Promise<{ error: string | null }> {
+async function writeSessionScore(
+  row: Record<string, unknown>,
+  deleteAfter: string | null,
+): Promise<{ error: string | null }> {
   const service = createServiceClient();
 
   const payload: Record<string, unknown> = {};
@@ -1120,10 +1161,15 @@ async function writeSessionScore(row: Record<string, unknown>): Promise<{ error:
     if (HUMAN_OVERRIDE_COLUMNS.includes(column)) continue;
     payload[column] = value;
   }
+  if (retentionPassed(deleteAfter, Date.now())) {
+    payload.summary = null;
+    if ("criteria" in payload) payload.criteria = clearCriteriaQuotes(payload.criteria);
+  }
 
   const { error } = await service
     .from("interview_session_scores")
     .upsert(payload, { onConflict: "session_id" });
+  await afterScoreWrite(service, row.session_id, deleteAfter);
   return { error: error?.message ?? null };
 }
 
@@ -1139,6 +1185,8 @@ type SessionRow = {
   questions_snapshot: unknown;
   /** The marking scheme frozen at invite (migration 028). Null on legacy sessions. */
   scoring_snapshot: unknown;
+  /** Written once, at invite. Past it, no words are scored or stored (async-score-purge.ts). */
+  delete_after: string | null;
 };
 
 type AnswerRow = {
@@ -1190,7 +1238,9 @@ export async function handleAiScorecard(
 
   const { data: sessionData, error: sessionErr } = await service
     .from("interview_sessions")
-    .select("id, company_id, job_id, kind, status, questions_snapshot, scoring_snapshot")
+    .select(
+      "id, company_id, job_id, kind, status, questions_snapshot, scoring_snapshot, delete_after",
+    )
     .eq("id", sessionId)
     .maybeSingle();
 
@@ -1212,18 +1262,43 @@ export async function handleAiScorecard(
   }
 
   /** Session-level skip. Records WHY, so a reviewer never sees a blank panel. */
+  const saveAnswer = (row: Record<string, unknown>) => writeAnswerScore(row, session.delete_after);
   const skipSession = async (reason: string) => {
-    await writeSessionScore({
-      session_id: session.id,
-      company_id: session.company_id,
-      status: "skipped",
-      error: reason,
-      ai_model: model,
-      prompt_version: PROMPT_VERSION,
-      scored_by_job_id: job.id,
-    });
+    await writeSessionScore(
+      {
+        session_id: session.id,
+        company_id: session.company_id,
+        status: "skipped",
+        error: reason,
+        ai_model: model,
+        prompt_version: PROMPT_VERSION,
+        scored_by_job_id: job.id,
+      },
+      session.delete_after,
+    );
     console.warn(`[interview-scoring] skipped ${session.id}: ${reason}`);
   };
+
+  /*
+   * Past its retention date the candidate's words are due for deletion or
+   * already gone, so nothing is scored and no words are written, whoever asked
+   * (async-score-purge.ts). A scorecard already stored is left exactly as the
+   * purge leaves it; a session never scored gets a skipped row saying why, so
+   * a reviewer who pressed "Score interview" sees an answer.
+   */
+  if (retentionPassed(session.delete_after, Date.now())) {
+    const { data: existingScore } = await service
+      .from("interview_session_scores")
+      .select("session_id")
+      .eq("session_id", session.id)
+      .maybeSingle();
+    if (existingScore) {
+      skipJob("ai_scorecard", job.id, `session ${session.id} is past its retention date`);
+      return;
+    }
+    await skipSession(RETENTION_SKIP_REASON);
+    return;
+  }
 
   if (session.status !== "submitted") {
     await skipSession("The interview hasn't been submitted, so the answers may still change.");
@@ -1428,7 +1503,7 @@ export async function handleAiScorecard(
      */
     const skipAnswer = async (reason: string, cause: SkipCause) => {
       unscored.push({ position: answer.position, cause });
-      await writeAnswerScore({ ...base, status: "skipped", error: reason });
+      await saveAnswer({ ...base, status: "skipped", error: reason });
     };
 
     const transcript = (answer.transcript ?? "").trim();
@@ -1492,7 +1567,7 @@ export async function handleAiScorecard(
         );
       }
 
-      const { error } = await writeAnswerScore({
+      const { error } = await saveAnswer({
         ...base,
         status: "scored",
         error: null,
@@ -1557,7 +1632,7 @@ export async function handleAiScorecard(
       // The row's `error` is rendered on the review page, so it gets the fixed
       // safe sentence; the provider's text goes to the log line below and to
       // background_jobs.last_error (Phase 6, A6-26).
-      await writeAnswerScore({
+      await saveAnswer({
         ...base,
         status: "failed",
         error: safeFailureSentence(classifyProviderError(jobErr), "scoring"),
@@ -1624,25 +1699,28 @@ export async function handleAiScorecard(
    */
   const coverage = coverageSentence(coverageInput);
 
-  const { error: rollupErr } = await writeSessionScore({
-    session_id: session.id,
-    company_id: session.company_id,
-    status: "scored",
-    error: null,
-    overall_score: overall,
-    // Stored even when empty: [] is the column default and means "the employer
-    // named none", which is exactly what an empty rollup result means too.
-    criteria: rollup.criteria,
-    verdict: rollup.verdict,
-    summary: rollup.summary ? `${rollup.summary}${coverage}` : coverage.trim() || null,
-    // The rollup's own confidence, lowered when any answer failed outright —
-    // a set with a hole in it is less trustworthy than the model can know.
-    confidence: anyFailed ? "low" : rollup.confidence,
-    ai_model: model,
-    prompt_version: PROMPT_VERSION,
-    scored_by_job_id: job.id,
-    scored_at: new Date().toISOString(),
-  });
+  const { error: rollupErr } = await writeSessionScore(
+    {
+      session_id: session.id,
+      company_id: session.company_id,
+      status: "scored",
+      error: null,
+      overall_score: overall,
+      // Stored even when empty: [] is the column default and means "the employer
+      // named none", which is exactly what an empty rollup result means too.
+      criteria: rollup.criteria,
+      verdict: rollup.verdict,
+      summary: rollup.summary ? `${rollup.summary}${coverage}` : coverage.trim() || null,
+      // The rollup's own confidence, lowered when any answer failed outright —
+      // a set with a hole in it is less trustworthy than the model can know.
+      confidence: anyFailed ? "low" : rollup.confidence,
+      ai_model: model,
+      prompt_version: PROMPT_VERSION,
+      scored_by_job_id: job.id,
+      scored_at: new Date().toISOString(),
+    },
+    session.delete_after,
+  );
   if (rollupErr) {
     throw new Error(`ai_scorecard: rollup write failed: ${rollupErr}`);
   }

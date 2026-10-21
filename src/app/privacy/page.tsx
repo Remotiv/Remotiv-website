@@ -40,13 +40,15 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
  *                                   to RECURRING, section 3's "no automatic
  *                                   expiry" wording is part of that change.
  *   `cvs` + interview buckets       private; signed URLs; signed_url_logs
- *   interview_answer_scores         SURVIVE the interview purge, which clears
- *   interview_session_scores        only video_path, transcript and
- *                                   transcript_segments. The score rows keep
- *                                   verbatim quotes from the answers as their
- *                                   evidence, so section 3 says so. If the purge
- *                                   is ever extended to strip them, that wording
- *                                   is part of the change.
+ *   interview_answer_scores         SURVIVE the interview purge as numbers
+ *   interview_session_scores        only. Phase 1 clears reasoning, evidence,
+ *                                   strengths, concerns and missing, and the
+ *                                   summary and criteria quotes, and keeps the
+ *                                   scores, verdict, criteria outcomes and
+ *                                   human adjustments with their notes
+ *                                   (async-score-purge.ts); section 6 says
+ *                                   exactly that. A new column holding the
+ *                                   candidate's words changes both.
  *   communication_logs              NOTHING expires these. The bodies of every
  *                                   email and message we sent are kept, and
  *                                   section 3's "everything else" says so.
@@ -107,7 +109,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "16 October 2026";
+const LAST_UPDATED = "21 October 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -333,9 +335,12 @@ export default function PrivacyPage() {
             Video recordings and their transcripts are deleted six months after the interview is
             issued. As with CVs, the record of the interview survives the media: the questions you
             were asked, how long you spoke and when, but not the recording or the transcript.
-            Where an interview was scored, the scorecard is kept with the application after the
-            recording goes, including the short quotes from your answers that it cites as its
-            evidence.
+            Where an interview was scored, the scores are kept with the application after the
+            recording goes, with the AI&apos;s one-line verdict and whether each of the
+            employer&apos;s interview criteria was shown. The AI&apos;s written explanations and
+            summary, and the short quotes from your answers that it cited as evidence, are deleted
+            at the same time as the recording. Notes the hiring team wrote when adjusting a score
+            are kept with it.
           </P>
 
           <H3>Final interview recordings: 3 months</H3>

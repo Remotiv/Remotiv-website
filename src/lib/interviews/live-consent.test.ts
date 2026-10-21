@@ -224,8 +224,8 @@ test("the privacy page renders no section 15 and no link to it while a placehold
   assert.doesNotMatch(html, /16\. Contact/);
   assert.equal(
     PRIVACY_NOTICE_VERSION,
-    "2026-10-16",
-    "the notice version moves only when section 15 goes live",
+    "2026-10-21",
+    "the notice version moves with a published change (here F3, async scorecard retention), not with the hidden section 15",
   );
 });
 

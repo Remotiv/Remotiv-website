@@ -1,6 +1,7 @@
 import "server-only";
 import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
+import { purgeAsyncScoreWords } from "./async-score-purge";
 import { purgeLiveScoreWords } from "./live-score-purge";
 import { INTERVIEW_BUCKET } from "./session";
 
@@ -57,6 +58,15 @@ import { INTERVIEW_BUCKET } from "./session";
  * Same schedule. REMOVED from every question's score: the rationale and the
  * quotes (the candidate's words). KEPT: scores, statuses, counts and the
  * overall. See live-score-purge.ts.
+ *
+ * ── Async interview scorecards ───────────────────────────────
+ *
+ * Same schedule, every run, so a session purged before this step existed is
+ * cleaned on the next run. REMOVED from interview_answer_scores: reasoning,
+ * evidence, strengths, concerns and missing; from interview_session_scores:
+ * the summary and each criterion's quote. KEPT: scores, confidence, statuses,
+ * counts, the verdict, each criterion and its outcome, and every human
+ * adjustment with its note. See async-score-purge.ts.
  *
  * ── Live interview camera video (migration 044) ──────────────
  *
@@ -192,6 +202,7 @@ export async function handleInterviewPurge(job: {
   let turnsPurged = 0;
   let piecesPurged = 0;
   let scoresCleared = 0;
+  let asyncScoresCleared = 0;
   let truncated = false;
 
   // ── Phase 1 — sessions past their retention date ──
@@ -254,6 +265,8 @@ export async function handleInterviewPurge(job: {
       objectsRemoved += turns.objectsRemoved;
       removalFailures += turns.retrying;
       scoresCleared += await purgeLiveScoreWords(service, ids);
+      const asyncScores = await purgeAsyncScoreWords(service, ids);
+      asyncScoresCleared += asyncScores.answers + asyncScores.sessions;
       const video = await purgeDueVideoPieces(service, ids, now);
       piecesPurged += video.purged;
       objectsRemoved += video.objectsRemoved;
@@ -352,7 +365,7 @@ export async function handleInterviewPurge(job: {
 
   console.log(
     `[purge] job ${job.id}: sessions=${sessionsPurged} objects=${objectsRemoved} ` +
-      `rows=${rowsCleared} turns=${turnsPurged} live_scores=${scoresCleared} video_pieces=${piecesPurged} retrying=${removalFailures} orphans=${orphansRemoved}` +
+      `rows=${rowsCleared} turns=${turnsPurged} live_scores=${scoresCleared} async_scores=${asyncScoresCleared} video_pieces=${piecesPurged} retrying=${removalFailures} orphans=${orphansRemoved}` +
       (truncated ? " (budget reached — resumes next run)" : ""),
   );
 }

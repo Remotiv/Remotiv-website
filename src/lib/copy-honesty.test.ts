@@ -248,8 +248,29 @@ test("C7-25: every retention string is anchored to the invitation, as the data i
 });
 
 test("C7-23/N2: the policy describes what survives a purge and what OpenAI receives", () => {
-  assert.match(privacy, /the scorecard is kept with the application after the/);
-  assert.match(privacy, /short quotes from your answers that it cites as its\s+evidence/);
+  // F3: the scores outlive the recording; the explanations and quotes do not.
+  assert.match(privacy, /the scores are kept with the application after the\s+recording goes/);
+  assert.match(
+    privacy,
+    /written explanations and\s+summary, and the short quotes from your answers that it cited as evidence, are deleted\s+at the same time as the recording/,
+  );
+  assert.match(privacy, /Notes the hiring team wrote when adjusting a score\s+are kept with it/);
+  assert.doesNotMatch(privacy, /including the short quotes from your answers/);
+  const asyncPurge = src("./interviews/async-score-purge.ts");
+  for (const column of [
+    "reasoning: null",
+    "evidence: []",
+    "strengths: []",
+    "concerns: []",
+    "missing: []",
+  ]) {
+    assert.ok(asyncPurge.includes(column), `the purge clears ${column}`);
+  }
+  assert.match(
+    asyncPurge,
+    /\.update\(\{ summary: null, criteria: clearCriteriaQuotes\(row\.criteria\) \}\)/,
+  );
+  assert.match(src("./interviews/purge.ts"), /await purgeAsyncScoreWords\(service, ids\)/);
   assert.match(privacy, /our record of the emails and messages we sent you/);
   // OpenAI receives the recording, not "the audio": the upload is a webm blob.
   assert.doesNotMatch(privacy, /receives the audio of/);
@@ -257,7 +278,7 @@ test("C7-23/N2: the policy describes what survives a purge and what OpenAI recei
   const transcribe = src("./interviews/transcribe.ts");
   assert.match(transcribe, /video\/webm/);
   // The header inventory names the rows that outlive the purge.
-  assert.match(privacy, /interview_answer_scores\s+SURVIVE the interview purge/);
+  assert.match(privacy, /interview_answer_scores\s+SURVIVE the interview purge as numbers/);
   assert.match(privacy, /communication_logs\s+NOTHING expires these/);
 });
 

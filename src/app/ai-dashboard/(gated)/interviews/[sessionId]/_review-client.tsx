@@ -325,7 +325,7 @@ export function ReviewClient({
         score={session.score}
         canScore={session.canScore}
         onSeekCriterion={onSeekCriterion}
-        purged={session.purged}
+        evidenceDeleted={session.evidenceDeleted}
         status={session.status}
         onToast={setToast}
         onChanged={() => router.refresh()}
@@ -387,6 +387,7 @@ export function ReviewClient({
                   <Scorecard
                     sessionId={session.id}
                     answer={answer}
+                    evidenceDeleted={session.evidenceDeleted}
                     index={active}
                     onSeek={seekTo}
                     onToast={setToast}
@@ -602,6 +603,25 @@ function DeleteConfirm({
   );
 }
 
+/** Under every reviewer note box: notes are kept after the recordings and quotes go. */
+const NOTE_HINT = "Don't include personal details.";
+const NOTE_HINT_CLASS = "mt-1.5 block text-[11px] font-normal leading-snug text-[var(--ai-t4)]";
+
+/** Past the retention date (async-score-purge.ts). Hyphens only. */
+const EVIDENCE_DELETED_NOTE =
+  "The AI's explanations and the quotes from the answers were deleted after six months. The scores remain.";
+const SUMMARY_DELETED =
+  "The AI's summary was deleted after six months, with the recordings. The scores remain.";
+const ANSWER_EVIDENCE_DELETED =
+  "The AI's explanation and the quotes from this answer were deleted after six months. The score remains.";
+const QUOTE_DELETED = "Shown in the interview. The quote was deleted after six months.";
+
+function scoredSummary(score: InterviewScore | null, evidenceDeleted: boolean): string {
+  if (score?.summary) return score.summary;
+  if (evidenceDeleted) return SUMMARY_DELETED;
+  return "Every answer has been scored individually - open each one for its reasoning and evidence.";
+}
+
 /**
  * The session verdict, on a dark strip.
  *
@@ -616,7 +636,7 @@ function VerdictStrip({
   sessionId,
   score,
   canScore,
-  purged,
+  evidenceDeleted,
   status,
   onToast,
   onChanged,
@@ -626,7 +646,8 @@ function VerdictStrip({
   score: InterviewScore | null;
   /** Server-derived: this submitted interview never got a scorecard and may ask for one. */
   canScore: boolean;
-  purged: boolean;
+  /** Past the retention date: the explanations and quotes are gone, the scores are not. */
+  evidenceDeleted: boolean;
   status: string;
   onToast: (message: string) => void;
   onChanged: () => void;
@@ -702,8 +723,7 @@ function VerdictStrip({
           </p>
           <p className="m-0 text-[12.5px] leading-relaxed text-white/[0.58]">
             {scored
-              ? (score?.summary ??
-                "Every answer has been scored individually — open each one for its reasoning and evidence.")
+              ? scoredSummary(score, evidenceDeleted)
               : score?.status === "failed"
                 ? ((isSafeFailureSentence(score.error) ? score.error : null) ??
                   "Scoring didn't complete. The recording and transcripts are unaffected.")
@@ -722,9 +742,9 @@ function VerdictStrip({
               {adj.feedback ? ` — “${adj.feedback}”` : ""}
             </p>
           )}
-          {purged && scored && (
-            <p className="m-0 mt-2 text-[11.5px] text-white/40">
-              The recording has since been deleted; the score and its evidence remain.
+          {evidenceDeleted && scored && (
+            <p className="m-0 mt-2 text-[11.5px] text-white/40" data-evidence-deleted>
+              {EVIDENCE_DELETED_NOTE}
             </p>
           )}
         </div>
@@ -793,7 +813,12 @@ function VerdictStrip({
           </p>
           <div className="flex flex-col gap-3">
             {score?.criteria.map((c) => (
-              <InterviewCriterionRow key={c.item} criterion={c} onSeek={onSeekCriterion} />
+              <InterviewCriterionRow
+                key={c.item}
+                criterion={c}
+                evidenceDeleted={evidenceDeleted}
+                onSeek={onSeekCriterion}
+              />
             ))}
           </div>
         </div>
@@ -821,9 +846,11 @@ function VerdictStrip({
  */
 function InterviewCriterionRow({
   criterion,
+  evidenceDeleted,
   onSeek,
 }: {
   criterion: SessionCriterion;
+  evidenceDeleted: boolean;
   onSeek: (answerId: string | null, seconds: number) => void;
 }) {
   const evidenced = criterion.status === "evidenced";
@@ -858,7 +885,7 @@ function InterviewCriterionRow({
           </>
         ) : (
           <p className="m-0 mt-0.5 text-[12px] leading-snug text-[var(--ai-t3)]">
-            Not found in the interview
+            {evidenced && evidenceDeleted ? QUOTE_DELETED : "Not found in the interview"}
           </p>
         )}
       </div>
@@ -875,6 +902,7 @@ function InterviewCriterionRow({
 function Scorecard({
   sessionId,
   answer,
+  evidenceDeleted,
   index,
   onSeek,
   onToast,
@@ -882,6 +910,7 @@ function Scorecard({
 }: {
   sessionId: string;
   answer: InterviewAnswerView;
+  evidenceDeleted: boolean;
   index: number;
   onSeek: (seconds: number) => void;
   onToast: (message: string) => void;
@@ -1024,6 +1053,15 @@ function Scorecard({
             onChanged();
           }}
         />
+      )}
+
+      {evidenceDeleted && (
+        <p
+          className="m-0 mb-4 text-[12.5px] leading-relaxed text-[var(--ai-t3)]"
+          data-evidence-deleted
+        >
+          {ANSWER_EVIDENCE_DELETED}
+        </p>
       )}
 
       {score?.reasoning && (
@@ -1183,6 +1221,9 @@ function AdjustForm({
             placeholder="What the model missed…"
             className="w-full rounded-lg border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-2.5 py-2 text-[13px] font-normal text-[var(--ai-t1)] outline-none placeholder:text-[var(--ai-t4)] focus:border-remotiv-purple"
           />
+          <span className={NOTE_HINT_CLASS} data-note-hint>
+            {NOTE_HINT}
+          </span>
         </label>
       </div>
       <div className="mt-3 flex flex-wrap justify-end gap-2">
@@ -1227,7 +1268,7 @@ function headerWhen(s: InterviewSessionDetail): string {
 
 function retentionLine(s: InterviewSessionDetail): string {
   if (s.purged) {
-    return "The recordings were deleted six months after the invitation was sent, as scheduled. The questions and the answer record are kept with the application; the transcripts went with the recordings.";
+    return "The recordings were deleted six months after the invitation was sent, as scheduled. The questions, the answer record and the scores are kept with the application; the transcripts, the AI's explanations and the quotes went with the recordings.";
   }
   if (s.status !== "submitted") {
     return "Retention started when the invitation was sent - recordings are kept for 6 months from that date.";
@@ -1243,8 +1284,8 @@ function SessionNotice({ session }: { session: InterviewSessionDetail }) {
     return (
       <Notice tone="slate" icon={<Lock className="size-[17px]" strokeWidth={2} />}>
         <b className="font-bold">Recordings removed after six months.</b> Deleted on schedule under
-        the retention policy the candidate agreed to. Questions, durations and the answer record
-        remain below.
+        the retention policy the candidate agreed to. Questions, durations, scores and the answer
+        record remain below.
       </Notice>
     );
   }
@@ -1330,7 +1371,7 @@ function Player({
       <FlatPlayer
         icon={<Lock className="size-[25px]" strokeWidth={1.7} />}
         title="Recording deleted on schedule"
-        body="This answer was removed six months after the invitation was sent, exactly as the retention policy says. The question, its duration and your team's notes are kept."
+        body="This answer was removed six months after the invitation was sent, exactly as the retention policy says. The question, its duration, any score and your team's notes are kept."
       />
     );
   }
@@ -1547,6 +1588,9 @@ function NotesCard({
           placeholder="What stood out? Anything you want the team to see before deciding."
           className="min-h-[96px] w-full resize-y rounded-xl border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-3.5 py-3 text-[13.5px] leading-relaxed text-[var(--ai-t1)] outline-none transition-colors placeholder:text-[var(--ai-t4)] hover:border-[var(--ai-t4)] focus:border-remotiv-purple focus:ring-[3px] focus:ring-remotiv-purple/[0.16]"
         />
+        <p className={`m-0 ${NOTE_HINT_CLASS}`} data-note-hint>
+          {NOTE_HINT}
+        </p>
         <div className="mt-[11px] flex items-center justify-between gap-3">
           <span className="flex items-center gap-[7px] text-[11.5px] leading-snug text-[var(--ai-t3)]">
             <Users className="size-[13px] shrink-0 text-[var(--ai-t4)]" strokeWidth={1.9} />
