@@ -1,46 +1,15 @@
 import { createServiceClient } from "@/lib/supabase/server";
 import { type NextRequest, NextResponse } from "next/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
-import {
-  attachCompanyData,
-  LIST_SELECT,
-  getJobById,
-  listedOnRemotiv,
-  type Job,
-  type ScreeningQuestion,
-} from "@/lib/jobs";
+import { LIST_SELECT, listedOnRemotiv, publicJobSummaries } from "@/lib/jobs";
 
-// JOB-001 — public-API projection. This route is unauthenticated, so nothing
-// it returns may include screening_questions[].ideal (the employer's pass
-// answers) or the internal created_by / client_id identifiers.
+// JOB-001 / F7: public-API projection. This route is unauthenticated, and it
+// answers exactly the summary keep-list (PUBLIC_JOB_SUMMARY_FIELDS in
+// lib/jobs.ts) plus the two company facts, whoever asks: it reads no session.
 //
-// The question keep-list duplicates toPublicJob in
-// src/app/jobs/[slug]/page.tsx — deliberately, since lib/jobs.ts is frozen for
-// this fix. Follow-up: hoist one shared projection when lib/jobs.ts is next
-// open. `essential` stays (the apply modal renders its badge); numeric_mode is
-// dropped (no client reads it, and it hints at scoring direction).
-function toPublicQuestion(q: ScreeningQuestion) {
-  return {
-    id: q.id,
-    question: q.question,
-    type: q.type,
-    options: q.options,
-    essential: q.essential,
-  };
-}
-
-// Full-row variant for the single-job branch. Keeps description and the other
-// detail columns (that lazy-description load is this branch's documented
-// purpose) and drops company_id too — unlike the list branch, where
-// company_id is load-bearing for _jobs-client.tsx's company-scope filter.
-function toPublicDetailJob(job: Job) {
-  const { client_id, created_by, company_id, screening_questions, ...rest } =
-    job;
-  return {
-    ...rest,
-    screening_questions: (screening_questions ?? []).map(toPublicQuestion),
-  };
-}
+// There is no single-job branch. `?id=` served the board's old detail panel,
+// which job pages replaced, and it answered with the whole row minus four
+// names. Any request carrying `id` is a 404, never the list.
 
 // Cap each filter's raw query-string segment so a 50 KB ?category= can't
 // pad the payload or stall the comma-split into a giant array.
@@ -62,21 +31,8 @@ export async function GET(request: NextRequest) {
 
   const { searchParams } = request.nextUrl;
 
-  // Single-job fetch branch — used by the /jobs detail panel for the lazy
-  // description load. Bypasses the list query and delegates to lib/jobs.
-  const idParam = searchParams.get("id");
-  if (idParam !== null) {
-    const read = await getJobById(idParam);
-    // 503, not 404: the caller is the /jobs detail panel, and telling it the
-    // role is gone when the lookup merely failed makes it render "not found"
-    // over a role that is still live. A 503 is retryable and says so.
-    if (!read.ok) {
-      return NextResponse.json({ error: "Unavailable." }, { status: 503 });
-    }
-    if (!read.value) {
-      return NextResponse.json({ error: "Not found." }, { status: 404 });
-    }
-    return NextResponse.json(toPublicDetailJob(read.value));
+  if (searchParams.has("id")) {
+    return NextResponse.json({ error: "Not found." }, { status: 404 });
   }
 
   const category = trimmedParam(searchParams.get("category"));
@@ -124,25 +80,12 @@ export async function GET(request: NextRequest) {
     );
   }
 
-  // Same enrichment the SSR list uses, so a card keeps its logo across a
-  // refetch instead of flipping back to the letter on the first filter change.
-  const rows = await attachCompanyData(
-    (data ?? []) as {
-      company_id: string | null;
-      client_id: string | null;
-      created_by: string | null;
-    }[],
-  );
-
-  // LIST_SELECT (shared with the SSR list, out of scope here) still selects
-  // client_id and created_by; strip them before the response. company_id stays
-  // — _jobs-client.tsx re-applies the /jobs?company= scope with it.
-  //
-  // company_is_internal, derived by attachCompanyData above, rides along too.
-  // The list's star gates on isRemotivOwned, which reads BOTH: a job with no
-  // company, or one whose company is Remotiv's own account. Dropping either
-  // from this payload puts the star back to disagreeing with the detail page.
+  // Same projection and enrichment as the SSR list, so a card keeps its logo
+  // across a refetch instead of flipping back to the letter on the first filter
+  // change. company_id stays (_jobs-client.tsx re-applies ?company= with it),
+  // and company_is_internal rides along: the list's star gates on
+  // isRemotivOwned, which reads BOTH.
   return NextResponse.json(
-    rows.map(({ client_id, created_by, ...row }) => row),
+    await publicJobSummaries((data ?? []) as unknown as Record<string, unknown>[]),
   );
 }

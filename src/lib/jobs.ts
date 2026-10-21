@@ -1,4 +1,4 @@
-// Server-side helpers for the /jobs page.
+// Server-side helpers for the public job surfaces.
 //
 // LIST_SELECT — the lean column projection used by the card-grid query. Skips
 // `description` (potentially KB-sized free text) since the list view only
@@ -10,20 +10,100 @@
 // default branch). Falls back to [] on Supabase error so the client gets
 // the "Couldn't load positions. Retry" UX.
 //
-// getJobById() — server-side helper used by /api/jobs/route.ts when a
-// `?id=<uuid>` query param is present. Fetches the FULL row (including
-// description) for the detail panel. The client island can't import this
-// directly (createServiceClient pulls server-only `next/headers`), so the
-// client hits the API route which delegates here.
+// getJobBySlug(): the job's own page, for its detail, layout and metadata.
 
 import { cache } from "react";
 import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 
-export const LIST_SELECT =
-  "id,title,company,company_rating,location,country,city,salary_min,salary_max,salary_currency,contract_type,work_type,category,experience_level,language,positions,status,created_at,slug,display_order,client_id,created_by,company_id,listed_on_remotiv";
+/**
+ * ── What the public may see of a job (F7) ────────────────────
+ *
+ * KEEP-lists, never deny-lists. The board's detail branch used to select "*"
+ * and strip four names, so every column added since (scoring weights,
+ * auto-shortlist thresholds, interview criteria, interviewer settings, booking
+ * hours) went out to anyone who asked, and the next one would have too. Here a
+ * column reaches the public only by being named, and each list holds exactly
+ * what a public page renders today:
+ *
+ *   SUMMARY  job cards (/jobs, /api/jobs), the company filter, the careers
+ *            index, the talent dashboard's latest roles. company_id stays: the
+ *            board re-applies ?company= with it and the ownership star reads
+ *            it. Filters and ordering (language, display_order, status,
+ *            listed_on_remotiv) run in the query and need no selected column.
+ *   DETAIL   the job's own page, both designs, its JSON-LD and metadata, and
+ *            the apply modal's questions.
+ *
+ * Applied twice: the select names only these columns, and the readers below
+ * copy only these keys, so a wider row (a "*" slipped back in) still cannot
+ * leave. Screening questions leave in their public shape only: never `ideal`
+ * (the employer's pass answers) or `numeric_mode`. /api/apply reads both from
+ * the database itself.
+ *
+ * Rows come back typed as Job, which is wider (internal readers share it); only
+ * these keys are present. Never read anything else from a public row.
+ */
+export const PUBLIC_JOB_SUMMARY_FIELDS = [
+  "id",
+  "title",
+  "company",
+  "company_rating",
+  "location",
+  "salary_min",
+  "salary_max",
+  "salary_currency",
+  "contract_type",
+  "work_type",
+  "category",
+  "experience_level",
+  "positions",
+  "created_at",
+  "slug",
+  "company_id",
+] as const;
 
-const UUID_REGEX = /^[0-9a-f]{8}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{4}-[0-9a-f]{12}$/i;
+export const PUBLIC_JOB_DETAIL_FIELDS = [
+  ...PUBLIC_JOB_SUMMARY_FIELDS,
+  "description",
+  "requirements",
+  "responsibilities",
+  "country",
+  "city",
+  "language",
+  "screening_questions",
+] as const;
+
+/** The public question keys. Everything else on a question stays server-side. */
+export const PUBLIC_SCREENING_QUESTION_FIELDS = [
+  "id",
+  "question",
+  "type",
+  "options",
+  "essential",
+] as const;
+
+export const LIST_SELECT = PUBLIC_JOB_SUMMARY_FIELDS.join(",");
+const DETAIL_SELECT = PUBLIC_JOB_DETAIL_FIELDS.join(",");
+
+function pick(row: Record<string, unknown>, fields: readonly string[]): Record<string, unknown> {
+  const out: Record<string, unknown> = {};
+  for (const field of fields) if (field in row) out[field] = row[field];
+  return out;
+}
+
+/** A card's row: the summary keys only. */
+export function toPublicJobSummary(row: Record<string, unknown>): Job {
+  return pick(row, PUBLIC_JOB_SUMMARY_FIELDS) as unknown as Job;
+}
+
+/** A job page's row: the detail keys only, its questions in their public shape. */
+export function toPublicJobDetail(row: Record<string, unknown>): Job {
+  const out = pick(row, PUBLIC_JOB_DETAIL_FIELDS);
+  out.screening_questions = (Array.isArray(row.screening_questions) ? row.screening_questions : [])
+    .filter((q): q is Record<string, unknown> => Boolean(q) && typeof q === "object")
+    .map((q) => pick(q, PUBLIC_SCREENING_QUESTION_FIELDS));
+  return out as unknown as Job;
+}
 
 // isRemotivOwned is in lib/job-ownership.ts for the SAME reason: the /jobs list
 // is a client component and cannot import a value from this module. Re-exported
@@ -116,9 +196,8 @@ export interface Job {
   language: string;
   positions: number;
   slug: string | null;
-  /** Optional because list-view queries omit them for payload size. The detail
-   *  panel (getJobById / getJobBySlug) populates description + the two bullet
-   *  lists. */
+  /** Optional because list-view queries omit them for payload size. The job
+   *  page (getJobBySlug) populates description + the two bullet lists. */
   description?: string | null;
   responsibilities: string | null;
   requirements: string | null;
@@ -290,8 +369,8 @@ export function publiclyVisible<T>(query: T): T {
  * ── Why this is a second helper and not a line in the first ──
  *
  * publiclyVisible has fourteen callers and they do not all mean the same thing.
- * Three of them serve the job's OWN url and the company's OWN careers page:
- * getJobById, getJobBySlug, and the careers-page query. Folding the flag into
+ * Some of them serve the job's OWN url and the company's OWN careers page:
+ * getJobBySlug, the job's OG image, and the careers-page query. Folding the flag into
  * publiclyVisible would have taken an unlisted role off the company's careers
  * page and 404'd the link they had been circulating — turning "don't advertise
  * this on your board" into "delete my hiring page", which nobody asked for.
@@ -334,40 +413,20 @@ export async function getInitialJobs(): Promise<Read<Job[]>> {
     return unavailable();
   }
 
-  return answered(await attachCompanyData((data ?? []) as unknown as Job[]));
+  return answered(await publicJobSummaries((data ?? []) as unknown as Record<string, unknown>[]));
+}
+
+/** Cards for a page of rows: the summary keys, then the two company facts. */
+export async function publicJobSummaries(rows: Record<string, unknown>[]): Promise<Job[]> {
+  return attachCompanyData(rows.map(toPublicJobSummary));
 }
 
 /**
- * One publicly visible job by id, or the fact that we could not look.
+ * One publicly visible job by its slug, or the fact that we could not look.
  *
  * `Read<Job | null>` rather than `Job | null`: `if (error || !data) return null`
  * gave a database failure and a deleted job the same answer, and every caller
  * turned that into a 404. A live job told the reader it did not exist.
- */
-export async function getJobById(id: string): Promise<Read<Job | null>> {
-  // Reject non-UUID input before any DB work — see UUID_REGEX above. This is
-  // an ANSWER: no such job can exist, and no query was needed to know it.
-  if (!id || !UUID_REGEX.test(id)) return answered(null);
-
-  const supabase = createServiceClient();
-
-  const { data, error } = await publiclyVisible(
-    supabase.from("jobs").select("*").eq("id", id),
-  ).maybeSingle();
-
-  if (error) {
-    console.error("[jobs] getJobById failed:", error.message);
-    return unavailable();
-  }
-  if (!data) return answered(null);
-
-  const [job] = await attachCompanyData([data as Job]);
-  return answered(job ?? null);
-}
-
-/**
- * Mirror of getJobById, matching on the human-readable slug instead of the
- * UUID. Same status gate, and the same three-state answer.
  *
  * ── Wrapped in cache(), and why that is load-bearing ─────────
  *
@@ -390,7 +449,7 @@ export const getJobBySlug = cache(async (slug: string): Promise<Read<Job | null>
   const supabase = createServiceClient();
 
   const { data, error } = await publiclyVisible(
-    supabase.from("jobs").select("*").eq("slug", slug),
+    supabase.from("jobs").select(DETAIL_SELECT).eq("slug", slug),
   ).maybeSingle();
 
   if (error) {
@@ -399,6 +458,8 @@ export const getJobBySlug = cache(async (slug: string): Promise<Read<Job | null>
   }
   if (!data) return answered(null);
 
-  const [job] = await attachCompanyData([data as Job]);
+  const [job] = await attachCompanyData([
+    toPublicJobDetail(data as unknown as Record<string, unknown>),
+  ]);
   return answered(job ?? null);
 });
