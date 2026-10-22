@@ -1,6 +1,7 @@
 import "@/app/ai-dashboard/ai-dashboard.css";
 import { notFound } from "next/navigation";
 import { TopNav } from "@/app/admin/_components/top-nav";
+import { adminLiveReviewEnabled } from "@/app/admin/lib/feature-flags";
 import { type AdminContext, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { LiveReviewClient } from "@/app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client";
 import { loadPlatformLiveReview } from "@/lib/interviews/live-review";
@@ -23,6 +24,8 @@ export default async function AdminInterviewReviewPage({
 }: {
   params: Promise<{ sessionId: string }>;
 }) {
+  // Off unless ADMIN_LIVE_REVIEW_ENABLED is "1": a 404 before any auth or database read.
+  if (!adminLiveReviewEnabled()) notFound();
   const { sessionId } = await params;
   let admin: AdminContext;
   try {

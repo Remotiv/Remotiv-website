@@ -28,6 +28,7 @@ import { usePathname } from "next/navigation";
 import { useEffect, useRef, useState } from "react";
 import { ROLE_BADGE_STYLES, ROLE_LABELS, type UserRole } from "@/app/admin/lib/roles";
 import { getAvatarUrl } from "@/lib/avatars";
+import { type AdminFlags, useAdminFlags } from "./admin-flags";
 import { NotificationsBell } from "./notifications-bell";
 
 type NavItem = {
@@ -36,6 +37,8 @@ type NavItem = {
   icon: LucideIcon;
   /** When true, only super_admin sees this link. DISPLAY ONLY — see below. */
   superAdminOnly?: boolean;
+  /** Shown only while this server-decided switch is on (admin-flags.tsx). Display only too. */
+  flag?: keyof AdminFlags;
 };
 
 type NavGroup = {
@@ -99,7 +102,13 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
       { label: "Applications", href: "/admin/applications", icon: FileText },
       // Every company's AI Video Interviews, read-only (F4). The pages and the
       // actions enforce super_admin server-side; this flag only hides the link.
-      { label: "Interviews", href: "/admin/interviews", icon: Video, superAdminOnly: true },
+      {
+        label: "Interviews",
+        href: "/admin/interviews",
+        icon: Video,
+        superAdminOnly: true,
+        flag: "liveReview",
+      },
       // Cross-company by design, so the route enforces super_admin server-side
       // in BOTH the page and the action. This flag only stops it being
       // advertised to admins who would be redirected away from it.
@@ -188,6 +197,7 @@ function getInitialsColor(email: string): string {
 
 export function TopNav({ email, userRole = "viewer" }: { email: string; userRole?: UserRole }) {
   const pathname = usePathname();
+  const flags = useAdminFlags();
 
   const [avatarOpen, setAvatarOpen] = useState(false);
   const [mobileOpen, setMobileOpen] = useState(false);
@@ -203,7 +213,10 @@ export function TopNav({ email, userRole = "viewer" }: { email: string; userRole
    */
   const visibleGroups = NAV_GROUPS.map((group) => ({
     heading: group.heading,
-    items: group.items.filter((item) => !item.superAdminOnly || userRole === "super_admin"),
+    items: group.items.filter(
+      (item) =>
+        (!item.superAdminOnly || userRole === "super_admin") && (!item.flag || flags[item.flag]),
+    ),
   })).filter((group) => group.items.length > 0);
 
   // Click-outside for desktop avatar dropdown

@@ -1,6 +1,7 @@
 import Link from "next/link";
 import { notFound } from "next/navigation";
 import { TopNav } from "@/app/admin/_components/top-nav";
+import { adminLiveReviewEnabled } from "@/app/admin/lib/feature-flags";
 import { type AdminContext, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { listPlatformLiveSessions } from "@/lib/interviews/live-review";
 
@@ -13,10 +14,13 @@ const CELL = "px-4 py-3 text-sm";
 /**
  * Every company's AI Video Interviews, for a Remotiv super admin (F4): company,
  * job, outcome, date and the last six characters of the session id. No
- * candidate name or other candidate data. Super admin only, checked here on
- * the server; anyone else gets a 404. The nav item only advertises it.
+ * candidate name or other candidate data. Off unless ADMIN_LIVE_REVIEW_ENABLED
+ * is "1" (feature-flags.ts), checked first: a 404 before any auth or database
+ * read. Then super admin only, on the server; anyone else gets a 404. The nav
+ * item only advertises it.
  */
 export default async function AdminInterviewsPage() {
+  if (!adminLiveReviewEnabled()) notFound();
   let admin: AdminContext;
   try {
     admin = await requireSuperAdmin();

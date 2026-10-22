@@ -1,5 +1,7 @@
 import { headers } from "next/headers";
 import { redirect } from "next/navigation";
+import { AdminFlagsProvider } from "@/app/admin/_components/admin-flags";
+import { adminLiveReviewEnabled } from "@/app/admin/lib/feature-flags";
 import { isSuperAdminEmail } from "@/app/admin/lib/roles";
 import { createClient, createServiceClient } from "@/lib/supabase/server";
 
@@ -65,5 +67,12 @@ export default async function AdminLayout({ children }: { children: React.ReactN
    *
    * lg: only. Below it the rail becomes a drawer and takes no layout space.
    */
-  return <main className="min-h-screen bg-remotiv-bg font-sans lg:pl-[236px]">{children}</main>;
+  // Server-decided switches, as plain booleans for the nav (admin-flags.tsx).
+  return (
+    <main className="min-h-screen bg-remotiv-bg font-sans lg:pl-[236px]">
+      <AdminFlagsProvider flags={{ liveReview: adminLiveReviewEnabled() }}>
+        {children}
+      </AdminFlagsProvider>
+    </main>
+  );
 }

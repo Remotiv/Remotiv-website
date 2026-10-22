@@ -1,5 +1,6 @@
 "use server";
 
+import { adminLiveReviewEnabled } from "@/app/admin/lib/feature-flags";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { signPlatformTurnAudio, signPlatformVideoPiece } from "@/lib/interviews/live-review";
 import type { LiveAudioResult } from "@/lib/interviews/live-review-types";
@@ -7,6 +8,10 @@ import type { LiveAudioResult } from "@/lib/interviews/live-review-types";
 // The super admin's read-only live interview review (F4): its two recording
 // links and nothing else. No recovery action lives here, and runLiveRecovery
 // takes a company context only, so a super admin acts on nothing.
+//
+// Off unless ADMIN_LIVE_REVIEW_ENABLED is "1" (feature-flags.ts): checked first,
+// before any auth or database read, so a call while it is off logs and signs
+// nothing.
 //
 // Every call checks requireSuperAdmin again (a server action is a plain POST
 // endpoint, whatever the page showed), then lib/interviews/live-review.ts
@@ -16,6 +21,7 @@ import type { LiveAudioResult } from "@/lib/interviews/live-review-types";
 const NOT_FOUND: LiveAudioResult = { ok: false, error: "That interview couldn't be found." };
 
 async function superAdminId(): Promise<string | null> {
+  if (!adminLiveReviewEnabled()) return null;
   try {
     return (await requireSuperAdmin()).user.id;
   } catch {

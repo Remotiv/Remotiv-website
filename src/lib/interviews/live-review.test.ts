@@ -921,6 +921,17 @@ const SUPER_ADMIN = {
   mustChangePassword: false,
 };
 const ADMIN_ID = SUPER_ADMIN.user.id;
+/** ADMIN_LIVE_REVIEW_ENABLED = "1" for one test: the super admin review is off by default. */
+async function withAdminLiveReview(fn) {
+  const before = process.env.ADMIN_LIVE_REVIEW_ENABLED;
+  process.env.ADMIN_LIVE_REVIEW_ENABLED = "1";
+  try {
+    return await fn();
+  } finally {
+    if (before === undefined) delete process.env.ADMIN_LIVE_REVIEW_ENABLED;
+    else process.env.ADMIN_LIVE_REVIEW_ENABLED = before;
+  }
+}
 async function asSuperAdmin(fn) {
   globalThis.__superAdmin = SUPER_ADMIN;
   try {
@@ -1117,72 +1128,74 @@ test("F4: a session with no application is logged with a null application_id, an
   );
 });
 
-test("F4: the admin media actions check super admin on every call", async () => {
-  const db = await saved();
-  const [turn] = candidateTurns(db);
-  const refused = { ok: false, error: "That interview couldn't be found." };
-  assert.deepEqual(await adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id), refused);
-  assert.deepEqual(await adminActions.getAdminLiveVideoPieceUrl(SESSION, 0), refused);
-  assert.equal(adminLogs(db).length, 0, "a refused call logs nothing and signs nothing");
-  const ok = await asSuperAdmin(() => adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id));
-  assert.equal(ok.ok, true);
-  assert.deepEqual(
-    adminLogs(db).map((l) => [l.action, l.user_id]),
-    [["open_turn_audio", ADMIN_ID]],
-  );
-});
+test("F4: the admin media actions check super admin on every call", () =>
+  withAdminLiveReview(async () => {
+    const db = await saved();
+    const [turn] = candidateTurns(db);
+    const refused = { ok: false, error: "That interview couldn't be found." };
+    assert.deepEqual(await adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id), refused);
+    assert.deepEqual(await adminActions.getAdminLiveVideoPieceUrl(SESSION, 0), refused);
+    assert.equal(adminLogs(db).length, 0, "a refused call logs nothing and signs nothing");
+    const ok = await asSuperAdmin(() => adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id));
+    assert.equal(ok.ok, true);
+    assert.deepEqual(
+      adminLogs(db).map((l) => [l.action, l.user_id]),
+      [["open_turn_audio", ADMIN_ID]],
+    );
+  }));
 
 const pageFor = (id) => AdminReviewPage({ params: Promise.resolve({ sessionId: id }) });
 const isNotFound = (e) => e?.notFound === true;
 
-test("F4 pages: super admin only (404 for everyone else); read-only; a failed log shows only the reason", async () => {
-  const db = await saved();
-  db.tables.companies = [{ id: CO, name: "Acme Ltd" }];
-  db.tables.interview_sessions[0].created_at = "2026-10-22T09:00:00.000Z";
-  await assert.rejects(pageFor(SESSION), isNotFound, "not a super admin: 404");
-  await assert.rejects(AdminListPage(), isNotFound, "not a super admin: 404 on the list too");
-  assert.equal(adminLogs(db).length, 0);
+test("F4 pages: super admin only (404 for everyone else); read-only; a failed log shows only the reason", () =>
+  withAdminLiveReview(async () => {
+    const db = await saved();
+    db.tables.companies = [{ id: CO, name: "Acme Ltd" }];
+    db.tables.interview_sessions[0].created_at = "2026-10-22T09:00:00.000Z";
+    await assert.rejects(pageFor(SESSION), isNotFound, "not a super admin: 404");
+    await assert.rejects(AdminListPage(), isNotFound, "not a super admin: 404 on the list too");
+    assert.equal(adminLogs(db).length, 0);
 
-  const html = await asSuperAdmin(async () => renderToStaticMarkup(await pageFor(SESSION)));
-  assert.match(html, /data-read-only/);
-  assert.match(html, /data-header/);
-  assert.doesNotMatch(html, /data-actions|data-action=/, "no action, though checks are open");
-  assert.match(html, /href="\/admin\/interviews"/);
-  assert.doesNotMatch(html, /\/ai-dashboard\/interviews/);
-  assert.match(html, /Alex Example/, "the candidate's name, as the company page shows it");
-  assert.equal(adminLogs(db).length, 1);
-  assert.doesNotMatch(
-    JSON.stringify(adminLogs(db)),
-    /Alex|Example|import service/,
-    "no name or transcript in the log",
-  );
-  await asSuperAdmin(() =>
-    assert.rejects(pageFor("5b0f2c1e-0000-4000-8000-0000000000f2"), isNotFound),
-  );
+    const html = await asSuperAdmin(async () => renderToStaticMarkup(await pageFor(SESSION)));
+    assert.match(html, /data-read-only/);
+    assert.match(html, /data-header/);
+    assert.doesNotMatch(html, /data-actions|data-action=/, "no action, though checks are open");
+    assert.match(html, /href="\/admin\/interviews"/);
+    assert.doesNotMatch(html, /\/ai-dashboard\/interviews/);
+    assert.match(html, /Alex Example/, "the candidate's name, as the company page shows it");
+    assert.equal(adminLogs(db).length, 1);
+    assert.doesNotMatch(
+      JSON.stringify(adminLogs(db)),
+      /Alex|Example|import service/,
+      "no name or transcript in the log",
+    );
+    await asSuperAdmin(() =>
+      assert.rejects(pageFor("5b0f2c1e-0000-4000-8000-0000000000f2"), isNotFound),
+    );
 
-  db.failNext("admin_access_logs", "insert");
-  const failed = await asSuperAdmin(async () =>
-    renderToStaticMarkup(await quiet(() => pageFor(SESSION))),
-  );
-  assert.match(failed, /data-not-logged/);
-  assert.doesNotMatch(failed, /data-header|data-question|Alex/, "no candidate data");
+    db.failNext("admin_access_logs", "insert");
+    const failed = await asSuperAdmin(async () =>
+      renderToStaticMarkup(await quiet(() => pageFor(SESSION))),
+    );
+    assert.match(failed, /data-not-logged/);
+    assert.doesNotMatch(failed, /data-header|data-question|Alex/, "no candidate data");
 
-  const list = await asSuperAdmin(async () => renderToStaticMarkup(await AdminListPage()));
-  assert.equal((list.match(/data-session-row/g) ?? []).length, 1);
-  assert.match(list, new RegExp(SESSION.slice(-6)));
-  assert.match(list, /Acme Ltd/);
-  assert.match(list, /Backend Engineer/);
-  assert.doesNotMatch(list, /Alex|Example|Candidate/, "no candidate data on the list");
-  const rows = await listPlatformLiveSessions(deps(db));
-  assert.deepEqual(Object.keys(rows[0]).sort(), [
-    "companyName",
-    "createdAt",
-    "id",
-    "jobTitle",
-    "outcome",
-    "shortId",
-  ]);
-});
+    const list = await asSuperAdmin(async () => renderToStaticMarkup(await AdminListPage()));
+    assert.equal((list.match(/data-session-row/g) ?? []).length, 1);
+    assert.match(list, new RegExp(SESSION.slice(-6)));
+    assert.match(list, /Acme Ltd/);
+    assert.match(list, /Backend Engineer/);
+    assert.doesNotMatch(list, /Alex|Example|Candidate/, "no candidate data on the list");
+    const rows = await listPlatformLiveSessions(deps(db));
+    assert.deepEqual(Object.keys(rows[0]).sort(), [
+      "companyName",
+      "createdAt",
+      "id",
+      "jobTitle",
+      "outcome",
+      "shortId",
+    ]);
+  }));
 
 test("F4: platform mode never renders an action, even with canAct true; company mode still does", async () => {
   const db = await saved();
@@ -1325,4 +1338,28 @@ test("F4 company media: the signed_url_logs row is written first; a failed log o
   assert.deepEqual(await signLiveVideoPiece(owner, SESSION, 0, deps(db)), noApp);
   assert.equal(db.tables.signed_url_logs.length, grants);
   assert.equal(signs.length, 2);
+});
+
+test("F4 switch off (the default): a signed-in super admin gets 404s and refusals; no query, no log row, no link", async () => {
+  const db = await saved();
+  await withVideoPiece(db);
+  const before = process.env.ADMIN_LIVE_REVIEW_ENABLED;
+  delete process.env.ADMIN_LIVE_REVIEW_ENABLED;
+  try {
+    await asSuperAdmin(async () => {
+      const queries = db.service.queries.length;
+      const signs = spySigning(db);
+      await assert.rejects(pageFor(SESSION), isNotFound);
+      await assert.rejects(AdminListPage(), isNotFound);
+      const [turn] = candidateTurns(db);
+      const refused = { ok: false, error: "That interview couldn't be found." };
+      assert.deepEqual(await adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id), refused);
+      assert.deepEqual(await adminActions.getAdminLiveVideoPieceUrl(SESSION, 0), refused);
+      assert.equal(db.service.queries.length, queries, "no database query");
+      assert.equal(adminLogs(db).length, 0, "no log row");
+      assert.equal(signs.length, 0, "no link signed");
+    });
+  } finally {
+    if (before !== undefined) process.env.ADMIN_LIVE_REVIEW_ENABLED = before;
+  }
 });
