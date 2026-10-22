@@ -153,6 +153,7 @@ import {
   screeningCount,
   selectScreening,
 } from "./screening-state";
+import { TAB_FADE_PX, tabScrollLeft } from "./tab-scroll";
 
 // ── Constants ────────────────────────────────────────────────
 
@@ -202,7 +203,13 @@ const FUNNEL_STEPS: ReadonlyArray<{
 const PANEL_TABS = [
   { key: "profile", label: "Profile" },
   { key: "review", label: "Review" },
-  { key: "comm", label: "Communication" },
+  /* `short` is the label below the strip's breakpoint, not a rename: "comm"
+     is in the URL and every link anyone has sent resolves through it.
+     "Communication" alone is 102px of a 377px strip, more than a quarter of
+     it for one of six tabs. Comments keeps its full label at every width —
+     those are the team's comments on a candidate, and "Notes" is a different
+     thing elsewhere in the product. */
+  { key: "comm", label: "Communication", short: "Comms" },
   { key: "interviews", label: "Interviews" },
   /* Fifth, where the design puts it — after the panes that answer "who is this
      and how good are they" and before the team's own discussion.
@@ -1003,6 +1010,18 @@ const PANEL_ICON_BTN =
 const PANEL_TAB_BASE =
   "relative whitespace-nowrap pb-3 text-[13px] font-bold transition-colors after:absolute after:inset-x-0 after:-bottom-px after:h-0.5 after:rounded-t-sm";
 
+/**
+ * The tab strip's right-edge fade: the affordance that says there is more tab
+ * off the edge. It carries that on its own because the scrollbar cannot — an
+ * overlay scrollbar draws nothing until a scroll is already under way, which
+ * is the wrong order for a hint.
+ *
+ * A mask rather than a gradient element so nothing has to be positioned over a
+ * scroll container, and applied only while something is genuinely hidden: a
+ * permanent fade would dim the last tab of a desktop strip that fits.
+ */
+const TAB_FADE_MASK = `linear-gradient(to right, #000 calc(100% - ${TAB_FADE_PX}px), transparent)`;
+
 /** The design system's secondary button, for the Review card's action column. */
 const REVIEW_BTN_SEC =
   "inline-flex items-center justify-center gap-[7px] whitespace-nowrap rounded-[11px] border border-[var(--ai-line-strong)] bg-[var(--ai-surface)] px-4 py-2.5 text-[13.5px] font-bold text-[var(--ai-t1)] transition-colors hover:bg-[var(--ai-inset)] disabled:cursor-not-allowed disabled:opacity-40";
@@ -1562,6 +1581,54 @@ function ApplicantDrawer({
   // A confirm dialog opened from inside this drawer stacks on top of it.
   useModalFocus(panelRef, true, { onClose });
 
+  /*
+   * Revealing the current tab in the strip that now scrolls.
+   *
+   * Two entry points, one effect: a deep link can open this drawer straight
+   * onto Comments, which is the tab furthest off the right edge, and prev/next
+   * remounts the drawer on the same tab for the next candidate. Both are just
+   * "whichever tab is current, show it", so neither gets its own handler.
+   */
+  const tabStripRef = useRef<HTMLDivElement>(null);
+  const [tabFade, setTabFade] = useState(false);
+
+  const syncTabFade = useCallback(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    // The 1px of slack is for a fractional scrollLeft at the end of the range,
+    // which would otherwise leave the fade painted over the last tab with
+    // nothing behind it to promise.
+    setTabFade(el.scrollLeft + el.clientWidth < el.scrollWidth - 1);
+  }, []);
+
+  useEffect(() => {
+    const el = tabStripRef.current;
+    if (!el) return;
+    // Found by `data-tab` rather than by `aria-current="page"`, so the tab
+    // this effect reveals is the one its dependency array names. Reading the
+    // ARIA attribute instead made `tab` an unused dependency that was doing
+    // all the work, which is a trap for whoever next prunes the array.
+    const active = el.querySelector<HTMLElement>(`[data-tab="${tab}"]`);
+    if (active) {
+      const target = tabScrollLeft({
+        scrollLeft: el.scrollLeft,
+        clientWidth: el.clientWidth,
+        scrollWidth: el.scrollWidth,
+        itemLeft: active.offsetLeft,
+        itemWidth: active.offsetWidth,
+      });
+      if (target !== el.scrollLeft) el.scrollTo({ left: target });
+    }
+    syncTabFade();
+  }, [tab, syncTabFade]);
+
+  // A rotation changes what fits without firing a scroll event, so without
+  // this the fade would go on claiming hidden tabs on a strip that now fits.
+  useEffect(() => {
+    window.addEventListener("resize", syncTabFade);
+    return () => window.removeEventListener("resize", syncTabFade);
+  }, [syncTabFade]);
+
   /**
    * The drawer's authoritative score.
    *
@@ -1773,10 +1840,27 @@ function ApplicantDrawer({
           {/* Mini ring only. The full card lives on Review, where the reader
               has the breakdown in front of them; this keeps the number
               itself on screen from every tab. Absent rather than a dashed
-              placeholder when unscored — Review carries that explanation. */}
+              placeholder when unscored — Review carries that explanation.
+
+              Hidden below 525px (the segment's `sm`, scaled by the shell's
+              0.82 zoom), because at a 360px viewport this row has 377px to
+              place 446px of content and the ring block plus its divider are
+              the first 136px of the excess. What was being lost instead was
+              the NAME: the h2 and the email both carry `truncate`, so they
+              clipped to zero width and vanished while the ring stayed, and
+              the only survivor was the whitespace-nowrap applied date
+              painting across the ring. Hiding the ring brings the identity
+              row's overflow to 0 and the name back to 99px at 360 / 117px at
+              375, at no vertical cost — the header stays 163px tall. The
+              argument for which one goes is the comment above: the score has
+              a full card one tab away and the name has nowhere else to be.
+
+              This also fixes the Stage select, which was sitting 46px past
+              the drawer edge for the same reason and needs no edit of its
+              own. */}
           {band && headerScore.overall != null && (
             <>
-              <div className="flex shrink-0 items-center gap-[11px]">
+              <div className="hidden shrink-0 items-center gap-[11px] min-[525px]:flex">
                 <DrawerMiniRing score={headerScore.overall} />
                 <div>
                   <span className="block text-[12.5px] font-bold leading-[1.25] text-[var(--ai-t1)]">
@@ -1793,7 +1877,12 @@ function ApplicantDrawer({
                   )}
                 </div>
               </div>
-              <span aria-hidden className="h-9 w-px shrink-0 bg-[var(--ai-line)]" />
+              {/* Same breakpoint as the ring it separates: a divider with
+                  nothing on one side of it is just a stray line. */}
+              <span
+                aria-hidden
+                className="hidden h-9 w-px shrink-0 bg-[var(--ai-line)] min-[525px]:block"
+              />
             </>
           )}
 
@@ -1860,11 +1949,41 @@ function ApplicantDrawer({
           )}
         </div>
 
-        <div className="flex gap-[26px]">
+        {/* Scrolls sideways rather than wrapping, which is the opposite of the
+            call made for the dashboard's filter-chip strips, and for a reason
+            that does not transfer: those scrollers sat inside an
+            overflow-hidden card with the body's overflow-x hidden too, so
+            nothing was draggable and a hidden chip was unreachable. This row
+            IS the scroll container and is directly touch-draggable. Wrapping
+            was measured and rejected separately: it costs 57px of header
+            height and splits the 2px underline across two baselines.
+
+            `pb-px -mb-px` is load-bearing, not tidying. PANEL_TAB_BASE puts
+            the underline at `after:-bottom-px`, 1px OUTSIDE each button's box
+            so the rule lands on the header's own border. `overflow-x: auto`
+            forces computed `overflow-y` from visible to auto — CSS does not
+            allow one axis to clip while the other does not — so that 1px
+            became scrollable overflow and half the active tab's underline was
+            clipped. 1px of padding brings it inside the padding box and the
+            1px negative margin gives the height back, leaving every button's
+            bottom edge at the pixel it was at before. Remove either class and
+            the underline goes back to half thickness.
+
+            `relative` makes this box the tabs' offsetParent, so their
+            offsetLeft is already in the strip's content coordinates. Rects
+            are not an option here: the shell's unconditional `zoom: 0.82`
+            returns them in visual px while scrollLeft is layout px. */}
+        <div
+          ref={tabStripRef}
+          onScroll={syncTabFade}
+          className="relative -mb-px flex gap-[26px] overflow-x-auto pb-px"
+          style={tabFade ? { maskImage: TAB_FADE_MASK, WebkitMaskImage: TAB_FADE_MASK } : undefined}
+        >
           {PANEL_TABS.map((t) => (
             <button
               key={t.key}
               type="button"
+              data-tab={t.key}
               onClick={() => onTabChange(t.key)}
               aria-current={tab === t.key ? "page" : undefined}
               className={`${PANEL_TAB_BASE} ${
@@ -1873,7 +1992,14 @@ function ApplicantDrawer({
                   : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
               }`}
             >
-              {t.label}
+              {"short" in t ? (
+                <>
+                  <span className="min-[525px]:hidden">{t.short}</span>
+                  <span className="hidden min-[525px]:inline">{t.label}</span>
+                </>
+              ) : (
+                t.label
+              )}
             </button>
           ))}
         </div>
