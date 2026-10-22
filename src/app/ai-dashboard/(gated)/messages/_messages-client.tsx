@@ -389,13 +389,22 @@ export function MessagesClient({
 
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-          <div className="flex rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+          {/* This strip was the one genuinely UNREACHABLE one: it carried none
+              of the three classes, so at 360px its 427px of chips ran 38px past
+              the enclosing card, which is overflow-hidden (clientWidth 406,
+              scrollWidth 445) — 35px of the Scheduled chip was simply clipped,
+              with no scrollbar and no swipe to bring it back. Its three sibling
+              strips at least scrolled. All three classes are load-bearing:
+              flex-wrap moves chips to a second row, max-w-full stops the strip
+              widening the card, and shrink-0 keeps the labels readable instead
+              of compressing four of them into one row. */}
+          <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => resetTo({ tab: t.key })}
-                className={`flex items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
+                className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
                   tab === t.key
                     ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
                     : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"

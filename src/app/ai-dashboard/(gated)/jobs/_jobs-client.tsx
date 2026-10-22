@@ -1208,16 +1208,19 @@ export function JobsClient({
           {/* Active tab is solid ink with a white count badge — the segment's
               standard active state, not a pale pill.
 
-              The four-tab strip is wider than a small phone, so it scrolls
-              WITHIN itself (max-w-full + overflow-x-auto) and can never widen
-              the page. */}
-          <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+              The five-tab strip is wider than a small phone, so it WRAPS onto
+              a second row (max-w-full + flex-wrap) and can never widen the
+              page. It used to scroll within itself, which hid 103px of chips
+              at 360px behind a scrollbar phones do not draw. shrink-0 keeps
+              each label readable: without it the chips compressed instead of
+              moving to the next row. */}
+          <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
                 onClick={() => setTab(t.key)}
-                className={`flex items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors min-[525px]:px-[14px] ${
+                className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
                   tab === t.key
                     ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
                     : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"

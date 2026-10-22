@@ -1362,15 +1362,18 @@ export function TeamClient({
       {/* Panel */}
       <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
         <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-          {/* Active tab is solid ink with a white count badge. The strip
-              scrolls WITHIN itself so it can never widen the page. */}
-          <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+          {/* Active tab is solid ink with a white count badge. Three segments
+              fit on a 360px phone today, so this strip WRAPS defensively: it
+              matches its four siblings so a fourth segment or a longer label
+              cannot quietly push a chip off the edge the way it did on
+              Messages, Interviews and Jobs. */}
+          <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
             {segments.map((s) => (
               <button
                 key={s.key}
                 type="button"
                 onClick={() => setSegment(s.key)}
-                className={`flex items-center gap-[7px] whitespace-nowrap rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors min-[525px]:px-[14px] ${
+                className={`flex shrink-0 items-center gap-[7px] whitespace-nowrap rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
                   segment === s.key
                     ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
                     : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"

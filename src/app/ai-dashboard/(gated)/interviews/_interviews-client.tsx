@@ -233,9 +233,12 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
 
           <div className="overflow-hidden rounded-[20px] border border-[var(--ai-line)] bg-[var(--ai-surface)] shadow-[0_6px_30px_rgba(20,16,32,0.06)]">
             <div className="flex flex-wrap items-center gap-3 border-b border-[var(--ai-line)] px-[18px] py-3.5">
-              {/* The strip is wider than a phone, so it scrolls within itself
-                  rather than widening the page. */}
-              <div className="flex max-w-full overflow-x-auto rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+              {/* The strip is wider than a phone, so it WRAPS onto a second
+                  row rather than widening the page. It used to scroll within
+                  itself, which put 149px of chips — Not started and Expired —
+                  off the right edge at 360px behind a scrollbar phones do not
+                  draw. A filter nobody can see is a filter nobody uses. */}
+              <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
                 {TABS.filter(
                   // Nothing archived, no tab — an always-visible empty tab
                   // invites people to look for a feature they aren't using.
