@@ -41,6 +41,7 @@ import {
 import { hasRealWords } from "@/lib/interviews/live-transcribe";
 import { type VideoPieceRow, videoTimeline } from "@/lib/interviews/live-video-timeline";
 import { findQuoteStart } from "@/lib/interviews/quote-timestamps";
+import { resolveCandidate } from "@/lib/interviews/review-candidate";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import type { TranscriptSegment } from "@/lib/interviews/transcribe";
 import { isSafeFailureSentence } from "@/lib/queue/failure-class";
@@ -547,8 +548,18 @@ export async function loadLiveReview(
 ): Promise<LiveReviewView | null> {
   const session = await gateLiveSession(ctx, sessionId, deps);
   if (!session) return null;
-  const { service } = deps;
+  return reviewFor(deps.service, session, ctx.companyId);
+}
 
+/**
+ * The view of a session the caller is already allowed to see. Every read is
+ * filtered by `companyId`, the session's own company.
+ */
+async function reviewFor(
+  service: Service,
+  session: SessionRow,
+  companyId: string,
+): Promise<LiveReviewView | null> {
   // Earlier attempts, walking back; the latest, walking forward.
   const earlier: string[] = [];
   let back = session.previous_attempt_id;
@@ -558,11 +569,11 @@ export async function loadLiveReview(
       .from("interview_sessions")
       .select("id, previous_attempt_id")
       .eq("id", back)
-      .eq("company_id", ctx.companyId)
+      .eq("company_id", companyId)
       .maybeSingle();
     back = (data as { previous_attempt_id: string | null } | null)?.previous_attempt_id ?? null;
   }
-  const counting = await countingLiveScore(service, ctx.companyId, session.id);
+  const counting = await countingLiveScore(service, companyId, session.id);
   if (!counting) return null;
   const isLatest = counting.session_id === session.id;
 
@@ -574,7 +585,7 @@ export async function loadLiveReview(
       .from("live_interview_scores")
       .select("*")
       .eq("session_id", session.id)
-      .eq("company_id", ctx.companyId)
+      .eq("company_id", companyId)
       .maybeSingle();
     row = (data as LiveScoreRow | null) ?? null;
   }
@@ -585,14 +596,14 @@ export async function loadLiveReview(
       .from("live_interview_actions")
       .select("action, decision, question_position, turn_id, turn_sequence, created_at")
       .eq("session_id", session.id)
-      .eq("company_id", ctx.companyId)
+      .eq("company_id", companyId)
       .order("created_at", { ascending: true }),
     // media_path is read only to know a file exists (videoTimeline); none is returned.
     service
       .from("live_video_pieces")
       .select("piece_index, status, started_ms, duration_ms, is_last, media_path")
       .eq("session_id", session.id)
-      .eq("company_id", ctx.companyId),
+      .eq("company_id", companyId),
   ]);
 
   const frozen = readFrozenQuestionSet(session);
@@ -621,6 +632,39 @@ export async function loadLiveReview(
 }
 
 /* ── audio ────────────────────────────────────────────────────── */
+
+/**
+ * The grant's signed_url_logs row, written BEFORE the link is signed: never an
+ * unlogged link (F4). Null when it is written; otherwise the refusal to return.
+ * signed_url_logs needs the candidate, so a session with no application gets
+ * no link at all.
+ */
+async function logCompanyGrant(
+  service: Service,
+  ctx: CompanyContext,
+  session: SessionRow,
+  table: "interview_turns" | "live_video_pieces",
+): Promise<LiveAudioResult | null> {
+  if (!session.application_id) {
+    return {
+      ok: false,
+      error: "This recording can't be opened: no applicant is linked to the interview.",
+    };
+  }
+  const { error } = await service.from("signed_url_logs").insert({
+    user_id: ctx.user.id,
+    candidate_id: session.application_id,
+    source_table: table,
+    was_admin: false,
+  });
+  if (error) {
+    console.error(
+      `[live-review] session ${session.id}: ${table} grant not logged: ${error.message}`,
+    );
+    return { ok: false, error: "This recording couldn't be opened right now. Try again." };
+  }
+  return null;
+}
 
 /**
  * A signed URL for ONE turn's audio, Sarah's or the candidate's, after the
@@ -653,22 +697,13 @@ export async function signLiveTurnAudio(
         : "There is no audio for this turn.",
     };
   }
+  const refused = await logCompanyGrant(deps.service, ctx, session, "interview_turns");
+  if (refused) return refused;
   const { data: signed, error } = await deps.service.storage
     .from(INTERVIEW_BUCKET)
     .createSignedUrl(turn.media_path, PLAYBACK_TTL_SECONDS);
   if (error || !signed?.signedUrl)
     return { ok: false, error: "Couldn't load that audio. Try again." };
-  deps.service
-    .from("signed_url_logs")
-    .insert({
-      user_id: ctx.user.id,
-      candidate_id: session.application_id,
-      source_table: "interview_turns",
-      was_admin: false,
-    })
-    .then(({ error: e }: { error: { message: string } | null }) => {
-      if (e) console.error("[signed_url_logs insert]", e.message);
-    });
   return { ok: true, url: signed.signedUrl };
 }
 
@@ -705,23 +740,297 @@ export async function signLiveVideoPiece(
   if (!piece.media_path) {
     return { ok: false, error: "This recording was deleted after six months." };
   }
+  const refused = await logCompanyGrant(deps.service, ctx, session, "live_video_pieces");
+  if (refused) return refused;
   const { data: signed, error } = await deps.service.storage
     .from(INTERVIEW_BUCKET)
     .createSignedUrl(piece.media_path, PLAYBACK_TTL_SECONDS);
   if (error || !signed?.signedUrl)
     return { ok: false, error: "Couldn't load that video. Try again." };
-  deps.service
+  return { ok: true, url: signed.signedUrl };
+}
+
+/* ── Remotiv super admin: read-only, every access logged first (F4) ── */
+
+/*
+ * For a caller ALREADY checked as a Remotiv super admin (requireSuperAdmin, in
+ * app/admin/interviews). Any company's live session, read-only: there is no
+ * recovery here, and runLiveRecovery takes a company context only.
+ *
+ * Fail closed: the admin_access_logs row (migration 046) is written BEFORE
+ * any candidate data is read for the page, and BEFORE a recording link is
+ * signed. If it cannot be written, nothing is shown and nothing is signed.
+ * The row carries ids only.
+ */
+
+export type AdminAccessAction = "view_live_review" | "open_turn_audio" | "open_video_piece";
+
+const NOT_FOUND_PLATFORM: LiveAudioResult = {
+  ok: false,
+  error: "That interview couldn't be found.",
+};
+const NOT_LOGGED = "This couldn't be opened: the access log could not be written. Try again.";
+
+/** A live session by id, in any company. Only for a caller already checked as super admin. */
+async function platformLiveSession(
+  service: Service,
+  sessionId: string,
+): Promise<SessionRow | null> {
+  if (!sessionId) return null;
+  const { data } = await service
+    .from("interview_sessions")
+    .select(SESSION_COLUMNS)
+    .eq("id", sessionId)
+    .maybeSingle();
+  const row = data as SessionRow | null;
+  return row?.kind === "live" ? row : null;
+}
+
+/** Writes the audit row. False when it could not be written: the caller then shows and signs nothing. */
+async function logAdminAccess(
+  service: Service,
+  adminUserId: string,
+  action: AdminAccessAction,
+  session: SessionRow,
+): Promise<boolean> {
+  const { error } = await service.from("admin_access_logs").insert({
+    user_id: adminUserId,
+    action,
+    session_id: session.id,
+    company_id: session.company_id,
+    application_id: session.application_id,
+  });
+  if (error) {
+    console.error(`[admin-access] session ${session.id}: ${action} not logged: ${error.message}`);
+    return false;
+  }
+  return true;
+}
+
+/** signed_url_logs as for every other media grant, where it can hold the row (a candidate is required). */
+function logAdminGrant(service: Service, adminUserId: string, session: SessionRow, table: string) {
+  if (!session.application_id) return;
+  service
     .from("signed_url_logs")
     .insert({
-      user_id: ctx.user.id,
+      user_id: adminUserId,
       candidate_id: session.application_id,
-      source_table: "live_video_pieces",
-      was_admin: false,
+      source_table: table,
+      was_admin: true,
     })
     .then(({ error: e }: { error: { message: string } | null }) => {
       if (e) console.error("[signed_url_logs insert]", e.message);
     });
+}
+
+export type PlatformLiveReview =
+  | {
+      ok: true;
+      view: LiveReviewView;
+      candidateName: string;
+      jobTitle: string;
+      companyName: string;
+    }
+  | { ok: false; reason: "not_found" | "not_logged"; message: string };
+
+/**
+ * The read-only review for a super admin, logged first. The candidate's name
+ * is the one the company's own page shows (resolveCandidate), read through
+ * the session's own company; it never goes into the log.
+ */
+export async function loadPlatformLiveReview(
+  adminUserId: string,
+  sessionId: string,
+  deps: LiveReviewDeps = defaultDeps(),
+): Promise<PlatformLiveReview> {
+  const notFound = { ok: false as const, reason: "not_found" as const, message: "Not found." };
+  const session = await platformLiveSession(deps.service, sessionId);
+  if (!session) return notFound;
+  if (!(await logAdminAccess(deps.service, adminUserId, "view_live_review", session))) {
+    return { ok: false, reason: "not_logged", message: NOT_LOGGED };
+  }
+  const view = await reviewFor(deps.service, session, session.company_id);
+  if (!view) return notFound;
+  const [{ data: app }, { data: job }, { data: company }] = await Promise.all([
+    session.application_id
+      ? deps.service
+          .from("job_applications")
+          .select("first_name, last_name, email")
+          .eq("id", session.application_id)
+          .eq("company_id_snapshot", session.company_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    session.job_id
+      ? deps.service
+          .from("jobs")
+          .select("title")
+          .eq("id", session.job_id)
+          .eq("company_id", session.company_id)
+          .maybeSingle()
+      : Promise.resolve({ data: null }),
+    deps.service.from("companies").select("name").eq("id", session.company_id).maybeSingle(),
+  ]);
+  return {
+    ok: true,
+    view,
+    candidateName: resolveCandidate(
+      session.application_id,
+      (app as {
+        first_name: string | null;
+        last_name: string | null;
+        email: string | null;
+      } | null) ?? undefined,
+    ).name,
+    jobTitle: (job as { title: string | null } | null)?.title ?? "This role",
+    companyName: (company as { name: string | null } | null)?.name ?? "A company",
+  };
+}
+
+/** One turn's audio for a super admin: the turn must be this live session's; logged, then signed. */
+export async function signPlatformTurnAudio(
+  adminUserId: string,
+  sessionId: string,
+  turnId: string,
+  deps: LiveReviewDeps = defaultDeps(),
+): Promise<LiveAudioResult> {
+  if (!turnId) return { ok: false, error: "Bad request." };
+  const session = await platformLiveSession(deps.service, sessionId);
+  if (!session) return NOT_FOUND_PLATFORM;
+  const { data } = await deps.service
+    .from("interview_turns")
+    .select("id, media_path, content_purged_at")
+    .eq("id", turnId)
+    .eq("session_id", session.id)
+    .maybeSingle();
+  const turn = data as { media_path: string | null; content_purged_at: string | null } | null;
+  if (!turn) return NOT_FOUND_PLATFORM;
+  if (!turn.media_path) {
+    return {
+      ok: false,
+      error: turn.content_purged_at
+        ? "This recording was deleted after six months."
+        : "There is no audio for this turn.",
+    };
+  }
+  if (!(await logAdminAccess(deps.service, adminUserId, "open_turn_audio", session))) {
+    return { ok: false, error: NOT_LOGGED };
+  }
+  const { data: signed, error } = await deps.service.storage
+    .from(INTERVIEW_BUCKET)
+    .createSignedUrl(turn.media_path, PLAYBACK_TTL_SECONDS);
+  if (error || !signed?.signedUrl)
+    return { ok: false, error: "Couldn't load that audio. Try again." };
+  logAdminGrant(deps.service, adminUserId, session, "interview_turns");
   return { ok: true, url: signed.signedUrl };
+}
+
+/** One confirmed video piece for a super admin: the piece must be this live session's; logged, then signed. */
+export async function signPlatformVideoPiece(
+  adminUserId: string,
+  sessionId: string,
+  pieceIndex: number,
+  deps: LiveReviewDeps = defaultDeps(),
+): Promise<LiveAudioResult> {
+  if (!Number.isInteger(pieceIndex) || pieceIndex < 0) return { ok: false, error: "Bad request." };
+  const session = await platformLiveSession(deps.service, sessionId);
+  if (!session) return NOT_FOUND_PLATFORM;
+  const { data } = await deps.service
+    .from("live_video_pieces")
+    .select("status, media_path")
+    .eq("session_id", session.id)
+    .eq("company_id", session.company_id)
+    .eq("piece_index", pieceIndex)
+    .maybeSingle();
+  const piece = data as { status: string; media_path: string | null } | null;
+  if (piece?.status !== "confirmed")
+    return { ok: false, error: "That part of the video wasn't saved." };
+  if (!piece.media_path)
+    return { ok: false, error: "This recording was deleted after six months." };
+  if (!(await logAdminAccess(deps.service, adminUserId, "open_video_piece", session))) {
+    return { ok: false, error: NOT_LOGGED };
+  }
+  const { data: signed, error } = await deps.service.storage
+    .from(INTERVIEW_BUCKET)
+    .createSignedUrl(piece.media_path, PLAYBACK_TTL_SECONDS);
+  if (error || !signed?.signedUrl)
+    return { ok: false, error: "Couldn't load that video. Try again." };
+  logAdminGrant(deps.service, adminUserId, session, "live_video_pieces");
+  return { ok: true, url: signed.signedUrl };
+}
+
+export type PlatformLiveSessionRow = {
+  id: string;
+  /** Last six characters of the session id: how a session is named on the list. */
+  shortId: string;
+  companyName: string;
+  jobTitle: string;
+  outcome: string;
+  createdAt: string;
+};
+
+const OUTCOME_LABEL: Record<string, string> = {
+  completed: "Completed",
+  partial: "Partial",
+  abandoned: "Abandoned",
+  technical_failure: "Technical failure",
+  ending_unconfirmed: "Ending not confirmed - needs review",
+};
+
+function outcomeLabel(status: string, outcome: LiveOutcome | null): string {
+  if (!outcome) return status === "invited" ? "Not started" : "No result yet";
+  if (!outcome.final) return "In progress";
+  return OUTCOME_LABEL[outcome.outcome] ?? "Unknown";
+}
+
+/** Every company's live sessions, newest first: ids, names of company and job, outcome. No candidate data. */
+export async function listPlatformLiveSessions(
+  deps: LiveReviewDeps = defaultDeps(),
+  limit = 200,
+): Promise<PlatformLiveSessionRow[]> {
+  const { data } = await deps.service
+    .from("interview_sessions")
+    .select("id, company_id, job_id, status, live_outcome, created_at")
+    .eq("kind", "live")
+    .order("created_at", { ascending: false })
+    .limit(limit);
+  const rows = (data ?? []) as {
+    id: string;
+    company_id: string;
+    job_id: string | null;
+    status: string;
+    live_outcome: LiveOutcome | null;
+    created_at: string;
+  }[];
+  if (rows.length === 0) return [];
+  const companyIds = [...new Set(rows.map((r) => r.company_id))];
+  const jobIds = [...new Set(rows.map((r) => r.job_id).filter((j): j is string => Boolean(j)))];
+  const [{ data: companies }, { data: jobs }] = await Promise.all([
+    deps.service.from("companies").select("id, name").in("id", companyIds),
+    jobIds.length > 0
+      ? deps.service.from("jobs").select("id, title, company_id").in("id", jobIds)
+      : Promise.resolve({ data: [] }),
+  ]);
+  const companyName = new Map(
+    ((companies ?? []) as { id: string; name: string | null }[]).map((c) => [c.id, c.name]),
+  );
+  const job = new Map(
+    ((jobs ?? []) as { id: string; title: string | null; company_id: string }[]).map((j) => [
+      j.id,
+      j,
+    ]),
+  );
+  return rows.map((r) => {
+    const j = r.job_id ? job.get(r.job_id) : undefined;
+    return {
+      id: r.id,
+      shortId: r.id.slice(-6),
+      companyName: companyName.get(r.company_id) ?? "A company",
+      // A job is named only on its own company's session.
+      jobTitle: (j && j.company_id === r.company_id ? j.title : null) ?? "This role",
+      outcome: outcomeLabel(r.status, r.live_outcome),
+      createdAt: r.created_at,
+    };
+  });
 }
 
 /* ── actions ──────────────────────────────────────────────────── */

@@ -12,9 +12,9 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { retentionPassed } from "./async-score-purge";
 import { readScoringSnapshot, resolveQuestionMeta } from "./question-meta";
 import { findQuoteStart } from "./quote-timestamps";
+import { resolveCandidate } from "./review-candidate";
 import type {
   AnswerScoreView,
-  CandidateLink,
   InterviewAnswerView,
   InterviewListResult,
   InterviewNote,
@@ -70,38 +70,6 @@ function deriveStatus(stored: string, expiresAt: string | null): InterviewStatus
 
 function snapshotLength(snapshot: unknown): number | null {
   return Array.isArray(snapshot) ? snapshot.length : null;
-}
-
-type AppRow = {
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-};
-
-/**
- * Resolve the candidate, and say WHY when there isn't one.
- *
- * Six of the seven sessions in this workspace carry no application_id at all —
- * they predate sendInterviewInvite, which requires an applicant. Those are
- * genuinely unlinked, not lost, and the row should say so rather than print a
- * placeholder name.
- */
-function resolveCandidate(
-  applicationId: string | null,
-  app: AppRow | undefined,
-): { name: string; email: string; link: CandidateLink } {
-  if (!applicationId) {
-    return { name: "No applicant linked", email: "", link: "unlinked" };
-  }
-  if (!app) {
-    return { name: "Applicant deleted", email: "", link: "deleted" };
-  }
-  const name = [app.first_name, app.last_name].filter(Boolean).join(" ").trim();
-  return {
-    name: name || app.email || "Unnamed applicant",
-    email: app.email ?? "",
-    link: "linked",
-  };
 }
 
 type SessionRow = {

@@ -22,10 +22,11 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *
  * ── Who ──────────────────────────────────────────────────────
  *
- * The company's owner or admin, for their own company's sessions, and a
- * Remotiv super admin, for any. Recruiters and hiring managers see the result
- * and act on nothing. Anyone else is refused before anything is read or
- * written.
+ * The company's owner or admin, for their own company's sessions, only.
+ * Recruiters and hiring managers see the result and act on nothing. A Remotiv
+ * super admin views any company's review read-only (F4, app/admin/interviews)
+ * and acts on nothing: there is no platform caller. Anyone else is refused
+ * before anything is read or written.
  *
  * ── Logged, then done, then worked out again ─────────────────
  *
@@ -47,11 +48,16 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export type RecoveryCaller =
-  | { kind: "company"; userId: string; name: string | null; role: string; companyId: string }
-  | { kind: "platform"; userId: string; name: string | null; role: string };
+/** A company member. There is no platform caller: a super admin never acts (F4). */
+export type RecoveryCaller = {
+  kind: "company";
+  userId: string;
+  name: string | null;
+  role: string;
+  companyId: string;
+};
 
-export type RecoveryRole = "owner" | "admin" | "super_admin";
+export type RecoveryRole = "owner" | "admin";
 
 export type LiveRecoveryErrorCode =
   | "forbidden"
@@ -93,8 +99,8 @@ export function recoveryRole(
   caller: RecoveryCaller,
   sessionCompanyId: string,
 ): RecoveryRole | null {
-  if (caller.kind === "platform") return caller.role === "super_admin" ? "super_admin" : null;
-  if (caller.companyId !== sessionCompanyId) return null;
+  // Anything that is not a company member of this company is refused, whatever it claims to be.
+  if (caller.kind !== "company" || caller.companyId !== sessionCompanyId) return null;
   return caller.role === "owner" || caller.role === "admin" ? caller.role : null;
 }
 
@@ -285,23 +291,17 @@ export async function resolveFailedTranscription(
 }
 
 /**
- * The signed-in caller: a company member of the current company, or a Remotiv
- * admin. Throws when there is neither. For the server actions (commit 8).
+ * The signed-in caller: a company member of the current company. Throws when
+ * there is none; a Remotiv admin is never a recovery caller (F4).
  */
 export async function currentRecoveryCaller(): Promise<RecoveryCaller> {
-  try {
-    const { getCompanyContext } = await import("@/app/ai-dashboard/lib/company-guards");
-    const ctx = await getCompanyContext();
-    return {
-      kind: "company",
-      userId: ctx.user.id,
-      name: ctx.memberName || null,
-      role: ctx.role,
-      companyId: ctx.companyId,
-    };
-  } catch {
-    const { getAdminContext } = await import("@/app/admin/lib/role-guards");
-    const ctx = await getAdminContext();
-    return { kind: "platform", userId: ctx.user.id, name: null, role: ctx.role };
-  }
+  const { getCompanyContext } = await import("@/app/ai-dashboard/lib/company-guards");
+  const ctx = await getCompanyContext();
+  return {
+    kind: "company",
+    userId: ctx.user.id,
+    name: ctx.memberName || null,
+    role: ctx.role,
+    companyId: ctx.companyId,
+  };
 }

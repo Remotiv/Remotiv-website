@@ -19,6 +19,7 @@ import {
   Sparkles,
   UserPlus,
   Users,
+  Video,
   X,
 } from "lucide-react";
 import Image from "next/image";
@@ -96,6 +97,9 @@ const NAV_GROUPS: ReadonlyArray<NavGroup> = [
       { label: "Companies", href: "/admin/companies", icon: Sparkles, superAdminOnly: true },
       { label: "Jobs", href: "/admin/jobs", icon: Briefcase },
       { label: "Applications", href: "/admin/applications", icon: FileText },
+      // Every company's AI Video Interviews, read-only (F4). The pages and the
+      // actions enforce super_admin server-side; this flag only hides the link.
+      { label: "Interviews", href: "/admin/interviews", icon: Video, superAdminOnly: true },
       // Cross-company by design, so the route enforces super_admin server-side
       // in BOTH the page and the action. This flag only stops it being
       // advertised to admins who would be redirected away from it.

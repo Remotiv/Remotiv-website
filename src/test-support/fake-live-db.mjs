@@ -236,6 +236,22 @@ export function stampLiveEnded(row, old, nowMs = Date.now()) {
   return row;
 }
 
+const ADMIN_ACCESS_ACTIONS = ["view_live_review", "open_turn_audio", "open_video_piece"];
+
+/** Migration 046's checks on admin_access_logs; the database stamps the time. Throws as Postgres would. */
+export function checkAdminAccessLog(row) {
+  const fail = (constraint, code = "23514") => {
+    throw Object.assign(new Error(`violates ${constraint}`), { code });
+  };
+  for (const column of ["user_id", "action", "session_id", "company_id"]) {
+    if (row[column] == null) fail(`admin_access_logs.${column} not null`, "23502");
+  }
+  if (!ADMIN_ACCESS_ACTIONS.includes(row.action)) fail("admin_access_logs_action");
+  row.id = row.id ?? crypto.randomUUID();
+  row.application_id = row.application_id ?? null;
+  row.created_at = new Date().toISOString();
+}
+
 /** Migration 044's constraints and triggers on live_video_pieces. Throws as Postgres would. */
 export function checkVideoPiece(row, old, allRows, tables, nowMs = Date.now()) {
   const fail = (name, code = "23514") => {
@@ -430,6 +446,7 @@ export function fakeLiveDb(initial = {}) {
     signed_url_logs: [],
     interview_answer_scores: [],
     interview_session_scores: [],
+    admin_access_logs: [],
     ...structuredClone(initial),
   };
   /** path -> { bytes, contentType, createdAt } */
@@ -506,6 +523,7 @@ export function fakeLiveDb(initial = {}) {
           for (const r of fresh) checkScoringRow(table, r, after, tables);
         if (table === "live_video_pieces")
           for (const r of fresh) checkVideoPiece(r, null, after, tables);
+        if (table === "admin_access_logs") for (const r of fresh) checkAdminAccessLog(r);
         rows.push(...fresh);
         if (table === "interview_turns") counts.turnInserts += 1;
         if (table === "live_interview_scores") counts.scoreWrites += fresh.length;
@@ -516,6 +534,9 @@ export function fakeLiveDb(initial = {}) {
         if (takeFault(table, "update"))
           return { data: null, error: { code: "XX000", message: "fault" } };
         const hit = rows.filter(match);
+        if (table === "admin_access_logs" && hit.length > 0) {
+          throw Object.assign(new Error("admin_access_logs is append-only"), { code: "P0001" });
+        }
         if (table === "live_interview_actions" && hit.length > 0) {
           throw Object.assign(new Error("live_interview_actions is append-only"), {
             code: "P0001",

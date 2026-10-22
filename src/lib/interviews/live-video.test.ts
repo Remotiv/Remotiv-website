@@ -27,6 +27,7 @@ const STUBS = {
     "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
     "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
   ].join("\\n"),
+  "@/app/admin/lib/role-guards": "export async function requireSuperAdmin() { throw new Error('test: no super admin'); }",
   "next/navigation": "export function useRouter() { return { refresh() {} }; }",
   "next/link": "export default function Link({ href, children, ...rest }) { return globalThis.__h('a', { href, ...rest }, children); }",
   "../live-actions": "export async function getLiveTurnAudioUrl() { return { ok: false, error: 'test' }; } export async function runLiveReviewAction() { return { ok: true }; } export async function getLiveVideoPieceUrl() { return { ok: false, error: 'test' }; }",
@@ -513,7 +514,7 @@ const ctxOf = (role, over = {}) => ({
 });
 
 test("review links: gated by company and hiring team, 5 minutes, logged, never a path", async () => {
-  const w = world();
+  const w = world({ application_id: "03e4863f-0000-4000-8000-0000000000aa" });
   await record(w, 0);
   await reserve(w.deps, 1);
   const all = async () => ({ scoped: false });
@@ -553,6 +554,17 @@ test("review links: gated by company and hiring team, 5 minutes, logged, never a
   // The timeline the page is sent carries no path.
   const t = JSON.stringify(videoTimeline(pieces(w.db)));
   assert.doesNotMatch(t, /media_path|\/v\d\.webm|5b0f2c1e/);
+  // No application: signed_url_logs cannot hold the grant, so there is no link (F4).
+  w.db.tables.interview_sessions[0].application_id = null;
+  const grants = w.db.tables.signed_url_logs.length;
+  assert.deepEqual(
+    await signLiveVideoPiece(ctxOf("owner"), SESSION, 0, { service: w.db.service, scope: all }),
+    {
+      ok: false,
+      error: "This recording can't be opened: no applicant is linked to the interview.",
+    },
+  );
+  assert.equal(w.db.tables.signed_url_logs.length, grants);
 });
 
 test("jump to a quote: its moment on the conversation clock maps to the right piece, by started_ms", () => {

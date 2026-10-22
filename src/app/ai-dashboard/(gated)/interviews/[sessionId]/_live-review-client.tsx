@@ -4,6 +4,10 @@ import { ChevronLeft, Play } from "lucide-react";
 import Link from "next/link";
 import { useRouter } from "next/navigation";
 import { useState } from "react";
+import {
+  getAdminLiveTurnAudioUrl,
+  getAdminLiveVideoPieceUrl,
+} from "@/app/admin/interviews/actions";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
 import type {
   LiveRecoveryRequest,
@@ -70,6 +74,27 @@ const TURN_STATE_TEXT: Record<string, string> = {
   purged: "Deleted after six months.",
 };
 
+/**
+ * Who is looking. "company": the company's own review, as always. "platform":
+ * a Remotiv super admin from /admin/interviews (F4), read-only: no action
+ * ever renders, and recordings go through the admin actions, which check and
+ * log every link.
+ */
+export type LiveReviewMode = "company" | "platform";
+
+const MEDIA = {
+  company: {
+    audio: getLiveTurnAudioUrl,
+    video: getLiveVideoPieceUrl,
+    base: "/ai-dashboard/interviews",
+  },
+  platform: {
+    audio: getAdminLiveTurnAudioUrl,
+    video: getAdminLiveVideoPieceUrl,
+    base: "/admin/interviews",
+  },
+} as const;
+
 type AudioState = { turnId: string; url: string; start: number } | null;
 type VideoState = { index: number; url: string; seek: number } | null;
 
@@ -82,21 +107,25 @@ export function LiveReviewClient({
   candidateName,
   jobTitle,
   canAct,
+  mode = "company",
 }: {
   view: LiveReviewView;
   candidateName: string;
   jobTitle: string;
   /** Owner or admin. Combined with the attempt being the latest before anything renders. */
   canAct: boolean;
+  mode?: LiveReviewMode;
 }) {
   const [audio, setAudio] = useState<AudioState>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
-  const acting = canAct && view.attempt.isLatest;
+  const media = MEDIA[mode];
+  // A super admin never acts, whatever canAct says.
+  const acting = mode === "company" && canAct && view.attempt.isLatest;
   const { header, attempt } = view;
 
   const play = async (turnId: string, start = 0) => {
     setAudioError(null);
-    const r = await getLiveTurnAudioUrl(view.sessionId, turnId);
+    const r = await media.audio(view.sessionId, turnId);
     if (r.ok) setAudio({ turnId, url: r.url, start });
     else setAudioError(r.error);
   };
@@ -106,7 +135,7 @@ export function LiveReviewClient({
   const [videoError, setVideoError] = useState<string | null>(null);
   const openPiece = async (index: number, seek = 0) => {
     setVideoError(null);
-    const r = await getLiveVideoPieceUrl(view.sessionId, index);
+    const r = await media.video(view.sessionId, index);
     if (r.ok) setVideo({ index, url: r.url, seek });
     else setVideoError(r.error);
   };
@@ -130,7 +159,7 @@ export function LiveReviewClient({
       <header className="flex flex-wrap items-start justify-between gap-4">
         <div className="flex min-w-0 items-center gap-3">
           <Link
-            href="/ai-dashboard/interviews"
+            href={media.base}
             aria-label="Back to interviews"
             className="flex size-[38px] shrink-0 items-center justify-center rounded-xl border border-[var(--ai-line)] bg-[var(--ai-surface)] text-[var(--ai-t2)]"
           >
@@ -166,11 +195,18 @@ export function LiveReviewClient({
         </div>
       </header>
 
+      {mode === "platform" && (
+        <p className={`${CARD} m-0 text-sm font-semibold text-[var(--ai-t1)]`} data-read-only>
+          Viewing as Remotiv super admin: read-only. Opening this review and each recording is
+          logged with your account.
+        </p>
+      )}
+
       {!attempt.isLatest && (
         <p className={`${CARD} m-0 text-sm font-semibold text-[var(--ai-t1)]`} data-audit-only>
           Attempt {attempt.number} of {attempt.of}: kept for audit only. This is not the candidate's
           result.{" "}
-          <Link className="underline" href={`/ai-dashboard/interviews/${attempt.latestSessionId}`}>
+          <Link className="underline" href={`${media.base}/${attempt.latestSessionId}`}>
             See the latest attempt
           </Link>
         </p>
@@ -179,7 +215,7 @@ export function LiveReviewClient({
         <p className={`m-0 ${MUTED}`}>
           The candidate restarted; only this attempt counts.{" "}
           {attempt.earlierSessionIds.map((id, i) => (
-            <Link key={id} className="underline" href={`/ai-dashboard/interviews/${id}`}>
+            <Link key={id} className="underline" href={`${media.base}/${id}`}>
               View attempt {i + 1} (audit only)
             </Link>
           ))}

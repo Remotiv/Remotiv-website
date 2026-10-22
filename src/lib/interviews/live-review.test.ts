@@ -26,7 +26,15 @@ const STUBS = {
     "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
     "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
   ].join("\\n"),
-  "next/navigation": "export function useRouter() { return { refresh() {} }; }",
+  "@/app/admin/lib/role-guards": [
+    "export async function requireSuperAdmin() {",
+    "  if (!globalThis.__superAdmin) throw new Error('Forbidden: super_admin role required');",
+    "  return globalThis.__superAdmin;",
+    "}",
+  ].join("\\n"),
+  "@/app/admin/_components/top-nav": "export function TopNav() { return null; }",
+  "@/app/ai-dashboard/ai-dashboard.css": "",
+  "next/navigation": "export function useRouter() { return { refresh() {} }; } export function notFound() { throw Object.assign(new Error('NEXT_NOT_FOUND'), { notFound: true }); }",
   "next/link": "export default function Link({ href, children, ...rest }) { return globalThis.__h('a', { href, ...rest }, children); }",
   "../live-actions": "export async function getLiveTurnAudioUrl() { return { ok: false, error: 'test' }; } export async function runLiveReviewAction() { return { ok: true }; } export async function getLiveVideoPieceUrl() { return { ok: false, error: 'test' }; }",
 };
@@ -46,10 +54,22 @@ const {
   canActOnLiveReview,
   runLiveRecovery,
   signLiveTurnAudio,
+  signLiveVideoPiece,
 } = await import("./live-review.ts");
 const { LiveReviewClient } = await import(
   "../../app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client.tsx"
 );
+const {
+  loadPlatformLiveReview,
+  listPlatformLiveSessions,
+  signPlatformTurnAudio,
+  signPlatformVideoPiece,
+} = await import("./live-review.ts");
+const adminActions = await import("../../app/admin/interviews/actions.ts");
+const { default: AdminReviewPage } = await import(
+  "../../app/admin/interviews/[sessionId]/page.tsx"
+);
+const { default: AdminListPage } = await import("../../app/admin/interviews/page.tsx");
 const { scoreLiveSession } = await import("./live-scoring.ts");
 const { resolveNeedsCheck } = await import("./live-recovery.ts");
 const { handleLiveTurnTranscribe } = await import("./live-transcribe.ts");
@@ -891,4 +911,418 @@ test("completed, but Sarah closed before asking every question: completed, held 
   const html = render(v);
   assert.match(html, /Held from ranking: Sarah closed before asking every question/);
   assert.ok(section(html, "data-needs-review").includes(END_TEXTS.closed_early));
+});
+
+/* ── F4: a Remotiv super admin, read-only, every access logged first ── */
+
+const SUPER_ADMIN = {
+  user: { id: "a0000000-0000-4000-8000-0000000000aa", email: "super@remotiv.test" },
+  role: "super_admin",
+  mustChangePassword: false,
+};
+const ADMIN_ID = SUPER_ADMIN.user.id;
+async function asSuperAdmin(fn) {
+  globalThis.__superAdmin = SUPER_ADMIN;
+  try {
+    return await fn();
+  } finally {
+    delete globalThis.__superAdmin;
+  }
+}
+const LOG_KEYS = [
+  "action",
+  "application_id",
+  "company_id",
+  "created_at",
+  "id",
+  "session_id",
+  "user_id",
+];
+const adminLogs = (db) => db.tables.admin_access_logs;
+/** Records each signing, and how many audit rows existed at that moment. */
+function spySigning(db) {
+  const calls = [];
+  const from = db.service.storage.from.bind(db.service.storage);
+  db.service.storage.from = (name) => {
+    const bucket = from(name);
+    return {
+      ...bucket,
+      createSignedUrl: async (path, ttl) => {
+        calls.push({ ttl, logged: adminLogs(db).length });
+        return bucket.createSignedUrl(path, ttl);
+      },
+    };
+  };
+  return calls;
+}
+async function withVideoPiece(db) {
+  const path = `${SESSION}/v0.webm`;
+  await db.service.storage
+    .from("interview-videos")
+    .upload(path, new Uint8Array([0x1a, 0x45, 0xdf, 0xa3, 1, 2]), { contentType: "video/webm" });
+  db.tables.live_video_pieces.push({
+    id: "c0000000-0000-4000-8000-000000000001",
+    session_id: SESSION,
+    company_id: CO,
+    piece_index: 0,
+    mime_type: "video/webm",
+    status: "confirmed",
+    media_path: path,
+    started_ms: 0,
+    duration_ms: 60_000,
+    is_last: true,
+    bytes: 6,
+  });
+}
+const TABLES_WITH_CANDIDATE_DATA = [
+  "interview_turns",
+  "live_interview_scores",
+  "live_video_pieces",
+  "live_interview_actions",
+];
+
+test("F4: a super admin sees any company's live review; the view is logged first, with ids only", async () => {
+  const db = await saved();
+  const r = await loadPlatformLiveReview(ADMIN_ID, SESSION, deps(db));
+  assert.equal(r.ok, true);
+  assert.equal(r.view.sessionId, SESSION);
+  // The same name the company's own review page shows (resolveCandidate).
+  assert.deepEqual([r.candidateName, r.jobTitle], ["Alex Example", "Backend Engineer"]);
+  assert.equal(adminLogs(db).length, 1);
+  const row = adminLogs(db)[0];
+  assert.deepEqual(Object.keys(row).sort(), LOG_KEYS);
+  assert.deepEqual(
+    [row.user_id, row.action, row.session_id, row.company_id, row.application_id],
+    [ADMIN_ID, "view_live_review", SESSION, CO, APP],
+  );
+  assert.doesNotMatch(JSON.stringify(row), /Alex|Example|@/, "no candidate data in the log");
+  // The company page's own gate is unchanged: another company's member still sees nothing.
+  assert.equal(
+    await loadLiveReview(ctxOf("owner", { companyId: OTHER_CO }), SESSION, deps(db)),
+    null,
+  );
+  assert.equal(adminLogs(db).length, 1, "the company path writes no admin log");
+});
+
+test("F4: not a live session, or no such session: not found, nothing logged", async () => {
+  const db = await saved();
+  const ASYNC = "5b0f2c1e-0000-4000-8000-0000000000f1";
+  db.tables.interview_sessions.push({ ...frozenRow(), id: ASYNC, kind: "async" });
+  for (const id of [ASYNC, "5b0f2c1e-0000-4000-8000-0000000000f2", ""]) {
+    assert.deepEqual(
+      (await loadPlatformLiveReview(ADMIN_ID, id, deps(db))).reason,
+      "not_found",
+      id,
+    );
+  }
+  assert.equal(adminLogs(db).length, 0);
+});
+
+test("F4 fail closed: the view's log cannot be written, so no candidate data is read or shown", async () => {
+  const db = await saved();
+  db.failNext("admin_access_logs", "insert");
+  const before = db.service.queries.length;
+  const r = await quiet(() => loadPlatformLiveReview(ADMIN_ID, SESSION, deps(db)));
+  assert.deepEqual([r.ok, r.reason], [false, "not_logged"]);
+  assert.equal(r.view, undefined);
+  const read = db.service.queries.slice(before).map((q) => q.table);
+  assert.ok(!read.some((t) => TABLES_WITH_CANDIDATE_DATA.includes(t)), `read: ${read}`);
+});
+
+test("F4 media: the item must be this live session's; the log row is written, then a 5-minute link", async () => {
+  const db = await saved();
+  await withVideoPiece(db);
+  const signs = spySigning(db);
+  const [turn] = candidateTurns(db);
+  const audio = await signPlatformTurnAudio(ADMIN_ID, SESSION, turn.id, deps(db));
+  assert.equal(audio.ok, true);
+  assert.match(audio.url, /ttl=300/);
+  const video = await signPlatformVideoPiece(ADMIN_ID, SESSION, 0, deps(db));
+  assert.equal(video.ok, true);
+  assert.match(video.url, /ttl=300/);
+  assert.deepEqual(
+    adminLogs(db).map((l) => [l.action, l.user_id, l.session_id, l.company_id]),
+    [
+      ["open_turn_audio", ADMIN_ID, SESSION, CO],
+      ["open_video_piece", ADMIN_ID, SESSION, CO],
+    ],
+  );
+  assert.deepEqual(
+    signs.map((c) => [c.ttl, c.logged]),
+    [
+      [300, 1],
+      [300, 2],
+    ],
+    "each link signed after its row",
+  );
+  assert.deepEqual(
+    db.tables.signed_url_logs
+      .slice(-2)
+      .map((l) => [l.source_table, l.was_admin, l.user_id, l.candidate_id]),
+    [
+      ["interview_turns", true, ADMIN_ID, APP],
+      ["live_video_pieces", true, ADMIN_ID, APP],
+    ],
+  );
+  // Not this session's turn, or a piece that does not exist: nothing logged, nothing signed.
+  const OTHER = "5b0f2c1e-0000-4000-8000-0000000000f3";
+  db.tables.interview_sessions.push({ ...frozenRow(), id: OTHER });
+  assert.equal((await signPlatformTurnAudio(ADMIN_ID, OTHER, turn.id, deps(db))).ok, false);
+  assert.equal(
+    (await signPlatformTurnAudio(ADMIN_ID, SESSION, "no-such-turn", deps(db))).ok,
+    false,
+  );
+  assert.equal((await signPlatformVideoPiece(ADMIN_ID, SESSION, 3, deps(db))).ok, false);
+  assert.equal((await signPlatformVideoPiece(ADMIN_ID, OTHER, 0, deps(db))).ok, false);
+  assert.equal(adminLogs(db).length, 2);
+  assert.equal(signs.length, 2);
+});
+
+test("F4 fail closed: a media log row cannot be written, so no link is signed", async () => {
+  const db = await saved();
+  await withVideoPiece(db);
+  const signs = spySigning(db);
+  const [turn] = candidateTurns(db);
+  db.failNext("admin_access_logs", "insert");
+  const audio = await quiet(() => signPlatformTurnAudio(ADMIN_ID, SESSION, turn.id, deps(db)));
+  db.failNext("admin_access_logs", "insert");
+  const video = await quiet(() => signPlatformVideoPiece(ADMIN_ID, SESSION, 0, deps(db)));
+  for (const r of [audio, video]) {
+    assert.deepEqual(r, {
+      ok: false,
+      error: "This couldn't be opened: the access log could not be written. Try again.",
+    });
+  }
+  assert.equal(signs.length, 0, "nothing signed");
+});
+
+test("F4: a session with no application is logged with a null application_id, and still never an unlogged link", async () => {
+  const db = await saved();
+  db.tables.interview_sessions[0].application_id = null;
+  const grants = db.tables.signed_url_logs.length;
+  assert.equal((await loadPlatformLiveReview(ADMIN_ID, SESSION, deps(db))).ok, true);
+  const [turn] = candidateTurns(db);
+  assert.equal((await signPlatformTurnAudio(ADMIN_ID, SESSION, turn.id, deps(db))).ok, true);
+  assert.deepEqual(
+    adminLogs(db).map((l) => [l.action, l.application_id]),
+    [
+      ["view_live_review", null],
+      ["open_turn_audio", null],
+    ],
+  );
+  assert.equal(
+    db.tables.signed_url_logs.length,
+    grants,
+    "signed_url_logs needs a candidate: none written",
+  );
+});
+
+test("F4: the admin media actions check super admin on every call", async () => {
+  const db = await saved();
+  const [turn] = candidateTurns(db);
+  const refused = { ok: false, error: "That interview couldn't be found." };
+  assert.deepEqual(await adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id), refused);
+  assert.deepEqual(await adminActions.getAdminLiveVideoPieceUrl(SESSION, 0), refused);
+  assert.equal(adminLogs(db).length, 0, "a refused call logs nothing and signs nothing");
+  const ok = await asSuperAdmin(() => adminActions.getAdminLiveTurnAudioUrl(SESSION, turn.id));
+  assert.equal(ok.ok, true);
+  assert.deepEqual(
+    adminLogs(db).map((l) => [l.action, l.user_id]),
+    [["open_turn_audio", ADMIN_ID]],
+  );
+});
+
+const pageFor = (id) => AdminReviewPage({ params: Promise.resolve({ sessionId: id }) });
+const isNotFound = (e) => e?.notFound === true;
+
+test("F4 pages: super admin only (404 for everyone else); read-only; a failed log shows only the reason", async () => {
+  const db = await saved();
+  db.tables.companies = [{ id: CO, name: "Acme Ltd" }];
+  db.tables.interview_sessions[0].created_at = "2026-10-22T09:00:00.000Z";
+  await assert.rejects(pageFor(SESSION), isNotFound, "not a super admin: 404");
+  await assert.rejects(AdminListPage(), isNotFound, "not a super admin: 404 on the list too");
+  assert.equal(adminLogs(db).length, 0);
+
+  const html = await asSuperAdmin(async () => renderToStaticMarkup(await pageFor(SESSION)));
+  assert.match(html, /data-read-only/);
+  assert.match(html, /data-header/);
+  assert.doesNotMatch(html, /data-actions|data-action=/, "no action, though checks are open");
+  assert.match(html, /href="\/admin\/interviews"/);
+  assert.doesNotMatch(html, /\/ai-dashboard\/interviews/);
+  assert.match(html, /Alex Example/, "the candidate's name, as the company page shows it");
+  assert.equal(adminLogs(db).length, 1);
+  assert.doesNotMatch(
+    JSON.stringify(adminLogs(db)),
+    /Alex|Example|import service/,
+    "no name or transcript in the log",
+  );
+  await asSuperAdmin(() =>
+    assert.rejects(pageFor("5b0f2c1e-0000-4000-8000-0000000000f2"), isNotFound),
+  );
+
+  db.failNext("admin_access_logs", "insert");
+  const failed = await asSuperAdmin(async () =>
+    renderToStaticMarkup(await quiet(() => pageFor(SESSION))),
+  );
+  assert.match(failed, /data-not-logged/);
+  assert.doesNotMatch(failed, /data-header|data-question|Alex/, "no candidate data");
+
+  const list = await asSuperAdmin(async () => renderToStaticMarkup(await AdminListPage()));
+  assert.equal((list.match(/data-session-row/g) ?? []).length, 1);
+  assert.match(list, new RegExp(SESSION.slice(-6)));
+  assert.match(list, /Acme Ltd/);
+  assert.match(list, /Backend Engineer/);
+  assert.doesNotMatch(list, /Alex|Example|Candidate/, "no candidate data on the list");
+  const rows = await listPlatformLiveSessions(deps(db));
+  assert.deepEqual(Object.keys(rows[0]).sort(), [
+    "companyName",
+    "createdAt",
+    "id",
+    "jobTitle",
+    "outcome",
+    "shortId",
+  ]);
+});
+
+test("F4: platform mode never renders an action, even with canAct true; company mode still does", async () => {
+  const db = await saved();
+  const v = await view(db);
+  const as = (mode) =>
+    renderToStaticMarkup(
+      createElement(LiveReviewClient, {
+        view: v,
+        candidateName: "x",
+        jobTitle: "y",
+        canAct: true,
+        mode,
+      }),
+    );
+  assert.match(as("company"), /data-actions/, "control: an owner gets the actions");
+  assert.doesNotMatch(as("platform"), /data-actions|data-action=/);
+  assert.match(as("platform"), /data-read-only/);
+});
+
+test("F4: a super admin can never run a recovery action", async () => {
+  const db = await saved();
+  const r = await quiet(() =>
+    runLiveRecovery(
+      ctxOf("super_admin"),
+      {
+        action: "resolve_needs_check",
+        sessionId: SESSION,
+        position: 1,
+        decision: "score",
+        note: "x",
+      },
+      deps(db),
+    ),
+  );
+  assert.deepEqual(r, { ok: false, error: "Only an owner or admin can do this." });
+  assert.equal(db.tables.live_interview_actions.length, 0);
+});
+
+test("F4 source: the admin actions expose only the two media functions, each behind requireSuperAdmin; no recovery anywhere", () => {
+  const src = (rel) => readFileSync(new URL(rel, import.meta.url), "utf8");
+  const actions = src("../../app/admin/interviews/actions.ts");
+  assert.deepEqual(
+    [...actions.matchAll(/export\s+(?:async\s+)?function\s+(\w+)/g)].map((m) => m[1]),
+    ["getAdminLiveTurnAudioUrl", "getAdminLiveVideoPieceUrl"],
+  );
+  assert.equal((actions.match(/await superAdminId\(\)/g) ?? []).length, 2, "checked in both");
+  assert.match(actions, /requireSuperAdmin\(\)/);
+  const code = (rel) => src(rel).replace(/\/\*[\s\S]*?\*\/|\/\/.*$/gm, "");
+  for (const rel of [
+    "../../app/admin/interviews/actions.ts",
+    "../../app/admin/interviews/page.tsx",
+    "../../app/admin/interviews/[sessionId]/page.tsx",
+  ]) {
+    assert.doesNotMatch(
+      code(rel),
+      /live-recovery|runLiveRecovery|live-actions|requireAdmin\(/,
+      rel,
+    );
+  }
+  for (const rel of [
+    "../../app/admin/interviews/page.tsx",
+    "../../app/admin/interviews/[sessionId]/page.tsx",
+  ]) {
+    assert.match(src(rel), /await requireSuperAdmin\(\)[\s\S]*catch \{\s*notFound\(\);/, rel);
+  }
+  assert.doesNotMatch(code("./live-recovery.ts"), /"platform"/, "no platform recovery caller");
+});
+
+/** Records each signing, and how many signed_url_logs rows existed at that moment. */
+function spyCompanySigning(db) {
+  const calls = [];
+  const from = db.service.storage.from.bind(db.service.storage);
+  db.service.storage.from = (name) => {
+    const bucket = from(name);
+    return {
+      ...bucket,
+      createSignedUrl: async (path, ttl) => {
+        calls.push({ ttl, logged: db.tables.signed_url_logs.length });
+        return bucket.createSignedUrl(path, ttl);
+      },
+    };
+  };
+  return calls;
+}
+
+test("F4 company media: the signed_url_logs row is written first; a failed log or no application gives no link", async () => {
+  const db = await saved();
+  await withVideoPiece(db);
+  const signs = spyCompanySigning(db);
+  const owner = ctxOf("owner");
+  const [turn] = candidateTurns(db);
+  const before = db.tables.signed_url_logs.length;
+  const audio = await signLiveTurnAudio(owner, SESSION, turn.id, deps(db));
+  const video = await signLiveVideoPiece(owner, SESSION, 0, deps(db));
+  assert.deepEqual([audio.ok, video.ok], [true, true]);
+  assert.deepEqual(
+    signs.map((c) => [c.ttl, c.logged]),
+    [
+      [300, before + 1],
+      [300, before + 2],
+    ],
+    "each link signed after its row",
+  );
+  assert.deepEqual(
+    db.tables.signed_url_logs
+      .slice(-2)
+      .map((l) => [l.source_table, l.was_admin, l.user_id, l.candidate_id]),
+    [
+      ["interview_turns", false, owner.user.id, APP],
+      ["live_video_pieces", false, owner.user.id, APP],
+    ],
+  );
+
+  // The log cannot be written: no link, nothing signed.
+  db.failNext("signed_url_logs", "insert");
+  const failedAudio = await quiet(() => signLiveTurnAudio(owner, SESSION, turn.id, deps(db)));
+  db.failNext("signed_url_logs", "insert");
+  const failedVideo = await quiet(() => signLiveVideoPiece(owner, SESSION, 0, deps(db)));
+  for (const r of [failedAudio, failedVideo]) {
+    assert.deepEqual(r, {
+      ok: false,
+      error: "This recording couldn't be opened right now. Try again.",
+    });
+  }
+  assert.equal(signs.length, 2, "nothing signed after a failed log");
+
+  // Company authorization is unchanged: another company is refused, nothing logged or signed.
+  const grants = db.tables.signed_url_logs.length;
+  const other = ctxOf("owner", { companyId: OTHER_CO });
+  assert.equal((await signLiveTurnAudio(other, SESSION, turn.id, deps(db))).ok, false);
+  assert.equal((await signLiveVideoPiece(other, SESSION, 0, deps(db))).ok, false);
+
+  // No application: signed_url_logs needs the candidate, so no link at all.
+  db.tables.interview_sessions[0].application_id = null;
+  const noApp = {
+    ok: false,
+    error: "This recording can't be opened: no applicant is linked to the interview.",
+  };
+  assert.deepEqual(await signLiveTurnAudio(owner, SESSION, turn.id, deps(db)), noApp);
+  assert.deepEqual(await signLiveVideoPiece(owner, SESSION, 0, deps(db)), noApp);
+  assert.equal(db.tables.signed_url_logs.length, grants);
+  assert.equal(signs.length, 2);
 });

@@ -645,7 +645,7 @@ test("a retryable provider failure: that question waits, the rest are kept, the 
 
 /* ── who may act, and the log ─────────────────────────────────── */
 
-test("only the company's owner or admin, or a super admin, may act; every action is logged", async () => {
+test("only the company's owner or admin may act, never a super admin; every action is logged", async () => {
   const db = await decided();
   const model = fakeModel();
   const refused = [
@@ -653,6 +653,9 @@ test("only the company's owner or admin, or a super admin, may act; every action
     { kind: "company", userId: "u-h", name: "H", role: "hiring_manager", companyId: CO },
     { kind: "company", userId: "u-x", name: "X", role: "admin", companyId: OTHER_CO },
     { kind: "platform", userId: "u-p", name: null, role: "admin" },
+    // F4: a Remotiv super admin views read-only and never acts.
+    SUPER,
+    { kind: "company", userId: "u-s", name: null, role: "super_admin", companyId: CO },
   ];
   const stuck = candidateTurns(db)[0];
   for (const caller of refused) {
@@ -690,7 +693,6 @@ test("only the company's owner or admin, or a super admin, may act; every action
   for (const [caller, position] of [
     [OWNER, 1],
     [ADMIN, 2],
-    [SUPER, 3],
   ]) {
     await quiet(() =>
       resolveNeedsCheck(
@@ -713,7 +715,6 @@ test("only the company's owner or admin, or a super admin, may act; every action
     [
       ["resolve_needs_check", "score", 1, "u-owner", "owner", "Checked q1.", CO, "string"],
       ["resolve_needs_check", "score", 2, "u-admin", "admin", "Checked q2.", CO, "string"],
-      ["resolve_needs_check", "score", 3, "u-super", "super_admin", "Checked q3.", CO, "string"],
     ],
   );
   // Append-only: the log cannot be edited.
