@@ -777,7 +777,7 @@ test("an UNMARKED second base question for a position is still refused", () => {
 
 test("a repeat may differ in case, punctuation and spacing, and lead in only with an agreed phrase", () => {
   const q = "Tell me about a time you owned a project end to end.";
-  assert.equal(REPEAT_LEAD_INS.length, 3);
+  assert.equal(REPEAT_LEAD_INS.length, 4);
   const ok = [
     q,
     "tell me about a time you OWNED a project, end-to-end",
@@ -787,6 +787,7 @@ test("a repeat may differ in case, punctuation and spacing, and lead in only wit
     "LET ME REPEAT THE QUESTION: tell me about a time you owned a project end to end",
     "Sure - here it is again... Tell me about a time you owned a project end to end.",
     "of course, tell me about a time you owned a project end to end?",
+    "let me just finish the question - tell me about a time you owned a project end to end",
   ];
   for (const spoken of ok) assert.equal(repeatMatchesQuestion(q, spoken), true, spoken);
   const refused = [
@@ -833,6 +834,70 @@ test("a changed question marked as a repeat is refused; an agreed lead-in is kep
   ]) {
     assert.throws(
       () => assessLiveExport(withText(text), frozenOf(), 1),
+      (e) => e instanceof LiveIngestError && e.code === "repeat_wording",
+      text,
+    );
+  }
+});
+
+/* ── D9: "Let me just finish the question." ───────────────────── */
+
+const FINISH = "Let me just finish the question.";
+
+/** The repeat fixture's marked repeat, saying `text`, through the parser like a real export. */
+function repeatSaying(text) {
+  const raw = structuredClone(REPEAT);
+  const i = raw.turns.findIndex((t) => t.is_repeat === true || t.turn_type === "repeat");
+  raw.turns[i] = { ...raw.turns[i], text };
+  return raw;
+}
+
+test('D9: an export where Sarah says "Let me just finish the question." and asks it again is accepted as a repeat', () => {
+  const parsed = parseExport(repeatSaying("x"));
+  const turn = parsed.turns.find((t) => t.repeat);
+  const position = turn.question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+
+  const plain = assessLiveExport(parseExport(repeatSaying(frozenText)), frozenOf(), 1);
+  const finished = assessLiveExport(
+    parseExport(repeatSaying(`${FINISH} ${frozenText}`)),
+    frozenOf(),
+    1,
+  );
+  const q = finished.questions[position - 1];
+  assert.equal(q.repeats, 1, "a repeat");
+  assert.equal(q.follow_ups, plain.questions[position - 1].follow_ups, "never a follow-up");
+  assert.equal(finished.questions.length, 8, "no extra question or scoring entry");
+  assert.equal(finished.wording_flags.includes(position), false, "no wording flag");
+  // Exactly what the plain repeat produces: the lead-in changes nothing about the facts or outcome.
+  assert.deepEqual(finished, plain);
+  // Case and punctuation aside, as for the other lead-ins.
+  const shouted = assessLiveExport(
+    parseExport(repeatSaying(`LET ME JUST FINISH THE QUESTION ${frozenText.toLowerCase()}`)),
+    frozenOf(),
+    1,
+  );
+  assert.equal(shouted.questions[position - 1].repeats, 1);
+});
+
+test("D9: after the lead-in the frozen wording is still checked; unknown phrases are refused as before", () => {
+  const parsed = parseExport(repeatSaying("x"));
+  const position = parsed.turns.find((t) => t.repeat).question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  for (const text of [
+    // The lead-in, then a different or shortened question, a hint, or nothing.
+    `${FINISH} What would you change about your last team?`,
+    `${FINISH} ${frozenText.split(" ").slice(0, 4).join(" ")}`,
+    `${FINISH} Remember to mention reliability. ${frozenText}`,
+    `${FINISH} ${frozenText} And what went wrong?`,
+    FINISH,
+    // Phrases that are not on the list, close as they are.
+    `Let me finish the question. ${frozenText}`,
+    `Let me just finish. ${frozenText}`,
+    `Hold on, let me just finish the question. ${frozenText}`,
+  ]) {
+    assert.throws(
+      () => assessLiveExport(parseExport(repeatSaying(text)), frozenOf(), 1),
       (e) => e instanceof LiveIngestError && e.code === "repeat_wording",
       text,
     );

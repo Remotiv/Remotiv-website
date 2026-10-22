@@ -379,11 +379,18 @@ export function confirmAnswer(
 /**
  * The only words a repeat may say before the question, case and punctuation
  * aside. Anything else (a hint, a rephrase) makes it a different question.
+ *
+ * "Let me just finish the question." is what Sarah says when the candidate
+ * cuts in before she has finished asking (D9, 22 Oct 2026); she then asks the
+ * question again in full. Like every lead-in here it only introduces the
+ * frozen wording: the turn is a procedural repeat, never a follow-up or a
+ * hint, and never a scoring entry.
  */
 export const REPEAT_LEAD_INS = [
   "Let me repeat the question.",
   "Sure, here it is again.",
   "Of course.",
+  "Let me just finish the question.",
 ] as const;
 
 function normaliseWording(text: string): string {
