@@ -63,16 +63,33 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * and confirmAnswer below is where the transcription commit settles it.
  * Follow-ups per question; procedural turns (silence reminders, marked
  * repeats, offers to skip) never count, and a marked repeat adds no question.
- * The outcome:
+ * The outcome comes from HOW the interview ended, never from how many
+ * questions were asked (D2, revised 22 Oct 2026):
  *
- *   completed          every question was asked (the candidate reached the
- *                      end), however many were answered; no restart, the
- *                      candidate has seen every question
- *   technical_failure  ended early by the provider (provider_error); a
- *                      restart is allowed regardless of attempt
- *   partial            ended early with at least half answered (4-7 of 8)
- *   abandoned          ended early with fewer (0-3 of 8); a restart is
- *                      allowed once (first attempt only)
+ *   completed           the provider reports a normal close by Sarah
+ *                       ("completed"), however many were answered; no
+ *                       restart. If she closed before asking every question
+ *                       it is still completed, flagged closed_early and held
+ *                       from ranking (held_from_ranking)
+ *   technical_failure   provider_error with an answer lost: some candidate
+ *                       transcript not done (failed, even if a person left
+ *                       it out); a restart is allowed regardless of attempt
+ *   partial             a CONFIRMED candidate exit (CONFIRMED_EXIT_CODES)
+ *                       with 4-7 of 8 answered
+ *   abandoned           a confirmed exit with 0-3 of 8 answered; a restart
+ *                       is allowed once (first attempt only)
+ *   ending_unconfirmed  everything else, flagged for a person: the candidate
+ *                       left while D10 is unconfirmed, or after answering
+ *                       every question; a time limit; an unknown or missing
+ *                       status; provider_error with every answer usable.
+ *                       Scored like partial, never ranked against completed,
+ *                       never treated as abandonment; the restart is a
+ *                       person's decision (restart_allowed null,
+ *                       restart_needs_person true)
+ *
+ * "Every answer usable": every candidate turn's audio is stored (the save
+ * refuses an export without it), every candidate transcript is done, and the
+ * outcome is final.
  *
  * Nothing here is a score. For the scoring commit: not_reached gets no score
  * (not zero), skipped gets that question's lowest score, a partial interview
@@ -94,7 +111,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 1;
+export const LIVE_OUTCOME_VERSION = 2;
 /** A base question keeping less than this share of the frozen question's words is flagged. */
 export const WORDING_MIN_COVERAGE = 0.6;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
@@ -114,7 +131,35 @@ const ACCEPTED_AUDIO: ReadonlySet<string> = new Set([
 ]);
 
 export type QuestionStatus = "answered" | "skipped" | "not_reached";
-export type LiveOutcomeCode = "completed" | "partial" | "abandoned" | "technical_failure";
+export type LiveOutcomeCode =
+  | "completed"
+  | "partial"
+  | "abandoned"
+  | "technical_failure"
+  | "ending_unconfirmed";
+
+/**
+ * End statuses the provider has CONFIRMED (decision D10) to mean the candidate
+ * chose to leave. Empty until Arham confirms them: until then a candidate exit
+ * is ending_unconfirmed, never partial or abandoned. Partial and abandoned
+ * switch on per status by adding it here.
+ */
+export const CONFIRMED_EXIT_CODES: ReadonlySet<ExportStatusCode> = new Set<ExportStatusCode>();
+
+/** Why an ending needs a person. */
+export type EndCheckReason =
+  /** Completed, but Sarah closed before asking every question. */
+  | "closed_early"
+  /** The provider says the candidate ended it; not a confirmed exit yet (D10). */
+  | "exit_unconfirmed"
+  /** A confirmed exit, but after answering every question. */
+  | "left_after_last_answer"
+  /** A time limit, an unknown or a missing end status. */
+  | "ending_unknown"
+  /** provider_error, but every answer was saved. */
+  | "provider_error_saved";
+
+export type EndCheck = { reason: EndCheckReason; never_asked: number };
 
 export type LiveQuestionFacts = {
   position: number;
@@ -146,6 +191,8 @@ export type LiveOutcome = {
   provider_session_id: string;
   provider_status: string | null;
   provider_status_code: ExportStatusCode;
+  /** Every candidate turn's audio stored and transcript done, and the outcome final. */
+  answers_usable: boolean;
   turn_count: number;
   questions: LiveQuestionFacts[];
   timing_suspect: boolean;
@@ -154,6 +201,12 @@ export type LiveOutcome = {
   /** Positions whose spoken wording strays from the frozen text. */
   wording_flags: number[];
   outcome: LiveOutcomeCode;
+  /** Why the ending needs a person, or null when it does not. */
+  end_check: EndCheck | null;
+  /** Completed with questions never asked: never ranked with fully completed interviews. */
+  held_from_ranking: boolean;
+  /** ending_unconfirmed: the restart is a person's decision, never automatic. */
+  restart_needs_person: boolean;
   /**
    * False while any candidate turn is not yet transcribed and settled
    * (live-transcribe.ts). A non-final outcome is NOT DECIDED: restart
@@ -163,8 +216,9 @@ export type LiveOutcome = {
   /** Null while the outcome is not final: not decided yet. */
   restart_allowed: boolean | null;
   /**
-   * A person must look: a question needs_check (timing suspect) or a candidate
-   * turn's transcription failed for good. See needsReview().
+   * A person must look: the ending needs a check, a question needs_check
+   * (timing suspect), or a candidate turn's transcription failed for good.
+   * See needsReview().
    */
   needs_review: boolean;
   /** Sequences of candidate turns whose transcription failed after every retry. */
@@ -181,6 +235,9 @@ export type LiveOutcome = {
 type OutcomeFields = Pick<
   LiveOutcome,
   | "outcome"
+  | "end_check"
+  | "held_from_ranking"
+  | "restart_needs_person"
   | "final"
   | "restart_allowed"
   | "answered_count"
@@ -191,33 +248,38 @@ type OutcomeFields = Pick<
 >;
 
 /**
- * The outcome of a set of question statuses (decision D2). `final` says
- * whether every answer is settled; until it is, restart eligibility is null.
+ * The outcome of how the interview ended and the questions' statuses
+ * (decision D2, revised): see the table at the top. `final` says whether every
+ * answer is settled; until it is, restart eligibility is null. `answersUsable`
+ * is only ever true for a final outcome. Pure.
  */
 export function outcomeFrom(
   questions: readonly Pick<LiveQuestionFacts, "status">[],
   providerStatus: ExportStatusCode,
   attempt: number,
   final: boolean,
+  answersUsable: boolean,
+  exitCodes: ReadonlySet<ExportStatusCode> = CONFIRMED_EXIT_CODES,
 ): OutcomeFields {
   const total = questions.length;
   const answered = questions.filter((q) => q.status === "answered").length;
   const skipped = questions.filter((q) => q.status === "skipped").length;
   const notReached = questions.filter((q) => q.status === "not_reached").length;
-  const outcome: LiveOutcomeCode =
-    notReached === 0
-      ? "completed"
-      : providerStatus === "provider_error"
-        ? "technical_failure"
-        : answered >= Math.ceil(total / 2)
-          ? "partial"
-          : "abandoned";
+  const { outcome, endCheck } = endingOf(
+    providerStatus,
+    answered,
+    total,
+    notReached,
+    final && answersUsable,
+    exitCodes,
+  );
   return {
     outcome,
+    end_check: endCheck,
+    held_from_ranking: outcome === "completed" && notReached > 0,
+    restart_needs_person: final && outcome === "ending_unconfirmed",
     final,
-    restart_allowed: !final
-      ? null
-      : outcome === "technical_failure" || (outcome === "abandoned" && attempt === 1),
+    restart_allowed: restartAllowed(outcome, final, attempt),
     answered_count: answered,
     skipped_count: skipped,
     not_reached_count: notReached,
@@ -226,16 +288,54 @@ export function outcomeFrom(
   };
 }
 
+function endingOf(
+  status: ExportStatusCode,
+  answered: number,
+  total: number,
+  notReached: number,
+  usable: boolean,
+  exitCodes: ReadonlySet<ExportStatusCode>,
+): { outcome: LiveOutcomeCode; endCheck: EndCheck | null } {
+  const check = (reason: EndCheckReason) => ({ reason, never_asked: notReached });
+  if (status === "completed") {
+    return { outcome: "completed", endCheck: notReached > 0 ? check("closed_early") : null };
+  }
+  if (status === "provider_error") {
+    return usable
+      ? { outcome: "ending_unconfirmed", endCheck: check("provider_error_saved") }
+      : { outcome: "technical_failure", endCheck: null };
+  }
+  if (exitCodes.has(status)) {
+    if (answered === total) {
+      return { outcome: "ending_unconfirmed", endCheck: check("left_after_last_answer") };
+    }
+    return { outcome: answered >= Math.ceil(total / 2) ? "partial" : "abandoned", endCheck: null };
+  }
+  if (status === "candidate_ended") {
+    return { outcome: "ending_unconfirmed", endCheck: check("exit_unconfirmed") };
+  }
+  return { outcome: "ending_unconfirmed", endCheck: check("ending_unknown") };
+}
+
+/** Null until final, and null for ending_unconfirmed: that restart is a person's decision. */
+function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: number): boolean | null {
+  if (!final || outcome === "ending_unconfirmed") return null;
+  if (outcome === "technical_failure") return true;
+  return outcome === "abandoned" && attempt === 1;
+}
+
 /**
- * Whether the session needs a person: any question needs_check, or any turn
- * failed transcription. The per-question flags and the failed list stay as
- * they are; this is the session-level summary of both.
+ * Whether the session needs a person: the ending needs a check, any question
+ * needs_check, or any turn failed transcription. The per-question flags, the
+ * failed list and the end check stay as they are; this is the session-level
+ * summary of all three.
  */
 export function needsReview(
   questions: readonly Pick<LiveQuestionFacts, "needs_check">[],
   failedTurns: readonly number[],
+  endCheck: EndCheck | null,
 ): boolean {
-  return failedTurns.length > 0 || questions.some((q) => q.needs_check);
+  return endCheck !== null || failedTurns.length > 0 || questions.some((q) => q.needs_check);
 }
 
 /** Whether an outcome may be acted on: restart, ranking, scoring. Only a final one. */
@@ -261,10 +361,18 @@ export function confirmAnswer(
       ? { ...q, confirmed: true }
       : { ...q, status: "skipped" as const, confirmed: null };
   });
+  const fields = outcomeFrom(
+    questions,
+    outcome.provider_status_code,
+    attempt,
+    outcome.final,
+    outcome.answers_usable,
+  );
   return {
     ...outcome,
     questions,
-    ...outcomeFrom(questions, outcome.provider_status_code, attempt, outcome.final),
+    needs_review: needsReview(questions, outcome.transcription_failed_turns, fields.end_check),
+    ...fields,
   };
 }
 
@@ -457,23 +565,26 @@ export function assessLiveExport(
   }
 
   // Final only when there is nothing to transcribe; otherwise live-transcribe
-  // settles it once every candidate turn is done.
+  // settles it once every candidate turn is done. With no candidate turn there
+  // is no answer to lose, and every turn's audio is stored by the save.
   const final = !turns.some((t) => t.speaker === "candidate");
+  const fields = outcomeFrom(questions, parsed.status.code, attempt, final, final);
 
   return {
     v: LIVE_OUTCOME_VERSION,
     provider_session_id: parsed.provider_session_id,
     provider_status: parsed.status.provider_status,
     provider_status_code: parsed.status.code,
+    answers_usable: final,
     turn_count: turns.length,
     questions,
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
     wording_flags: wordingFlags,
-    needs_review: needsReview(questions, []),
+    needs_review: needsReview(questions, [], fields.end_check),
     transcription_failed_turns: [],
     settle_rev: 0,
-    ...outcomeFrom(questions, parsed.status.code, attempt, final),
+    ...fields,
   };
 }
 

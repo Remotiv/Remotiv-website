@@ -116,7 +116,15 @@ export function checkTurnRow(row, allRows, sessions) {
   }
 }
 
-const SCORE_OUTCOMES = ["completed", "partial", "abandoned", "technical_failure"];
+const SCORE_OUTCOMES = [
+  "completed",
+  "partial",
+  "abandoned",
+  "technical_failure",
+  "ending_unconfirmed",
+];
+/** Outcomes that may carry an overall (migration 045). */
+const OVERALL_OUTCOMES = ["completed", "partial", "ending_unconfirmed"];
 
 /** Migration 042's checks and triggers, for its three tables. Throws as Postgres would. */
 export function checkScoringRow(table, row, allRows, tables) {
@@ -159,7 +167,7 @@ export function checkScoringRow(table, row, allRows, tables) {
       fail("live_interview_scores_skipped");
     if (row.status === "incomplete" && row.overall_score != null)
       fail("live_interview_scores_incomplete");
-    if (row.overall_score != null && !["completed", "partial"].includes(row.outcome))
+    if (row.overall_score != null && !OVERALL_OUTCOMES.includes(row.outcome))
       fail("live_interview_scores_overall_outcome");
     if (!Array.isArray(row.questions)) fail("live_interview_scores_questions_array");
     if (row.overall_score != null && !(row.overall_score >= 0 && row.overall_score <= 100))
@@ -174,7 +182,8 @@ export function checkScoringRow(table, row, allRows, tables) {
       fail("live_interview_scores_completion");
     if (row.outcome != null && !SCORE_OUTCOMES.includes(row.outcome))
       fail("live_interview_scores_outcome");
-    if (row.outcome != null && row.partial !== (row.outcome !== "completed"))
+    // 045: short of completed is always partial; a completed row may be held (partial).
+    if (row.outcome != null && row.outcome !== "completed" && !row.partial)
       fail("live_interview_scores_partial");
     if (
       row.status === "scored" &&

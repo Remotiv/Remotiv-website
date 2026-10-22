@@ -10,11 +10,16 @@
 
 import type { LiveReviewVideo } from "./live-video-timeline";
 
-export type LiveReviewState = "in_progress" | "completed" | "partial" | "incomplete";
+export type LiveReviewState =
+  | "in_progress"
+  | "completed"
+  | "partial"
+  | "ending_unconfirmed"
+  | "incomplete";
 
 export type LiveReviewHeader = {
   state: LiveReviewState;
-  /** "Completed", "Partial", "Incomplete - 3 of 8 answered", "In progress". */
+  /** "Completed", "Partial", "Ending not confirmed - needs review", "Incomplete - 3 of 8 answered", "In progress". */
   label: string;
   answered: number;
   total: number;
@@ -22,8 +27,14 @@ export type LiveReviewHeader = {
   completionPercent: number;
   /** Only when the score row's status is 'scored'. Null otherwise, never 0 for "none". */
   overall: number | null;
-  /** Short of completed: never ranked against a completed interview. */
+  /** Short of completed, or completed but held: never ranked against a completed interview. */
   partial: boolean;
+  /** Why it is not compared with completed interviews, in plain words; null when it is. */
+  partialNote: string | null;
+  /** Everything a person should look at, in plain words: the ending, then each open question flag. */
+  reviewReasons: string[];
+  /** For an unconfirmed ending: the restart is the reviewer's decision. Plain text, no action. */
+  restartNote: string | null;
   /** The score row's status, or 'not_scored' when there is none. */
   scoreStatus: "not_scored" | "pending" | "scored" | "incomplete" | "failed";
   /** Why there is no overall, when there is none. */

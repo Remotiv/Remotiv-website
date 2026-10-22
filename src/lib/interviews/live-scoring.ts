@@ -58,16 +58,18 @@ import { createServiceClient } from "@/lib/supabase/server";
  * are not in it. The row's status:
  *
  *   pending     not decided yet, or a question waits for a person
- *   scored      completed or partial, with at least one score: the overall
+ *   scored      completed, partial or ending_unconfirmed, with at least
+ *               one score: the overall
  *   incomplete  abandoned or technical_failure (per-question scores and
  *               evidence kept, NO overall: "Incomplete - X of 8 answered"),
- *               or a completed/partial interview with nothing scorable
+ *               or any other interview with nothing scorable
  *
  * answered/total, skipped_count and completion % come from the outcome, so a
  * 0 for a skipped question reads differently from a 0 for a bad answer.
- * `partial` is set for every outcome short of completed: a partial score must
- * never be ranked against a completed one (migration 042; nothing ranks from
- * this table yet, and auto-shortlist does not read it).
+ * `partial` is set for every outcome short of completed, and for a completed
+ * interview held from ranking (Sarah closed before asking every question): it
+ * must never be ranked against a completed one (migrations 042 and 045;
+ * nothing ranks from this table yet, and auto-shortlist does not read it).
  *
  * ── The attempt that counts ──────────────────────────────────
  *
@@ -599,7 +601,10 @@ export async function scoreLiveSession(
       total: outcome?.total ?? frozen.questions.length,
       completion_percent: outcome?.completion_percent ?? 0,
       outcome: decided ? outcome.outcome : null,
-      partial: decided ? outcome.outcome !== "completed" : false,
+      // Never ranked against completed: short of completed, or completed but held (D2).
+      partial: decided
+        ? outcome.outcome !== "completed" || outcome.held_from_ranking === true
+        : false,
       ai_model: model,
       prompt_version: LIVE_SCORING_PROMPT_VERSION,
       input_tokens: entries.reduce((s, e) => s + e.input_tokens, 0),

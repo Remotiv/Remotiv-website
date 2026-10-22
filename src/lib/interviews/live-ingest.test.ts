@@ -31,10 +31,13 @@ export async function resolve(specifier, context, next) {
 const {
   assessLiveExport,
   audioPath,
+  CONFIRMED_EXIT_CODES,
   confirmAnswer,
   exportHash,
   isOutcomeDecided,
+  LIVE_OUTCOME_VERSION,
   LiveIngestError,
+  needsReview,
   outcomeFrom,
   REPEAT_LEAD_INS,
   repeatMatchesQuestion,
@@ -187,7 +190,7 @@ test("the commit 2 fixture lands as 32 valid rows, in order, with the right kind
   assert.equal(outcome.turn_count, 32);
 });
 
-test("what the fixture produced: statuses, follow-ups, timing_suspect, outcome partial", async () => {
+test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate_ended is ending_unconfirmed", async () => {
   const w = world();
   const { outcome } = await save(w);
   assert.deepEqual(
@@ -217,8 +220,10 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect, outcome p
       outcome.total,
       outcome.completion_percent,
     ],
-    ["partial", 5, 1, 2, 8, 63],
+    ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
+  assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
+  assert.equal(outcome.v, 2);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -284,7 +289,7 @@ test("a crash after the turns, before the outcome: saving again writes the outco
   const uploads = w.db.counts.uploads;
   const { saved, outcome } = await save(w);
   assert.equal(saved, true);
-  assert.equal(outcome.outcome, "partial");
+  assert.equal(outcome.outcome, "ending_unconfirmed");
   assert.equal(w.db.tables.interview_turns.length, 32);
   assert.equal(w.db.counts.uploads, uploads, "the audio is not uploaded again");
 });
@@ -449,12 +454,7 @@ function cleanExport({ asked = 8, answerMs = () => 20_000, status = "completed" 
   return {
     provider_session_id: PROVIDER_SESSION,
     status: {
-      code:
-        status === "provider_error"
-          ? "provider_error"
-          : status === "completed"
-            ? "completed"
-            : "candidate_ended",
+      code: status,
       provider_status: status,
     },
     interviewer_name: "Sarah",
@@ -468,14 +468,30 @@ function cleanExport({ asked = 8, answerMs = () => 20_000, status = "completed" 
 }
 
 /** The assessment as it will stand once every answer is transcribed and confirmed: final. */
-function decidedAssess(parsed, frozen, attempt) {
+function decidedAssess(parsed, frozen, attempt, { usable = true, exitCodes } = {}) {
   const f = assessLiveExport(parsed, frozen, attempt);
   assert.equal(
     f.final,
     !parsed.turns.some((t) => t.speaker === "candidate"),
     "provisional at save",
   );
-  return { ...f, ...outcomeFrom(f.questions, f.provider_status_code, attempt, true) };
+  return {
+    ...f,
+    ...outcomeFrom(f.questions, f.provider_status_code, attempt, true, usable, exitCodes),
+  };
+}
+
+/** D10 switched on: candidate_ended counts as a confirmed exit. */
+const D10 = new Set(["candidate_ended"]);
+
+/** D10 switched on in the shipped list, for code that reads it (confirmAnswer). */
+function withExit(fn) {
+  CONFIRMED_EXIT_CODES.add("candidate_ended");
+  try {
+    return fn();
+  } finally {
+    CONFIRMED_EXIT_CODES.delete("candidate_ended");
+  }
 }
 
 test("all answered: completed, 8 of 8, 100%", () => {
@@ -504,53 +520,164 @@ test('a 2-second answer ("Yes, three years") is answered; a silent question is s
   );
 });
 
-test("reached the end with only 3 answered: completed, no restart", () => {
+/* ── D2 (revised 22 Oct 2026): completed only from a normal close ── */
+
+const view = (f) => [
+  f.outcome,
+  f.end_check?.reason ?? null,
+  f.restart_allowed,
+  f.restart_needs_person,
+  f.held_from_ranking,
+];
+
+test("completed comes only from a normal close: 3 answered still completed, never downgraded by coverage", () => {
   const f = decidedAssess(cleanExport({ answerMs: (p) => (p <= 3 ? 20_000 : 0) }), frozenOf(), 1);
   assert.deepEqual(
-    [f.outcome, f.answered_count, f.skipped_count, f.not_reached_count, f.restart_allowed],
-    ["completed", 3, 5, 0, false],
+    [f.outcome, f.answered_count, f.skipped_count, f.not_reached_count],
+    ["completed", 3, 5, 0],
   );
-  // Reaching the end wins over a provider error at the very end: every question was seen.
-  const late = decidedAssess(cleanExport({ status: "provider_error" }), frozenOf(), 1);
-  assert.deepEqual([late.outcome, late.restart_allowed], ["completed", false]);
+  assert.deepEqual(view(f), ["completed", null, false, false, false]);
 });
 
-test("ended early: 4-7 answered is partial; 0-3 is abandoned, restart once; provider end is technical_failure", () => {
-  const partial = decidedAssess(
-    cleanExport({ asked: 4, status: "candidate_ended" }),
-    frozenOf(),
-    1,
+test("completed with questions never asked: still completed, flagged closed_early, held from ranking", () => {
+  const f = decidedAssess(cleanExport({ asked: 6 }), frozenOf(), 1);
+  assert.deepEqual(view(f), ["completed", "closed_early", false, false, true]);
+  assert.deepEqual(f.end_check, { reason: "closed_early", never_asked: 2 });
+  assert.equal(f.not_reached_count, 2, "not reached: left out, never zero");
+});
+
+test("every question asked is never completed without a normal close", () => {
+  for (const status of ["candidate_ended", "timed_out", "unknown", "provider_error"]) {
+    const f = decidedAssess(cleanExport({ status }), frozenOf(), 1, { usable: false });
+    assert.notEqual(f.outcome, "completed", status);
+    assert.equal(f.not_reached_count, 0);
+  }
+});
+
+test("candidate_ended is not a confirmed exit yet: ending_unconfirmed at any count, a person decides the restart", () => {
+  for (const asked of [8, 5, 3, 0]) {
+    const f = decidedAssess(cleanExport({ asked, status: "candidate_ended" }), frozenOf(), 1);
+    assert.deepEqual(
+      view(f),
+      ["ending_unconfirmed", "exit_unconfirmed", null, true, false],
+      `asked ${asked}`,
+    );
+    assert.equal(f.needs_review || needsReview(f.questions, [], f.end_check), true);
+  }
+});
+
+test("D10 switched on: a confirmed exit is partial (4-7) or abandoned (0-3, restart once); 8 of 8 still needs a person", () => {
+  const at = (asked, attempt = 1) =>
+    decidedAssess(cleanExport({ asked, status: "candidate_ended" }), frozenOf(), attempt, {
+      exitCodes: D10,
+    });
+  assert.deepEqual(view(at(7)), ["partial", null, false, false, false]);
+  assert.deepEqual(view(at(4)), ["partial", null, false, false, false]);
+  assert.deepEqual(view(at(3)), ["abandoned", null, true, false, false]);
+  assert.deepEqual(view(at(0)), ["abandoned", null, true, false, false]);
+  assert.equal(
+    at(3, 2).restart_allowed,
+    false,
+    "abandoned again on the restart: no further restart",
   );
-  assert.deepEqual(
-    [partial.outcome, partial.answered_count, partial.restart_allowed],
-    ["partial", 4, false],
-  );
-  assert.deepEqual(partial.questions.map((q) => q.status).slice(4), [
-    "not_reached",
-    "not_reached",
-    "not_reached",
-    "not_reached",
+  assert.deepEqual(view(at(8)), [
+    "ending_unconfirmed",
+    "left_after_last_answer",
+    null,
+    true,
+    false,
   ]);
+  // The switch is per status: a confirmed candidate_ended does not confirm a time limit.
+  const t = decidedAssess(cleanExport({ asked: 3, status: "timed_out" }), frozenOf(), 1, {
+    exitCodes: D10,
+  });
+  assert.equal(t.outcome, "ending_unconfirmed");
+});
 
-  const abandoned = decidedAssess(
-    cleanExport({ asked: 3, status: "candidate_ended" }),
-    frozenOf(),
-    1,
-  );
+test("a time limit, an unknown or a missing status: ending_unconfirmed, never abandoned, never an automatic restart", () => {
+  for (const status of ["timed_out", "unknown"]) {
+    for (const asked of [0, 2, 3, 8]) {
+      const f = decidedAssess(cleanExport({ asked, status }), frozenOf(), 1);
+      assert.deepEqual(
+        view(f),
+        ["ending_unconfirmed", "ending_unknown", null, true, false],
+        `${status} ${asked}`,
+      );
+    }
+  }
+});
+
+test("provider_error: every answer usable is ending_unconfirmed (no automatic restart); an answer lost is technical_failure", () => {
+  const saved = decidedAssess(cleanExport({ status: "provider_error" }), frozenOf(), 1, {
+    usable: true,
+  });
+  assert.deepEqual(view(saved), ["ending_unconfirmed", "provider_error_saved", null, true, false]);
+  const early = decidedAssess(cleanExport({ asked: 5, status: "provider_error" }), frozenOf(), 1, {
+    usable: true,
+  });
+  assert.equal(early.outcome, "ending_unconfirmed", "not reached is not lost");
+  for (const attempt of [1, 2]) {
+    const lost = decidedAssess(
+      cleanExport({ asked: 7, status: "provider_error" }),
+      frozenOf(),
+      attempt,
+      { usable: false },
+    );
+    assert.deepEqual(
+      view(lost),
+      ["technical_failure", null, true, false, false],
+      `attempt ${attempt}`,
+    );
+  }
+  // Before every answer is settled nothing is decided, whatever the end.
+  const f = assessLiveExport(cleanExport({ status: "provider_error" }), frozenOf(), 1);
   assert.deepEqual(
-    [
-      abandoned.outcome,
-      abandoned.answered_count,
-      abandoned.completion_percent,
-      abandoned.restart_allowed,
-    ],
-    ["abandoned", 3, 38, true],
+    [f.final, f.restart_allowed, f.restart_needs_person, f.answers_usable],
+    [false, null, false, false],
   );
-  const second = decidedAssess(cleanExport({ asked: 3, status: "candidate_ended" }), frozenOf(), 2);
-  assert.equal(second.restart_allowed, false, "abandoned again on the restart: no further restart");
+});
 
-  const tech = decidedAssess(cleanExport({ asked: 7, status: "provider_error" }), frozenOf(), 2);
-  assert.deepEqual([tech.outcome, tech.restart_allowed], ["technical_failure", true]);
+test("complete and finished are unknown until D10: never completed", () => {
+  for (const word of ["complete", "finished", "Finished", "COMPLETE"]) {
+    const raw = structuredClone(FIXTURE);
+    raw.status = word;
+    const parsed = parseExport(raw);
+    assert.equal(parsed.status.code, "unknown", word);
+    const f = decidedAssess(parsed, frozenOf(), 1);
+    assert.deepEqual(
+      [f.outcome, f.end_check.reason],
+      ["ending_unconfirmed", "ending_unknown"],
+      word,
+    );
+  }
+  assert.equal(
+    parseExport({ ...structuredClone(FIXTURE), status: "completed" }).status.code,
+    "completed",
+  );
+});
+
+test("both real exports (candidate_ended) are never completed, even once every answer is settled", () => {
+  const repeat = JSON.parse(
+    readFileSync(
+      new URL("./live-provider/__fixtures__/sample-export-repeat.json", import.meta.url),
+      "utf8",
+    ),
+  );
+  for (const raw of [FIXTURE, repeat]) {
+    const f = decidedAssess(parseExport(structuredClone(raw)), frozenOf(), 1, { usable: true });
+    assert.equal(f.provider_status_code, "candidate_ended");
+    assert.deepEqual(view(f), ["ending_unconfirmed", "exit_unconfirmed", null, true, false]);
+  }
+});
+
+test("needs_review includes the ending; the outcome version is 2; the shipped exit list is empty", () => {
+  assert.equal(
+    needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
+    true,
+  );
+  assert.equal(needsReview([{ needs_check: false }], [], null), false);
+  assert.equal(LIVE_OUTCOME_VERSION, 2);
+  assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
 test("never logged: interviewer text, follow-up reasons or file names", async () => {
@@ -605,7 +732,7 @@ test("a marked repeat keeps its question: no extra question, no follow-up, the a
     ["answered", 2, 1],
   );
   assert.ok(f.questions.every((q, i) => i === 1 || q.repeats === 0));
-  assert.deepEqual([f.outcome, f.answered_count], ["partial", 5]);
+  assert.deepEqual([f.outcome, f.answered_count], ["ending_unconfirmed", 5]);
 });
 
 test("the repeat variant saves: 34 rows, the repeat a procedural turn at position 2", async () => {
@@ -741,10 +868,17 @@ test("confirmAnswer: real words confirm; none downgrade to skipped and the outco
     [confirmed.questions[0].status, confirmed.questions[0].confirmed],
     ["answered", true],
   );
-  assert.equal(confirmed.outcome, "partial");
-  // Two answers turn out to be silence: 3 answered is abandoned, restart once.
+  assert.equal(
+    confirmed.outcome,
+    "ending_unconfirmed",
+    "candidate_ended is not a confirmed exit yet",
+  );
+  // With D10 switched on: two answers turn out to be silence, 3 answered is abandoned.
   // Not final yet (the settle in live-transcribe.ts decides that), so no restart decision.
-  const down = confirmAnswer(confirmAnswer(outcome, 4, false, 1), 5, false, 1);
+  const down = withExit(() => {
+    assert.equal(confirmAnswer(outcome, 1, true, 1).outcome, "partial");
+    return confirmAnswer(confirmAnswer(outcome, 4, false, 1), 5, false, 1);
+  });
   assert.deepEqual(
     [down.questions[3].status, down.questions[4].status, down.questions[4].confirmed],
     ["skipped", "skipped", null],
@@ -781,7 +915,7 @@ for (const [stage, breakIt, code] of [
     assert.equal(saved, true);
     assert.equal(w.db.tables.interview_turns.length, 32);
     assert.equal(new Set(w.db.tables.interview_turns.map((t) => t.provider_turn_id)).size, 32);
-    assert.equal(outcome.outcome, "partial");
+    assert.equal(outcome.outcome, "ending_unconfirmed");
     assertAudioIntact(w.db);
   });
 }

@@ -104,10 +104,11 @@ export class LiveExportError extends Error {
   }
 }
 
+// Only "completed" is a normal close (D2). "complete" and "finished" are not
+// listed: unconfirmed words read as unknown until the provider confirms them
+// (D10), so they can never make an interview completed.
 const STATUS_CODES: Readonly<Record<string, ExportStatusCode>> = {
   completed: "completed",
-  complete: "completed",
-  finished: "completed",
   candidate_ended: "candidate_ended",
   candidate_left: "candidate_ended",
   time_limit: "timed_out",

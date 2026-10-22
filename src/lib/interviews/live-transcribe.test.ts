@@ -29,7 +29,7 @@ export async function resolve(specifier, context, next) {
 const { handleLiveTurnTranscribe, hasRealWords, requestLiveTranscription, settleOutcome } =
   await import("./live-transcribe.ts");
 const { handleTranscribe } = await import("./transcribe.ts");
-const { saveLiveExport } = await import("./live-ingest.ts");
+const { CONFIRMED_EXIT_CODES, saveLiveExport } = await import("./live-ingest.ts");
 const { parseExport } = await import("./live-provider/parse-export.ts");
 const { createFakeLiveProvider } = await import("./live-provider/fake-provider.ts");
 const { snapshotsFor } = await import("./frozen-questions.ts");
@@ -218,10 +218,19 @@ test("the fixture: provisional until the last candidate turn, then final, answer
       [8, "not_reached", null],
     ],
   );
+  // candidate_ended is not a confirmed exit yet (D10): a person reviews the ending and decides the restart.
   assert.deepEqual(
-    [o.outcome, o.answered_count, o.restart_allowed, o.needs_review],
-    ["partial", 5, false, true],
+    [
+      o.outcome,
+      o.answered_count,
+      o.restart_allowed,
+      o.restart_needs_person,
+      o.needs_review,
+      o.answers_usable,
+    ],
+    ["ending_unconfirmed", 5, null, true, true, true],
   );
+  assert.equal(o.end_check.reason, "exit_unconfirmed");
   // Final, but every answered question is timing suspect: a person checks before scoring.
   assert.deepEqual(o.transcription_failed_turns, []);
   // timing_suspect turns are transcribed too, and keep needs_check for scoring.
@@ -230,8 +239,7 @@ test("the fixture: provisional until the last candidate turn, then final, answer
   assert.ok(candidateTurns(db).every((t) => t.transcript_status === "done" && t.transcript));
 });
 
-test("downgrades change the outcome: two filler-only questions turn partial into abandoned, restart once", async () => {
-  const db = await saved();
+async function downgradeTwo(db) {
   const positionOf = (row) => {
     const answered = db.tables.interview_turns.find((t) => t.id === row.responds_to_turn_id);
     return row.question_position ?? answered?.question_position;
@@ -245,6 +253,16 @@ test("downgrades change the outcome: two filler-only questions turn partial into
           : "I owned the migration end to end.",
   });
   await runAll(db, whisper);
+}
+
+test("downgrades change the outcome: with D10 on, two filler-only questions turn partial into abandoned, restart once", async () => {
+  const db = await saved();
+  CONFIRMED_EXIT_CODES.add("candidate_ended");
+  try {
+    await downgradeTwo(db);
+  } finally {
+    CONFIRMED_EXIT_CODES.delete("candidate_ended");
+  }
   const o = outcomeOf(db);
   assert.equal(o.final, true);
   assert.deepEqual(
@@ -270,6 +288,66 @@ test("downgrades change the outcome: two filler-only questions turn partial into
       o.restart_allowed,
     ],
     ["abandoned", 3, 3, 2, 38, true],
+  );
+  // The same interview while D10 is unconfirmed: never abandonment, a person decides.
+  const unconfirmed = await saved();
+  await downgradeTwo(unconfirmed);
+  assert.deepEqual(
+    [outcomeOf(unconfirmed).outcome, outcomeOf(unconfirmed).restart_allowed],
+    ["ending_unconfirmed", null],
+  );
+});
+
+/* ── provider_error: every answer usable, or an answer lost (D2) ── */
+
+function settledAs(db, status, states) {
+  const o = { ...outcomeOf(db), provider_status_code: status };
+  const turns = candidateTurns(db).map((t, i) => ({
+    sequence: t.sequence,
+    position: null,
+    transcript_status: states[i] ?? "done",
+    transcript: "I led the work and shipped it in two weeks.",
+    transcript_segments: null,
+  }));
+  return { o, turns };
+}
+
+test("provider_error with every transcript done: ending_unconfirmed, no automatic restart", async () => {
+  const db = await saved();
+  const { o, turns } = settledAs(db, "provider_error", []);
+  const next = settleOutcome(o, turns, 1);
+  assert.deepEqual(
+    [
+      next.final,
+      next.answers_usable,
+      next.outcome,
+      next.end_check.reason,
+      next.restart_allowed,
+      next.restart_needs_person,
+    ],
+    [true, true, "ending_unconfirmed", "provider_error_saved", null, true],
+  );
+});
+
+test("provider_error with an answer lost: technical_failure once settled, the existing restart rule", async () => {
+  const db = await saved();
+  const { o, turns } = settledAs(db, "provider_error", ["failed"]);
+  const waiting = settleOutcome(o, turns, 1);
+  assert.deepEqual(
+    [waiting.final, waiting.restart_allowed],
+    [false, null],
+    "a failed turn not yet left out: not decided",
+  );
+  const excluded = settleOutcome(o, turns, 2, new Set([turns[0].sequence]));
+  assert.deepEqual(
+    [
+      excluded.final,
+      excluded.answers_usable,
+      excluded.outcome,
+      excluded.restart_allowed,
+      excluded.restart_needs_person,
+    ],
+    [true, false, "technical_failure", true, false],
   );
 });
 

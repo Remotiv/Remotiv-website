@@ -37,6 +37,7 @@ const BUTTON =
 const STATE_CHIP: Record<string, string> = {
   completed: "bg-[var(--ai-mint-tint)] text-[var(--ai-mint-ink)]",
   partial: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
+  ending_unconfirmed: "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]",
   incomplete: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
   in_progress: "bg-[var(--ai-slate-tint)] text-[var(--ai-slate-ink)]",
 };
@@ -185,6 +186,26 @@ export function LiveReviewClient({
         </p>
       )}
 
+      {(header.reviewReasons.length > 0 || header.restartNote) && (
+        <section className={CARD} aria-label="Needs review" data-needs-review>
+          <h2 className="m-0 text-sm font-bold text-[var(--ai-t1)]">Needs review</h2>
+          {header.reviewReasons.length > 0 && (
+            <ul className="m-0 mt-2 flex list-disc flex-col gap-1 pl-5 text-sm text-[var(--ai-t2)]">
+              {header.reviewReasons.map((reason) => (
+                <li key={reason} data-review-reason>
+                  {reason}
+                </li>
+              ))}
+            </ul>
+          )}
+          {header.restartNote && (
+            <p className={`m-0 mt-2 ${MUTED}`} data-restart-note>
+              {header.restartNote}
+            </p>
+          )}
+        </section>
+      )}
+
       <section className={CARD} aria-label="Overall">
         {header.overall !== null ? (
           <p className="m-0 flex items-baseline gap-3" data-overall>
@@ -200,9 +221,9 @@ export function LiveReviewClient({
             {header.scoreNote ?? "No overall score."}
           </p>
         )}
-        {header.partial && header.state !== "in_progress" && (
+        {header.partialNote && (
           <p className="m-0 mt-2 text-xs font-semibold text-[var(--ai-amber-ink)]" data-partial>
-            Partial interview: not comparable with completed interviews.
+            {header.partialNote}
           </p>
         )}
       </section>

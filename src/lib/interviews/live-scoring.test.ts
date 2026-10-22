@@ -56,7 +56,18 @@ const { ensureJobQuestionGuide, questionSha256 } = await import("./live-guides.t
 const { purgeLiveScoreWords } = await import("./live-score-purge.ts");
 const { handleLiveTurnTranscribe } = await import("./live-transcribe.ts");
 const { handleAiScorecard } = await import("../ai/interview-scoring.ts");
-const { saveLiveExport } = await import("./live-ingest.ts");
+const { CONFIRMED_EXIT_CODES, saveLiveExport } = await import("./live-ingest.ts");
+
+/** D10 switched on for one test: candidate_ended counts as a confirmed exit, for the whole test. */
+async function withD10(fn) {
+  CONFIRMED_EXIT_CODES.add("candidate_ended");
+  try {
+    return await fn();
+  } finally {
+    CONFIRMED_EXIT_CODES.delete("candidate_ended");
+  }
+}
+
 const { parseExport } = await import("./live-provider/parse-export.ts");
 const { createFakeLiveProvider } = await import("./live-provider/fake-provider.ts");
 const { snapshotsFor } = await import("./frozen-questions.ts");
@@ -384,27 +395,28 @@ test("skipped: the lowest score with no model call; not_reached: left out, not z
   );
 });
 
-test("a partial interview: the overall from answered and skipped only, completion % stored, flagged partial", async () => {
-  const db = await decided();
-  const model = fakeModel();
-  await resolveAllChecks(db, model);
-  const row = scoreRow(db);
-  // (70 + 60 + 80 + 50 + 90 + 0) / 6, questions 7 and 8 not in it.
-  assert.deepEqual(
-    [
-      row.status,
-      row.overall_score,
-      row.scored_count,
-      row.answered_count,
-      row.total,
-      row.completion_percent,
-    ],
-    ["scored", 58, 6, 5, 8, 63],
-  );
-  assert.deepEqual([row.outcome, row.partial], ["partial", true]);
-  assert.deepEqual([row.prompt_version, row.rev >= 1], [LIVE_SCORING_PROMPT_VERSION, true]);
-  assert.equal(overallFrom(row.questions).overall, 58);
-});
+test("a partial interview: the overall from answered and skipped only, completion % stored, flagged partial", () =>
+  withD10(async () => {
+    const db = await decided();
+    const model = fakeModel();
+    await resolveAllChecks(db, model);
+    const row = scoreRow(db);
+    // (70 + 60 + 80 + 50 + 90 + 0) / 6, questions 7 and 8 not in it.
+    assert.deepEqual(
+      [
+        row.status,
+        row.overall_score,
+        row.scored_count,
+        row.answered_count,
+        row.total,
+        row.completion_percent,
+      ],
+      ["scored", 58, 6, 5, 8, 63],
+    );
+    assert.deepEqual([row.outcome, row.partial], ["partial", true]);
+    assert.deepEqual([row.prompt_version, row.rev >= 1], [LIVE_SCORING_PROMPT_VERSION, true]);
+    assert.equal(overallFrom(row.questions).overall, 58);
+  }));
 
 test("re-scoring a scored session buys nothing again and changes no score", async () => {
   const db = await decided();
@@ -968,38 +980,39 @@ async function abandoned() {
   return db;
 }
 
-test("abandoned: per-question scores and evidence kept, NO overall, status incomplete", async () => {
-  const db = await abandoned();
-  const o = outcomeOf(db);
-  assert.deepEqual([o.outcome, o.final, o.restart_allowed], ["abandoned", true, true]);
-  const model = fakeModel();
-  await resolveAllChecks(db, model);
-  const row = scoreRow(db);
-  assert.deepEqual(
-    [row.status, row.overall_score, row.outcome, row.partial],
-    ["incomplete", null, "abandoned", true],
-  );
-  assert.deepEqual([row.answered_count, row.skipped_count, row.total], [3, 3, 8]);
-  const q = byPosition(row);
-  assert.deepEqual(
-    [1, 2, 3].map((p) => [q[p].status, q[p].score, q[p].quotes.length > 0]),
-    [
-      ["scored", 70, true],
-      ["scored", 60, true],
-      ["scored", 80, true],
-    ],
-    "the evidence is kept",
-  );
-  assert.deepEqual(
-    [4, 5, 6].map((p) => [q[p].status, q[p].score]),
-    [
-      ["lowest", 0],
-      ["lowest", 0],
-      ["lowest", 0],
-    ],
-  );
-  assert.equal(row.scored_count, 6);
-});
+test("abandoned: per-question scores and evidence kept, NO overall, status incomplete", () =>
+  withD10(async () => {
+    const db = await abandoned();
+    const o = outcomeOf(db);
+    assert.deepEqual([o.outcome, o.final, o.restart_allowed], ["abandoned", true, true]);
+    const model = fakeModel();
+    await resolveAllChecks(db, model);
+    const row = scoreRow(db);
+    assert.deepEqual(
+      [row.status, row.overall_score, row.outcome, row.partial],
+      ["incomplete", null, "abandoned", true],
+    );
+    assert.deepEqual([row.answered_count, row.skipped_count, row.total], [3, 3, 8]);
+    const q = byPosition(row);
+    assert.deepEqual(
+      [1, 2, 3].map((p) => [q[p].status, q[p].score, q[p].quotes.length > 0]),
+      [
+        ["scored", 70, true],
+        ["scored", 60, true],
+        ["scored", 80, true],
+      ],
+      "the evidence is kept",
+    );
+    assert.deepEqual(
+      [4, 5, 6].map((p) => [q[p].status, q[p].score]),
+      [
+        ["lowest", 0],
+        ["lowest", 0],
+        ["lowest", 0],
+      ],
+    );
+    assert.equal(row.scored_count, 6);
+  }));
 
 test("the row status: incomplete for abandoned and technical failure, or nothing scorable; scored otherwise", () => {
   assert.equal(rowStatus("abandoned", false, 6), "incomplete");
@@ -1042,45 +1055,46 @@ test("a 0 for a skipped question reads differently from a 0 for a bad answer", a
   assert.deepEqual([row.answered_count, row.skipped_count, row.total], [5, 1, 8]);
 });
 
-test("the latest attempt is the only one that counts, even while pending; the earlier stays for audit", async () => {
-  const db = await abandoned();
-  const model = fakeModel();
-  await resolveAllChecks(db, model);
-  assert.equal(scoreRow(db).status, "incomplete");
-  // Before any restart, the session itself is the attempt that counts.
-  let counts = await countingLiveScore(db.service, CO, SESSION);
-  assert.deepEqual(
-    [counts.session_id, counts.status, counts.superseded],
-    [SESSION, "incomplete", []],
-  );
+test("the latest attempt is the only one that counts, even while pending; the earlier stays for audit", () =>
+  withD10(async () => {
+    const db = await abandoned();
+    const model = fakeModel();
+    await resolveAllChecks(db, model);
+    assert.equal(scoreRow(db).status, "incomplete");
+    // Before any restart, the session itself is the attempt that counts.
+    let counts = await countingLiveScore(db.service, CO, SESSION);
+    assert.deepEqual(
+      [counts.session_id, counts.status, counts.superseded],
+      [SESSION, "incomplete", []],
+    );
 
-  const RESTART = "5b0f2c1e-0000-4000-8000-0000000000c8";
-  db.tables.interview_sessions.push({
-    ...frozenRow(),
-    id: RESTART,
-    attempt: 2,
-    previous_attempt_id: SESSION,
-    live_outcome: null,
-  });
-  counts = await countingLiveScore(db.service, CO, SESSION);
-  assert.deepEqual(
-    [counts.session_id, counts.attempt, counts.status, counts.score, counts.superseded],
-    [RESTART, 2, "pending", null, [SESSION]],
-    "the restart counts though it has no row yet; the earlier attempt's row is never returned",
-  );
-  await scorer(db, model)(RESTART);
-  counts = await countingLiveScore(db.service, CO, RESTART);
-  assert.deepEqual(
-    [counts.session_id, counts.status, counts.score.session_id],
-    [RESTART, "pending", RESTART],
-  );
-  assert.ok(scoreRow(db), "the earlier attempt's row is still there for audit");
-  assert.equal(
-    await countingLiveScore(db.service, OTHER_CO, SESSION),
-    null,
-    "another company sees nothing",
-  );
-});
+    const RESTART = "5b0f2c1e-0000-4000-8000-0000000000c8";
+    db.tables.interview_sessions.push({
+      ...frozenRow(),
+      id: RESTART,
+      attempt: 2,
+      previous_attempt_id: SESSION,
+      live_outcome: null,
+    });
+    counts = await countingLiveScore(db.service, CO, SESSION);
+    assert.deepEqual(
+      [counts.session_id, counts.attempt, counts.status, counts.score, counts.superseded],
+      [RESTART, 2, "pending", null, [SESSION]],
+      "the restart counts though it has no row yet; the earlier attempt's row is never returned",
+    );
+    await scorer(db, model)(RESTART);
+    counts = await countingLiveScore(db.service, CO, RESTART);
+    assert.deepEqual(
+      [counts.session_id, counts.status, counts.score.session_id],
+      [RESTART, "pending", RESTART],
+    );
+    assert.ok(scoreRow(db), "the earlier attempt's row is still there for audit");
+    assert.equal(
+      await countingLiveScore(db.service, OTHER_CO, SESSION),
+      null,
+      "another company sees nothing",
+    );
+  }));
 
 /* ── fix round: style-neutral scoring ──────────────────────────── */
 
@@ -1325,4 +1339,41 @@ test("the async scorer still answers to AI_INTERVIEW_SCORING_ENABLED, not the li
   assert.equal(payload.status, "skipped");
   assert.match(payload.error, /AI_INTERVIEW_SCORING_ENABLED/);
   assert.equal(db.tables.live_interview_scores.length, 0);
+});
+
+/* ── D2 (revised): what the score row says about the ending ───── */
+
+test("ending_unconfirmed is scored like partial: an overall, partial = true, never ranked with completed", async () => {
+  const db = await decided();
+  assert.deepEqual(
+    [outcomeOf(db).outcome, outcomeOf(db).restart_allowed, outcomeOf(db).restart_needs_person],
+    ["ending_unconfirmed", null, true],
+  );
+  await resolveAllChecks(db, fakeModel());
+  const row = scoreRow(db);
+  assert.deepEqual(
+    [
+      row.status,
+      row.outcome,
+      row.partial,
+      row.overall_score !== null,
+      row.answered_count,
+      row.total,
+    ],
+    ["scored", "ending_unconfirmed", true, true, 5, 8],
+  );
+});
+
+test("completed with questions never asked is held from ranking: partial = true on a completed row", async () => {
+  const db = await decided();
+  const o = outcomeOf(db);
+  db.tables.interview_sessions[0].live_outcome = { ...o, provider_status_code: "completed" };
+  await resolveAllChecks(db, fakeModel());
+  assert.deepEqual(
+    [outcomeOf(db).outcome, outcomeOf(db).held_from_ranking, outcomeOf(db).end_check?.reason],
+    ["completed", true, "closed_early"],
+    "re-settled from a normal close with 2 never asked",
+  );
+  const row = scoreRow(db);
+  assert.deepEqual([row.status, row.outcome, row.partial], ["scored", "completed", true]);
 });

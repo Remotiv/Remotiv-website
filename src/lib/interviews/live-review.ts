@@ -7,7 +7,7 @@ import {
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
-import type { LiveOutcome } from "@/lib/interviews/live-ingest";
+import type { EndCheck, EndCheckReason, LiveOutcome } from "@/lib/interviews/live-ingest";
 import {
   LiveRecoveryError,
   type RecoveryDeps,
@@ -189,6 +189,33 @@ const STYLE_REASON =
   "The AI's explanation described how the candidate spoke. That part was removed; a person should confirm the score before it counts.";
 const FAILED_REASON = "This answer could not be transcribed.";
 
+const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
+
+/** Why the ending needs a person (live-ingest.ts EndCheck), said to the recruiter. */
+const END_REASON: Record<EndCheckReason, (neverAsked: number) => string> = {
+  closed_early: (n) => `Sarah closed the interview before asking ${plural(n, "question")}.`,
+  exit_unconfirmed: () =>
+    "The provider says the candidate ended the interview, but that isn't confirmed yet. Check the recording before relying on it.",
+  left_after_last_answer: () =>
+    "The candidate answered every question but left before Sarah closed. Check the recording before relying on it.",
+  ending_unknown: () =>
+    "How this interview ended couldn't be confirmed. Check the recording before relying on it.",
+  provider_error_saved: () =>
+    "The provider reported an error, but every answer was saved. Check the recording, then decide whether to offer a restart.",
+};
+
+const RESTART_NOTE = "A restart is your decision for this interview.";
+
+const PARTIAL_NOTE = "Partial interview: not comparable with completed interviews.";
+const UNCONFIRMED_NOTE =
+  "Not comparable with completed interviews: how it ended needs a check first.";
+const HELD_NOTE =
+  "Held from ranking: Sarah closed before asking every question, so it is not compared with fully completed interviews.";
+
+export function endReason(check: EndCheck): string {
+  return END_REASON[check.reason](check.never_asked);
+}
+
 const STATUS_LABEL: Record<LiveQuestionStatus, string> = {
   answered: "Answered",
   skipped: "Skipped",
@@ -206,6 +233,14 @@ function normaliseForMatch(text: string): string {
     .trim();
 }
 
+function scoreNoteFor(overall: number | null, row: LiveScoreRow | null): string | null {
+  if (overall !== null) return null;
+  if (!row) return "Not scored yet.";
+  if (row.status === "incomplete")
+    return "No overall score: nothing in this interview could be scored.";
+  return "Scores appear once every question waiting for review is resolved.";
+}
+
 function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveReviewHeader {
   const answered = outcome?.answered_count ?? 0;
   const total = outcome?.total ?? 0;
@@ -215,6 +250,8 @@ function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveR
     skipped: outcome?.skipped_count ?? 0,
     completionPercent: outcome?.completion_percent ?? 0,
     scoreStatus: row?.status ?? ("not_scored" as const),
+    reviewReasons: [] as string[],
+    restartNote: null,
   };
   // The overall, only from a row the scorer marked scored.
   const overall = row?.status === "scored" ? row.overall_score : null;
@@ -225,7 +262,21 @@ function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveR
       label: outcome ? "In progress - transcribing answers" : "In progress",
       overall: null,
       partial: false,
+      partialNote: null,
       scoreNote: "Scores appear once every answer is transcribed.",
+    };
+  }
+  // Before "incomplete": an unconfirmed ending is never read as an early end.
+  if (outcome.outcome === "ending_unconfirmed") {
+    return {
+      ...base,
+      state: "ending_unconfirmed",
+      label: "Ending not confirmed - needs review",
+      overall,
+      partial: true,
+      partialNote: UNCONFIRMED_NOTE,
+      restartNote: RESTART_NOTE,
+      scoreNote: scoreNoteFor(overall, row),
     };
   }
   const incomplete =
@@ -239,6 +290,7 @@ function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveR
       label: `Incomplete - ${answered} of ${total} answered`,
       overall: null,
       partial: true,
+      partialNote: PARTIAL_NOTE,
       scoreNote:
         outcome.outcome === "abandoned" || outcome.outcome === "technical_failure"
           ? "No overall score: the interview ended early."
@@ -246,19 +298,38 @@ function headerFor(outcome: LiveOutcome | null, row: LiveScoreRow | null): LiveR
     };
   }
   const partial = outcome.outcome === "partial";
+  const held = !partial && outcome.held_from_ranking === true;
   return {
     ...base,
     state: partial ? "partial" : "completed",
     label: partial ? "Partial" : "Completed",
     overall,
-    partial,
-    scoreNote:
-      overall !== null
-        ? null
-        : !row
-          ? "Not scored yet."
-          : "Scores appear once every question waiting for review is resolved.",
+    partial: partial || held,
+    partialNote: completedNote(partial, held),
+    scoreNote: scoreNoteFor(overall, row),
   };
+}
+
+function completedNote(partial: boolean, held: boolean): string | null {
+  if (partial) return PARTIAL_NOTE;
+  return held ? HELD_NOTE : null;
+}
+
+/**
+ * The Needs review list: the ending's reason once the outcome is decided, then
+ * every question flag nobody has resolved yet.
+ */
+function reviewReasonsFor(
+  outcome: LiveOutcome | null,
+  questions: readonly LiveReviewQuestion[],
+): string[] {
+  const reasons: string[] = [];
+  if (outcome?.final && outcome.end_check) reasons.push(endReason(outcome.end_check));
+  for (const q of questions) {
+    for (const f of q.flags)
+      if (f.resolved === null) reasons.push(`Question ${q.position}: ${f.reason}`);
+  }
+  return reasons;
 }
 
 /** The page's view of one session. Pure: everything it needs is passed in. */
@@ -449,11 +520,12 @@ export function buildLiveReviewView(input: {
     };
   });
 
+  const header = headerFor(outcome, input.row);
   return {
     sessionId: input.session.id,
     interviewerName: interviewer,
     attempt: input.attempt,
-    header: headerFor(outcome, input.row),
+    header: { ...header, reviewReasons: reviewReasonsFor(outcome, questions) },
     questions,
     video: videoTimeline(input.videoPieces ?? []),
   };
