@@ -5882,9 +5882,11 @@ export function ApplicantsClient({
 
             {/* Full-width on phones so the selects + search stack under the tabs
                 instead of forcing the toolbar wider than the viewport.
-                `flex-wrap` because this cluster holds three controls now: on a
-                narrow screen search drops to its own line rather than being
-                squeezed to nothing between the two selects. */}
+                `flex-wrap` because this cluster holds three controls now. The
+                search box needs a min-width to make that wrap happen: with
+                `min-w-0` it was squeezed to 68px between the two selects at a
+                360px viewport while Add candidate sat orphaned on a row of its
+                own. The floor pushes both onto that row together. */}
             <div className="flex w-full flex-wrap items-center gap-[9px] min-[630px]:ml-auto min-[630px]:w-auto min-[630px]:flex-nowrap">
               {/*
                 A SELECT, not a segmented toggle, and that is the whole reason it
@@ -5921,7 +5923,7 @@ export function ApplicantsClient({
                 ))}
               </select>
 
-              <div className="flex min-w-0 flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
+              <div className="flex min-w-[160px] flex-1 items-center gap-2 rounded-[10px] border border-[var(--ai-line)] bg-[var(--ai-surface)] px-3 py-[7px] text-[var(--ai-t3)] focus-within:border-remotiv-purple min-[630px]:w-[210px] min-[630px]:flex-none">
                 <SearchIcon className="size-[15px] shrink-0" strokeWidth={1.8} />
                 <input
                   type="search"
