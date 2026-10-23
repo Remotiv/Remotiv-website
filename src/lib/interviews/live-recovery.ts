@@ -166,6 +166,7 @@ async function log(
     action:
       | "retry_transcription"
       | "resolve_needs_check"
+      | "resolve_repeat_check"
       | "resolve_style_check"
       | "resolve_failed_transcription";
     decision: "retry" | "score" | "exclude";
@@ -232,6 +233,31 @@ export async function resolveNeedsCheck(
   if (!q?.needs_check) throw new LiveRecoveryError("no_check", session.id);
   await log(deps, session, role, {
     action: "resolve_needs_check",
+    decision: input.decision,
+    note,
+    question_position: input.position,
+  });
+  return afterwards(deps, session.id);
+}
+
+/**
+ * A question held by a repeat check (a repeat not asked as agreed: an
+ * unexpected phrase before it, or altered wording), checked against the
+ * recording by a person: scored as usual, or left out. Only a question the
+ * outcome flags can be resolved here, and the decision clears no other check.
+ */
+export async function resolveRepeatCheck(
+  input: { sessionId: string; position: number; decision: "score" | "exclude"; note: string },
+  deps: RecoveryDeps,
+): Promise<LiveScoreRow | null> {
+  const { session, role, note } = await authorised(deps, input.sessionId, input.note);
+  if (input.decision !== "score" && input.decision !== "exclude") {
+    throw new LiveRecoveryError("bad_input", session.id);
+  }
+  const q = session.live_outcome?.questions.find((x) => x.position === input.position);
+  if ((q?.repeat_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
+  await log(deps, session, role, {
+    action: "resolve_repeat_check",
     decision: input.decision,
     note,
     question_position: input.position,

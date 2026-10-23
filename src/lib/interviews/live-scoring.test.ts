@@ -48,6 +48,7 @@ const {
 const {
   retryTranscription,
   resolveNeedsCheck,
+  resolveRepeatCheck,
   resolveStyleCheck,
   resolveFailedTranscription,
   LiveRecoveryError,
@@ -134,8 +135,8 @@ async function quiet(fn) {
   }
 }
 
-/** The fixture saved; candidate turns NOT yet transcribed. */
-async function saved() {
+/** The fixture (or `raw`, another export) saved; candidate turns NOT yet transcribed. */
+async function saved(raw = FIXTURE) {
   const db = fakeLiveDb({
     interview_sessions: [frozenRow()],
     jobs: [{ id: JOB, company_id: CO, title: "Backend Engineer" }],
@@ -143,7 +144,7 @@ async function saved() {
       { id: APP, job_id: JOB, company_id_snapshot: CO, first_name: "Alex", last_name: "Example" },
     ],
   });
-  const provider = createFakeLiveProvider(FIXTURE);
+  const provider = createFakeLiveProvider(raw);
   const { providerSessionId } = await provider.createSession({
     remotiv_session_id: SESSION,
     interviewer_name: "Sarah",
@@ -1377,4 +1378,262 @@ test("completed with questions never asked is held from ranking: partial = true 
   );
   const row = scoreRow(db);
   assert.deepEqual([row.status, row.outcome, row.partial], ["scored", "completed", true]);
+});
+
+/* ── repeat checks (decision, 23 Oct 2026) ────────────────────── */
+
+const REPEAT = JSON.parse(
+  readFileSync(
+    new URL("./live-provider/__fixtures__/sample-export-repeat.json", import.meta.url),
+    "utf8",
+  ),
+);
+const Q2 = QUESTIONS.find((q) => q.position === 2).text;
+
+/** The repeat fixture, its marked repeat of question 2 saying `text`. */
+function repeatSaying(text) {
+  const raw = structuredClone(REPEAT);
+  const i = raw.turns.findIndex((t) => t.is_repeat === true || t.turn_type === "repeat");
+  raw.turns[i] = { ...raw.turns[i], text };
+  return raw;
+}
+
+/** Saved and fully transcribed, then every TIMING check resolved 'score'. */
+async function repeatedAndTimed(text, transcribeOpts = {}) {
+  const db = await saved(repeatSaying(text));
+  await transcribe(db, candidateTurns(db), transcribeOpts);
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  return { db, model };
+}
+
+const q2Asked = (model) =>
+  model.requests.filter((r) => r.messages[0].content.includes(`## Question asked\n${Q2}`)).length;
+
+async function resolveRepeat(db, model, decision, caller = ADMIN, position = 2) {
+  const { deps } = recovery(db, model, caller);
+  return quiet(() =>
+    resolveRepeatCheck(
+      { sessionId: SESSION, position, decision, note: "Listened to the recording." },
+      deps,
+    ),
+  );
+}
+
+test("repeat check: an unexpected phrase before the exact question is saved, flagged and held until a person decides", async () => {
+  const { db, model } = await repeatedAndTimed(`No worries, take your time. ${Q2}`);
+  const o = outcomeOf(db);
+  assert.equal(o.questions[1].repeat_check, "unexpected_lead_in");
+  assert.ok(o.questions.every((q) => q.position === 2 || q.repeat_check === null));
+  assert.deepEqual(o.repeat_check_turns, [6]);
+  assert.deepEqual([o.questions[1].repeats, o.questions[1].follow_ups], [1, 2], "a repeat");
+  assert.equal(o.needs_review, true);
+  assert.equal(o.final, true);
+
+  const q2 = byPosition(scoreRow(db))[2];
+  assert.deepEqual([q2.status, q2.reason, q2.score], ["waiting", "repeat_check", null]);
+  assert.equal(q2Asked(model), 0, "a held question is never sent to the model");
+  assert.deepEqual([scoreRow(db).status, scoreRow(db).overall_score], ["pending", null]);
+  // Every other answered question scored as usual.
+  assert.equal(byPosition(scoreRow(db))[1].status, "scored");
+
+  await resolveRepeat(db, model, "score");
+  const after = byPosition(scoreRow(db))[2];
+  assert.deepEqual([after.status, after.reason, after.score], ["scored", "answered", 60]);
+  assert.equal(scoreRow(db).status, "scored");
+  assert.deepEqual(
+    db.tables.live_interview_actions
+      .filter((a) => a.action === "resolve_repeat_check")
+      .map((a) => [a.question_position, a.decision, a.actor_role]),
+    [[2, "score", "admin"]],
+  );
+});
+
+test("repeat check: Leave out leaves the question out, never zero; the rest still score", async () => {
+  const { db, model } = await repeatedAndTimed(`No worries, take your time. ${Q2}`);
+  await resolveRepeat(db, model, "exclude", OWNER);
+  const q2 = byPosition(scoreRow(db))[2];
+  assert.deepEqual([q2.status, q2.reason, q2.score], ["left_out", "repeat_excluded", null]);
+  assert.equal(q2Asked(model), 0);
+  assert.equal(scoreRow(db).status, "scored");
+  assert.ok(scoreRow(db).overall_score !== null);
+});
+
+test("repeat check: altered wording is saved, flagged as altered and held the same way", async () => {
+  const { db, model } = await repeatedAndTimed(`${Q2} And what went wrong?`);
+  assert.equal(outcomeOf(db).questions[1].repeat_check, "altered_wording");
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].reason],
+    ["waiting", "repeat_check"],
+  );
+  assert.equal(q2Asked(model), 0);
+});
+
+test("repeat check: the repeat's own words never reach the model, even once scored", async () => {
+  const { db, model } = await repeatedAndTimed(`Zebrafish, here it is again for you. ${Q2}`);
+  await resolveRepeat(db, model, "score");
+  assert.equal(byPosition(scoreRow(db))[2].status, "scored");
+  assert.ok(q2Asked(model) > 0, "question 2 was scored");
+  assert.ok(
+    model.requests.every((r) => !/zebrafish/i.test(JSON.stringify(r))),
+    "the procedural repeat is not in any exchange",
+  );
+});
+
+test("repeat check: a skipped question is held too; once resolved, skipped is the lowest and Leave out is no score", async () => {
+  const silentQ2 = { text: (row) => (positionOf(db, row) === 2 ? "um... uh" : undefined) };
+  let db = await saved(repeatSaying(`No worries, take your time. ${Q2}`));
+  await transcribe(db, candidateTurns(db), silentQ2);
+  let model = fakeModel();
+  await resolveAllChecks(db, model);
+  assert.equal(outcomeOf(db).questions[1].status, "skipped");
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].reason],
+    ["waiting", "repeat_check"],
+    "not the lowest score until a person decides",
+  );
+  await resolveRepeat(db, model, "score");
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].score],
+    ["lowest", LOWEST_SCORE],
+  );
+
+  db = await saved(repeatSaying(`No worries, take your time. ${Q2}`));
+  await transcribe(db, candidateTurns(db), silentQ2);
+  model = fakeModel();
+  await resolveAllChecks(db, model);
+  await resolveRepeat(db, model, "exclude");
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].score],
+    ["left_out", null],
+  );
+});
+
+test("repeat and timing checks are separate: resolving one never clears the other, either way", async () => {
+  const db = await saved(repeatSaying(`No worries, take your time. ${Q2}`));
+  await transcribe(db);
+  const o = outcomeOf(db);
+  assert.equal(o.questions[1].needs_check, true, "question 2 carries both checks");
+  assert.equal(o.questions[1].repeat_check, "unexpected_lead_in");
+  const model = fakeModel();
+  const { deps } = recovery(db, model);
+  const act = (fn, decision) =>
+    quiet(() =>
+      fn({ sessionId: SESSION, position: 2, decision, note: `Reviewed: ${decision}.` }, deps),
+    );
+  const q2 = () => [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].reason];
+
+  // Repeat resolved first: the timing check still holds it.
+  await act(resolveRepeatCheck, "score");
+  assert.deepEqual(q2(), ["waiting", "needs_check"]);
+  // Timing resolved: now it scores.
+  await act(resolveNeedsCheck, "score");
+  assert.deepEqual(q2(), ["scored", "answered"]);
+  // Repeat 'exclude' later: left out, and a timing 'score' does not undo it.
+  await act(resolveRepeatCheck, "exclude");
+  assert.deepEqual(q2(), ["left_out", "repeat_excluded"]);
+  await act(resolveNeedsCheck, "score");
+  assert.deepEqual(q2(), ["left_out", "repeat_excluded"]);
+  // Timing 'exclude' with the repeat resolved 'score': left out for timing.
+  await act(resolveRepeatCheck, "score");
+  await act(resolveNeedsCheck, "exclude");
+  assert.deepEqual(q2(), ["left_out", "excluded_by_reviewer"]);
+  assert.equal(q2Asked(model), 1, "the AI result is kept, never re-bought");
+});
+
+test("only a flagged question can be repeat-resolved, only by an owner or admin, and nothing is logged otherwise", async () => {
+  const { db, model } = await repeatedAndTimed(`No worries, take your time. ${Q2}`);
+  const before = db.tables.live_interview_actions.length;
+  await assert.rejects(resolveRepeat(db, model, "score", ADMIN, 1), (e) => e.code === "no_check");
+  for (const caller of [
+    { kind: "company", userId: "u-r", name: "R", role: "recruiter", companyId: CO },
+    { kind: "company", userId: "u-h", name: "H", role: "hiring_manager", companyId: CO },
+    { kind: "company", userId: "u-x", name: "X", role: "admin", companyId: OTHER_CO },
+    SUPER,
+  ]) {
+    await assert.rejects(
+      resolveRepeat(db, model, "score", caller),
+      (e) => e instanceof LiveRecoveryError,
+      caller.role,
+    );
+  }
+  await assert.rejects(resolveRepeat(db, model, "maybe"), (e) => e.code === "bad_input");
+  assert.equal(db.tables.live_interview_actions.length, before);
+  assert.equal(byPosition(scoreRow(db))[2].status, "waiting");
+});
+
+test("a repeat check never changes the D2 outcome: the facts match the plain repeat except the flag", async () => {
+  const plain = await saved(repeatSaying(Q2));
+  await transcribe(plain);
+  const flagged = await saved(repeatSaying(`No worries, take your time. ${Q2}`));
+  await transcribe(flagged);
+  const a = outcomeOf(plain);
+  const b = outcomeOf(flagged);
+  const d2 = (o) => ({
+    outcome: o.outcome,
+    end_check: o.end_check,
+    final: o.final,
+    restart_allowed: o.restart_allowed,
+    restart_needs_person: o.restart_needs_person,
+    held_from_ranking: o.held_from_ranking,
+    counts: [o.answered_count, o.skipped_count, o.not_reached_count, o.total],
+    statuses: o.questions.map((q) => [q.status, q.follow_ups, q.repeats, q.needs_check]),
+  });
+  assert.deepEqual(d2(b), d2(a));
+  assert.deepEqual(
+    [a.questions[1].repeat_check, b.questions[1].repeat_check],
+    [null, "unexpected_lead_in"],
+  );
+});
+
+test("planLiveScoring: the repeat check, in order with the other rules", () => {
+  const facts = (over) => ({
+    position: 1,
+    source: "job",
+    status: "answered",
+    confirmed: true,
+    needs_check: false,
+    repeat_check: "unexpected_lead_in",
+    ...over,
+  });
+  const none = { needsCheck: new Map(), repeatCheck: new Map(), excludedPositions: new Set() };
+  const one = (f, resolved = none) =>
+    planLiveScoring(
+      { final: true, questions: [facts(f)] },
+      [{ position: 1, scoring_guide: "G" }],
+      resolved,
+    )[0];
+  const scoreIt = { ...none, repeatCheck: new Map([[1, "score"]]) };
+  const leaveOut = { ...none, repeatCheck: new Map([[1, "exclude"]]) };
+
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    assert.deepEqual(one({ repeat_check: check }), {
+      position: 1,
+      decision: "wait",
+      reason: "repeat_check",
+    });
+    assert.equal(one({ repeat_check: check }, scoreIt).decision, "ai");
+    assert.deepEqual(one({ repeat_check: check }, leaveOut), {
+      position: 1,
+      decision: "left_out",
+      reason: "repeat_excluded",
+    });
+  }
+  // Skipped is held too, then the lowest once resolved.
+  const skipped = { status: "skipped", confirmed: null };
+  assert.equal(one(skipped).reason, "repeat_check");
+  assert.equal(one(skipped, scoreIt).decision, "lowest");
+  // Not reached stays no score, flag or not.
+  assert.deepEqual(one({ status: "not_reached", confirmed: null }).reason, "not_reached");
+  // No flag, or an outcome saved before version 3 (no field): no hold.
+  assert.equal(one({ repeat_check: null }).decision, "ai");
+  assert.equal(one({ repeat_check: undefined }).decision, "ai");
+  // Independent of the timing decision: neither map resolves the other's check.
+  const timingScored = { ...none, needsCheck: new Map([[1, "score"]]) };
+  assert.equal(one({ needs_check: true }, timingScored).reason, "repeat_check");
+  assert.equal(one({ needs_check: true }, scoreIt).reason, "needs_check");
+  assert.equal(
+    one({ needs_check: true }, { ...scoreIt, needsCheck: new Map([[1, "score"]]) }).decision,
+    "ai",
+  );
 });

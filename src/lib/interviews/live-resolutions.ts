@@ -1,7 +1,8 @@
 /**
  * What a person decided about an AI Video Interview, read from its recovery
- * log (migrations 042 and 043, live_interview_actions). Timing checks and
- * style checks are separate decisions: each is read only from its own action. The log is append-only, so the
+ * log (migrations 042, 043 and 048, live_interview_actions). Timing, repeat
+ * and style checks are separate decisions: each is read only from its own
+ * action. The log is append-only, so the
  * LATEST action on a question or a turn is the one that holds: a timing check
  * resolved 'score' and later 'exclude' is excluded; a failed turn excluded and
  * later retried is no longer excluded.
@@ -32,7 +33,7 @@ function inOrder(actions: readonly LiveActionRow[]): LiveActionRow[] {
 
 function decisionsOf(
   actions: readonly LiveActionRow[],
-  action: "resolve_needs_check" | "resolve_style_check",
+  action: "resolve_needs_check" | "resolve_repeat_check" | "resolve_style_check",
 ): Map<number, NeedsCheckDecision> {
   const out = new Map<number, NeedsCheckDecision>();
   for (const a of inOrder(actions)) {
@@ -51,6 +52,17 @@ export function needsCheckDecisions(
   actions: readonly LiveActionRow[],
 ): Map<number, NeedsCheckDecision> {
   return decisionsOf(actions, "resolve_needs_check");
+}
+
+/**
+ * The holding REPEAT-check decision per question position (migration 048): a
+ * repeat not asked as agreed, checked against the recording. Only
+ * resolve_repeat_check counts: a timing or style resolution never clears it.
+ */
+export function repeatCheckDecisions(
+  actions: readonly LiveActionRow[],
+): Map<number, NeedsCheckDecision> {
+  return decisionsOf(actions, "resolve_repeat_check");
 }
 
 /**

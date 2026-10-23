@@ -73,7 +73,7 @@ export type LiveQuestionStatus =
   | "waiting";
 
 export type LiveReviewFlag = {
-  kind: "timing" | "style" | "transcription_failed";
+  kind: "timing" | "repeat" | "style" | "transcription_failed";
   reason: string;
   /** The holding decision, or null while unresolved. */
   resolved: "score" | "exclude" | "retry" | null;
@@ -127,7 +127,7 @@ export type LiveRecoveryRequest =
   | { action: "retry_transcription"; sessionId: string; turnId: string; note: string }
   | { action: "resolve_failed_transcription"; sessionId: string; turnId: string; note: string }
   | {
-      action: "resolve_needs_check" | "resolve_style_check";
+      action: "resolve_needs_check" | "resolve_repeat_check" | "resolve_style_check";
       sessionId: string;
       position: number;
       decision: "score" | "exclude";

@@ -31,12 +31,14 @@ export async function resolve(specifier, context, next) {
 const {
   assessLiveExport,
   audioPath,
+  classifyRepeat,
   CONFIRMED_EXIT_CODES,
   confirmAnswer,
   exportHash,
   isOutcomeDecided,
   LIVE_OUTCOME_VERSION,
   LiveIngestError,
+  MAX_UNEXPECTED_LEAD_IN_WORDS,
   needsReview,
   outcomeFrom,
   REPEAT_LEAD_INS,
@@ -223,7 +225,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 2);
+  assert.equal(outcome.v, 3);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -237,6 +239,9 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
   );
   assert.deepEqual([outcome.needs_review, outcome.transcription_failed_turns], [true, []]);
   assert.deepEqual(outcome.wording_flags, []);
+  // The sample has no marked repeat: nothing to check.
+  assert.deepEqual(outcome.repeat_check_turns, []);
+  assert.ok(outcome.questions.every((q) => q.repeat_check === null));
   assert.equal(outcome.provider_status, "candidate_ended");
   assert.match(outcome.export_hash, /^[0-9a-f]{64}$/);
   assert.equal(outcome.saved_at, new Date(T0).toISOString());
@@ -670,13 +675,19 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending; the outcome version is 2; the shipped exit list is empty", () => {
+test("needs_review includes the ending and a repeat check; the outcome version is 3; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
   );
   assert.equal(needsReview([{ needs_check: false }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 2);
+  assert.equal(needsReview([{ needs_check: false, repeat_check: null }], [], null), false);
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    assert.equal(needsReview([{ needs_check: false, repeat_check: check }], [], null), true, check);
+  }
+  // An outcome saved before version 3 has no field: read as no check.
+  assert.equal(needsReview([{ needs_check: false, repeat_check: undefined }], [], null), false);
+  assert.equal(LIVE_OUTCOME_VERSION, 3);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -807,7 +818,7 @@ test("a repeat may differ in case, punctuation and spacing, and lead in only wit
   for (const spoken of refused) assert.equal(repeatMatchesQuestion(q, spoken), false, spoken);
 });
 
-test("a changed question marked as a repeat is refused; an agreed lead-in is kept", () => {
+test("a changed question marked as a repeat is kept, flagged and held; an agreed lead-in is kept unflagged", () => {
   const base = parseExport(structuredClone(REPEAT));
   const i = base.turns.findIndex((t) => t.repeat);
   const position = base.turns[i].question_position;
@@ -817,25 +828,30 @@ test("a changed question marked as a repeat is refused; an agreed lead-in is kep
     p.turns[i] = { ...p.turns[i], text };
     return p;
   };
+  const facts = (text) => assessLiveExport(withText(text), frozenOf(), 1);
 
-  assert.equal(
-    assessLiveExport(withText(frozenText), frozenOf(), 1).questions[position - 1].repeats,
-    1,
-  );
-  assert.equal(
-    assessLiveExport(withText(`Of course. ${frozenText.toUpperCase()}`), frozenOf(), 1).questions[
-      position - 1
-    ].repeats,
-    1,
-  );
-  for (const text of [
-    `Remember to mention reliability. ${frozenText}`,
-    "Let me repeat the question. What would you change about your last team?",
-  ]) {
-    assert.throws(
-      () => assessLiveExport(withText(text), frozenOf(), 1),
-      (e) => e instanceof LiveIngestError && e.code === "repeat_wording",
+  for (const text of [frozenText, `Of course. ${frozenText.toUpperCase()}`]) {
+    const f = facts(text);
+    assert.deepEqual(
+      [f.questions[position - 1].repeats, f.questions[position - 1].repeat_check],
+      [1, null],
       text,
+    );
+    assert.deepEqual(f.repeat_check_turns, [], text);
+  }
+  for (const [text, check] of [
+    [`Remember to mention reliability. ${frozenText}`, "unexpected_lead_in"],
+    ["Let me repeat the question. What would you change about your last team?", "altered_wording"],
+  ]) {
+    const f = facts(text);
+    const q = f.questions[position - 1];
+    assert.deepEqual([q.repeats, q.repeat_check, q.follow_ups], [1, check, 2], text);
+    assert.deepEqual(f.repeat_check_turns, [base.turns[i].sequence], text);
+    assert.equal(f.needs_review, true, text);
+    assert.equal(f.questions.length, 8, "no extra question");
+    assert.ok(
+      f.questions.every((x) => x.position === position || x.repeat_check === null),
+      "only its own question",
     );
   }
 });
@@ -880,28 +896,208 @@ test('D9: an export where Sarah says "Let me just finish the question." and asks
   assert.equal(shouted.questions[position - 1].repeats, 1);
 });
 
-test("D9: after the lead-in the frozen wording is still checked; unknown phrases are refused as before", () => {
+test("D9: after the lead-in the frozen wording is still checked; unknown phrases are flagged and held", () => {
   const parsed = parseExport(repeatSaying("x"));
   const position = parsed.turns.find((t) => t.repeat).question_position;
   const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  const checkOf = (text) =>
+    assessLiveExport(parseExport(repeatSaying(text)), frozenOf(), 1).questions[position - 1]
+      .repeat_check;
   for (const text of [
-    // The lead-in, then a different or shortened question, a hint, or nothing.
+    // The lead-in, then a different or shortened question, or more after it, or nothing.
     `${FINISH} What would you change about your last team?`,
     `${FINISH} ${frozenText.split(" ").slice(0, 4).join(" ")}`,
-    `${FINISH} Remember to mention reliability. ${frozenText}`,
     `${FINISH} ${frozenText} And what went wrong?`,
     FINISH,
+  ]) {
+    assert.equal(checkOf(text), "altered_wording", text);
+  }
+  for (const text of [
+    // A hint between the lead-in and the question: an unexpected phrase before the frozen wording.
+    `${FINISH} Remember to mention reliability. ${frozenText}`,
     // Phrases that are not on the list, close as they are.
     `Let me finish the question. ${frozenText}`,
     `Let me just finish. ${frozenText}`,
     `Hold on, let me just finish the question. ${frozenText}`,
   ]) {
-    assert.throws(
-      () => assessLiveExport(parseExport(repeatSaying(text)), frozenOf(), 1),
-      (e) => e instanceof LiveIngestError && e.code === "repeat_wording",
-      text,
-    );
+    assert.equal(checkOf(text), "unexpected_lead_in", text);
   }
+});
+
+/* ── repeat checks: what is flagged, what is never weakened ────── */
+
+test("classifyRepeat: exact, the 4 known lead-ins, an unexpected lead-in up to the cap, and altered wording", () => {
+  const q = "Tell me about a time you owned a project end to end.";
+  assert.equal(REPEAT_LEAD_INS.length, 4);
+  assert.equal(MAX_UNEXPECTED_LEAD_IN_WORDS, 12);
+  assert.equal(classifyRepeat(q, q), "exact");
+  assert.equal(
+    classifyRepeat(q, "  tell me about a time you OWNED a project, end-to-end? "),
+    "exact",
+  );
+  for (const l of REPEAT_LEAD_INS) {
+    assert.equal(classifyRepeat(q, `${l} ${q}`), "known_lead_in", l);
+    assert.equal(classifyRepeat(q, `${l.toUpperCase()} ${q.toLowerCase()}`), "known_lead_in", l);
+  }
+  const twelve = Array.from({ length: 12 }, (_, i) => `word${i}`).join(" ");
+  for (const spoken of [
+    `No worries. ${q}`,
+    `Sure, let me repeat that for you: ${q}`,
+    `Remember to mention reliability. ${q}`,
+    `Of course. Let me repeat the question. ${q}`,
+    `${twelve}. ${q}`,
+  ]) {
+    assert.equal(classifyRepeat(q, spoken), "unexpected_lead_in", spoken);
+  }
+  for (const spoken of [
+    `${twelve} more. ${q}`,
+    "Tell me about a time you owned a team end to end.",
+    "Tell me about a time you owned a project.",
+    `${q} And what went wrong?`,
+    "Let me repeat the question.",
+    "",
+  ]) {
+    assert.equal(classifyRepeat(q, spoken), "altered_wording", spoken);
+  }
+  assert.equal(classifyRepeat("", q), "altered_wording", "no frozen text matches nothing");
+});
+
+test("the four known lead-ins are unchanged: no flag, no hold, the same facts as a plain repeat", () => {
+  const position = parseExport(repeatSaying("x")).turns.find((t) => t.repeat).question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  const plain = assessLiveExport(parseExport(repeatSaying(frozenText)), frozenOf(), 1);
+  assert.equal(plain.needs_review, true, "the sample's timing checks");
+  for (const lead of REPEAT_LEAD_INS) {
+    const f = assessLiveExport(parseExport(repeatSaying(`${lead} ${frozenText}`)), frozenOf(), 1);
+    assert.deepEqual(f, plain, lead);
+    assert.equal(f.questions[position - 1].repeat_check, null, lead);
+  }
+});
+
+test("a flagged repeat never weakens the integrity checks: positions, duplicates, the parser, audio", async () => {
+  const position = parseExport(repeatSaying("x")).turns.find((t) => t.repeat).question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  const flagged = () => parseExport(repeatSaying(`No worries. ${frozenText}`));
+  assert.equal(
+    assessLiveExport(flagged(), frozenOf(), 1).questions[position - 1].repeat_check,
+    "unexpected_lead_in",
+    "the control: flagged and accepted",
+  );
+
+  const unknown = flagged();
+  const b = unknown.turns.findIndex((t) => t.kind === "base_question");
+  unknown.turns[b] = { ...unknown.turns[b], question_position: 9 };
+  assert.throws(
+    () => assessLiveExport(unknown, frozenOf(), 1),
+    (e) => e.code === "unknown_question_position",
+  );
+
+  const twice = flagged();
+  const r = twice.turns.findIndex((t) => t.repeat);
+  twice.turns[r] = { ...twice.turns[r], kind: "base_question", repeat: false };
+  assert.throws(
+    () => assessLiveExport(twice, frozenOf(), 1),
+    (e) => e.code === "duplicate_base_question",
+  );
+
+  // A repeat must still name its question: the parser refuses one that does not.
+  const raw = repeatSaying(`No worries. ${frozenText}`);
+  const ri = raw.turns.findIndex((t) => t.is_repeat === true || t.turn_type === "repeat");
+  raw.turns[ri] = { ...raw.turns[ri], question_id: null, base_question_id: null };
+  assert.throws(
+    () => parseExport(raw),
+    (e) => e.code === "bad_repeat",
+  );
+
+  // And its audio is checked like every other turn's: missing audio refuses the save.
+  const exported = repeatSaying(`No worries. ${frozenText}`);
+  const name = exported.turns[ri].interviewer_audio_file;
+  assert.ok(name, "the repeat has its own audio file");
+  const db = fakeLiveDb({ interview_sessions: [frozenRow()] });
+  const provider = createFakeLiveProvider(exported, { [name]: null });
+  const { providerSessionId } = await provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: "Alex",
+    cv_text: "",
+  });
+  await assert.rejects(
+    quiet(() =>
+      saveLiveExport(
+        SESSION,
+        {
+          ...parseExport(provider.exportOf(providerSessionId)),
+          provider_session_id: PROVIDER_SESSION,
+        },
+        {
+          service: db.service,
+          fetchAudio: (n) => provider.fetchAudio(providerSessionId, n),
+          now: () => T0,
+        },
+      ),
+    ),
+    (e) => e instanceof LiveIngestError && e.code === "missing_audio",
+  );
+  assert.equal(db.objects.size, 0, "nothing uploaded");
+  assert.equal(db.tables.interview_turns.length, 0);
+  assert.equal(db.tables.interview_sessions[0].live_outcome, null);
+});
+
+test("an export with a flagged repeat saves whole, and keeps the flag through the confirm step", async () => {
+  const position = parseExport(repeatSaying("x")).turns.find((t) => t.repeat).question_position;
+  const frozenText = frozenOf().questions.find((q) => q.position === position).text;
+  const exported = repeatSaying(`No worries. ${frozenText}`);
+  const db = fakeLiveDb({ interview_sessions: [frozenRow()] });
+  const provider = createFakeLiveProvider(exported);
+  const { providerSessionId } = await provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: "Alex",
+    cv_text: "",
+  });
+  const { outcome } = await quiet(() =>
+    saveLiveExport(
+      SESSION,
+      {
+        ...parseExport(provider.exportOf(providerSessionId)),
+        provider_session_id: PROVIDER_SESSION,
+      },
+      {
+        service: db.service,
+        fetchAudio: (n) => provider.fetchAudio(providerSessionId, n),
+        now: () => T0,
+      },
+    ),
+  );
+  assert.equal(db.tables.interview_turns.length, 34, "every turn, the repeat included");
+  assert.equal(outcome.questions[position - 1].repeat_check, "unexpected_lead_in");
+  assert.deepEqual(db.tables.interview_sessions[0].live_outcome, outcome);
+  // The confirm step recomputes needs_review. With every other reason taken
+  // away (a normal close, every question asked, no timing check), the repeat
+  // check is what keeps it set.
+  const onlyRepeat = {
+    ...outcome,
+    provider_status_code: "completed",
+    questions: outcome.questions.map((q) => ({
+      ...q,
+      status: "answered",
+      confirmed: false,
+      needs_check: false,
+    })),
+  };
+  const confirmed = confirmAnswer(onlyRepeat, position, true, 1);
+  assert.equal(confirmed.end_check, null);
+  assert.equal(confirmed.questions[position - 1].repeat_check, "unexpected_lead_in");
+  assert.equal(confirmed.needs_review, true);
+  const unflagged = {
+    ...onlyRepeat,
+    questions: onlyRepeat.questions.map((q) => ({ ...q, repeat_check: null })),
+  };
+  assert.equal(confirmAnswer(unflagged, position, true, 1).needs_review, false, "the control");
 });
 
 test("audio paths carry 16 hex of the export hash, and pass migration 021's path check", () => {

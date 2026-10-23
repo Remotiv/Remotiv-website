@@ -199,12 +199,12 @@ export function checkScoringRow(table, row, allRows, tables) {
   // live_interview_actions
   const ok =
     (row.action === "retry_transcription" && row.decision === "retry") ||
-    (["resolve_needs_check", "resolve_style_check"].includes(row.action) &&
+    (["resolve_needs_check", "resolve_repeat_check", "resolve_style_check"].includes(row.action) &&
       ["score", "exclude"].includes(row.decision)) ||
     (row.action === "resolve_failed_transcription" && row.decision === "exclude");
   if (!ok) fail("live_interview_actions_decision");
   if (
-    ["resolve_needs_check", "resolve_style_check"].includes(row.action)
+    ["resolve_needs_check", "resolve_repeat_check", "resolve_style_check"].includes(row.action)
       ? row.question_position == null
       : row.turn_id == null || row.turn_sequence == null
   )

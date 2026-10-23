@@ -1363,3 +1363,192 @@ test("F4 switch off (the default): a signed-in super admin gets 404s and refusal
     if (before !== undefined) process.env.ADMIN_LIVE_REVIEW_ENABLED = before;
   }
 });
+
+/* ── repeat checks (decision, 23 Oct 2026) ────────────────────── */
+
+const REPEAT_TEXT = {
+  unexpected_lead_in: (who, n) =>
+    `${who} used an unexpected phrase before repeating question ${n}. Check the recording.`,
+  altered_wording: (who, n) =>
+    `${who} changed the wording when repeating question ${n}, so the answer may have been influenced. It is not scored until a person checks the recording.`,
+};
+
+/** completedInput with question 2's repeat flagged `check`, its score waiting, named `who`. */
+function repeatInput(check, who = "Maya") {
+  const input = completedInput();
+  input.session.live_settings = { interviewer_name: who };
+  input.session.live_outcome.questions[1] = {
+    ...input.session.live_outcome.questions[1],
+    repeat_check: check,
+  };
+  input.row = {
+    status: "pending",
+    overall_score: null,
+    questions: [
+      input.row.questions[0],
+      {
+        ...input.row.questions[1],
+        status: "waiting",
+        reason: "repeat_check",
+        score: null,
+        rationale: null,
+        quotes: [],
+      },
+    ],
+  };
+  return input;
+}
+
+test("a repeat check: its own flag, the interviewer's name from settings, waiting for review, and the two actions", () => {
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    const v = buildLiveReviewView(repeatInput(check));
+    const q2 = byPos(v, 2);
+    const text = REPEAT_TEXT[check]("Maya", 2);
+    assert.deepEqual(
+      q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+      [["repeat", text, null]],
+      check,
+    );
+    assert.deepEqual(
+      [q2.status, q2.statusReason, q2.score],
+      ["waiting_review", "Waiting for a check of how the question was repeated.", null],
+      check,
+    );
+    // Listed as written: the reason already names its question.
+    assert.deepEqual(v.header.reviewReasons, [text], check);
+    assert.doesNotMatch(text, /Sarah/, "the name comes from settings");
+    assert.doesNotMatch(text, /[–—]/, "hyphens only");
+    assert.deepEqual(byPos(v, 1).flags, [], "only its own question");
+
+    const html = render(v, "admin");
+    assert.match(html, /data-flag="repeat"/);
+    assert.match(html, />Repeat check</);
+    assert.equal((html.match(/data-action="resolve_repeat_check"/g) ?? []).length, 2);
+    assert.match(html, />Score as usual</);
+    assert.match(html, />Leave out</);
+    assert.doesNotMatch(html, /data-action="resolve_needs_check"/, "never the timing action");
+    assert.ok(section(html, "data-needs-review").includes(escaped(text)));
+    for (const role of ["recruiter", "hiring_manager"]) {
+      assert.doesNotMatch(render(v, role), /data-action=/, `${role}: no action`);
+    }
+  }
+});
+
+test("a repeat check with no interviewer name in settings says 'Interviewer'", () => {
+  const input = repeatInput("unexpected_lead_in");
+  input.session.live_settings = {};
+  const v = buildLiveReviewView(input);
+  assert.equal(byPos(v, 2).flags[0].reason, REPEAT_TEXT.unexpected_lead_in("Interviewer", 2));
+});
+
+test("a repeat check before any scoring row: the question still waits for review", () => {
+  const input = repeatInput("unexpected_lead_in");
+  input.row = null;
+  const q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of how the question was repeated."],
+  );
+  const control = completedInput();
+  control.row = null;
+  assert.equal(byPos(buildLiveReviewView(control), 2).status, "answered", "the control");
+});
+
+test("a repeat check resolved: Leave out shown as left out, off the Needs review list", () => {
+  const input = repeatInput("altered_wording");
+  input.actions = [
+    {
+      action: "resolve_repeat_check",
+      decision: "exclude",
+      question_position: 2,
+      turn_id: null,
+      turn_sequence: null,
+      created_at: "2026-10-23T10:00:00.000Z",
+    },
+  ];
+  input.row.questions[1] = {
+    ...input.row.questions[1],
+    status: "left_out",
+    reason: "repeat_excluded",
+  };
+  const v = buildLiveReviewView(input);
+  const q2 = byPos(v, 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason, q2.score, q2.flags[0].resolved],
+    ["excluded", "Left out after a review of how the question was repeated.", null, "exclude"],
+  );
+  assert.deepEqual(v.header.reviewReasons, []);
+});
+
+test("repeat and timing flags on one question are separate: a timing decision never resolves the repeat", () => {
+  const input = repeatInput("unexpected_lead_in");
+  input.session.live_outcome.questions[1].needs_check = true;
+  input.actions = [
+    {
+      action: "resolve_needs_check",
+      decision: "score",
+      question_position: 2,
+      turn_id: null,
+      turn_sequence: null,
+      created_at: "2026-10-23T10:00:00.000Z",
+    },
+  ];
+  const v = buildLiveReviewView(input);
+  assert.deepEqual(
+    byPos(v, 2).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["timing", "score"],
+      ["repeat", null],
+    ],
+  );
+  assert.deepEqual(v.header.reviewReasons, [REPEAT_TEXT.unexpected_lead_in("Maya", 2)]);
+});
+
+test("the page's repeat action reaches resolveRepeatCheck: refused where there is no repeat check, logged where there is", async () => {
+  const db = await saved();
+  const model = fakeModel();
+  await score(db, model);
+  const request = (action) => ({
+    action,
+    sessionId: SESSION,
+    position: 1,
+    decision: "score",
+    note: "Listened to the recording.",
+  });
+  const run = (action) =>
+    quiet(() =>
+      runLiveRecovery(ctxOf("admin"), request(action), {
+        ...deps(db),
+        recovery: { score: (id) => score(db, model, id) },
+      }),
+    );
+  // Question 1 has a timing check and no repeat check.
+  assert.deepEqual(await run("resolve_repeat_check"), {
+    ok: false,
+    error: "There is nothing to resolve on that question.",
+  });
+  assert.equal(db.tables.live_interview_actions.length, 0);
+
+  const session = db.tables.interview_sessions[0];
+  session.live_outcome = {
+    ...session.live_outcome,
+    questions: session.live_outcome.questions.map((q) =>
+      q.position === 1 ? { ...q, repeat_check: "unexpected_lead_in" } : q,
+    ),
+  };
+  assert.deepEqual(await run("resolve_repeat_check"), { ok: true });
+  assert.deepEqual(
+    db.tables.live_interview_actions.map((a) => [a.action, a.decision, a.question_position]),
+    [["resolve_repeat_check", "score", 1]],
+  );
+  // The timing check is still open: question 1 waits for it, not scored.
+  const v = await view(db, "admin");
+  assert.deepEqual(
+    byPos(v, 1).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["timing", null],
+      ["repeat", "score"],
+    ],
+  );
+  assert.equal(byPos(v, 1).status, "waiting_review");
+});

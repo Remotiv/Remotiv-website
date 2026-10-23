@@ -63,6 +63,11 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * and confirmAnswer below is where the transcription commit settles it.
  * Follow-ups per question; procedural turns (silence reminders, marked
  * repeats, offers to skip) never count, and a marked repeat adds no question.
+ *
+ * A marked repeat that does not ask the frozen question as agreed (an
+ * unexpected phrase before it, or altered wording) is kept, flagged on its
+ * question (repeat_check) and holds that question from scoring until a person
+ * checks the recording (decision, 23 Oct 2026). It never refuses the export.
  * The outcome comes from HOW the interview ended, never from how many
  * questions were asked (D2, revised 22 Oct 2026):
  *
@@ -111,7 +116,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 2;
+export const LIVE_OUTCOME_VERSION = 3;
 /** A base question keeping less than this share of the frozen question's words is flagged. */
 export const WORDING_MIN_COVERAGE = 0.6;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
@@ -161,6 +166,16 @@ export type EndCheckReason =
 
 export type EndCheck = { reason: EndCheckReason; never_asked: number };
 
+/**
+ * Why a marked repeat of a question needs a person (decision, 23 Oct 2026).
+ * Either holds the question from scoring until a person resolves it.
+ */
+export type RepeatCheck =
+  /** An unknown phrase, then the frozen question exactly. */
+  | "unexpected_lead_in"
+  /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
+  | "altered_wording";
+
 export type LiveQuestionFacts = {
   position: number;
   source: LiveQuestionSource;
@@ -182,6 +197,13 @@ export type LiveQuestionFacts = {
    * against the audio.
    */
   needs_check: boolean;
+  /**
+   * A marked repeat of this question needs a person: null when every repeat
+   * asked it as agreed. Holds the question from scoring until resolved
+   * (resolve_repeat_check), independently of the timing and style checks.
+   * Absent on an outcome saved before version 3: read as null.
+   */
+  repeat_check: RepeatCheck | null;
 };
 
 export type LiveOutcome = {
@@ -200,6 +222,8 @@ export type LiveOutcome = {
   timing_suspect_turns: number[];
   /** Positions whose spoken wording strays from the frozen text. */
   wording_flags: number[];
+  /** Sequences of marked repeats that did not ask their question as agreed. */
+  repeat_check_turns: number[];
   outcome: LiveOutcomeCode;
   /** Why the ending needs a person, or null when it does not. */
   end_check: EndCheck | null;
@@ -217,8 +241,8 @@ export type LiveOutcome = {
   restart_allowed: boolean | null;
   /**
    * A person must look: the ending needs a check, a question needs_check
-   * (timing suspect), or a candidate turn's transcription failed for good.
-   * See needsReview().
+   * (timing suspect) or a repeat_check, or a candidate turn's transcription
+   * failed for good. See needsReview().
    */
   needs_review: boolean;
   /** Sequences of candidate turns whose transcription failed after every retry. */
@@ -326,16 +350,21 @@ function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: numbe
 
 /**
  * Whether the session needs a person: the ending needs a check, any question
- * needs_check, or any turn failed transcription. The per-question flags, the
- * failed list and the end check stay as they are; this is the session-level
- * summary of all three.
+ * needs_check or has a repeat_check, or any turn failed transcription. The
+ * per-question flags, the failed list and the end check stay as they are; this
+ * is the session-level summary of all of them.
  */
 export function needsReview(
-  questions: readonly Pick<LiveQuestionFacts, "needs_check">[],
+  questions: readonly (Pick<LiveQuestionFacts, "needs_check"> &
+    Partial<Pick<LiveQuestionFacts, "repeat_check">>)[],
   failedTurns: readonly number[],
   endCheck: EndCheck | null,
 ): boolean {
-  return endCheck !== null || failedTurns.length > 0 || questions.some((q) => q.needs_check);
+  return (
+    endCheck !== null ||
+    failedTurns.length > 0 ||
+    questions.some((q) => q.needs_check || (q.repeat_check ?? null) !== null)
+  );
 }
 
 /** Whether an outcome may be acted on: restart, ranking, scoring. Only a final one. */
@@ -377,8 +406,9 @@ export function confirmAnswer(
 }
 
 /**
- * The only words a repeat may say before the question, case and punctuation
- * aside. Anything else (a hint, a rephrase) makes it a different question.
+ * The words a repeat may say before the question without a flag, case and
+ * punctuation aside. Anything else before it is an unexpected lead-in, which
+ * is flagged and held for a person (classifyRepeat): it may be a hint.
  *
  * "Let me just finish the question." is what Sarah says when the candidate
  * cuts in before she has finished asking (D9, 22 Oct 2026); she then asks the
@@ -404,18 +434,54 @@ function normaliseWording(text: string): string {
 }
 
 /**
- * Whether a marked repeat asks the frozen question as given: the same words
- * once case, punctuation and spacing are set aside, alone or after one of
- * REPEAT_LEAD_INS.
+ * The longest unknown lead-in, in words, still read as a lead-in to the
+ * frozen question. Longer is not a lead-in but altered wording: a hint or an
+ * explanation in front of the question. Both are held for a person; only the
+ * review text differs.
  */
-export function repeatMatchesQuestion(frozenText: string, spoken: string): boolean {
+export const MAX_UNEXPECTED_LEAD_IN_WORDS = 12;
+
+export type RepeatWording = "exact" | "known_lead_in" | RepeatCheck;
+
+/**
+ * How a marked repeat asked its question, case, punctuation and spacing aside:
+ *
+ *   exact               the frozen question, alone
+ *   known_lead_in       one of REPEAT_LEAD_INS, then the frozen question
+ *   unexpected_lead_in  any other phrase of at most MAX_UNEXPECTED_LEAD_IN_WORDS
+ *                       words, then the frozen question
+ *   altered_wording     anything else: the question changed, shortened or
+ *                       followed by more, a longer lead-in, or no question
+ *
+ * The frozen wording after the lead-in is always checked. Pure.
+ */
+export function classifyRepeat(frozenText: string, spoken: string): RepeatWording {
   const q = normaliseWording(frozenText);
   const r = normaliseWording(spoken);
-  if (!q) return false;
-  if (r === q) return true;
-  if (!r.endsWith(` ${q}`)) return false;
+  if (!q) return "altered_wording";
+  if (r === q) return "exact";
+  if (!r.endsWith(` ${q}`)) return "altered_wording";
   const lead = r.slice(0, r.length - q.length).trim();
-  return REPEAT_LEAD_INS.some((l) => normaliseWording(l) === lead);
+  if (REPEAT_LEAD_INS.some((l) => normaliseWording(l) === lead)) return "known_lead_in";
+  return lead.split(" ").length <= MAX_UNEXPECTED_LEAD_IN_WORDS
+    ? "unexpected_lead_in"
+    : "altered_wording";
+}
+
+/**
+ * Whether a marked repeat asks the frozen question as agreed, needing no
+ * person: alone, or after one of REPEAT_LEAD_INS.
+ */
+export function repeatMatchesQuestion(frozenText: string, spoken: string): boolean {
+  const wording = classifyRepeat(frozenText, spoken);
+  return wording === "exact" || wording === "known_lead_in";
+}
+
+/** Altered wording outranks an unexpected lead-in when one question has both. */
+function worseRepeatCheck(a: RepeatCheck | null, b: RepeatCheck): RepeatCheck {
+  return a === "altered_wording" || b === "altered_wording"
+    ? "altered_wording"
+    : "unexpected_lead_in";
 }
 
 export type LiveIngestErrorCode =
@@ -425,7 +491,6 @@ export type LiveIngestErrorCode =
   | "wrong_session"
   | "unknown_question_position"
   | "duplicate_base_question"
-  | "repeat_wording"
   | "too_many_follow_ups"
   | "missing_audio"
   | "bad_audio"
@@ -516,19 +581,18 @@ export function assessLiveExport(
 
   const questions: LiveQuestionFacts[] = [];
   const wordingFlags: number[] = [];
+  const repeatCheckTurns: number[] = [];
   for (const q of frozen.questions) {
-    // A marked repeat asks the frozen question as given, or it is not a repeat.
+    // A marked repeat stays a procedural repeat whatever it said. One that did
+    // not ask the frozen question as agreed is flagged on its question, which
+    // is then held from scoring until a person checks the recording.
+    let repeatCheck: RepeatCheck | null = null;
     for (const t of turns) {
-      if (
-        t.repeat &&
-        t.question_position === q.position &&
-        !repeatMatchesQuestion(q.text, t.text ?? "")
-      ) {
-        throw new LiveIngestError(
-          "repeat_wording",
-          `turn ${t.sequence} is marked a repeat of position ${q.position} but asks something else`,
-        );
-      }
+      if (!t.repeat || t.question_position !== q.position) continue;
+      const wording = classifyRepeat(q.text, t.text ?? "");
+      if (wording === "exact" || wording === "known_lead_in") continue;
+      repeatCheck = worseRepeatCheck(repeatCheck, wording);
+      repeatCheckTurns.push(t.sequence);
     }
     const asked = turns.filter(
       (t) => t.kind === "base_question" && t.question_position === q.position,
@@ -568,6 +632,7 @@ export function assessLiveExport(
       answer_ms: answerMs,
       wording_differs: wordingDiffers,
       needs_check: spoken.some((t) => suspectSet.has(t.sequence)),
+      repeat_check: repeatCheck,
     });
   }
 
@@ -588,6 +653,7 @@ export function assessLiveExport(
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
     wording_flags: wordingFlags,
+    repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     needs_review: needsReview(questions, [], fields.end_check),
     transcription_failed_turns: [],
     settle_rev: 0,

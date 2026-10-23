@@ -20,6 +20,7 @@ import {
   type LiveActionRow,
   type NeedsCheckDecision,
   needsCheckDecisions,
+  repeatCheckDecisions,
   styleCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
 import { hasRealWords } from "@/lib/interviews/live-transcribe";
@@ -38,14 +39,17 @@ import { createServiceClient } from "@/lib/supabase/server";
  *   a failed turn a person excluded         left out, never zero
  *   needs_check (suspect timing)            waits for a person; 'score' lets
  *                                           it through, 'exclude' leaves it out
+ *   repeat_check (a repeat not asked as     waits for a person, answered or
+ *   agreed: a hint may have shaped it)      skipped alike; 'score' lets it
+ *                                           through, 'exclude' leaves it out
  *   skipped (asked, no real answer)         the lowest score, no AI call
  *   answered and confirmed                  scored by the AI
  *   ...whose rationale kept describing      waits for a person (style check);
  *   speaking style after a retry            'score' counts it, 'exclude' leaves
  *                                           it out
  *
- * The timing check and the style check are SEPARATE flags on each question,
- * resolved by separate logged actions: resolving one never clears the other.
+ * The timing, repeat and style checks are SEPARATE flags on each question,
+ * resolved by separate logged actions: resolving one never clears another.
  *
  * A failed transcription keeps the outcome undecided, so nothing is scored
  * until the turn is retried or a person excludes it: a failure never counts
@@ -132,6 +136,8 @@ export type ScoreReason =
   | "scoring_failed"
   | "style_check"
   | "style_excluded"
+  | "repeat_check"
+  | "repeat_excluded"
   | "skipped"
   | "answered";
 
@@ -143,6 +149,7 @@ export function planLiveScoring(
   questions: readonly Pick<FrozenLiveQuestion, "position" | "scoring_guide">[],
   resolved: {
     needsCheck: ReadonlyMap<number, NeedsCheckDecision>;
+    repeatCheck: ReadonlyMap<number, NeedsCheckDecision>;
     excludedPositions: ReadonlySet<number>;
   },
 ): QuestionPlan[] {
@@ -157,6 +164,12 @@ export function planLiveScoring(
       const d = resolved.needsCheck.get(position);
       if (!d) return plan("wait", "needs_check");
       if (d === "exclude") return plan("left_out", "excluded_by_reviewer");
+    }
+    // Before the skipped rule: a hint can cause a skip as easily as an answer.
+    if ((f.repeat_check ?? null) !== null) {
+      const d = resolved.repeatCheck.get(position);
+      if (!d) return plan("wait", "repeat_check");
+      if (d === "exclude") return plan("left_out", "repeat_excluded");
     }
     if (f.status === "skipped") return plan("lowest", "skipped");
     if (f.confirmed !== true) return plan("wait", "unconfirmed");
@@ -424,6 +437,7 @@ export async function scoreLiveSession(
   const styleChecks = styleCheckDecisions(actions);
   const plans = planLiveScoring(outcome, frozen.questions, {
     needsCheck: needsCheckDecisions(actions),
+    repeatCheck: repeatCheckDecisions(actions),
     excludedPositions,
   });
 

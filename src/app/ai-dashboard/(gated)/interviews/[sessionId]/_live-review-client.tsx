@@ -57,9 +57,17 @@ const STATUS_CHIP: Record<string, string> = {
 
 const FLAG_TITLE: Record<LiveReviewFlag["kind"], string> = {
   timing: "Timing check",
+  repeat: "Repeat check",
   style: "Style check",
   transcription_failed: "Transcription failed",
 };
+
+/** The action that resolves each per-question check: one never clears another. */
+const RESOLVE_ACTION = {
+  timing: "resolve_needs_check",
+  repeat: "resolve_repeat_check",
+  style: "resolve_style_check",
+} as const;
 
 const RESOLVED_TEXT: Record<string, string> = {
   score: "Resolved: scored as usual.",
@@ -568,10 +576,7 @@ function FlagActions({
       : (["score", "exclude"] as const).map((decision) => ({
           label: decision === "score" ? "Score as usual" : "Leave out",
           request: (note: string) => ({
-            action:
-              flag.kind === "style"
-                ? ("resolve_style_check" as const)
-                : ("resolve_needs_check" as const),
+            action: RESOLVE_ACTION[flag.kind === "transcription_failed" ? "timing" : flag.kind],
             sessionId,
             position,
             decision,
