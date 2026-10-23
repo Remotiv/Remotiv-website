@@ -8,6 +8,8 @@ import {
 } from "@/app/ai-dashboard/lib/job-scope";
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import { readInterviewKind } from "@/lib/interviews/types";
+import { pageAll } from "@/lib/supabase/paging";
+import { answered, type Read, unavailable } from "@/lib/supabase/read";
 import { createServiceClient } from "@/lib/supabase/server";
 import { retentionPassed } from "./async-score-purge";
 import { readScoringSnapshot, resolveQuestionMeta } from "./question-meta";
@@ -96,6 +98,20 @@ type SessionRow = {
  * Aggregates are counted over the WHOLE scoped set, not the rendered page —
  * a tab that said "4" because four happened to be on screen would be wrong
  * the moment someone paged.
+ *
+ * ── Why this returns a Read ──────────────────────────────────
+ *
+ * Every figure here is `array.length` over a range-paged fetch. The loop used
+ * to `break` on a failed page, so a failure after the first thousand rows
+ * returned a SHORT array — and nothing downstream can tell a short read from a
+ * small company. The page then rendered a smaller, entirely plausible,
+ * internally consistent set of numbers with nothing to invite a second look.
+ *
+ * A partially populated result carrying an `incomplete` flag was the other
+ * option and is worse: a flag is something the next person rendering this
+ * object has to remember to check, and a failed read must not be renderable as
+ * if it had worked. The failure arm of `Read` carries no value at all, so
+ * there is nothing to render by mistake.
  */
 export async function listInterviewSessions(
   ctx: CompanyContext,
@@ -105,8 +121,23 @@ export async function listInterviewSessions(
     query?: string;
     page?: number;
   } = {},
-): Promise<InterviewListResult> {
+): Promise<Read<InterviewListResult>> {
+  /*
+   * The filter, resolved once and sent back with the answer.
+   *
+   * Resolved HERE rather than read off `opts` by the client, so what travels
+   * back is what the rows and counts below were actually computed under — a
+   * default that changed on this side would otherwise relabel a result it no
+   * longer describes. See InterviewListResult.applied.
+   */
+  const applied = {
+    status: opts.status ?? "all",
+    jobId: opts.jobId ?? null,
+    query: opts.query ?? "",
+  } as const;
+
   const empty: InterviewListResult = {
+    applied,
     rows: [],
     total: 0,
     page: 1,
@@ -126,7 +157,7 @@ export async function listInterviewSessions(
   };
 
   const scope = await getJobScope(ctx);
-  if (isEmptyScope(scope)) return empty;
+  if (isEmptyScope(scope)) return answered(empty);
   const allowedJobIds = scopeJobIds(scope);
 
   const service = createServiceClient();
@@ -138,27 +169,33 @@ export async function listInterviewSessions(
    * the wrong tab. Bounded by range-paging; a company with more than a few
    * thousand interviews would want a status-sweep job before this is the
    * bottleneck.
+   *
+   * pageAll THROWS on a failed page, which is the behaviour this read wants and
+   * the reason the hand-rolled loop is gone. The throw is caught here, at the
+   * one frame that knows what failed and what the caller is owed.
    */
-  const sessions: SessionRow[] = [];
-  const PAGE = 1000;
-  for (let from = 0; ; from += PAGE) {
-    let q = service
-      .from("interview_sessions")
-      .select(
-        "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
-      )
-      .eq("company_id", ctx.companyId)
-      .order("created_at", { ascending: false })
-      .range(from, from + PAGE - 1);
-    if (allowedJobIds) q = q.in("job_id", allowedJobIds);
-
-    const { data, error } = await q;
-    if (error) break;
-    const batch = (data ?? []) as SessionRow[];
-    sessions.push(...batch);
-    if (batch.length < PAGE) break;
+  let sessions: SessionRow[];
+  try {
+    sessions = await pageAll<SessionRow>(
+      (from, to) => {
+        let q = service
+          .from("interview_sessions")
+          .select(
+            "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
+          )
+          .eq("company_id", ctx.companyId)
+          .order("created_at", { ascending: false })
+          .range(from, to);
+        if (allowedJobIds) q = q.in("job_id", allowedJobIds);
+        return q;
+      },
+      { scope: "interviews", label: "sessions" },
+    );
+  } catch (err) {
+    console.error("[interviews] session read failed:", err);
+    return unavailable();
   }
-  if (sessions.length === 0) return empty;
+  if (sessions.length === 0) return answered(empty);
 
   // ── Candidate + job names, one round trip each ──
   const appIds = [...new Set(sessions.map((s) => s.application_id).filter(Boolean))] as string[];
@@ -182,9 +219,12 @@ export async function listInterviewSessions(
   const rows: InterviewRow[] = sessions.map((s) => {
     const app = s.application_id ? apps.get(s.application_id) : undefined;
     const who = resolveCandidate(s.application_id, app);
-    const stats = answers.get(s.id);
+    const stats = answers.ok ? answers.value.get(s.id) : undefined;
     const status = deriveStatus(s.status, s.expires_at);
-    const total = snapshotLength(s.questions_snapshot) ?? stats?.total ?? 0;
+    /* The snapshot is the better denominator and does not depend on the answer
+       read, so it survives that read failing. Only when there is no snapshot
+       does the count become unknown rather than zero. */
+    const total = snapshotLength(s.questions_snapshot) ?? (answers.ok ? (stats?.total ?? 0) : null);
     return {
       id: s.id,
       applicationId: s.application_id,
@@ -195,12 +235,17 @@ export async function listInterviewSessions(
       jobTitle: (s.job_id ? jobs.get(s.job_id) : null) ?? "This role",
       kind: readInterviewKind(s.kind, s.id),
       status,
-      answered: stats?.answered ?? 0,
-      totalQuestions: total,
-      /* Purged is a PRESENTATION state, not a status: the interview is still
+      /* Null when the answer read failed — see InterviewRow.progress. Purged
+         is a PRESENTATION state, not a status: the interview is still
          submitted, its media has simply passed the retention date. Derived
          from rows that were recorded but no longer hold a path. */
-      purged: Boolean(stats && stats.answered > 0 && stats.withVideo === 0),
+      progress: answers.ok
+        ? {
+            answered: stats?.answered ?? 0,
+            purged: Boolean(stats && stats.answered > 0 && stats.withVideo === 0),
+          }
+        : null,
+      totalQuestions: total,
       submittedAt: s.submitted_at,
       startedAt: s.started_at,
       expiresAt: s.expires_at,
@@ -268,7 +313,8 @@ export async function listInterviewSessions(
   const page = Math.max(1, opts.page ?? 1);
   const start = (page - 1) * PAGE_SIZE;
 
-  return {
+  return answered({
+    applied,
     rows: filtered.slice(start, start + PAGE_SIZE),
     total: filtered.length,
     page,
@@ -277,7 +323,7 @@ export async function listInterviewSessions(
     jobs: jobList,
     sentThisWeek,
     openRoles: new Set(live.map((r) => r.jobId).filter(Boolean)).size,
-  };
+  });
 }
 
 async function fetchApplications(
@@ -328,17 +374,37 @@ async function fetchJobs(
   return out;
 }
 
-/** answered / total / how many still hold a video, per session. */
+/**
+ * answered / total / how many still hold a video, per session.
+ *
+ * ── Why a failed chunk fails the whole map ───────────────────
+ *
+ * The sessions are read a hundred at a time, so a failure part-way through
+ * leaves a map that is CORRECT for the sessions it reached and silently empty
+ * for the rest — and `map.get(id)` cannot tell "this session has no answers"
+ * from "this session was in the chunk that failed". Returning the partial map
+ * would put "0/5" on an arbitrary suffix of the list, which is exactly the lie
+ * this is here to remove. Unknown is unknown for every row or for none.
+ *
+ * This failing does NOT fail the list. The counts, the statuses and the row
+ * identities come from the session read and are still right, and a reviewer can
+ * still open an interview — so one column says it does not know and the rest of
+ * the page stands.
+ */
 async function fetchAnswerStats(
   service: ReturnType<typeof createServiceClient>,
   sessionIds: string[],
-) {
+): Promise<Read<Map<string, { answered: number; total: number; withVideo: number }>>> {
   const out = new Map<string, { answered: number; total: number; withVideo: number }>();
   for (let i = 0; i < sessionIds.length; i += 100) {
-    const { data } = await service
+    const { data, error } = await service
       .from("interview_answers")
       .select("session_id, video_path")
       .in("session_id", sessionIds.slice(i, i + 100));
+    if (error) {
+      console.error("[interviews] answer stats read failed:", error);
+      return unavailable();
+    }
     for (const r of (data ?? []) as {
       session_id: string;
       video_path: string | null;
@@ -350,7 +416,7 @@ async function fetchAnswerStats(
       out.set(r.session_id, cur);
     }
   }
-  return out;
+  return answered(out);
 }
 
 /**

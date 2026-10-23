@@ -44,10 +44,29 @@ export type InterviewRow = {
   /** async or live. Shown on every row so the two options are never confused. */
   kind: InterviewKind;
   status: InterviewStatus;
-  answered: number;
-  totalQuestions: number;
-  /** Submitted, but every recording has passed its six-month retention. */
-  purged: boolean;
+  /**
+   * How many answers are recorded, and whether their media is gone.
+   *
+   * NULL means the answer read FAILED — not that nothing is recorded. The two
+   * were indistinguishable while this was `answered: number`: a failed read
+   * produced `0`, so a candidate who had answered all five questions rendered
+   * as "0/5" and the row stopped being a link, which told a reviewer the
+   * recordings were not there.
+   *
+   * `purged` travels inside rather than beside, because it is derived from the
+   * same read: it means rows exist that no longer hold a path, which is a claim
+   * only a successful read can make.
+   */
+  progress: { answered: number; purged: boolean } | null;
+  /**
+   * How many questions were asked. Null only when NEITHER source could say.
+   *
+   * Separate from `progress` because it has a second source: the session's own
+   * questions_snapshot. A failed answer read leaves the denominator known for
+   * every session that carries one, and throwing that away would be a second
+   * unknown invented by the first.
+   */
+  totalQuestions: number | null;
   submittedAt: string | null;
   startedAt: string | null;
   expiresAt: string | null;
@@ -67,6 +86,34 @@ export type InterviewRow = {
 };
 
 export type InterviewListResult = {
+  /**
+   * The filter every figure below was read for, echoed back by the server.
+   *
+   * ── Why the result has to carry its own filter ───────────────
+   *
+   * The chips, their badges and the empty-state copy used to render from the
+   * client's own `tab` / `jobId` / `query` state, which changes the instant
+   * someone clicks. The result they describe arrives a round trip later. So
+   * between the click and the response the page highlighted Expired, counted
+   * All, and listed All's rows — three surfaces in one strip disagreeing about
+   * which filter they meant.
+   *
+   * It gets worse when a read fails and the previous numbers are kept: a banner
+   * saying "these are from your last load" sits above chips claiming a filter
+   * those numbers never belonged to, which is a second wrong statement stacked
+   * on the first.
+   *
+   * Labelling from here makes the strip self-consistent by construction — the
+   * highlighted chip, the badges and the rows all come out of one response.
+   * The reader's INTENT stays in the client, because that is what the next
+   * request is built from and what the text box and the job select must show;
+   * it is only the labels on the numbers that come from here.
+   */
+  applied: {
+    status: InterviewTab;
+    jobId: string | null;
+    query: string;
+  };
   rows: InterviewRow[];
   total: number;
   page: number;

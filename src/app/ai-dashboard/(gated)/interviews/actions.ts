@@ -10,6 +10,7 @@ import {
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
+import type { Read } from "@/lib/supabase/read";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { removeSessionObjects } from "@/lib/interviews/purge";
 import { listInterviewSessions, readNotes } from "@/lib/interviews/review";
@@ -181,13 +182,20 @@ export async function getAnswerPlaybackUrl(
   return { ok: true, url: signed.signedUrl };
 }
 
-/** Re-query the list when a filter, tab, search or page changes. */
+/**
+ * Re-query the list when a filter, tab, search or page changes.
+ *
+ * A failed read comes back as `{ ok: false }` rather than as a rejection, so
+ * the client's `startTransition` has nothing to throw at React: both the first
+ * server render and every refresh after it reach the same visible outcome
+ * through the same value.
+ */
 export async function fetchInterviewList(opts: {
   status?: InterviewTab;
   jobId?: string | null;
   query?: string;
   page?: number;
-}): Promise<InterviewListResult> {
+}): Promise<Read<InterviewListResult>> {
   const ctx = await getCompanyContext();
   return listInterviewSessions(ctx, opts);
 }

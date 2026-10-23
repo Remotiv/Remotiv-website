@@ -441,7 +441,10 @@ test("review page: past the date the words never leave the server, even before t
 test("interviews list: the scores it sends carry no summary or quotes past the date", async () => {
   world();
   const list = await listInterviewSessions(ctx, { status: "all" });
-  const score = (id) => list.rows.find((r) => r.id === id)?.score;
+  // The read reports failure as a value now, so this unwrap is also the
+  // assertion that the fake database answered at all.
+  assert.ok(list.ok, "the list read succeeded");
+  const score = (id) => list.value.rows.find((r) => r.id === id)?.score;
   assert.ok(score(DUE) && score(LATER), "both rows are listed");
   assert.equal(score(DUE).summary, null);
   assert.deepEqual(

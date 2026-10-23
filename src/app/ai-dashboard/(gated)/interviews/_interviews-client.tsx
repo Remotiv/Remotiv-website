@@ -6,8 +6,10 @@ import {
   ArrowRight,
   Lock,
   Plus,
+  RotateCcw,
   Search,
   Settings,
+  TriangleAlert,
   UserX,
   Video,
 } from "lucide-react";
@@ -23,7 +25,9 @@ import {
   type InterviewTab,
 } from "@/lib/interviews/review-types";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
+import { type Read, unavailable } from "@/lib/supabase/read";
 import { fetchInterviewList, setInterviewArchived } from "./actions";
+import { applyLoad, type ListParams, seedList } from "./load-state";
 
 /**
  * The interviews list.
@@ -129,12 +133,34 @@ function chipVisible(tab: InterviewTab, counts: InterviewListResult["counts"]): 
   return !HIDDEN_AT_ZERO.includes(tab) || counts[tab] > 0;
 }
 
-export function InterviewsClient({ initial }: { initial: InterviewListResult }) {
-  const [data, setData] = useState(initial);
+/** What the server render asked for. Seeded so a failed first load can be retried. */
+const INITIAL_PARAMS: ListParams = { status: "all", jobId: null, query: "", page: 1 };
+
+export function InterviewsClient({ initial }: { initial: Read<InterviewListResult> }) {
+  const [state, setState] = useState(() => seedList(initial, INITIAL_PARAMS));
+  /* The reader's INTENT, which is not the same fact as what the shown numbers
+     are for. It drives the next request and the two inputs, because a text box
+     that lagged a round trip per keystroke would be unusable. The chips and
+     their badges are labelled from the response instead — see
+     InterviewListResult.applied. */
   const [tab, setTab] = useState<InterviewTab>("all");
   const [jobId, setJobId] = useState<string>("");
   const [query, setQuery] = useState("");
   const [pending, startTransition] = useTransition();
+
+  const load = useCallback((params: ListParams) => {
+    startTransition(async () => {
+      /* The action reports a failed read as a VALUE, so this catch is only for
+         an unexpected throw out of the action itself — a transport error, a
+         redeploy mid-flight. Without it that rejection escapes the transition
+         unhandled and the page keeps its old figures with nothing on screen to
+         say the refresh never landed, which is the bug one layer up. */
+      const result = await fetchInterviewList(params).catch(() =>
+        unavailable<InterviewListResult>(),
+      );
+      setState((prev) => applyLoad(prev, result, params));
+    });
+  }, []);
 
   const reload = useCallback(
     (next: {
@@ -143,25 +169,28 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
       query?: string;
       page?: number;
     }) => {
-      const params = {
+      load({
         status: next.status ?? tab,
         jobId: (next.jobId ?? jobId) || null,
         query: next.query ?? query,
         page: next.page ?? 1,
-      };
-      startTransition(async () => {
-        setData(await fetchInterviewList(params));
       });
     },
-    [tab, jobId, query],
+    [load, tab, jobId, query],
   );
+
+  const data = state.shown;
+  const retryParams = state.retry;
 
   /* `counts.all` is the whole scoped set, so it answers "has this company ever
      sent one" — not "does the current filter match anything". The zero state
-     must not appear just because someone searched for a name that isn't there. */
-  const neverSent = data.counts.all === 0;
+     must not appear just because someone searched for a name that isn't there,
+     and must not appear because the read failed: no data is UNKNOWN, which is
+     not the same claim as "none", and day-one copy is the wrong thing to show
+     a company whose interviews we simply could not fetch. */
+  const neverSent = data !== null && data.counts.all === 0;
 
-  const totalPages = Math.max(1, Math.ceil(data.total / data.pageSize));
+  const totalPages = data ? Math.max(1, Math.ceil(data.total / data.pageSize)) : 1;
 
   const lede = useMemo(
     () =>
@@ -204,9 +233,17 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
         </div>
       </div>
 
-      {neverSent ? (
-        <ZeroState />
-      ) : (
+      {state.failed && (
+        <LoadFailure
+          stale={data !== null}
+          pending={pending}
+          onRetry={retryParams ? () => load(retryParams) : undefined}
+        />
+      )}
+
+      {neverSent && <ZeroState />}
+
+      {data !== null && !neverSent && (
         <>
           <DashboardHero
             eyebrow="Interviews sent"
@@ -268,7 +305,7 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
                       reload({ status: t.key, page: 1 });
                     }}
                     className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
-                      tab === t.key
+                      data.applied.status === t.key
                         ? "bg-[var(--ai-sidebar)] text-white shadow-[0_3px_10px_rgba(20,16,32,0.2)]"
                         : "text-[var(--ai-t3)] hover:text-[var(--ai-t1)]"
                     }`}
@@ -276,7 +313,7 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
                     {t.label}
                     <span
                       className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
-                        tab === t.key
+                        data.applied.status === t.key
                           ? "bg-white/20 text-white"
                           : "bg-[rgba(20,16,32,0.07)]"
                       }`}
@@ -331,7 +368,10 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
 
             <div className={pending ? "opacity-60 transition-opacity" : ""}>
               {data.rows.length === 0 ? (
-                <FilteredEmpty tab={tab} query={query} />
+                /* From `applied`, not the inputs: "Nobody matches Ahmed" over
+                   the previous filter's empty result named a search that had
+                   not been run yet. */
+                <FilteredEmpty tab={data.applied.status} query={data.applied.query} />
               ) : (
                 data.rows.map((row) => (
                   <Row key={row.id} row={row} onArchived={() => reload({})} />
@@ -374,6 +414,61 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
   );
 }
 
+
+/**
+ * The list could not be read.
+ *
+ * Two readers, one component, because the remedy is the same and the thing they
+ * must not be told is the same. What differs is what is still on screen beneath
+ * it, so `stale` changes what the copy claims and nothing else:
+ *
+ *   - STALE: figures are showing and they are old. The banner's whole job is to
+ *     stop them being read as current, so it says which load they came from.
+ *   - NOTHING SHOWING: the first read failed. It must not borrow the day-one
+ *     empty state's words — "no interviews yet" is a claim about their company,
+ *     and this is a fact about us — and it must not teach how the feature
+ *     works, which over a failed read reads as a promise the page is breaking.
+ *
+ * Both say what survived, because the fear is specific: a recruiter looking at
+ * a list that will not load wonders whether the recordings are gone.
+ */
+function LoadFailure({
+  stale,
+  pending,
+  onRetry,
+}: {
+  stale: boolean;
+  pending: boolean;
+  onRetry?: () => void;
+}) {
+  return (
+    <div
+      data-load-failed={stale ? "stale" : "empty"}
+      className="mb-[18px] flex flex-wrap items-center gap-x-3 gap-y-2.5 rounded-xl bg-[var(--ai-danger-tint)] px-4 py-3.5"
+    >
+      <TriangleAlert
+        className="size-[17px] shrink-0 text-[var(--ai-danger)]"
+        strokeWidth={2}
+      />
+      <p className="m-0 min-w-0 flex-1 text-[13px] font-semibold leading-snug text-[var(--ai-danger)]">
+        {stale
+          ? "Couldn't refresh these numbers, so they're from your last successful load. Nothing has been lost."
+          : "Couldn't load your interviews. Your invites and recordings are all still there."}
+      </p>
+      {onRetry && (
+        <button
+          type="button"
+          disabled={pending}
+          onClick={onRetry}
+          className="inline-flex shrink-0 items-center gap-[7px] rounded-[10px] border border-[var(--ai-danger)]/40 bg-[var(--ai-surface)] px-3.5 py-2 text-[12.5px] font-bold text-[var(--ai-danger)] transition-colors hover:bg-[var(--ai-surface)]/60 disabled:cursor-not-allowed disabled:opacity-50"
+        >
+          <RotateCcw className="size-[13px]" strokeWidth={2.2} />
+          Try again
+        </button>
+      )}
+    </div>
+  );
+}
 
 /**
  * The AI score, in every state it actually occurs in.
@@ -497,7 +592,12 @@ function HeroCell({
  *  worse than a row that plainly is not clickable. */
 function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void }) {
   const [bg, fg] = getTint(row.id);
-  const openable = row.answered > 0;
+  /* An UNKNOWN answer count stays openable. The link is only withheld when we
+     know there is nothing to watch; withholding it because the answer read
+     failed would put a reviewer one failed query away from being unable to
+     reach a recording that is sitting there. The review page re-reads the
+     session anyway and has its own empty state. */
+  const openable = row.progress === null || row.progress.answered > 0;
   const archived = row.archivedAt !== null;
 
   const inner = (
@@ -549,44 +649,24 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
       </span>
 
       <span className="justify-self-start">
+        {/* Purged makes a claim about the MEDIA, so an unknown answer read
+            cannot make it: the pill falls back to the status, which came from
+            the session row and is still known. */}
         <span
           className={`inline-flex items-center gap-1.5 whitespace-nowrap rounded-full px-3 py-[5px] text-xs font-bold ${
-            row.purged
+            row.progress?.purged
               ? "border border-dashed border-[var(--ai-line-strong)] bg-[var(--ai-inset)] text-[var(--ai-t3)]"
               : PILL[row.status]
           }`}
         >
           <span
-            className={`size-[5px] shrink-0 rounded-full ${row.purged ? "bg-[var(--ai-t4)]" : DOT[row.status]}`}
+            className={`size-[5px] shrink-0 rounded-full ${row.progress?.purged ? "bg-[var(--ai-t4)]" : DOT[row.status]}`}
           />
-          {row.purged ? "Recording purged" : INTERVIEW_STATUS_LABELS[row.status]}
+          {row.progress?.purged ? "Recording purged" : INTERVIEW_STATUS_LABELS[row.status]}
         </span>
       </span>
 
-      {row.answered === 0 ? (
-        /* This column answers "how many of how many", so it shows the count —
-           repeating the status pill's own words told the reader nothing the
-           pill hadn't already said one column earlier. */
-        <span className="text-[12.5px] font-semibold tabular-nums text-[var(--ai-t4)]">
-          {row.totalQuestions > 0 ? `0/${row.totalQuestions}` : "—"}
-        </span>
-      ) : (
-        <span className="flex min-w-0 items-center gap-2.5">
-          <span className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.08)]">
-            <i
-              className="block h-full origin-left rounded-[3px]"
-              style={{
-                width: `${pct(row.answered, row.totalQuestions || row.answered)}%`,
-                background:
-                  row.status === "submitted" ? "var(--ai-mint, #49D7A7)" : "#4C8DD9",
-              }}
-            />
-          </span>
-          <span className="shrink-0 text-xs font-bold tabular-nums text-[var(--ai-t2)]">
-            {row.answered}/{row.totalQuestions || row.answered}
-          </span>
-        </span>
-      )}
+      <AnswerCount row={row} />
 
       <span className="justify-self-start">
         <ScorePill score={row.score} />
@@ -649,6 +729,64 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
       <span className="absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple opacity-0 transition-opacity group-hover:opacity-100" />
       {inner}
     </Link>
+  );
+}
+
+/**
+ * The Answers column: how many of how many.
+ *
+ * Three states, and the first is the one this commit added. An unreadable
+ * answer count used to render "0/5" — a sentence about the CANDIDATE ("they
+ * have recorded nothing") written out of a fact about US ("we could not ask").
+ * It is a hyphen now, the same idiom and the same character as
+ * applicants/counts-state.ts countLabel, for the same reason: unknown is a
+ * hyphen, an actual zero is a 0, and no reader can mistake one for the other.
+ *
+ * A hyphen, never an em dash — which the "0 of n" arm was using until now.
+ */
+function AnswerCount({ row }: { row: InterviewRow }) {
+  const total = row.totalQuestions;
+
+  if (row.progress === null) {
+    return (
+      <span
+        className="text-[12.5px] font-semibold tabular-nums text-[var(--ai-t4)]"
+        title="We couldn't read the answers for this one. Open it to see them."
+      >
+        -
+      </span>
+    );
+  }
+
+  /* This column answers "how many of how many", so it shows the count —
+     repeating the status pill's own words told the reader nothing the pill
+     hadn't already said one column earlier. */
+  if (row.progress.answered === 0) {
+    return (
+      <span className="text-[12.5px] font-semibold tabular-nums text-[var(--ai-t4)]">
+        {total !== null && total > 0 ? `0/${total}` : "-"}
+      </span>
+    );
+  }
+
+  // A recorded answer is proof of a question, so the count itself is the
+  // denominator when the question set is unknown.
+  const asked = total || row.progress.answered;
+  return (
+    <span className="flex min-w-0 items-center gap-2.5">
+      <span className="h-[5px] min-w-0 flex-1 overflow-hidden rounded-[3px] bg-[rgba(20,16,32,0.08)]">
+        <i
+          className="block h-full origin-left rounded-[3px]"
+          style={{
+            width: `${pct(row.progress.answered, asked)}%`,
+            background: row.status === "submitted" ? "var(--ai-mint, #49D7A7)" : "#4C8DD9",
+          }}
+        />
+      </span>
+      <span className="shrink-0 text-xs font-bold tabular-nums text-[var(--ai-t2)]">
+        {row.progress.answered}/{asked}
+      </span>
+    </span>
   );
 }
 
