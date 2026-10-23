@@ -77,6 +77,12 @@ export type InterviewListResult = {
     started: number;
     invited: number;
     expired: number;
+    /**
+     * Superseded invites. Charted because `all` counts them: while this had no
+     * chip, `all` read 26 against four chips totalling 25 and nothing on the
+     * page accounted for the 1.
+     */
+    cancelled: number;
     /** Archived rows, excluded from every other count above. */
     archived: number;
   };
@@ -105,11 +111,23 @@ export type InterviewAnswerView = {
 /**
  * The list's tab vocabulary.
  *
- * NOT the same set as InterviewStatus: `cancelled` has no tab (a superseded
- * invite is noise in a reviewer's list) and `archived` is not a status at all
- * — it cuts across every status.
+ * Every InterviewStatus now has a tab, plus two that are not statuses: `all`,
+ * and `archived`, which cuts across every status rather than being one.
+ *
+ * `cancelled` used to be omitted on the grounds that a superseded invite is
+ * noise in a reviewer's list. That was the wrong trade: `all` counts cancelled
+ * rows, so leaving it off meant the chips totalled less than the figure beside
+ * them with nothing on the page to explain the difference. A chip that hides
+ * itself at zero costs a reviewer nothing and makes the set add up.
  */
-export type InterviewTab = "all" | "submitted" | "started" | "invited" | "expired" | "archived";
+export type InterviewTab =
+  | "all"
+  | "submitted"
+  | "started"
+  | "invited"
+  | "expired"
+  | "cancelled"
+  | "archived";
 
 export type ScoreStatus =
   | "pending"

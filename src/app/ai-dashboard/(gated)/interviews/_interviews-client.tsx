@@ -106,8 +106,28 @@ const TABS: { key: InterviewTab; label: string }[] = [
   { key: "started", label: "In progress" },
   { key: "invited", label: "Not started" },
   { key: "expired", label: "Expired" },
+  { key: "cancelled", label: "Cancelled" },
   { key: "archived", label: "Archived" },
 ];
+
+/**
+ * Chips that disappear at zero.
+ *
+ * Both sit off the normal path: archiving is something a reviewer opts into,
+ * and a cancellation is a superseded invite. An always-visible empty chip
+ * invites people to look for a feature they are not using.
+ *
+ * Hiding them costs the reconciliation nothing. `All` counts every live row and
+ * the five status chips are exhaustive over it, so at zero the visible chips
+ * already total `All` — which is the whole reason `cancelled` now has a chip at
+ * all. It is only when the count is non-zero that its absence left `All`
+ * reading 26 above chips totalling 25.
+ */
+const HIDDEN_AT_ZERO: readonly InterviewTab[] = ["cancelled", "archived"];
+
+function chipVisible(tab: InterviewTab, counts: InterviewListResult["counts"]): boolean {
+  return !HIDDEN_AT_ZERO.includes(tab) || counts[tab] > 0;
+}
 
 export function InterviewsClient({ initial }: { initial: InterviewListResult }) {
   const [data, setData] = useState(initial);
@@ -239,11 +259,7 @@ export function InterviewsClient({ initial }: { initial: InterviewListResult }) 
                   off the right edge at 360px behind a scrollbar phones do not
                   draw. A filter nobody can see is a filter nobody uses. */}
               <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
-                {TABS.filter(
-                  // Nothing archived, no tab — an always-visible empty tab
-                  // invites people to look for a feature they aren't using.
-                  (t) => t.key !== "archived" || data.counts.archived > 0,
-                ).map((t) => (
+                {TABS.filter((t) => chipVisible(t.key, data.counts)).map((t) => (
                   <button
                     key={t.key}
                     type="button"
@@ -636,31 +652,54 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
   );
 }
 
+type EmptyCopy = { title: string; body: string };
+
+/**
+ * Per-tab empty copy. A tab with no entry falls through to EMPTY_FALLBACK,
+ * which is why `all` and `started` are absent rather than duplicated.
+ *
+ * The `cancelled` body names both writers, because a reviewer who has never
+ * cancelled anything by hand will otherwise read the tab as an accusation: a
+ * session is cancelled when a newer invite supersedes it (the one-open-session
+ * rule) or when the invite could not be delivered at all.
+ */
+const EMPTY_COPY: Partial<Record<InterviewTab, EmptyCopy>> = {
+  submitted: {
+    title: "Nothing ready to watch",
+    body: "Completed interviews appear here as candidates submit them.",
+  },
+  expired: {
+    title: "Nothing expired",
+    body: "Every invite you've sent is still within its deadline.",
+  },
+  cancelled: {
+    title: "Nothing cancelled",
+    body: "An interview is cancelled when a newer invite replaces it, or when the invite could not be delivered. Neither has happened here.",
+  },
+  archived: {
+    title: "Nothing archived",
+    body: "Archiving hides a finished interview from the working list without touching the recording. Nothing is archived right now.",
+  },
+};
+
+const EMPTY_FALLBACK: EmptyCopy = {
+  title: "Nothing here",
+  body: "Nothing matches these filters. Switch tabs or pick a different role.",
+};
+
+function emptyCopy(tab: InterviewTab, query: string): EmptyCopy {
+  const typed = query.trim();
+  if (typed) {
+    return {
+      title: `Nobody matches “${typed}”`,
+      body: "Try a different name or role, or clear the filters.",
+    };
+  }
+  return EMPTY_COPY[tab] ?? EMPTY_FALLBACK;
+}
+
 function FilteredEmpty({ tab, query }: { tab: InterviewTab; query: string }) {
-  const copy = query.trim()
-    ? {
-        title: `Nobody matches “${query.trim()}”`,
-        body: "Try a different name or role, or clear the filters.",
-      }
-    : tab === "submitted"
-      ? {
-          title: "Nothing ready to watch",
-          body: "Completed interviews appear here as candidates submit them.",
-        }
-      : tab === "expired"
-        ? {
-            title: "Nothing expired",
-            body: "Every invite you've sent is still within its deadline.",
-          }
-        : tab === "archived"
-          ? {
-              title: "Nothing archived",
-              body: "Archiving hides a finished interview from the working list without touching the recording. Nothing is archived right now.",
-            }
-        : {
-            title: "Nothing here",
-            body: "Nothing matches these filters. Switch tabs or pick a different role.",
-          };
+  const copy = emptyCopy(tab, query);
 
   return (
     <div className="flex flex-col items-center px-6 pb-[60px] pt-14 text-center">

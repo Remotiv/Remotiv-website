@@ -111,7 +111,15 @@ export async function listInterviewSessions(
     total: 0,
     page: 1,
     pageSize: PAGE_SIZE,
-    counts: { all: 0, submitted: 0, started: 0, invited: 0, expired: 0, archived: 0 },
+    counts: {
+      all: 0,
+      submitted: 0,
+      started: 0,
+      invited: 0,
+      expired: 0,
+      cancelled: 0,
+      archived: 0,
+    },
     jobs: [],
     sentThisWeek: 0,
     openRoles: 0,
@@ -210,6 +218,12 @@ export async function listInterviewSessions(
    * numbers too — a tab reading 4 above a list of 3 is the bug this project has
    * already had once. `archived` is counted separately and is the only tab that
    * shows those rows.
+   *
+   * The five status buckets below are EXHAUSTIVE over `deriveStatus`, which is
+   * total over the five InterviewStatus values. So they sum to `all` as an
+   * identity, not as a property of today's data — and that is the point of
+   * charting `cancelled` rather than dropping it: while it was missing, the sum
+   * was short by exactly the cancelled count and nothing said so.
    */
   const live = rows.filter((r) => r.archivedAt === null);
   const counts = {
@@ -218,6 +232,7 @@ export async function listInterviewSessions(
     started: live.filter((r) => r.status === "started").length,
     invited: live.filter((r) => r.status === "invited").length,
     expired: live.filter((r) => r.status === "expired").length,
+    cancelled: live.filter((r) => r.status === "cancelled").length,
     archived: rows.length - live.length,
   };
 
