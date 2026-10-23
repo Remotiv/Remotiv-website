@@ -22,6 +22,7 @@ import {
   needsCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
+  wordingCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
 import { hasRealWords } from "@/lib/interviews/live-transcribe";
 import { JobYield, TerminalJobError, toJobError } from "@/lib/queue/failure-class";
@@ -42,13 +43,15 @@ import { createServiceClient } from "@/lib/supabase/server";
  *   repeat_check (a repeat not asked as     waits for a person, answered or
  *   agreed: a hint may have shaped it)      skipped alike; 'score' lets it
  *                                           through, 'exclude' leaves it out
+ *   wording_check (the first asking not     the same, resolved by its own
+ *   as frozen)                              action
  *   skipped (asked, no real answer)         the lowest score, no AI call
  *   answered and confirmed                  scored by the AI
  *   ...whose rationale kept describing      waits for a person (style check);
  *   speaking style after a retry            'score' counts it, 'exclude' leaves
  *                                           it out
  *
- * The timing, repeat and style checks are SEPARATE flags on each question,
+ * The timing, repeat, wording and style checks are SEPARATE flags on each question,
  * resolved by separate logged actions: resolving one never clears another.
  *
  * A failed transcription keeps the outcome undecided, so nothing is scored
@@ -138,6 +141,8 @@ export type ScoreReason =
   | "style_excluded"
   | "repeat_check"
   | "repeat_excluded"
+  | "wording_check"
+  | "wording_excluded"
   | "skipped"
   | "answered";
 
@@ -150,6 +155,7 @@ export function planLiveScoring(
   resolved: {
     needsCheck: ReadonlyMap<number, NeedsCheckDecision>;
     repeatCheck: ReadonlyMap<number, NeedsCheckDecision>;
+    wordingCheck: ReadonlyMap<number, NeedsCheckDecision>;
     excludedPositions: ReadonlySet<number>;
   },
 ): QuestionPlan[] {
@@ -170,6 +176,11 @@ export function planLiveScoring(
       const d = resolved.repeatCheck.get(position);
       if (!d) return plan("wait", "repeat_check");
       if (d === "exclude") return plan("left_out", "repeat_excluded");
+    }
+    if ((f.wording_check ?? null) !== null) {
+      const d = resolved.wordingCheck.get(position);
+      if (!d) return plan("wait", "wording_check");
+      if (d === "exclude") return plan("left_out", "wording_excluded");
     }
     if (f.status === "skipped") return plan("lowest", "skipped");
     if (f.confirmed !== true) return plan("wait", "unconfirmed");
@@ -438,6 +449,7 @@ export async function scoreLiveSession(
   const plans = planLiveScoring(outcome, frozen.questions, {
     needsCheck: needsCheckDecisions(actions),
     repeatCheck: repeatCheckDecisions(actions),
+    wordingCheck: wordingCheckDecisions(actions),
     excludedPositions,
   });
 

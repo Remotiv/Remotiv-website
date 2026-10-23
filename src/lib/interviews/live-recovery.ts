@@ -167,6 +167,7 @@ async function log(
       | "retry_transcription"
       | "resolve_needs_check"
       | "resolve_repeat_check"
+      | "resolve_wording_check"
       | "resolve_style_check"
       | "resolve_failed_transcription";
     decision: "retry" | "score" | "exclude";
@@ -258,6 +259,31 @@ export async function resolveRepeatCheck(
   if ((q?.repeat_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
   await log(deps, session, role, {
     action: "resolve_repeat_check",
+    decision: input.decision,
+    note,
+    question_position: input.position,
+  });
+  return afterwards(deps, session.id);
+}
+
+/**
+ * A question held by a wording check (its base question first asked other
+ * than as frozen), checked against the recording by a person: scored as usual,
+ * or left out. Only a question the outcome flags can be resolved here, and the
+ * decision clears no other check.
+ */
+export async function resolveWordingCheck(
+  input: { sessionId: string; position: number; decision: "score" | "exclude"; note: string },
+  deps: RecoveryDeps,
+): Promise<LiveScoreRow | null> {
+  const { session, role, note } = await authorised(deps, input.sessionId, input.note);
+  if (input.decision !== "score" && input.decision !== "exclude") {
+    throw new LiveRecoveryError("bad_input", session.id);
+  }
+  const q = session.live_outcome?.questions.find((x) => x.position === input.position);
+  if ((q?.wording_check ?? null) === null) throw new LiveRecoveryError("no_check", session.id);
+  await log(deps, session, role, {
+    action: "resolve_wording_check",
     decision: input.decision,
     note,
     question_position: input.position,

@@ -611,7 +611,7 @@ function reviewInput(videoPieces) {
     follow_ups: 0,
     repeats: 0,
     answer_ms: 5000,
-    wording_differs: false,
+    wording_check: null,
     needs_check: false,
   };
   return {

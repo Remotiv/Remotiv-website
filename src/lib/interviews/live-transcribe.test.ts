@@ -524,7 +524,7 @@ test("settleOutcome: a question with one real-word turn among fillers is confirm
         follow_ups: 1,
         repeats: 0,
         answer_ms: 3000,
-        wording_differs: false,
+        wording_check: null,
         needs_check: false,
       },
     ],
@@ -563,7 +563,7 @@ test("needs_review: set by a needs_check question or a failed turn, each on its 
     follow_ups: 0,
     repeats: 0,
     answer_ms: 3000,
-    wording_differs: false,
+    wording_check: null,
     needs_check,
   });
   const outcome = (checks) => ({

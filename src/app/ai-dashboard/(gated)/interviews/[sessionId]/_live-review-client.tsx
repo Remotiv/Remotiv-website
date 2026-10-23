@@ -58,6 +58,7 @@ const STATUS_CHIP: Record<string, string> = {
 const FLAG_TITLE: Record<LiveReviewFlag["kind"], string> = {
   timing: "Timing check",
   repeat: "Repeat check",
+  wording: "Wording check",
   style: "Style check",
   transcription_failed: "Transcription failed",
 };
@@ -66,6 +67,7 @@ const FLAG_TITLE: Record<LiveReviewFlag["kind"], string> = {
 const RESOLVE_ACTION = {
   timing: "resolve_needs_check",
   repeat: "resolve_repeat_check",
+  wording: "resolve_wording_check",
   style: "resolve_style_check",
 } as const;
 

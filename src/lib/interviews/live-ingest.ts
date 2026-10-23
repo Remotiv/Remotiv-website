@@ -23,9 +23,12 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * ── The frozen questions are the source of truth ─────────────
  *
  * Every turn must name a position of the session's frozen set
- * (frozen-questions.ts). A base question whose wording strays far from the
- * frozen text is flagged, not refused: what the candidate was asked is kept
- * as spoken, and the flag lets a reviewer see it.
+ * (frozen-questions.ts). A base question not asked as frozen (an unexpected
+ * phrase before it, or altered wording) is flagged on its question
+ * (wording_check), not refused: what the candidate was asked is kept as
+ * spoken, and the question is held from scoring until a person checks the
+ * recording (F12, 23 Oct 2026). classifyAsked sets aside only the approved
+ * harmless differences.
  *
  * ── Order, and what each step guarantees ─────────────────────
  *
@@ -116,9 +119,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 3;
-/** A base question keeping less than this share of the frozen question's words is flagged. */
-export const WORDING_MIN_COVERAGE = 0.6;
+export const LIVE_OUTCOME_VERSION = 4;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -176,6 +177,17 @@ export type RepeatCheck =
   /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
   | "altered_wording";
 
+/**
+ * Why the FIRST asking of a question (its base_question turn) needs a person
+ * (F12, 23 Oct 2026). Either holds the question from scoring until a person
+ * resolves it (resolve_wording_check), independently of every other check.
+ */
+export type WordingCheck =
+  /** An unknown phrase, then the frozen question exactly. */
+  | "unexpected_lead_in"
+  /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
+  | "altered_wording";
+
 export type LiveQuestionFacts = {
   position: number;
   source: LiveQuestionSource;
@@ -190,7 +202,13 @@ export type LiveQuestionFacts = {
   repeats: number;
   /** The candidate's speech on this question, all turns. */
   answer_ms: number;
-  wording_differs: boolean;
+  /**
+   * The base question was not asked as frozen: null when it was, or when it
+   * was never asked. Holds the question from scoring until resolved
+   * (resolve_wording_check), independently of the timing, repeat and style
+   * checks. Absent on an outcome saved before version 4: read as null.
+   */
+  wording_check: WordingCheck | null;
   /**
    * A candidate turn of this question is timing_suspect: its offsets are not
    * trusted. For the scoring commit: not scored automatically until checked
@@ -220,8 +238,8 @@ export type LiveOutcome = {
   timing_suspect: boolean;
   /** Sequences of candidate turns whose offsets should not be trusted. */
   timing_suspect_turns: number[];
-  /** Positions whose spoken wording strays from the frozen text. */
-  wording_flags: number[];
+  /** Sequences of base_question turns that did not ask their question as frozen. */
+  wording_check_turns: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
   outcome: LiveOutcomeCode;
@@ -241,8 +259,8 @@ export type LiveOutcome = {
   restart_allowed: boolean | null;
   /**
    * A person must look: the ending needs a check, a question needs_check
-   * (timing suspect) or a repeat_check, or a candidate turn's transcription
-   * failed for good. See needsReview().
+   * (timing suspect), a repeat_check or a wording_check, or a candidate
+   * turn's transcription failed for good. See needsReview().
    */
   needs_review: boolean;
   /** Sequences of candidate turns whose transcription failed after every retry. */
@@ -350,20 +368,24 @@ function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: numbe
 
 /**
  * Whether the session needs a person: the ending needs a check, any question
- * needs_check or has a repeat_check, or any turn failed transcription. The
+ * needs_check or has a repeat_check or a wording_check, or any turn failed
+ * transcription. The
  * per-question flags, the failed list and the end check stay as they are; this
  * is the session-level summary of all of them.
  */
 export function needsReview(
   questions: readonly (Pick<LiveQuestionFacts, "needs_check"> &
-    Partial<Pick<LiveQuestionFacts, "repeat_check">>)[],
+    Partial<Pick<LiveQuestionFacts, "repeat_check" | "wording_check">>)[],
   failedTurns: readonly number[],
   endCheck: EndCheck | null,
 ): boolean {
   return (
     endCheck !== null ||
     failedTurns.length > 0 ||
-    questions.some((q) => q.needs_check || (q.repeat_check ?? null) !== null)
+    questions.some(
+      (q) =>
+        q.needs_check || (q.repeat_check ?? null) !== null || (q.wording_check ?? null) !== null,
+    )
   );
 }
 
@@ -477,6 +499,149 @@ export function repeatMatchesQuestion(frozenText: string, spoken: string): boole
   return wording === "exact" || wording === "known_lead_in";
 }
 
+/* ── the first asking (F12, 23 Oct 2026) ──────────────────────── */
+
+/**
+ * Words allowed before a base question without a flag. Empty by decision
+ * (F12): any phrase before the frozen question is held for a person. The
+ * opening greeting included, until the provider sends it as its own
+ * procedural turn.
+ */
+export const BASE_QUESTION_TRANSITIONS: readonly string[] = [];
+
+/**
+ * The approved contractions, read the same way on both sides: "what're" and
+ * "what are" compare equal. Both texts are expanded with this one map, so an
+ * ambiguous form ("you'd") can never make two different texts equal.
+ */
+export const CONTRACTIONS: Readonly<Record<string, string>> = {
+  "aren't": "are not",
+  "can't": "cannot",
+  "couldn't": "could not",
+  "didn't": "did not",
+  "doesn't": "does not",
+  "don't": "do not",
+  "hadn't": "had not",
+  "hasn't": "has not",
+  "haven't": "have not",
+  "he's": "he is",
+  "how's": "how is",
+  "i'd": "i would",
+  "i'll": "i will",
+  "i'm": "i am",
+  "i've": "i have",
+  "isn't": "is not",
+  "it's": "it is",
+  "let's": "let us",
+  "she's": "she is",
+  "shouldn't": "should not",
+  "that's": "that is",
+  "there's": "there is",
+  "they'd": "they would",
+  "they'll": "they will",
+  "they're": "they are",
+  "they've": "they have",
+  "wasn't": "was not",
+  "we'd": "we would",
+  "we'll": "we will",
+  "we're": "we are",
+  "we've": "we have",
+  "weren't": "were not",
+  "what'd": "what did",
+  "what're": "what are",
+  "what's": "what is",
+  "when's": "when is",
+  "where's": "where is",
+  "who's": "who is",
+  "why's": "why is",
+  "won't": "will not",
+  "wouldn't": "would not",
+  "you'd": "you would",
+  "you'll": "you will",
+  "you're": "you are",
+  "you've": "you have",
+};
+
+/** Filler sounds set aside when they stand alone as a word. */
+export const FILLER_SOUNDS: ReadonlySet<string> = new Set(["um", "uh", "er", "erm"]);
+
+/** Lowercase words, accents, apostrophes and punctuation aside, contractions expanded, fillers dropped. */
+function askedWords(text: string): string[] {
+  return text
+    .toLowerCase()
+    .normalize("NFKD")
+    .replace(/\p{M}/gu, "")
+    .replace(/[\u2018\u2019]/g, "'")
+    .split(/[^\p{L}\p{N}']+/u)
+    .flatMap((w) => {
+      const word = w.replace(/^'+|'+$/g, "");
+      return (CONTRACTIONS[word] ?? word.replace(/'/g, "")).split(" ");
+    })
+    .filter((w) => w !== "" && !FILLER_SOUNDS.has(w));
+}
+
+export type AskedWording = "exact" | "agreed_transition" | WordingCheck;
+
+/**
+ * How a base question was first asked, against its frozen text:
+ *
+ *   exact               the frozen question, once the approved harmless
+ *                       differences are set aside: case, punctuation and
+ *                       spacing, CONTRACTIONS, FILLER_SOUNDS standing alone,
+ *                       and the candidate's first name standing alone at the
+ *                       very start or the very end (strict match)
+ *   agreed_transition   one of BASE_QUESTION_TRANSITIONS (none yet), then it
+ *   unexpected_lead_in  any other phrase of at most MAX_UNEXPECTED_LEAD_IN_WORDS
+ *                       words, then the frozen question
+ *   altered_wording     anything else: the question changed, shortened or
+ *                       followed by more, a longer lead-in, or no question
+ *
+ * `firstName` is used for this comparison only. Pure.
+ */
+export function classifyAsked(
+  frozenText: string,
+  spoken: string,
+  firstName: string | null = null,
+): AskedWording {
+  const q = askedWords(frozenText);
+  if (q.length === 0) return "altered_wording";
+  const r = askedWords(spoken);
+  // The name may be set aside at the very start, the very end, or both, never
+  // elsewhere. Each is only an option: the spoken text as it is stays one too,
+  // so a question that itself begins or ends with the same word still matches.
+  const name = askedWords(firstName ?? "");
+  const named = (w: readonly string[], i: number) =>
+    name.length > 0 && w.length > name.length && name.every((n, k) => w[i + k] === n);
+  const options = [r];
+  if (named(r, 0)) options.push(r.slice(name.length));
+  for (const o of [...options]) {
+    if (named(o, o.length - name.length)) options.push(o.slice(0, o.length - name.length));
+  }
+  return options.map((o) => askedAs(q, o)).sort((x, y) => ASKED_RANK[x] - ASKED_RANK[y])[0];
+}
+
+/** Most lenient first: of the name options, the one closest to the frozen question decides. */
+const ASKED_RANK: Record<AskedWording, number> = {
+  exact: 0,
+  agreed_transition: 1,
+  unexpected_lead_in: 2,
+  altered_wording: 3,
+};
+
+function askedAs(q: readonly string[], r: readonly string[]): AskedWording {
+  const qs = q.join(" ");
+  const rs = r.join(" ");
+  if (rs === qs) return "exact";
+  if (!rs.endsWith(` ${qs}`)) return "altered_wording";
+  const lead = rs.slice(0, rs.length - qs.length).trim();
+  if (BASE_QUESTION_TRANSITIONS.some((l) => askedWords(l).join(" ") === lead)) {
+    return "agreed_transition";
+  }
+  return lead.split(" ").length <= MAX_UNEXPECTED_LEAD_IN_WORDS
+    ? "unexpected_lead_in"
+    : "altered_wording";
+}
+
 /** Altered wording outranks an unexpected lead-in when one question has both. */
 function worseRepeatCheck(a: RepeatCheck | null, b: RepeatCheck): RepeatCheck {
   return a === "altered_wording" || b === "altered_wording"
@@ -511,35 +676,16 @@ export class LiveIngestError extends Error {
 
 /* ── the facts, worked out before anything is written ─────────── */
 
-const FILLER: ReadonlySet<string> = new Set(
-  "a an the and or of to in on at for with from by as is are was were be it its this that you your me my i we our us tell about walk through describe explain how what why when where which who did do does have has can could would will".split(
-    " ",
-  ),
-);
-const words = (text: string) =>
-  text
-    .toLowerCase()
-    .split(/[^a-z0-9]+/)
-    .filter((w) => w && !FILLER.has(w));
-
-/** The share of the frozen question's words that the spoken text kept. */
-export function wordingCoverage(frozenText: string, spoken: string): number {
-  const want = new Set(words(frozenText));
-  if (want.size === 0) return 1;
-  const said = new Set(words(spoken));
-  let kept = 0;
-  for (const w of want) if (said.has(w)) kept += 1;
-  return kept / want.size;
-}
-
 /**
  * The facts and the outcome of a parsed export against the session's frozen
  * questions. Pure; throws LiveIngestError on anything that cannot be saved.
+ * `candidateFirstName` is only compared (classifyAsked), never kept.
  */
 export function assessLiveExport(
   parsed: ParsedExport,
   frozen: FrozenLiveQuestionSet,
   attempt: number,
+  candidateFirstName: string | null = null,
 ): Omit<LiveOutcome, "saved_at" | "export_hash"> {
   const byPosition = new Map(frozen.questions.map((q) => [q.position, q]));
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
@@ -580,7 +726,7 @@ export function assessLiveExport(
   const suspectSet = new Set(suspect);
 
   const questions: LiveQuestionFacts[] = [];
-  const wordingFlags: number[] = [];
+  const wordingCheckTurns: number[] = [];
   const repeatCheckTurns: number[] = [];
   for (const q of frozen.questions) {
     // A marked repeat stays a procedural repeat whatever it said. One that did
@@ -617,9 +763,13 @@ export function assessLiveExport(
     // refused a turn with no duration and the save refuses one with no audio.
     const answerMs = spoken.reduce((sum, t) => sum + t.duration_ms, 0);
     const answered = spoken.some((t) => t.duration_ms > 0);
-    const wordingDiffers =
-      asked.length === 1 && wordingCoverage(q.text, asked[0].text ?? "") < WORDING_MIN_COVERAGE;
-    if (wordingDiffers) wordingFlags.push(q.position);
+    // The first asking: held for a person unless it is the frozen question,
+    // harmless differences aside. Never asked: nothing to check.
+    const wording =
+      asked.length === 1 ? classifyAsked(q.text, asked[0].text ?? "", candidateFirstName) : null;
+    const wordingCheck =
+      wording === "unexpected_lead_in" || wording === "altered_wording" ? wording : null;
+    if (wordingCheck !== null) wordingCheckTurns.push(asked[0].sequence);
     questions.push({
       position: q.position,
       source: q.source,
@@ -630,9 +780,9 @@ export function assessLiveExport(
         (t) => t.kind === "procedural" && t.repeat && t.question_position === q.position,
       ).length,
       answer_ms: answerMs,
-      wording_differs: wordingDiffers,
       needs_check: spoken.some((t) => suspectSet.has(t.sequence)),
       repeat_check: repeatCheck,
+      wording_check: wordingCheck,
     });
   }
 
@@ -652,7 +802,7 @@ export function assessLiveExport(
     questions,
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
-    wording_flags: wordingFlags,
+    wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     needs_review: needsReview(questions, [], fields.end_check),
     transcription_failed_turns: [],
@@ -675,6 +825,8 @@ export type IngestResult = { outcome: LiveOutcome; saved: boolean };
 type SessionRow = {
   id: string;
   kind: string;
+  company_id: string | null;
+  application_id: string | null;
   attempt: number | null;
   provider_session_id: string | null;
   live_settings: unknown;
@@ -684,7 +836,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id, kind, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome";
+  "id, kind, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome";
 
 /** A stable uuid for one provider turn of one session, so a re-save finds the same row. */
 export function turnRowId(sessionId: string, providerTurnId: string): string {
@@ -812,6 +964,27 @@ async function readSession(service: Service, sessionId: string): Promise<Session
   return data as SessionRow | null;
 }
 
+/**
+ * The candidate's first name, for classifyAsked only: never stored, never
+ * logged. Read within the session's own company. Any failure reads as no
+ * name, which can only flag MORE questions for a person, never fewer.
+ */
+async function candidateFirstName(service: Service, row: SessionRow): Promise<string | null> {
+  if (!row.application_id || !row.company_id) return null;
+  const { data, error } = await service
+    .from("job_applications")
+    .select("first_name")
+    .eq("id", row.application_id)
+    .eq("company_id_snapshot", row.company_id)
+    .maybeSingle();
+  if (error) {
+    console.warn(`[live-ingest] session ${row.id}: first name unread; no name is set aside`);
+    return null;
+  }
+  const name = (data as { first_name: string | null } | null)?.first_name?.trim();
+  return name || null;
+}
+
 /** The stored outcome when it is this export's; refuses another export's. */
 function storedFor(row: SessionRow, hash: string): LiveOutcome | null {
   const stored = row.live_outcome as LiveOutcome | null;
@@ -842,7 +1015,12 @@ export async function saveLiveExport(
   if (already) return { outcome: already, saved: false };
 
   // 1. Every check and the whole outcome before any write.
-  const facts = assessLiveExport(parsed, frozen, row.attempt ?? 1);
+  const facts = assessLiveExport(
+    parsed,
+    frozen,
+    row.attempt ?? 1,
+    await candidateFirstName(deps.service, row),
+  );
   const turns = [...parsed.turns].sort((a, b) => a.sequence - b.sequence);
 
   // 2. Every turn's audio, fetched and checked before any upload.
@@ -895,7 +1073,7 @@ export async function saveLiveExport(
     throw new LiveIngestError("db_error", "the outcome did not land");
   }
   console.log(
-    `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording flags ${outcome.wording_flags.length}`,
+    `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording checks ${outcome.wording_check_turns.length}`,
   );
   return { outcome, saved: true };
 }

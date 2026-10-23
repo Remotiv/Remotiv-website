@@ -35,7 +35,7 @@ export async function getLiveTurnAudioUrl(
   return signLiveTurnAudio(ctx, sessionId, turnId);
 }
 
-/** Retry a transcription, or resolve a timing, repeat or style check or a failed transcription. */
+/** Retry a transcription, or resolve a timing, repeat, wording or style check or a failed transcription. */
 export async function runLiveReviewAction(request: LiveRecoveryRequest): Promise<LiveActionResult> {
   const ctx = await viewer();
   if (!ctx) return { ok: false, error: "Sign in to your workspace first." };

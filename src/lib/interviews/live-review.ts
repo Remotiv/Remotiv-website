@@ -12,6 +12,7 @@ import type {
   EndCheckReason,
   LiveOutcome,
   RepeatCheck,
+  WordingCheck,
 } from "@/lib/interviews/live-ingest";
 import {
   LiveRecoveryError,
@@ -20,6 +21,7 @@ import {
   resolveNeedsCheck,
   resolveRepeatCheck,
   resolveStyleCheck,
+  resolveWordingCheck,
   retryTranscription,
 } from "@/lib/interviews/live-recovery";
 import {
@@ -28,6 +30,7 @@ import {
   needsCheckDecisions,
   repeatCheckDecisions,
   styleCheckDecisions,
+  wordingCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
 import type {
   LiveActionResult,
@@ -180,6 +183,7 @@ const EXCLUDED_REASON: Record<string, string> = {
   transcription_excluded: "Left out: the answer could not be transcribed.",
   style_excluded: "Left out after a review of the AI's explanation.",
   repeat_excluded: "Left out after a review of how the question was repeated.",
+  wording_excluded: "Left out after a review of how the question was asked.",
   scoring_failed: "Left out: the AI could not score it reliably.",
 };
 
@@ -187,6 +191,7 @@ const WAITING_REASON: Record<string, string> = {
   needs_check: "Waiting for a timing check.",
   style_check: "Waiting for a check of the AI's explanation.",
   repeat_check: "Waiting for a check of how the question was repeated.",
+  wording_check: "Waiting for a check of how the question was asked.",
   not_final: "Waiting for every answer to be transcribed.",
   unconfirmed: "Waiting for the transcript.",
   scoring_retry: "Scoring will be tried again.",
@@ -211,6 +216,18 @@ export function repeatReason(check: RepeatCheck, interviewer: string, position: 
   return REPEAT_REASON[check](interviewer, position);
 }
 
+/** Why the first asking holds its question (live-ingest.ts WordingCheck), with the interviewer's name. */
+const WORDING_REASON: Record<WordingCheck, (interviewer: string, position: number) => string> = {
+  unexpected_lead_in: (who, n) =>
+    `${who} added an unexpected phrase before asking question ${n}. Check the recording.`,
+  altered_wording: (who, n) =>
+    `${who} asked question ${n} in different words from the approved question, so the answer may have been influenced. It is not scored until a person checks the recording.`,
+};
+
+export function wordingReason(check: WordingCheck, interviewer: string, position: number): string {
+  return WORDING_REASON[check](interviewer, position);
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Why the ending needs a person (live-ingest.ts EndCheck), said to the recruiter. */
@@ -227,7 +244,15 @@ const END_REASON: Record<EndCheckReason, (neverAsked: number) => string> = {
 };
 
 /** The waits only a person's decision ends. */
-const REVIEW_WAITS: ReadonlySet<string> = new Set(["needs_check", "repeat_check", "style_check"]);
+const REVIEW_WAITS: ReadonlySet<string> = new Set([
+  "needs_check",
+  "repeat_check",
+  "wording_check",
+  "style_check",
+]);
+
+/** Flags whose reason already names its question: listed as written. */
+const NAMES_ITS_QUESTION: ReadonlySet<LiveReviewFlag["kind"]> = new Set(["repeat", "wording"]);
 
 const RESTART_NOTE = "A restart is your decision for this interview.";
 
@@ -342,8 +367,8 @@ function completedNote(partial: boolean, held: boolean): string | null {
 
 /**
  * The Needs review list: the ending's reason once the outcome is decided, then
- * every question flag nobody has resolved yet. A repeat flag's reason already
- * names its question, so it is listed as written.
+ * every question flag nobody has resolved yet. A repeat or wording flag's
+ * reason already names its question, so it is listed as written.
  */
 function reviewReasonsFor(
   outcome: LiveOutcome | null,
@@ -354,7 +379,9 @@ function reviewReasonsFor(
   for (const q of questions) {
     for (const f of q.flags)
       if (f.resolved === null)
-        reasons.push(f.kind === "repeat" ? f.reason : `Question ${q.position}: ${f.reason}`);
+        reasons.push(
+          NAMES_ITS_QUESTION.has(f.kind) ? f.reason : `Question ${q.position}: ${f.reason}`,
+        );
   }
   return reasons;
 }
@@ -385,6 +412,7 @@ export function buildLiveReviewView(input: {
     (t.responds_to_turn_id ? (byId.get(t.responds_to_turn_id)?.question_position ?? null) : null);
   const timing = needsCheckDecisions(input.actions);
   const repeat = repeatCheckDecisions(input.actions);
+  const wording = wordingCheckDecisions(input.actions);
   const style = styleCheckDecisions(input.actions);
   const excludedSeqs = excludedFailedTurns(
     input.actions,
@@ -460,6 +488,15 @@ export function buildLiveReviewView(input: {
         turnId: null,
       });
     }
+    const wordingCheck = facts?.wording_check ?? null;
+    if (wordingCheck !== null) {
+      flags.push({
+        kind: "wording",
+        reason: wordingReason(wordingCheck, interviewer, fq.position),
+        resolved: wording.get(fq.position) ?? null,
+        turnId: null,
+      });
+    }
     if (entry?.style_check) {
       flags.push({
         kind: "style",
@@ -505,6 +542,9 @@ export function buildLiveReviewView(input: {
     } else if (repeatCheck !== null && !repeat.has(fq.position)) {
       status = "waiting_review";
       statusReason = WAITING_REASON.repeat_check;
+    } else if (wordingCheck !== null && !wording.has(fq.position)) {
+      status = "waiting_review";
+      statusReason = WAITING_REASON.wording_check;
     } else {
       status = facts.status === "skipped" ? "skipped" : "answered";
     }
@@ -1084,6 +1124,7 @@ const RECOVERY_MESSAGES: Record<string, string> = {
 const QUESTION_RESOLVERS = {
   resolve_needs_check: resolveNeedsCheck,
   resolve_repeat_check: resolveRepeatCheck,
+  resolve_wording_check: resolveWordingCheck,
   resolve_style_check: resolveStyleCheck,
 } as const;
 

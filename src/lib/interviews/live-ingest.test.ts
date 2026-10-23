@@ -31,7 +31,11 @@ export async function resolve(specifier, context, next) {
 const {
   assessLiveExport,
   audioPath,
+  BASE_QUESTION_TRANSITIONS,
+  classifyAsked,
   classifyRepeat,
+  CONTRACTIONS,
+  FILLER_SOUNDS,
   CONFIRMED_EXIT_CODES,
   confirmAnswer,
   exportHash,
@@ -225,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 3);
+  assert.equal(outcome.v, 4);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -238,7 +242,14 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     [true, true, true, true, true, false, false, false],
   );
   assert.deepEqual([outcome.needs_review, outcome.transcription_failed_turns], [true, []]);
-  assert.deepEqual(outcome.wording_flags, []);
+  // The sample folds Sarah's greeting into question 1's turn: held for a
+  // wording check until the provider sends it as its own turn (F12). Every
+  // other question is asked as frozen.
+  assert.deepEqual(
+    outcome.questions.map((q) => q.wording_check),
+    ["altered_wording", null, null, null, null, null, null, null],
+  );
+  assert.equal(outcome.wording_check_turns.length, 1);
   // The sample has no marked repeat: nothing to check.
   assert.deepEqual(outcome.repeat_check_turns, []);
   assert.ok(outcome.questions.every((q) => q.repeat_check === null));
@@ -394,15 +405,21 @@ test("timing: an interrupted turn with overlap is fine; overlap without the mark
   assert.deepEqual(facts.timing_suspect_turns, [2]);
 });
 
-test("wording that strays from the frozen question is flagged, not refused", () => {
+test("a first asking that strays from the frozen question is flagged, not refused", () => {
   const facts = assessLiveExport(
     parsedFixture(),
     frozenOf({}, { 3: "Describe your favourite kitchen appliance and why you bought it." }),
     1,
   );
-  assert.deepEqual(facts.wording_flags, [3]);
-  assert.equal(facts.questions[2].wording_differs, true);
+  assert.equal(facts.questions[2].wording_check, "altered_wording");
+  assert.ok(
+    facts.wording_check_turns.includes(
+      parsedFixture().turns.find((t) => t.kind === "base_question" && t.question_position === 3)
+        .sequence,
+    ),
+  );
   assert.equal(facts.questions[2].status, "answered");
+  assert.equal(facts.needs_review, true);
 });
 
 /* ── statuses and outcomes ────────────────────────────────────── */
@@ -675,7 +692,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending and a repeat check; the outcome version is 3; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 4; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -687,7 +704,16 @@ test("needs_review includes the ending and a repeat check; the outcome version i
   }
   // An outcome saved before version 3 has no field: read as no check.
   assert.equal(needsReview([{ needs_check: false, repeat_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 3);
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    assert.equal(
+      needsReview([{ needs_check: false, wording_check: check }], [], null),
+      true,
+      check,
+    );
+  }
+  // Nor before version 4.
+  assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
+  assert.equal(LIVE_OUTCOME_VERSION, 4);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 
@@ -884,7 +910,7 @@ test('D9: an export where Sarah says "Let me just finish the question." and asks
   assert.equal(q.repeats, 1, "a repeat");
   assert.equal(q.follow_ups, plain.questions[position - 1].follow_ups, "never a follow-up");
   assert.equal(finished.questions.length, 8, "no extra question or scoring entry");
-  assert.equal(finished.wording_flags.includes(position), false, "no wording flag");
+  assert.equal(finished.questions[position - 1].wording_check, null, "no wording check");
   // Exactly what the plain repeat produces: the lead-in changes nothing about the facts or outcome.
   assert.deepEqual(finished, plain);
   // Case and punctuation aside, as for the other lead-ins.
@@ -1087,6 +1113,7 @@ test("an export with a flagged repeat saves whole, and keeps the flag through th
       status: "answered",
       confirmed: false,
       needs_check: false,
+      wording_check: null,
     })),
   };
   const confirmed = confirmAnswer(onlyRepeat, position, true, 1);
@@ -1298,4 +1325,293 @@ test("the turns decide the winner: another export arriving after A's turns but b
   assert.equal(saved, true);
   assert.equal(outcome.export_hash, exportHash(pa));
   assertAudioIntact(db);
+});
+
+/* ── F12: the first asking of each question (23 Oct 2026) ─────── */
+
+const EIGHT = () => frozenOf().questions.map((q) => q.text);
+const lowerFirst = (t) => `${t[0].toLowerCase()}${t.slice(1)}`;
+
+/** Harmless ways to say a frozen question: none may be flagged. */
+const HARMLESS = {
+  "case and punctuation": (t) => t.toUpperCase().replace(/[.?]/g, "!!").replace(/,/g, " ;"),
+  "extra spacing": (t) => `   ${t.split(" ").join("    ")}   `,
+  "curly apostrophes": (t) => t.replace(/'/g, "’"),
+  "apostrophe dropped from a possessive": (t) => t.replace(/(\w)'s\b/g, "$1s"),
+  "'Um,' at the start": (t) => `Um, ${lowerFirst(t)}`,
+  "'uh' in the middle": (t) => {
+    const w = t.split(" ");
+    w.splice(Math.floor(w.length / 2), 0, "uh,");
+    return w.join(" ");
+  },
+  "'er' and 'erm' around it": (t) => `Er, ${lowerFirst(t)} Erm.`,
+  "the first name at the start": (t) => `Alex, ${lowerFirst(t)}`,
+  "the first name at the end": (t) => `${t.replace(/[.?]$/, "")}, Alex?`,
+  "the first name at both ends": (t) => `Alex, ${lowerFirst(t).replace(/[.?]$/, "")}, Alex?`,
+  "filler then the name": (t) => `Um, Alex, ${lowerFirst(t)}`,
+};
+
+test("F12 harmless differences on ALL 8 real fixture questions are never flagged", () => {
+  for (const q of EIGHT()) {
+    for (const [label, say] of Object.entries(HARMLESS)) {
+      assert.equal(classifyAsked(q, say(q), "Alex"), "exact", `${label}: ${say(q)}`);
+    }
+  }
+});
+
+test("F12 contractions: the fixture questions that contain an expanded form, both directions", () => {
+  // Of the 8, only "what did" occurs (questions 2, 5 and 8); none has "you are", "do not" etc.
+  const contract = (t) => t.replace(/\b([Ww])hat did\b/g, "$1hat'd");
+  const eight = EIGHT();
+  const applied = eight.map((q, i) => [i + 1, contract(q) !== q]).filter(([, c]) => c);
+  assert.deepEqual(
+    applied.map(([p]) => p),
+    [2, 5, 8],
+    "the contraction applies to exactly these",
+  );
+  for (const [p] of applied) {
+    const q = eight[p - 1];
+    assert.equal(classifyAsked(q, contract(q)), "exact", `spoken contracted, question ${p}`);
+    assert.equal(classifyAsked(contract(q), q), "exact", `frozen contracted, question ${p}`);
+  }
+});
+
+test("F12 contractions: questions written with the expanded forms on the list", () => {
+  const pairs = [
+    [
+      "What are you most proud of in your last role?",
+      "What're you most proud of in your last role?",
+    ],
+    ["What is the hardest bug you have fixed?", "What's the hardest bug you've fixed?"],
+    [
+      "Tell me why you are a good fit and what you do not enjoy.",
+      "Tell me why you're a good fit and what you don't enjoy.",
+    ],
+    [
+      "It is fine if you cannot remember every detail. What did you learn?",
+      "It's fine if you can't remember every detail. What'd you learn?",
+    ],
+    [
+      "Where is the line between fast and careless, and how do you know when you have crossed it?",
+      "Where's the line between fast and careless, and how do you know when you've crossed it?",
+    ],
+  ];
+  for (const [frozen, spoken] of pairs) {
+    for (const word of spoken.match(/\b\w+'\w+\b/g)) {
+      assert.ok(CONTRACTIONS[word.toLowerCase()], `${word} is on the approved list`);
+    }
+    assert.equal(classifyAsked(frozen, spoken), "exact", spoken);
+    assert.equal(classifyAsked(spoken, frozen), "exact", `reversed: ${frozen}`);
+    assert.equal(classifyAsked(frozen, `Um, ${lowerFirst(spoken)} Alex?`, "Alex"), "exact");
+  }
+});
+
+test("F12 short questions take every harmless difference too", () => {
+  for (const q of ["Why this role?", "Any questions?", "Why?", "What did you learn?"]) {
+    for (const [label, say] of Object.entries(HARMLESS)) {
+      assert.equal(classifyAsked(q, say(q), "Alex"), "exact", `${label}: ${say(q)}`);
+    }
+  }
+  assert.equal(classifyAsked("Why?", "What'd you do?"), "altered_wording");
+  assert.equal(classifyAsked("Why this role?", "Why this team?"), "altered_wording");
+});
+
+test("F12 the harmless list is strict: the name only alone at the very start or end, only the listed fillers and contractions", () => {
+  const q =
+    "Tell me about a production incident you handled. What happened, and what did you change afterwards?";
+  const flagged = [
+    [
+      `Tell me about a production incident you handled, Alex. What happened, and what did you change afterwards?`,
+      "altered_wording",
+      "the name in the middle",
+    ],
+    [`Sam, ${lowerFirst(q)}`, "unexpected_lead_in", "another name"],
+    [`Al, ${lowerFirst(q)}`, "unexpected_lead_in", "part of the name"],
+    [`Alexander, ${lowerFirst(q)}`, "unexpected_lead_in", "a longer name"],
+    [`Alex, remember reliability. ${q}`, "unexpected_lead_in", "the name, then a hint"],
+    [`Hmm, ${lowerFirst(q)}`, "unexpected_lead_in", "a filler not on the list"],
+    [`Umm, ${lowerFirst(q)}`, "unexpected_lead_in", "a longer filler"],
+    [
+      "Tell me about a production um you handled. What happened, and what did you change afterwards?",
+      "altered_wording",
+      "a filler in place of a word",
+    ],
+    [
+      "Tell me about a production incident y'all handled. What happened, and what did you change afterwards?",
+      "altered_wording",
+      "a contraction not on the list",
+    ],
+  ];
+  for (const [spoken, want, label] of flagged) {
+    assert.equal(classifyAsked(q, spoken, "Alex"), want, label);
+  }
+  // No name known: a name is never set aside.
+  assert.equal(classifyAsked(q, `Alex, ${lowerFirst(q)}`, null), "unexpected_lead_in");
+  assert.equal(classifyAsked(q, `Alex, ${lowerFirst(q)}`, "  "), "unexpected_lead_in");
+  // A question that itself ends with the same word as the name still matches.
+  assert.equal(
+    classifyAsked(
+      "Who do you trust, and who will you call?",
+      "Who do you trust, and who will you call?",
+      "Call",
+    ),
+    "exact",
+  );
+  assert.deepEqual([...FILLER_SOUNDS].sort(), ["er", "erm", "uh", "um"]);
+});
+
+test("F12 every hint, extra demand, changed, shortened or different question is flagged, on all 8", () => {
+  assert.deepEqual(BASE_QUESTION_TRANSITIONS, [], "no agreed transitions yet");
+  for (const q of EIGHT()) {
+    const words = q.split(" ");
+    const cases = [
+      [`Remember to mention reliability. ${q}`, "unexpected_lead_in", "hint before"],
+      [`Great, thanks. Next question. ${q}`, "unexpected_lead_in", "a transition (none is agreed)"],
+      [`${q} Remember to mention reliability.`, "altered_wording", "hint after"],
+      [`${q} And what would you do differently?`, "altered_wording", "extra demand"],
+      [
+        words.map((w, i) => (i === Math.floor(words.length / 2) ? "particular" : w)).join(" "),
+        "altered_wording",
+        "a word changed",
+      ],
+      [words.slice(0, Math.ceil(words.length / 2)).join(" "), "altered_wording", "shortened"],
+      ["What would you change about your last team?", "altered_wording", "a different question"],
+      [
+        `Alex, ${lowerFirst(q)} Remember to mention reliability.`,
+        "altered_wording",
+        "the name, then a hint after",
+      ],
+    ];
+    for (const [spoken, want, label] of cases) {
+      assert.equal(classifyAsked(q, spoken, "Alex"), want, `${label}: ${q}`);
+    }
+  }
+});
+
+test("F12 the greeting folded into question 1 holds it; sent as its own turn, question 1 is clean", () => {
+  const folded = assessLiveExport(parsedFixture(), frozenOf(), 1, "Alex");
+  assert.equal(folded.questions[0].wording_check, "altered_wording", "never exempt");
+  assert.equal(folded.needs_review, true);
+
+  const split = parsedFixture();
+  const i = split.turns.findIndex((t) => t.kind === "base_question" && t.question_position === 1);
+  const frozenText = frozenOf().questions[0].text;
+  const greeting = split.turns[i].text.slice(0, split.turns[i].text.indexOf(frozenText)).trim();
+  assert.ok(greeting.length > 0, "the sample's greeting");
+  split.turns[i] = { ...split.turns[i], text: frozenText };
+  split.turns.push({
+    ...split.turns[i],
+    provider_turn_id: "greeting-own-turn",
+    sequence: -1,
+    kind: "procedural",
+    question_position: null,
+    text: greeting,
+  });
+  const clean = assessLiveExport(split, frozenOf(), 1, "Alex");
+  assert.equal(clean.questions[0].wording_check, null);
+  assert.deepEqual(clean.wording_check_turns, []);
+});
+
+test("F12 a flagged first asking never weakens the integrity checks", () => {
+  const p = parsedFixture();
+  p.turns[3] = { ...p.turns[3], question_position: 9 };
+  assert.throws(
+    () => assessLiveExport(p, frozenOf(), 1),
+    (e) => e.code === "unknown_question_position",
+  );
+  const twice = parsedFixture();
+  twice.turns[3] = { ...twice.turns[3], question_position: 1 };
+  assert.throws(
+    () => assessLiveExport(twice, frozenOf(), 1),
+    (e) => e.code === "duplicate_base_question",
+  );
+  // The control: the same export with only question 1's greeting is accepted and flagged.
+  assert.equal(
+    assessLiveExport(parsedFixture(), frozenOf(), 1).questions[0].wording_check,
+    "altered_wording",
+  );
+});
+
+const CO = "7aad434d-0000-4000-8000-0000000000f1";
+const APP = "03e4863f-0000-4000-8000-0000000000f1";
+
+/** The fixture with question 2 first asked as `text`, saved for a session whose candidate is `firstName`. */
+async function saveAsking(
+  text,
+  { firstName = "Alex", appCompany = CO, failNameRead = false } = {},
+) {
+  const raw = structuredClone(FIXTURE);
+  const i = raw.turns.findIndex((t) => t.turn_type === "base_question" && t.question_id === 2);
+  raw.turns[i] = { ...raw.turns[i], text };
+  const db = fakeLiveDb({
+    interview_sessions: [frozenRow({ company_id: CO, application_id: APP })],
+    job_applications: [{ id: APP, company_id_snapshot: appCompany, first_name: firstName }],
+  });
+  if (failNameRead) db.failNext("job_applications", "select");
+  const provider = createFakeLiveProvider(raw);
+  const { providerSessionId } = await provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: firstName,
+    cv_text: "",
+  });
+  const logs = [];
+  const orig = { log: console.log, warn: console.warn, error: console.error };
+  console.log = console.warn = console.error = (...a) => logs.push(a.join(" "));
+  try {
+    const { outcome } = await saveLiveExport(
+      SESSION,
+      {
+        ...parseExport(provider.exportOf(providerSessionId)),
+        provider_session_id: PROVIDER_SESSION,
+      },
+      {
+        service: db.service,
+        fetchAudio: (n) => provider.fetchAudio(providerSessionId, n),
+        now: () => T0,
+      },
+    );
+    return { outcome, db, logs };
+  } finally {
+    Object.assign(console, orig);
+  }
+}
+
+test("F12 the save reads the candidate's first name, in the session's company, only to compare", async () => {
+  const q2 = frozenOf().questions[1].text;
+  const named = `Alex, ${lowerFirst(q2)}`;
+  const { outcome, db } = await saveAsking(named, { firstName: "Zuleika" });
+  assert.equal(
+    outcome.questions[1].wording_check,
+    "unexpected_lead_in",
+    "another candidate's name is not set aside",
+  );
+
+  const ok = await saveAsking(`Zuleika, ${lowerFirst(q2)}`, { firstName: "Zuleika" });
+  assert.equal(ok.outcome.questions[1].wording_check, null, "the candidate's own name is");
+  // Never stored, never logged.
+  assert.doesNotMatch(JSON.stringify(ok.db.tables.interview_sessions[0].live_outcome), /zuleika/i);
+  assert.ok(
+    ok.logs.every((l) => !/zuleika/i.test(l)),
+    "not in any log line",
+  );
+  assert.doesNotMatch(JSON.stringify(db.tables.interview_sessions[0].live_outcome), /zuleika/i);
+
+  // Another company's application: no name is read, so nothing is set aside.
+  const other = await saveAsking(`Zuleika, ${lowerFirst(q2)}`, {
+    firstName: "Zuleika",
+    appCompany: "7aad434d-0000-4000-8000-0000000000f2",
+  });
+  assert.equal(other.outcome.questions[1].wording_check, "unexpected_lead_in");
+
+  // The read fails: no name, so the question is held, never let through; the log names no one.
+  const failed = await saveAsking(`Zuleika, ${lowerFirst(q2)}`, {
+    firstName: "Zuleika",
+    failNameRead: true,
+  });
+  assert.equal(failed.outcome.questions[1].wording_check, "unexpected_lead_in");
+  assert.ok(failed.logs.some((l) => l.includes("first name unread")));
+  assert.ok(failed.logs.every((l) => !/zuleika/i.test(l)));
 });

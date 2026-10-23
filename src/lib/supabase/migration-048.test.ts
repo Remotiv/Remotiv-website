@@ -139,8 +139,11 @@ test("numbered 048: no 047 file (reserved for access-log retention), no second 0
 });
 
 test("the fake database accepts resolve_repeat_check exactly as the migration does", () => {
-  const lists = fakeDb.match(
-    /\["resolve_needs_check", "resolve_repeat_check", "resolve_style_check"\]\.includes\(row\.action\)/g,
-  );
-  assert.equal(lists?.length, 2, "decision and target rules both include it");
+  // The fake mirrors the LATEST constraints (049 added resolve_wording_check);
+  // both of its per-question rules must still name resolve_repeat_check.
+  const lists = [...fakeDb.matchAll(/\[([^\]]*)\]\.includes\(row\.action\)/g)]
+    .map((m) => m[1])
+    .filter((l) => l.includes('"resolve_needs_check"'));
+  assert.equal(lists.length, 2, "decision and target rules");
+  for (const l of lists) assert.ok(l.includes('"resolve_repeat_check"'), l);
 });

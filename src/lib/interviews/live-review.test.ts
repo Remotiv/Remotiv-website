@@ -71,7 +71,7 @@ const { default: AdminReviewPage } = await import(
 );
 const { default: AdminListPage } = await import("../../app/admin/interviews/page.tsx");
 const { scoreLiveSession } = await import("./live-scoring.ts");
-const { resolveNeedsCheck } = await import("./live-recovery.ts");
+const { resolveNeedsCheck, resolveWordingCheck } = await import("./live-recovery.ts");
 const { handleLiveTurnTranscribe } = await import("./live-transcribe.ts");
 const { CONFIRMED_EXIT_CODES, saveLiveExport } = await import("./live-ingest.ts");
 
@@ -288,6 +288,17 @@ async function resolveAll(db, model, decision = "score") {
       ),
     );
   }
+  // F12: the sample folds the greeting into question 1, so it always has a wording check.
+  for (const q of db.tables.interview_sessions[0].live_outcome.questions.filter(
+    (x) => x.wording_check,
+  )) {
+    await quiet(() =>
+      resolveWordingCheck(
+        { sessionId: SESSION, position: q.position, decision, note: "Checked." },
+        r,
+      ),
+    );
+  }
 }
 
 const view = (db, role = "owner", id = SESSION) =>
@@ -479,7 +490,7 @@ function completedInput() {
     follow_ups: 0,
     repeats: 0,
     answer_ms: 5000,
-    wording_differs: false,
+    wording_check: null,
     needs_check: false,
   });
   return {
@@ -650,11 +661,12 @@ test("a recruiter or hiring manager sees no action and the server refuses; an ow
   const ownerHtml = render(v, "owner");
   assert.equal(
     (ownerHtml.match(/data-actions/g) ?? []).length,
-    5,
-    "one action box per timing flag",
+    6,
+    "one action box per flag: five timing, and question 1's wording (the greeting, F12)",
   );
   assert.match(ownerHtml, /Don&#x27;t include personal details\./);
   assert.match(ownerHtml, /data-action="resolve_needs_check"/);
+  assert.match(ownerHtml, /data-action="resolve_wording_check"/);
 
   const r = await quiet(() =>
     runLiveRecovery(
@@ -680,10 +692,37 @@ test("a recruiter or hiring manager sees no action and the server refuses; an ow
     ]),
     [["resolve_needs_check", "score", 1, "admin", "Checked the audio."]],
   );
+  // Question 1 still waits for its own wording check: the timing decision never clears it.
+  const between = await view(db, "admin");
+  assert.deepEqual(
+    [byPos(between, 1).status, byPos(between, 1).statusReason],
+    ["waiting_review", "Waiting for a check of how the question was asked."],
+  );
+  const w = await quiet(() =>
+    runLiveRecovery(
+      ctxOf("owner"),
+      {
+        action: "resolve_wording_check",
+        sessionId: SESSION,
+        position: 1,
+        decision: "score",
+        note: "Greeting, then the question.",
+      },
+      { ...deps(db), recovery: { score: (id) => score(db, model, id) } },
+    ),
+  );
+  assert.deepEqual(w, { ok: true });
+  assert.deepEqual(db.tables.live_interview_actions.at(-1).action, "resolve_wording_check");
   // The page refreshes from the store: the question is now scored.
   const after = await view(db, "admin");
   assert.deepEqual([byPos(after, 1).status, byPos(after, 1).score], ["answered", 70]);
-  assert.equal(byPos(after, 1).flags[0].resolved, "score");
+  assert.deepEqual(
+    byPos(after, 1).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["timing", "score"],
+      ["wording", "score"],
+    ],
+  );
 });
 
 test("the hiring team and the company gate the page, the audio and the actions alike", async () => {
@@ -845,15 +884,19 @@ test("while checks are open, the Needs review list names each one with its quest
   await score(db, fakeModel());
   const v = await view(db);
   assert.equal(v.header.reviewReasons[0], END_TEXTS.exit_unconfirmed);
+  const timing = v.header.reviewReasons.filter((r) => r.startsWith("Question "));
   assert.deepEqual(
-    v.header.reviewReasons.slice(1).map((r) => r.slice(0, 11)),
+    timing.map((r) => r.slice(0, 11)),
     ["Question 1:", "Question 2:", "Question 3:", "Question 4:", "Question 5:"],
   );
-  assert.ok(
-    v.header.reviewReasons.slice(1).every((r) => r.includes("overlapped the interviewer's speech")),
+  assert.ok(timing.every((r) => r.includes("overlapped the interviewer's speech")));
+  // Question 1's wording check (the greeting, F12), listed as written after its timing check.
+  assert.equal(
+    v.header.reviewReasons[2],
+    "Sarah asked question 1 in different words from the approved question, so the answer may have been influenced. It is not scored until a person checks the recording.",
   );
   const needs = section(render(v), "data-needs-review");
-  assert.equal((needs.match(/data-review-reason/g) ?? []).length, 6);
+  assert.equal((needs.match(/data-review-reason/g) ?? []).length, 7);
 });
 
 test("every end reason is shown in plain words, hyphens only", async () => {
@@ -1548,7 +1591,187 @@ test("the page's repeat action reaches resolveRepeatCheck: refused where there i
     [
       ["timing", null],
       ["repeat", "score"],
+      ["wording", null],
     ],
   );
   assert.equal(byPos(v, 1).status, "waiting_review");
+});
+
+/* ── F12: the wording check (23 Oct 2026) ─────────────────────── */
+
+const WORDING_TEXT = {
+  unexpected_lead_in: (who, n) =>
+    `${who} added an unexpected phrase before asking question ${n}. Check the recording.`,
+  altered_wording: (who, n) =>
+    `${who} asked question ${n} in different words from the approved question, so the answer may have been influenced. It is not scored until a person checks the recording.`,
+};
+
+/** completedInput with question 2's first asking flagged `check`, its score waiting, named `who`. */
+function wordingInput(check, who = "Maya") {
+  const input = completedInput();
+  input.session.live_settings = { interviewer_name: who };
+  input.session.live_outcome.questions[1] = {
+    ...input.session.live_outcome.questions[1],
+    wording_check: check,
+  };
+  input.row = {
+    status: "pending",
+    overall_score: null,
+    questions: [
+      input.row.questions[0],
+      {
+        ...input.row.questions[1],
+        status: "waiting",
+        reason: "wording_check",
+        score: null,
+        rationale: null,
+        quotes: [],
+      },
+    ],
+  };
+  return input;
+}
+
+test("F12 a wording check: its own card, the interviewer's name from settings, waiting for review, the two actions", () => {
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    const v = buildLiveReviewView(wordingInput(check));
+    const q2 = byPos(v, 2);
+    const text = WORDING_TEXT[check]("Maya", 2);
+    assert.deepEqual(
+      q2.flags.map((f) => [f.kind, f.reason, f.resolved]),
+      [["wording", text, null]],
+      check,
+    );
+    assert.deepEqual(
+      [q2.status, q2.statusReason, q2.score],
+      ["waiting_review", "Waiting for a check of how the question was asked.", null],
+      check,
+    );
+    assert.deepEqual(v.header.reviewReasons, [text], "listed as written: it names its question");
+    assert.doesNotMatch(text, /Sarah/);
+    assert.doesNotMatch(text, /[–—]/, "hyphens only");
+    assert.deepEqual(byPos(v, 1).flags, [], "only its own question");
+
+    const html = render(v, "admin");
+    assert.match(html, /data-flag="wording"/);
+    assert.match(html, />Wording check</);
+    assert.equal((html.match(/data-action="resolve_wording_check"/g) ?? []).length, 2);
+    assert.match(html, />Score as usual</);
+    assert.match(html, />Leave out</);
+    assert.doesNotMatch(
+      html,
+      /data-action="resolve_(needs|repeat|style)_check"/,
+      "never another action",
+    );
+    assert.ok(section(html, "data-needs-review").includes(escaped(text)));
+    for (const role of ["recruiter", "hiring_manager"]) {
+      assert.doesNotMatch(render(v, role), /data-action=/, `${role}: no action`);
+    }
+  }
+});
+
+test("F12 a wording check with no interviewer name in settings says 'Interviewer'", () => {
+  const input = wordingInput("altered_wording");
+  input.session.live_settings = {};
+  assert.equal(
+    byPos(buildLiveReviewView(input), 2).flags[0].reason,
+    WORDING_TEXT.altered_wording("Interviewer", 2),
+  );
+});
+
+test("F12 a wording check before any scoring row: the question still waits for review", () => {
+  const input = wordingInput("unexpected_lead_in");
+  input.row = null;
+  const q2 = byPos(buildLiveReviewView(input), 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason],
+    ["waiting_review", "Waiting for a check of how the question was asked."],
+  );
+});
+
+test("F12 a wording check resolved: Leave out shown as left out, off the Needs review list", () => {
+  const input = wordingInput("altered_wording");
+  input.actions = [
+    {
+      action: "resolve_wording_check",
+      decision: "exclude",
+      question_position: 2,
+      turn_id: null,
+      turn_sequence: null,
+      created_at: "2026-10-23T10:00:00.000Z",
+    },
+  ];
+  input.row.questions[1] = {
+    ...input.row.questions[1],
+    status: "left_out",
+    reason: "wording_excluded",
+  };
+  const v = buildLiveReviewView(input);
+  const q2 = byPos(v, 2);
+  assert.deepEqual(
+    [q2.status, q2.statusReason, q2.score, q2.flags[0].resolved],
+    ["excluded", "Left out after a review of how the question was asked.", null, "exclude"],
+  );
+  assert.deepEqual(v.header.reviewReasons, []);
+});
+
+test("F12 wording, repeat and timing flags on one question are separate: no decision resolves another", () => {
+  const input = wordingInput("altered_wording");
+  input.session.live_outcome.questions[1].needs_check = true;
+  input.session.live_outcome.questions[1].repeat_check = "unexpected_lead_in";
+  const at = "2026-10-23T10:00:00.000Z";
+  const action = (a) => ({
+    action: a,
+    decision: "score",
+    question_position: 2,
+    turn_id: null,
+    turn_sequence: null,
+    created_at: at,
+  });
+  input.actions = [action("resolve_needs_check"), action("resolve_repeat_check")];
+  const v = buildLiveReviewView(input);
+  assert.deepEqual(
+    byPos(v, 2).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["timing", "score"],
+      ["repeat", "score"],
+      ["wording", null],
+    ],
+  );
+  assert.deepEqual(v.header.reviewReasons, [WORDING_TEXT.altered_wording("Maya", 2)]);
+  input.actions = [action("resolve_wording_check")];
+  assert.deepEqual(
+    byPos(buildLiveReviewView(input), 2).flags.map((f) => [f.kind, f.resolved]),
+    [
+      ["timing", null],
+      ["repeat", null],
+      ["wording", "score"],
+    ],
+  );
+});
+
+test("F12 the page's wording action reaches resolveWordingCheck: refused where there is no wording check", async () => {
+  const db = await saved();
+  const model = fakeModel();
+  await score(db, model);
+  const run = (action, position) =>
+    quiet(() =>
+      runLiveRecovery(
+        ctxOf("admin"),
+        { action, sessionId: SESSION, position, decision: "score", note: "Listened." },
+        { ...deps(db), recovery: { score: (id) => score(db, model, id) } },
+      ),
+    );
+  // Question 2 was asked as frozen: nothing to resolve, nothing logged.
+  assert.deepEqual(await run("resolve_wording_check", 2), {
+    ok: false,
+    error: "There is nothing to resolve on that question.",
+  });
+  assert.equal(db.tables.live_interview_actions.length, 0);
+  // Question 1 (the greeting): resolved, under its own action.
+  assert.deepEqual(await run("resolve_wording_check", 1), { ok: true });
+  assert.deepEqual(
+    db.tables.live_interview_actions.map((a) => [a.action, a.question_position]),
+    [["resolve_wording_check", 1]],
+  );
 });

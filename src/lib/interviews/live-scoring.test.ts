@@ -50,6 +50,7 @@ const {
   resolveNeedsCheck,
   resolveRepeatCheck,
   resolveStyleCheck,
+  resolveWordingCheck,
   resolveFailedTranscription,
   LiveRecoveryError,
 } = await import("./live-recovery.ts");
@@ -294,12 +295,24 @@ function recovery(db, model, caller = ADMIN) {
   };
 }
 
+/**
+ * A person resolves every timing check, then every wording check (F12: the
+ * sample folds the greeting into question 1, so question 1 always has one).
+ */
 async function resolveAllChecks(db, model, decision = "score", caller = ADMIN) {
   const { deps } = recovery(db, model, caller);
   for (const q of outcomeOf(db).questions.filter((x) => x.needs_check)) {
     await quiet(() =>
       resolveNeedsCheck(
         { sessionId: SESSION, position: q.position, decision, note: "Checked the audio." },
+        deps,
+      ),
+    );
+  }
+  for (const q of outcomeOf(db).questions.filter((x) => x.wording_check)) {
+    await quiet(() =>
+      resolveWordingCheck(
+        { sessionId: SESSION, position: q.position, decision, note: "Checked the recording." },
         deps,
       ),
     );
@@ -361,6 +374,19 @@ test("needs_check waits for a person; 'score' scores it, 'exclude' leaves it out
   await quiet(() =>
     resolveNeedsCheck(
       { sessionId: SESSION, position: 2, decision: "exclude", note: "Talked over the question." },
+      deps,
+    ),
+  );
+  // Question 1 also waits for its own wording check (the greeting is folded
+  // into it, F12): the timing decision never clears that.
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[1].status, byPosition(scoreRow(db))[1].reason],
+    ["waiting", "wording_check"],
+  );
+  assert.equal(model.requests.length, 0, "still nothing sent");
+  await quiet(() =>
+    resolveWordingCheck(
+      { sessionId: SESSION, position: 1, decision: "score", note: "Greeting, then the question." },
       deps,
     ),
   );
@@ -632,6 +658,10 @@ test("a retryable provider failure: that question waits, the rest are kept, the 
     reply: (p) => (p === 1 ? new ProviderHttpError("Anthropic", 529, "overloaded") : undefined),
   });
   const { deps } = recovery(db, failing);
+  // Its wording check first (the greeting, F12): question 1 still waits for timing, so no call yet.
+  await quiet(() =>
+    resolveWordingCheck({ sessionId: SESSION, position: 1, decision: "score", note: "ok" }, deps),
+  );
   await assert.rejects(
     quiet(() =>
       resolveNeedsCheck({ sessionId: SESSION, position: 1, decision: "score", note: "ok" }, deps),
@@ -1636,4 +1666,332 @@ test("planLiveScoring: the repeat check, in order with the other rules", () => {
     one({ needs_check: true }, { ...scoreIt, needsCheck: new Map([[1, "score"]]) }).decision,
     "ai",
   );
+});
+
+/* ── F12: the first asking (23 Oct 2026) ──────────────────────── */
+
+const Q3 = QUESTIONS.find((q) => q.position === 3).text;
+
+/** The sample with question `position` first asked as `text`. */
+function askedAs(text, position = 3, raw = FIXTURE) {
+  const out = structuredClone(raw);
+  const i = out.turns.findIndex(
+    (t) => t.turn_type === "base_question" && t.question_id === position,
+  );
+  out.turns[i] = { ...out.turns[i], text };
+  return out;
+}
+
+/** Every TIMING check resolved 'score', and question 1's wording check (the greeting) too. */
+async function timedAndGreeted(db, model) {
+  const { deps } = recovery(db, model);
+  for (const q of outcomeOf(db).questions.filter((x) => x.needs_check)) {
+    await quiet(() =>
+      resolveNeedsCheck(
+        { sessionId: SESSION, position: q.position, decision: "score", note: "Checked." },
+        deps,
+      ),
+    );
+  }
+  await quiet(() =>
+    resolveWordingCheck(
+      { sessionId: SESSION, position: 1, decision: "score", note: "The greeting." },
+      deps,
+    ),
+  );
+}
+
+const q3Asked = (model) =>
+  model.requests.filter((r) => r.messages[0].content.includes(`## Question asked\n${Q3}`)).length;
+
+async function heldWith(text, transcribeOpts = {}) {
+  const db = await saved(askedAs(text));
+  await transcribe(db, candidateTurns(db), transcribeOpts);
+  const model = fakeModel();
+  await timedAndGreeted(db, model);
+  return { db, model };
+}
+
+test("F12 every hint, extra demand, changed, shortened or different first asking is held and never sent to the model", async () => {
+  const words = Q3.split(" ");
+  for (const [label, text, check] of [
+    ["hint before", `Zebrafish matter here. ${Q3}`, "unexpected_lead_in"],
+    ["hint after", `${Q3} Zebrafish matter here.`, "altered_wording"],
+    ["extra demand", `${Q3} And what would zebrafish do differently?`, "altered_wording"],
+    [
+      "a word changed",
+      words.map((w, i) => (i === 5 ? "zebrafish" : w)).join(" "),
+      "altered_wording",
+    ],
+    ["shortened", words.slice(0, 6).join(" "), "altered_wording"],
+    [
+      "a different question",
+      "What would zebrafish change about your last team?",
+      "altered_wording",
+    ],
+  ]) {
+    const { db, model } = await heldWith(text);
+    assert.equal(outcomeOf(db).questions[2].wording_check, check, label);
+    const q3 = byPosition(scoreRow(db))[3];
+    assert.deepEqual([q3.status, q3.reason, q3.score], ["waiting", "wording_check", null], label);
+    assert.equal(q3Asked(model), 0, `${label}: never sent`);
+    assert.ok(
+      model.requests.every((r) => !/zebrafish/i.test(JSON.stringify(r))),
+      label,
+    );
+    assert.equal(scoreRow(db).status, "pending", label);
+    assert.equal(byPosition(scoreRow(db))[2].status, "scored", `${label}: the rest score`);
+  }
+});
+
+test("F12 Score as usual scores the held question; Leave out leaves it out, never zero", async () => {
+  const hint = `${Q3} Remember to mention reliability.`;
+  let { db, model } = await heldWith(hint);
+  const act = (decision, caller = ADMIN) =>
+    quiet(() =>
+      resolveWordingCheck(
+        { sessionId: SESSION, position: 3, decision, note: "Listened to the recording." },
+        recovery(db, model, caller).deps,
+      ),
+    );
+  await act("score");
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[3].status, byPosition(scoreRow(db))[3].score],
+    ["scored", 80],
+  );
+  assert.equal(scoreRow(db).status, "scored");
+  assert.deepEqual(
+    db.tables.live_interview_actions
+      .filter((a) => a.question_position === 3)
+      .map((a) => [a.action, a.decision]),
+    [
+      ["resolve_needs_check", "score"],
+      ["resolve_wording_check", "score"],
+    ],
+  );
+
+  ({ db, model } = await heldWith(hint));
+  await act("exclude", OWNER);
+  const q3 = byPosition(scoreRow(db))[3];
+  assert.deepEqual([q3.status, q3.reason, q3.score], ["left_out", "wording_excluded", null]);
+  assert.equal(q3Asked(model), 0);
+  assert.equal(scoreRow(db).status, "scored");
+});
+
+test("F12 a skipped question is held too; once resolved, skipped is the lowest and Leave out is no score", async () => {
+  const hint = `${Q3} Remember to mention reliability.`;
+  for (const [decision, want] of [
+    ["score", ["lowest", LOWEST_SCORE]],
+    ["exclude", ["left_out", null]],
+  ]) {
+    const db = await saved(askedAs(hint));
+    const silent = { text: (row) => (positionOf(db, row) === 3 ? "um... uh" : undefined) };
+    await transcribe(db, candidateTurns(db), silent);
+    const model = fakeModel();
+    await timedAndGreeted(db, model);
+    assert.equal(outcomeOf(db).questions[2].status, "skipped");
+    assert.deepEqual(
+      [byPosition(scoreRow(db))[3].status, byPosition(scoreRow(db))[3].reason],
+      ["waiting", "wording_check"],
+      "not the lowest until a person decides",
+    );
+    await quiet(() =>
+      resolveWordingCheck(
+        { sessionId: SESSION, position: 3, decision, note: "Checked." },
+        recovery(db, model).deps,
+      ),
+    );
+    assert.deepEqual(
+      [byPosition(scoreRow(db))[3].status, byPosition(scoreRow(db))[3].score],
+      want,
+      decision,
+    );
+  }
+});
+
+test("F12 harmless differences end to end: filler and the candidate's name, scored as usual with no hold", async () => {
+  // The candidate is Alex Example (job_applications in saved()).
+  const { db, model } = await heldWith(`Um, Alex, ${Q3[0].toLowerCase()}${Q3.slice(1)} Uh.`);
+  assert.equal(outcomeOf(db).questions[2].wording_check, null);
+  assert.deepEqual(
+    [byPosition(scoreRow(db))[3].status, byPosition(scoreRow(db))[3].score],
+    ["scored", 80],
+  );
+  assert.ok(q3Asked(model) > 0);
+  assert.doesNotMatch(JSON.stringify(outcomeOf(db)), /\balex\b/i, "the name is never stored");
+});
+
+test("F12 wording and timing checks are separate: resolving one never clears the other, either way", async () => {
+  const db = await saved(askedAs(`${Q3} Remember to mention reliability.`));
+  await transcribe(db);
+  assert.deepEqual(
+    [outcomeOf(db).questions[2].needs_check, outcomeOf(db).questions[2].wording_check],
+    [true, "altered_wording"],
+  );
+  const model = fakeModel();
+  const { deps } = recovery(db, model);
+  const act = (fn, decision) =>
+    quiet(() =>
+      fn({ sessionId: SESSION, position: 3, decision, note: `Reviewed: ${decision}.` }, deps),
+    );
+  const q3 = () => [byPosition(scoreRow(db))[3].status, byPosition(scoreRow(db))[3].reason];
+  await act(resolveWordingCheck, "score");
+  assert.deepEqual(q3(), ["waiting", "needs_check"]);
+  await act(resolveNeedsCheck, "score");
+  assert.deepEqual(q3(), ["scored", "answered"]);
+  await act(resolveWordingCheck, "exclude");
+  assert.deepEqual(q3(), ["left_out", "wording_excluded"]);
+  await act(resolveNeedsCheck, "score");
+  assert.deepEqual(q3(), ["left_out", "wording_excluded"], "timing never undoes it");
+  await act(resolveWordingCheck, "score");
+  await act(resolveNeedsCheck, "exclude");
+  assert.deepEqual(q3(), ["left_out", "excluded_by_reviewer"]);
+  assert.equal(q3Asked(model), 1, "the AI result is kept, never re-bought");
+});
+
+test("F12 wording and repeat checks are separate: resolving one never clears the other, either way", async () => {
+  const Q2text = QUESTIONS.find((q) => q.position === 2).text;
+  const raw = askedAs(
+    `${Q2text} Remember to mention reliability.`,
+    2,
+    repeatSaying(`No worries. ${Q2text}`),
+  );
+  const db = await saved(raw);
+  await transcribe(db);
+  const o = outcomeOf(db).questions[1];
+  assert.deepEqual([o.repeat_check, o.wording_check], ["unexpected_lead_in", "altered_wording"]);
+  const model = fakeModel();
+  const { deps } = recovery(db, model);
+  const act = (fn, decision) =>
+    quiet(() =>
+      fn({ sessionId: SESSION, position: 2, decision, note: `Reviewed: ${decision}.` }, deps),
+    );
+  const q2 = () => [byPosition(scoreRow(db))[2].status, byPosition(scoreRow(db))[2].reason];
+  await act(resolveNeedsCheck, "score");
+  await act(resolveRepeatCheck, "score");
+  assert.deepEqual(q2(), ["waiting", "wording_check"], "the repeat decision never clears wording");
+  await act(resolveWordingCheck, "score");
+  assert.deepEqual(q2(), ["scored", "answered"]);
+  await act(resolveRepeatCheck, "exclude");
+  assert.deepEqual(q2(), ["left_out", "repeat_excluded"]);
+  await act(resolveWordingCheck, "score");
+  assert.deepEqual(q2(), ["left_out", "repeat_excluded"], "a wording decision never undoes it");
+});
+
+test("F12 only a flagged question can be wording-resolved, only by an owner or admin, and nothing is logged otherwise", async () => {
+  const { db, model } = await heldWith(`${Q3} Remember to mention reliability.`);
+  const before = db.tables.live_interview_actions.length;
+  const act = (position, decision, caller = ADMIN) =>
+    quiet(() =>
+      resolveWordingCheck(
+        { sessionId: SESSION, position, decision, note: "Listened." },
+        recovery(db, model, caller).deps,
+      ),
+    );
+  await assert.rejects(
+    act(2, "score"),
+    (e) => e.code === "no_check",
+    "question 2 was asked as frozen",
+  );
+  for (const caller of [
+    { kind: "company", userId: "u-r", name: "R", role: "recruiter", companyId: CO },
+    { kind: "company", userId: "u-h", name: "H", role: "hiring_manager", companyId: CO },
+    { kind: "company", userId: "u-x", name: "X", role: "admin", companyId: OTHER_CO },
+    SUPER,
+  ]) {
+    await assert.rejects(
+      act(3, "score", caller),
+      (e) => e instanceof LiveRecoveryError,
+      caller.role,
+    );
+  }
+  await assert.rejects(act(3, "maybe"), (e) => e.code === "bad_input");
+  assert.equal(db.tables.live_interview_actions.length, before);
+  assert.equal(byPosition(scoreRow(db))[3].status, "waiting");
+});
+
+test("F12 a wording check never changes the D2 outcome: the facts match the plain asking except the flag", async () => {
+  const plain = await saved(askedAs(Q3));
+  await transcribe(plain);
+  const flagged = await saved(askedAs(`${Q3} Remember to mention reliability.`));
+  await transcribe(flagged);
+  const d2 = (o) => ({
+    outcome: o.outcome,
+    end_check: o.end_check,
+    final: o.final,
+    restart_allowed: o.restart_allowed,
+    restart_needs_person: o.restart_needs_person,
+    held_from_ranking: o.held_from_ranking,
+    counts: [o.answered_count, o.skipped_count, o.not_reached_count, o.total],
+    statuses: o.questions.map((q) => [
+      q.status,
+      q.follow_ups,
+      q.repeats,
+      q.needs_check,
+      q.repeat_check,
+    ]),
+  });
+  assert.deepEqual(d2(outcomeOf(flagged)), d2(outcomeOf(plain)));
+  assert.deepEqual(
+    [outcomeOf(plain).questions[2].wording_check, outcomeOf(flagged).questions[2].wording_check],
+    [null, "altered_wording"],
+  );
+});
+
+test("planLiveScoring: the wording check, in order with the other rules", () => {
+  const facts = (over) => ({
+    position: 1,
+    source: "job",
+    status: "answered",
+    confirmed: true,
+    needs_check: false,
+    repeat_check: null,
+    wording_check: "altered_wording",
+    ...over,
+  });
+  const none = {
+    needsCheck: new Map(),
+    repeatCheck: new Map(),
+    wordingCheck: new Map(),
+    excludedPositions: new Set(),
+  };
+  const one = (f, resolved = none) =>
+    planLiveScoring(
+      { final: true, questions: [facts(f)] },
+      [{ position: 1, scoring_guide: "G" }],
+      resolved,
+    )[0];
+  const scoreIt = { ...none, wordingCheck: new Map([[1, "score"]]) };
+  const leaveOut = { ...none, wordingCheck: new Map([[1, "exclude"]]) };
+  for (const check of ["unexpected_lead_in", "altered_wording"]) {
+    assert.deepEqual(one({ wording_check: check }), {
+      position: 1,
+      decision: "wait",
+      reason: "wording_check",
+    });
+    assert.equal(one({ wording_check: check }, scoreIt).decision, "ai");
+    assert.deepEqual(one({ wording_check: check }, leaveOut), {
+      position: 1,
+      decision: "left_out",
+      reason: "wording_excluded",
+    });
+  }
+  assert.equal(one({ status: "skipped", confirmed: null }).reason, "wording_check");
+  assert.equal(one({ status: "skipped", confirmed: null }, scoreIt).decision, "lowest");
+  assert.equal(one({ status: "not_reached", confirmed: null }).reason, "not_reached");
+  assert.equal(one({ wording_check: null }).decision, "ai");
+  assert.equal(one({ wording_check: undefined }).decision, "ai", "an outcome before version 4");
+  // No other decision resolves it, and it resolves no other check.
+  for (const map of ["needsCheck", "repeatCheck"]) {
+    assert.equal(
+      one(
+        { needs_check: true, repeat_check: "unexpected_lead_in" },
+        { ...none, [map]: new Map([[1, "score"]]) },
+      ).decision,
+      "wait",
+      map,
+    );
+  }
+  assert.equal(one({ needs_check: true }, scoreIt).reason, "needs_check");
+  assert.equal(one({ repeat_check: "unexpected_lead_in" }, scoreIt).reason, "repeat_check");
 });
