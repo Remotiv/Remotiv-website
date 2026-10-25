@@ -74,6 +74,13 @@ export const QUEUE_TYPES: readonly string[] = [
   JOB_TYPES.INTERVIEW_PURGE,
   JOB_TYPES.CV_PURGE,
   JOB_TYPES.QUEUE_SWEEP,
+  // Every other type ensureMaintenanceScheduled starts, so a scheduled job's
+  // succeeded runs are counted too, not only its failures. Pinned by
+  // queue/scheduled-visible.test.ts.
+  JOB_TYPES.INTERVIEW_EXPIRY_SWEEP,
+  JOB_TYPES.FINAL_BOT_SYNC,
+  JOB_TYPES.FINAL_RECORDING_PURGE,
+  JOB_TYPES.ACCESS_LOG_PURGE,
 ];
 
 /**

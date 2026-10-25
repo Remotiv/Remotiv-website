@@ -8,4 +8,4 @@
  * page without updating this fails. Rows from before versions were recorded
  * are NULL and stay NULL.
  */
-export const PRIVACY_NOTICE_VERSION = "2026-10-21";
+export const PRIVACY_NOTICE_VERSION = "2026-10-25";

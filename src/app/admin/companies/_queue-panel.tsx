@@ -51,6 +51,10 @@ const TYPE_LABEL: Record<string, string> = {
   interview_purge: "Interview retention",
   cv_purge: "CV retention",
   queue_sweep: "Queue row retention",
+  interview_expiry_sweep: "Interview expiry sweep",
+  final_bot_sync: "Recording bot sync",
+  final_recording_purge: "Final recording retention",
+  access_log_purge: "Access record retention",
 };
 
 function label(type: string): string {

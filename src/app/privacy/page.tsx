@@ -40,6 +40,11 @@ import { LiveInterviewsSection } from "./_live-interviews-section";
  *                                   to RECURRING, section 3's "no automatic
  *                                   expiry" wording is part of that change.
  *   `cvs` + interview buckets       private; signed URLs; signed_url_logs
+ *   Access records (migration 047)  signed_url_logs and admin_access_logs:
+ *                                   deleted 24 months after the database
+ *                                   stamped them, by access-log-purge.ts,
+ *                                   scheduled every 24h by jobs-queue.ts.
+ *                                   Sections 2 and 3 say so.
  *   interview_answer_scores         SURVIVE the interview purge as numbers
  *   interview_session_scores        only. Phase 1 clears reasoning, evidence,
  *                                   strengths, concerns and missing, and the
@@ -109,7 +114,7 @@ export const metadata: Metadata = {
 };
 
 /** Shown at the top. Update whenever the substance below changes. */
-const LAST_UPDATED = "21 October 2026";
+const LAST_UPDATED = "25 October 2026";
 
 const CONTACT = "talent@remotiv.work";
 
@@ -289,9 +294,9 @@ export default function PrivacyPage() {
               <strong className="font-semibold text-[#111]">CVs and interview recordings</strong>{" "}
               are held in private storage. They have no public web address and cannot be opened by
               anyone who has not been authorised. Each view generates a short-lived link for that
-              one view only. When a company or Remotiv staff open a CV or a recording, we record
-              that access — who opened which document, and when. Opening your own CV from your own
-              profile is not logged.
+              one view only. When a company or Remotiv staff open a CV or a recording, we record who
+              opened which document, and when. These access records are kept for 24 months, then
+              deleted. Opening your own CV from your own profile is not logged.
             </li>
             <li>
               <strong className="font-semibold text-[#111]">Profile photos</strong>, if you add one
@@ -307,7 +312,7 @@ export default function PrivacyPage() {
 
           <H2>3. How long we keep it</H2>
           <P>
-            Three things here expire on their own. Nothing else does. The three that do are enforced
+            Four things here expire on their own. Nothing else does. The four that do are enforced
             by jobs that run every day; they are not a statement of intent, they are code that
             deletes. Everything else we keep until you ask us to remove it, and we would rather say
             that than describe a deletion that does not happen.
@@ -347,6 +352,12 @@ export default function PrivacyPage() {
           <P>
             Recordings of final interviews held on Google Meet are deleted 3 months after the
             interview. Section 14 explains how they are made and who can see them.
+          </P>
+
+          <H3>Records of who opened a CV or a recording: 24 months</H3>
+          <P>
+            We record each time a company or Remotiv staff open a CV or a recording: who opened it
+            and when. These access records are kept for 24 months, then deleted.
           </P>
 
           <H3>Talent-pool profiles, and CVs sent to Remotiv&apos;s own roles: no expiry date</H3>

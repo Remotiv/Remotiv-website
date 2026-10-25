@@ -51,7 +51,7 @@ function body(text, signature) {
 
 /* ── migration 040 and the queue agree ───────────────────────── */
 
-test("JOB_TYPES holds migration 040's nineteen job types in its order", () => {
+test("JOB_TYPES holds migration 040's nineteen job types in its order, then 047's access_log_purge", () => {
   const queue = read(QUEUE);
   const block = queue.slice(queue.indexOf("export const JOB_TYPES"), queue.indexOf("} as const;"));
   const inCode = [...code(block).matchAll(/:\s*"([a-z_]+)"/g)].map((m) => m[1]);
@@ -63,7 +63,10 @@ test("JOB_TYPES holds migration 040's nineteen job types in its order", () => {
   );
   const inMigration = [...array.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
   assert.equal(inMigration.length, 19);
-  assert.deepEqual(inCode, inMigration);
+  // 047 keeps all nineteen, in 040's order, and appends the twentieth.
+  const m047 = read("src/lib/supabase/migrations/047_access_log_retention.sql");
+  assert.match(m047, /unnest\(v_types \|\| array\['access_log_purge'\]\)/);
+  assert.deepEqual(inCode, [...inMigration, "access_log_purge"]);
 });
 
 test("final_bot_sync (step 2), final_bot_lobby_check (step 3), final_recording_import (step 4) and final_recording_purge (step 6a) have handlers; the watchdog does not", () => {

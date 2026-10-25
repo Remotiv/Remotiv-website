@@ -1,4 +1,5 @@
 import { randomUUID } from "node:crypto";
+import { handleAccessLogPurge } from "@/lib/access-log-purge";
 import { handleCvRecompute } from "@/lib/ai/cv-recompute";
 import { handleAiCvScore } from "@/lib/ai/cv-scoring";
 import { handleAiScorecard } from "@/lib/ai/interview-scoring";
@@ -225,6 +226,8 @@ export const JOB_TYPES = {
   FINAL_RECORDING_IMPORT_WATCHDOG: "final_recording_import_watchdog",
   /** Recording step 6a - retention purge and orphan sweep. Dry run unless RECORDING_PURGE_LIVE. */
   FINAL_RECORDING_PURGE: "final_recording_purge",
+  /** Migration 047: access records (who opened a CV or a recording) deleted after 24 months. */
+  ACCESS_LOG_PURGE: "access_log_purge",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -285,6 +288,7 @@ registerHandler(JOB_TYPES.CALENDAR_SYNC, notImplemented); // Step 11
 registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
+registerHandler(JOB_TYPES.ACCESS_LOG_PURGE, handleAccessLogPurge);
 /*
  * Registered but NEVER SCHEDULED — see the note in RECURRING below, which is
  * the only place either type can be enqueued from. These two lines are what
@@ -457,6 +461,11 @@ const RECURRING: readonly RecurringJob[] = [
    * counts and logs) until RECORDING_PURGE_LIVE is "true".
    */
   { type: JOB_TYPES.FINAL_RECORDING_PURGE, intervalMs: PURGE_INTERVAL_MS },
+  /*
+   * Migration 047: access records older than 24 months, deleted daily. The
+   * privacy page (section 3) says this runs; it ships in the same deploy.
+   */
+  { type: JOB_TYPES.ACCESS_LOG_PURGE, intervalMs: PURGE_INTERVAL_MS },
 ];
 
 /**

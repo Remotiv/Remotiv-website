@@ -152,9 +152,13 @@ test("each check fails on a broken copy", () => {
   assert.ok(problems(commented).length > 0, "comment");
 });
 
-test("numbered 049: 047 stays free (access-log retention), 048 is the repeat check, no second 049", () => {
+test("numbered 049: 047 is access-log retention, 048 is the repeat check, no second 049", () => {
   const files = readdirSync(MIGRATIONS);
-  assert.ok(!files.some((f) => f.startsWith("047_")), "047 stays free");
+  assert.deepEqual(
+    files.filter((f) => f.startsWith("047_")),
+    ["047_access_log_retention.sql"],
+    "047 holds what it was reserved for",
+  );
   assert.deepEqual(
     files.filter((f) => f.startsWith("048_")),
     ["048_live_repeat_check.sql"],
