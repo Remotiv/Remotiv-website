@@ -295,11 +295,15 @@ export function InterviewsClient({ initial }: { initial: Read<InterviewListResul
                   itself, which put 149px of chips — Not started and Expired —
                   off the right edge at 360px behind a scrollbar phones do not
                   draw. A filter nobody can see is a filter nobody uses. */}
-              <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+              <div
+                data-interview-chips
+                className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]"
+              >
                 {TABS.filter((t) => chipVisible(t.key, data.counts)).map((t) => (
                   <button
                     key={t.key}
                     type="button"
+                    data-tab={t.key}
                     onClick={() => {
                       setTab(t.key);
                       reload({ status: t.key, page: 1 });
@@ -312,6 +316,7 @@ export function InterviewsClient({ initial }: { initial: Read<InterviewListResul
                   >
                     {t.label}
                     <span
+                      data-count={data.counts[t.key]}
                       className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
                         data.applied.status === t.key
                           ? "bg-white/20 text-white"
@@ -714,9 +719,12 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
   const grid =
     "grid grid-cols-1 gap-3 border-b border-[var(--ai-line-soft)] px-5 py-3.5 last:border-b-0 min-[1017px]:grid-cols-[minmax(0,1.5fr)_minmax(0,1fr)_128px_96px_92px_minmax(0,0.7fr)_84px] min-[1017px]:items-center min-[1017px]:gap-3";
 
+  // Both branches carry the id and the status. Putting them on the openable row
+  // alone would make an id sweep come back short by however many rows are not
+  // openable, and that shortfall would be read as dropped pages.
   if (!openable) {
     return (
-      <div className={`${grid} bg-[#FDFCFA]`} data-status={row.status}>
+      <div className={`${grid} bg-[#FDFCFA]`} data-interview-id={row.id} data-status={row.status}>
         {inner}
       </div>
     );
@@ -724,6 +732,8 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
   return (
     <Link
       href={`/ai-dashboard/interviews/${row.id}`}
+      data-interview-id={row.id}
+      data-status={row.status}
       className={`${grid} group relative bg-[var(--ai-surface)] transition-[background,box-shadow] hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)]`}
     >
       <span className="absolute inset-y-0 left-0 w-[3px] bg-remotiv-purple opacity-0 transition-opacity group-hover:opacity-100" />

@@ -910,6 +910,7 @@ function ApplicantCard({
   return (
     <button
       type="button"
+      data-applicant-id={row.id}
       onClick={onOpen}
       className={`relative w-full border-b border-[var(--ai-line-soft)] px-4 py-4 text-left transition-colors last:border-b-0 active:bg-[#FCFBFA] ${
         selected
@@ -6073,6 +6074,7 @@ export function ApplicantsClient({
                     <button
                       key={r.id}
                       type="button"
+                      data-applicant-id={r.id}
                       onClick={() => openApplicant(r.id)}
                       className={`${GRID} group/row group relative w-full cursor-pointer border-b border-[var(--ai-line-soft)] py-[13px] text-left transition-all last:border-b-0 hover:z-[2] hover:bg-[#FCFBFA] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)] ${
                         openId === r.id

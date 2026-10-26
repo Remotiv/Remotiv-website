@@ -62,7 +62,10 @@ export function StageTabs({
     // chip stays on screen at every width and the strip grows downwards.
     // shrink-0 is still on every chip: wrapping moves them to the next row,
     // compressing would squeeze nine labels into one unreadable row.
-    <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+    <div
+      data-stage-strip
+      className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]"
+    >
       <TabButton
         stage="all"
         on={tab === "all"}
@@ -101,6 +104,7 @@ export function StageTabs({
         Flagged
         {typeof flaggedCount === "number" && flaggedCount > 0 && (
           <span
+            data-count={flaggedCount}
             className={`rounded-full px-[6px] py-px text-[10.5px] font-bold tabular-nums ${
               flaggedOnly ? "bg-white/20 text-white" : "bg-remotiv-purple/10 text-remotiv-purple"
             }`}
@@ -149,6 +153,10 @@ function TabButton({
       {children}
       <span
         aria-busy={updating}
+        // Deliberately countLabel's own output, not a separately formatted
+        // number: a second path could disagree with the visible text, and a
+        // badge reading 7 while the attribute reads 5 would pass a test.
+        data-count={countLabel(count)}
         className={`rounded-full px-1.5 py-px text-[10.5px] font-bold tabular-nums transition-opacity ${
           on ? "bg-white/20 text-white" : "bg-black/[0.07]"
         } ${updating ? "opacity-50" : ""}`}

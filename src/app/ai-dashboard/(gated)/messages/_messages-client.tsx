@@ -398,11 +398,15 @@ export function MessagesClient({
               flex-wrap moves chips to a second row, max-w-full stops the strip
               widening the card, and shrink-0 keeps the labels readable instead
               of compressing four of them into one row. */}
-          <div className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]">
+          <div
+            data-message-chips
+            className="flex max-w-full flex-wrap rounded-[11px] border border-[var(--ai-line)] bg-[var(--ai-inset)] p-[3px]"
+          >
             {TABS.map((t) => (
               <button
                 key={t.key}
                 type="button"
+                data-tab={t.key}
                 onClick={() => resetTo({ tab: t.key })}
                 className={`flex shrink-0 items-center gap-[7px] rounded-lg px-3.5 py-[7px] text-[12.5px] font-semibold transition-colors ${
                   tab === t.key
@@ -412,6 +416,7 @@ export function MessagesClient({
               >
                 {t.label}
                 <span
+                  data-count={agg[t.key]}
                   className={`rounded-full px-1.5 py-px text-[10.5px] font-bold ${
                     tab === t.key ? "bg-white/20 text-white" : "bg-[rgba(20,16,32,0.07)]"
                   }`}
@@ -480,6 +485,7 @@ export function MessagesClient({
             return (
               <div
                 key={row.id}
+                data-message-id={row.id}
                 className={`group relative border-b border-[var(--ai-line-soft)] last:border-b-0 ${
                   scheduled ? "bg-[#FDFCFA]" : "bg-[var(--ai-surface)]"
                 } transition-shadow hover:z-[2] hover:shadow-[0_6px_22px_rgba(20,16,32,0.07)]`}
