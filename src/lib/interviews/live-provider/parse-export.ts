@@ -2,6 +2,8 @@ import { MAX_FOLLOW_UPS_PER_BASE_QUESTION } from "@/lib/interviews/types";
 import type {
   ExportStatus,
   ExportStatusCode,
+  Interruption,
+  InterruptionAmbiguity,
   LiveSpeaker,
   LiveTurn,
   LiveTurnKind,
@@ -26,9 +28,13 @@ import type {
  *
  *   role                    -> speaker (interviewer | candidate)
  *   turn_type               -> kind: base_question, follow_up, clarification
- *                              and procedural as they are; acknowledgment ->
- *                              procedural; answer -> null (candidate turns
- *                              carry no kind, as interview_turns requires)
+ *                              and procedural as they are; acknowledgment,
+ *                              greeting and user_interrupted -> procedural;
+ *                              answer -> null (candidate turns carry no kind,
+ *                              as interview_turns requires)
+ *   questions[].position    -> the question's position; when no question has
+ *                              one, its place in questions[] (1, 2, ...). A mix
+ *                              is refused.
  *   question_id (integer)   -> question_position, checked against the
  *                              position base_question_id points to
  *   sequence                -> his number when every turn has one, else the
@@ -37,6 +43,21 @@ import type {
  *   started_at + offset     -> each turn's started_at and ended_at. His per-turn
  *                              "timestamp" is not used: it is the start of an
  *                              interviewer turn but the end of a candidate one.
+ *   interviewer_audio_file  -> an interviewer turn's audio, else its audio_file
+ *   follow_up_reason        -> kept; when absent, FOLLOW_UP_REASON_NOT_GIVEN
+ *                              (migration 021 requires a reason on a follow-up)
+ *
+ * An acknowledgment that answers no turn and comes right before a new base
+ * question belongs to the previous answer's question, not the next one: it
+ * acknowledges what was just said (F15, 26 Oct 2026).
+ *
+ * ── How it ended (F15, 26 Oct 2026) ──────────────────────────
+ *
+ * Completed only when end_reason is "completed" AND completed_gracefully is
+ * true. `status` alone never makes an interview completed, and a missing
+ * end_reason never falls back to it for that. Any other ending is read from
+ * end_reason, else status, as before; when both are sent and disagree, the
+ * ending is unknown. Both words and the flag are kept for the record.
  *
  * ── Fail closed ──────────────────────────────────────────────
  *
@@ -58,6 +79,17 @@ import type {
  * inside an interrupted turn is the one overlap that is expected, so it is not
  * warned about. `interrupted` on a candidate turn, a stop time on a turn not
  * marked interrupted, or a stop time outside the turn, is refused.
+ *
+ * The provider also sends the interviewer's line after the cut-in as its own
+ * turn, turn_type "user_interrupted" (F15, 26 Oct 2026). It is a procedural
+ * turn marked interruption_line, and it places the interruption: when it
+ * starts while the interviewer turn before it is playing, that turn is marked
+ * interrupted and its audio stopped where the line starts. The turn's own
+ * offsets and audio stay as sent: the stop time is kept in `interruptions`,
+ * never written over its duration, and the turn's audio_stopped_ms stays
+ * what the provider sent. Anything that does not place cleanly is kept and
+ * named in the interruption's `ambiguity`. When no candidate turn holds what
+ * the candidate said while cutting in, candidate_speech_exported is false.
  *
  * ── Repeats (agreed with the provider, 19 Oct 2026) ──────────
  *
@@ -124,9 +156,17 @@ const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
   clarification: "clarification",
   procedural: "procedural",
   acknowledgment: "procedural",
+  greeting: "procedural",
+  user_interrupted: "procedural",
   repeat: "procedural",
 };
 const CANDIDATE_TYPES: ReadonlySet<string> = new Set(["answer"]);
+
+/**
+ * A follow-up's reason when the provider sends none. Migration 021 requires a
+ * reason on every follow-up, so the turn says plainly that there was none.
+ */
+export const FOLLOW_UP_REASON_NOT_GIVEN = "No reason given by the provider.";
 
 type Obj = Record<string, unknown>;
 
@@ -144,17 +184,35 @@ function millis(t: Obj, ms: string, seconds: string): number | null {
   return s === null ? null : Math.round(s * 1000);
 }
 
-function parseStatus(raw: unknown): ExportStatus {
-  const provider_status = nonEmpty(raw);
-  if (provider_status === null) return { code: "unknown", provider_status: null };
-  return { code: STATUS_CODES[provider_status.trim().toLowerCase()] ?? "unknown", provider_status };
+const codeOf = (word: string | null): ExportStatusCode | null =>
+  word === null ? null : (STATUS_CODES[word.trim().toLowerCase()] ?? "unknown");
+
+/** How it ended: see the top. Completed needs end_reason "completed" and completed_gracefully true. */
+function parseStatus(raw: Obj): ExportStatus {
+  const provider_status = nonEmpty(raw.status);
+  const end_reason = nonEmpty(raw.end_reason);
+  const completed_gracefully =
+    typeof raw.completed_gracefully === "boolean" ? raw.completed_gracefully : null;
+  const fromReason = codeOf(end_reason);
+  const fromStatus = codeOf(provider_status);
+  let code: ExportStatusCode = fromReason ?? fromStatus ?? "unknown";
+  if (fromReason !== null && fromStatus !== null && fromReason !== fromStatus) code = "unknown";
+  if (code === "completed" && (fromReason !== "completed" || completed_gracefully !== true)) {
+    code = "unknown";
+  }
+  return { code, provider_status, end_reason, completed_gracefully };
 }
+
+const hasValue = (v: unknown) => v !== undefined && v !== null;
 
 function parseQuestions(raw: unknown): ParsedExport["questions"] {
   if (raw === undefined) return [];
   if (!Array.isArray(raw)) throw new LiveExportError("bad_questions", "questions is not an array");
+  // No position anywhere: the order. One anywhere: every question needs its own,
+  // so a mix is refused below.
+  const byOrder = !raw.some((q) => isObj(q) && hasValue(q.position));
   return raw.map((q, i) => {
-    const position = isObj(q) ? finite(q.position) : null;
+    const position = byOrder ? i + 1 : isObj(q) ? finite(q.position) : null;
     const text = isObj(q) ? nonEmpty(q.text) : null;
     if (position === null || !Number.isInteger(position) || position < 1 || text === null) {
       throw new LiveExportError("bad_questions", `question ${i} needs a position and text`);
@@ -179,6 +237,59 @@ function sequences(turns: readonly Obj[]): number[] {
 
 function plusMs(iso: string, ms: number): string {
   return new Date(Date.parse(iso) + ms).toISOString();
+}
+
+/** The question a turn belongs to: its own position, or the one of the turn it answers. */
+function positionOf(turns: readonly LiveTurn[], t: LiveTurn): number | null {
+  if (t.question_position !== null) return t.question_position;
+  const answered = turns.find((x) => x.provider_turn_id === t.responds_to_provider_turn_id);
+  return answered?.question_position ?? null;
+}
+
+function ambiguityOf(line: LiveTurn, before: LiveTurn | undefined): InterruptionAmbiguity | null {
+  if (!before) return "no_turn_before";
+  if (before.interruption_line) return "after_another_line";
+  if (
+    line.offset_ms <= before.offset_ms ||
+    line.offset_ms >= before.offset_ms + before.duration_ms
+  ) {
+    return "starts_outside_turn";
+  }
+  if (before.audio_stopped_ms !== null && before.audio_stopped_ms > line.offset_ms) {
+    return "stop_after_line";
+  }
+  return null;
+}
+
+/**
+ * What the interruption line at turns[i] says about the interviewer turn
+ * before it (see the top). Marks that turn interrupted when the line places
+ * cleanly; no offset, duration or audio is changed.
+ */
+function placeLine(turns: LiveTurn[], i: number): Interruption {
+  const line = turns[i];
+  const before = turns.slice(0, i).findLast((x) => x.speaker === "interviewer");
+  const next = turns[i + 1];
+  const ambiguity = ambiguityOf(line, before);
+  // Any candidate turn starting between the cut-off turn's start and the line,
+  // whatever its sequence, holds what the candidate said while cutting in.
+  const from = before?.offset_ms ?? 0;
+  const candidateSpeechExported = turns.some(
+    (x) => x.speaker === "candidate" && x.offset_ms >= from && x.offset_ms < line.offset_ms,
+  );
+  const placed = ambiguity === null && before !== undefined;
+  if (placed) before.interrupted = true;
+  const providerStop = placed ? before.audio_stopped_ms : null;
+  return {
+    line_sequence: line.sequence,
+    interrupted_sequence: before?.sequence ?? null,
+    position:
+      (before ? positionOf(turns, before) : null) ?? (next?.repeat ? next.question_position : null),
+    stopped_ms: placed ? (providerStop ?? line.offset_ms) : null,
+    stop_source: placed ? (providerStop !== null ? "provider" : "line_start") : null,
+    ambiguity,
+    candidate_speech_exported: candidateSpeechExported,
+  };
 }
 
 /**
@@ -265,10 +376,10 @@ export function parseExport(raw: unknown): ParsedExport {
         throw new LiveExportError("bad_follow_up", "follow_up_index must be 1 or 2", i);
       }
       followUpIndex = n;
-      followUpReason = nonEmpty(t.follow_up_reason);
-      if (followUpReason === null) {
-        throw new LiveExportError("bad_follow_up", "a follow-up needs a reason", i);
+      if (hasValue(t.follow_up_reason) && typeof t.follow_up_reason !== "string") {
+        throw new LiveExportError("bad_follow_up", "follow_up_reason is not text", i);
       }
+      followUpReason = nonEmpty(t.follow_up_reason) ?? FOLLOW_UP_REASON_NOT_GIVEN;
     } else if (t.follow_up_index != null || t.follow_up_reason != null) {
       throw new LiveExportError("bad_follow_up", "only a follow-up carries an index or reason", i);
     }
@@ -350,14 +461,33 @@ export function parseExport(raw: unknown): ParsedExport {
       interrupted,
       audio_stopped_ms: stoppedMs,
       repeat,
+      interruption_line: turnType === "user_interrupted",
       started_at: startedTurn,
       ended_at: plusMs(startedTurn, durationMs),
-      audio_file_name: nonEmpty(
-        speaker === "interviewer" ? t.interviewer_audio_file : t.audio_file,
-      ),
+      audio_file_name:
+        speaker === "interviewer"
+          ? (nonEmpty(t.interviewer_audio_file) ?? nonEmpty(t.audio_file))
+          : nonEmpty(t.audio_file),
     };
   });
+  const turnTypes = new Map(rawTurns.map((t, i) => [turns[i].provider_turn_id, t.turn_type]));
   turns.sort((a, b) => a.sequence - b.sequence);
+
+  turns.forEach((t, i) => {
+    const next = turns[i + 1];
+    if (
+      turnTypes.get(t.provider_turn_id) !== "acknowledgment" ||
+      t.responds_to_provider_turn_id !== null ||
+      next?.kind !== "base_question"
+    ) {
+      return;
+    }
+    const answer = turns.slice(0, i).findLast((x) => x.speaker === "candidate");
+    const position = answer ? positionOf(turns, answer) : null;
+    if (position !== null) t.question_position = position;
+  });
+
+  const interruptions = turns.flatMap((t, i) => (t.interruption_line ? [placeLine(turns, i)] : []));
 
   const overlaps: TurnOverlap[] = [];
   let lastInterviewer: LiveTurn | null = null;
@@ -375,13 +505,14 @@ export function parseExport(raw: unknown): ParsedExport {
   const endedAt = nonEmpty(raw.ended_at);
   return {
     provider_session_id: providerSessionId,
-    status: parseStatus(raw.status),
+    status: parseStatus(raw),
     interviewer_name: nonEmpty(raw.interviewer_name),
     started_at: startedAt,
     ended_at: endedAt !== null && Number.isFinite(Date.parse(endedAt)) ? endedAt : null,
     duration_ms: millis(raw, "duration_ms", "duration_seconds"),
     questions,
     turns,
+    interruptions,
     warnings: {
       overlaps: {
         count: overlaps.length,

@@ -125,23 +125,27 @@ test("timings: offsets and durations kept; wall times from session start on one 
 });
 
 test("status is reported, not decided: candidate_ended, with the provider's word kept", () => {
-  assert.deepEqual(parseExport(fixture()).status, {
-    code: "candidate_ended",
-    provider_status: "candidate_ended",
+  const sent = (code, provider_status) => ({
+    code,
+    provider_status,
+    end_reason: null,
+    completed_gracefully: null,
   });
+  assert.deepEqual(parseExport(fixture()).status, sent("candidate_ended", "candidate_ended"));
   for (const [raw, code] of [
-    ["completed", "completed"],
+    // Status alone never makes it completed (F15): end_reason and completed_gracefully do.
+    ["completed", "unknown"],
     ["time_limit", "timed_out"],
     ["provider_error", "provider_error"],
     ["something_new", "unknown"],
   ]) {
     const f = fixture();
     f.status = raw;
-    assert.deepEqual(parseExport(f).status, { code, provider_status: raw }, raw);
+    assert.deepEqual(parseExport(f).status, sent(code, raw), raw);
   }
   const f = fixture();
   delete f.status;
-  assert.deepEqual(parseExport(f).status, { code: "unknown", provider_status: null });
+  assert.deepEqual(parseExport(f).status, sent("unknown", null));
 });
 
 /* ── what is never carried ────────────────────────────────────── */
@@ -351,10 +355,10 @@ const BROKEN = [
     },
   ],
   [
-    "a follow-up without a reason",
+    "a follow-up reason that is not text",
     "bad_follow_up",
     (f) => {
-      delete f.turns[5].follow_up_reason;
+      f.turns[5].follow_up_reason = { why: "lacked detail" };
     },
   ],
   [

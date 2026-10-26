@@ -7,12 +7,14 @@ import {
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import { readFrozenQuestionSet } from "@/lib/interviews/frozen-questions";
-import type {
-  EndCheck,
-  EndCheckReason,
-  LiveOutcome,
-  RepeatCheck,
-  WordingCheck,
+import {
+  type EndCheck,
+  type EndCheckReason,
+  type InterruptionCheck,
+  interruptionCheckOf,
+  type LiveOutcome,
+  type RepeatCheck,
+  type WordingCheck,
 } from "@/lib/interviews/live-ingest";
 import {
   LiveRecoveryError,
@@ -228,6 +230,24 @@ export function wordingReason(check: WordingCheck, interviewer: string, position
   return WORDING_REASON[check](interviewer, position);
 }
 
+/**
+ * Why an interruption on a question needs a person (live-ingest.ts
+ * InterruptionCheck, F15). Listed only: it does not hold the question.
+ */
+const INTERRUPTION_REASON: Record<InterruptionCheck, (position: number) => string> = {
+  ambiguous: (n) =>
+    `Question ${n}: an interruption couldn't be placed in the recording with confidence. Check the recording.`,
+  speech_missing: (n) =>
+    `Question ${n}: what the candidate said while interrupting isn't in the export. Check the recording.`,
+};
+/** An interruption line that sits on no question (nothing before it to cut off). */
+const UNPLACED_INTERRUPTION_REASON =
+  "An interruption couldn't be matched to a question. Check the recording.";
+
+export function interruptionReason(check: InterruptionCheck, position: number): string {
+  return INTERRUPTION_REASON[check](position);
+}
+
 const plural = (n: number, word: string) => `${n} ${word}${n === 1 ? "" : "s"}`;
 
 /** Why the ending needs a person (live-ingest.ts EndCheck), said to the recruiter. */
@@ -376,6 +396,12 @@ function reviewReasonsFor(
 ): string[] {
   const reasons: string[] = [];
   if (outcome?.final && outcome.end_check) reasons.push(endReason(outcome.end_check));
+  for (const q of outcome?.questions ?? []) {
+    if (q.interruption_check) reasons.push(interruptionReason(q.interruption_check, q.position));
+  }
+  if ((outcome?.interruptions ?? []).some((i) => i.position === null && interruptionCheckOf(i))) {
+    reasons.push(UNPLACED_INTERRUPTION_REASON);
+  }
   for (const q of questions) {
     for (const f of q.flags)
       if (f.resolved === null)

@@ -1775,3 +1775,72 @@ test("F12 the page's wording action reaches resolveWordingCheck: refused where t
     [["resolve_wording_check", 1]],
   );
 });
+
+/* ── F15: interruption checks (26 Oct 2026) ───────────────────── */
+
+const INTERRUPTION_TEXT = {
+  ambiguous: (n) =>
+    `Question ${n}: an interruption couldn't be placed in the recording with confidence. Check the recording.`,
+  speech_missing: (n) =>
+    `Question ${n}: what the candidate said while interrupting isn't in the export. Check the recording.`,
+  unplaced: "An interruption couldn't be matched to a question. Check the recording.",
+};
+
+/** One interruption line as live-ingest keeps it on the outcome. */
+const line = (position, extra = {}) => ({
+  line_sequence: 3,
+  interrupted_sequence: position === null ? null : 1,
+  position,
+  stopped_ms: 4000,
+  stop_source: "line_start",
+  ambiguity: null,
+  candidate_speech_exported: true,
+  ...extra,
+});
+
+function interruptionInput(checks, interruptions) {
+  const input = completedInput();
+  input.session.live_outcome.questions = input.session.live_outcome.questions.map((q) => ({
+    ...q,
+    interruption_check: checks[q.position] ?? null,
+  }));
+  input.session.live_outcome.interruptions = interruptions;
+  return input;
+}
+
+test("F15 an interruption check is on the Needs review list with its question, in plain words; the question is not held", () => {
+  const v = buildLiveReviewView(
+    interruptionInput({ 1: "ambiguous", 2: "speech_missing" }, [
+      line(1, { ambiguity: "starts_outside_turn" }),
+      line(2, { candidate_speech_exported: false }),
+    ]),
+  );
+  assert.deepEqual(v.header.reviewReasons, [
+    INTERRUPTION_TEXT.ambiguous(1),
+    INTERRUPTION_TEXT.speech_missing(2),
+  ]);
+  for (const text of v.header.reviewReasons) assert.doesNotMatch(text, /[–—]/, "hyphens only");
+  // Listed only: both questions are still answered and scored, with no new flag.
+  for (const p of [1, 2]) {
+    assert.deepEqual([byPos(v, p).status, byPos(v, p).flags], ["answered", []], `question ${p}`);
+  }
+  const html = section(render(v), "data-needs-review");
+  for (const text of v.header.reviewReasons) assert.ok(html.includes(escaped(text)), text);
+});
+
+test("F15 control: no interruption check, an outcome saved before version 5, or a clean line: nothing listed", () => {
+  assert.deepEqual(buildLiveReviewView(completedInput()).header.reviewReasons, []);
+  const clean = buildLiveReviewView(interruptionInput({}, [line(1)]));
+  assert.deepEqual(clean.header.reviewReasons, []);
+  assert.equal(section(render(clean), "data-needs-review"), "", "no Needs review section");
+});
+
+test("F15 an interruption line on no question still shows: one plain reason, never a 'Question null'", () => {
+  const v = buildLiveReviewView(
+    interruptionInput({}, [line(null, { ambiguity: "no_turn_before" })]),
+  );
+  assert.deepEqual(v.header.reviewReasons, [INTERRUPTION_TEXT.unplaced]);
+  // A clean line with no question is not a reason.
+  const quiet2 = buildLiveReviewView(interruptionInput({}, [line(null)]));
+  assert.deepEqual(quiet2.header.reviewReasons, []);
+});

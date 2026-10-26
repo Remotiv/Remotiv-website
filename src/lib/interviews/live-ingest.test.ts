@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 4);
+  assert.equal(outcome.v, 5);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -478,6 +478,8 @@ function cleanExport({ asked = 8, answerMs = () => 20_000, status = "completed" 
     status: {
       code: status,
       provider_status: status,
+      end_reason: status,
+      completed_gracefully: status === "completed",
     },
     interviewer_name: "Sarah",
     started_at: "2026-10-16T05:48:47.157Z",
@@ -485,6 +487,7 @@ function cleanExport({ asked = 8, answerMs = () => 20_000, status = "completed" 
     duration_ms: null,
     questions: [],
     turns,
+    interruptions: [],
     warnings: { overlaps: { count: 0, max_ms: 0, turns: [] } },
   };
 }
@@ -672,8 +675,18 @@ test("complete and finished are unknown until D10: never completed", () => {
       word,
     );
   }
+  // Status alone is never completed (F15): end_reason "completed" and completed_gracefully true are.
   assert.equal(
     parseExport({ ...structuredClone(FIXTURE), status: "completed" }).status.code,
+    "unknown",
+  );
+  assert.equal(
+    parseExport({
+      ...structuredClone(FIXTURE),
+      status: "completed",
+      end_reason: "completed",
+      completed_gracefully: true,
+    }).status.code,
     "completed",
   );
 });
@@ -692,7 +705,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 4; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 5; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -713,7 +726,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 4);
+  assert.equal(LIVE_OUTCOME_VERSION, 5);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 

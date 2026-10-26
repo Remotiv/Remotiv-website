@@ -56,6 +56,10 @@ export type ExportStatus = {
   code: ExportStatusCode;
   /** The provider's own word, kept for the record. Null when it sent none. */
   provider_status: string | null;
+  /** The provider's end_reason, kept for the record. Null when it sent none. */
+  end_reason: string | null;
+  /** The provider's completed_gracefully. Null when it sent none, or not true or false. */
+  completed_gracefully: boolean | null;
 };
 
 export type LiveSpeaker = "interviewer" | "candidate";
@@ -98,6 +102,13 @@ export type LiveTurn = {
    * position: never a second main question, never a follow-up.
    */
   repeat: boolean;
+  /**
+   * The interviewer's line after the candidate cut in (turn_type
+   * "user_interrupted", for example "Let me just finish the question."). A
+   * procedural turn; what it tells about the interruption is in
+   * ParsedExport.interruptions.
+   */
+  interruption_line: boolean;
   /** Session start plus offset_ms, then plus duration_ms: one clock for every turn. */
   started_at: string;
   ended_at: string;
@@ -106,6 +117,41 @@ export type LiveTurn = {
 
 /** A candidate turn that starts before the interviewer turn before it has finished, with no interruption marked. */
 export type TurnOverlap = { sequence: number; overlap_ms: number };
+
+/** Why an interruption line could not be placed with confidence. */
+export type InterruptionAmbiguity =
+  /** No interviewer turn comes before the line. */
+  | "no_turn_before"
+  /** The interviewer turn before it is itself an interruption line. */
+  | "after_another_line"
+  /** The line does not start while the interviewer turn before it is playing. */
+  | "starts_outside_turn"
+  /** The provider's own stop time for that turn is after the line starts. */
+  | "stop_after_line";
+
+/**
+ * One interruption line, and what it says about the turn it cut off. Every
+ * turn's offsets and audio stay exactly as the provider sent them: the stop
+ * time is kept here, never written over a turn's duration.
+ */
+export type Interruption = {
+  line_sequence: number;
+  /** The interviewer turn the candidate cut off; null when there is none before the line. */
+  interrupted_sequence: number | null;
+  /** The question it happened on: the cut-off turn's, else the repeat's after the line. */
+  position: number | null;
+  /** Where the interviewer's audio stopped, on the session clock. Null when ambiguous. */
+  stopped_ms: number | null;
+  /** "provider": its own audio_stopped_ms; "line_start": where the line starts. */
+  stop_source: "provider" | "line_start" | null;
+  ambiguity: InterruptionAmbiguity | null;
+  /**
+   * A candidate turn holds what the candidate said while cutting in. False
+   * when the export has none: that speech is not captured, and never counted
+   * as if it were.
+   */
+  candidate_speech_exported: boolean;
+};
 
 export type ParsedExport = {
   provider_session_id: string;
@@ -116,6 +162,7 @@ export type ParsedExport = {
   duration_ms: number | null;
   questions: readonly (ProviderQuestion & { provider_question_id: string | null })[];
   turns: readonly LiveTurn[];
+  interruptions: readonly Interruption[];
   warnings: {
     overlaps: { count: number; max_ms: number; turns: readonly TurnOverlap[] };
   };

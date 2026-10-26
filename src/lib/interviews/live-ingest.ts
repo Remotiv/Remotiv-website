@@ -7,6 +7,7 @@ import {
 } from "@/lib/interviews/frozen-questions";
 import type {
   ExportStatusCode,
+  Interruption,
   LiveTurn,
   ParsedExport,
   TurnAudio,
@@ -96,14 +97,30 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *                       restart_needs_person true)
  *
  * "Every answer usable": every candidate turn's audio is stored (the save
- * refuses an export without it), every candidate transcript is done, and the
- * outcome is final.
+ * refuses an export without it), every candidate transcript is done, the
+ * outcome is final, and no interruption's candidate speech is missing from
+ * the export (F15): speech that was never exported is never counted as
+ * captured.
  *
  * Nothing here is a score. For the scoring commit: not_reached gets no score
  * (not zero), skipped gets that question's lowest score, a partial interview
  * is never ranked against completed ones, and an answer on a
  * timing_suspect turn is NOT scored automatically until it is checked
  * against the audio.
+ *
+ * Completed needs the provider's end_reason "completed" AND completed_gracefully
+ * true (parse-export.ts, F15); both are kept on the outcome for reviewers.
+ *
+ * ── Interruptions (F15, 26 Oct 2026) ─────────────────────────
+ *
+ * The parser places each interruption line (parse-export.ts); the outcome
+ * keeps them all. One that could not be placed cleanly (`ambiguity`), or whose
+ * candidate speech is not in the export, is flagged on its question
+ * (interruption_check) and in interruption_check_turns, and needs a person.
+ * A marked repeat right after an interruption line is checked with the line
+ * in front of it, so "Let me just finish the question." then the frozen
+ * question is a known lead-in, and any other line is an unexpected lead-in
+ * (F11), held for a person.
  *
  * ── Timing ───────────────────────────────────────────────────
  *
@@ -119,7 +136,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 4;
+export const LIVE_OUTCOME_VERSION = 5;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -188,6 +205,16 @@ export type WordingCheck =
   /** Anything else: changed, shortened or extended wording, a long lead-in, or no question. */
   | "altered_wording";
 
+/**
+ * Why an interruption on a question needs a person (F15, 26 Oct 2026).
+ * Flagged for review; it does not hold the question from scoring.
+ */
+export type InterruptionCheck =
+  /** The interruption line could not be placed cleanly (Interruption.ambiguity). */
+  | "ambiguous"
+  /** What the candidate said while cutting in is not in the export. */
+  | "speech_missing";
+
 export type LiveQuestionFacts = {
   position: number;
   source: LiveQuestionSource;
@@ -222,6 +249,12 @@ export type LiveQuestionFacts = {
    * Absent on an outcome saved before version 3: read as null.
    */
   repeat_check: RepeatCheck | null;
+  /**
+   * An interruption on this question needs a person: null when there was none
+   * or it placed cleanly with the candidate's speech exported. Absent on an
+   * outcome saved before version 5: read as null.
+   */
+  interruption_check: InterruptionCheck | null;
 };
 
 export type LiveOutcome = {
@@ -231,7 +264,14 @@ export type LiveOutcome = {
   provider_session_id: string;
   provider_status: string | null;
   provider_status_code: ExportStatusCode;
-  /** Every candidate turn's audio stored and transcript done, and the outcome final. */
+  /** The provider's end_reason, as sent. Absent before version 5. */
+  provider_end_reason: string | null;
+  /** The provider's completed_gracefully, as sent; null when absent. Absent before version 5. */
+  completed_gracefully: boolean | null;
+  /**
+   * Every candidate turn's audio stored and transcript done, no interruption's
+   * candidate speech missing, and the outcome final.
+   */
   answers_usable: boolean;
   turn_count: number;
   questions: LiveQuestionFacts[];
@@ -242,6 +282,10 @@ export type LiveOutcome = {
   wording_check_turns: number[];
   /** Sequences of marked repeats that did not ask their question as agreed. */
   repeat_check_turns: number[];
+  /** Every interruption line, placed (parse-export.ts). Absent before version 5. */
+  interruptions: Interruption[];
+  /** Sequences of interruption lines that need a person. Absent before version 5. */
+  interruption_check_turns: number[];
   outcome: LiveOutcomeCode;
   /** Why the ending needs a person, or null when it does not. */
   end_check: EndCheck | null;
@@ -259,8 +303,9 @@ export type LiveOutcome = {
   restart_allowed: boolean | null;
   /**
    * A person must look: the ending needs a check, a question needs_check
-   * (timing suspect), a repeat_check or a wording_check, or a candidate
-   * turn's transcription failed for good. See needsReview().
+   * (timing suspect), a repeat_check or a wording_check, an interruption
+   * needs a check, or a candidate turn's transcription failed for good. See
+   * needsReview().
    */
   needs_review: boolean;
   /** Sequences of candidate turns whose transcription failed after every retry. */
@@ -368,8 +413,8 @@ function restartAllowed(outcome: LiveOutcomeCode, final: boolean, attempt: numbe
 
 /**
  * Whether the session needs a person: the ending needs a check, any question
- * needs_check or has a repeat_check or a wording_check, or any turn failed
- * transcription. The
+ * needs_check or has a repeat_check or a wording_check, any interruption line
+ * needs a check, or any turn failed transcription. The
  * per-question flags, the failed list and the end check stay as they are; this
  * is the session-level summary of all of them.
  */
@@ -378,10 +423,12 @@ export function needsReview(
     Partial<Pick<LiveQuestionFacts, "repeat_check" | "wording_check">>)[],
   failedTurns: readonly number[],
   endCheck: EndCheck | null,
+  interruptionCheckTurns: readonly number[] = [],
 ): boolean {
   return (
     endCheck !== null ||
     failedTurns.length > 0 ||
+    interruptionCheckTurns.length > 0 ||
     questions.some(
       (q) =>
         q.needs_check || (q.repeat_check ?? null) !== null || (q.wording_check ?? null) !== null,
@@ -422,9 +469,29 @@ export function confirmAnswer(
   return {
     ...outcome,
     questions,
-    needs_review: needsReview(questions, outcome.transcription_failed_turns, fields.end_check),
+    needs_review: needsReview(
+      questions,
+      outcome.transcription_failed_turns,
+      fields.end_check,
+      outcome.interruption_check_turns ?? [],
+    ),
     ...fields,
   };
+}
+
+/** Whether an interruption's candidate speech is missing from the export: then no answer set is whole. */
+export function interruptionSpeechMissing(
+  interruptions: readonly Pick<Interruption, "candidate_speech_exported">[] | undefined,
+): boolean {
+  return (interruptions ?? []).some((i) => !i.candidate_speech_exported);
+}
+
+/** What an interruption line still needs from a person, or null. */
+export function interruptionCheckOf(
+  i: Pick<Interruption, "ambiguity" | "candidate_speech_exported">,
+): InterruptionCheck | null {
+  if (i.ambiguity !== null) return "ambiguous";
+  return i.candidate_speech_exported ? null : "speech_missing";
 }
 
 /**
@@ -725,6 +792,21 @@ export function assessLiveExport(
   }
   const suspectSet = new Set(suspect);
 
+  // An interruption that needs a person, by question and by line.
+  const interruptions = parsed.interruptions.map((i) => ({ ...i }));
+  const interruptionCheckTurns: number[] = [];
+  const interruptionByPosition = new Map<number, InterruptionCheck>();
+  for (const i of interruptions) {
+    const check = interruptionCheckOf(i);
+    if (check === null) continue;
+    interruptionCheckTurns.push(i.line_sequence);
+    if (i.position === null) continue;
+    // Ambiguous outranks speech missing: an ambiguous one cannot say what was lost.
+    if (interruptionByPosition.get(i.position) !== "ambiguous") {
+      interruptionByPosition.set(i.position, check);
+    }
+  }
+
   const questions: LiveQuestionFacts[] = [];
   const wordingCheckTurns: number[] = [];
   const repeatCheckTurns: number[] = [];
@@ -733,9 +815,14 @@ export function assessLiveExport(
     // not ask the frozen question as agreed is flagged on its question, which
     // is then held from scoring until a person checks the recording.
     let repeatCheck: RepeatCheck | null = null;
-    for (const t of turns) {
+    for (const [i, t] of turns.entries()) {
       if (!t.repeat || t.question_position !== q.position) continue;
-      const wording = classifyRepeat(q.text, t.text ?? "");
+      // Right after an interruption line, the line is read as the repeat's lead-in.
+      const before = turns[i - 1];
+      const spoken = before?.interruption_line
+        ? `${before.text ?? ""} ${t.text ?? ""}`
+        : (t.text ?? "");
+      const wording = classifyRepeat(q.text, spoken);
       if (wording === "exact" || wording === "known_lead_in") continue;
       repeatCheck = worseRepeatCheck(repeatCheck, wording);
       repeatCheckTurns.push(t.sequence);
@@ -783,6 +870,7 @@ export function assessLiveExport(
       needs_check: spoken.some((t) => suspectSet.has(t.sequence)),
       repeat_check: repeatCheck,
       wording_check: wordingCheck,
+      interruption_check: interruptionByPosition.get(q.position) ?? null,
     });
   }
 
@@ -790,21 +878,26 @@ export function assessLiveExport(
   // settles it once every candidate turn is done. With no candidate turn there
   // is no answer to lose, and every turn's audio is stored by the save.
   const final = !turns.some((t) => t.speaker === "candidate");
-  const fields = outcomeFrom(questions, parsed.status.code, attempt, final, final);
+  const usable = final && !interruptionSpeechMissing(interruptions);
+  const fields = outcomeFrom(questions, parsed.status.code, attempt, final, usable);
 
   return {
     v: LIVE_OUTCOME_VERSION,
     provider_session_id: parsed.provider_session_id,
     provider_status: parsed.status.provider_status,
     provider_status_code: parsed.status.code,
-    answers_usable: final,
+    provider_end_reason: parsed.status.end_reason,
+    completed_gracefully: parsed.status.completed_gracefully,
+    answers_usable: usable,
     turn_count: turns.length,
     questions,
     timing_suspect: suspect.length > 0,
     timing_suspect_turns: suspect,
     wording_check_turns: wordingCheckTurns.sort((a, b) => a - b),
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
-    needs_review: needsReview(questions, [], fields.end_check),
+    interruptions,
+    interruption_check_turns: interruptionCheckTurns.sort((a, b) => a - b),
+    needs_review: needsReview(questions, [], fields.end_check, interruptionCheckTurns),
     transcription_failed_turns: [],
     settle_rev: 0,
     ...fields,
@@ -1073,7 +1166,7 @@ export async function saveLiveExport(
     throw new LiveIngestError("db_error", "the outcome did not land");
   }
   console.log(
-    `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording checks ${outcome.wording_check_turns.length}`,
+    `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording checks ${outcome.wording_check_turns.length}, interruption checks ${outcome.interruption_check_turns.length}`,
   );
   return { outcome, saved: true };
 }

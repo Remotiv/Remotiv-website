@@ -1,5 +1,6 @@
 import "server-only";
 import {
+  interruptionSpeechMissing,
   isOutcomeDecided,
   type LiveOutcome,
   type LiveQuestionFacts,
@@ -183,14 +184,23 @@ export function settleOutcome(
       (t.transcript_status === "failed" && excluded.has(t.sequence)),
   );
   // Usable: every transcript done. One a person left out after it failed is
-  // still a lost answer (D2: provider_error then means technical_failure).
-  const usable = final && turns.every((t) => t.transcript_status === "done");
+  // still a lost answer (D2: provider_error then means technical_failure), and
+  // so is interruption speech the export never held (F15).
+  const usable =
+    final &&
+    turns.every((t) => t.transcript_status === "done") &&
+    !interruptionSpeechMissing(outcome.interruptions);
   const fields = outcomeFrom(questions, outcome.provider_status_code, attempt, final, usable);
   return {
     ...outcome,
     questions,
     answers_usable: usable,
-    needs_review: needsReview(questions, failed, fields.end_check),
+    needs_review: needsReview(
+      questions,
+      failed,
+      fields.end_check,
+      outcome.interruption_check_turns ?? [],
+    ),
     transcription_failed_turns: failed.sort((a, b) => a - b),
     settle_rev: (outcome.settle_rev ?? 0) + 1,
     ...fields,
