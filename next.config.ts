@@ -1,14 +1,22 @@
 import type { NextConfig } from "next";
+import {
+  baseDirectives,
+  mediaDirectives,
+  resolveSupabaseUrl,
+  supabaseHost,
+  supabaseImagePattern,
+  toCsp,
+} from "./src/lib/security/csp";
+
+// The ONE Supabase host every header and the image allowlist are built around,
+// derived from NEXT_PUBLIC_SUPABASE_URL (production on Vercel, staging under
+// scripts/staging/app.mjs). A set value always wins; see src/lib/security/csp.ts
+// for why this cannot loosen production's headers (csp.test.ts proves it).
+const SUPABASE_HOST = supabaseHost(resolveSupabaseUrl());
 
 const nextConfig: NextConfig = {
   images: {
-    remotePatterns: [
-      {
-        protocol: "https",
-        hostname: "jlezhdhzuyubhqvxdwvg.supabase.co",
-        pathname: "/storage/v1/object/**",
-      },
-    ],
+    remotePatterns: [supabaseImagePattern(SUPABASE_HOST)],
   },
   async redirects() {
     // 308 permanent redirects for renamed public routes. Preserves query
@@ -41,22 +49,10 @@ const nextConfig: NextConfig = {
     // production builds where they belong.
     const isProduction = process.env.NODE_ENV === "production";
 
-    // Single source of truth for CSP directives.
-    const baseDirectives = [
-      "default-src 'self'",
-      "script-src 'self' 'unsafe-inline' 'unsafe-eval' https://assets.calendly.com",
-      "style-src 'self' 'unsafe-inline' https://assets.calendly.com",
-      "img-src 'self' data: blob: https://jlezhdhzuyubhqvxdwvg.supabase.co https://*.calendly.com",
-      "font-src 'self' data:",
-      "connect-src 'self' https://jlezhdhzuyubhqvxdwvg.supabase.co wss://jlezhdhzuyubhqvxdwvg.supabase.co https://calendly.com https://*.calendly.com",
-      "frame-src 'self' https://calendly.com https://*.calendly.com",
-      "frame-ancestors 'none'",
-      "form-action 'self'",
-      "base-uri 'self'",
-      "object-src 'none'",
-      ...(isProduction ? ["upgrade-insecure-requests"] : []),
-    ];
-    const cspDirectives = baseDirectives.join("; ");
+    // Single source of truth for CSP directives, built around the one derived
+    // Supabase host above. See src/lib/security/csp.ts.
+    const cspInput = { supabaseHost: SUPABASE_HOST, isProduction };
+    const cspDirectives = toCsp(baseDirectives(cspInput));
 
     /*
      * ── The two exceptions /interview/** needs ────────────────
@@ -90,7 +86,6 @@ const nextConfig: NextConfig = {
      */
     const INTERVIEW_PREFIX = "/interview/:path*";
     const DASHBOARD_PREFIX = "/ai-dashboard/:path*";
-    const SUPABASE_ORIGIN = "https://jlezhdhzuyubhqvxdwvg.supabase.co";
 
     /*
      * media-src is needed on BOTH ends of an interview, and only the
@@ -101,11 +96,9 @@ const nextConfig: NextConfig = {
      * the candidate page did — a <video> pointed at *.supabase.co falling back
      * to default-src 'self'. The dashboard gets the media directive and
      * NOTHING else: no camera, no microphone, because nobody records here.
+     * Same single derived host as the base above.
      */
-    const mediaCsp = [
-      ...baseDirectives,
-      `media-src 'self' blob: ${SUPABASE_ORIGIN}`,
-    ].join("; ");
+    const mediaCsp = toCsp(mediaDirectives(cspInput));
 
     return [
       {
@@ -154,8 +147,7 @@ const nextConfig: NextConfig = {
         headers: [
           {
             key: "Permissions-Policy",
-            value:
-              "camera=(self), microphone=(self), geolocation=(), interest-cohort=()",
+            value: "camera=(self), microphone=(self), geolocation=(), interest-cohort=()",
           },
           {
             key: "Content-Security-Policy",
