@@ -370,9 +370,12 @@ export type CandidateSession = {
   /**
    * Terminal states are resolved server-side before the flow renders.
    * `unavailable`: the session is not an async one, and this route has no
-   * screen for it yet (resolveSessionByToken).
+   * screen for it yet (resolveSessionByToken). With the live screen switched
+   * on (AVI commit 10), a live session is `live` while it can still start and
+   * `ended` once it has started or ended; neither is `ready`, so no async
+   * route accepts one.
    */
-  state: "ready" | "submitted" | "expired" | "cancelled" | "unavailable";
+  state: "ready" | "submitted" | "expired" | "cancelled" | "unavailable" | "live" | "ended";
   companyName: string;
   companyInitial: string;
   jobTitle: string;
@@ -385,6 +388,8 @@ export type CandidateSession = {
   questions: CandidateQuestion[];
   /** Total answer seconds, for "About N minutes" on Welcome. */
   estimatedMinutes: number;
+  /** Live sessions on the live screen only: how many questions. Never the questions. */
+  live: { questionCount: number } | null;
 };
 
 /**

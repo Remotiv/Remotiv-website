@@ -1,5 +1,6 @@
 import "server-only";
 import { createServiceClient } from "@/lib/supabase/server";
+import { liveScreenEnabled } from "./live-screen";
 import { hashSessionToken } from "./tokens";
 import {
   type CandidateQuestion,
@@ -52,6 +53,9 @@ type SessionRow = {
   submitted_at: string | null;
   expires_at: string;
   questions_snapshot: SnapshotQuestion[] | null;
+  /** Live only: whether it has started or ended (live-screen.ts). */
+  live_ended_at: string | null;
+  provider_session_id: string | null;
 };
 
 /**
@@ -109,7 +113,7 @@ export async function resolveSessionByToken(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, consent_version, submitted_at, expires_at, questions_snapshot",
+      "id, company_id, application_id, job_id, status, kind, allow_rerecord, consent_at, consent_version, submitted_at, expires_at, questions_snapshot, live_ended_at, provider_session_id",
     )
     .eq("token_hash", hashSessionToken(rawToken))
     .maybeSingle();
@@ -157,14 +161,20 @@ export async function resolveSessionByToken(
    * and give the candidate a route forward; a live session that would
    * otherwise be ready (or submitted, which it cannot be yet) is unavailable.
    *
-   * When the live screen exists, this becomes a branch to it, not a removal.
+   * The live screen (AVI commit 10) is a branch, behind its switch
+   * (live-screen.ts): a live session reads `live` while it can still start,
+   * and `ended` once it has started or ended. Neither is "ready", so every
+   * async route above still refuses a live session.
    */
-  const state: CandidateSession["state"] =
-    row.kind !== "async" && (recordedState === "ready" || recordedState === "submitted")
+  const liveScreen = row.kind === "live" && liveScreenEnabled();
+  const state: CandidateSession["state"] = liveScreen
+    ? liveState(row, recordedState)
+    : row.kind !== "async" && (recordedState === "ready" || recordedState === "submitted")
       ? "unavailable"
       : recordedState;
 
-  const questions = await loadCandidateQuestions(service, row);
+  // A live candidate never gets the questions ahead of the conversation.
+  const questions = row.kind === "async" ? await loadCandidateQuestions(service, row) : [];
 
   const totalSeconds = questions.reduce((sum, q) => sum + q.answerSeconds, 0);
 
@@ -188,7 +198,41 @@ export async function resolveSessionByToken(
         1,
         Math.ceil(totalSeconds / 60) + questions.length,
       ),
+      live: liveScreen ? liveFacts(row) : null,
     },
+  };
+}
+
+/**
+ * A live session's candidate state. Once it has started (a provider session
+ * exists) or ended, it is over for the candidate: reopening the link never
+ * starts a second conversation (no automatic restart, decision 26 Oct 2026).
+ */
+function liveState(
+  row: SessionRow,
+  recorded: CandidateSession["state"],
+): CandidateSession["state"] {
+  if (recorded === "cancelled" || recorded === "expired") return recorded;
+  if (
+    recorded === "submitted" ||
+    row.status === "abandoned" ||
+    row.live_ended_at !== null ||
+    row.provider_session_id !== null
+  ) {
+    return "ended";
+  }
+  return "live";
+}
+
+/**
+ * How many questions the live welcome screen mentions. Its other facts, the
+ * interviewer's name and the time limit, are read by liveWelcomeFacts
+ * (live-screen.ts): this read never asks for live_settings, which holds the
+ * follow-up rules (candidate-read-scope.test.ts).
+ */
+function liveFacts(row: SessionRow): NonNullable<CandidateSession["live"]> {
+  return {
+    questionCount: Array.isArray(row.questions_snapshot) ? row.questions_snapshot.length : 0,
   };
 }
 

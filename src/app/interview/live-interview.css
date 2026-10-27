@@ -1,0 +1,143 @@
+/* ============================================================
+   AI Video Interview, live screen - /interview/[token] (AVI commit 10)
+
+   On top of interview.css: the same .iv tokens, a wider sheet for the
+   desktop layout (v1 is computer only), the candidate's camera tile and the
+   interviewer's speaking indicator. Nothing here applies outside .iv.
+   ============================================================ */
+
+.iv .iv-sheet-wide {
+  max-width: 960px;
+}
+
+.iv .ivl-grid {
+  display: grid;
+  grid-template-columns: minmax(0, 1fr) minmax(0, 1fr);
+  gap: 16px;
+}
+@media (max-width: 760px) {
+  .iv .ivl-grid {
+    grid-template-columns: minmax(0, 1fr);
+  }
+}
+
+.iv .ivl-cam {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  background: var(--ink);
+  border-radius: 16px;
+  overflow: hidden;
+  display: flex;
+  align-items: center;
+  justify-content: center;
+  color: #fff;
+}
+.iv .ivl-cam video {
+  position: absolute;
+  inset: 0;
+  width: 100%;
+  height: 100%;
+  object-fit: cover;
+  transform: scaleX(-1);
+}
+.iv .ivl-cam-label {
+  position: absolute;
+  left: 12px;
+  bottom: 12px;
+  z-index: 1;
+  display: inline-flex;
+  align-items: center;
+  gap: 8px;
+  border-radius: 999px;
+  background: rgba(20, 16, 32, 0.62);
+  padding: 5px 10px;
+  font-size: 12px;
+  font-weight: 700;
+  color: #fff;
+}
+
+.iv .ivl-agent {
+  position: relative;
+  aspect-ratio: 4 / 3;
+  border-radius: 16px;
+  background: var(--purple-tint);
+  display: flex;
+  flex-direction: column;
+  align-items: center;
+  justify-content: center;
+  gap: 12px;
+  padding: 20px;
+  text-align: center;
+}
+
+.iv .ivl-orb {
+  position: relative;
+  display: flex;
+  width: 84px;
+  height: 84px;
+  align-items: center;
+  justify-content: center;
+  border-radius: 999px;
+  background: var(--purple);
+  color: #fff;
+}
+.iv .ivl-orb::after {
+  content: "";
+  position: absolute;
+  inset: -8px;
+  border-radius: 999px;
+  border: 3px solid var(--purple);
+  opacity: 0;
+}
+.iv .ivl-orb[data-agent="speaking"]::after {
+  animation: ivl-pulse 1.4s ease-out infinite;
+}
+.iv .ivl-orb[data-agent="listening"] {
+  background: var(--mint);
+  color: var(--mint-ink);
+}
+.iv .ivl-orb[data-agent="thinking"] {
+  background: var(--purple-ink);
+}
+
+@keyframes ivl-pulse {
+  0% {
+    opacity: 0.55;
+    transform: scale(0.96);
+  }
+  100% {
+    opacity: 0;
+    transform: scale(1.25);
+  }
+}
+
+.iv .ivl-caption {
+  min-height: 4.6em;
+  border-radius: 14px;
+  background: var(--surface);
+  border: 1px solid var(--line);
+  padding: 12px 14px;
+  font-size: 15px;
+  line-height: 1.5;
+  color: var(--t1);
+}
+
+.iv .ivl-dot {
+  width: 8px;
+  height: 8px;
+  border-radius: 999px;
+  background: var(--red);
+}
+.iv .ivl-dot[data-on="true"] {
+  animation: iv-blink 1.6s ease-in-out infinite;
+}
+
+@media (prefers-reduced-motion: reduce) {
+  .iv .ivl-orb::after,
+  .iv .ivl-dot[data-on="true"] {
+    animation: none;
+  }
+  .iv .ivl-orb[data-agent="speaking"]::after {
+    opacity: 0.4;
+  }
+}

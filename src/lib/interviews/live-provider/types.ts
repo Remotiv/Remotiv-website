@@ -43,6 +43,42 @@ export type CreateSessionInput = {
 
 export type CreateSessionResult = { providerSessionId: string };
 
+/**
+ * The scripted interviews MockVoxAgent can play (AVI commit 10). The texts
+ * are made up and live with the mock in the candidate screen; only the id
+ * crosses from the server.
+ */
+export const MOCK_SCRIPT_IDS = [
+  "completed",
+  "interruption",
+  "candidate_ends",
+  "timed_out",
+  "provider_error",
+  "connection_lost",
+] as const;
+export type MockScriptId = (typeof MOCK_SCRIPT_IDS)[number];
+
+/**
+ * What the candidate's browser is given to join the conversation: the
+ * short-lived connection details and nothing else. Never the provider's API
+ * key, never the provider session id, never anything about the questions.
+ *
+ * `turnDetection` says who decides the candidate has finished speaking. Only
+ * "server" is implemented: the browser does no end-of-turn detection of its
+ * own until the provider confirms whose job it is, and a ticket asking for
+ * "client" is refused by the screen.
+ */
+export type JoinTicket =
+  | { mode: "mock"; script: MockScriptId; turnDetection: "server" | "client" }
+  | {
+      mode: "voxagent";
+      wsUrl: string;
+      wsToken: string;
+      upstreamHz: 16000;
+      downstreamHz: 24000;
+      turnDetection: "server" | "client";
+    };
+
 /** How the session ended, as the provider reported it. Submitted or abandoned is decided elsewhere. */
 export const EXPORT_STATUS_CODES = [
   "completed",

@@ -1,5 +1,6 @@
 import { timingSafeEqual } from "node:crypto";
 import { NextResponse } from "next/server";
+import { stampOverdueLiveEnds } from "@/lib/interviews/live-events";
 import { type RecoveryService, runTranscribeRecovery } from "@/lib/interviews/transcribe-recovery";
 import {
   claimJobs,
@@ -149,6 +150,8 @@ async function drain() {
     purgesScheduled: [] as string[],
     /** Answers whose transcription was never queued and has now been re-queued. */
     transcribeRecovery: null as null | Record<string, number>,
+    /** Live interviews past their time limit plus grace, ended for video now (live-events.ts). */
+    liveEndsStamped: 0,
     reclaimed: 0,
     claimed: 0,
     succeeded: 0,
@@ -181,6 +184,18 @@ async function drain() {
     );
   } catch (err) {
     console.error("[worker] transcribe recovery failed (non-fatal):", err);
+  }
+
+  /*
+   * The live interview end backstop (AVI commit 10): a started live interview
+   * past its time limit plus the grace, with no end stamped, gets one, so its
+   * 30-minute video window starts even when the tab was closed or the
+   * connection dropped. One small read per tick; non-fatal like the others.
+   */
+  try {
+    summary.liveEndsStamped = await stampOverdueLiveEnds(createServiceClient());
+  } catch (err) {
+    console.error("[worker] live end backstop failed (non-fatal):", err);
   }
 
   /*

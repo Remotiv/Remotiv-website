@@ -1,0 +1,63 @@
+{
+  "voice": "Samantha",
+  "sampleRate": 24000,
+  "encoding": "s16le",
+  "channels": 1,
+  "clips": {
+    "greeting": {
+      "text": "Hi, I'm Sarah. Thanks for joining. I'll ask you a few questions about your experience. Take your time with each answer.",
+      "bytes": 357774,
+      "ms": 7454
+    },
+    "q1": {
+      "text": "To start, tell me about yourself and the work you do day to day.",
+      "bytes": 171644,
+      "ms": 3576
+    },
+    "q2": {
+      "text": "Next, tell me about a project you're proud of and the part you played in it.",
+      "bytes": 190590,
+      "ms": 3971
+    },
+    "q3": {
+      "text": "Last question. Tell me about a time you had to learn something new quickly.",
+      "bytes": 193934,
+      "ms": 4040
+    },
+    "follow_up": {
+      "text": "Thanks. What was one decision in that work you made yourself?",
+      "bytes": 168300,
+      "ms": 3506
+    },
+    "ack_got_it": {
+      "text": "Got it, thank you.",
+      "bytes": 63530,
+      "ms": 1324
+    },
+    "ack_thanks": {
+      "text": "Thank you.",
+      "bytes": 32324,
+      "ms": 673
+    },
+    "finish_line": {
+      "text": "Let me just finish the question.",
+      "bytes": 89166,
+      "ms": 1858
+    },
+    "repeat_lead": {
+      "text": "Of course, here it is again.",
+      "bytes": 85822,
+      "ms": 1788
+    },
+    "time_limit": {
+      "text": "We've reached the time limit for this interview, so I'll stop here. Thank you.",
+      "bytes": 212882,
+      "ms": 4435
+    },
+    "closing": {
+      "text": "That's everything I wanted to ask. Thank you for your time today. The hiring team will review the interview and be in touch.",
+      "bytes": 325452,
+      "ms": 6780
+    }
+  }
+}

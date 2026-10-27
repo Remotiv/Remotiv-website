@@ -246,6 +246,50 @@ export function stampLiveEnded(row, old, nowMs = Date.now()) {
   return row;
 }
 
+const LIVE_EVENT_KINDS = [
+  "conversation_started",
+  "end_pressed",
+  "provider_complete",
+  "provider_error",
+  "connection_lost",
+  "tab_closed",
+  "timer_reached",
+  "video_saved",
+];
+const PROVIDER_END_DETAILS = [
+  "completed",
+  "completed_not_graceful",
+  "candidate_left",
+  "timed_out",
+  "other",
+];
+
+/** Migration 050's checks on live_session_events; the database stamps the time. Throws as Postgres would. */
+export function checkLiveSessionEvent(row, sessions, nowMs = Date.now()) {
+  const fail = (constraint, code = "23514") => {
+    throw Object.assign(new Error(`violates ${constraint}`), { code });
+  };
+  for (const column of ["session_id", "company_id", "kind"]) {
+    if (row[column] == null) fail(`live_session_events.${column} not null`, "23502");
+  }
+  const session = sessions.find((x) => x.id === row.session_id);
+  if (!session) fail("live_session_events: session not found", "P0001");
+  if (session.kind !== "live") fail("live_session_events: not a live interview", "P0001");
+  if (session.company_id !== row.company_id) fail("live_session_events: company", "P0001");
+  if (!LIVE_EVENT_KINDS.includes(row.kind)) fail("live_session_events_kind");
+  const detail = row.detail ?? null;
+  const detailOk =
+    row.kind === "provider_complete"
+      ? PROVIDER_END_DETAILS.includes(detail)
+      : row.kind === "provider_error"
+        ? detail === "error"
+        : detail === null;
+  if (!detailOk) fail("live_session_events_detail");
+  row.id = row.id ?? crypto.randomUUID();
+  row.detail = detail;
+  row.created_at = new Date(nowMs).toISOString();
+}
+
 const ADMIN_ACCESS_ACTIONS = ["view_live_review", "open_turn_audio", "open_video_piece"];
 
 /** Migration 046's checks on admin_access_logs; the database stamps the time. Throws as Postgres would. */
@@ -441,7 +485,9 @@ const TURN_DEFAULTS = {
   kind: null,
 };
 
-export function fakeLiveDb(initial = {}) {
+/** `options.now`: the database's clock (now()), for live_ended_at and stamped times. Default the real clock. */
+export function fakeLiveDb(initial = {}, options = {}) {
+  const clock = options.now ?? Date.now;
   const tables = {
     interview_sessions: [],
     interview_turns: [],
@@ -457,6 +503,7 @@ export function fakeLiveDb(initial = {}) {
     interview_answer_scores: [],
     interview_session_scores: [],
     admin_access_logs: [],
+    live_session_events: [],
     ...structuredClone(initial),
   };
   /** path -> { bytes, contentType, createdAt } */
@@ -519,7 +566,7 @@ export function fakeLiveDb(initial = {}) {
             row.id = row.id ?? crypto.randomUUID();
             row.reserved_at = row.reserved_at ?? new Date().toISOString();
           }
-          if (table === "interview_sessions") stampLiveEnded(row, null);
+          if (table === "interview_sessions") stampLiveEnded(row, null, clock());
           return row;
         });
         const ignore = upsert[0] === "upsert" && upsert[2]?.ignoreDuplicates;
@@ -534,6 +581,8 @@ export function fakeLiveDb(initial = {}) {
         if (table === "live_video_pieces")
           for (const r of fresh) checkVideoPiece(r, null, after, tables);
         if (table === "admin_access_logs") for (const r of fresh) checkAdminAccessLog(r);
+        if (table === "live_session_events")
+          for (const r of fresh) checkLiveSessionEvent(r, tables.interview_sessions, clock());
         rows.push(...fresh);
         if (table === "interview_turns") counts.turnInserts += 1;
         if (table === "live_interview_scores") counts.scoreWrites += fresh.length;
@@ -547,6 +596,9 @@ export function fakeLiveDb(initial = {}) {
         if (table === "admin_access_logs" && hit.length > 0) {
           throw Object.assign(new Error("admin_access_logs is append-only"), { code: "P0001" });
         }
+        if (table === "live_session_events" && hit.length > 0) {
+          throw Object.assign(new Error("live_session_events is append-only"), { code: "P0001" });
+        }
         if (table === "live_interview_actions" && hit.length > 0) {
           throw Object.assign(new Error("live_interview_actions is append-only"), {
             code: "P0001",
@@ -554,7 +606,7 @@ export function fakeLiveDb(initial = {}) {
         }
         const next = hit.map((r) => ({ ...r, ...structuredClone(update[1]) }));
         for (const [i, r] of next.entries()) {
-          if (table === "interview_sessions") stampLiveEnded(r, hit[i]);
+          if (table === "interview_sessions") stampLiveEnded(r, hit[i], clock());
           if (table === "live_video_pieces") checkVideoPiece(r, hit[i], rows, tables);
         }
         const after = rows.map((r) => next[hit.indexOf(r)] ?? r);

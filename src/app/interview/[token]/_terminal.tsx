@@ -16,17 +16,20 @@ export function InterviewShell({
   companyName,
   companyInitial,
   jobTitle,
+  wide = false,
   children,
 }: {
   companyName?: string;
   companyInitial?: string;
   jobTitle?: string;
+  /** The live interview's desktop layout: a wider sheet. */
+  wide?: boolean;
   children: React.ReactNode;
 }) {
   return (
     <div className="iv">
       <div className="iv-wrap">
-        <div className="iv-sheet">
+        <div className={wide ? "iv-sheet iv-sheet-wide" : "iv-sheet"}>
           {/* The COMPANY leads. Remotiv is the trust layer in the footer —
               this is Acme's interview and Remotiv is the infrastructure. */}
           {companyName && (
@@ -74,6 +77,7 @@ type TerminalKind =
   | "expired"
   | "cancelled"
   | "unavailable"
+  | "ended"
   | "invalid"
   | "no-questions";
 
@@ -198,6 +202,34 @@ export function TerminalScreen({
           <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
             Nothing has gone wrong on your side, and nothing has been recorded. Reply to the email
             invitation and {company}&apos;s team will be in touch.
+          </p>
+        </div>
+      </div>
+    );
+  }
+
+  /*
+   * A live interview that has started or ended (AVI commit 10). Reopening the
+   * link never starts a second conversation; the hiring team decides what
+   * happens next. Hyphens only.
+   */
+  if (kind === "ended") {
+    return (
+      <div className="iv-card" data-terminal="ended">
+        <div className="flex flex-col items-center px-1 pb-2 pt-3.5 text-center">
+          <span className="mb-[18px] flex size-[72px] items-center justify-center rounded-3xl bg-[var(--inset)] text-[var(--t3)]">
+            <Clock className="size-[34px]" strokeWidth={2.2} />
+          </span>
+          <h1 className="iv-sora m-0 mb-2.5 text-[23px] font-extrabold leading-tight tracking-[-0.032em] text-[var(--t1)]">
+            This interview has ended
+          </h1>
+          <p className="m-0 mb-1.5 text-sm leading-relaxed text-[var(--t2)]">
+            This link was used to start {company}&apos;s AI Video Interview, so it can&apos;t start
+            another one.
+          </p>
+          <p className="m-0 mt-2.5 text-[13px] leading-relaxed text-[var(--t3)]">
+            {company}&apos;s hiring team will see the answers you gave and decide what happens next.
+            If something went wrong, reply to the email invitation and tell them.
           </p>
         </div>
       </div>

@@ -1,7 +1,11 @@
 import type { Metadata } from "next";
+import { liveConsentScreen } from "@/lib/interviews/live-consent";
+import { liveWelcomeFacts } from "@/lib/interviews/live-screen";
 import { resolveSessionByToken } from "@/lib/interviews/session";
 import "../interview.css";
+import "../live-interview.css";
 import { InterviewFlow } from "./_flow";
+import { LiveInterviewFlow } from "./_live/live-flow";
 import { TerminalScreen, InterviewShell } from "./_terminal";
 
 export const dynamic = "force-dynamic";
@@ -46,6 +50,29 @@ export default async function InterviewPage({
 
   const { session } = resolved;
 
+  /*
+   * An AI Video Interview, on the live screen (AVI commit 10): only behind
+   * LIVE_INTERVIEW_SCREEN_ENABLED, and only while it can still start. The
+   * page gets the interviewer's name and the time limit (liveWelcomeFacts:
+   * those two fields only) and how many questions, never the questions. The consent text is null while it has a
+   * placeholder, and then the screen stops at "This interview isn't open yet".
+   */
+  if (session.state === "live" && session.live) {
+    const facts = await liveWelcomeFacts(resolved.row.id);
+    return (
+      <LiveInterviewFlow
+        token={token}
+        companyName={session.companyName}
+        companyInitial={session.companyInitial}
+        jobTitle={session.jobTitle}
+        interviewer={facts.interviewerName}
+        minutes={facts.minutes}
+        questionCount={session.live.questionCount}
+        consent={liveConsentScreen(session.companyName)}
+      />
+    );
+  }
+
   if (session.state !== "ready") {
     return (
       <InterviewShell
@@ -54,7 +81,7 @@ export default async function InterviewPage({
         jobTitle={session.jobTitle}
       >
         <TerminalScreen
-          kind={session.state}
+          kind={session.state === "live" ? "unavailable" : session.state}
           companyName={session.companyName}
           expiresAt={session.expiresAt}
           submittedAt={session.submittedAt}
