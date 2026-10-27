@@ -1,7 +1,7 @@
 import type { JoinTicket } from "@/lib/interviews/live-provider/types";
 import type { Clock } from "./clock";
 import type { MockVoiceLoader } from "./mock-lines";
-import { MockVoxAgent } from "./mock-voxagent";
+import { type MockStepsLoader, MockVoxAgent } from "./mock-voxagent";
 
 /**
  * The live conversation, as the candidate screen sees it (AVI commit 10).
@@ -71,7 +71,12 @@ export class TransportUnavailableError extends Error {
 
 export function createTransport(
   ticket: JoinTicket,
-  opts: { interviewerName: string; clock?: Clock; mockVoice?: MockVoiceLoader },
+  opts: {
+    interviewerName: string;
+    clock?: Clock;
+    mockVoice?: MockVoiceLoader;
+    mockSteps?: MockStepsLoader;
+  },
 ): VoxAgentTransport {
   if (ticket.turnDetection !== "server") throw new TransportUnavailableError("turn_detection");
   if (ticket.mode === "mock") {
@@ -79,6 +84,7 @@ export function createTransport(
       interviewerName: opts.interviewerName,
       clock: opts.clock,
       voice: opts.mockVoice,
+      steps: opts.mockSteps,
     });
   }
   throw new TransportUnavailableError("provider");

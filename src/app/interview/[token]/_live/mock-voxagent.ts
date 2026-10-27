@@ -26,14 +26,32 @@ import type { AudioOut, TransportEvent, VoxAgentTransport } from "./transport";
 
 export type MockSignal = "cut_in" | "answer_done" | "repeat" | "drop";
 
-type Step =
+/**
+ * One step of a mock interview. A spoken step may name its own `clip` (a
+ * replay of a real session plays the very clip of that turn); otherwise its
+ * words find their clip, or the tone. `cutContinues`: a cut-in on this step
+ * goes straight on to the script's next steps (a replay has the real line and
+ * the real repeat as its own steps), instead of adding the line and the
+ * question again.
+ */
+export type MockStep =
   /** `question`: a question put to the candidate (main or follow-up), which "repeat" can ask again. */
-  | { say: string; interruptAtMs?: number; question?: true }
+  | {
+      say: string;
+      clip?: string;
+      interruptAtMs?: number;
+      question?: true;
+      cutContinues?: true;
+    }
   | { listen: number }
   | { think: number }
   | { end: string; graceful: boolean }
   | { drop: true }
   | { error: string };
+type Step = MockStep;
+
+/** A whole script from elsewhere (a session replay in the demo), loaded before the conversation starts. */
+export type MockStepsLoader = () => Promise<MockStep[]>;
 
 /** What the interviewer says when cut off before she has finished a question (D9). */
 export const FINISH_LINE = MOCK_LINES.finish_line;
@@ -124,32 +142,47 @@ export function mockScript(id: MockScriptId, interviewer: string): Step[] {
 
 export class MockVoxAgent implements VoxAgentTransport {
   private readonly listeners = new Set<(event: TransportEvent) => void>();
-  private readonly steps: Step[];
+  private steps: Step[];
   private readonly clock: Clock;
   private readonly timers = new Set<unknown>();
   private readonly loadVoice: MockVoiceLoader | null;
+  private readonly loadSteps: MockStepsLoader | null;
   private voice: MockVoice = new Map();
   private audio: AudioOut | null = null;
   private current: Step | null = null;
-  /** The last question put, for "repeat": never a procedural line. */
-  private lastQuestion: string | null = null;
+  /** The last question put, for "repeat": never a procedural line. Its own clip, when it had one. */
+  private lastQuestion: { say: string; clip?: string } | null = null;
   private at = 0;
   private phase: "idle" | "running" | "closed" = "idle";
 
   constructor(
     script: MockScriptId,
-    opts: { interviewerName: string; clock?: Clock; voice?: MockVoiceLoader },
+    opts: {
+      interviewerName: string;
+      clock?: Clock;
+      voice?: MockVoiceLoader;
+      /** A whole script instead of `script`'s (the demo's session replay). */
+      steps?: MockStepsLoader;
+    },
   ) {
     this.steps = mockScript(script, opts.interviewerName);
     this.clock = opts.clock ?? realClock;
     this.loadVoice = opts.voice ?? null;
+    this.loadSteps = opts.steps ?? null;
   }
 
   async connect(opts: { mic: MediaStream | null; audioOut: AudioOut }): Promise<void> {
     if (this.phase !== "idle") return;
     this.audio = opts.audioOut;
     this.phase = "running";
-    // The spoken clips, all before the conversation starts, so no line waits on a fetch.
+    // A replayed script, then the spoken clips, all before the conversation starts.
+    if (this.loadSteps) {
+      try {
+        this.steps = await this.loadSteps();
+      } catch {
+        // The built-in script stays.
+      }
+    }
     if (this.loadVoice) {
       try {
         this.voice = await this.loadVoice();
@@ -211,7 +244,7 @@ export class MockVoxAgent implements VoxAgentTransport {
       this.at - 1,
       0,
       { say: REPEAT_LEAD },
-      { say: this.lastQuestion, question: true },
+      { say: this.lastQuestion.say, clip: this.lastQuestion.clip, question: true },
     );
     this.at -= 1;
     this.next();
@@ -224,11 +257,14 @@ export class MockVoxAgent implements VoxAgentTransport {
     this.current = step ?? null;
     if (!step) return;
     if ("say" in step) {
-      if (step.question) this.lastQuestion = step.say;
+      if (step.question) this.lastQuestion = { say: step.say, clip: step.clip };
       this.emit({ type: "agent", state: "speaking" });
       this.emit({ type: "agent_text", text: step.say });
-      // The spoken clip for these exact words, else the tone placeholder.
-      const voice = this.voice.get(step.say) ?? synthVoice(step.say);
+      // The step's own clip, else the clip for these exact words, else the tone placeholder.
+      const voice =
+        (step.clip ? this.voice.get(step.clip) : undefined) ??
+        this.voice.get(step.say) ??
+        synthVoice(step.say);
       this.audio?.play(voice, DOWNSTREAM_HZ);
       const speakingMs = durationOf(voice, DOWNSTREAM_HZ) * 1000;
       if (step.interruptAtMs !== undefined) {
@@ -259,7 +295,14 @@ export class MockVoxAgent implements VoxAgentTransport {
     this.audio?.flush();
     this.emit({ type: "interrupted" });
     this.emit({ type: "agent", state: "listening" });
-    this.steps.splice(this.at, 0, { say: FINISH_LINE }, { say: step.say, question: step.question });
+    if (!step.cutContinues) {
+      this.steps.splice(
+        this.at,
+        0,
+        { say: FINISH_LINE },
+        { say: step.say, clip: step.clip, question: step.question },
+      );
+    }
     this.current = null;
     this.after(900, () => this.next());
     return true;

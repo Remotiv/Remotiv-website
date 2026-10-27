@@ -5,6 +5,7 @@ import "../interview.css";
 import "../live-interview.css";
 import type { LiveConsentView } from "../[token]/_live/screens";
 import { PreviewLive } from "./_preview-live";
+import { arhamReplayAvailable } from "./arham-session";
 
 export const dynamic = "force-dynamic";
 
@@ -40,5 +41,5 @@ export default function PreviewLivePage() {
     checkbox: LIVE_CONSENT.checkbox,
     version: LIVE_INTERVIEW_CONSENT_VERSION,
   };
-  return <PreviewLive company={COMPANY} consent={consent} />;
+  return <PreviewLive company={COMPANY} consent={consent} arhamReplay={arhamReplayAvailable()} />;
 }

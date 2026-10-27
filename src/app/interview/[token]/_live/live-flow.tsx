@@ -15,6 +15,7 @@ import { INTERVIEW, SAVING } from "./copy";
 import { httpLiveServer, type LiveServer } from "./live-server";
 import { INITIAL, liveReducer } from "./machine";
 import type { MockVoiceLoader } from "./mock-lines";
+import type { MockStepsLoader } from "./mock-voxagent";
 import { type CheckState, type LiveConsentView, LiveScreens } from "./screens";
 import { createTransport, type TransportEvent, type VoxAgentTransport } from "./transport";
 import { baseMime, PieceRecorder, type PieceView, type RecorderLike } from "./video-pieces";
@@ -106,6 +107,7 @@ export function LiveFlowCore({
   getMedia,
   showEnding = false,
   mockVoice,
+  mockSteps,
   ...p
 }: LiveFlowProps & {
   server: LiveServer;
@@ -120,6 +122,8 @@ export function LiveFlowCore({
   showEnding?: boolean;
   /** The demo only: the mock's spoken clips. The candidate page never passes it. */
   mockVoice?: MockVoiceLoader;
+  /** The demo only: a replayed session's script. The candidate page never passes it. */
+  mockSteps?: MockStepsLoader;
 }) {
   const [state, dispatch] = useReducer(liveReducer, INITIAL);
   const [agreed, setAgreed] = useState(false);
@@ -316,7 +320,11 @@ export function LiveFlowCore({
     if (!answer.ok) return;
     let transport: VoxAgentTransport;
     try {
-      transport = createTransport(answer.join, { interviewerName: p.interviewer, mockVoice });
+      transport = createTransport(answer.join, {
+        interviewerName: p.interviewer,
+        mockVoice,
+        mockSteps,
+      });
     } catch {
       server.event("provider_error", "error");
       dispatch({ t: "transport_failed" });
@@ -331,7 +339,7 @@ export function LiveFlowCore({
       server.event("provider_error", "error");
       dispatch({ t: "transport_failed" });
     }
-  }, [server, p.interviewer, onEvent, onTransport, mockVoice]);
+  }, [server, p.interviewer, onEvent, onTransport, mockVoice, mockSteps]);
 
   const endConfirm = useCallback(() => {
     dispatch({ t: "end_confirmed" });

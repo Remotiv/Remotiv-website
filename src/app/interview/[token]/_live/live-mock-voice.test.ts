@@ -292,7 +292,11 @@ test("the real candidate page never loads the clips; only the preview passes a v
   );
   assert.doesNotMatch(real, /mockVoice/);
   const preview = src("../../preview-live/_preview-live.tsx");
-  assert.match(preview, /mockVoice=\{voice\}/, "the preview passes its voice");
+  assert.match(
+    preview,
+    /mockVoice=\{script === "arham_replay" \? arham\.voice : voice\}/,
+    "the preview passes its voice (or the session replay's)",
+  );
   assert.match(
     preview,
     /loading \?\?= loadPreviewVoice\(\)/,

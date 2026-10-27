@@ -15,6 +15,7 @@ import {
 import type { LiveConsentView } from "../[token]/_live/screens";
 import type { VoxAgentTransport } from "../[token]/_live/transport";
 import type { PieceMime } from "../[token]/_live/video-pieces";
+import { arhamReplayLoaders } from "./arham-voice";
 import { loadPreviewVoice, PREVIEW_INTERVIEWER } from "./mock-voice";
 
 /**
@@ -70,7 +71,7 @@ function testPattern(ctx: AudioContext): Promise<MediaStream> {
   return Promise.resolve(new MediaStream([video, ...dest.stream.getAudioTracks()]));
 }
 
-type Script = MockScriptId | "busy";
+type Script = MockScriptId | "busy" | "arham_replay";
 /** Every ending, in the order the bar shows them. */
 const SCRIPTS: { id: Script; label: string; what: string }[] = [
   {
@@ -150,7 +151,24 @@ const PANEL =
   "fixed bottom-4 right-4 z-50 w-[360px] max-h-[86vh] overflow-auto rounded-2xl border border-black/10 bg-white p-4 text-[12.5px] text-[#17131f] shadow-2xl";
 const BTN = "rounded-full border border-black/15 px-3 py-1.5 font-semibold hover:bg-black/5";
 
-export function PreviewLive({ company, consent }: { company: string; consent: LiveConsentView }) {
+/** Offered only when PREVIEW_ARHAM_SESSION_DIR names a readable session folder (arham-session.ts). */
+const ARHAM_REPLAY = {
+  id: "arham_replay" as const,
+  label: "Real Sarah voice (Arham's session)",
+  what: "Arham's recorded session: Sarah's own voice for every one of her turns, in the session's order, its real interruption and repeat, and the session's own ending.",
+};
+
+export function PreviewLive({
+  company,
+  consent,
+  arhamReplay = false,
+}: {
+  company: string;
+  consent: LiveConsentView;
+  /** The server found Arham's session folder: offer the replay. */
+  arhamReplay?: boolean;
+}) {
+  const scripts = arhamReplay ? [...SCRIPTS, ARHAM_REPLAY] : SCRIPTS;
   const [script, setScript] = useState<Script>("completed");
   const [minutes, setMinutes] = useState(20);
   const [pieceSeconds, setPieceSeconds] = useState(15);
@@ -177,6 +195,7 @@ export function PreviewLive({ company, consent }: { company: string; consent: Li
   useEffect(() => {
     void voice();
   }, [voice]);
+  const arham = useMemo(() => arhamReplayLoaders(voice), [voice]);
   // Every press leaves a note on screen for a few seconds.
   useEffect(() => {
     if (!note) return;
@@ -241,8 +260,12 @@ export function PreviewLive({ company, consent }: { company: string; consent: Li
           add("POST start: 503 busy (nothing stored)");
           return { ok: false, reason: "busy", retryAfterSeconds: 30 };
         }
-        const played: MockScriptId = script === "busy" ? "completed" : script;
-        add(`POST start: 200 join ticket (mock, ${played})`);
+        // The replay's steps come from its own loader; the ticket only says "mock".
+        const played: MockScriptId =
+          script === "busy" || script === "arham_replay" ? "completed" : script;
+        add(
+          `POST start: 200 join ticket (mock, ${script === "arham_replay" ? "Arham's session replay" : played})`,
+        );
         return { ok: true, join: { mode: "mock", script: played, turnDetection: "server" } };
       },
       event(kind, detail) {
@@ -333,7 +356,7 @@ export function PreviewLive({ company, consent }: { company: string; consent: Li
     setScript(next);
     restart();
   };
-  const current = SCRIPTS.find((x) => x.id === script);
+  const current = scripts.find((x) => x.id === script);
 
   return (
     <>
@@ -343,7 +366,7 @@ export function PreviewLive({ company, consent }: { company: string; consent: Li
       >
         <div className="mx-auto flex max-w-[960px] flex-wrap items-center gap-2">
           <span className="mr-1 font-extrabold">Demo script:</span>
-          {SCRIPTS.map((x) => (
+          {scripts.map((x) => (
             <button
               key={x.id}
               type="button"
@@ -386,7 +409,8 @@ export function PreviewLive({ company, consent }: { company: string; consent: Li
         questionCount={8}
         consent={consent}
         showEnding
-        mockVoice={voice}
+        mockVoice={script === "arham_replay" ? arham.voice : voice}
+        mockSteps={script === "arham_replay" ? arham.steps : undefined}
       />
       {note && (
         <div
