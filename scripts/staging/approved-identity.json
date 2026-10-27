@@ -1,0 +1,28 @@
+{
+  "comment": [
+    "The approved staging project, pinned in git.",
+    "",
+    "WHY A HASH AND NOT THE REF: this file is committed, and a project ref is",
+    "part of a project-identifying URL. The guard only ever needs to answer",
+    "'is the connected project the approved one', which equality of hashes",
+    "settles without the ref appearing anywhere — not in this file, not in the",
+    "guard's output, not in a failure message.",
+    "",
+    "WHY IT LIVES HERE AND NOT IN .env.staging: safeguard 3. Two values supplied",
+    "by the same environment file are one value. The environment supplies the",
+    "ref; git supplies the expectation; the sentinel row inside the database",
+    "supplies a third, independent assertion made by the database itself.",
+    "",
+    "HOW TO FILL IT IN: see scripts/staging/README-steps.md, step 3. The command",
+    "prints only a hash.",
+    "",
+    "projectRefSha256 is the lowercase hex SHA-256 of the project ref alone:",
+    "no scheme, no '.supabase.co', no trailing slash, no newline.",
+    "",
+    "THE PLACEHOLDER IS DELIBERATELY HEX-SHAPED ('deadbeef' x 8) so that the",
+    "guard's not-placeholder check can be proven to fire. Until it is replaced,",
+    "approved-identity.test.mjs is red and names this file."
+  ],
+  "projectRefSha256": "9e33124c50c29f13b1d3ca9d7ebb137318532a4f4ad88d34d97046122c7aa495",
+  "label": "remotiv-staging"
+}

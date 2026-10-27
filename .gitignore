@@ -46,3 +46,6 @@ next-env.d.ts
 !.env.example
 .env.local.production-backup
 schema.sql
+
+# Written by scripts/staging/seed.mjs; regenerable from the plan, never committed.
+scripts/staging/seed-manifest.json

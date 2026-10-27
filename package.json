@@ -6,7 +6,17 @@
     "dev": "next dev",
     "build": "next build",
     "start": "next start",
-    "lint": "biome check ."
+    "lint": "biome check .",
+    "staging:seed": "node --env-file=.env.staging scripts/staging/seed.mjs",
+    "staging:harness": "playwright test --config scripts/staging/playwright.config.mjs",
+    "staging:verify": "node --env-file=.env.staging scripts/staging/seed.mjs --verify-only",
+    "staging:review-dump": "node scripts/staging/review-dump.mjs",
+    "staging:strip-dump": "node scripts/staging/strip-dump.mjs",
+    "staging:controls": "node scripts/staging/negative-controls.mjs",
+    "staging:app": "node scripts/staging/app.mjs",
+    "staging:access": "node --env-file=.env.staging --test scripts/staging/access.live-test.mjs",
+    "staging:guard-selftest": "playwright test --config scripts/staging/playwright.selftest.config.mjs",
+    "staging:teardown": "node --env-file=.env.staging scripts/staging/seed.mjs --teardown"
   },
   "dependencies": {
     "@anthropic-ai/sdk": "^0.97.1",
@@ -35,6 +45,7 @@
   },
   "devDependencies": {
     "@biomejs/biome": "2.5.8",
+    "@playwright/test": "^1.64.1",
     "@tailwindcss/postcss": "^4",
     "@types/node": "^20",
     "@types/pdf-parse": "^1.1.5",
