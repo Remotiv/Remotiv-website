@@ -229,7 +229,7 @@ test("what the fixture produced: statuses, follow-ups, timing_suspect; candidate
     ["ending_unconfirmed", 5, 1, 2, 8, 63],
   );
   assert.deepEqual(outcome.end_check, { reason: "exit_unconfirmed", never_asked: 2 });
-  assert.equal(outcome.v, 5);
+  assert.equal(outcome.v, 6);
   // Provisional until every answer is transcribed: no restart decision yet.
   assert.deepEqual([outcome.final, outcome.restart_allowed], [false, null]);
   assert.equal(isOutcomeDecided(outcome), false);
@@ -705,7 +705,7 @@ test("both real exports (candidate_ended) are never completed, even once every a
   }
 });
 
-test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 5; the shipped exit list is empty", () => {
+test("needs_review includes the ending, a repeat check and a wording check; the outcome version is 6; the shipped exit list is empty", () => {
   assert.equal(
     needsReview([{ needs_check: false }], [], { reason: "ending_unknown", never_asked: 0 }),
     true,
@@ -726,7 +726,7 @@ test("needs_review includes the ending, a repeat check and a wording check; the 
   }
   // Nor before version 4.
   assert.equal(needsReview([{ needs_check: false, wording_check: undefined }], [], null), false);
-  assert.equal(LIVE_OUTCOME_VERSION, 5);
+  assert.equal(LIVE_OUTCOME_VERSION, 6);
   assert.equal(CONFIRMED_EXIT_CODES.size, 0, "D10 unconfirmed: no status is a confirmed exit");
 });
 

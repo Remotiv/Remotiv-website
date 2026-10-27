@@ -91,7 +91,9 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *   ending_unconfirmed  everything else, flagged for a person: the candidate
  *                       left while D10 is unconfirmed, or after answering
  *                       every question; a time limit; an unknown or missing
- *                       status; provider_error with every answer usable.
+ *                       status; provider_error with every answer usable; the
+ *                       provider's "disconnected" (F15b: terminal, never
+ *                       completed, its own end_check reason).
  *                       Scored like partial, never ranked against completed,
  *                       never treated as abandonment; the restart is a
  *                       person's decision (restart_allowed null,
@@ -137,7 +139,7 @@ import type { createServiceClient } from "@/lib/supabase/server";
 
 type Service = ReturnType<typeof createServiceClient>;
 
-export const LIVE_OUTCOME_VERSION = 5;
+export const LIVE_OUTCOME_VERSION = 6;
 /** One turn's audio, at most: Whisper's limit, and far above a spoken turn. */
 export const MAX_TURN_AUDIO_BYTES = 25 * 1024 * 1024;
 
@@ -180,6 +182,8 @@ export type EndCheckReason =
   | "left_after_last_answer"
   /** A time limit, an unknown or a missing end status. */
   | "ending_unknown"
+  /** The provider reports the connection dropped (F15b): terminal, never completed. */
+  | "disconnected"
   /** provider_error, but every answer was saved. */
   | "provider_error_saved";
 
@@ -287,6 +291,13 @@ export type LiveOutcome = {
   interruptions: Interruption[];
   /** Sequences of interruption lines that need a person. Absent before version 5. */
   interruption_check_turns: number[];
+  /**
+   * Sequences of candidate turns that are interruption speech (turn_type
+   * "interruption", F15b): kept with their audio and transcribed, shown on the
+   * review page, never an answer, never counted, never scored. Absent before
+   * version 6: read as none.
+   */
+  interruption_speech_turns: number[];
   outcome: LiveOutcomeCode;
   /** Why the ending needs a person, or null when it does not. */
   end_check: EndCheck | null;
@@ -392,6 +403,10 @@ function endingOf(
     return usable
       ? { outcome: "ending_unconfirmed", endCheck: check("provider_error_saved") }
       : { outcome: "technical_failure", endCheck: null };
+  }
+  // The provider's confirmed word for a dropped connection: an ending, but never a completed one.
+  if (status === "disconnected") {
+    return { outcome: "ending_unconfirmed", endCheck: check("disconnected") };
   }
   if (exitCodes.has(status)) {
     if (answered === total) {
@@ -783,6 +798,8 @@ export function assessLiveExport(
       lastInterviewer = t;
       continue;
     }
+    // Interruption speech overlaps the interviewer by its nature, and is never an answer.
+    if (t.candidate_interruption) continue;
     if (
       lastInterviewer &&
       !lastInterviewer.interrupted &&
@@ -846,7 +863,10 @@ export function assessLiveExport(
         `position ${q.position} has ${followUps.length} follow-ups`,
       );
     }
-    const spoken = turns.filter((t) => t.speaker === "candidate" && positionOf(t) === q.position);
+    // Interruption speech (F15b) is kept but is never the answer: not counted, timed or scored.
+    const spoken = turns.filter(
+      (t) => t.speaker === "candidate" && !t.candidate_interruption && positionOf(t) === q.position,
+    );
     // Any captured speech is an answer, however short; the parser has already
     // refused a turn with no duration and the save refuses one with no audio.
     const answerMs = spoken.reduce((sum, t) => sum + t.duration_ms, 0);
@@ -898,6 +918,7 @@ export function assessLiveExport(
     repeat_check_turns: repeatCheckTurns.sort((a, b) => a - b),
     interruptions,
     interruption_check_turns: interruptionCheckTurns.sort((a, b) => a - b),
+    interruption_speech_turns: turns.filter((t) => t.candidate_interruption).map((t) => t.sequence),
     needs_review: needsReview(questions, [], fields.end_check, interruptionCheckTurns),
     transcription_failed_turns: [],
     settle_rev: 0,
@@ -914,7 +935,27 @@ export type IngestDeps = {
   now: () => number;
 };
 
-export type IngestResult = { outcome: LiveOutcome; saved: boolean };
+/**
+ * What a save did. `notFinal`: the export is a snapshot of an interview still
+ * in progress, and nothing was read or written (see saveLiveExport).
+ */
+export type IngestResult =
+  | { outcome: LiveOutcome; saved: boolean; notFinal?: undefined }
+  | { outcome: null; saved: false; notFinal: true; retryable: true };
+
+/**
+ * The provider's words for an interview that has not ended (F15b). Matched on
+ * `status` and `end_reason` alike, case and spaces aside. Only words the
+ * provider has sent are listed: nothing is guessed.
+ */
+export const NOT_FINAL_WORDS: readonly string[] = ["in_progress"];
+
+/** True when either the provider's status or its end_reason says the interview is still running. */
+export function isNotFinalExport(status: ParsedExport["status"]): boolean {
+  return [status.provider_status, status.end_reason].some(
+    (word) => word !== null && NOT_FINAL_WORDS.includes(word.trim().toLowerCase()),
+  );
+}
 
 type SessionRow = {
   id: string;
@@ -1089,12 +1130,33 @@ function storedFor(row: SessionRow, hash: string): LiveOutcome | null {
   return stored;
 }
 
-/** Save one parsed export for one session. Idempotent; all-or-nothing for the turns. */
+/**
+ * Save one parsed export for one session. Idempotent; all-or-nothing for the turns.
+ *
+ * ── Not final: nothing happens, try again later (F15b) ───────
+ *
+ * An export whose status or end_reason says the interview is still running
+ * (isNotFinalExport) is a snapshot, not the session's record. Saving it would
+ * write turns and an outcome once, and the real, final export could then
+ * never be saved (it would be another export's). So it is checked FIRST,
+ * before the session is read or anything is written or stamped (no audio, no
+ * turns, no outcome, no live_ended_at), and answers
+ * { notFinal: true, retryable: true, saved: false, outcome: null }.
+ *
+ * REQUIREMENT for any caller that fetches and saves exports (none exists yet):
+ * notFinal means RETRY LATER. Fetch the export again after a delay and save
+ * that. Never mark the session processed, and never mark it permanently
+ * failed, on a notFinal answer (live-ingest-f15b.test.ts pins this).
+ */
 export async function saveLiveExport(
   sessionId: string,
   parsed: ParsedExport,
   deps: IngestDeps,
 ): Promise<IngestResult> {
+  if (isNotFinalExport(parsed.status)) {
+    console.log(`[live-ingest] session ${sessionId}: export not final yet; nothing saved`);
+    return { outcome: null, saved: false, notFinal: true, retryable: true };
+  }
   const row = await readSession(deps.service, sessionId);
   if (!row) throw new LiveIngestError("session_not_found", sessionId);
   if (row.kind !== "live") throw new LiveIngestError("not_live", sessionId);

@@ -154,7 +154,8 @@ export type CandidateTurnState = {
 /**
  * The outcome with every answered question settled against its transcripts,
  * and final set from the turns: every one transcribed, or failed and excluded
- * by a person (`excluded`, by sequence). Pure.
+ * by a person (`excluded`, by sequence). Interruption speech is transcribed
+ * and counts toward final, but never confirms an answer. Pure.
  */
 export function settleOutcome(
   outcome: LiveOutcome,
@@ -162,9 +163,13 @@ export function settleOutcome(
   attempt: number,
   excluded: ReadonlySet<number> = new Set(),
 ): LiveOutcome {
+  // Interruption speech (F15b) never confirms an answer; it is still transcribed below.
+  const interruptionSpeech = new Set(outcome.interruption_speech_turns ?? []);
   const questions: LiveQuestionFacts[] = outcome.questions.map((q) => {
     if (q.status !== "answered") return q;
-    const mine = turns.filter((t) => t.position === q.position);
+    const mine = turns.filter(
+      (t) => t.position === q.position && !interruptionSpeech.has(t.sequence),
+    );
     if (
       mine.some(
         (t) => t.transcript_status === "done" && hasRealWords(t.transcript, t.transcript_segments),

@@ -838,6 +838,8 @@ const END_TEXTS = {
     "How this interview ended couldn't be confirmed. Check the recording before relying on it.",
   provider_error_saved:
     "The provider reported an error, but every answer was saved. Check the recording, then decide whether to offer a restart.",
+  disconnected:
+    "The provider reports the connection dropped before the interview finished. Check the recording before relying on it.",
 };
 const RESTART_TEXT = "A restart is your decision for this interview.";
 const section = (html, marker) => {
@@ -1843,4 +1845,44 @@ test("F15 an interruption line on no question still shows: one plain reason, nev
   // A clean line with no question is not a reason.
   const quiet2 = buildLiveReviewView(interruptionInput({}, [line(null)]));
   assert.deepEqual(quiet2.header.reviewReasons, []);
+});
+
+/* ── F15b: interruption speech (27 Oct 2026) ──────────────────── */
+
+test("F15b interruption speech is shown on its question, labelled, with its audio; a quote never points at it", () => {
+  const input = completedInput();
+  // What the candidate said while cutting in on question 2: it even contains the quoted words.
+  input.turns.push({
+    ...input.turns[3],
+    id: "i",
+    sequence: 6,
+    transcript: "Sorry, could you repeat that? I ran the profiler and found it.",
+    transcript_segments: null,
+    responds_to_turn_id: "c",
+    media_path: "s/t6.wav",
+  });
+  input.session.live_outcome.interruption_speech_turns = [6];
+  const v = buildLiveReviewView(input);
+  const q2 = byPos(v, 2);
+  const shown = q2.conversation.find((t) => t.id === "i");
+  assert.deepEqual(
+    [shown.speaker, shown.label, shown.state, shown.hasAudio],
+    ["candidate", "Candidate (interrupting)", "text", true],
+  );
+  assert.equal(
+    q2.conversation.find((t) => t.id === "d").label,
+    "Candidate",
+    "the answer keeps its label",
+  );
+  assert.ok(q2.quotes.length > 0);
+  for (const q of q2.quotes)
+    assert.equal(q.turnId, "d", "the quote is the answer's, never the interruption's");
+  assert.doesNotMatch(render(v), /[\u2013\u2014]/, "hyphens only");
+
+  // Control: an outcome saved before version 6 has no list, and the turn reads as an ordinary candidate turn.
+  delete input.session.live_outcome.interruption_speech_turns;
+  assert.equal(
+    byPos(buildLiveReviewView(input), 2).conversation.find((t) => t.id === "i").label,
+    "Candidate",
+  );
 });

@@ -171,7 +171,7 @@ test("the interruption export saves as sent: 19 rows, every turn's audio, timest
 
 test("the outcome: ending not confirmed, the interruption kept, its missing speech flagged", async () => {
   const { outcome } = await saveRaw(fixture());
-  assert.equal(outcome.v, 5);
+  assert.equal(outcome.v, 6);
   assert.deepEqual(
     [
       outcome.provider_status,

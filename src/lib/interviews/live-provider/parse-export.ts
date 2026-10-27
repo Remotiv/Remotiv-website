@@ -29,9 +29,11 @@ import type {
  *   role                    -> speaker (interviewer | candidate)
  *   turn_type               -> kind: base_question, follow_up, clarification
  *                              and procedural as they are; acknowledgment,
- *                              greeting and user_interrupted -> procedural;
- *                              answer -> null (candidate turns carry no kind,
- *                              as interview_turns requires)
+ *                              greeting, user_interrupted and silence_reminder
+ *                              -> procedural; answer and interruption -> null
+ *                              (candidate turns carry no kind, as
+ *                              interview_turns requires). A candidate
+ *                              "interruption" is marked candidate_interruption.
  *   questions[].position    -> the question's position; when no question has
  *                              one, its place in questions[] (1, 2, ...). A mix
  *                              is refused.
@@ -58,6 +60,10 @@ import type {
  * end_reason never falls back to it for that. Any other ending is read from
  * end_reason, else status, as before; when both are sent and disagree, the
  * ending is unknown. Both words and the flag are kept for the record.
+ * "disconnected" (F15b) is read as its own ending: terminal, never completed,
+ * for a person to review. "in_progress" is not an ending at all: it reads as
+ * unknown here, and saveLiveExport (live-ingest.ts) refuses to save such an
+ * export as not final.
  *
  * ── Fail closed ──────────────────────────────────────────────
  *
@@ -148,6 +154,7 @@ const STATUS_CODES: Readonly<Record<string, ExportStatusCode>> = {
   timeout: "timed_out",
   error: "provider_error",
   provider_error: "provider_error",
+  disconnected: "disconnected",
 };
 
 const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
@@ -159,8 +166,11 @@ const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
   greeting: "procedural",
   user_interrupted: "procedural",
   repeat: "procedural",
+  // "Take your time." and the like (F15b): never a question, a follow-up or scored.
+  silence_reminder: "procedural",
 };
-const CANDIDATE_TYPES: ReadonlySet<string> = new Set(["answer"]);
+// "interruption" (F15b): what the candidate said while cutting in. Kept, never an answer.
+const CANDIDATE_TYPES: ReadonlySet<string> = new Set(["answer", "interruption"]);
 
 /**
  * A follow-up's reason when the provider sends none. Migration 021 requires a
@@ -462,6 +472,7 @@ export function parseExport(raw: unknown): ParsedExport {
       audio_stopped_ms: stoppedMs,
       repeat,
       interruption_line: turnType === "user_interrupted",
+      candidate_interruption: speaker === "candidate" && turnType === "interruption",
       started_at: startedTurn,
       ended_at: plusMs(startedTurn, durationMs),
       audio_file_name:

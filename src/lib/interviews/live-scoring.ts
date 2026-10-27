@@ -287,13 +287,15 @@ function scrub(text: string, name: CandidateName): string {
 /**
  * One question's exchange, in turn order: the interviewer's question, follow-
  * ups and clarifications, and the candidate's transcribed answers. Procedural
- * turns (repeats, silence reminders) and filler-only answers are left out.
- * Text only: no turn kind, index, count or reason travels. Pure.
+ * turns (repeats, silence reminders), filler-only answers and interruption
+ * speech (`interruptionSpeech`: the outcome's interruption_speech_turns, F15b)
+ * are left out. Text only: no turn kind, index, count or reason travels. Pure.
  */
 export function exchangeFor(
   position: number,
   turns: readonly ScoringTurn[],
   name: CandidateName,
+  interruptionSpeech: ReadonlySet<number> = new Set(),
 ): LiveExchangeLine[] {
   const byId = new Map(turns.map((t) => [t.id, t]));
   const positionOf = (t: ScoringTurn) =>
@@ -306,7 +308,11 @@ export function exchangeFor(
       if (!["base_question", "follow_up", "clarification"].includes(t.kind ?? "")) continue;
       const text = scrub(t.text ?? "", name);
       if (text) lines.push({ speaker: "interviewer", text });
-    } else if (t.speaker === "candidate" && t.transcript_status === "done") {
+    } else if (
+      t.speaker === "candidate" &&
+      t.transcript_status === "done" &&
+      !interruptionSpeech.has(t.sequence)
+    ) {
       const segments = Array.isArray(t.transcript_segments)
         ? (t.transcript_segments as {
             start: number;
@@ -442,6 +448,8 @@ export async function scoreLiveSession(
     if (typeof p === "number") excludedPositions.add(p);
   }
   const outcome = session.live_outcome;
+  // What the candidate said while cutting in is never part of an answer (F15b).
+  const interruptionSpeech = new Set(outcome?.interruption_speech_turns ?? []);
   const timingChecked = new Set(
     (outcome?.questions ?? []).filter((x) => x.needs_check).map((x) => x.position),
   );
@@ -564,7 +572,7 @@ export async function scoreLiveSession(
               question: q.text,
               competency: q.competency,
               guide: q.scoring_guide as string,
-              exchange: exchangeFor(q.position, turns, name),
+              exchange: exchangeFor(q.position, turns, name, interruptionSpeech),
             },
             { call: deps.call },
             ctx,

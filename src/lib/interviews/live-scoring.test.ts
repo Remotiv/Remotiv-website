@@ -1995,3 +1995,24 @@ test("planLiveScoring: the wording check, in order with the other rules", () => 
   assert.equal(one({ needs_check: true }, scoreIt).reason, "needs_check");
   assert.equal(one({ repeat_check: "unexpected_lead_in" }, scoreIt).reason, "repeat_check");
 });
+
+/* ── F15b: interruption speech is never scored (27 Oct 2026) ──── */
+
+test("F15b the exchange leaves out interruption speech; everything else is as before", async () => {
+  const db = await decided();
+  const turns = turnsOf(db);
+  const name = { firstName: "Alex", lastName: "Example" };
+  const all = exchangeFor(2, turns, name);
+  const spoken = turns.filter((t) => t.speaker === "candidate" && positionOf(db, t) === 2);
+  assert.ok(spoken.length > 0);
+  const cutIn = spoken[0];
+  const without = exchangeFor(2, turns, name, new Set([cutIn.sequence]));
+  assert.equal(without.length, all.length - 1);
+  assert.equal(
+    without.filter((l) => l.speaker === "interviewer").length,
+    all.filter((l) => l.speaker === "interviewer").length,
+  );
+  // Control: a sequence on another question changes nothing here.
+  const elsewhere = turns.find((t) => t.speaker === "candidate" && positionOf(db, t) !== 2);
+  assert.deepEqual(exchangeFor(2, turns, name, new Set([elsewhere.sequence])), all);
+});

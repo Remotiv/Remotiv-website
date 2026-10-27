@@ -261,6 +261,8 @@ const END_REASON: Record<EndCheckReason, (neverAsked: number) => string> = {
     "How this interview ended couldn't be confirmed. Check the recording before relying on it.",
   provider_error_saved: () =>
     "The provider reported an error, but every answer was saved. Check the recording, then decide whether to offer a restart.",
+  disconnected: () =>
+    "The provider reports the connection dropped before the interview finished. Check the recording before relying on it.",
 };
 
 /** The waits only a person's decision ends. */
@@ -433,6 +435,8 @@ export function buildLiveReviewView(input: {
       ? settings.interviewer_name.trim()
       : "Interviewer";
   const byId = new Map(input.turns.map((t) => [t.id, t]));
+  // What the candidate said while cutting in (F15b): shown, labelled, never an answer.
+  const interruptionSpeech = new Set(outcome?.interruption_speech_turns ?? []);
   const positionOf = (t: ReviewTurnRow) =>
     t.question_position ??
     (t.responds_to_turn_id ? (byId.get(t.responds_to_turn_id)?.question_position ?? null) : null);
@@ -489,7 +493,7 @@ export function buildLiveReviewView(input: {
         id: t.id,
         sequence: t.sequence,
         speaker: "candidate",
-        label: "Candidate",
+        label: interruptionSpeech.has(t.sequence) ? "Candidate (interrupting)" : "Candidate",
         text: state === "text" ? t.transcript : null,
         state,
         hasAudio,
@@ -577,7 +581,9 @@ export function buildLiveReviewView(input: {
 
     // Only a counted score is shown: answered (AI) or skipped (the lowest).
     const counted = entry && (entry.status === "scored" || entry.status === "lowest");
-    const candidateTurns = mine.filter((t) => t.speaker === "candidate" && t.transcript);
+    const candidateTurns = mine.filter(
+      (t) => t.speaker === "candidate" && t.transcript && !interruptionSpeech.has(t.sequence),
+    );
     const quotes =
       counted && entry.status === "scored"
         ? entry.quotes.map((quote) => {

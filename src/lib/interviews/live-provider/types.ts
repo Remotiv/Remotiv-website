@@ -79,12 +79,18 @@ export type JoinTicket =
       turnDetection: "server" | "client";
     };
 
-/** How the session ended, as the provider reported it. Submitted or abandoned is decided elsewhere. */
+/**
+ * How the session ended, as the provider reported it. Submitted or abandoned
+ * is decided elsewhere. "disconnected" (F15b, 27 Oct 2026) is the provider's
+ * confirmed word for a connection that dropped: a terminal ending, never
+ * completed, and always for a person to review.
+ */
 export const EXPORT_STATUS_CODES = [
   "completed",
   "candidate_ended",
   "timed_out",
   "provider_error",
+  "disconnected",
   "unknown",
 ] as const;
 export type ExportStatusCode = (typeof EXPORT_STATUS_CODES)[number];
@@ -145,6 +151,12 @@ export type LiveTurn = {
    * ParsedExport.interruptions.
    */
   interruption_line: boolean;
+  /**
+   * Candidate turns only: what the candidate said while cutting in (turn_type
+   * "interruption", F15b, 27 Oct 2026). Kept, with its audio, and transcribed
+   * like every candidate turn; never an answer, never counted, never scored.
+   */
+  candidate_interruption: boolean;
   /** Session start plus offset_ms, then plus duration_ms: one clock for every turn. */
   started_at: string;
   ended_at: string;
