@@ -6,7 +6,7 @@
  * every screen, the apply modal's trap keyed on `mounted`, the booking notice
  * rendered in the booked card, the interview error boundary present.
  *
- *   node --test "src/app/interview/[token]/a11y-wiring.test.ts"
+ *   node --test "src/app/interview/?token?/a11y-wiring.test.ts"   (?token? matches [token]: brackets would be read as a glob)
  */
 // @ts-nocheck — same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";

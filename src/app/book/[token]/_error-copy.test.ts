@@ -3,7 +3,7 @@
  * for a failure the candidate cannot fix points at the recruiter, not at
  * Remotiv (Phase 6, A6-4).
  *
- *   node --test "src/app/book/[token]/_error-copy.test.ts"
+ *   node --test "src/app/book/?token?/_error-copy.test.ts"   (?token? matches [token]: brackets would be read as a glob)
  */
 // @ts-nocheck — same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
 import assert from "node:assert/strict";
