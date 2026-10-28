@@ -3,6 +3,15 @@
 -- ----------------------------------------------------------------------------
 -- NOT RUN YET. For review. Run by hand in the Supabase SQL editor, after 049.
 --
+-- ── Before running ───────────────────────────────────────────
+--
+-- The table should not exist yet (NULL), 042's trigger function must exist
+-- (not NULL), and no live session exists yet (live links are locked):
+--
+-- select to_regclass('public.live_session_events') as table_exists,
+--        to_regprocedure('public.live_scoring_session_company()') as needs_042,
+--        (select count(*) from public.interview_sessions where kind = 'live') as live_sessions;
+--
 -- ── What this records ────────────────────────────────────────
 --
 -- The candidate screen (AVI commit 10) reports what it saw happen during a
@@ -27,17 +36,27 @@
 --
 -- Append-only. A row goes only with its session (ON DELETE CASCADE), like
 -- live_interview_actions (042). The database stamps created_at; the caller
--- cannot backdate a report. RLS on, no policies: server-only, like the other
--- live tables. Company and live-only are checked by 042's
--- live_scoring_session_company().
+-- cannot backdate a report. RLS on, no policies, and no table rights for
+-- anon or authenticated: server-only, like the other live tables. Company and
+-- live-only are checked by 042's live_scoring_session_company(); the file
+-- stops before changing anything if that function is missing.
 --
 -- ── Safe to re-run ───────────────────────────────────────────
 --
 -- create ... if not exists, constraints dropped before they are added,
--- functions replaced, triggers dropped before they are created.
+-- functions replaced, triggers dropped before they are created, rights
+-- revoked again. All in one transaction.
 -- ============================================================================
 
 begin;
+
+do $$
+begin
+  if to_regprocedure('public.live_scoring_session_company()') is null then
+    raise exception '050: public.live_scoring_session_company() is missing. Apply 042 first. Not proceeding.';
+  end if;
+end;
+$$;
 
 create table if not exists public.live_session_events (
   id          uuid primary key default gen_random_uuid(),
@@ -64,15 +83,17 @@ alter table public.live_session_events
 
 -- provider_end_reported carries the provider's end_reason as one of these codes
 -- (anything else is 'other'); provider_error carries 'error'; no other kind
--- carries a detail.
+-- carries a detail. "detail is not null" because a CHECK passes on NULL: without
+-- it, those two kinds would be accepted with no code at all.
 alter table public.live_session_events
   drop constraint if exists live_session_events_detail,
   add constraint live_session_events_detail
     check (
       case kind
         when 'provider_end_reported' then
-          detail in ('completed', 'completed_not_graceful', 'candidate_left', 'timed_out', 'other')
-        when 'provider_error' then detail = 'error'
+          detail is not null
+          and detail in ('completed', 'completed_not_graceful', 'candidate_left', 'timed_out', 'other')
+        when 'provider_error' then detail is not null and detail = 'error'
         else detail is null
       end
     );
@@ -140,5 +161,8 @@ create trigger live_session_events_no_truncate
   for each statement execute function public.live_session_events_append_only();
 
 alter table public.live_session_events enable row level security;
+
+-- Server-only: a second lock behind RLS.
+revoke all on table public.live_session_events from anon, authenticated;
 
 commit;
