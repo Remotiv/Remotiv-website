@@ -164,6 +164,19 @@ const unresolved = [];
 let probeRanInThisWorker = false;
 
 /**
+ * Every flake a counted retry or resume absorbed, printed in its own section
+ * at the end. Absorbed is not passed and not failed: each entry is a thing
+ * that went wrong once and was retried once, in the open. A login refused
+ * twice, or a sweep that will not move more than MAX_RESUMES times, still
+ * fails. Nothing here is silent.
+ */
+const flakes = [];
+const MAX_LOGIN_ATTEMPTS = 2;
+const MAX_RESUMES = 3;
+/** Refusals worth one more attempt: each has been seen once and gone away. */
+const RETRYABLE_REFUSALS = new Set(["credentials", "unavailable", "error", "rate_limited"]);
+
+/**
  * The browser network guard, installed on every context before any page.
  *
  * NEXT_PUBLIC_* values are inlined into browser assets at compile time, so
@@ -264,6 +277,11 @@ test.afterAll(() => {
       console.log(`    to close: ${u.toClose}\n`);
     }
   }
+  if (flakes.length > 0) {
+    console.log("\n── FLAKES OBSERVED: absorbed by ONE counted retry or resume; not passes ──");
+    console.log("  Each happened and was retried in the open. Twice in a row still fails.\n");
+    for (const f of flakes) console.log(`  - ${f}`);
+  }
   if (manifest.notCovered.length > 0) {
     console.log(
       `\n── NOT COVERED at ${manifest.scale.applicants.toLocaleString("en-US")} applicants: NEVER PASS ──`,
@@ -319,7 +337,7 @@ const isHydrated = (el) => Object.keys(el).some((k) => k.startsWith("__reactFibe
  * (requireFilled): a fill that did not land would submit an empty form, and
  * everything after would describe that form, not the sign-in.
  */
-async function signIn(page, account = ACCOUNTS.owner) {
+async function signInOnce(page, account) {
   // The COMPANY login, not /login: /login is the admin form (#al-*), and it
   // pushes to /admin. The company form (#co-*) does a full document load of
   // /ai-dashboard on success. harness-wiring.test.mjs pins both ids to source.
@@ -354,7 +372,7 @@ async function signIn(page, account = ACCOUNTS.owner) {
     arm(page.locator(LOGIN_BANNER).waitFor(opts), "refused");
     setTimeout(() => resolve("timeout"), LOGIN_TIMEOUT_MS + 1_000).unref();
   });
-  if (outcome === "dashboard") return;
+  if (outcome === "dashboard") return { outcome };
   if (outcome === "forced") {
     throw new Error(
       `the app signed ${account.emailVar} in and sent it to /ai-dashboard/change-password?forced=true: ` +
@@ -364,17 +382,41 @@ async function signIn(page, account = ACCOUNTS.owner) {
   }
   if (outcome === "refused") {
     // Throws on an empty or unrecognised read; a key is only ever a real refusal.
-    const key = classifyLoginRefusal(await page.locator(LOGIN_BANNER).innerText());
+    return { outcome, key: classifyLoginRefusal(await page.locator(LOGIN_BANNER).innerText()) };
+  }
+  return { outcome: "timeout" };
+}
+
+/**
+ * Sign in, with ONE counted retry for the refusals that have been seen once
+ * and gone away (the scoped account was refused as "credentials" once in
+ * five form logins on 2026-10-27; the SDK path never was). The retry is
+ * printed when it happens and listed under FLAKES OBSERVED at the end. A
+ * second refusal fails, with the key. The forced password redirect is never
+ * retried: it is a fixture fault, not a flake.
+ */
+async function signIn(page, account = ACCOUNTS.owner) {
+  for (let attempt = 1; ; attempt += 1) {
+    const r = await signInOnce(page, account);
+    if (r.outcome === "dashboard") return;
+    const why =
+      r.outcome === "refused"
+        ? `refused as ${r.key}`
+        : `no outcome within ${LOGIN_TIMEOUT_MS} ms (no navigation, no banner)`;
+    const retryable = r.outcome === "timeout" || RETRYABLE_REFUSALS.has(r.key);
+    if (attempt < MAX_LOGIN_ATTEMPTS && retryable) {
+      const note = `login: ${account.emailVar} ${why} on attempt ${attempt}; retried once`;
+      flakes.push(note);
+      console.log(`  FLAKE ${note}`);
+      await page.waitForTimeout(r.key === "rate_limited" ? 65_000 : 3_000);
+      continue;
+    }
     throw new Error(
-      `the login form refused ${account.emailVar}: ${key}. The SDK sign-in in beforeAll passed ` +
-        `with the same variables; rate_limited is the auth endpoint's per-IP limit over repeated ` +
-        `runs, unavailable/error are the server action's own catches.`,
+      `the login form ${why} for ${account.emailVar} on attempt ${attempt} of ${MAX_LOGIN_ATTEMPTS}. ` +
+        `The SDK sign-in in beforeAll passed with the same variables; credentials/unavailable/error ` +
+        `are the server action's own collapsed keys, rate_limited is the auth endpoint's per-IP limit.`,
     );
   }
-  throw new Error(
-    `no outcome from the login form within ${LOGIN_TIMEOUT_MS} ms: no navigation, no refusal ` +
-      `banner. The server action neither returned nor threw; look at the app's terminal.`,
-  );
 }
 
 /**
@@ -491,6 +533,7 @@ async function waitForRowsToMove(page, { scope, attr, before, label }) {
       },
       {
         timeout: 60_000,
+        intervals: [100],
         message:
           `${label}: the rows did not change within 60 s of clicking Next. The page control ` +
           `moved and the list did not. This is NOT a duplicate-row finding; do not read it as #23.`,
@@ -499,49 +542,102 @@ async function waitForRowsToMove(page, { scope, attr, before, label }) {
     .toBe(true);
 }
 
-async function collectIdsAcrossPages(page, { scope, attr, label, expectedTotal }) {
+/**
+ * A sweep that stops part way says WHERE it stopped and how much it had.
+ *
+ * A failure inside this loop is the sweep stopping: a login, a hydration, an
+ * unmoved list, a lost connection. It is never a gap. A gap is reported only
+ * by assertSameIdSet, after a COMPLETE sweep, and the message below says so,
+ * because at 500 pages a flake at page 400 and a missing row must not read
+ * alike.
+ *
+ * `pageUrl(n)`, when given, resumes by opening page n directly. Applicants
+ * carries its page in the URL (list-state.ts: ?page=N), and Next writes that
+ * same param and re-reads, so the URL is the same read path, not a shortcut
+ * around it. Messages pages in client state and has no such URL, so it
+ * cannot resume and fails with the context instead. Each resume is counted,
+ * printed, listed under FLAKES OBSERVED, capped at MAX_RESUMES, and checked:
+ * the resumed page must not be the page just read.
+ */
+async function collectIdsAcrossPages(page, { scope, attr, label, expectedTotal, pageUrl = null }) {
   const seen = [];
   const perPage = [];
   let pageNo = 1;
+  let resumes = 0;
 
-  for (;;) {
-    const started = Date.now();
-    const rows = page.locator(`${scope} [${attr}]`);
-    await rows.first().waitFor({ state: "attached", timeout: 60_000 });
-    const raw = await readIds(page, scope, attr);
-    record(`${label} page ${pageNo}`, Date.now() - started, raw.length);
+  try {
+    await sweep();
+  } catch (e) {
+    const short = perPage.filter((n) => n !== perPage[0]).length;
+    throw new Error(
+      `${label}: FAILED AT PAGE ${pageNo} with ${seen.length} id(s) collected over ` +
+        `${perPage.length} completed page(s) (${short} short), ${resumes} resume(s) used. ` +
+        `This is the sweep STOPPING, not a gap: a gap is only ever reported by assertSameIdSet ` +
+        `after a complete sweep. Cause: ${e.message}`,
+    );
+  }
+  if (resumes > 0) {
+    console.log(`  ${label}: ${resumes} resume(s) by URL; see FLAKES OBSERVED`);
+  }
+  return { seen, perPage, pages: pageNo, resumes };
 
-    // Census, then attributes, then content. In that order, always.
-    requireFound(raw.length, `${label} page ${pageNo} (${scope})`);
-    requireAttribute(raw, attr, `${label} page ${pageNo}`);
+  async function sweep() {
+    for (;;) {
+      const started = Date.now();
+      const rows = page.locator(`${scope} [${attr}]`);
+      await rows.first().waitFor({ state: "attached", timeout: 60_000 });
+      const raw = await readIds(page, scope, attr);
+      record(`${label} page ${pageNo}`, Date.now() - started, raw.length);
 
-    seen.push(...raw);
-    perPage.push(raw.length);
+      // Census, then attributes, then content. In that order, always.
+      requireFound(raw.length, `${label} page ${pageNo} (${scope})`);
+      requireAttribute(raw, attr, `${label} page ${pageNo}`);
 
-    const next = page.getByRole("button", { name: "Next page" });
-    if (!(await next.isEnabled().catch(() => false))) break;
-    // Held until React owns the button. The rows are attached from the server
-    // HTML about a second before the client hydrates (probe, 2026-10-27:
-    // 1.0-1.1 s), and a click inside that window is dispatched to a button
-    // with no handler: nothing moves, and the wait above then names it. The
-    // first 50-row run after that wait lost Applicants/newest exactly this
-    // way (first page read in 568 ms, clicked inside the window), while Best
-    // Match read its first page in 3.9 s and paged cleanly.
-    await expect
-      .poll(() => next.evaluate(isHydrated), {
-        timeout: 60_000,
-        message: `${label}: the Next button never hydrated; a click now would reach no handler`,
-      })
-      .toBe(true);
-    await next.click();
-    await waitForRowsToMove(page, { scope, attr, before: raw, label });
-    pageNo += 1;
-    if (pageNo > Math.ceil(expectedTotal / 10) + 50) {
-      throw new Error(`${label}: Next stayed enabled past any plausible page count`);
+      seen.push(...raw);
+      perPage.push(raw.length);
+
+      const next = page.getByRole("button", { name: "Next page" });
+      if (!(await next.isEnabled().catch(() => false))) break;
+      // Held until React owns the button. The rows are attached from the server
+      // HTML about a second before the client hydrates (probe, 2026-10-27:
+      // 1.0-1.1 s), and a click inside that window is dispatched to a button
+      // with no handler: nothing moves, and the wait above then names it. The
+      // first 50-row run after that wait lost Applicants/newest exactly this
+      // way (first page read in 568 ms, clicked inside the window), while Best
+      // Match read its first page in 3.9 s and paged cleanly.
+      await expect
+        .poll(() => next.evaluate(isHydrated), {
+          timeout: 60_000,
+          intervals: [100],
+          message: `${label}: the Next button never hydrated; a click now would reach no handler`,
+        })
+        .toBe(true);
+      await next.click();
+      try {
+        await waitForRowsToMove(page, { scope, attr, before: raw, label });
+      } catch (e) {
+        if (!pageUrl || resumes >= MAX_RESUMES) throw e;
+        resumes += 1;
+        const note =
+          `${label}: rows did not move after Next at page ${pageNo}; resumed by URL at page ` +
+          `${pageNo + 1} (resume ${resumes} of ${MAX_RESUMES})`;
+        flakes.push(note);
+        console.log(`  FLAKE ${note}`);
+        await page.goto(pageUrl(pageNo + 1), { waitUntil: "domcontentloaded" });
+        await rows.first().waitFor({ state: "attached", timeout: 60_000 });
+        const resumed = await readIds(page, scope, attr);
+        if (resumed.length === raw.length && resumed.every((id, i) => id === raw[i])) {
+          throw new Error(
+            `the URL for page ${pageNo + 1} returned the rows of page ${pageNo} again; not resumable`,
+          );
+        }
+      }
+      pageNo += 1;
+      if (pageNo > Math.ceil(expectedTotal / 10) + 50) {
+        throw new Error(`${label}: Next stayed enabled past any plausible page count`);
+      }
     }
   }
-
-  return { seen, perPage, pages: pageNo };
 }
 
 /** Read one chip strip: key -> raw badge value, scoped so no button text is read. */
@@ -582,7 +678,9 @@ async function readChips(page, { strip, keyAttr, label }) {
  */
 
 test("REGRESSION: Applicants/newest shows exactly the seeded id set", async ({ page }) => {
-  test.setTimeout(20 * 60_000);
+  // 500 pages at full scale, at five to six seconds a page (probe, 2026-10-28):
+  // about 50 minutes, and every resume adds a page. Not 20, and not 60.
+  test.setTimeout(120 * 60_000);
   await signIn(page);
   await page.goto(`${BASE}/ai-dashboard/applicants?sort=newest`, {
     waitUntil: "domcontentloaded",
@@ -594,6 +692,7 @@ test("REGRESSION: Applicants/newest shows exactly the seeded id set", async ({ p
     attr: "data-applicant-id",
     label: "applicants/newest",
     expectedTotal: expected.length,
+    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=newest&page=${n}`,
   });
 
   // Not a count comparison. The seed puts 500 applicants on each identical
@@ -608,7 +707,9 @@ test("REGRESSION: Applicants/newest shows exactly the seeded id set", async ({ p
 });
 
 test("REGRESSION: Best Match returns the same set through its ties", async ({ page }) => {
-  test.setTimeout(20 * 60_000);
+  // 500 pages at full scale, at five to six seconds a page (probe, 2026-10-28):
+  // about 50 minutes, and every resume adds a page. Not 20, and not 60.
+  test.setTimeout(120 * 60_000);
   await signIn(page);
   await page.goto(`${BASE}/ai-dashboard/applicants?sort=best`, { waitUntil: "domcontentloaded" });
 
@@ -618,6 +719,7 @@ test("REGRESSION: Best Match returns the same set through its ties", async ({ pa
     attr: "data-applicant-id",
     label: "applicants/best-match",
     expectedTotal: expected.length,
+    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=best&page=${n}`,
   });
 
   // The seed gives thousands of applications only five distinct scores and
@@ -633,7 +735,8 @@ test("REGRESSION: Best Match returns the same set through its ties", async ({ pa
 test("REGRESSION: the largest job's applicants all appear (2,500 at full scale)", async ({
   page,
 }) => {
-  test.setTimeout(20 * 60_000);
+  // 125 pages at full scale, at five to six seconds a page.
+  test.setTimeout(60 * 60_000);
   await signIn(page);
 
   const bigJobId = manifest.jobIds[0];
@@ -667,6 +770,7 @@ test("REGRESSION: the largest job's applicants all appear (2,500 at full scale)"
     attr: "data-applicant-id",
     label: "applicants/one-job",
     expectedTotal: expected.length,
+    pageUrl: (n) => `${BASE}/ai-dashboard/applicants?sort=newest&job=${bigJobId}&page=${n}`,
   });
   assertSameIdSet(seen, expected, `applicants/job ${tail(bigJobId)}`);
   console.log(`  applicants/one-job: PASSED, ${seen.length} ids on job ${tail(bigJobId)}`);
@@ -681,7 +785,8 @@ test("REGRESSION: the largest job's applicants all appear (2,500 at full scale)"
  * plan being stable TODAY, not the query being correct.
  */
 test("#23: Messages pagination over tied timestamps", async ({ page }) => {
-  test.setTimeout(20 * 60_000);
+  // 250 pages at full scale, at five to six seconds a page.
+  test.setTimeout(60 * 60_000);
   await signIn(page);
   await page.goto(`${BASE}/ai-dashboard/messages`, { waitUntil: "domcontentloaded" });
 

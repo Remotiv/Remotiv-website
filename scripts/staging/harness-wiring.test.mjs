@@ -189,8 +189,8 @@ test("pin: signIn drives /ai-dashboard/login and the ids the company form actual
     /id="al-email"/,
     "the admin form is the one with #al-*; if that changed, re-check this pin",
   );
-  const fn = src.match(/async function signIn\(page[\s\S]*?\n\}/);
-  assert.ok(fn, "signIn not found");
+  const fn = src.match(/async function signInOnce\(page[\s\S]*?\n\}/);
+  assert.ok(fn, "signInOnce not found");
   assert.match(src, /const LOGIN_PATH = "\/ai-dashboard\/login";/);
   assert.match(fn[0], /LOGIN_PATH/, "signIn must use the company login path");
   assert.match(fn[0], /#co-email/);
@@ -204,6 +204,84 @@ test("pin: signIn drives /ai-dashboard/login and the ids the company form actual
 });
 
 /**
+ * One counted login retry, in the open. The wrapper calls the one-shot,
+ * retries ONCE for a retryable key, records it under FLAKES OBSERVED, and
+ * never retries the forced-password redirect.
+ */
+test("signIn retries a retryable refusal exactly once, counted and printed", () => {
+  assert.match(src, /const MAX_LOGIN_ATTEMPTS = 2;/, "exactly one retry");
+  const fn = src.match(/async function signIn\(page, account = ACCOUNTS\.owner\) \{[\s\S]*?\n\}/);
+  assert.ok(fn, "the signIn wrapper not found");
+  assert.match(fn[0], /await signInOnce\(page, account\)/, "the wrapper must drive the one-shot");
+  assert.match(fn[0], /attempt < MAX_LOGIN_ATTEMPTS && retryable/, "the retry is bounded");
+  assert.match(fn[0], /flakes\.push\(note\)/, "a retry must be recorded, not absorbed");
+  const once = src.match(/async function signInOnce\(page[\s\S]*?\n\}/);
+  assert.match(
+    once[0],
+    /outcome === "forced"[\s\S]*?throw new Error/,
+    "forced is thrown, never retried",
+  );
+  const afterAll = src.match(/\ntest\.afterAll\(\(\) => \{([\s\S]*?)\n\}\);/);
+  assert.match(afterAll[1], /FLAKES OBSERVED/, "absorbed flakes must be printed at the end");
+});
+
+/**
+ * A sweep that stops says where. The context names the page reached and the
+ * ids collected, and says a stop is not a gap. Resume is by URL, capped,
+ * counted, and only where the list carries its page in the URL.
+ */
+test("a stopped sweep reports the page reached; resume is capped, counted and URL-only", () => {
+  const loop = src.match(/async function collectIdsAcrossPages\([\s\S]*?\n\}/);
+  assert.ok(loop, "collectIdsAcrossPages not found");
+  assert.match(loop[0], /FAILED AT PAGE \$\{pageNo\} with \$\{seen\.length\} id\(s\) collected/);
+  assert.match(loop[0], /not a gap/, "a stop must be told apart from a gap");
+  assert.match(src, /const MAX_RESUMES = 3;/, "resume is capped");
+  assert.match(loop[0], /if \(!pageUrl \|\| resumes >= MAX_RESUMES\) throw e;/);
+  assert.match(
+    loop[0],
+    /returned the rows of page \$\{pageNo\} again; not resumable/,
+    "a resume is checked",
+  );
+  const newest = src.match(/label: "applicants\/newest",[\s\S]*?\}\);/);
+  const best = src.match(/label: "applicants\/best-match",[\s\S]*?\}\);/);
+  const job = src.match(/label: "applicants\/one-job",[\s\S]*?\}\);/);
+  for (const [name, m] of [
+    ["newest", newest],
+    ["best-match", best],
+    ["one-job", job],
+  ]) {
+    assert.ok(m, `${name} call site not found`);
+    assert.match(m[0], /pageUrl: \(n\) =>/, `${name} must carry a resume URL`);
+  }
+  const messages = src.match(/attr: "data-message-id",[\s\S]*?\}\);/);
+  assert.ok(messages, "messages call site not found");
+  assert.doesNotMatch(
+    messages[0],
+    /pageUrl/,
+    "Messages pages in client state and cannot resume by URL",
+  );
+});
+
+/**
+ * The two 500-page sweeps have two hours; the polls that pace every page tick
+ * every 100 ms rather than backing off to a second.
+ */
+test("the 500-page sweeps have a 120-minute budget and 100 ms polls", () => {
+  for (const title of [
+    "REGRESSION: Applicants/newest shows exactly the seeded id set",
+    "REGRESSION: Best Match returns the same set through its ties",
+  ]) {
+    const body = src.match(
+      new RegExp(`test\\("${title.replace(/[/]/g, "\\/")}"[\\s\\S]*?\\n\\}\\);`),
+    );
+    assert.ok(body, `${title} not found`);
+    assert.match(body[0], /test\.setTimeout\(120 \* 60_000\);/, `${title}: 120 minutes`);
+  }
+  const wait = src.match(/async function waitForRowsToMove\([\s\S]*?\n\}/);
+  assert.match(wait[0], /intervals: \[100\]/, "the rows-moved poll must tick every 100 ms");
+});
+
+/**
  * After Next, the loop waits for the ROWS to move, not for the network to go
  * quiet: Messages pages with no request, and Applicants commits a second or
  * two after its response. Reading in that window re-reads the previous page
@@ -214,7 +292,7 @@ test("the paging loop waits for the rows to change after Next, never for network
   assert.ok(loop, "collectIdsAcrossPages not found");
   assert.match(
     loop[0],
-    /await next\.click\(\);\n\s+await waitForRowsToMove\(page, \{ scope, attr, before: raw, label \}\);/,
+    /await next\.click\(\);\n\s+try \{\n\s+await waitForRowsToMove\(page, \{ scope, attr, before: raw, label \}\);/,
   );
   assert.doesNotMatch(loop[0], /networkidle/, "networkidle resolves before the next page renders");
   // And the click is held until the button is hydrated: a click on the
@@ -294,8 +372,8 @@ test("signIn reads the login form's OWN banner, scoped, and reads the fill back"
   // The component really renders that shape: a <p role="alert"> under <main>.
   assert.match(client, /<main[\s>]/, "the company login no longer has a <main>");
   assert.match(client, /<p\n\s+role="alert"/, 'the refusal banner is no longer a <p role="alert">');
-  const fn = src.match(/async function signIn\(page[\s\S]*?\n\}/);
-  assert.ok(fn, "signIn not found");
+  const fn = src.match(/async function signInOnce\(page[\s\S]*?\n\}/);
+  assert.ok(fn, "signInOnce not found");
   assert.match(
     fn[0],
     /page\.locator\(LOGIN_BANNER\)\.waitFor\(/,

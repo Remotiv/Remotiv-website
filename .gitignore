@@ -49,3 +49,4 @@ schema.sql
 
 # Written by scripts/staging/seed.mjs; regenerable from the plan, never committed.
 scripts/staging/seed-manifest.json
+/test-results/
