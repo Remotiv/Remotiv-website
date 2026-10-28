@@ -249,6 +249,98 @@ export function tail(id) {
  * discipline: if nobody can say what evidence would settle it, it is not
  * "probably fine", it is unmeasured.
  */
+/**
+ * The paged read at `site` carries a TOTAL order: at least one .order(), and
+ * the LAST .order() is on a unique key, before its .range().
+ *
+ * ── Why a source assertion is the RIGHT instrument here ──────
+ *
+ * Most source pins are a weak substitute for running the thing. This one is
+ * not, and the difference should be stated so nobody later mistakes it for
+ * the vacuous kind: determinism is a property of the QUERY'S SHAPE, not of a
+ * run. The harness swept both sites clean at 10,000 rows and reproduced
+ * neither finding; a clean sweep proves completeness ON ONE RUN and nothing
+ * about the order among tied rows, and Postgres gives no order at all without
+ * ORDER BY. The only evidence that can establish "pages cannot skip or repeat
+ * a row" is the query text: ORDER BY ending in a unique column, then
+ * LIMIT/OFFSET. So this reads the shipped source and refuses unless that
+ * shape is present. negative-controls.mjs removes each .order("id") and
+ * requires this to go red; query-order.test.mjs pins the two sites offline;
+ * the harness calls it at run time so its ESTABLISHED verdict rests on the
+ * source as shipped, not as remembered.
+ *
+ * @param {string} source the file's text, read by the caller
+ * @param {{ file: string, from: string, uniqueKey?: string }} site
+ *   `from` anchors the statement; the window runs to the first `.range(`
+ *   after it, and every `.order("…")` in that window is read in order.
+ * @returns {{ file: string, keys: string[], line: number }}
+ */
+export function assertTotalOrder(source, { file, from, uniqueKey = "id" }) {
+  if (typeof source !== "string" || source.length === 0) {
+    throw new Error(`${file}: no source was read; nothing to assert`);
+  }
+  const start = source.indexOf(from);
+  if (start < 0) {
+    throw new Error(
+      `${file}: anchor not found: ${JSON.stringify(from)}. The site moved; re-pin it, do not drop the check.`,
+    );
+  }
+  const rangeAt = source.indexOf(".range(", start);
+  if (rangeAt < 0) {
+    throw new Error(`${file}: no .range( after the anchor; this is no longer a paged read`);
+  }
+  const keys = [...source.slice(start, rangeAt).matchAll(/\.order\(\s*"([^"]+)"/g)].map(
+    (m) => m[1],
+  );
+  if (keys.length === 0) {
+    throw new Error(
+      `${file}: the paged read has NO .order() at all. Postgres returns rows in no defined ` +
+        `order without one, so successive .range() pages can skip and repeat rows outright.`,
+    );
+  }
+  const last = keys[keys.length - 1];
+  if (last !== uniqueKey) {
+    throw new Error(
+      `${file}: the final sort key is "${last}", not the unique "${uniqueKey}". Rows sharing a ` +
+        `${last} have no defined order between pages; a boundary inside a tie can repeat one and drop another.`,
+    );
+  }
+  return { file, keys, line: source.slice(0, rangeAt).split("\n").length };
+}
+
+/**
+ * The verdict a sweep PLUS a total-order read can establish, in two named
+ * halves. Neither half alone closes a pagination finding: the sweep supplies
+ * completeness on one run; the order supplies determinism, from the query.
+ */
+export function establishedBy({ finding, completeness, order }) {
+  if (
+    !finding ||
+    !completeness ||
+    !order ||
+    !Array.isArray(order.keys) ||
+    order.keys.length === 0
+  ) {
+    throw new Error(
+      "establishedBy needs finding, completeness (the sweep's evidence) and order (assertTotalOrder's " +
+        "result). A verdict missing either half is an UNRESOLVED finding, not an established one.",
+    );
+  }
+  return {
+    verdict: "ESTABLISHED",
+    isPass: true,
+    closesFinding: true,
+    finding,
+    completeness: `complete set, one run: ${completeness}`,
+    order:
+      `total order, from the query: ${order.file}:${order.line} orders by ` +
+      `${order.keys.join(" then ")}; the last is unique, so no two pages can share or skip a row`,
+    note:
+      "Completeness is the sweep's half and determinism is the query's half. " +
+      "The sweep could not have shown determinism, and the pin could not have shown completeness.",
+  };
+}
+
 export function stillAtRisk({ finding, site, observed, toClose }) {
   if (!finding || !site || !observed || !toClose) {
     throw new Error(

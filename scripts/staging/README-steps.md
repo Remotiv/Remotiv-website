@@ -877,6 +877,18 @@ and requires that pin to go red. Read the output in four parts:
   so. #23 on Messages is the live site.
 - **LATENCY**: recorded and labelled directional. A latency number from the free
   tier is not evidence for an index.
+- **ESTABLISHED, in two halves**: #23 (Messages) and #25 (the scoped
+  allow-list) print here, and each verdict names its two halves separately.
+  The sweep supplies COMPLETENESS: every expected id once, on one run. The
+  query supplies DETERMINISM: the harness reads the shipped source at run
+  time (`assertTotalOrder`, assertions.mjs) and refuses unless the paged read
+  ends in a unique sort key. A clean sweep cannot show determinism, which is
+  why these sat in UNRESOLVED before the fixes; a source pin cannot show
+  completeness. Neither half alone closes a pagination finding. The same two
+  sites are pinned offline by `query-order.test.mjs`, and
+  `negative-controls.mjs` removes each `.order("id")` and requires the pin to
+  go red. This is one of the few places a source assertion is the RIGHT
+  instrument: the claim is about the query's shape, which no run can prove.
 - **UNRESOLVED**: for any surface whose query has no unique final tiebreaker, a
   clean run prints **NOT REPRODUCED, STILL AT RISK**, never PASSED. Ordering
   among tied rows is undefined, not random.
@@ -900,6 +912,7 @@ dashboard's queries. Each fix carries an offline test and a reversion in
 | the form "refused" every login as `unrecognised` | a bare `[role=alert]` matched the Next.js dev overlay's empty node inside its portal (Playwright pierces shadow roots); the classifier accepted an empty read | `LOGIN_BANNER` scopes to the form's own `<p role="alert">`; `classifyLoginRefusal` refuses an empty read; the fill is read back before the click |
 | four paged reads reported "20 ids more than once" | the loop read after `networkidle`, which resolves before the next page renders (Messages pages with no request; Applicants commits 1-2 s after its response) | `waitForRowsToMove` polls until the rows differ from the page just read; an unmoved list is named, never reported as #23 |
 | Interviews "started" chip read 0 against 2 seeded | the seed's session deadline (`at(i + 100_000)`, 2026-03-15) had passed, and `deriveStatus` expires a live session before it reads the stored status | `SESSION_DEADLINE` is 2099; re-seed required |
+| #25: `job-scope.ts` paged the recruiter allow-list with `.range()` and NO `.order()`; #23: `messages/actions.ts` ordered by `created_at` alone | Postgres gives no row order without ORDER BY, so #25's pages could skip and repeat applicants outright (a skipped id is one a recruiter silently cannot see); #23's ties had no order between pages | `.order("id")` on each (2026-10-28); verdicts moved from UNRESOLVED to ESTABLISHED, see above; a run against the 10,000 fixture returned both complete sets again |
 | a test that passed its own assertions was reported failed | Playwright restarts the worker after a failure and `afterAll` re-asserted the network proof over the restarted worker's empty count | asserted only in the worker that ran the probe test |
 
 **Noted, probably automation-only:** Playwright's `selectOption` on the

@@ -19,7 +19,9 @@ import {
   assertCount,
   assertPartsSumToWhole,
   assertSameIdSet,
+  assertTotalOrder,
   classifyLoginRefusal,
+  establishedBy,
   requireAttribute,
   requireFilled,
   requireFound,
@@ -146,6 +148,94 @@ test("requireFilled REFUSES a fill that did not land, naming the field and lengt
 test("requireFilled refuses an empty expectation: nothing to fill is not a pass", () => {
   throwsWith(() => requireFilled("#co-email", "", ""), /nothing to fill/, "unset variable");
   throwsWith(() => requireFilled("#co-email", "", undefined), /nothing to fill/, "unset variable");
+});
+
+/* ──────────────────────── assertTotalOrder ─────────────────────── */
+
+const ORDERED = `
+  const { data } = await service
+    .from("job_applications")
+    .select("id")
+    .in("job_id", chunk)
+    .order("created_at", { ascending: false })
+    .order("id", { ascending: true })
+    .range(from, from + PAGE - 1);
+`;
+
+test("assertTotalOrder refuses a paged read with no .order() at all", () => {
+  const src = ORDERED.replace(/\s+\.order\([^)]*\)/g, "");
+  throwsWith(
+    () => assertTotalOrder(src, { file: "x.ts", from: '.in("job_id", chunk)' }),
+    /NO \.order\(\) at all/,
+    "#25's shape: .range() with no ORDER BY",
+  );
+});
+
+test("assertTotalOrder refuses a final key that is not unique", () => {
+  const src = ORDERED.replace(/\s+\.order\("id"[^)]*\)/, "");
+  throwsWith(
+    () => assertTotalOrder(src, { file: "x.ts", from: '.in("job_id", chunk)' }),
+    /final sort key is "created_at", not the unique "id"/,
+    "#23's shape: ordered, but ties have no order",
+  );
+});
+
+test("assertTotalOrder accepts a chain whose LAST key is unique, and reports the keys", () => {
+  const r = assertTotalOrder(ORDERED, { file: "x.ts", from: '.in("job_id", chunk)' });
+  assert.deepEqual(r.keys, ["created_at", "id"]);
+  assert.equal(r.file, "x.ts");
+  assert.ok(Number.isInteger(r.line) && r.line > 1);
+  // The unique key must be LAST: a unique key followed by a non-unique one is not a total order.
+  const swapped = ORDERED.replace(
+    '.order("created_at", { ascending: false })\n    .order("id", { ascending: true })',
+    '.order("id", { ascending: true })\n    .order("created_at", { ascending: false })',
+  );
+  throwsWith(
+    () => assertTotalOrder(swapped, { file: "x.ts", from: '.in("job_id", chunk)' }),
+    /final sort key is "created_at"/,
+    "id first and created_at last is not a total order",
+  );
+});
+
+test("assertTotalOrder refuses a missing anchor, a missing .range(), and an empty read", () => {
+  throwsWith(
+    () => assertTotalOrder(ORDERED, { file: "x.ts", from: '.from("nope")' }),
+    /anchor not found/,
+    "moved site",
+  );
+  throwsWith(
+    () =>
+      assertTotalOrder(ORDERED.replace(".range(from, from + PAGE - 1)", ".limit(10)"), {
+        file: "x.ts",
+        from: '.in("job_id", chunk)',
+      }),
+    /no \.range\( after the anchor/,
+    "not paged",
+  );
+  throwsWith(
+    () => assertTotalOrder("", { file: "x.ts", from: "x" }),
+    /no source was read/,
+    "empty",
+  );
+});
+
+test("establishedBy needs both halves and names each", () => {
+  const order = assertTotalOrder(ORDERED, { file: "x.ts", from: '.in("job_id", chunk)' });
+  const v = establishedBy({ finding: "#n", completeness: "10 ids across 1 page", order });
+  assert.equal(v.verdict, "ESTABLISHED");
+  assert.equal(v.isPass, true);
+  assert.match(v.completeness, /^complete set, one run: /);
+  assert.match(v.order, /^total order, from the query: x\.ts:\d+ orders by created_at then id/);
+  throwsWith(
+    () => establishedBy({ finding: "#n", completeness: "x" }),
+    /missing either half/,
+    "no order",
+  );
+  throwsWith(
+    () => establishedBy({ finding: "#n", order }),
+    /missing either half/,
+    "no completeness",
+  );
 });
 
 /* ──────────────────────── requireAttribute ─────────────────────── */

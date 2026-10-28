@@ -204,6 +204,48 @@ test("pin: signIn drives /ai-dashboard/login and the ids the company form actual
 });
 
 /**
+ * #23 and #25 are ESTABLISHED from two halves, and the order half is read
+ * from the shipped query at run time, not assumed. A test that pushed an
+ * established verdict without provenTotalOrder would be the vacuous kind.
+ */
+test("#23 and #25 report ESTABLISHED from the sweep plus a run-time total-order read", () => {
+  const m23 = src.match(/test\("#23: Messages pagination[\s\S]*?\n\}\);/);
+  const m25 = src.match(/test\("#25: the real scoped allow-list[\s\S]*?\n\}\);/);
+  assert.ok(m23 && m25, "the #23 and #25 tests were not found");
+  assert.match(
+    m23[0],
+    /order: provenTotalOrder\("messages"\),/,
+    "#23's order half must be read at run time",
+  );
+  assert.match(
+    m25[0],
+    /order: provenTotalOrder\("scoped"\),/,
+    "#25's order half must be read at run time",
+  );
+  assert.match(
+    m23[0],
+    /established\.push\(\s*establishedBy\(/,
+    "#23 must push an established verdict",
+  );
+  assert.match(
+    m25[0],
+    /established\.push\(\s*establishedBy\(/,
+    "#25 must push an established verdict",
+  );
+  assert.doesNotMatch(m23[0] + m25[0], /stillAtRisk\(/, "neither may still be filed as unresolved");
+  assert.match(
+    src,
+    /return assertTotalOrder\(readFileSync\(`\$\{SRC\}\$\{site\.file\}`, "utf8"\), site\);/,
+  );
+  const afterAll = src.match(/\ntest\.afterAll\(\(\) => \{([\s\S]*?)\n\}\);/);
+  assert.match(
+    afterAll[1],
+    /ESTABLISHED, in two halves/,
+    "the verdicts must be printed with both halves",
+  );
+});
+
+/**
  * One counted login retry, in the open. The wrapper calls the one-shot,
  * retries ONCE for a retryable key, records it under FLAKES OBSERVED, and
  * never retries the forced-password redirect.

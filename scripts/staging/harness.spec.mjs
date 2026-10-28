@@ -63,11 +63,12 @@ import {
   assertCount,
   assertPartsSumToWhole,
   assertSameIdSet,
+  assertTotalOrder,
   classifyLoginRefusal,
+  establishedBy,
   requireAttribute,
   requireFilled,
   requireFound,
-  stillAtRisk,
   tail,
 } from "./assertions.mjs";
 import { loadPin, openStaging, signInStagingAccount } from "./guard.mjs";
@@ -153,6 +154,25 @@ const record = (label, ms, rows) => {
 
 /** Findings that did not reproduce. Printed apart from anything that passed. */
 const unresolved = [];
+
+/**
+ * Findings ESTABLISHED closed, each from two halves: the sweep (complete set,
+ * one run) and a total order read from the shipped query at RUN TIME. A clean
+ * sweep alone cannot show determinism, so it used to land in UNRESOLVED; the
+ * order half is what moved #23 and #25 out of it, and it is read here, from
+ * the source as it is now, not assumed from a fix someone remembers making.
+ */
+const established = [];
+const SRC = fileURLToPath(new URL("../../src/", import.meta.url));
+const QUERY_ORDER_SITES = {
+  scoped: { file: "app/ai-dashboard/lib/job-scope.ts", from: '.in("job_id", chunk)' },
+  messages: { file: "app/ai-dashboard/(gated)/messages/actions.ts", from: "build(false)" },
+};
+/** Throws unless the shipped query carries a unique final sort key. */
+function provenTotalOrder(key) {
+  const site = QUERY_ORDER_SITES[key];
+  return assertTotalOrder(readFileSync(`${SRC}${site.file}`, "utf8"), site);
+}
 
 /**
  * Set by the first browser test, in the worker that ran it. Playwright
@@ -265,6 +285,15 @@ test.afterAll(() => {
       "  Shared free-tier compute. Use these to judge whether a page is usable,\n" +
         "  never to choose an index. That needs EXPLAIN ANALYZE on real compute.",
     );
+  }
+  if (established.length > 0) {
+    console.log("\n── ESTABLISHED, in two halves: the sweep and the query ──");
+    for (const e of established) {
+      console.log(`  ${e.finding}: ${e.verdict}`);
+      console.log(`    ${e.completeness}`);
+      console.log(`    ${e.order}`);
+    }
+    console.log(`  ${established[0].note}`);
   }
   if (unresolved.length > 0) {
     console.log("\n── UNRESOLVED: NOT PASSES ──");
@@ -803,15 +832,16 @@ test("#23: Messages pagination over tied timestamps", async ({ page }) => {
   // list excludes them, so a mismatch here is pagination and not filtering.
   assertSameIdSet(seen, expected, "#23 messages (messages/actions.ts:560)");
 
-  unresolved.push(
-    stillAtRisk({
+  // Two halves. The sweep is the first; the second is the shipped query's
+  // order, read now. Either missing, and this would be UNRESOLVED again.
+  established.push(
+    establishedBy({
       finding: "#23 messages pagination",
-      site: "messages/actions.ts:560 - .order('created_at', desc) and nothing else",
-      observed: `${seen.length} ids across ${pages} pages, complete and with no repeats, with 300 rows sharing one created_at`,
-      toClose: 'a secondary .order("id") on the query, or a reproduction under concurrent inserts',
+      completeness: `${seen.length} ids across ${pages} pages, every expected id once, with 300 rows sharing one created_at`,
+      order: provenTotalOrder("messages"),
     }),
   );
-  console.log(`  #23 messages: complete on this run (${seen.length} ids), see UNRESOLVED`);
+  console.log(`  #23 messages: ESTABLISHED (${seen.length} ids, total order read from the query)`);
 });
 
 /**
@@ -847,16 +877,18 @@ test("#25: the real scoped allow-list returns exactly the seeded set", async ({ 
   // The expectation comes from the seed, never from a second call to this route.
   assertSameIdSet(body.ids, manifest.scopedApplicationIds, "#25 scoped allow-list");
 
-  unresolved.push(
-    stillAtRisk({
-      finding: "#25 scoped allow-list ordering",
-      site: "job-scope.ts:215-221 - .range() paging with no .order() of any kind",
-      observed: `the real function returned all ${body.ids.length} expected ids across ${Math.ceil(body.ids.length / 1000)} internal pages`,
-      toClose:
-        'an .order("id") before .range() on the paged read, or a reproduction under concurrent inserts into job_applications',
+  // Two halves, as for #23. This one was the worse finding: .range() with no
+  // .order() at all gives Postgres no row order, so pages could skip and
+  // repeat rows outright, and a skipped id here is an applicant a recruiter
+  // silently cannot see. The order half is read from the shipped query now.
+  established.push(
+    establishedBy({
+      finding: "#25 scoped allow-list paging",
+      completeness: `the real function returned all ${body.ids.length} expected ids across ${Math.ceil(body.ids.length / 1000)} internal pages`,
+      order: provenTotalOrder("scoped"),
     }),
   );
-  console.log(`  #25: complete on this run (${body.ids.length} ids), see UNRESOLVED`);
+  console.log(`  #25: ESTABLISHED (${body.ids.length} ids, total order read from the query)`);
 });
 
 /**

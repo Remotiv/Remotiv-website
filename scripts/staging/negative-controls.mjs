@@ -65,6 +65,8 @@ const HARNESS = "scripts/staging/harness.spec.mjs";
 const GATE = "src/app/api/staging-probe/_lib/gate.ts";
 const ISOLATION_ROUTE = "src/app/api/staging-probe/identity/route.ts";
 const SCOPED_ROUTE = "src/app/api/staging-probe/scoped-application-ids/route.ts";
+const JOB_SCOPE = "src/app/ai-dashboard/lib/job-scope.ts";
+const MESSAGES_ACTIONS = "src/app/ai-dashboard/(gated)/messages/actions.ts";
 
 const ASSERT_TEST = "scripts/staging/assertions.test.mjs";
 const GUARD_TEST = "scripts/staging/guard-checks.test.mjs";
@@ -79,6 +81,7 @@ const NETWORK_GUARD_TEST = "scripts/staging/network-guard.test.mjs";
 const CSP_TEST = "src/lib/security/csp.test.ts";
 const WIRING_TEST = "scripts/staging/harness-wiring.test.mjs";
 const PROBE_TEST = "src/app/api/staging-probe/probe.test.ts";
+const QUERY_ORDER_TEST = "scripts/staging/query-order.test.mjs";
 
 const UNIFORM_JOBS = `  ${Array.from({ length: 20 }, () => 500).join(", ")},`;
 
@@ -116,6 +119,47 @@ const REVERSIONS = [
     to: '    await page.waitForLoadState("networkidle");',
     test: WIRING_TEST,
     expect: "the paging loop waits for the rows to change after Next",
+  },
+  /* ── the two query fixes: a total order, pinned to the shipped source ── */
+  {
+    name: "#25: the allow-list read goes back to .range() with no .order(), so pages can skip and repeat rows",
+    file: JOB_SCOPE,
+    from: '        .order("id", { ascending: true })\n        .range(from, from + PAGE - 1);',
+    to: "        .range(from, from + PAGE - 1);",
+    test: QUERY_ORDER_TEST,
+    expect: "#25: scopedApplicationIds pages under a total order",
+  },
+  {
+    name: "#23: the messages list goes back to created_at alone, so ties have no order between pages",
+    file: MESSAGES_ACTIONS,
+    from: '      .order("created_at", { ascending: false })\n      // created_at alone is not a total order',
+    to: "      // created_at alone is not a total order",
+    test: QUERY_ORDER_TEST,
+    expect: "#23: the messages list pages under a total order",
+  },
+  {
+    name: "a paged read with no .order() is called a total order",
+    file: ASSERT,
+    from: "  if (keys.length === 0) {",
+    to: "  if (false) {",
+    test: ASSERT_TEST,
+    expect: "assertTotalOrder refuses a paged read with no .order() at all",
+  },
+  {
+    name: "a non-unique final key is called a total order",
+    file: ASSERT,
+    from: "  if (last !== uniqueKey) {",
+    to: "  if (false) {",
+    test: ASSERT_TEST,
+    expect: "assertTotalOrder refuses a final key that is not unique",
+  },
+  {
+    name: "#23's established verdict stops reading the query and assumes the order",
+    file: HARNESS,
+    from: '      order: provenTotalOrder("messages"),',
+    to: '      order: { file: "(assumed)", keys: ["created_at", "id"], line: 0 },',
+    test: WIRING_TEST,
+    expect: "#23 and #25 report ESTABLISHED from the sweep plus a run-time total-order read",
   },
   {
     name: "a stopped sweep stops saying which page it reached",
