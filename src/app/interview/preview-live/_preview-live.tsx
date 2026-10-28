@@ -1,7 +1,7 @@
 "use client";
 
 import { useCallback, useEffect, useMemo, useRef, useState } from "react";
-import { endsInterview, type LiveEventKind } from "@/lib/interviews/live-event-codes";
+import type { LiveEventKind } from "@/lib/interviews/live-event-codes";
 import type { MockScriptId } from "@/lib/interviews/live-provider/types";
 import { LiveFlowCore } from "../[token]/_live/live-flow";
 import type { LiveServer } from "../[token]/_live/live-server";
@@ -23,10 +23,9 @@ import { loadPreviewVoice, PREVIEW_INTERVIEWER } from "./mock-voice";
  * LiveFlowCore with MockVoxAgent, and an in-memory server that logs what the
  * real routes would receive. The panel is not part of the candidate screen.
  *
- * Log entries marked "ends the interview" are the reports that would stamp
- * live_ended_at on the server (endsInterview, live-events.ts); every other
- * report is a record only. A closed tab's report is kept in localStorage, so
- * it shows on the next visit.
+ * Every report in the log is a record only: no browser report ends the
+ * interview or stamps live_ended_at (RB1; live-events.ts). A closed tab's
+ * report is kept in localStorage, so it shows on the next visit.
  */
 
 /**
@@ -136,7 +135,7 @@ const SIGNALS: MockSignal[] = ["repeat", "cut_in", "answer_done", "drop"];
 /** A cut-in event this soon after the button is the button's; any other is the script's own. */
 const PRESS_WINDOW_MS = 500;
 
-type LogLine = { at: string; text: string; ends: boolean };
+type LogLine = { at: string; text: string };
 type StoredPiece = {
   index: number;
   bytes: number;
@@ -241,13 +240,13 @@ export function PreviewLive({
     }
   }, []);
 
-  const add = useCallback((text: string, ends = false) => {
-    setLog((l) => [...l, { at: new Date().toLocaleTimeString(), text, ends }]);
+  const add = useCallback((text: string) => {
+    setLog((l) => [...l, { at: new Date().toLocaleTimeString(), text }]);
   }, []);
 
   const server = useMemo<LiveServer>(() => {
     const report = (kind: LiveEventKind, detail: string | null | undefined, how: string) =>
-      add(`${how} ${kind}${detail ? ` (${detail})` : ""}`, endsInterview(kind));
+      add(`${how} ${kind}${detail ? ` (${detail})` : ""}`);
     return {
       async consent() {
         add("POST consent: saved live-v1");
@@ -509,9 +508,8 @@ export function PreviewLive({
         <p className="m-0 mb-1 font-bold">What the server would receive</p>
         <ol className="m-0 mb-3 list-none space-y-0.5 p-0" data-demo-log>
           {log.map((l, i) => (
-            <li key={`${l.at}-${i}`} className={l.ends ? "font-bold text-[#04342c]" : ""}>
+            <li key={`${l.at}-${i}`}>
               <span className="text-black/45">{l.at}</span> {l.text}
-              {l.ends ? " - ends the interview (live_ended_at)" : ""}
             </li>
           ))}
         </ol>

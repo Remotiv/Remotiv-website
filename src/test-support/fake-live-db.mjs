@@ -249,7 +249,7 @@ export function stampLiveEnded(row, old, nowMs = Date.now()) {
 const LIVE_EVENT_KINDS = [
   "conversation_started",
   "end_pressed",
-  "provider_complete",
+  "provider_end_reported",
   "provider_error",
   "connection_lost",
   "tab_closed",
@@ -279,7 +279,7 @@ export function checkLiveSessionEvent(row, sessions, nowMs = Date.now()) {
   if (!LIVE_EVENT_KINDS.includes(row.kind)) fail("live_session_events_kind");
   const detail = row.detail ?? null;
   const detailOk =
-    row.kind === "provider_complete"
+    row.kind === "provider_end_reported"
       ? PROVIDER_END_DETAILS.includes(detail)
       : row.kind === "provider_error"
         ? detail === "error"

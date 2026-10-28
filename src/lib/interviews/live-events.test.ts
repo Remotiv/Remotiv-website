@@ -4,12 +4,12 @@
  * migration 044) is stamped. fake-live-db.mjs applies 044's set-once trigger
  * and 050's checks, with the database's clock under the test's control.
  *
- *   stamps        provider_complete; the provider's export saved; the backstop
- *                 (time limit + END_GRACE_MS since the start), on a report or
- *                 from the worker's sweep
- *   never stamps  end_pressed alone, tab_closed, connection_lost,
- *                 provider_error, timer_reached, conversation_started,
- *                 video_saved
+ *   stamps        the provider's export saved; the backstop (time limit +
+ *                 END_GRACE_MS since the start), on a report or from the
+ *                 worker's sweep
+ *   never stamps  any browser report (RB1, 28 Oct 2026): provider_end_reported,
+ *                 end_pressed, tab_closed, connection_lost, provider_error,
+ *                 timer_reached, conversation_started, video_saved
  *
  *   node --test src/lib/interviews/live-events.test.ts
  */
@@ -34,7 +34,7 @@ export async function resolve(specifier, context, next) {
 
 const { handleLiveEvent, stampOverdueLiveEnds, stampLiveEnded, liveEndDueAt, END_GRACE_MS } =
   await import("./live-events.ts");
-const { LIVE_EVENT_KINDS, endsInterview, providerEndDetail } = await import(
+const { LIVE_EVENT_KINDS, PROVIDER_END_DETAILS, providerEndDetail } = await import(
   "./live-event-codes.ts"
 );
 const { saveLiveExport } = await import("./live-ingest.ts");
@@ -102,16 +102,20 @@ const quiet = async (fn) => {
 
 /* ── what stamps, what never does ─────────────────────────────── */
 
-test("provider_complete stamps the end with the database's time; the report is a row of codes", async () => {
+test("RB1: a browser's provider_end_reported, with any detail, is recorded and never ends the interview", async () => {
+  for (const detail of PROVIDER_END_DETAILS) {
+    const w = world();
+    w.clock.now = STARTED + 5 * MIN;
+    const res = await quiet(() => w.report("provider_end_reported", detail));
+    assert.deepEqual(res, { status: 200, body: { ok: true } }, detail);
+    assert.equal(w.session().live_ended_at, null, `${detail}: no end stamped`);
+    assert.deepEqual(
+      w.db.tables.live_session_events.map((e) => [e.kind, e.detail, e.created_at]),
+      [["provider_end_reported", detail, new Date(STARTED + 5 * MIN).toISOString()]],
+    );
+  }
   const w = world();
-  w.clock.now = STARTED + 5 * MIN;
-  const res = await quiet(() => w.report("provider_complete", "completed"));
-  assert.deepEqual(res, { status: 200, body: { ok: true } });
-  assert.equal(w.session().live_ended_at, new Date(STARTED + 5 * MIN).toISOString());
-  assert.deepEqual(
-    w.db.tables.live_session_events.map((e) => [e.kind, e.detail, e.created_at]),
-    [["provider_complete", "completed", new Date(STARTED + 5 * MIN).toISOString()]],
-  );
+  await quiet(() => w.report("provider_end_reported", "completed"));
   assert.deepEqual(Object.keys(w.db.tables.live_session_events[0]).sort(), [
     "company_id",
     "created_at",
@@ -122,54 +126,45 @@ test("provider_complete stamps the end with the database's time; the report is a
   ]);
 });
 
-test("never stamped by a closed tab, a dropped connection, End alone, an error, the timer, the start or video saved", async () => {
-  const kinds = [
-    ["tab_closed", null],
-    ["connection_lost", null],
-    ["end_pressed", null],
-    ["provider_error", "error"],
-    ["timer_reached", null],
-    ["conversation_started", null],
-    ["video_saved", null],
-  ];
-  for (const [kind, detail] of kinds) {
+test("RB1: no browser report of any kind ends the interview inside the time limit", async () => {
+  const detailFor = (kind) =>
+    kind === "provider_end_reported" ? "completed" : kind === "provider_error" ? "error" : null;
+  assert.equal(LIVE_EVENT_KINDS.length, 8, "every kind is covered below");
+  for (const kind of LIVE_EVENT_KINDS) {
     const w = world();
     w.clock.now = STARTED + 9 * MIN; // inside the limit: the backstop is not due
-    const res = await quiet(() => w.report(kind, detail));
+    const res = await quiet(() => w.report(kind, detailFor(kind)));
     assert.equal(res.status, 200, kind);
     assert.equal(w.session().live_ended_at, null, `${kind} must not end the interview`);
     assert.equal(w.db.tables.live_session_events.length, 1, kind);
-    assert.equal(endsInterview(kind), false, kind);
   }
-  // Control: the shared rule says only provider_complete ends it.
-  assert.deepEqual(
-    LIVE_EVENT_KINDS.filter((k) => endsInterview(k)),
-    ["provider_complete"],
-  );
 });
 
-test("End pressed, then the provider's session_complete: the end is stamped on the second, not the first", async () => {
+test("RB1: End pressed, then the provider's end as the browser reports it: still open, until the server confirms", async () => {
   const w = world();
   w.clock.now = STARTED + 3 * MIN;
   await quiet(() => w.report("end_pressed"));
-  assert.equal(w.session().live_ended_at, null);
   w.clock.now = STARTED + 3 * MIN + 2000;
-  await quiet(() => w.report("provider_complete", providerEndDetail("candidate_left", false)));
-  assert.equal(w.session().live_ended_at, new Date(STARTED + 3 * MIN + 2000).toISOString());
+  await quiet(() => w.report("provider_end_reported", providerEndDetail("candidate_left", false)));
+  assert.equal(w.session().live_ended_at, null, "neither report ends it");
   assert.deepEqual(
     w.db.tables.live_session_events.map((e) => [e.kind, e.detail]),
     [
       ["end_pressed", null],
-      ["provider_complete", "candidate_left"],
+      ["provider_end_reported", "candidate_left"],
     ],
   );
+  // The server's own end: here the backstop, with the database's clock.
+  w.clock.now = STARTED + 10 * MIN + END_GRACE_MS;
+  assert.equal(await quiet(() => stampLiveEnded(w.db.service, SESSION, () => w.clock.now)), true);
+  assert.equal(w.session().live_ended_at, new Date(w.clock.now).toISOString());
 });
 
-test("an end already stamped is never moved: a later provider_complete records the row and keeps the end", async () => {
+test("an end already stamped is never moved: a later report records its row and keeps the end", async () => {
   const first = new Date(STARTED + 4 * MIN).toISOString();
   const w = world({ live_ended_at: first });
   w.clock.now = STARTED + 6 * MIN;
-  const res = await quiet(() => w.report("provider_complete", "completed"));
+  const res = await quiet(() => w.report("provider_end_reported", "completed"));
   assert.equal(res.status, 200);
   assert.equal(w.session().live_ended_at, first);
   assert.equal(w.db.tables.live_session_events.length, 1);
@@ -268,14 +263,19 @@ test("the worker tick runs the sweep, non-fatally, before claiming jobs", () => 
 
 /* ── refusals ─────────────────────────────────────────────────── */
 
-test("refused: an unknown kind or detail, a bad token, an async session, a live session that never started", async () => {
+test("refused: an unknown kind or detail (the old provider_complete name included), a bad token, an async session, a live session that never started", async () => {
   const w = world();
   const run = (body) =>
     quiet(() => handleLiveEvent(body, { service: w.db.service, now: () => w.clock.now }));
   assert.equal((await run({ token: TOKEN, kind: "completed" })).body.code, "bad_event");
   assert.equal(
-    (await run({ token: TOKEN, kind: "provider_complete", detail: "done" })).body.code,
+    (await run({ token: TOKEN, kind: "provider_end_reported", detail: "done" })).body.code,
     "bad_event",
+  );
+  assert.equal(
+    (await run({ token: TOKEN, kind: "provider_complete", detail: "completed" })).body.code,
+    "bad_event",
+    "the old name is no longer a code",
   );
   assert.equal(
     (await run({ token: TOKEN, kind: "tab_closed", detail: "x" })).body.code,
@@ -297,12 +297,12 @@ test("refused: an unknown kind or detail, a bad token, an async session, a live 
   assert.equal((await quiet(() => asyncSession.report("tab_closed"))).status, 404);
 });
 
-test("not recorded (050 not applied, or a failed write): 502, and provider_complete still ends the interview", async () => {
+test("not recorded (050 not applied, or a failed write): 502, and nothing is stamped either", async () => {
   const w = world();
   w.db.failNext("live_session_events", "insert");
-  const res = await quiet(() => w.report("provider_complete", "completed"));
+  const res = await quiet(() => w.report("provider_end_reported", "completed"));
   assert.deepEqual([res.status, res.body.code], [502, "not_recorded"]);
-  assert.notEqual(w.session().live_ended_at, null);
+  assert.equal(w.session().live_ended_at, null);
 });
 
 test("the provider's end_reason as a code: completed needs graceful too (F15), anything unknown is other", () => {
@@ -317,7 +317,7 @@ test("the provider's end_reason as a code: completed needs graceful too (F15), a
 
 /* ── the export arriving ──────────────────────────────────────── */
 
-test("the provider's export saved stamps the end once; a second save leaves it", async () => {
+test("the provider's export saved stamps the end once (even after a forged end report); a second save leaves it", async () => {
   const sample = JSON.parse(
     readFileSync(
       new URL("./live-provider/__fixtures__/sample-export-interruption.json", import.meta.url),
@@ -376,6 +376,17 @@ test("the provider's export saved stamps the end once; a second save leaves it",
         now: () => clock.now,
       }),
     );
+  // RB1: a forged "it ended" report first changes nothing, and does not get in the export's way.
+  clock.now = STARTED + 2 * MIN;
+  const forged = await quiet(() =>
+    handleLiveEvent(
+      { token: TOKEN, kind: "provider_end_reported", detail: "completed" },
+      { service: db.service, now: () => clock.now },
+    ),
+  );
+  assert.equal(forged.status, 200);
+  assert.equal(db.tables.interview_sessions[0].live_ended_at, null);
+  clock.now = STARTED + 7 * MIN;
   const first = await save();
   assert.equal(first.saved, true);
   assert.equal(

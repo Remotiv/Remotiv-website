@@ -297,7 +297,7 @@ export function LiveFlowCore({
           recorder.start();
         }
       } else if (event.type === "ended") {
-        server.event("provider_complete", providerEndDetail(event.endReason, event.graceful));
+        server.event("provider_end_reported", providerEndDetail(event.endReason, event.graceful));
         stopRecording();
       } else if (event.type === "dropped") {
         server.event("connection_lost");

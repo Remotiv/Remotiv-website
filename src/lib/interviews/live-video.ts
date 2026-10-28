@@ -1,5 +1,6 @@
 import "server-only";
 import { LiveConsentError, requireLiveConsent } from "@/lib/interviews/live-consent-record";
+import { liveEndDueAt, stampLiveEnded } from "@/lib/interviews/live-events";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -46,6 +47,16 @@ import type { createServiceClient } from "@/lib/supabase/server";
  * candidate's saved live-v1 consent (requireLiveConsent). While the live
  * consent text still has a placeholder, requireLiveConsent refuses, so these
  * endpoints refuse everything: live stays locked.
+ *
+ * ── The backstop, here too (RB1, 28 Oct 2026) ────────────────
+ *
+ * No browser report ends the interview any more (live-events.ts), so until
+ * the server confirms the end the interview stays open for video. To keep
+ * that bounded, every reserve and confirm first applies the server-side
+ * backstop: once the time limit plus the grace has passed since started_at,
+ * the end is stamped (by the database's clock) before anything else, so no
+ * new piece is reserved, and a piece already reserved still has its 30
+ * minutes to be confirmed.
  *
  * ── Never logged ─────────────────────────────────────────────
  *
@@ -117,6 +128,10 @@ type SessionRow = {
   status: string;
   expires_at: string;
   live_ended_at: string | null;
+  /** Set by the start route with the server's clock: where the backstop counts from. */
+  started_at: string | null;
+  /** Read only for its time limit (liveEndDueAt). */
+  live_settings: unknown;
 };
 
 type PieceRow = {
@@ -141,7 +156,7 @@ async function sessionFor(service: Service, token: string): Promise<SessionRow |
   if (!token || token.length < 20 || token.length > 200) return null;
   const { data } = await service
     .from("interview_sessions")
-    .select("id, company_id, kind, status, expires_at, live_ended_at")
+    .select("id, company_id, kind, status, expires_at, live_ended_at, started_at, live_settings")
     .eq("token_hash", hashSessionToken(token))
     .maybeSingle();
   const row = data as SessionRow | null;
@@ -163,7 +178,18 @@ async function gate(
     }
     return fail(502, "unavailable", "Couldn't check this interview. Please try again.");
   }
-  return { session, phase: phase(session, (deps.now ?? Date.now)()) };
+  const now = deps.now ?? Date.now;
+  // The server-side backstop first: past the time limit plus the grace, the interview has ended.
+  if (session.live_ended_at === null) {
+    const due = liveEndDueAt(session);
+    if (due !== null && due <= now()) {
+      await stampLiveEnded(deps.service, session.id, now);
+      const again = await sessionFor(deps.service, token);
+      if (!again) return fail(404, "not_found", "This interview link isn't valid.");
+      return { session: again, phase: phase(again, now()) };
+    }
+  }
+  return { session, phase: phase(session, now()) };
 }
 
 function readPiece(body: {

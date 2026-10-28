@@ -1,9 +1,5 @@
 import "server-only";
-import {
-  endsInterview,
-  isLiveEventKind,
-  validEventDetail,
-} from "@/lib/interviews/live-event-codes";
+import { isLiveEventKind, validEventDetail } from "@/lib/interviews/live-event-codes";
 import { hashSessionToken } from "@/lib/interviews/tokens";
 import { MAX_SESSION_SECONDS, readLiveSettings } from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -24,28 +20,28 @@ import type { createServiceClient } from "@/lib/supabase/server";
  *
  * live_ended_at (migration 044) ends the interview for video: nothing new is
  * reserved after it, and a piece already reserved can be confirmed for 30
- * minutes. Stamped, once, by the database's clock, on exactly these:
+ * minutes. Stamped, once, by the database's clock, ONLY by the server
+ * (RB1, 28 Oct 2026):
  *
- *   provider_complete       the provider's session_complete, as the screen
- *                           received it: the conversation is over, whoever
- *                           ended it (End pressed, then the provider's end;
- *                           or the provider closing on its own)
  *   the export saved        saveLiveExport (live-ingest.ts), the provider's
  *                           own record of the session
+ *   a finalize call         a future authenticated server-to-server call from
+ *                           the provider (not built yet; it will call
+ *                           stampLiveEnded)
  *   the backstop            the interview's time limit (live_settings
  *                           max_session_seconds) plus END_GRACE_MS has passed
- *                           since the session started: checked on every
- *                           report and swept from the worker tick
- *                           (stampOverdueLiveEnds)
+ *                           since started_at, which the start route set with
+ *                           the server's clock: checked on every report, on
+ *                           every video reserve and confirm (live-video.ts),
+ *                           and swept from the worker tick (stampOverdueLiveEnds)
  *
- * And never on these, which are a row and nothing else: End pressed alone, a
- * closed tab, a dropped connection, a provider error, the time limit shown on
- * the screen, the conversation starting, video saved. A dropped connection
- * leaves the interview open for video, so a piece still uploading is not cut
- * off; the backstop ends it later.
- *
- * A browser can claim provider_complete falsely. That ends only its own
- * video early, and decides nothing else.
+ * NEVER by a browser report, whatever it says: provider_end_reported (the
+ * screen's claim that the provider ended it), End pressed, a closed tab, a
+ * dropped connection, a provider error, the time limit shown on the screen,
+ * the conversation starting, video saved. Each is a row and nothing else, so
+ * a forged or mistaken report can neither end the interview early nor close
+ * its video window. Until the server confirms the end, the interview stays
+ * open for video, and a piece still uploading is never cut off.
  *
  * ── Never logged ─────────────────────────────────────────────
  *
@@ -130,8 +126,8 @@ async function sessionFor(service: Service, token: string): Promise<SessionRow |
 export type LiveEventDeps = { service: Service; now?: () => number };
 
 /**
- * One report from the candidate screen: { token, kind, detail? }. Recorded;
- * the end stamped only on provider_complete or the backstop.
+ * One report from the candidate screen: { token, kind, detail? }. Recorded,
+ * and nothing more: the end is stamped here only by the backstop.
  */
 export async function handleLiveEvent(
   body: { token?: unknown; kind?: unknown; detail?: unknown },
@@ -151,13 +147,10 @@ export async function handleLiveEvent(
     return fail(409, "not_started", "This interview hasn't started.");
   }
 
-  let ended = session.live_ended_at !== null;
-  if (!ended && endsInterview(kind)) {
-    ended = await stampLiveEnded(deps.service, session.id, now);
-  }
-  if (!ended) {
+  // A report never ends the interview (RB1). Only the server-side backstop may stamp here.
+  if (session.live_ended_at === null) {
     const due = liveEndDueAt(session);
-    if (due !== null && due <= now()) ended = await stampLiveEnded(deps.service, session.id, now);
+    if (due !== null && due <= now()) await stampLiveEnded(deps.service, session.id, now);
   }
 
   const { error } = await deps.service.from("live_session_events").insert({

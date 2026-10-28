@@ -729,3 +729,71 @@ test("the review player: Play video, gaps, incomplete, Sarah's voice not in it, 
   );
   assert.match(purged, /This video was deleted after six months\./);
 });
+
+/* ── RB1: only the server ends the interview for video (28 Oct 2026) ── */
+
+const { handleLiveEvent, END_GRACE_MS } = await import("./live-events.ts");
+const MIN = 60_000;
+/** A started live session: the start route set started_at and the provider session. */
+const started = (minutesAgo) => ({
+  started_at: new Date(Date.now() - minutesAgo * MIN).toISOString(),
+  provider: "mock",
+  provider_session_id: "mock-rb1",
+});
+
+test("RB1: a forged 'it ended' report from the browser does not close the video: new pieces are still reserved and confirmed", async () => {
+  const w = world(started(5));
+  for (const detail of ["completed", "candidate_left", "other"]) {
+    const res = await quiet(() =>
+      handleLiveEvent(
+        { token: TOKEN, kind: "provider_end_reported", detail },
+        { service: w.db.service },
+      ),
+    );
+    assert.equal(res.status, 200);
+  }
+  assert.equal(w.db.tables.interview_sessions[0].live_ended_at, null, "not ended by the browser");
+  await quiet(() => record(w, 0));
+  await quiet(() => record(w, 1));
+  assert.deepEqual(
+    w.db.tables.live_video_pieces.map((p) => [p.piece_index, p.status]),
+    [
+      [0, "confirmed"],
+      [1, "confirmed"],
+    ],
+  );
+});
+
+test("RB1: the backstop on reserve: past the limit plus the grace, the end is stamped, no new piece, a reserved one still confirms", async () => {
+  const w = world(started(5));
+  const r0 = await quiet(() => reserve(w.deps, 0));
+  assert.equal(r0.status, 200, "piece 0 reserved while the interview runs");
+  // The interview started 30 minutes (the ceiling) plus the grace plus a minute ago.
+  w.db.tables.interview_sessions[0].started_at = new Date(
+    Date.now() - 30 * MIN - END_GRACE_MS - MIN,
+  ).toISOString();
+  const r1 = await quiet(() => reserve(w.deps, 1));
+  assert.deepEqual([r1.status, r1.body.code], [409, "not_open"], "no new piece after the backstop");
+  assert.notEqual(
+    w.db.tables.interview_sessions[0].live_ended_at,
+    null,
+    "the server stamped the end",
+  );
+  // Piece 0 was reserved before the end: it gets its upload and is confirmed within the window.
+  const put = await w.db.putSigned(
+    (await quiet(() => reserve(w.deps, 0))).body.url,
+    WEBM(),
+    "video/webm",
+  );
+  assert.equal(put.error, null);
+  assert.deepEqual((await quiet(() => confirm(w.deps, 0))).body, { ok: true });
+});
+
+test("RB1: a minute before the limit plus the grace, the video stays open and nothing is stamped", async () => {
+  const w = world({
+    ...started(0),
+    started_at: new Date(Date.now() - 30 * MIN - END_GRACE_MS + MIN).toISOString(),
+  });
+  assert.equal((await quiet(() => reserve(w.deps, 0))).status, 200);
+  assert.equal(w.db.tables.interview_sessions[0].live_ended_at, null);
+});

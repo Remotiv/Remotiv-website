@@ -54,7 +54,7 @@ alter table public.live_session_events
     check (kind in (
       'conversation_started',
       'end_pressed',
-      'provider_complete',
+      'provider_end_reported',
       'provider_error',
       'connection_lost',
       'tab_closed',
@@ -62,7 +62,7 @@ alter table public.live_session_events
       'video_saved'
     ));
 
--- provider_complete carries the provider's end_reason as one of these codes
+-- provider_end_reported carries the provider's end_reason as one of these codes
 -- (anything else is 'other'); provider_error carries 'error'; no other kind
 -- carries a detail.
 alter table public.live_session_events
@@ -70,7 +70,7 @@ alter table public.live_session_events
   add constraint live_session_events_detail
     check (
       case kind
-        when 'provider_complete' then
+        when 'provider_end_reported' then
           detail in ('completed', 'completed_not_graceful', 'candidate_left', 'timed_out', 'other')
         when 'provider_error' then detail = 'error'
         else detail is null

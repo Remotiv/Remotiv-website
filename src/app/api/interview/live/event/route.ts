@@ -16,9 +16,9 @@ export const dynamic = "force-dynamic";
  *   409 not_started             the interview never started
  *   502 not_recorded            not stored; the screen may send it again
  *
- * A record, never an outcome. Only provider_complete, or the time limit plus
- * the grace having passed, stamps the interview's end (live_ended_at): a
- * closed tab or a dropped connection does not. Every rule is in
+ * A record, never an outcome, and never the interview's end: no report, not
+ * even provider_end_reported, stamps live_ended_at (RB1). Only the server's
+ * time-limit backstop may stamp it here. Every rule is in
  * lib/interviews/live-events.ts.
  */
 export async function POST(request: Request) {
