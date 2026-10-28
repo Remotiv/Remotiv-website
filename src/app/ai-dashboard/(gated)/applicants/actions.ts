@@ -42,6 +42,7 @@ import {
 import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
+import { collectJobApplicationIds, collectScoredApplicationIds } from "@/lib/ai/rescore-collect";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
   readCvCapacity,
@@ -2338,7 +2339,9 @@ export async function addCompanyApplicant(form: FormData): Promise<AddApplicantR
  *
  * The job's own ownership is checked once, then applications are selected by
  * BOTH job_id and company_id_snapshot, so a mismatched snapshot can never be
- * swept in. Range-paged for the same reason the list is.
+ * swept in. Paged BY KEY (rescore-collect.ts): the inline `.range()` loops
+ * this used to carry had no `.order()`, and the #56 reproduction showed one
+ * concurrent update skipping an applicant while the count stayed exact.
  *
  * At most the month's remaining CV-scoring allowance is queued, applicants
  * without a saved card first, and the rest are reported as held. The count is
@@ -2366,42 +2369,27 @@ export async function rescoreJob(
     return { success: false, error: "Job not found in your workspace." };
   }
 
-  const PAGE = 1000;
-  const ids: string[] = [];
-  for (let from = 0; ; from += PAGE) {
-    const { data, error } = await service
-      .from("job_applications")
-      .select("id")
-      .eq("job_id", jobId)
-      .eq("company_id_snapshot", ctx.companyId)
-      .range(from, from + PAGE - 1);
-
-    if (error) return { success: false, error: actionFailed("start that re-score", error) };
-    const batch = (data ?? []) as { id: string }[];
-    ids.push(...batch.map((b) => b.id));
-    if (batch.length < PAGE) break;
+  let ids: string[];
+  try {
+    ids = await collectJobApplicationIds(service, jobId, ctx.companyId);
+  } catch (err) {
+    const cause = err instanceof Error && err.cause ? err.cause : err;
+    return {
+      success: false,
+      error: actionFailed("start that re-score", cause as { message?: string }),
+    };
   }
 
   const room = scoresToQueue(await readCvCapacity(service, ctx.companyId), ids.length);
   let toQueue = ids;
   if (room < ids.length) {
-    const scored = new Set<string>();
-    for (let from = 0; ; from += PAGE) {
-      const { data, error } = await service
-        .from("application_scores")
-        .select("application_id")
-        .eq("job_id", jobId)
-        .eq("company_id", ctx.companyId)
-        .eq("status", "scored")
-        .range(from, from + PAGE - 1);
-      // Only the ORDER depends on this read, never the count.
-      if (error) {
-        console.error("[rescoreJob] scored-card read failed; queueing in list order:", error);
-        break;
-      }
-      const batch = (data ?? []) as { application_id: string }[];
-      for (const b of batch) scored.add(b.application_id);
-      if (batch.length < PAGE) break;
+    // Only the ORDER depends on this read, never the count: a failed read
+    // queues in list order, as before, rather than failing the re-score.
+    let scored = new Set<string>();
+    try {
+      scored = await collectScoredApplicationIds(service, jobId, ctx.companyId);
+    } catch (err) {
+      console.error("[rescoreJob] scored-card read failed; queueing in list order:", err);
     }
     toQueue = unscoredFirst(ids, scored).slice(0, room);
   }

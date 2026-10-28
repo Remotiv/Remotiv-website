@@ -117,8 +117,15 @@ function capacityService({ internal = false, plan = null, usage = [], fail = nul
     if (table === "companies") return { data: { is_internal: internal }, error: null };
     if (table === "company_plans") return { data: plan, error: null };
     if (table === "usage_events") {
-      const [, from, to] = call(calls, "range");
-      return { data: usage.slice(from, to + 1), error: null };
+      // #57: the read pages BY KEY now (id > last, order id, limit), so the
+      // stub answers that shape. Rows get ids in array order.
+      const rows = usage.map((u, i) => ({ id: `u${String(i).padStart(4, "0")}`, ...u }));
+      const after = call(calls, "gt");
+      const limit = call(calls, "limit");
+      const page = rows
+        .filter((r) => !after || r.id > after[2])
+        .slice(0, limit ? limit[1] : rows.length);
+      return { data: page, error: null };
     }
     return { data: null, error: null };
   });

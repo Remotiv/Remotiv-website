@@ -200,9 +200,13 @@ test("pin: migration 020 widened session status to six, and abandoned has no chi
 
 test("pin: the internal page size is still 1,000 at both paged reads", () => {
   const scope = read("src/app/ai-dashboard/lib/job-scope.ts");
-  const applicants = read("src/app/ai-dashboard/(gated)/applicants/actions.ts");
+  const paging = read("src/lib/supabase/paging.ts");
+  const collect = read("src/lib/ai/rescore-collect.ts");
   pin(scope, /const PAGE = 1000;/, "job-scope PAGE");
-  pin(applicants, /const PAGE = 1000;/, "rescoreJob PAGE");
+  // rescoreJob's reads moved to rescore-collect.ts (#57), whose page size is
+  // the shared pager's.
+  pin(paging, /const PAGE = 1000;/, "paging PAGE");
+  pin(collect, /pageAllByKey</, "rescore-collect pages through pageAllByKey");
   assert.equal(INTERNAL_PAGE, 1000);
 });
 

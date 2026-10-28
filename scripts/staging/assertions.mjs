@@ -337,7 +337,10 @@ export function establishedBy({ finding, completeness, order }) {
       `${order.keys.join(" then ")}; the last is unique, so no two pages can share or skip a row`,
     note:
       "Completeness is the sweep's half and determinism is the query's half. " +
-      "The sweep could not have shown determinism, and the pin could not have shown completeness.",
+      "The sweep could not have shown determinism, and the pin could not have shown completeness. " +
+      "NOT established by either: correctness under concurrent inserts and deletes. Both reads " +
+      "still page by offset (.range), and the #56 reproduction showed offset paging losing a row " +
+      "to an insert before the cursor even with a total order; see pageAllByKey.",
   };
 }
 

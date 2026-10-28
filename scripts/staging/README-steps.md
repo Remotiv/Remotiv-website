@@ -889,6 +889,11 @@ and requires that pin to go red. Read the output in four parts:
   `negative-controls.mjs` removes each `.order("id")` and requires the pin to
   go red. This is one of the few places a source assertion is the RIGHT
   instrument: the claim is about the query's shape, which no run can prove.
+  **Still not established, and the verdict says so:** correctness under
+  CONCURRENT inserts and deletes. Both reads page by offset (`.range()`), and
+  the #56 reproduction showed offset paging losing a row to an insert before
+  the cursor even with a total order. That is a separate, later call-site
+  change to `pageAllByKey` (#57), not something a total order gives.
 - **UNRESOLVED**: for any surface whose query has no unique final tiebreaker, a
   clean run prints **NOT REPRODUCED, STILL AT RISK**, never PASSED. Ordering
   among tied rows is undefined, not random.
@@ -926,6 +931,83 @@ real user's change event carries the real value, so this is most likely a
 Playwright-and-this-select interaction, not a product defect; it is not
 established either way. The harness measures the read path through the URL
 and reads the select back.
+
+### What the #57 live run proved (2026-10-28), and why its route is gone
+
+`rescoreJob` collects a job's applicants before it queues them, and #56 showed
+that collection paging by offset repeats one applicant and misses another when
+a row moves between pages. #57 moved both reads to `pageAllByKey`
+(`src/lib/ai/rescore-collect.ts`). The offline proof is by ID SET against a
+fake table that mutates between pages (`paging.test.ts`,
+`rescore-collect.test.ts`). The live proof ran once, against the 10,000-row
+fixture's largest job, and established exactly this:
+
+| What ran | Result |
+|---|---|
+| the real `collectJobApplicationIds`, through the running app | 2,500 ids, 2,500 distinct, 0 repeated, 0 missing, 0 extra: the set equals `seed-manifest.json` |
+| the real `rescoreJob` action, same request | `success`, held 2,500, queued 0, alreadyQueued 0 |
+| `background_jobs`, counted before and after | 0 and 0 |
+
+It did NOT prove that every collected applicant is queued and scored. That
+would take a run with capacity above zero, comparing the `background_jobs`
+rows and then the scorecards against the collected set, which spends scoring
+credits and is a separate decision.
+
+**The route that ran it was deleted the same day.** It was
+`GET /api/staging-probe/rescore-collect`, and it was the first probe that
+could WRITE: `rescoreJob` enqueues. Every route in section 6 is read-only, and
+the gate was designed for reads. The only thing that kept that route from
+queueing 2,500 real scoring jobs was a `company_plans` row with
+`cv_scoring_limit` 0 that the calling script inserted and removed, which is a
+safety that lives outside the route. The measurement is done; the route is
+not worth the risk of keeping. Section 6's two routes are again the whole list.
+
+**To reproduce it safely, if it is ever needed again.** Two halves, in this
+order, and neither needs a route:
+
+1. The SET, with no app and no write. From the repo root, with
+   `.env.staging` loaded, run the real collection function directly against
+   the fixture and compare it with the manifest:
+
+   ```bash
+   node --env-file=.env.staging --input-type=module -e '
+   import { register } from "node:module";
+   import { readFileSync } from "node:fs";
+   import { pathToFileURL } from "node:url";
+   const root = pathToFileURL(`${process.cwd()}/`);
+   register(new URL("src/test-support/node-resolve.mjs", root));
+   register(new URL("src/test-support/server-only-stub.mjs", root));
+   const { openStaging } = await import(new URL("scripts/staging/guard.mjs", root).href);
+   const { collectJobApplicationIds } = await import(new URL("src/lib/ai/rescore-collect.ts", root).href);
+   const m = JSON.parse(readFileSync("scripts/staging/seed-manifest.json", "utf8"));
+   const job = m.jobIds[0], expected = new Set(m.applicationIdsByJob[job]);
+   const { service } = await openStaging({ intent: "harness" });
+   const ids = await collectJobApplicationIds(service, job, m.companyId);
+   const seen = new Set(ids);
+   console.log({ expected: expected.size, collected: ids.length, distinct: seen.size,
+     missing: [...expected].filter((id) => !seen.has(id)).length,
+     extra: [...seen].filter((id) => !expected.has(id)).length });'
+   ```
+
+   Run on 2026-10-28 against the 10,000-row fixture this printed
+   `expected: 2500, collected: 2500, distinct: 2500, missing: 0, extra: 0`.
+
+   Compare the set, never the count: equal counts hid the #56 defect.
+
+2. The ACTION, with capacity forced to zero. Count `background_jobs` and
+   record it. Insert a `company_plans` row for the fixture company with
+   `cv_scoring_limit` 0 (`scoresToQueue` then returns 0 room and `rescoreJob`
+   reports every applicant as `held`). Confirm `readCvCapacity` reports 0 for
+   that company BEFORE anything else. Then trigger the re-score the way a
+   member does, through the dashboard's confirm dialog in a Playwright session
+   signed in as the fixture owner, and read `held`, `queued` and
+   `alreadyQueued` from the action's result. Delete the `company_plans` row in
+   a `finally`, whatever happened, and count `background_jobs` again: it must
+   equal the count before. If it does not, the plan row was not in force, and
+   real scoring jobs are queued; stop and clear them before anything else.
+
+   Do not add a route for this. A probe route that calls an action that
+   writes is only as safe as the row that happens to be in `company_plans`.
 
 ### Parity, from the dump alone
 

@@ -1,6 +1,6 @@
 import "server-only";
 import { karachiMonthWindow } from "@/lib/plans-usage-types";
-import { pageAll } from "@/lib/supabase/paging";
+import { pageAllByKey } from "@/lib/supabase/paging";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -140,16 +140,17 @@ export async function readCvCapacity(
 
     // Counted from the start of the Karachi month with no upper bound, exactly
     // as consume_allowance counts.
-    const rows = await pageAll<{ quantity: number | null }>(
-      (from, to) =>
+    // By key, not offset: usage rows are written by the worker while this
+    // reads, and #56's reproduction showed offset paging repeating a row under
+    // exactly that. A repeated quantity here is an allowance counted twice.
+    const rows = await pageAllByKey<{ id: string; quantity: number | null }>(
+      () =>
         service
           .from("usage_events")
-          .select("quantity")
+          .select("id, quantity")
           .eq("company_id", companyId)
           .eq("type", CV_SCORED_METRIC)
-          .gte("created_at", karachiMonthWindow(now).startIso)
-          .order("id")
-          .range(from, to),
+          .gte("created_at", karachiMonthWindow(now).startIso),
       { scope: "cv-allowance", label: "cv_scored usage" },
     );
     const used = rows.reduce((sum, r) => sum + (r.quantity ?? 0), 0);

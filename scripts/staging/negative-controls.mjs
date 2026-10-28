@@ -66,6 +66,9 @@ const GATE = "src/app/api/staging-probe/_lib/gate.ts";
 const ISOLATION_ROUTE = "src/app/api/staging-probe/identity/route.ts";
 const SCOPED_ROUTE = "src/app/api/staging-probe/scoped-application-ids/route.ts";
 const JOB_SCOPE = "src/app/ai-dashboard/lib/job-scope.ts";
+const APPLICANTS_ACTIONS = "src/app/ai-dashboard/(gated)/applicants/actions.ts";
+const RESCORE_COLLECT = "src/lib/ai/rescore-collect.ts";
+const PAGING = "src/lib/supabase/paging.ts";
 const MESSAGES_ACTIONS = "src/app/ai-dashboard/(gated)/messages/actions.ts";
 
 const ASSERT_TEST = "scripts/staging/assertions.test.mjs";
@@ -82,6 +85,8 @@ const CSP_TEST = "src/lib/security/csp.test.ts";
 const WIRING_TEST = "scripts/staging/harness-wiring.test.mjs";
 const PROBE_TEST = "src/app/api/staging-probe/probe.test.ts";
 const QUERY_ORDER_TEST = "scripts/staging/query-order.test.mjs";
+const RESCORE_COLLECT_TEST = "src/lib/ai/rescore-collect.test.ts";
+const PAGING_TEST = "src/lib/supabase/paging.test.ts";
 
 const UNIFORM_JOBS = `  ${Array.from({ length: 20 }, () => 500).join(", ")},`;
 
@@ -119,6 +124,40 @@ const REVERSIONS = [
     to: '    await page.waitForLoadState("networkidle");',
     test: WIRING_TEST,
     expect: "the paging loop waits for the rows to change after Next",
+  },
+  /* ── #56/#57: rescoreJob pages by key, and the helper really is keyset ── */
+  {
+    name: "#56: rescoreJob goes back to an inline offset loop for the applications read",
+    file: APPLICANTS_ACTIONS,
+    from: "    ids = await collectJobApplicationIds(service, jobId, ctx.companyId);",
+    to: '    ids = (\n      await pageAll<{ id: string }>(\n        (from, to) =>\n          service\n            .from("job_applications")\n            .select("id")\n            .eq("job_id", jobId)\n            .eq("company_id_snapshot", ctx.companyId)\n            .order("id")\n            .range(from, to),\n        { scope: "rescore", label: "applications" },\n      )\n    ).map((r) => r.id);',
+    test: RESCORE_COLLECT_TEST,
+    expect: "pin: rescoreJob collects through collectJobApplicationIds",
+  },
+  {
+    name: "#57: the collection module goes back to offset paging, so an insert before the cursor loses an applicant",
+    file: RESCORE_COLLECT,
+    from: '  const rows = await pageAllByKey<{ id: string }>(\n    () =>\n      service\n        .from("job_applications")\n        .select("id")\n        .eq("job_id", jobId)\n        .eq("company_id_snapshot", companyId),\n    { scope: "rescore", label: "applications on the job" },\n  );',
+    to: '  const rows = await pageAll<{ id: string }>(\n    (from, to) =>\n      service\n        .from("job_applications")\n        .select("id")\n        .eq("job_id", jobId)\n        .eq("company_id_snapshot", companyId)\n        .order("id", { ascending: true })\n        .range(from, to),\n    { scope: "rescore", label: "applications on the job" },\n  );',
+    test: RESCORE_COLLECT_TEST,
+    expect:
+      "#56 → #57: collectJobApplicationIds stays complete when a row is inserted before the cursor",
+  },
+  {
+    name: "#57: pageAllByKey pages by position instead of by the last id seen",
+    file: PAGING,
+    from: '    if (last !== null) q = q.gt("id", last);',
+    to: "    if (last !== null) q = q;",
+    test: PAGING_TEST,
+    expect: "#57: pageAllByKey returns the complete set under the same insert and delete",
+  },
+  {
+    name: "#57: the allowance read goes back to offset paging",
+    file: "src/lib/cv-allowance.ts",
+    from: "    const rows = await pageAllByKey<{ id: string; quantity: number | null }>(",
+    to: "    const rows = await pageAll<{ id: string; quantity: number | null }>(",
+    test: RESCORE_COLLECT_TEST,
+    expect: "pin: the allowance read pages usage_events by key",
   },
   /* ── the two query fixes: a total order, pinned to the shipped source ── */
   {
