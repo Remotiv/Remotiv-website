@@ -363,7 +363,10 @@ function parseCalls(calls) {
   const parent = [];
   const embedded = [];
   const ors = [];
-  let order = null;
+  // Every .order() call, in the order given: PostgREST sorts by the first and
+  // breaks its ties with the next. #23 added .order("id") after created_at,
+  // and an evaluator that kept only the LAST key would sort by id alone.
+  const orders = [];
   let range = null;
 
   for (const [method, ...args] of calls) {
@@ -374,7 +377,7 @@ function parseCalls(calls) {
     // to tell the applicant pre-query from hydrate's read of the same table.
     if (method === "limit") continue;
     if (method === "order") {
-      order = { col: args[0], ascending: args[1]?.ascending !== false };
+      orders.push({ col: args[0], ascending: args[1]?.ascending !== false });
       continue;
     }
     if (method === "range") {
@@ -392,7 +395,7 @@ function parseCalls(calls) {
       col: isEmbedded ? f.col.slice(EMBED_PREFIX.length) : f.col,
     });
   }
-  return { parent, embedded, ors, order, range };
+  return { parent, embedded, ors, order: orders[0] ?? null, orders, range };
 }
 
 function matches(row, f) {
@@ -453,7 +456,7 @@ function queryLogs(calls, logs = LOGS, apps = APPLICATIONS) {
   const inner = /job_applications!inner\s*\(/.test(columns);
   const plainEmbed = !inner && /job_applications\s*\(/.test(columns);
 
-  const { parent, embedded, ors, order, range } = parseCalls(calls);
+  const { parent, embedded, ors, order, orders, range } = parseCalls(calls);
   if (embedded.length && !inner && !plainEmbed) {
     throw new Error("test: a job_applications.* filter with no job_applications embed");
   }
@@ -475,12 +478,14 @@ function queryLogs(calls, logs = LOGS, apps = APPLICATIONS) {
   for (const group of ors) rows = rows.filter((l) => group.some((f) => matches(l, f)));
 
   if (order) {
-    const dir = order.ascending ? 1 : -1;
     rows = [...rows].sort((x, y) => {
-      const a = String(x[order.col] ?? "");
-      const b = String(y[order.col] ?? "");
-      if (a === b) return 0;
-      return a < b ? -dir : dir;
+      for (const key of orders) {
+        const dir = key.ascending ? 1 : -1;
+        const a = String(x[key.col] ?? "");
+        const b = String(y[key.col] ?? "");
+        if (a !== b) return (a < b ? -1 : 1) * dir;
+      }
+      return 0;
     });
   }
 
