@@ -1,6 +1,6 @@
 import type { LiveEventKind } from "@/lib/interviews/live-event-codes";
 import type { JoinTicket } from "@/lib/interviews/live-provider/types";
-import type { PieceMime, PieceSink } from "./video-pieces";
+import { PieceHttpError, type PieceMime, type PieceSink } from "./video-pieces";
 
 /**
  * The live screen's calls to Remotiv's server. The screen uses this
@@ -33,6 +33,9 @@ export interface LiveServer {
   beacon(kind: LiveEventKind, detail?: string | null): void;
   pieces: PieceSink;
 }
+
+const codeOf = (body: Record<string, unknown>) =>
+  typeof body.code === "string" ? body.code : null;
 
 async function post(
   fetchImpl: typeof fetch,
@@ -90,7 +93,6 @@ export function httpLiveServer(token: string, fetchImpl: typeof fetch = fetch): 
         if (tries > 1) report(kind, detail, tries - 1);
       });
   };
-  const fail = (what: string) => new Error(`${what} failed`);
   return {
     async consent() {
       try {
@@ -129,7 +131,7 @@ export function httpLiveServer(token: string, fetchImpl: typeof fetch = fetch): 
         if (res.status === 200 && res.body.alreadyConfirmed === true)
           return { alreadyConfirmed: true };
         if (res.status === 200 && typeof res.body.url === "string") return { url: res.body.url };
-        throw fail("reserve");
+        throw new PieceHttpError("reserve", res.status, codeOf(res.body));
       },
       async upload(url, blob, mime) {
         const res = await fetchImpl(url, {
@@ -137,7 +139,7 @@ export function httpLiveServer(token: string, fetchImpl: typeof fetch = fetch): 
           headers: { "content-type": mime },
           body: blob,
         });
-        if (!res.ok) throw fail("upload");
+        if (!res.ok) throw new PieceHttpError("upload", res.status);
       },
       async confirm(piece) {
         const res = await post(fetchImpl, "/api/interview/live/video-confirm", {
@@ -148,7 +150,7 @@ export function httpLiveServer(token: string, fetchImpl: typeof fetch = fetch): 
           durationMs: piece.durationMs,
           last: piece.last,
         });
-        if (res.status !== 200) throw fail("confirm");
+        if (res.status !== 200) throw new PieceHttpError("confirm", res.status, codeOf(res.body));
       },
     },
   };

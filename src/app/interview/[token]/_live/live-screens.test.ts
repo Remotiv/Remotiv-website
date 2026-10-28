@@ -333,7 +333,7 @@ test("interview: the interviewer's state and caption, the candidate's camera and
   assert.match(confirm, /Keep going/);
 });
 
-test("saving: holds until every piece is saved; a failed piece offers Try again", () => {
+test("saving: holds until every piece is saved; a failed piece says it is still being tried, with no button to press", () => {
   const s = go(...IN_INTERVIEW, T({ type: "dropped" }));
   const holding = render(s, {
     pieces: [
@@ -345,7 +345,25 @@ test("saving: holds until every piece is saved; a failed piece offers Try again"
   assert.match(text(holding), /keep this page open/);
   const failed = text(render(s, { pieces: [{ index: 0, state: "failed", bytes: 1 }] }));
   assert.match(failed, /hasn't uploaded yet/);
-  assert.match(failed, /Try again/);
+  assert.match(failed, /keep trying while this page is open/);
+  assert.doesNotMatch(failed, /Try again/);
+  assert.doesNotMatch(render(s, { pieces: [{ index: 0, state: "failed", bytes: 1 }] }), /<button/);
+});
+
+test("RB2: when part of the video was refused for good, the ending says so calmly; otherwise it does not", () => {
+  const s = liveReducer(go(...IN_INTERVIEW, T({ type: "dropped" })), { t: "video_saved" });
+  assert.equal(s.screen, "done");
+  const lost = text(
+    render(s, {
+      pieces: [
+        { index: 0, state: "saved", bytes: 1 },
+        { index: 1, state: "refused", bytes: 1 },
+      ],
+    }),
+  );
+  assert.match(lost, /Some of your video could not be saved\. Your answers were still recorded\./);
+  const whole = text(render(s, { pieces: [{ index: 0, state: "saved", bytes: 1 }] }));
+  assert.doesNotMatch(whole, /could not be saved/);
 });
 
 test("every ending and every block has its own words; none claims an outcome or offers a restart", () => {

@@ -372,14 +372,15 @@ export function LiveFlowCore({
     return () => window.clearInterval(id);
   }, [state.screen, state.timeUp, p.minutes, server]);
 
-  // Every piece saved: the ending can show, and the camera light goes off.
+  // Nothing left to save (every piece saved, or refused for good): the ending can show, and
+  // the camera light goes off. Only a fully saved video is reported as saved.
   useEffect(() => {
     const recorder = recorderRef.current;
     if (!state.ending || !recorder) return;
     if (!pieces.some((x) => x.state === "recording")) stopMedia();
-    if (recorder.drained && !reportedSaved.current) {
+    if (recorder.finished && !reportedSaved.current) {
       reportedSaved.current = true;
-      server.event("video_saved");
+      if (recorder.drained) server.event("video_saved");
       dispatch({ t: "video_saved" });
     }
   }, [pieces, state.ending, server, stopMedia]);
@@ -451,7 +452,6 @@ export function LiveFlowCore({
           endRequest: () => dispatch({ t: "end_requested" }),
           endCancel: () => dispatch({ t: "end_cancelled" }),
           endConfirm,
-          retryVideo: () => recorderRef.current?.retryFailed(),
           takeOver: () => {
             tab.takeOver();
             dispatch({ t: "unblock" });

@@ -77,7 +77,6 @@ export type LiveScreenProps = {
     endRequest(): void;
     endCancel(): void;
     endConfirm(): void;
-    retryVideo(): void;
     takeOver(): void;
   };
 };
@@ -439,7 +438,7 @@ function Saving(p: LiveScreenProps) {
   return (
     <div className="iv-card" data-live-screen="saving">
       <div className="flex flex-col items-center px-1 pb-2 pt-3.5 text-center">
-        {!failed && <span className="iv-spin mb-5" />}
+        <span className="iv-spin mb-5" />
         <h1 tabIndex={-1} data-screen-heading className={`${H1} text-[23px]`}>
           {SAVING.heading}
         </h1>
@@ -452,17 +451,9 @@ function Saving(p: LiveScreenProps) {
           {SAVING.progress(saved, total)}
         </p>
         {failed && (
-          <>
-            <p
-              role="alert"
-              className="m-0 mb-3 mt-3 text-[13px] font-semibold text-[var(--red-ink)]"
-            >
-              {SAVING.failed}
-            </p>
-            <button type="button" className="iv-btn iv-purple" onClick={p.on.retryVideo}>
-              {SAVING.retry}
-            </button>
-          </>
+          <p role="alert" className="m-0 mt-3 text-[13px] font-semibold text-[var(--red-ink)]">
+            {SAVING.failed}
+          </p>
         )}
       </div>
     </div>
@@ -478,6 +469,11 @@ function Done(p: LiveScreenProps) {
         body={ending.body(p.companyName)}
         icon={<Check className="size-[34px]" strokeWidth={2.2} />}
       />
+      {p.pieces.some((x) => x.state === "refused") && (
+        <p className="m-0 mt-3 text-center text-[13px] text-[var(--t2)]" data-video-not-saved>
+          {SAVING.notSaved}
+        </p>
+      )}
       {p.showEnding && (
         <p
           className="m-0 mt-3 rounded-xl bg-[var(--inset)] px-3 py-2 text-center text-[12px] leading-relaxed text-[var(--t2)]"

@@ -121,9 +121,10 @@ export const SAVING = {
   heading: "Saving your video",
   lead: "Please keep this page open while your video uploads.",
   progress: (saved: number, total: number) => `${saved} of ${total} parts saved`,
-  failed: "Part of your video hasn't uploaded yet. Check your connection, then try again.",
-  retry: "Try again",
+  failed:
+    "Part of your video hasn't uploaded yet. We'll keep trying while this page is open, so please check your connection and keep it open.",
   leaveWarning: "Your video is still uploading. If you leave now, part of it may be lost.",
+  notSaved: "Some of your video could not be saved. Your answers were still recorded.",
 };
 
 export const ENDING: Record<Ending, { heading: string; body: (company: string) => string }> = {

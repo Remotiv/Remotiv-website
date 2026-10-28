@@ -460,7 +460,7 @@ export function PreviewLive({
             checked={failUploads}
             onChange={(e) => setFailUploads(e.target.checked)}
           />
-          Video uploads fail (to see retry and Try again)
+          Video uploads fail (untick to watch them retry and save)
         </label>
         <button
           type="button"
