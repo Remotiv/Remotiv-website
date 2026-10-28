@@ -218,6 +218,12 @@ export async function scopedApplicationIds(
         .select("id")
         .eq("company_id_snapshot", ctx.companyId)
         .in("job_id", chunk)
+        // A paged read with no ORDER BY has no defined row order in Postgres:
+        // successive range pages can skip and repeat rows outright, not only
+        // among ties, and here a skipped id is an applicant a recruiter silently
+        // cannot see. id is unique, so this is a total order. Pinned by
+        // scripts/staging/query-order.test.mjs; reverted by negative-controls.
+        .order("id", { ascending: true })
         .range(from, from + PAGE - 1);
 
       /*

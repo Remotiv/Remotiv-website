@@ -558,6 +558,12 @@ export async function fetchMessages(input: {
     build(true),
     build(false)
       .order("created_at", { ascending: false })
+      // created_at alone is not a total order: the seed puts 300 logs on one
+      // timestamp and real sends share seconds too. Rows sharing a created_at
+      // had no defined order between pages, so a page boundary inside a tie
+      // could show one row twice and another never. id is unique; this closes
+      // #23. Pinned by scripts/staging/query-order.test.mjs.
+      .order("id", { ascending: false })
       .range(from, from + MESSAGES_PAGE_SIZE - 1),
   ]);
 
