@@ -547,6 +547,164 @@ test("a failed transcription excluded by a person: its question is left out, nev
   assert.deepEqual(r.asked, [], "excluding never asks for a transcript");
 });
 
+/* ── an empty transcript over a possible answer (B4) ──────────── */
+
+/** A 16 kHz mono 16-bit WAV, `ms` long; a tone at `db` (RMS, dBFS) for `soundMs` of it, silence after. */
+function wav(ms, soundMs = 0, db = -24) {
+  const rate = 16_000;
+  const frames = Math.round((rate * ms) / 1000);
+  const bytes = new Uint8Array(44 + frames * 2);
+  const view = new DataView(bytes.buffer);
+  const tag = (at, t) => {
+    for (let i = 0; i < 4; i++) bytes[at + i] = t.charCodeAt(i);
+  };
+  tag(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  tag(8, "WAVE");
+  tag(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  tag(36, "data");
+  view.setUint32(40, frames * 2, true);
+  const loud = Math.round((rate * soundMs) / 1000);
+  const amplitude = 10 ** (db / 20) * Math.SQRT2 * 32767;
+  for (let f = 0; f < loud; f++) {
+    view.setInt16(
+      44 + f * 2,
+      Math.round(amplitude * Math.sin((2 * Math.PI * 220 * f) / rate)),
+      true,
+    );
+  }
+  return bytes;
+}
+
+/**
+ * Question 3's candidate turns (three in the fixture) stored with `audio(i)`,
+ * transcribed as nothing at all; every other turn as a real answer.
+ */
+async function emptyOnQuestion3(audio) {
+  const db = await saved();
+  const q3 = candidateTurns(db).filter((t) => positionOf(db, t) === 3);
+  q3.forEach((t, i) => {
+    db.objects.get(t.media_path).bytes = audio(i);
+  });
+  await transcribe(db, candidateTurns(db), {
+    text: (row) => (positionOf(db, row) === 3 ? "" : undefined),
+  });
+  return { db, q3: q3.map((t) => db.tables.interview_turns.find((x) => x.id === t.id)) };
+}
+
+test("B4: a 20-second answer transcribed as nothing is held for a person, never scored 0", async () => {
+  const { db, q3 } = await emptyOnQuestion3((i) => wav(20_000 + i * 20, 15_000));
+  for (const t of q3) {
+    assert.deepEqual(
+      [t.transcript_status, t.transcript_error],
+      ["failed", "Transcription returned nothing."],
+    );
+  }
+  const o = outcomeOf(db);
+  assert.equal(o.final, false, "held: the outcome is not decided");
+  assert.equal(o.needs_review, true);
+  assert.deepEqual(
+    o.transcription_failed_turns,
+    q3.map((t) => t.sequence),
+  );
+  assert.equal(o.questions.find((q) => q.position === 3).status, "answered", "never skipped");
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  assert.equal(model.requests.length, 0, "nothing is scored while it is held");
+  const row = scoreRow(db);
+  assert.ok(row.questions.every((q) => q.reason === "not_final"));
+  assert.ok(row.questions.every((q) => q.status !== "lowest" && q.score === null));
+});
+
+test("B4: a 1.5-second spoken 'yes' and quiet speech at -45 dBFS, transcribed as nothing, are held too", async () => {
+  for (const [label, audio] of [
+    ["1.5 s yes", (i) => wav(1_500 + i * 20, 400)],
+    ["quiet, -45 dBFS", (i) => wav(20_000 + i * 20, 3_000, -45)],
+  ]) {
+    const { db, q3 } = await emptyOnQuestion3(audio);
+    assert.ok(
+      q3.every((t) => t.transcript_status === "failed"),
+      label,
+    );
+    assert.equal(outcomeOf(db).final, false, label);
+    assert.equal(outcomeOf(db).questions.find((q) => q.position === 3).status, "answered", label);
+    const model = fakeModel();
+    await resolveAllChecks(db, model);
+    assert.ok(
+      scoreRow(db).questions.every((q) => q.status !== "lowest" && q.score === null),
+      label,
+    );
+  }
+});
+
+test("B4: a held answer, retried: the transcript comes back and it is scored normally", async () => {
+  const { db, q3 } = await emptyOnQuestion3((i) => wav(20_000 + i * 20, 15_000));
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  const r = recovery(db, model);
+  for (const t of q3) {
+    await quiet(() =>
+      retryTranscription(
+        { sessionId: SESSION, turnId: t.id, note: "I can hear an answer." },
+        r.deps,
+      ),
+    );
+  }
+  const now = () => q3.map((t) => db.tables.interview_turns.find((x) => x.id === t.id));
+  assert.ok(now().every((t) => t.transcript_status === "pending"));
+  await transcribe(db, now());
+  assert.equal(outcomeOf(db).final, true);
+  const row = await scorer(db, model)(SESSION);
+  assert.deepEqual([byPosition(row)[3].status, byPosition(row)[3].score], ["scored", 80]);
+});
+
+test("B4: a held answer left out by a person: no score for it, never 0; the rest score", async () => {
+  const { db, q3 } = await emptyOnQuestion3((i) => wav(20_000 + i * 20, 15_000));
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  const r = recovery(db, model);
+  for (const t of q3) {
+    await quiet(() =>
+      resolveFailedTranscription(
+        { sessionId: SESSION, turnId: t.id, decision: "exclude", note: "Nothing usable in it." },
+        r.deps,
+      ),
+    );
+  }
+  const q = byPosition(scoreRow(db));
+  assert.deepEqual(
+    [q[3].status, q[3].reason, q[3].score],
+    ["left_out", "transcription_excluded", null],
+  );
+  assert.equal(scoreRow(db).status, "scored");
+});
+
+test("B4: measured silence and a very short silent turn stay skipped, scored the lowest as before", async () => {
+  for (const [label, audio] of [
+    ["20 seconds of silence", (i) => wav(20_000 + i * 20)],
+    ["1.2 seconds of silence", (i) => wav(1_200 + i * 20)],
+  ]) {
+    const { db, q3 } = await emptyOnQuestion3(audio);
+    assert.ok(
+      q3.every((t) => t.transcript_status === "done"),
+      label,
+    );
+    assert.deepEqual(outcomeOf(db).transcription_failed_turns, [], label);
+    assert.equal(outcomeOf(db).questions.find((q) => q.position === 3).status, "skipped", label);
+    const model = fakeModel();
+    await resolveAllChecks(db, model);
+    const q = byPosition(scoreRow(db));
+    assert.deepEqual([q[3].status, q[3].reason, q[3].score], ["lowest", "skipped", 0], label);
+  }
+});
+
 /* ── what the scorer is given ─────────────────────────────────── */
 
 test("the scorer never gets follow-up counts or reasons, the name, or any turn metadata", async () => {

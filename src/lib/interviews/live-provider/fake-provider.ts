@@ -36,9 +36,41 @@ const INPUT_KEYS: ReadonlySet<string> = new Set([
 ]);
 const QUESTION_KEYS: ReadonlySet<string> = new Set(["position", "text"]);
 
-/** The fake's bytes for one file name: a minimal WAV-looking header and the name. */
+/** How long the fake's silence lasts. An empty transcript of it is measured silence: a skip. */
+export const FAKE_AUDIO_MS = 2_500;
+
+/**
+ * The fake's bytes for one file name: a real 16-bit PCM WAV of FAKE_AUDIO_MS of
+ * silence (8 kHz, mono), with the name in its own chunk so every file is distinct.
+ */
 export function fakeAudioBytes(fileName: string): Uint8Array {
-  return new TextEncoder().encode(`RIFF\u0000\u0000\u0000\u0000WAVEfmt fake-audio:${fileName}`);
+  const name = new TextEncoder().encode(`fake-audio:${fileName}`);
+  const namePadded = name.length + (name.length % 2);
+  const rate = 8_000;
+  const dataBytes = Math.round((rate * FAKE_AUDIO_MS) / 1000) * 2;
+  const bytes = new Uint8Array(12 + 24 + 8 + namePadded + 8 + dataBytes);
+  const view = new DataView(bytes.buffer);
+  const tag = (at: number, t: string) => {
+    for (let i = 0; i < 4; i++) bytes[at + i] = t.charCodeAt(i);
+  };
+  tag(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  tag(8, "WAVE");
+  tag(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  tag(36, "name");
+  view.setUint32(40, name.length, true);
+  bytes.set(name, 44);
+  const data = 44 + namePadded;
+  tag(data, "data");
+  view.setUint32(data + 4, dataBytes, true);
+  return bytes;
 }
 
 export type FakeLiveProvider = LiveInterviewProvider & {

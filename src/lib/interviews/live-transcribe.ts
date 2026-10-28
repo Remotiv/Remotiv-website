@@ -10,6 +10,7 @@ import {
 import { excludedFailedTurns, type LiveActionRow } from "@/lib/interviews/live-resolutions";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { type TranscriptSegment, toStoredSegments } from "@/lib/interviews/transcribe";
+import { mayHoldAnswer, turnSpeech } from "@/lib/interviews/turn-speech";
 import {
   logProviderCall,
   MIN_PROVIDER_CALL_BUDGET_MS,
@@ -50,6 +51,15 @@ import { createServiceClient } from "@/lib/supabase/server";
  * no_speech_prob at NO_SPEECH_MIN or above). No length minimum: "Yes, three
  * years" confirms. A question whose candidate turns are all transcribed with
  * no real word is downgraded to skipped, and the outcome is worked out again.
+ *
+ * ── An empty transcript is not proof of silence (B4) ─────────
+ *
+ * A turn transcribed with no real word is a skip only when its audio is
+ * measured silent (turn-speech.ts), whatever its length. Otherwise
+ * the transcript may simply have missed the answer: the turn is marked failed
+ * ("Transcription returned nothing."), exactly like a transcription that
+ * failed, so the outcome stays undecided, nothing is scored, needs_review is
+ * set, and a person retries it or leaves its question out. It never scores 0.
  *
  * ── Final ────────────────────────────────────────────────────
  *
@@ -95,6 +105,8 @@ type Service = ReturnType<typeof createServiceClient>;
 export const WHISPER_MAX_BYTES = 25 * 1024 * 1024;
 /** At or above this on every segment, Whisper heard silence and wrote something anyway. */
 export const NO_SPEECH_MIN = 0.8;
+/** A turn held because its transcript is empty over audio that may hold an answer (B4). */
+export const NO_WORDS_HEARD = "Transcription returned nothing.";
 /** Settles retried after losing a compare-and-set, at most. */
 const SETTLE_TRIES = 5;
 
@@ -530,6 +542,13 @@ export async function handleLiveTurnTranscribe(
     // Retryable: the queue backs off and tries again, until the last attempt.
     if (lastAttempt) await giveUp(safeFailureSentence(c, "transcription"));
     throw err;
+  }
+
+  if (!hasRealWords(result.text, result.segments) && mayHoldAnswer(turnSpeech(bytes))) {
+    await markTurnFailed(service, turnId, NO_WORDS_HEARD);
+    await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });
+    console.warn(`[live-transcribe] turn ${turnId}: no words over audio that may hold an answer`);
+    return;
   }
 
   const { error: wErr } = await service
