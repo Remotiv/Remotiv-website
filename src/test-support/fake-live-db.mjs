@@ -610,6 +610,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
     const match = (row) =>
       calls.every((c) => {
         if (c[0] === "eq") return get(row, c[1]) === c[2];
+        if (c[0] === "neq") return get(row, c[1]) !== c[2];
         if (c[0] === "in") return c[2].includes(get(row, c[1]));
         if (c[0] === "is") return get(row, c[1]) === c[2];
         if (c[0] === "lte") return get(row, c[1]) !== null && get(row, c[1]) <= c[2];
@@ -707,9 +708,20 @@ export function fakeLiveDb(initial = {}, options = {}) {
       if (takeFault(table, "select"))
         return { data: null, error: { code: "XX000", message: "fault" } };
       const hit = rows.filter(match);
+      // select(cols, { count: "exact", head }), order(col, { ascending }) and limit(n), as PostgREST.
+      const counted = calls.find((c) => c[0] === "select")?.[2]?.count === "exact";
+      const head = calls.find((c) => c[0] === "select")?.[2]?.head === true;
+      const order = calls.find((c) => c[0] === "order");
+      if (order) {
+        const dir = order[2]?.ascending === false ? -1 : 1;
+        hit.sort((a, b) => (get(a, order[1]) < get(b, order[1]) ? -dir : dir));
+      }
+      const limit = calls.find((c) => c[0] === "limit");
+      const page = limit ? hit.slice(0, limit[1]) : hit;
+      if (counted) return { data: head ? null : page.map(pick), count: hit.length, error: null };
       if (calls.some((c) => c[0] === "maybeSingle"))
-        return { data: hit[0] ? pick(hit[0]) : null, error: null };
-      return { data: hit.map(pick), error: null };
+        return { data: page[0] ? pick(page[0]) : null, error: null };
+      return { data: page.map(pick), error: null };
     } catch (err) {
       return { data: null, error: { code: err.code ?? "23514", message: err.message } };
     }

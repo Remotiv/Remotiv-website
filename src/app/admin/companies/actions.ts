@@ -1,6 +1,7 @@
 "use server";
 
 import { revalidatePath } from "next/cache";
+import { deleteCompanyData } from "@/lib/company-deletion";
 import { createServiceClient } from "@/lib/supabase/server";
 import { requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail } from "@/lib/validators";
@@ -607,13 +608,22 @@ export async function resetCompanyPassword(
   return { success: true, data: undefined };
 }
 
-export async function deleteCompany(id: string): Promise<MutationResult<undefined>> {
+/** How far a company deletion got: it runs in batches, and a call carries on where the last stopped. */
+export type CompanyDeletionStep = { done: boolean; applicantsLeft: number };
+
+/**
+ * Delete a company and every applicant, interview, recording, CV and inbox
+ * message it holds (lib/company-deletion.ts), one batch per call. Until it is
+ * done the company stays, archived; calling again continues. A file that could
+ * not be deleted stops the call with a message to try again.
+ */
+export async function deleteCompany(id: string): Promise<MutationResult<CompanyDeletionStep>> {
   await requireSuperAdmin();
 
   const supabase = createServiceClient();
 
-  // Resolve the auth user_id BEFORE deleting the companies row — once the row
-  // is gone we lose the link.
+  // Resolve the auth user_id BEFORE the companies row can go: once it is gone
+  // we lose the link.
   const { data: row } = await supabase
     .from("companies")
     .select("user_id")
@@ -621,19 +631,26 @@ export async function deleteCompany(id: string): Promise<MutationResult<undefine
     .maybeSingle();
   const userId = (row as { user_id: string | null } | null)?.user_id ?? null;
 
-  // Delete the companies row first; cascade in the schema removes
-  // company_members. If this fails, abort before touching the auth user.
-  const { error: delErr } = await supabase.from("companies").delete().eq("id", id);
-  if (delErr) return { success: false, error: delErr.message };
+  const step = await deleteCompanyData(supabase, id);
+  revalidatePath("/admin/companies");
+  if (!step.ok) {
+    return {
+      success: false,
+      error:
+        step.applicantsLeft > 0
+          ? `${step.error} (${step.applicantsLeft} applicants left)`
+          : step.error,
+    };
+  }
+  if (!step.done)
+    return { success: true, data: { done: false, applicantsLeft: step.applicantsLeft } };
 
   if (userId) {
-    // Best-effort auth-user cleanup. We don't fail the action if this throws —
+    // Best-effort auth-user cleanup. We don't fail the action if this throws:
     // the companies row is already gone so the contract is fulfilled.
     await supabase.auth.admin.deleteUser(userId);
   }
-
-  revalidatePath("/admin/companies");
-  return { success: true, data: undefined };
+  return { success: true, data: { done: true, applicantsLeft: 0 } };
 }
 
 // ── Background queue (cross-company, super-admin only) ───────

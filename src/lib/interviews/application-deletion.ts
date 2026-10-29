@@ -80,13 +80,42 @@ export async function deleteApplicationInterviews(
   deps: ApplicationInterviewsDeps = {},
 ): Promise<ApplicationInterviewsResult> {
   if (!companyId || !applicationId) return { ok: false, error: NOT_DONE };
-  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
+  return deleteSessions(service, companyId, applicationId, deps);
+}
 
-  const { data, error } = await service
+/**
+ * The same for a company's sessions that belong to no application (sent
+ * before invites required one), for company deletion (company-deletion.ts).
+ */
+export async function deleteUnlinkedCompanyInterviews(
+  service: Service,
+  companyId: string,
+  deps: ApplicationInterviewsDeps = {},
+): Promise<ApplicationInterviewsResult> {
+  if (!companyId) return { ok: false, error: NOT_DONE };
+  return deleteSessions(service, companyId, null, deps);
+}
+
+/** The sessions of this application (or, for null, of no application) in this company. */
+async function deleteSessions(
+  service: Service,
+  companyId: string,
+  applicationId: string | null,
+  deps: ApplicationInterviewsDeps,
+): Promise<ApplicationInterviewsResult> {
+  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
+  const whose =
+    applicationId === null
+      ? `company ${companyId} (no application)`
+      : `application ${applicationId}`;
+
+  const select = service
     .from("interview_sessions")
     .select("id, kind, provider, provider_session_id")
-    .eq("application_id", applicationId)
     .eq("company_id", companyId);
+  const { data, error } = await (applicationId === null
+    ? select.is("application_id", null)
+    : select.eq("application_id", applicationId));
   if (error) return { ok: false, error: NOT_DONE };
   const sessions = (data ?? []) as InterviewSessionRef[];
   if (sessions.length === 0) return { ok: true, sessions: 0 };
@@ -149,7 +178,7 @@ export async function deleteApplicationInterviews(
   }
   if (left > 0) {
     console.error(
-      `[application-deletion] application ${applicationId}: files left in ${left} session folder(s); rows kept for a retry`,
+      `[application-deletion] ${whose}: files left in ${left} session folder(s); rows kept for a retry`,
     );
     return { ok: false, error: FILES_LEFT };
   }
@@ -161,8 +190,6 @@ export async function deleteApplicationInterviews(
     .in("id", ids)
     .eq("company_id", companyId);
   if (dErr) return { ok: false, error: NOT_DONE };
-  console.log(
-    `[application-deletion] application ${applicationId}: ${ids.length} interview session(s) deleted`,
-  );
+  console.log(`[application-deletion] ${whose}: ${ids.length} interview session(s) deleted`);
   return { ok: true, sessions: ids.length };
 }

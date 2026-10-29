@@ -38,6 +38,9 @@ import {
 import { type CompanyStatus } from "@/app/ai-dashboard/lib/company-roles";
 import { type UserRole } from "@/app/admin/lib/roles";
 
+/** Batches of applicants one delete press works through before asking to be pressed again. */
+const MAX_DELETE_CALLS = 400;
+
 // ── Constants ────────────────────────────────────────────────
 
 const STATUS_FILTERS: Array<"All" | CompanyStatus> = ["All", "active", "paused", "archived"];
@@ -1245,6 +1248,7 @@ export function CompaniesDashboard({
   >(null);
   const [deleteTarget, setDeleteTarget] = useState<Company | null>(null);
   const [deleting, setDeleting] = useState(false);
+  const [deleteProgress, setDeleteProgress] = useState<string | null>(null);
   const [toast, setToast] = useState<string | null>(null);
 
   useEffect(() => {
@@ -1314,17 +1318,30 @@ export function CompaniesDashboard({
 
   async function handleDelete(company: Company) {
     setDeleting(true);
-    const result = await deleteCompany(company.id);
-    setDeleting(false);
-    if (result.success) {
-      setCompanies((prev) => prev.filter((c) => c.id !== company.id));
-      if (openId === company.id) setOpenId(null);
-      setDeleteTarget(null);
-      setToast("Company deleted");
-      router.refresh();
-    } else {
-      setToast(`Delete failed: ${result.error}`);
+    // One batch of applicants per call; each call carries on where the last stopped.
+    for (let call = 0; call < MAX_DELETE_CALLS; call++) {
+      const result = await deleteCompany(company.id);
+      if (!result.success) {
+        setDeleting(false);
+        setDeleteProgress(null);
+        setToast(`Delete stopped: ${result.error}`);
+        router.refresh();
+        return;
+      }
+      if (result.data.done) {
+        setDeleting(false);
+        setDeleteProgress(null);
+        setCompanies((prev) => prev.filter((c) => c.id !== company.id));
+        if (openId === company.id) setOpenId(null);
+        setDeleteTarget(null);
+        setToast("Company deleted");
+        router.refresh();
+        return;
+      }
+      setDeleteProgress(`${result.data.applicantsLeft} applicants left`);
     }
+    setDeleting(false);
+    setToast("Still deleting - press Delete again to continue");
   }
 
   return (
@@ -1555,8 +1572,16 @@ export function CompaniesDashboard({
                 <span className="font-semibold text-gray-700">
                   {deleteTarget.name}
                 </span>
-                , their auth account, and all team members. This action cannot be undone.
+                , their auth account, all team members, and every applicant with their CV,
+                interviews and recordings, and its WhatsApp messages. Usage records are kept. A
+                large company is deleted in steps; it stays archived until the last one. This
+                action cannot be undone.
               </p>
+              {deleteProgress && (
+                <p role="status" className="mt-3 text-sm font-medium text-gray-700">
+                  {deleteProgress}
+                </p>
+              )}
             </div>
             <div className="flex gap-3 border-t border-gray-100 px-6 py-4">
               <button
