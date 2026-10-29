@@ -1,4 +1,5 @@
 import "server-only";
+import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import {
   interruptionSpeechMissing,
   isOutcomeDecided,
@@ -389,11 +390,13 @@ export async function queueLiveTranscription(
   const done: TranscriptionRequest = { queued: 0, alreadyQueued: 0, failed: 0 };
   const { data: session } = await service
     .from("interview_sessions")
-    .select("id, company_id, kind")
+    .select("id, company_id, kind, delete_after")
     .eq("id", sessionId)
     .maybeSingle();
-  const s = session as { company_id: string; kind: string } | null;
+  const s = session as { company_id: string; kind: string; delete_after: string | null } | null;
   if (s?.kind !== "live") return done;
+  // Past retention, or the application being deleted (B7): no new transcription.
+  if (retentionPassed(s.delete_after, Date.now())) return done;
   const { data: turns, error } = await service
     .from("interview_turns")
     .select("id")
@@ -554,6 +557,19 @@ export async function handleLiveTurnTranscribe(
     typeof job.attempts === "number" && typeof job.max_attempts === "number"
       ? job.attempts + 1 >= job.max_attempts
       : false;
+  // Past retention, or the application being deleted (B7): never transcribed now.
+  const { data: owner } = await service
+    .from("interview_sessions")
+    .select("delete_after")
+    .eq("id", turn.session_id)
+    .maybeSingle();
+  if (
+    retentionPassed((owner as { delete_after: string | null } | null)?.delete_after, Date.now())
+  ) {
+    console.warn(`[live-transcribe] turn ${turnId}: session past retention; not transcribed`);
+    return;
+  }
+
   const giveUp = async (message: string) => {
     await markTurnFailed(service, turnId, message);
     await settleLiveOutcome(service, turn.session_id, { onDecided: deps.onDecided });

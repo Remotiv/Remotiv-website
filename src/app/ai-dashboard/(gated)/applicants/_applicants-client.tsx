@@ -6532,8 +6532,8 @@ export function ApplicantsClient({
               </h3>
               <p className="m-0 mt-2 text-sm text-[var(--ai-t2)]">
                 <span className="font-semibold">{fullName(deleteTarget)}</span> will be permanently
-                removed, along with their CV file, AI scorecard and pipeline history. This cannot be
-                undone.
+                removed, along with their CV file, AI scorecard, pipeline history, and their
+                interviews with every recording and transcript. This cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 border-t border-[var(--ai-line)] px-6 py-4">

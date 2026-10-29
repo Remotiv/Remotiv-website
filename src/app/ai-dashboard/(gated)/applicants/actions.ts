@@ -43,6 +43,7 @@ import { searchTokens } from "@/app/ai-dashboard/lib/search-query";
 import { requestCvScore } from "@/lib/ai/cv-score-request";
 import { MIN_CV_TEXT_CHARS } from "@/lib/ai/cv-scoring";
 import { collectJobApplicationIds, collectScoredApplicationIds } from "@/lib/ai/rescore-collect";
+import { removeApplicationFiles } from "@/lib/application-files";
 import {
   RESCORE_NO_ALLOWANCE_MESSAGE,
   readCvCapacity,
@@ -51,7 +52,7 @@ import {
 } from "@/lib/cv-allowance";
 import { capCvText, checkCvFile, cvRetentionDate } from "@/lib/cv-file";
 import { cancelPendingRejection, queueStageChange } from "@/lib/email/candidate/triggers";
-import { removeApplicationRecordings } from "@/lib/final-interviews/purge";
+import { deleteApplicationInterviews } from "@/lib/interviews/application-deletion";
 import { dismissShortlistFlag } from "@/lib/interviews/shortlist";
 import type { ScreeningAnswerSnapshot } from "@/lib/jobs";
 import { normalizeEmail } from "@/lib/normalize";
@@ -2473,43 +2474,16 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     return { success: false, error: "Applicant not found in your workspace." };
   }
 
-  // 1. The CV file. Best-effort: a storage failure must not block the row
-  //    delete, but it IS logged with the grep tag the apply route uses so an
-  //    orphaned object can be found and cleaned up.
-  if (target.cv_path) {
-    try {
-      const { error: storageErr } = await service.storage.from(CV_BUCKET).remove([target.cv_path]);
-      if (storageErr) {
-        console.error("[CV_ORPHAN][applicants] CV delete failed", {
-          applicationId,
-          path: target.cv_path,
-          error: storageErr.message,
-        });
-      }
-    } catch (err) {
-      console.error("[CV_ORPHAN][applicants] CV delete threw", {
-        applicationId,
-        path: target.cv_path,
-        error: err,
-      });
-    }
-  }
+  // 0. Their AI interviews and recordings (B7), first: if a file is left, the
+  //    delete stops here with nothing else removed, and a retry finishes it.
+  const interviews = await deleteApplicationInterviews(service, ctx.companyId, applicationId);
+  if (!interviews.ok) return { success: false, error: interviews.error };
 
-  // 1b. Final-interview recording files (recording step 6a), this company's
-  //     only, before the row delete cascades their rows away. Best-effort like
-  //     the CV; the daily recording sweep removes anything left. Ids only in logs.
-  try {
-    const recordings = await removeApplicationRecordings(service, ctx.companyId, applicationId);
-    if (recordings.failed || recordings.removed < recordings.requested) {
-      console.error(
-        `[RECORDING_ORPHAN][applicants] application ${applicationId}: ${recordings.requested - recordings.removed} recording file(s) left for the sweep`,
-      );
-    }
-  } catch {
-    console.error(
-      `[RECORDING_ORPHAN][applicants] application ${applicationId}: recording removal threw`,
-    );
-  }
+  // 1. Its final-interview recordings and its CV file (application-files.ts).
+  //    A file left stops here, before the row: nothing finds it once the row
+  //    is gone, and a retry finishes the job.
+  const files = await removeApplicationFiles(service, ctx.companyId, applicationId, target.cv_path);
+  if (!files.ok) return { success: false, error: files.error };
 
   // 2. The row. Scoped again on company_id_snapshot so the DELETE itself
   //    cannot touch another tenant even if the check above were bypassed.
@@ -2519,15 +2493,15 @@ export async function deleteApplication(applicationId: string): Promise<Mutation
     .eq("id", applicationId)
     .eq("company_id_snapshot", ctx.companyId);
 
-  // The CV object above may already be gone when this fails, so this is not a
-  // "nothing was changed" case.
+  // The files above are already gone when this fails, so this is not a
+  // "nothing was changed" case; a retry finds them gone and deletes the row.
   if (delErr) return { success: false, error: actionIncomplete("delete that applicant", delErr) };
 
   await notifyCompany({
     companyId: ctx.companyId,
     type: "applicant_deleted",
     title: `${[target.first_name, target.last_name].filter(Boolean).join(" ").trim() || "An applicant"} was deleted`,
-    body: `${ctx.memberName} permanently removed them and their CV.`,
+    body: `${ctx.memberName} permanently removed them, their CV, and their interviews and recordings.`,
     jobId: target.job_id,
     // No application_id: the row it pointed at no longer exists, and a link to
     // a deleted applicant is a dead end. Without one, notifyCompany routes this

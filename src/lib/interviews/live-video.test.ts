@@ -461,7 +461,8 @@ test("purge: a due session's pieces go, rows keep no path; confirmed pieces are 
     session({
       id: DUE,
       token_hash: hashSessionToken(`${TOKEN}-due`),
-      delete_after: new Date(Date.now() - DAY).toISOString(),
+      // Recorded inside its retention; its date passes below (no video once past it, B7).
+      delete_after: new Date(Date.now() + DAY).toISOString(),
     }),
   ]);
   await record(w, 0);
@@ -478,6 +479,9 @@ test("purge: a due session's pieces go, rows keep no path; confirmed pieces are 
     ),
   );
   await dueReserve(1);
+  w.db.tables.interview_sessions.find((s) => s.id === DUE).delete_after = new Date(
+    Date.now() - DAY,
+  ).toISOString();
   // An unconfirmed upload and a stray file in the live session's folder, both older than a day.
   await w.db.putSigned((await reserve(w.deps, 1)).body.url, WEBM(), "video/webm");
   await w.db.service.storage

@@ -7,6 +7,8 @@ import { getAvatarUrl } from "@/lib/avatars";
 import { requireAdmin, requireSuperAdmin } from "@/app/admin/lib/role-guards";
 import { isValidEmail, trimRequired, trimToNull } from "@/lib/validators";
 import { adminApplicationScope } from "@/lib/admin-scope";
+import { removeApplicationFiles } from "@/lib/application-files";
+import { deleteApplicationInterviews } from "@/lib/interviews/application-deletion";
 import { deriveCvPathFromUrl } from "@/lib/cv-path";
 
 export type ApplicationStatus = "new" | "shortlisted" | "not_a_fit" | "maybe";
@@ -198,12 +200,41 @@ export async function deleteApplication(
 ): Promise<MutationResult<undefined>> {
   await requireSuperAdmin();
   const supabase = createServiceClient();
-  const { error } = await supabase
+  // Remotiv must never delete a customer's applicant record: read it within scope first.
+  const scope = await adminApplicationScope();
+  const { data } = await supabase
     .from("job_applications")
-    .delete()
+    .select("id, company_id_snapshot, cv_path")
     .eq("id", id)
-    // Remotiv must never delete a customer's applicant record.
-    .or(await adminApplicationScope());
+    .or(scope)
+    .maybeSingle();
+  const target = data as {
+    id: string;
+    company_id_snapshot: string | null;
+    cv_path: string | null;
+  } | null;
+  if (!target) return { success: false, error: "Application not found." };
+
+  // As the company's delete does (B7): the AI interviews and their recordings,
+  // then the final-interview recordings and the CV file, then the row. A file
+  // left stops before the row, and a retry finishes the job.
+  if (target.company_id_snapshot) {
+    const interviews = await deleteApplicationInterviews(
+      supabase,
+      target.company_id_snapshot,
+      target.id,
+    );
+    if (!interviews.ok) return { success: false, error: interviews.error };
+  }
+  const files = await removeApplicationFiles(
+    supabase,
+    target.company_id_snapshot,
+    target.id,
+    target.cv_path,
+  );
+  if (!files.ok) return { success: false, error: files.error };
+
+  const { error } = await supabase.from("job_applications").delete().eq("id", target.id).or(scope);
 
   if (error) return { success: false, error: error.message };
   revalidatePath("/admin/applications");

@@ -115,8 +115,16 @@ test("'sooner if your application is deleted': the applicant delete removes the 
   assert.match(TEXT, /or sooner if your application is deleted/);
   assert.match(
     APPLICANT_ACTIONS,
-    /await removeApplicationRecordings\(service, ctx\.companyId, applicationId\)/,
+    /await removeApplicationFiles\(service, ctx\.companyId, applicationId, target\.cv_path\)/,
   );
+  // ...which removes this application's recordings, this company's only, from their bucket.
+  const files = code(read("src/lib/application-files.ts"));
+  assert.match(files, /\.from\("final_interview_recordings"\)/);
+  assert.match(
+    files,
+    /\.eq\("application_id", applicationId\)\s*\.eq\("company_id", companyIdSnapshot\)/,
+  );
+  assert.match(files, /removeConfirmed\(service, FINAL_RECORDING_BUCKET, paths\)/);
 });
 
 /* ── Recall.ai's copy ───────────────────────────────────────────── */

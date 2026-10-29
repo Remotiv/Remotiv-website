@@ -1917,7 +1917,8 @@ export function ApplicationsDashboard({
                 <span className="font-semibold text-gray-700">
                   {deleteTarget.first_name} {deleteTarget.last_name}
                 </span>
-                . This action cannot be undone.
+                , with their CV file and their interviews, including every recording and transcript.
+                This action cannot be undone.
               </p>
             </div>
             <div className="flex gap-3 border-t border-gray-100 px-6 py-4">

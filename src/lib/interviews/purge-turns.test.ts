@@ -77,11 +77,15 @@ function session(id, deleteAfter) {
   };
 }
 
-/** Two saved live sessions: one past its retention date, one not. */
+/**
+ * Two saved live sessions: one past its retention date, one not. Both are
+ * saved inside their retention, as in life (a session past it takes no export,
+ * B7); then DUE's date passes.
+ */
 async function world() {
   const db = fakeLiveDb({
     interview_sessions: [
-      session(DUE, new Date(Date.now() - DAY).toISOString()),
+      session(DUE, new Date(Date.now() + DAY).toISOString()),
       session(LATER, new Date(Date.now() + 90 * DAY).toISOString()),
     ],
   });
@@ -114,6 +118,9 @@ async function world() {
   } finally {
     console.log = orig;
   }
+  db.tables.interview_sessions.find((s) => s.id === DUE).delete_after = new Date(
+    Date.now() - DAY,
+  ).toISOString();
   globalThis.__purgeService = db.service;
   return db;
 }

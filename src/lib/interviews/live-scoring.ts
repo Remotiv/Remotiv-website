@@ -7,6 +7,7 @@ import {
   type ScoringCall,
   scoreLiveQuestion,
 } from "@/lib/ai/live-interview-scoring";
+import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import {
   CANDIDATE_TAG,
   type CandidateName,
@@ -701,11 +702,13 @@ export async function requestLiveScoring(
   if (!liveScoringEnabled()) return false;
   const { data } = await service
     .from("interview_sessions")
-    .select("id, company_id, kind")
+    .select("id, company_id, kind, delete_after")
     .eq("id", sessionId)
     .maybeSingle();
-  const s = data as { company_id: string; kind: string } | null;
+  const s = data as { company_id: string; kind: string; delete_after: string | null } | null;
   if (s?.kind !== "live") return false;
+  // Past retention, or the application being deleted (B7): nothing new is scored.
+  if (retentionPassed(s.delete_after, Date.now())) return false;
   const send = enqueue ?? ((await import("@/lib/jobs-queue")).enqueue as EnqueueScorecard);
   const result = await send({
     type: "ai_scorecard",

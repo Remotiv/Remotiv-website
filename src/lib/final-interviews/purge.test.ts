@@ -318,7 +318,9 @@ test("a storage or database error is reported, never thrown", async () => {
   assert.deepEqual(db, { requested: 0, removed: 0, failed: true });
 });
 
-test("the applicant delete calls it before the row delete, with its own company, and never blocks", () => {
+test("the applicant delete removes the recordings before the row, with its own company, and stops on a file left", () => {
+  // B7: the delete now goes through application-files.ts (recordings, then the CV), which
+  // confirms each file gone; a file left stops the delete before the row, for a retry.
   const src = readFileSync(
     new URL("../../app/ai-dashboard/(gated)/applicants/actions.ts", import.meta.url),
     "utf8",
@@ -328,14 +330,15 @@ test("the applicant delete calls it before the row delete, with its own company,
     src.indexOf("// ── Team comments"),
   );
   const call = fn.indexOf(
-    "await removeApplicationRecordings(service, ctx.companyId, applicationId)",
+    "await removeApplicationFiles(service, ctx.companyId, applicationId, target.cv_path)",
   );
+  const stop = fn.indexOf("if (!files.ok) return { success: false, error: files.error };");
   const rowDelete = fn.indexOf('.from("job_applications")\n    .delete()');
-  assert.ok(call > 0 && rowDelete > call, "removed before the row (and its cascade) goes");
-  const block = fn.slice(fn.lastIndexOf("try {", call), fn.indexOf("// 2. The row.", call));
-  assert.match(block, /\} catch \{/, "a throw is caught");
-  assert.doesNotMatch(block, /return \{ success: false/, "a failure never stops the delete");
-  assert.doesNotMatch(block, /storage_path|path:/, "logs carry ids only");
+  assert.ok(call > 0 && stop > call && rowDelete > stop, "removed, and stopped on, before the row");
+  const files = readFileSync(new URL("../application-files.ts", import.meta.url), "utf8");
+  assert.match(files, /\.from\("final_interview_recordings"\)/);
+  assert.match(files, /\.eq\("company_id", companyIdSnapshot\)/);
+  assert.doesNotMatch(files, /console\.error\([^)]*(storage_path|path)/, "logs carry ids only");
 });
 
 /* ── the sweep ──────────────────────────────────────────────────── */

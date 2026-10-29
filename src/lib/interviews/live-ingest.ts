@@ -1,5 +1,6 @@
 import "server-only";
 import { createHash } from "node:crypto";
+import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import {
   type FrozenLiveQuestionSet,
   type LiveQuestionSource,
@@ -746,6 +747,7 @@ export type LiveIngestErrorCode =
   | "already_saved"
   | "different_export"
   | "storage_error"
+  | "past_retention"
   | "db_error";
 
 /** The export cannot be saved. Ids, positions and sequences only in the message. */
@@ -1009,10 +1011,11 @@ type SessionRow = {
   questions_snapshot: unknown;
   scoring_snapshot: unknown;
   live_outcome: unknown;
+  delete_after: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id, kind, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome";
+  "id, kind, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome, delete_after";
 
 /** A stable uuid for one provider turn of one session, so a re-save finds the same row. */
 export function turnRowId(sessionId: string, providerTurnId: string): string {
@@ -1210,6 +1213,10 @@ export async function saveLiveExport(
   const row = await readSession(deps.service, sessionId);
   if (!row) throw new LiveIngestError("session_not_found", sessionId);
   if (row.kind !== "live") throw new LiveIngestError("not_live", sessionId);
+  // Past retention, or the application being deleted (B7): no audio is stored for it now.
+  if (retentionPassed(row.delete_after, deps.now())) {
+    throw new LiveIngestError("past_retention", sessionId);
+  }
   const frozen = readFrozenQuestionSet(row);
   if (!frozen) throw new LiveIngestError("not_frozen", sessionId);
   if (row.provider_session_id && row.provider_session_id !== parsed.provider_session_id) {

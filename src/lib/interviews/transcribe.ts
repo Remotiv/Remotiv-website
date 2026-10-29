@@ -13,6 +13,7 @@ import {
 } from "@/lib/queue/failure-class";
 import { assertProviderBudget, type JobContext } from "@/lib/queue/job-context";
 import { createServiceClient } from "@/lib/supabase/server";
+import { retentionPassed } from "./async-score-purge";
 import { requestScorecard } from "./scorecard";
 import { INTERVIEW_BUCKET } from "./session";
 import { readTranscribePayload, resolveGeneration } from "./transcribe-generation";
@@ -142,6 +143,19 @@ export async function handleTranscribe(
   // a second API call on the same audio. A `failed` row is work to do: that is
   // how an admin replay after a fix reaches the provider again.
   if (answer.transcript_status === "done") return;
+
+  // Past retention, or the application being deleted (B7): never transcribed now.
+  const { data: owner } = await service
+    .from("interview_sessions")
+    .select("delete_after")
+    .eq("id", answer.session_id)
+    .maybeSingle();
+  if (
+    retentionPassed((owner as { delete_after: string | null } | null)?.delete_after, Date.now())
+  ) {
+    skipJob("transcribe", job.id, `answer ${answerId}: session past retention`);
+    return;
+  }
 
   if (!answer.video_path) {
     await markFailed(service, answer, recordedAt, "Answer has no video to transcribe.");

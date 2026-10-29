@@ -1,4 +1,5 @@
 import "server-only";
+import { retentionPassed } from "@/lib/interviews/async-score-purge";
 import { LiveConsentError, requireLiveConsent } from "@/lib/interviews/live-consent-record";
 import { liveEndDueAt, stampLiveEnded } from "@/lib/interviews/live-events";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
@@ -132,6 +133,8 @@ type SessionRow = {
   started_at: string | null;
   /** Read only for its time limit (liveEndDueAt). */
   live_settings: unknown;
+  /** Past it (retention over, or the application being deleted, B7), no video at all. */
+  delete_after: string | null;
 };
 
 type PieceRow = {
@@ -143,6 +146,7 @@ type PieceRow = {
 
 /** Where in its life the session is, for video. */
 function phase(s: SessionRow, now: number): "open" | "window" | "closed" {
+  if (retentionPassed(s.delete_after, now)) return "closed";
   if (s.live_ended_at) {
     return now <= Date.parse(s.live_ended_at) + UPLOAD_WINDOW_MS ? "window" : "closed";
   }
@@ -156,7 +160,9 @@ async function sessionFor(service: Service, token: string): Promise<SessionRow |
   if (!token || token.length < 20 || token.length > 200) return null;
   const { data } = await service
     .from("interview_sessions")
-    .select("id, company_id, kind, status, expires_at, live_ended_at, started_at, live_settings")
+    .select(
+      "id, company_id, kind, status, expires_at, live_ended_at, started_at, live_settings, delete_after",
+    )
     .eq("token_hash", hashSessionToken(token))
     .maybeSingle();
   const row = data as SessionRow | null;

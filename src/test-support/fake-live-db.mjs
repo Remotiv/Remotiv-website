@@ -486,6 +486,21 @@ function get(row, col) {
   return row[c]?.[k] ?? null;
 }
 
+/** Tables whose rows go with their session (ON DELETE CASCADE). */
+const SESSION_CHILDREN = [
+  "interview_turns",
+  "interview_answers",
+  "interview_answer_scores",
+  "interview_session_scores",
+  "live_interview_scores",
+  "live_interview_actions",
+  "live_video_pieces",
+  "live_session_events",
+  "interview_notes",
+];
+/** Append-only: a row is deleted only once its session is gone (042, 044, 050). */
+const GOES_WITH_SESSION = ["live_interview_actions", "live_video_pieces", "live_session_events"];
+
 const TURN_DEFAULTS = {
   transcript: null,
   transcript_segments: null,
@@ -522,6 +537,48 @@ export function fakeLiveDb(initial = {}, options = {}) {
     live_session_events: [],
     ...structuredClone(initial),
   };
+  /**
+   * A delete, with the schema's rules as the real database applies them: a
+   * session's children go with it (ON DELETE CASCADE), a restart's first
+   * attempt cannot go without it (previous_attempt_fk, no action), the
+   * append-only tables refuse a delete while their session exists (042, 044,
+   * 050), and an application's sessions keep their rows with application_id
+   * null (SET NULL). The access logs have no foreign key: untouched.
+   */
+  function deleteRows(table, hit) {
+    const sessionExists = (id) => tables.interview_sessions.some((x) => x.id === id);
+    if (GOES_WITH_SESSION.includes(table) && hit.some((r) => sessionExists(r.session_id))) {
+      throw Object.assign(new Error(`${table} is append-only: a row goes only with its session`), {
+        code: "P0001",
+      });
+    }
+    if (table === "interview_sessions") {
+      const gone = new Set(hit.map((r) => r.id));
+      if (
+        tables.interview_sessions.some(
+          (x) => !gone.has(x.id) && x.previous_attempt_id && gone.has(x.previous_attempt_id),
+        )
+      ) {
+        throw Object.assign(new Error("violates interview_sessions_previous_attempt_fk"), {
+          code: "23503",
+        });
+      }
+      for (const child of SESSION_CHILDREN) {
+        const rows = tables[child] ?? [];
+        for (let i = rows.length - 1; i >= 0; i--)
+          if (gone.has(rows[i].session_id)) rows.splice(i, 1);
+      }
+    }
+    if (table === "job_applications") {
+      const gone = new Set(hit.map((r) => r.id));
+      for (const x of tables.interview_sessions) {
+        if (gone.has(x.application_id)) x.application_id = null;
+      }
+    }
+    const rows = tables[table];
+    for (const r of hit) rows.splice(rows.indexOf(r), 1);
+  }
+
   /** path -> { bytes, contentType, createdAt } */
   const objects = new Map();
   const faults = [];
@@ -563,6 +620,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
     const pick = (row) => structuredClone(row);
     const upsert = calls.find((c) => c[0] === "upsert" || c[0] === "insert");
     const update = calls.find((c) => c[0] === "update");
+    const remove = calls.some((c) => c[0] === "delete");
     try {
       if (upsert) {
         if (takeFault(table, "insert"))
@@ -605,6 +663,13 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (table === "live_interview_scores") counts.scoreWrites += fresh.length;
         if (table === "job_question_scoring_guides") counts.guideInserts += fresh.length;
         return { data: fresh.map(pick), error: null };
+      }
+      if (remove) {
+        if (takeFault(table, "delete"))
+          return { data: null, error: { code: "XX000", message: "fault" } };
+        const hit = rows.filter(match);
+        deleteRows(table, hit);
+        return { data: hit.map(pick), error: null };
       }
       if (update) {
         if (takeFault(table, "update"))
