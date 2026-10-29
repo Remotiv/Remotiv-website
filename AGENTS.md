@@ -16,6 +16,8 @@ These are hard rules, not preferences.
 
 - **`schema.sql` at the workspace root is not a source of anything.** It is an untracked, gitignored pg_dump of unknown date, and the first real production dump (2026-10-26) proved it wrong in both directions: it lists 46 tables, 104 indexes, 4 triggers, 5 functions, 0 generated columns and 24 policies, where production has 66, 155, 34, 31, 2 and 16. Missing 20 tables and 30 triggers, and claiming 8 policies that do not exist. Never read a count, a column, an index or an RLS claim out of it, and never pin a test against it. The only schema authority is a fresh `pg_dump --schema-only` of production taken as `scripts/staging/README-steps.md` step 1 describes.
 
+- **On this shared checkout, "committed but not pushed" is not a safe state.** Another session works in the same clone and pushes `main` whenever it commits, so a local commit becomes public on their next push, within minutes, with no one in its own session pushing it. a55ae20 (2026-10-28) was committed locally on an instruction to commit and was never pushed by anyone in that session; the other session's d6ddbf4 landed on top 41 minutes later and carried it to `origin/main`. Nothing is committed until it is ready to be public. Keep work uncommitted until the evidence that justifies it is in hand, and treat "I will push it later" as already pushed.
+
 ## Learned User Preferences
 
 - When converting a design (HTML/Figma), match the original pixel-for-pixel — padding, colors, font sizes, content, and layout must be exact; the user repeatedly flags discrepancies in navbar, hero, footer, inquiry form, and outer page padding
