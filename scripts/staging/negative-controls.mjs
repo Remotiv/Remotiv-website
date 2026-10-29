@@ -39,8 +39,8 @@
 // A `${...}` in them is a literal part of the line being reverted, and
 // interpolating it here would mean the anchor no longer matches the file.
 
-import { execFileSync } from "node:child_process";
-import { copyFileSync, readFileSync, rmSync, writeFileSync } from "node:fs";
+import { execFile } from "node:child_process";
+import { copyFileSync, existsSync, readFileSync, rmSync, writeFileSync } from "node:fs";
 import { fileURLToPath } from "node:url";
 
 const ROOT = new URL("../../", import.meta.url);
@@ -1093,15 +1093,22 @@ const REVERSIONS = [
 const FILES = [...new Set(REVERSIONS.map((r) => r.file))];
 const TESTS = [...new Set(REVERSIONS.map((r) => r.test))];
 
+/*
+ * Asynchronous on purpose (#58). With the synchronous child call the whole
+ * control loop was one synchronous block: a SIGINT queued behind it could not
+ * run until the loop had finished and process.exit had already won, so Ctrl-C
+ * either killed the process mid-control with no handler (the leak) or was
+ * ignored for the whole run with one. Awaiting each test run turns the event
+ * loop between a control's write and its restore, which is exactly where the
+ * handler below must be able to run.
+ */
 function run(file) {
-  try {
-    return {
-      red: false,
-      out: execFileSync("node", ["--test", file], { cwd: p("."), encoding: "utf8" }),
-    };
-  } catch (e) {
-    return { red: true, out: `${e.stdout ?? ""}${e.stderr ?? ""}` };
-  }
+  return new Promise((resolve) => {
+    execFile("node", ["--test", file], { cwd: p("."), encoding: "utf8" }, (err, stdout, stderr) => {
+      if (err) resolve({ red: true, out: `${stdout ?? ""}${stderr ?? ""}` });
+      else resolve({ red: false, out: stdout });
+    });
+  });
 }
 
 /** A suite that executed nothing exits 0. AGENTS.md: the test count is the evidence. */
@@ -1110,6 +1117,39 @@ function ranSomething(out) {
   return m ? Number(m[1]) : 0;
 }
 
+/*
+ * #58: the window between a control's write and its restore. Without this, a
+ * Ctrl-C or a crash in that window left a DISABLED guard in the working tree
+ * with a .probe-bak beside it, and the next build, test or commit ran against
+ * the reverted file. Every exit path now restores and removes the backups:
+ * the signals, an uncaught throw, and the normal end. `existsSync` because the
+ * normal path removes the backups itself before `exit` fires. Installed BEFORE
+ * the backups are taken: a handler only ever runs between synchronous phases,
+ * so it can never see a half-written backup, and a signal during the copies
+ * finds every backup complete.
+ */
+const restoreAndClean = () => {
+  for (const f of FILES) {
+    const bak = `${p(f)}.probe-bak`;
+    if (!existsSync(bak)) continue;
+    copyFileSync(bak, p(f));
+    rmSync(bak);
+  }
+};
+for (const signal of ["SIGINT", "SIGTERM", "SIGHUP"]) {
+  process.on(signal, () => {
+    restoreAndClean();
+    console.log(`\n${signal}: every file restored, backups removed`);
+    process.exit(130);
+  });
+}
+process.on("uncaughtException", (err) => {
+  restoreAndClean();
+  console.error("\nuncaught exception: every file restored, backups removed\n", err);
+  process.exit(1);
+});
+process.on("exit", restoreAndClean);
+
 for (const f of FILES) copyFileSync(p(f), `${p(f)}.probe-bak`);
 const restore = () => {
   for (const f of FILES) copyFileSync(`${p(f)}.probe-bak`, p(f));
@@ -1117,7 +1157,7 @@ const restore = () => {
 
 let failures = 0;
 for (const t of TESTS) {
-  const { red, out } = run(t);
+  const { red, out } = await run(t);
   const n = ranSomething(out);
   console.log(`${red ? "BASELINE RED " : "baseline green"}  ${t}  [${n} tests]`);
   if (red || n === 0) failures += 1;
@@ -1143,7 +1183,7 @@ for (const r of REVERSIONS) {
   }
 
   writeFileSync(p(r.file), src.split(r.from).join(r.to));
-  const { red, out } = run(r.test);
+  const { red, out } = await run(r.test);
   restore();
 
   const named = out.includes(r.expect);
