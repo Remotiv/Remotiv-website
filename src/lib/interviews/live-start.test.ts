@@ -42,7 +42,12 @@ const JOB = "2d4a8cde-0000-4000-8000-0000000000c1";
 const APP = "9c1d2e3f-0000-4000-8000-0000000000c1";
 const SESSION = "5b0f2c1e-0000-4000-8000-000000000301";
 const TOKEN = "live-start-test-token-0123456789abcdef";
-const T0 = Date.parse("2026-10-26T10:00:00.000Z");
+/**
+ * The tests' "now". The real clock, read once: start and consent take it as their clock, and the
+ * link (resolveSessionByToken) reads expiry against the real clock, so a fixed date here makes the
+ * session's 3-day expiry pass on its own and the link tests fail on the calendar (29 Oct 2026).
+ */
+const T0 = Date.now();
 
 const SETTINGS = {
   v: 1,
