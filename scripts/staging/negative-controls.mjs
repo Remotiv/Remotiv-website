@@ -68,6 +68,7 @@ const SCOPED_ROUTE = "src/app/api/staging-probe/scoped-application-ids/route.ts"
 const JOB_SCOPE = "src/app/ai-dashboard/lib/job-scope.ts";
 const APPLICANTS_ACTIONS = "src/app/ai-dashboard/(gated)/applicants/actions.ts";
 const RESCORE_COLLECT = "src/lib/ai/rescore-collect.ts";
+const CV_PURGE = "src/lib/cv-purge.ts";
 const PAGING = "src/lib/supabase/paging.ts";
 const MESSAGES_ACTIONS = "src/app/ai-dashboard/(gated)/messages/actions.ts";
 
@@ -86,6 +87,7 @@ const WIRING_TEST = "scripts/staging/harness-wiring.test.mjs";
 const PROBE_TEST = "src/app/api/staging-probe/probe.test.ts";
 const QUERY_ORDER_TEST = "scripts/staging/query-order.test.mjs";
 const RESCORE_COLLECT_TEST = "src/lib/ai/rescore-collect.test.ts";
+const CV_PURGE_TEST = "src/lib/cv-purge.test.ts";
 const PAGING_TEST = "src/lib/supabase/paging.test.ts";
 
 const UNIFORM_JOBS = `  ${Array.from({ length: 20 }, () => 500).join(", ")},`;
@@ -158,6 +160,39 @@ const REVERSIONS = [
     to: "    const rows = await pageAll<{ id: string; quantity: number | null }>(",
     test: RESCORE_COLLECT_TEST,
     expect: "pin: the allowance read pages usage_events by key",
+  },
+
+  /* ── #55a: the CV purge pages by key, and its report is honest ── */
+  {
+    name: "#55a: the purge loses the id order key, so ties on cv_delete_after have no total order",
+    // The cursor predicate survives; the page order among ties does not, so a
+    // row moved by a writer crosses the cursor and is never read.
+    file: CV_PURGE,
+    from: '      .order("cv_delete_after", { ascending: true })\n      .order("id", { ascending: true })\n',
+    to: '      .order("cv_delete_after", { ascending: true })\n',
+    test: CV_PURGE_TEST,
+    expect:
+      "#55a: every clearable row is cleared and every unconfirmable row is held, with a writer moving unread rows under the loop",
+  },
+  {
+    name: "#55a: the cursor goes back to the last row PROCESSED instead of the last row read",
+    // The cursor lands on the last row CLEARED; a held row after it on the
+    // same page is read again by the next page, and the once-per-run test
+    // sees the repeat.
+    file: CV_PURGE,
+    from: "    const last = rows[rows.length - 1];\n    cursor = { deleteAfter: last.cv_delete_after, id: last.id };\n",
+    to: "    const last = rows[rows.length - 1];\n    cursor = { deleteAfter: last.cv_delete_after, id: (rows.filter((r) => !r.cv_path).at(-1) ?? last).id };\n",
+    test: CV_PURGE_TEST,
+    expect: "#55a: an unconfirmable row is read ONCE per run, not retried within it",
+  },
+  {
+    name: "#55a: a run stopped by the budget reports itself as complete",
+    file: CV_PURGE,
+    from: "  const result: CvPurgeResult = stoppedDuring\n",
+    to: "  const result: CvPurgeResult = null\n",
+    test: CV_PURGE_TEST,
+    expect:
+      "#55a: a run that stops for budget says INCOMPLETE and reports 'so far' numbers, never a total",
   },
   /* ── the two query fixes: a total order, pinned to the shipped source ── */
   {

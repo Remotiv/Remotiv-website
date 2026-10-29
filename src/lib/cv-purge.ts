@@ -93,8 +93,9 @@ const REMOVE_CHUNK = 100;
  * Wall-clock budget, matching the interview purge.
  *
  * Stopping early is safe and costs nothing: the selector is derived from
- * current state, never from a cursor, so the next run resumes exactly where
- * this one stopped without tracking progress anywhere.
+ * current state, and the cursor below lives only inside one run, so the next
+ * run starts from the current state again without tracking progress anywhere.
+ * What stopping early is NOT is invisible: the result says so (CvPurgeResult).
  */
 const BUDGET_MS = 18_000;
 
@@ -102,7 +103,64 @@ type DueRow = {
   id: string;
   cv_path: string | null;
   cv_text: string | null;
+  cv_delete_after: string;
 };
+
+/** Where the last page ended: the last row READ, whatever happened to it. */
+type Cursor = { deleteAfter: string; id: string };
+
+/**
+ * What one run did, and whether it finished.
+ *
+ * Two shapes on purpose (#55a). The run that left 237 of 1,200 due rows
+ * unprocessed used to log `rows=481` as though it had finished, and nothing in
+ * that line said otherwise. An incomplete run now carries different field
+ * NAMES, so no number it reports can be read as a total: `examinedSoFar` is
+ * not `examined`, and a reader who wants the total has to notice there is
+ * none. `unconfirmed` is the rows whose storage object could not be confirmed
+ * gone: text cleared, path kept, read again by the next run.
+ */
+export type CvPurgeResult =
+  | {
+      complete: true;
+      examined: number;
+      cleared: number;
+      unconfirmed: number;
+      objectsRemoved: number;
+      objectsKept: number;
+      commentsDeleted: number;
+      elapsedMs: number;
+    }
+  | {
+      complete: false;
+      stoppedDuring: "applications" | "comments";
+      budgetMs: number;
+      examinedSoFar: number;
+      clearedSoFar: number;
+      unconfirmedSoFar: number;
+      objectsRemoved: number;
+      objectsKept: number;
+      commentsDeletedSoFar: number;
+      elapsedMs: number;
+    };
+
+/** The one log line, with the stop reason first so a scan of the logs sees it. */
+export function describeCvPurge(jobId: string, r: CvPurgeResult): string {
+  if (r.complete) {
+    return (
+      `[cv-purge] job ${jobId}: COMPLETE in ${r.elapsedMs} ms: examined=${r.examined} ` +
+      `cleared=${r.cleared} unconfirmed=${r.unconfirmed} (text cleared, path kept, read again next run) ` +
+      `objects=${r.objectsRemoved} kept=${r.objectsKept} comments=${r.commentsDeleted}`
+    );
+  }
+  return (
+    `[cv-purge] job ${jobId}: INCOMPLETE, budget of ${r.budgetMs} ms reached during ${r.stoppedDuring} ` +
+    `after ${r.elapsedMs} ms: examined so far=${r.examinedSoFar} cleared so far=${r.clearedSoFar} ` +
+    `unconfirmed so far=${r.unconfirmedSoFar} objects=${r.objectsRemoved} kept=${r.objectsKept} ` +
+    `comments so far=${r.commentsDeletedSoFar}. The rest of the due set was NOT examined; ` +
+    `the next run starts again from the current state.`
+  );
+}
 
 function chunk<T>(items: T[], size: number): T[][] {
   const out: T[][] = [];
@@ -110,58 +168,105 @@ function chunk<T>(items: T[], size: number): T[][] {
   return out;
 }
 
+/** The queue's handler: runs the purge and returns nothing, as every handler does. */
 export async function handleCvPurge(job: {
   id: string;
   payload: Record<string, unknown>;
 }): Promise<void> {
+  await runCvPurge(job);
+}
+
+/**
+ * The purge itself, returning what it did. `opts` exists for the tests: a
+ * budget they can exhaust and a clock they can move. The handler passes
+ * neither.
+ */
+export async function runCvPurge(
+  job: { id: string; payload: Record<string, unknown> },
+  opts: { budgetMs?: number; clock?: () => number } = {},
+): Promise<CvPurgeResult> {
   const service = createServiceClient();
-  const startedAt = Date.now();
+  const clock = opts.clock ?? Date.now;
+  const budgetMs = opts.budgetMs ?? BUDGET_MS;
+  const startedAt = clock();
+  const overBudget = () => clock() - startedAt > budgetMs;
   const now = new Date().toISOString();
 
   let objectsRemoved = 0;
   let objectsKept = 0;
   let rowsCleared = 0;
   let textOnly = 0;
-  let truncated = false;
+  let examined = 0;
+  let stoppedDuring: "applications" | "comments" | null = null;
 
   /*
-   * The window offset, advanced by the number of rows that could NOT be
-   * finished — not by a fixed page size.
+   * ── Paged by KEY, not by offset (#55a) ────────────────────────
    *
-   * The selector shrinks as it succeeds: a purged row stops matching, so the
-   * rows behind it slide forward. Advancing by a full page would step over
-   * exactly that many unpurged rows on every iteration. Advancing by the stuck
-   * count instead lands the next window immediately after the rows still
-   * matching, so nothing is skipped and a permanently failing row cannot spin
-   * the loop forever — it is passed over once per run and retried on the next.
+   * The previous loop ordered by cv_delete_after alone and advanced an offset
+   * by the number of rows it could not finish. The arithmetic was right for
+   * the filter and wrong for the heap: cv_delete_after is not a total order
+   * (everyone who applied in the same second shares one), and a concurrent
+   * UPDATE to an indexed column moves a tuple under the window. Reproduced on
+   * staging: with a second writer flipping pipeline_stage on rows the loop had
+   * not reached, one full run left 237, then 303, of 1,200 due rows untouched
+   * and logged a count that looked complete.
+   *
+   * The order is now (cv_delete_after, id), which is total because id is
+   * unique, and each page starts strictly after the last row the previous
+   * page READ, whatever happened to that row. A row that moves cannot cross
+   * that boundary: it keeps its key.
+   *
+   * What this does NOT change: a row whose storage object could not be
+   * confirmed gone keeps its path, stays in the filter, and is NOT read again
+   * in this run. It sits behind the cursor and the next run, a day later,
+   * reads it afresh. The offset version did exactly the same: counting a
+   * stuck row in the offset moved the window PAST it ("passed over once per
+   * run and retried on the next"). The cursor makes that one-attempt-per-run
+   * rule structural instead of arithmetical.
    */
-  let offset = 0;
+  let cursor: Cursor | null = null;
 
   for (;;) {
-    if (Date.now() - startedAt > BUDGET_MS) {
-      truncated = true;
+    if (overBudget()) {
+      stoppedDuring = "applications";
       break;
     }
 
+    /*
+     * Idempotency, with no new column: a row is "already purged" precisely
+     * when it holds neither a path nor extracted text. Once both are null
+     * this stops matching, so a second run over the same application does no
+     * work and makes no storage calls — it never even reads the row.
+     *
+     * One `or` expression carries both that test and the cursor, as one
+     * `and(...)`, so PostgREST sees a single logical filter.
+     */
+    const notYetPurged = "cv_path.not.is.null,cv_text.not.is.null";
+    const afterCursor = cursor
+      ? `and(or(${notYetPurged}),or(cv_delete_after.gt.${cursor.deleteAfter},` +
+        `and(cv_delete_after.eq.${cursor.deleteAfter},id.gt.${cursor.id})))`
+      : notYetPurged;
+
     const { data, error } = await service
       .from("job_applications")
-      .select("id, cv_path, cv_text")
+      .select("id, cv_path, cv_text, cv_delete_after")
       // ── The scope guard, both halves. See the banner. ──
       .lte("cv_delete_after", now)
       .not("company_id_snapshot", "is", null)
-      /*
-       * Idempotency, with no new column: a row is "already purged" precisely
-       * when it holds neither a path nor extracted text. Once both are null
-       * this stops matching, so a second run over the same application does no
-       * work and makes no storage calls — it never even reads the row.
-       */
-      .or("cv_path.not.is.null,cv_text.not.is.null")
+      .or(afterCursor)
       .order("cv_delete_after", { ascending: true })
-      .range(offset, offset + DB_PAGE - 1);
+      .order("id", { ascending: true })
+      .limit(DB_PAGE);
 
-    if (error) throw new Error(`cv purge: offset ${offset}: ${error.message}`);
+    if (error) {
+      const at = cursor ? `after ${cursor.deleteAfter} / ${cursor.id}` : "at the start";
+      throw new Error(`cv purge: ${at}: ${error.message}`);
+    }
     const rows = (data ?? []) as DueRow[];
     if (rows.length === 0) break;
+    examined += rows.length;
+    const last = rows[rows.length - 1];
+    cursor = { deleteAfter: last.cv_delete_after, id: last.id };
 
     /*
      * ── Why the row update is split ──
@@ -177,16 +282,14 @@ export async function handleCvPurge(job: {
      * path, still matches the `or(...)` selector above, and is retried on the
      * next run.
      */
-    const withPath = rows.filter((r): r is DueRow & { cv_path: string } =>
-      Boolean(r.cv_path),
-    );
+    const withPath = rows.filter((r): r is DueRow & { cv_path: string } => Boolean(r.cv_path));
     const confirmed = new Set<string>();
     const shared = new Set<string>();
     const self = { table: "job_applications", ids: new Set(rows.map((r) => r.id)) };
 
     for (const batch of chunk(withPath, REMOVE_CHUNK)) {
-      if (Date.now() - startedAt > BUDGET_MS) {
-        truncated = true;
+      if (overBudget()) {
+        stoppedDuring = "applications";
         break;
       }
       const paths = [...new Set(batch.map((r) => r.cv_path))];
@@ -282,8 +385,7 @@ export async function handleCvPurge(job: {
       textOnly += textCleared.length;
     }
 
-    offset += textCleared.length;
-    if (truncated || rows.length < DB_PAGE) break;
+    if (stoppedDuring || rows.length < DB_PAGE) break;
   }
 
   /*
@@ -299,8 +401,8 @@ export async function handleCvPurge(job: {
    *
    * This selector is idempotent on its own terms instead: a deleted comment
    * stops matching it, so a second run over the same application reads nothing
-   * and deletes nothing. That also removes the need for the offset dance above
-   * — no row can fail and stay matching, because a failed delete throws.
+   * and deletes nothing. That also removes the need for the cursor above — no
+   * row can fail and stay matching, because a failed delete throws.
    *
    * Both halves of the scope guard are restated against the parent, for the
    * reason the banner gives: Remotiv's own pool keeps its comments exactly as
@@ -315,8 +417,9 @@ export async function handleCvPurge(job: {
    */
   let commentsDeleted = 0;
   for (;;) {
-    if (Date.now() - startedAt > BUDGET_MS) {
-      truncated = true;
+    if (stoppedDuring) break;
+    if (overBudget()) {
+      stoppedDuring = "comments";
       break;
     }
 
@@ -348,10 +451,30 @@ export async function handleCvPurge(job: {
     if (ids.length < DB_PAGE) break;
   }
 
-  console.log(
-    `[cv-purge] job ${job.id}: objects=${objectsRemoved} rows=${rowsCleared} ` +
-      `retrying=${textOnly} comments=${commentsDeleted}` +
-      (objectsKept > 0 ? ` kept=${objectsKept} (still referenced elsewhere)` : "") +
-      (truncated ? " (budget reached — resumes next run)" : ""),
-  );
+  const elapsedMs = clock() - startedAt;
+  const result: CvPurgeResult = stoppedDuring
+    ? {
+        complete: false,
+        stoppedDuring,
+        budgetMs,
+        examinedSoFar: examined,
+        clearedSoFar: rowsCleared,
+        unconfirmedSoFar: textOnly,
+        objectsRemoved,
+        objectsKept,
+        commentsDeletedSoFar: commentsDeleted,
+        elapsedMs,
+      }
+    : {
+        complete: true,
+        examined,
+        cleared: rowsCleared,
+        unconfirmed: textOnly,
+        objectsRemoved,
+        objectsKept,
+        commentsDeleted,
+        elapsedMs,
+      };
+  console.log(describeCvPurge(job.id, result));
+  return result;
 }
