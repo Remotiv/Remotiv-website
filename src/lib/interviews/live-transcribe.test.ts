@@ -26,8 +26,14 @@ export async function resolve(specifier, context, next) {
 }`)}`,
 );
 
-const { handleLiveTurnTranscribe, hasRealWords, requestLiveTranscription, settleOutcome } =
-  await import("./live-transcribe.ts");
+const {
+  handleLiveTurnTranscribe,
+  hasRealWords,
+  liveTranscribeJobId,
+  queueLiveTranscription,
+  requestLiveTranscription,
+  settleOutcome,
+} = await import("./live-transcribe.ts");
 const { handleTranscribe } = await import("./transcribe.ts");
 const { CONFIRMED_EXIT_CODES, saveLiveExport } = await import("./live-ingest.ts");
 const { parseExport } = await import("./live-provider/parse-export.ts");
@@ -649,3 +655,277 @@ test("handleTranscribe routes a turn payload here; Whisper gets the turn's real 
     { start: 0, end: 1.5, text: "I did it myself.", noSpeech: 0.02 },
   ]);
 });
+
+/* ── transcription queued once the export is saved (B2) ────────── */
+
+/**
+ * The job table as the real queue uses it: enqueue inserts one row with the
+ * caller's id (the primary key refuses a second, 23505), and a worker claims a
+ * job with one conditional update, queued to running, as claimJobs does.
+ * `failFor(input)` makes that enqueue fail as a database error would.
+ */
+function fakeQueue(db, { failFor = () => false } = {}) {
+  const enqueue = async (input) => {
+    if (failFor(input)) return { ok: false, error: "fault", code: "XX000" };
+    const { error } = await db.service
+      .from("background_jobs")
+      .insert({
+        id: input.id,
+        type: input.type,
+        payload: input.payload,
+        company_id: input.companyId,
+        status: "queued",
+        attempts: 0,
+        max_attempts: 3,
+      })
+      .select("id");
+    return error ? { ok: false, error: error.message, code: error.code } : { ok: true };
+  };
+  const claim = async (id) => {
+    const { data } = await db.service
+      .from("background_jobs")
+      .update({ status: "running" })
+      .eq("id", id)
+      .eq("status", "queued")
+      .select("id");
+    return (data ?? []).length === 1;
+  };
+  const finish = (id, status = "succeeded") =>
+    db.service.from("background_jobs").update({ status }).eq("id", id).select("id");
+  const requests = [];
+  const request = (service, sessionId) => {
+    requests.push(sessionId);
+    return queueLiveTranscription(service, sessionId, enqueue);
+  };
+  return { enqueue, claim, finish, request, requests };
+}
+
+const jobsOf = (db) => db.tables.background_jobs.filter((j) => j.type === "transcribe");
+
+/** A session with the fixture's turns but no outcome yet: ready for a save. */
+async function unsaved() {
+  const db = fakeLiveDb({ interview_sessions: [frozenRow()] });
+  const provider = createFakeLiveProvider(FIXTURE);
+  const { providerSessionId } = await provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: "Alex",
+    cv_text: "",
+  });
+  const parsed = {
+    ...parseExport(provider.exportOf(providerSessionId)),
+    provider_session_id: FIXTURE.session_id,
+  };
+  globalThis.__liveTranscribeService = db.service;
+  return { db, provider, providerSessionId, parsed };
+}
+
+const save = (w, queue, parsed = w.parsed) =>
+  quiet(() =>
+    saveLiveExport(SESSION, parsed, {
+      service: w.db.service,
+      fetchAudio: (n) => w.provider.fetchAudio(w.providerSessionId, n),
+      now: () => Date.now(),
+      requestTranscription: queue.request,
+    }),
+  );
+
+/** Every queued job, run by the handler once claimed; returns the Whisper calls. */
+async function work(db, queue, whisper, workers = 1) {
+  const run = async () => {
+    for (const job of jobsOf(db).filter((j) => j.status === "queued")) {
+      if (!(await queue.claim(job.id))) continue;
+      await quiet(() =>
+        handleLiveTurnTranscribe(job, undefined, {
+          service: db.service,
+          transcribe: whisper.transcribe,
+        }),
+      );
+      await queue.finish(job.id);
+    }
+  };
+  await Promise.all(Array.from({ length: workers }, run));
+  return whisper.calls;
+}
+
+test("B2: a final export saved queues exactly one transcription job per candidate turn, and calls no one", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  const result = await save(w, queue);
+  assert.deepEqual([result.saved, result.transcriptionQueued], [true, true]);
+  const turns = candidateTurns(w.db);
+  assert.equal(turns.length, 13);
+  const jobs = jobsOf(w.db);
+  assert.equal(jobs.length, 13);
+  assert.deepEqual(
+    jobs.map((j) => j.payload.turnId).sort(),
+    turns.map((t) => t.id).sort(),
+    "one job per candidate turn, none for the interviewer's",
+  );
+  for (const j of jobs) {
+    assert.deepEqual(j.payload, { turnId: j.payload.turnId, sessionId: SESSION, round: 1 });
+    assert.equal(j.id, liveTranscribeJobId(j.payload.turnId, 1));
+    assert.deepEqual([j.status, j.max_attempts], ["queued", 3]);
+  }
+  assert.ok(
+    turns.every((t) => t.transcript_status === "pending"),
+    "queued, not transcribed",
+  );
+});
+
+test("B2: saving the same export again queues nothing more", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  await save(w, queue);
+  const again = await save(w, queue);
+  assert.deepEqual([again.saved, again.transcriptionQueued], [false, true]);
+  assert.equal(jobsOf(w.db).length, 13);
+});
+
+test("B2: two saves at once: one job per turn, and competing workers call Whisper once per turn", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  const results = await Promise.all([save(w, queue), save(w, queue)]);
+  assert.deepEqual(results.map((r) => r.saved).sort(), [false, true]);
+  assert.ok(results.every((r) => r.transcriptionQueued));
+  assert.equal(jobsOf(w.db).length, 13);
+  // Three requests racing for the same pending turns still make one job each.
+  await Promise.all([1, 2, 3].map(() => queue.request(w.db.service, SESSION)));
+  assert.equal(jobsOf(w.db).length, 13);
+  const calls = await work(w.db, queue, fakeWhisper(w.db), 3);
+  assert.deepEqual(
+    calls.map((c) => c.sequence).sort((a, b) => a - b),
+    candidateTurns(w.db).map((t) => t.sequence),
+    "one Whisper call per candidate turn",
+  );
+  assert.equal(outcomeOf(w.db).final, true);
+});
+
+test("B2: a not-final or a refused export queues nothing", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  const notFinal = await save(w, queue, {
+    ...w.parsed,
+    status: { ...w.parsed.status, end_reason: "in_progress" },
+  });
+  assert.equal(notFinal.notFinal, true);
+  // Another provider session's export is refused before anything is written.
+  await assert.rejects(save(w, queue, { ...w.parsed, provider_session_id: "someone-else" }));
+  assert.deepEqual(queue.requests, [], "transcription is not even asked for");
+  assert.equal(jobsOf(w.db).length, 0);
+  assert.equal(w.db.tables.interview_turns.length, 0);
+});
+
+test("B2: a job that could not be queued leaves its turn pending; saving again queues it, and only it", async () => {
+  const w = await unsaved();
+  const [first, second] = FIXTURE.turns
+    .filter((t) => t.role === "candidate")
+    .slice(0, 2)
+    .map((t) => t.turn_id);
+  const failing = new Set();
+  const broken = fakeQueue(w.db, { failFor: (input) => failing.has(input.payload.turnId) });
+  // The first two candidate turns, by the provider's id: their rows exist once the save writes them.
+  const result = await save(w, {
+    request: (service, id) => {
+      for (const t of candidateTurns(w.db)) {
+        if ([first, second].includes(t.provider_turn_id)) failing.add(t.id);
+      }
+      return broken.request(service, id);
+    },
+  });
+  assert.deepEqual([result.saved, result.transcriptionQueued], [true, false]);
+  assert.equal(jobsOf(w.db).length, 11);
+  assert.equal(failing.size, 2);
+  for (const id of failing) {
+    assert.equal(w.db.tables.interview_turns.find((t) => t.id === id).transcript_status, "pending");
+  }
+  assert.equal(outcomeOf(w.db).final, false, "never read as transcribed");
+  const again = await save(w, fakeQueue(w.db));
+  assert.deepEqual([again.saved, again.transcriptionQueued], [false, true]);
+  assert.equal(jobsOf(w.db).length, 13, "the two missing jobs, and no duplicate of the eleven");
+  assert.equal(new Set(jobsOf(w.db).map((j) => j.payload.turnId)).size, 13);
+});
+
+test("B2: a turn already transcribed, failed or held is never queued again by a save", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  await save(w, queue);
+  const turns = candidateTurns(w.db);
+  const held = turns[0];
+  const broken = turns[1];
+  w.db.objects.get(held.media_path).bytes = loudWav();
+  const whisper = fakeWhisper(w.db, {
+    text: (row) => (row?.id === held.id ? "" : "I led the work and shipped it in two weeks."),
+    fail: (row) => (row?.id === broken.id ? new ProviderHttpError("OpenAI", 400, "bad") : null),
+  });
+  await assert.rejects(work(w.db, queue, whisper));
+  await work(w.db, queue, whisper);
+  const row = (t) => w.db.tables.interview_turns.find((x) => x.id === t.id);
+  assert.deepEqual(
+    [row(held).transcript_status, row(held).transcript_error],
+    ["failed", "Transcription returned nothing."],
+    "B4: held for a person",
+  );
+  assert.equal(row(broken).transcript_status, "failed");
+  assert.equal(outcomeOf(w.db).needs_review, true);
+  const before = jobsOf(w.db).length;
+  const again = await save(w, queue);
+  assert.equal(again.transcriptionQueued, true);
+  assert.equal(jobsOf(w.db).length, before, "nothing queued: done, failed and held turns are left");
+});
+
+test("B2: after a manual retry the turn gets its next round, beside the old job", async () => {
+  const w = await unsaved();
+  const queue = fakeQueue(w.db);
+  await save(w, queue);
+  const turn = candidateTurns(w.db)[0];
+  const old = jobsOf(w.db).find((j) => j.payload.turnId === turn.id);
+  await queue.finish(old.id, "dead");
+  // What retryTranscription does to a failed turn: back to pending, then asks the source.
+  w.db.tables.interview_turns.find((t) => t.id === turn.id).transcript_status = "pending";
+  const r = await queue.request(w.db.service, SESSION);
+  assert.deepEqual(r, { queued: 1, alreadyQueued: 12, failed: 0 });
+  const mine = jobsOf(w.db).filter((j) => j.payload.turnId === turn.id);
+  assert.deepEqual(
+    mine.map((j) => [
+      j.payload.round,
+      j.status,
+      j.id === liveTranscribeJobId(turn.id, j.payload.round),
+    ]),
+    [
+      [1, "dead", true],
+      [2, "queued", true],
+    ],
+  );
+  assert.equal(await requestLiveTranscription(w.db.service, SESSION, queue.enqueue), 0);
+});
+
+/** 16 kHz mono 16-bit WAV, 5 s of a speech-level tone. */
+function loudWav() {
+  const rate = 16_000;
+  const frames = rate * 5;
+  const bytes = new Uint8Array(44 + frames * 2);
+  const view = new DataView(bytes.buffer);
+  const tag = (at, t) => {
+    for (let i = 0; i < 4; i++) bytes[at + i] = t.charCodeAt(i);
+  };
+  tag(0, "RIFF");
+  view.setUint32(4, bytes.length - 8, true);
+  tag(8, "WAVE");
+  tag(12, "fmt ");
+  view.setUint32(16, 16, true);
+  view.setUint16(20, 1, true);
+  view.setUint16(22, 1, true);
+  view.setUint32(24, rate, true);
+  view.setUint32(28, rate * 2, true);
+  view.setUint16(32, 2, true);
+  view.setUint16(34, 16, true);
+  tag(36, "data");
+  view.setUint32(40, frames * 2, true);
+  for (let f = 0; f < frames; f++) {
+    view.setInt16(44 + f * 2, Math.round(3000 * Math.sin((2 * Math.PI * 220 * f) / rate)), true);
+  }
+  return bytes;
+}

@@ -13,6 +13,7 @@ import type {
   ParsedExport,
   TurnAudio,
 } from "@/lib/interviews/live-provider/types";
+import type { TranscriptionRequest } from "@/lib/interviews/live-transcribe";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
 import { MAX_FOLLOW_UPS_PER_BASE_QUESTION } from "@/lib/interviews/types";
 import type { createServiceClient } from "@/lib/supabase/server";
@@ -933,15 +934,55 @@ export type IngestDeps = {
   /** The provider's fetchAudio, bound to this session's provider id. */
   fetchAudio: (fileName: string) => Promise<TurnAudio>;
   now: () => number;
+  /** Queues the candidate turns' transcription (B2). Default: the job queue. */
+  requestTranscription?: (service: Service, sessionId: string) => Promise<TranscriptionRequest>;
 };
+
+/** Whether every pending candidate turn has a transcription job; false means save again. */
+export type TranscriptionQueued = { transcriptionQueued: boolean };
 
 /**
  * What a save did. `notFinal`: the export is a snapshot of an interview still
  * in progress, and nothing was read or written (see saveLiveExport).
  */
 export type IngestResult =
-  | { outcome: LiveOutcome; saved: boolean; notFinal?: undefined }
+  | ({ outcome: LiveOutcome; saved: boolean; notFinal?: undefined } & TranscriptionQueued)
   | { outcome: null; saved: false; notFinal: true; retryable: true };
+
+const queueTranscription = async (
+  service: Service,
+  sessionId: string,
+): Promise<TranscriptionRequest> => {
+  const [{ enqueue }, { queueLiveTranscription }] = await Promise.all([
+    import("@/lib/jobs-queue"),
+    import("@/lib/interviews/live-transcribe"),
+  ]);
+  return queueLiveTranscription(service, sessionId, enqueue as never);
+};
+
+/**
+ * Queue the saved export's transcription, after everything is saved and
+ * outside it: a failure here never undoes the save, and is never read as done.
+ * The turns stay pending; saving the export again asks again, and the job ids
+ * (live-transcribe.ts) make that safe however often it happens.
+ */
+async function requestTranscriptionAfterSave(
+  deps: IngestDeps,
+  sessionId: string,
+): Promise<TranscriptionQueued> {
+  try {
+    const r = await (deps.requestTranscription ?? queueTranscription)(deps.service, sessionId);
+    if (r.failed === 0) return { transcriptionQueued: true };
+    console.error(
+      `[live-ingest] session ${sessionId}: transcription not queued for ${r.failed} turn(s) (queued ${r.queued}, already ${r.alreadyQueued}); save the export again`,
+    );
+  } catch {
+    console.error(
+      `[live-ingest] session ${sessionId}: transcription could not be queued; save the export again`,
+    );
+  }
+  return { transcriptionQueued: false };
+}
 
 /**
  * The provider's words for an interview that has not ended (F15b). Matched on
@@ -1143,8 +1184,17 @@ function storedFor(row: SessionRow, hash: string): LiveOutcome | null {
  * turns, no outcome, no live_ended_at), and answers
  * { notFinal: true, retryable: true, saved: false, outcome: null }.
  *
+ * ── Transcription, queued once saved (B2) ────────────────────
+ *
+ * A final export, saved now or saved before (the same export), asks for its
+ * candidate turns' transcription: one job per pending turn, never two, and
+ * never a Whisper call here. A not-final export, or one refused, asks for
+ * nothing. `transcriptionQueued: false` means a job could not be created: the
+ * save stands, the turns stay pending, and saving the export again queues the
+ * rest.
+ *
  * REQUIREMENT for any caller that fetches and saves exports (none exists yet):
- * notFinal means RETRY LATER. Fetch the export again after a delay and save
+ * notFinal means RETRY LATER, and so does transcriptionQueued: false. Fetch the export again after a delay and save
  * that. Never mark the session processed, and never mark it permanently
  * failed, on a notFinal answer (live-ingest-f15b.test.ts pins this).
  */
@@ -1168,7 +1218,13 @@ export async function saveLiveExport(
 
   const hash = exportHash(parsed);
   const already = storedFor(row, hash);
-  if (already) return { outcome: already, saved: false };
+  if (already) {
+    return {
+      outcome: already,
+      saved: false,
+      ...(await requestTranscriptionAfterSave(deps, sessionId)),
+    };
+  }
 
   // 1. Every check and the whole outcome before any write.
   const facts = assessLiveExport(
@@ -1225,7 +1281,13 @@ export async function saveLiveExport(
   if (((landed ?? []) as unknown[]).length === 0) {
     const now = await readSession(deps.service, sessionId);
     const theirs = now ? storedFor(now, hash) : null;
-    if (theirs) return { outcome: theirs, saved: false };
+    if (theirs) {
+      return {
+        outcome: theirs,
+        saved: false,
+        ...(await requestTranscriptionAfterSave(deps, sessionId)),
+      };
+    }
     throw new LiveIngestError("db_error", "the outcome did not land");
   }
   // 6. The provider's export is its own record that the conversation is over:
@@ -1234,5 +1296,5 @@ export async function saveLiveExport(
   console.log(
     `[live-ingest] session ${sessionId}: ${rows.length} turns, outcome ${outcome.outcome}, answered ${outcome.answered_count}/${outcome.total}, timing suspect ${outcome.timing_suspect_turns.length}, wording checks ${outcome.wording_check_turns.length}, interruption checks ${outcome.interruption_check_turns.length}`,
   );
-  return { outcome, saved: true };
+  return { outcome, saved: true, ...(await requestTranscriptionAfterSave(deps, sessionId)) };
 }

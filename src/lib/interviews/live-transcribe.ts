@@ -23,6 +23,7 @@ import {
   TerminalJobError,
 } from "@/lib/queue/failure-class";
 import { assertProviderBudget, type JobContext } from "@/lib/queue/job-context";
+import { deterministicUuid } from "@/lib/queue/job-id";
 import { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -332,26 +333,67 @@ export async function settleLiveOutcome(
 export type EnqueueTranscribe = (input: {
   type: "transcribe";
   companyId: string;
-  payload: { turnId: string; sessionId: string };
-}) => Promise<{ ok: boolean }>;
+  payload: { turnId: string; sessionId: string; round: number };
+  id: string;
+}) => Promise<{ ok: boolean; code?: string }>;
+
+/** What one request for a session's transcripts did, turn by turn. */
+export type TranscriptionRequest = {
+  /** New jobs created. */
+  queued: number;
+  /** Turns that already had a live job, or whose job another request created first. */
+  alreadyQueued: number;
+  /** Turns whose job could not be created: still pending, still recoverable. */
+  failed: number;
+};
+
+/** A turn's job for one round: the same turn and round always give the same id. */
+export function liveTranscribeJobId(turnId: string, round: number): string {
+  return deterministicUuid(`live-transcribe:${turnId}:${round}`);
+}
 
 /**
- * Queue one transcribe job per candidate turn still pending, skipping turns
- * that already have a queued or running job. Interviewer turns are never
- * queued. Returns how many were queued.
+ * Queue one transcribe job per candidate turn still pending. Interviewer turns
+ * are never queued. Returns how many were queued.
  */
 export async function requestLiveTranscription(
   service: Service,
   sessionId: string,
   enqueue: EnqueueTranscribe,
 ): Promise<number> {
+  return (await queueLiveTranscription(service, sessionId, enqueue)).queued;
+}
+
+/**
+ * ── At most one live job per turn, whoever asks (B2) ─────────
+ *
+ * A pending candidate turn with a queued or running job is left alone. Any
+ * other gets the job for its next ROUND: one more than the highest round of
+ * the turn's earlier jobs (failed, dead or done), 1 for the first. The job's
+ * id is derived from the turn and the round (liveTranscribeJobId), so two
+ * requests racing for the same turn ask for the same id and the database
+ * refuses the second (23505, the primary key): one job, one Whisper call. No
+ * index is needed for it, which migration 032's (on answerId) could not give
+ * a turn job anyway. A later round, after a manual retry or a job that died,
+ * gets a new id and is never refused by an old job.
+ *
+ * A job that could not be created leaves its turn pending and is counted in
+ * `failed`: asking again (saving the export again, or any request for the
+ * session) creates it, and nothing is marked transcribed until a job has run.
+ */
+export async function queueLiveTranscription(
+  service: Service,
+  sessionId: string,
+  enqueue: EnqueueTranscribe,
+): Promise<TranscriptionRequest> {
+  const done: TranscriptionRequest = { queued: 0, alreadyQueued: 0, failed: 0 };
   const { data: session } = await service
     .from("interview_sessions")
     .select("id, company_id, kind")
     .eq("id", sessionId)
     .maybeSingle();
   const s = session as { company_id: string; kind: string } | null;
-  if (s?.kind !== "live") return 0;
+  if (s?.kind !== "live") return done;
   const { data: turns, error } = await service
     .from("interview_turns")
     .select("id")
@@ -359,26 +401,36 @@ export async function requestLiveTranscription(
     .eq("speaker", "candidate")
     .eq("transcript_status", "pending");
   if (error) throw new Error(`live transcribe: pending read failed (${error.code ?? "db"})`);
-  const { data: jobs } = await service
+  const { data: jobs, error: jErr } = await service
     .from("background_jobs")
-    .select("payload")
+    .select("status, payload")
     .eq("type", "transcribe")
-    .in("status", ["queued", "running"])
     .eq("payload->>sessionId", sessionId);
-  const live = new Set(
-    ((jobs ?? []) as { payload: { turnId?: string } }[]).map((j) => j.payload?.turnId),
-  );
-  let queued = 0;
+  if (jErr) throw new Error(`live transcribe: job read failed (${jErr.code ?? "db"})`);
+  const rows = (jobs ?? []) as { status: string; payload: { turnId?: string; round?: unknown } }[];
   for (const t of (turns ?? []) as { id: string }[]) {
-    if (live.has(t.id)) continue;
+    const mine = rows.filter((j) => j.payload?.turnId === t.id);
+    if (mine.some((j) => j.status === "queued" || j.status === "running")) {
+      done.alreadyQueued += 1;
+      continue;
+    }
+    const round =
+      1 +
+      Math.max(
+        0,
+        ...mine.map((j) => (Number.isInteger(j.payload.round) ? (j.payload.round as number) : 0)),
+      );
     const result = await enqueue({
       type: "transcribe",
       companyId: s.company_id,
-      payload: { turnId: t.id, sessionId },
-    });
-    if (result.ok) queued += 1;
+      payload: { turnId: t.id, sessionId, round },
+      id: liveTranscribeJobId(t.id, round),
+    }).catch(() => ({ ok: false, code: undefined }));
+    if (result.ok) done.queued += 1;
+    else if (result.code === "23505") done.alreadyQueued += 1;
+    else done.failed += 1;
   }
-  return queued;
+  return done;
 }
 
 /* ── the job ──────────────────────────────────────────────────── */

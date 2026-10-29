@@ -16,7 +16,8 @@
  * Faults: `failNext(table, op)` makes the next such call return an error and
  * change nothing; `failUploadAfter(n)` lets n uploads through and fails the
  * next one; `failRemove(path)` makes storage keep that object once. A unique
- * key reports 23505, every other constraint 23514, as Postgres does.
+ * key reports 23505, every other constraint 23514, as Postgres does; that
+ * includes background_jobs' primary key, which explicit job ids rely on.
  *
  * Test-only. Nothing in the application imports this.
  */
@@ -454,6 +455,21 @@ function orMatches(row, clause) {
   });
 }
 
+/** background_jobs.id is the primary key: a second row with the same id is refused (23505). */
+function checkJobIds(fresh, rows) {
+  const taken = new Set(rows.map((r) => r.id));
+  for (const r of fresh) {
+    r.id = r.id ?? crypto.randomUUID();
+    if (taken.has(r.id)) {
+      throw Object.assign(new Error("violates background_jobs_pkey"), {
+        code: "23505",
+        constraint: "background_jobs_pkey",
+      });
+    }
+    taken.add(r.id);
+  }
+}
+
 /** A column, or a JSON path: `col->key` gives the value, `col->>key` its text, as PostgREST does. */
 function get(row, col) {
   if (col.includes("->>")) {
@@ -581,6 +597,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (table === "live_video_pieces")
           for (const r of fresh) checkVideoPiece(r, null, after, tables);
         if (table === "admin_access_logs") for (const r of fresh) checkAdminAccessLog(r);
+        if (table === "background_jobs") checkJobIds(fresh, rows);
         if (table === "live_session_events")
           for (const r of fresh) checkLiveSessionEvent(r, tables.interview_sessions, clock());
         rows.push(...fresh);

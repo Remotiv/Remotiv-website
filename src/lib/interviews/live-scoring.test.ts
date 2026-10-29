@@ -56,7 +56,12 @@ const {
 } = await import("./live-recovery.ts");
 const { ensureJobQuestionGuide, questionSha256 } = await import("./live-guides.ts");
 const { purgeLiveScoreWords } = await import("./live-score-purge.ts");
-const { handleLiveTurnTranscribe } = await import("./live-transcribe.ts");
+const {
+  handleLiveTurnTranscribe,
+  liveTranscribeJobId,
+  queueLiveTranscription,
+  requestLiveTranscription,
+} = await import("./live-transcribe.ts");
 const { handleAiScorecard } = await import("../ai/interview-scoring.ts");
 const { CONFIRMED_EXIT_CODES, saveLiveExport } = await import("./live-ingest.ts");
 
@@ -183,7 +188,7 @@ const words = (db, t) =>
   `On question ${positionOf(db, t)} I personally rebuilt the import service in turn ${t.sequence} and cut the runtime in half.`;
 
 /** Whisper, faked by turn: each candidate turn says something real and distinct. */
-function whisperFor(db, fail, text) {
+function whisperFor(db, fail, text, segments) {
   return async (audio) => {
     const turn = [...db.objects.entries()].find(
       ([, o]) =>
@@ -191,7 +196,7 @@ function whisperFor(db, fail, text) {
     );
     const row = db.tables.interview_turns.find((t) => t.media_path === turn?.[0]);
     if (fail?.(row)) throw new ProviderHttpError("OpenAI", 503, "busy");
-    return { text: text?.(row) ?? words(db, row), segments: [] };
+    return { text: text?.(row) ?? words(db, row), segments: segments?.(row) ?? [] };
   };
 }
 const jobFor = (turn, attempts = 0) => ({
@@ -200,12 +205,16 @@ const jobFor = (turn, attempts = 0) => ({
   attempts,
   max_attempts: 3,
 });
-async function transcribe(db, turns = candidateTurns(db), { fail, onDecided, text } = {}) {
+async function transcribe(
+  db,
+  turns = candidateTurns(db),
+  { fail, onDecided, text, segments } = {},
+) {
   for (const t of turns) {
     await quiet(() =>
       handleLiveTurnTranscribe(jobFor(t), undefined, {
         service: db.service,
-        transcribe: whisperFor(db, fail, text),
+        transcribe: whisperFor(db, fail, text, segments),
         onDecided: onDecided ?? (async () => {}),
       }),
     );
@@ -519,6 +528,43 @@ test("a failed transcription: nothing scored; retry asks the current source agai
   assert.equal(row.status, "scored");
 });
 
+test("B2: retry, through the real transcript request, queues the turn's next round beside its dead job", async () => {
+  const { db, stuck } = await withFailedTurn();
+  db.tables.background_jobs.push({
+    id: liveTranscribeJobId(stuck.id, 1),
+    type: "transcribe",
+    status: "dead",
+    payload: { turnId: stuck.id, sessionId: SESSION, round: 1 },
+  });
+  const enqueue = async (input) => {
+    const { error } = await db.service
+      .from("background_jobs")
+      .insert({ id: input.id, type: input.type, payload: input.payload, status: "queued" })
+      .select("id");
+    return error ? { ok: false, code: error.code } : { ok: true };
+  };
+  const model = fakeModel();
+  const r = recovery(db, model);
+  r.deps.transcriptSource = (service, id) => requestLiveTranscription(service, id, enqueue);
+  await quiet(() =>
+    retryTranscription({ sessionId: SESSION, turnId: stuck.id, note: "Whisper was down." }, r.deps),
+  );
+  const mine = db.tables.background_jobs.filter((j) => j.payload.turnId === stuck.id);
+  assert.deepEqual(
+    mine.map((j) => [j.payload.round, j.status]),
+    [
+      [1, "dead"],
+      [2, "queued"],
+    ],
+  );
+  assert.equal(mine[1].id, liveTranscribeJobId(stuck.id, 2));
+  assert.equal(
+    db.tables.background_jobs.length,
+    2,
+    "only the retried turn: the others are already done",
+  );
+});
+
 test("a failed transcription excluded by a person: its question is left out, never zero; the rest score", async () => {
   const { db, stuck } = await withFailedTurn();
   const model = fakeModel();
@@ -702,6 +748,126 @@ test("B4: measured silence and a very short silent turn stay skipped, scored the
     await resolveAllChecks(db, model);
     const q = byPosition(scoreRow(db));
     assert.deepEqual([q[3].status, q[3].reason, q[3].score], ["lowest", "skipped", 0], label);
+  }
+});
+
+/* ── saving the same export again changes nothing (B2) ───────── */
+
+test("B2: the same export saved again after transcripts, a review decision and a score: nothing changes; another export is refused", async () => {
+  const db = fakeLiveDb({
+    interview_sessions: [frozenRow()],
+    jobs: [{ id: JOB, company_id: CO, title: "Backend Engineer" }],
+    job_applications: [
+      { id: APP, job_id: JOB, company_id_snapshot: CO, first_name: "Alex", last_name: "Example" },
+    ],
+  });
+  globalThis.__liveScoringService = db.service;
+  const provider = createFakeLiveProvider(FIXTURE);
+  const { providerSessionId } = await provider.createSession({
+    remotiv_session_id: SESSION,
+    interviewer_name: "Sarah",
+    interview_minutes: 30,
+    questions: [{ position: 1, text: "Q" }],
+    candidate_first_name: "Alex",
+    cv_text: "",
+  });
+  const parsed = {
+    ...parseExport(provider.exportOf(providerSessionId)),
+    provider_session_id: FIXTURE.session_id,
+  };
+  const enqueue = async (input) => {
+    const { error } = await db.service
+      .from("background_jobs")
+      .insert({ id: input.id, type: input.type, payload: input.payload, status: "queued" })
+      .select("id");
+    return error ? { ok: false, code: error.code } : { ok: true };
+  };
+  const save = (p = parsed) =>
+    quiet(() =>
+      saveLiveExport(SESSION, p, {
+        service: db.service,
+        fetchAudio: (n) => provider.fetchAudio(providerSessionId, n),
+        now: () => Date.now(),
+        requestTranscription: (service, id) => queueLiveTranscription(service, id, enqueue),
+      }),
+    );
+
+  const first = await save();
+  assert.deepEqual([first.saved, first.transcriptionQueued], [true, true]);
+  assert.equal(db.tables.background_jobs.length, 13);
+
+  // Every job runs; one turn of question 3 has sound and comes back empty: B4 holds it.
+  const held = candidateTurns(db).find((t) => positionOf(db, t) === 3);
+  db.objects.get(held.media_path).bytes = wav(6_000, 4_000);
+  await transcribe(db, candidateTurns(db), {
+    text: (row) => (row.id === held.id ? "" : undefined),
+    segments: (row) =>
+      row.id === held.id
+        ? []
+        : [
+            { start: 0, end: 2.5, text: `turn ${row.sequence}, first part`, noSpeech: 0.02 },
+            { start: 2.5, end: 6, text: `turn ${row.sequence}, second part`, noSpeech: 0.03 },
+          ],
+  });
+  for (const j of db.tables.background_jobs) j.status = "succeeded";
+  const heldRow = db.tables.interview_turns.find((t) => t.id === held.id);
+  assert.deepEqual(
+    [heldRow.transcript_status, heldRow.transcript_error],
+    ["failed", "Transcription returned nothing."],
+  );
+
+  // A person decides: the checks resolved, the held turn left out. The outcome is decided and scored.
+  const model = fakeModel();
+  await resolveAllChecks(db, model);
+  const r = recovery(db, model);
+  await quiet(() =>
+    resolveFailedTranscription(
+      { sessionId: SESSION, turnId: held.id, decision: "exclude", note: "Only noise in it." },
+      r.deps,
+    ),
+  );
+  assert.equal(outcomeOf(db).final, true);
+  assert.equal(scoreRow(db).status, "scored");
+  assert.ok(db.tables.live_interview_actions.length > 0);
+
+  const snapshot = () =>
+    structuredClone({
+      turns: [...db.tables.interview_turns].sort((a, b) => a.sequence - b.sequence),
+      actions: db.tables.live_interview_actions,
+      outcome: outcomeOf(db),
+      scores: db.tables.live_interview_scores,
+      jobs: db.tables.background_jobs,
+      audio: [...db.objects.entries()].map(([path, o]) => [path, [...o.bytes]]),
+    });
+  const before = snapshot();
+  // What the second save must leave alone is really there.
+  const candidates = before.turns.filter((t) => t.speaker === "candidate");
+  const done = candidates.filter((t) => t.transcript_status === "done");
+  assert.equal(done.length, 12);
+  assert.ok(done.every((t) => t.transcript && t.transcript_segments?.length === 2));
+  assert.ok(candidates.every((t) => t.started_at && t.ended_at && Number.isInteger(t.offset_ms)));
+
+  const again = await save();
+  assert.deepEqual([again.saved, again.transcriptionQueued], [false, true]);
+  const after = snapshot();
+  for (const key of ["turns", "actions", "outcome", "scores", "jobs", "audio"]) {
+    assert.deepEqual(after[key], before[key], `${key} changed on the second save`);
+  }
+  assert.equal(
+    after.jobs.length,
+    13,
+    "nothing missing, so nothing queued: done and held turns are left",
+  );
+
+  // Another export for the same session, one turn's timing moved: refused, and nothing changes.
+  const other = {
+    ...parsed,
+    turns: parsed.turns.map((t, i) => (i === 0 ? { ...t, duration_ms: t.duration_ms + 1 } : t)),
+  };
+  await assert.rejects(save(other), (err) => err.code === "already_saved");
+  const refused = snapshot();
+  for (const key of ["turns", "actions", "outcome", "scores", "jobs", "audio"]) {
+    assert.deepEqual(refused[key], before[key], `${key} changed on a refused export`);
   }
 });
 
