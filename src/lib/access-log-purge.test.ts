@@ -128,7 +128,8 @@ test("source: no age, date or cutoff is computed in the job", () => {
 
 test("scheduled daily, registered, and the twentieth job type", () => {
   const queue = readFileSync(new URL("./jobs-queue.ts", import.meta.url), "utf8");
-  assert.match(queue, /ACCESS_LOG_PURGE: "access_log_purge",\n\} as const;/);
+  // 051 (#59c) appended interview_orphan_sweep after it; this stays the twentieth.
+  assert.match(queue, /ACCESS_LOG_PURGE: "access_log_purge",\n/);
   assert.match(queue, /registerHandler\(JOB_TYPES\.ACCESS_LOG_PURGE, handleAccessLogPurge\);/);
   assert.match(
     queue,

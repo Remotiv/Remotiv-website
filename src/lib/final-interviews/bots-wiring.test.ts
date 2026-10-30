@@ -63,10 +63,16 @@ test("JOB_TYPES holds migration 040's nineteen job types in its order, then 047'
   );
   const inMigration = [...array.matchAll(/'([a-z_]+)'/g)].map((m) => m[1]);
   assert.equal(inMigration.length, 19);
-  // 047 keeps all nineteen, in 040's order, and appends the twentieth.
+  // 047 keeps all nineteen, in 040's order, and appends the twentieth; 051
+  // (#59c) keeps those twenty and appends the twenty-first.
   const m047 = read("src/lib/supabase/migrations/047_access_log_retention.sql");
   assert.match(m047, /unnest\(v_types \|\| array\['access_log_purge'\]\)/);
-  assert.deepEqual(inCode, [...inMigration, "access_log_purge"]);
+  const m051 = read("src/lib/supabase/migrations/051_interview_sessions_purged_at.sql");
+  assert.match(
+    m051,
+    /unnest\(v_types \|\| array\['access_log_purge', 'interview_orphan_sweep'\]\)/,
+  );
+  assert.deepEqual(inCode, [...inMigration, "access_log_purge", "interview_orphan_sweep"]);
 });
 
 test("final_bot_sync (step 2), final_bot_lobby_check (step 3), final_recording_import (step 4) and final_recording_purge (step 6a) have handlers; the watchdog does not", () => {

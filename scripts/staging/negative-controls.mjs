@@ -69,6 +69,9 @@ const JOB_SCOPE = "src/app/ai-dashboard/lib/job-scope.ts";
 const APPLICANTS_ACTIONS = "src/app/ai-dashboard/(gated)/applicants/actions.ts";
 const RESCORE_COLLECT = "src/lib/ai/rescore-collect.ts";
 const CV_PURGE = "src/lib/cv-purge.ts";
+const INTERVIEW_PURGE = "src/lib/interviews/purge.ts";
+const JOBS_QUEUE = "src/lib/jobs-queue.ts";
+const MIGRATION_051 = "src/lib/supabase/migrations/051_interview_sessions_purged_at.sql";
 const PAGING = "src/lib/supabase/paging.ts";
 const MESSAGES_ACTIONS = "src/app/ai-dashboard/(gated)/messages/actions.ts";
 
@@ -88,6 +91,8 @@ const PROBE_TEST = "src/app/api/staging-probe/probe.test.ts";
 const QUERY_ORDER_TEST = "scripts/staging/query-order.test.mjs";
 const RESCORE_COLLECT_TEST = "src/lib/ai/rescore-collect.test.ts";
 const CV_PURGE_TEST = "src/lib/cv-purge.test.ts";
+const INTERVIEW_PURGE_TEST = "src/lib/interview-purge-decay.test.ts";
+const PURGE_ALARM_TEST = "src/lib/queue/interview-purge-alarm.test.ts";
 const PAGING_TEST = "src/lib/supabase/paging.test.ts";
 
 const UNIFORM_JOBS = `  ${Array.from({ length: 20 }, () => 500).join(", ")},`;
@@ -193,6 +198,148 @@ const REVERSIONS = [
     test: CV_PURGE_TEST,
     expect:
       "#55a: a run that stops for budget says INCOMPLETE and reports 'so far' numbers, never a total",
+  },
+
+  /* ── #59: the interview purge marks what it finished, and pages by key ── */
+  {
+    name: "#59: the marker filter comes off the sessions read, so a stamped session is read again every run",
+    file: INTERVIEW_PURGE,
+    from: '        // The marker: a session this purge has finished is never read again.\n        .is("purged_at", null);\n',
+    to: '        .lte("delete_after", now);\n',
+    test: INTERVIEW_PURGE_TEST,
+    expect: "#59: a stamped session is absent from the next run's read",
+  },
+  {
+    name: "#59: the marker is never written",
+    file: INTERVIEW_PURGE,
+    from: '            .update({ purged_at: now })\n            .in("id", markable)\n',
+    to: '            .update({})\n            .in("id", markable)\n',
+    test: INTERVIEW_PURGE_TEST,
+    expect: "#59: a finished session is stamped purged_at, and its words are gone",
+  },
+  {
+    name: "#59: the sessions read loses the id order key, so ties on delete_after have no total order",
+    file: INTERVIEW_PURGE,
+    from: '        .order("delete_after", { ascending: true })\n        .order("id", { ascending: true })\n        .limit(DB_PAGE);\n',
+    to: '        .order("delete_after", { ascending: true })\n        .limit(DB_PAGE);\n',
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59: page 2 is reached, and every session is stamped exactly once with a writer moving unread rows under the loop",
+  },
+  {
+    name: "#59: the late-words sweep is removed, so a scorer that raced the purge keeps its words forever",
+    file: INTERVIEW_PURGE,
+    from: '    while (!stoppedDuring) {\n      if (lateOver()) {\n        stoppedDuring = "late words";\n',
+    to: '    while (false) {\n      if (lateOver()) {\n        stoppedDuring = "late words";\n',
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59: words a scorer writes after the purge are still cleared on the next run, without re-reading the session",
+  },
+  {
+    name: "#59: a run stopped by the budget reports itself as complete",
+    file: INTERVIEW_PURGE,
+    from: "  const result: InterviewPurgeResult = stoppedDuring\n",
+    to: "  const result: InterviewPurgeResult = null\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59: a run that stops for budget says INCOMPLETE with 'so far' numbers, and stamps nothing it did not finish",
+  },
+  {
+    name: "#59b: Phase 1b goes back behind Phase 1, so a backlog starves it and late words are kept forever",
+    file: INTERVIEW_PURGE,
+    from: "  await sweepLateWords();\n  await sweepDueSessions();\n",
+    to: "  await sweepDueSessions();\n  await sweepLateWords();\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59b: Phase 1b runs FIRST, so late words are cleared even when Phase 1 has far more work than the budget allows",
+  },
+  {
+    name: "#59b: Phase 1b exhausting its slice is logged as routine, not as an alarm",
+    file: INTERVIEW_PURGE,
+    from: '  if (!r.complete && r.stoppedDuring === "late words") {\n',
+    to: "  if (false) {\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59b: Phase 1b exhausting its slice is reported as an ALARM, and Phase 1 does not start",
+  },
+  {
+    name: "#59: the Phase 1b early warning at 500 stamped sessions is removed, so the slice fills with no notice",
+    file: INTERVIEW_PURGE,
+    from: "    if (lateSeen > LATE_WORDS_WARN_AT) {\n",
+    to: "    if (false) {\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59: above 500 sessions stamped in the window, Phase 1b logs ONE warning naming the ~800 ceiling and that the slice halts all purging; at 500 it logs none",
+  },
+  {
+    name: "#59c: the orphan sweep loses its recurring entry, so nothing ever schedules it",
+    file: JOBS_QUEUE,
+    from: '  {\n    type: JOB_TYPES.INTERVIEW_ORPHAN_SWEEP,\n    intervalMs: PURGE_INTERVAL_MS,\n    carry: (last) => (typeof last.cursor === "string" ? { cursor: last.cursor } : {}),\n  },\n',
+    to: "",
+    test: INTERVIEW_PURGE_TEST,
+    expect: "#59c: the orphan sweep has its own recurring job, registered and scheduled",
+  },
+  {
+    name: "#59c: the orphan sweep's handler is never registered, so its job would die unknown",
+    file: JOBS_QUEUE,
+    from: "registerHandler(JOB_TYPES.INTERVIEW_ORPHAN_SWEEP, handleInterviewOrphanSweep);\n",
+    to: "",
+    test: INTERVIEW_PURGE_TEST,
+    expect: "#59c: the orphan sweep has its own recurring job, registered and scheduled",
+  },
+  {
+    name: "#59b: the handler swallows the alarm and returns normally, so the job is recorded as succeeded",
+    file: INTERVIEW_PURGE,
+    from: '    throw new TerminalJobError("configuration", describeInterviewPurge(job.id, result));\n',
+    to: "    return;\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59b: on Phase 1b exhaustion the HANDLER throws a terminal configuration failure, so the job dies and the panel sees it",
+  },
+  {
+    name: "#59d: the orphan sweep reads only the first root page, so folders past the hundredth are invisible forever",
+    file: INTERVIEW_PURGE,
+    from: "      if (e.id === null) listed.push(e.name);\n    }\n    if ((data ?? []).length < STORAGE_PAGE) break;\n",
+    to: "      if (e.id === null) listed.push(e.name);\n    }\n    break;\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59d: every root folder and nested object is reached across root pages, and emptied folders shifting later pages lose nothing",
+  },
+  {
+    name: "#59d: the orphan sweep stops writing its cursor, so every run re-walks the bucket from the top",
+    file: INTERVIEW_PURGE,
+    from: "    .update({ payload: { ...job.payload, cursor } })\n",
+    to: "    .update({ payload: { ...job.payload } })\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59d: with its budget spent per run, the cursor the handler leaves in its job row lets each run resume: every orphan goes by the second run, and 'complete' means one full pass",
+  },
+  {
+    name: "#59d: the scheduler stops carrying the cursor into the next job",
+    file: JOBS_QUEUE,
+    from: '    carry: (last) => (typeof last.cursor === "string" ? { cursor: last.cursor } : {}),\n',
+    to: "    carry: () => ({}),\n",
+    test: PURGE_ALARM_TEST,
+    expect:
+      "#59d: ensureMaintenanceScheduled copies the latest orphan job's cursor into the one it enqueues",
+  },
+  {
+    name: "051 grows a statement meant to be pasted repeatedly",
+    file: MIGRATION_051,
+    from: "-- ── Done. Now run the backfill",
+    to: "update public.interview_sessions set purged_at = now() where id in (select id from public.interview_sessions where purged_at is null limit 500);\n-- ── Done. Now run the backfill",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "051 contains only statements meant to run once; the repeatable backfill is outside the migrations directory",
+  },
+  {
+    name: "#59 item 2: a folder whose listing fails is skipped with `continue`, so the cursor passes it",
+    file: INTERVIEW_PURGE,
+    from: "    const objects = await listSessionObjects(service, sessionId);\n",
+    to: "    let objects: { name: string; createdAt: number }[];\n    try {\n      objects = await listSessionObjects(service, sessionId);\n    } catch {\n      continue;\n    }\n",
+    test: INTERVIEW_PURGE_TEST,
+    expect:
+      "#59 item 2: a folder whose listing fails throws, leaves the cursor before it, and is the first folder the next run retries",
   },
   /* ── the two query fixes: a total order, pinned to the shipped source ── */
   {

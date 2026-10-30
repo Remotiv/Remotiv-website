@@ -38,6 +38,7 @@ const STUBS = {
     '  INTERVIEW_EXPIRY_SWEEP: "interview_expiry_sweep",',
     '  FINAL_BOT_SYNC: "final_bot_sync",',
     '  FINAL_RECORDING_PURGE: "final_recording_purge",',
+    '  INTERVIEW_ORPHAN_SWEEP: "interview_orphan_sweep",',
     '  ACCESS_LOG_PURGE: "access_log_purge",',
     "};",
   ].join("\n"),

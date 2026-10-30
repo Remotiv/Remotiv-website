@@ -14,7 +14,7 @@ import {
 import { handleFinalRecordingImport } from "@/lib/final-interviews/import";
 import { handleFinalRecordingPurge } from "@/lib/final-interviews/purge";
 import { handleInterviewExpiry, handleInterviewExpirySweep } from "@/lib/interviews/expiry";
-import { handleInterviewPurge } from "@/lib/interviews/purge";
+import { handleInterviewOrphanSweep, handleInterviewPurge } from "@/lib/interviews/purge";
 import { handleInterviewReminder } from "@/lib/interviews/reminder";
 import { handleTranscribe } from "@/lib/interviews/transcribe";
 import type { JobYield } from "@/lib/queue/failure-class";
@@ -228,6 +228,16 @@ export const JOB_TYPES = {
   FINAL_RECORDING_PURGE: "final_recording_purge",
   /** Migration 047: access records (who opened a CV or a recording) deleted after 24 months. */
   ACCESS_LOG_PURGE: "access_log_purge",
+  /**
+   * Migration 051, #59c - the interview-videos orphan sweep, as its OWN job.
+   * An orphan is a candidate recording whose row write failed after the
+   * upload: no row, no delete_after, nothing else ever expires it. Inside
+   * interview_purge it sat behind Phase 1, which a backlog starves; a separate
+   * job cannot be starved by that backlog at all. The purge still sweeps when
+   * it has time; this is the guarantee. The twenty-first value of
+   * background_jobs_type_check: 051 extends the constraint, as 047 did.
+   */
+  INTERVIEW_ORPHAN_SWEEP: "interview_orphan_sweep",
 } as const;
 
 export type JobType = (typeof JOB_TYPES)[keyof typeof JOB_TYPES];
@@ -289,6 +299,7 @@ registerHandler(JOB_TYPES.INTERVIEW_PURGE, handleInterviewPurge);
 registerHandler(JOB_TYPES.CV_PURGE, handleCvPurge);
 registerHandler(JOB_TYPES.QUEUE_SWEEP, handleQueueSweep);
 registerHandler(JOB_TYPES.ACCESS_LOG_PURGE, handleAccessLogPurge);
+registerHandler(JOB_TYPES.INTERVIEW_ORPHAN_SWEEP, handleInterviewOrphanSweep);
 /*
  * Registered but NEVER SCHEDULED — see the note in RECURRING below, which is
  * the only place either type can be enqueued from. These two lines are what
@@ -398,6 +409,13 @@ type RecurringJob = {
   action?: string;
   /** Scheduled only while this resolves true. A failure counts as false. */
   when?: () => Promise<boolean>;
+  /**
+   * What of the LATEST job's payload the next one inherits (#59d). The orphan
+   * sweep writes `payload.cursor` into its own row when it stops for budget;
+   * carrying it forward is what lets the next run resume instead of
+   * re-walking the bucket from the top. Omitted: the next job starts empty.
+   */
+  carry?: (lastPayload: Record<string, unknown>) => Record<string, unknown>;
 };
 
 const RECURRING: readonly RecurringJob[] = [
@@ -462,6 +480,17 @@ const RECURRING: readonly RecurringJob[] = [
    */
   { type: JOB_TYPES.FINAL_RECORDING_PURGE, intervalMs: PURGE_INTERVAL_MS },
   /*
+   * #59c: the orphan sweep's guaranteed slot. Daily, with the purge's whole
+   * budget to itself. Cost to the worker tick: two indexed reads per tick, as
+   * for every entry here, about once a minute; the sweep itself is one job a
+   * day. Pinned by interview-purge-decay.test.ts and the negative controls.
+   */
+  {
+    type: JOB_TYPES.INTERVIEW_ORPHAN_SWEEP,
+    intervalMs: PURGE_INTERVAL_MS,
+    carry: (last) => (typeof last.cursor === "string" ? { cursor: last.cursor } : {}),
+  },
+  /*
    * Migration 047: access records older than 24 months, deleted daily. The
    * privacy page (section 3) says this runs; it ships in the same deploy.
    */
@@ -494,7 +523,7 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
   const service = createServiceClient();
   const scheduled: string[] = [];
 
-  for (const { type, intervalMs, action, when } of RECURRING) {
+  for (const { type, intervalMs, action, when, carry } of RECURRING) {
     if (when && !(await when().catch(() => false))) continue;
 
     let liveQuery = service
@@ -509,19 +538,22 @@ export async function ensureMaintenanceScheduled(): Promise<string[]> {
     // created_at, not a completion timestamp: this paces how often a purge is
     // STARTED, which is the thing being rate-limited. A run that failed still
     // counts, because the next one is a day away and will redo its work anyway.
-    let lastQuery = service.from("background_jobs").select("created_at").eq("type", type);
+    let lastQuery = service.from("background_jobs").select("created_at, payload").eq("type", type);
     if (action) lastQuery = lastQuery.eq("payload->>action", action);
     const { data: last } = await lastQuery.order("created_at", { ascending: false }).limit(1);
 
-    const lastAt = (last ?? [])[0]
-      ? new Date((last as { created_at: string }[])[0].created_at).getTime()
-      : 0;
+    const latest = (last ?? [])[0] as
+      | { created_at: string; payload: Record<string, unknown> | null }
+      | undefined;
+    const lastAt = latest ? new Date(latest.created_at).getTime() : 0;
     if (Date.now() - lastAt < intervalMs) continue;
 
+    const carried = carry && latest ? carry(latest.payload ?? {}) : {};
+    const payload = { ...carried, ...(action ? { action } : {}) };
     const result = await enqueue({
       type,
       companyId: null,
-      ...(action ? { payload: { action } } : {}),
+      ...(Object.keys(payload).length > 0 ? { payload } : {}),
     });
     if (result.ok) scheduled.push(action ? `${type}:${action}` : type);
   }

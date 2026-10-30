@@ -220,7 +220,11 @@ class Query {
       // row moves to the end of the array, in its current relative order.
       for (const row of matching) {
         Object.assign(row, this.values);
-        this.table.touch(String(row.id));
+        // By reference, not by id: a score row is keyed by answer_id or
+        // session_id and has no id of its own.
+        const i = this.table.rows.indexOf(row);
+        this.table.rows.splice(i, 1);
+        this.table.rows.push(row);
       }
       if (this.table.between) await this.table.between(n, []);
       return { data: null, error: null, count: this.wantCount ? matching.length : null };
@@ -268,4 +272,91 @@ export function fakeClient(tables: Record<string, FakeTable>, opts: { failOnQuer
 /** `n` rows whose ids sort as zero-padded hex, so "before the cursor" is constructible. */
 export function hexRows(n: number, extra: Row = {}): Row[] {
   return Array.from({ length: n }, (_, i) => ({ id: i.toString(16).padStart(8, "0"), ...extra }));
+}
+
+/* ── a fake Supabase storage bucket ───────────────────────────── */
+
+export type FakeObject = { name: string; createdAt?: string };
+type ListOpts = { limit?: number; offset?: number };
+
+/**
+ * The storage API the purges use, with Supabase's paging semantics exactly:
+ * `list(prefix, { limit, offset })` returns entries sorted by name, at most
+ * `limit` of them, DEFAULTING TO 100 when none is given, from `offset`. The
+ * root lists one folder (id null) per NON-EMPTY folder, so removing a folder's
+ * last object makes the folder vanish from the next root page, which shifts
+ * every later folder by one, which is how an offset-paged sweep that deletes
+ * as it goes skips a folder. `remove(paths)` confirms only objects that exist.
+ *
+ * The earlier fake listed every folder regardless of limit, so it could not
+ * show the 100-entry cap the real API imposes. This one can.
+ */
+export class FakeStorage {
+  folders: Map<string, Map<string, FakeObject>>;
+  removed: string[] = [];
+  calls = 0;
+  /** Folders whose listing answers with an error, as a broken prefix would. */
+  failList = new Set<string>();
+  /** Called before each list/remove with the running call count. */
+  onCall: ((n: number) => void) | null = null;
+
+  constructor(objects: Record<string, FakeObject[]> | Map<string, FakeObject[]>) {
+    this.folders = new Map();
+    for (const [folder, list] of objects instanceof Map ? objects : Object.entries(objects)) {
+      this.folders.set(folder, new Map(list.map((o) => [o.name, o])));
+    }
+  }
+  has(path: string): boolean {
+    const i = path.indexOf("/");
+    return this.folders.get(path.slice(0, i))?.has(path.slice(i + 1)) ?? false;
+  }
+  from(_bucket: string) {
+    const page = (
+      entries: { name: string; id: string | null; created_at: string | null }[],
+      opts?: ListOpts,
+    ) => {
+      const limit = opts?.limit ?? 100;
+      const offset = opts?.offset ?? 0;
+      return entries
+        .sort((a, b) => (a.name < b.name ? -1 : a.name > b.name ? 1 : 0))
+        .slice(offset, offset + limit);
+    };
+    return {
+      list: async (prefix: string, opts?: ListOpts) => {
+        this.calls += 1;
+        this.onCall?.(this.calls);
+        if (prefix === "") {
+          const entries = [...this.folders.entries()]
+            .filter(([, objs]) => objs.size > 0)
+            .map(([name]) => ({ name, id: null, created_at: null }));
+          return { data: page(entries, opts), error: null };
+        }
+        if (this.failList.has(prefix)) {
+          return { data: null, error: { message: `list ${prefix}: storage unavailable` } };
+        }
+        const objs = this.folders.get(prefix);
+        const entries = [...(objs?.values() ?? [])].map((o) => ({
+          name: o.name,
+          id: `obj-${prefix}-${o.name}`,
+          created_at: o.createdAt ?? "2020-01-01T00:00:00.000Z",
+        }));
+        return { data: page(entries, opts), error: null };
+      },
+      remove: async (paths: string[]) => {
+        this.calls += 1;
+        this.onCall?.(this.calls);
+        const gone: { name: string }[] = [];
+        for (const path of paths) {
+          const i = path.indexOf("/");
+          const folder = this.folders.get(path.slice(0, i));
+          const name = path.slice(i + 1);
+          if (folder?.delete(name)) {
+            gone.push({ name: path });
+            this.removed.push(path);
+          }
+        }
+        return { data: gone, error: null };
+      },
+    };
+  }
 }

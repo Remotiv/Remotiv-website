@@ -54,6 +54,7 @@ const TYPE_LABEL: Record<string, string> = {
   interview_expiry_sweep: "Interview expiry sweep",
   final_bot_sync: "Recording bot sync",
   final_recording_purge: "Final recording retention",
+  interview_orphan_sweep: "Interview orphan sweep",
   access_log_purge: "Access record retention",
 };
 

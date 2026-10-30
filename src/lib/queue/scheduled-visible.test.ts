@@ -73,6 +73,7 @@ test("every type ensureMaintenanceScheduled starts is counted, labelled and stub
       "INTERVIEW_EXPIRY_SWEEP",
       "FINAL_BOT_SYNC",
       "FINAL_RECORDING_PURGE",
+      "INTERVIEW_ORPHAN_SWEEP",
       "ACCESS_LOG_PURGE",
     ],
     "the schedule this test was written against",
