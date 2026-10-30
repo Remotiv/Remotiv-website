@@ -53,6 +53,35 @@ const SETTLED_STATUSES = new Set(["submitted", "cancelled", "expired"]);
 /** The two this job is allowed to close. Also the race guard on the UPDATE. */
 const EXPIRABLE_STATUSES = ["invited", "started"];
 
+/*
+ * ── A live interview whose call began is never expired ───────
+ *
+ * A live session stays 'started' after its call: its result comes from the
+ * provider's export and its review (live-ingest.ts), never from this job. The
+ * start route writes provider_session_id, started_at and status 'started' in
+ * one update (live-start.ts), so any of them means the call began. That is not
+ * proof the call finished: one in progress or crashed is ended by the time-cap
+ * backstop (live-events.ts stampOverdueLiveEnds), which stamps live_ended_at,
+ * and the session is still never expired. Expiring it would tell the
+ * recruiters a finished interview missed its deadline, and 044's trigger would
+ * end the video window of a call still running. Only a live invite nobody
+ * joined still expires (F10 C0, 30 Oct 2026).
+ */
+function liveCallBegan(s: SessionRow): boolean {
+  return (
+    s.kind === "live" &&
+    (s.live_ended_at !== null || s.provider_session_id !== null || s.started_at !== null)
+  );
+}
+
+/**
+ * What the sweep reads, one pass each: every session that is not live, then
+ * the live invites nobody joined. A begun call is never read: it would never
+ * leave the filter, and the front-drained loop would re-read it ahead of real
+ * work forever.
+ */
+const SWEEP_SCOPES = ["not_live", "live_never_joined"] as const;
+
 /**
  * One job type, two ways of finding work.
  *
@@ -77,10 +106,14 @@ type SessionRow = {
   status: string;
   expires_at: string;
   submitted_at: string | null;
+  kind: string;
+  started_at: string | null;
+  provider_session_id: string | null;
+  live_ended_at: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id, company_id, application_id, job_id, status, expires_at, submitted_at";
+  "id, company_id, application_id, job_id, status, expires_at, submitted_at, kind, started_at, provider_session_id, live_ended_at";
 
 /** Sessions read per sweep batch. */
 const SWEEP_BATCH = 200;
@@ -192,6 +225,18 @@ async function expireOneSessionById(
     return;
   }
 
+  // Never expirable, now or later: nothing is re-armed (see liveCallBegan).
+  if (liveCallBegan(session)) {
+    skipJob(
+      "interview_expiry",
+      jobId,
+      session.live_ended_at !== null
+        ? `live session ${sessionId} has ended: never expired`
+        : `live session ${sessionId} has a call that began and is not ended yet: never expired, the time-cap backstop ends it`,
+    );
+    return;
+  }
+
   /*
    * ── The deadline is still in the future: RESCHEDULE, never succeed ──
    *
@@ -247,6 +292,8 @@ async function sweepOverdueSessions(
   let expired = 0;
   let failed = 0;
 
+  let scope = 0;
+
   for (;;) {
     if (seen >= SWEEP_MAX_SESSIONS) {
       console.warn(
@@ -255,11 +302,20 @@ async function sweepOverdueSessions(
       break;
     }
 
-    const { data, error } = await service
+    const overdue = service
       .from("interview_sessions")
       .select(SESSION_COLUMNS)
       .in("status", EXPIRABLE_STATUSES)
-      .lte("expires_at", new Date().toISOString())
+      .lte("expires_at", new Date().toISOString());
+    const scoped =
+      SWEEP_SCOPES[scope] === "not_live"
+        ? overdue.neq("kind", "live")
+        : overdue
+            .eq("kind", "live")
+            .is("provider_session_id", null)
+            .is("started_at", null)
+            .is("live_ended_at", null);
+    const { data, error } = await scoped
       .order("expires_at", { ascending: true })
       .limit(SWEEP_BATCH);
 
@@ -268,7 +324,12 @@ async function sweepOverdueSessions(
     }
 
     const batch = (data ?? []) as SessionRow[];
-    if (batch.length === 0) break;
+    if (batch.length === 0) {
+      // This scope is drained: the next one, or done.
+      scope += 1;
+      if (scope < SWEEP_SCOPES.length) continue;
+      break;
+    }
 
     let progressed = 0;
     for (const session of batch) {
@@ -351,13 +412,22 @@ async function expireSession(
   session: SessionRow,
   jobId: string,
 ): Promise<boolean> {
-  const { data: updated, error } = await service
+  const update = service
     .from("interview_sessions")
     .update({ status: "expired" })
     .eq("id", session.id)
     .eq("company_id", session.company_id)
-    .in("status", EXPIRABLE_STATUSES)
-    .select("id");
+    .in("status", EXPIRABLE_STATUSES);
+  // A live call that began after the read is not expired either. kind never changes (017).
+  const guarded =
+    session.kind === "live"
+      ? update
+          .eq("kind", "live")
+          .is("provider_session_id", null)
+          .is("started_at", null)
+          .is("live_ended_at", null)
+      : update;
+  const { data: updated, error } = await guarded.select("id");
 
   if (error) {
     // A write failure IS worth retrying — the row is real and still open.
