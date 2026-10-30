@@ -4,7 +4,10 @@ import { revalidatePath } from "next/cache";
 import { createServiceClient } from "@/lib/supabase/server";
 import { normalizePhone } from "@/lib/normalize";
 import { requireProfileOwner } from "@/app/talent/lib/profile-owner";
+import { removeConfirmed } from "@/lib/application-files";
 import { resolveCvPath } from "@/lib/cv-path";
+import { findSharedPaths } from "@/lib/shared-storage-refs";
+import { removeObjects } from "@/lib/storage-objects";
 
 type SourceTable = "talent_profiles" | "hire_remote_profiles";
 
@@ -1801,6 +1804,36 @@ export async function updateRemotePortfolio(
   return { success: true, data: { portfolio: stored } };
 }
 
+/**
+ * Let go of a profile's previous CV file, once its row no longer names it.
+ *
+ * A CV key is copied, never re-uploaded, into applications, batch candidates
+ * and the other profile table (lib/shared-storage-refs.ts). While any other
+ * row still holds the key, the file stays for that row; otherwise it is
+ * deleted. A failure never fails the candidate's action, which has already
+ * succeeded: one line with no path or id is logged, and the CV orphan sweep
+ * (lib/cv-orphan-sweep.ts) removes the file later.
+ */
+async function releasePreviousCv(
+  service: ReturnType<typeof createServiceClient>,
+  sourceTable: SourceTable,
+  profileId: string,
+  oldPath: string,
+  tag: "uploadCv" | "removeCv",
+): Promise<void> {
+  try {
+    const shared = await findSharedPaths(service, "cv_path", [oldPath], {
+      table: sourceTable,
+      ids: new Set([profileId]),
+    });
+    if (shared.has(oldPath)) return;
+    if (await removeConfirmed(service, CV_BUCKET, [oldPath])) return;
+  } catch {
+    // The shared check failed: keep the file rather than guess.
+  }
+  console.error(`[${tag}] previous CV not deleted: 1 file left for the orphan sweep`);
+}
+
 /** Two-argument shim over the shared rule — the call sites below pass columns. */
 function resolveCvPathFrom(cvPath: string | null, cvUrl: string | null): string | null {
   return resolveCvPath({ cv_path: cvPath, cv_url: cvUrl });
@@ -2035,34 +2068,22 @@ export async function uploadCv(formData: FormData): Promise<UploadCvResult> {
     .eq("id", profileId);
   if (dbErr) {
     console.error("[uploadCv] DB update failed:", dbErr);
-    // Rollback orphaned upload.
+    // Roll back the new upload only: the row still names the old file, which stays.
+    // The new key is fresh, so no row can hold it.
+    let rolledBack = false;
     try {
-      await service.storage.from(CV_BUCKET).remove([storagePath]);
-    } catch (cleanupErr) {
-      console.error(
-        "[uploadCv] rollback delete failed (orphaned at",
-        storagePath,
-        "):",
-        cleanupErr,
-      );
+      rolledBack = (await removeObjects(service, CV_BUCKET, [storagePath])).complete;
+    } catch {
+      rolledBack = false;
+    }
+    if (!rolledBack) {
+      console.error("[uploadCv] rollback of the new CV failed: 1 file left for the orphan sweep");
     }
     return { success: false, error: "Could not save CV." };
   }
 
   if (oldPath && oldPath !== storagePath) {
-    service.storage
-      .from(CV_BUCKET)
-      .remove([oldPath])
-      .then(({ error: e }) => {
-        if (e) {
-          console.error(
-            "[uploadCv] old CV delete failed (orphaned at",
-            oldPath,
-            "):",
-            e,
-          );
-        }
-      });
+    await releasePreviousCv(service, sourceTable, profileId, oldPath, "uploadCv");
   }
 
   revalidatePath("/talent/dashboard");
@@ -2124,12 +2145,7 @@ export async function removeCv(input: {
   }
 
   if (oldPath) {
-    service.storage
-      .from(CV_BUCKET)
-      .remove([oldPath])
-      .then(({ error: e }) => {
-        if (e) console.error("[removeCv] storage delete failed:", e);
-      });
+    await releasePreviousCv(service, sourceTable, profileId, oldPath, "removeCv");
   }
 
   revalidatePath("/talent/dashboard");
