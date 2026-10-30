@@ -3,6 +3,7 @@ import { createServiceClient } from "@/lib/supabase/server";
 import { rateLimit } from "@/app/api/_lib/rate-limit";
 import { isValidEmail } from "@/lib/validators";
 import { requireAdmin } from "@/app/admin/lib/role-guards";
+import { removeObjects } from "@/lib/storage-objects";
 
 /**
  * POST /api/batch-candidate-cv
@@ -46,6 +47,29 @@ function slug(value: string): string {
   );
 }
 
+/**
+ * Remove the CV this request uploaded, when its row was not saved. The key is
+ * brand new and no row has ever named it, so there is nobody to check with.
+ * A failure is logged without a path or id; the CV orphan sweep
+ * (lib/cv-orphan-sweep.ts) removes the file later.
+ */
+async function rollbackUpload(
+  supabase: ReturnType<typeof createServiceClient>,
+  path: string,
+): Promise<void> {
+  let removed = false;
+  try {
+    removed = (await removeObjects(supabase, "cvs", [path])).complete;
+  } catch {
+    removed = false;
+  }
+  if (!removed) {
+    console.error(
+      "[batch-candidate-cv] rollback of the uploaded CV failed: 1 file left for the orphan sweep",
+    );
+  }
+}
+
 export async function POST(request: NextRequest) {
   const rl = rateLimit(request, { bucketKey: "batch-candidate-cv" });
   if (!rl.ok) {
@@ -60,6 +84,9 @@ export async function POST(request: NextRequest) {
   } catch {
     return NextResponse.json({ error: "Forbidden" }, { status: 403 });
   }
+
+  // The key this request uploaded, until a row names it: only it is ever rolled back.
+  let uploaded: { supabase: ReturnType<typeof createServiceClient>; path: string } | null = null;
 
   try {
     const form = await request.formData();
@@ -208,6 +235,7 @@ export async function POST(request: NextRequest) {
     if (uploadError) {
       return NextResponse.json({ error: uploadError.message }, { status: 500 });
     }
+    uploaded = { supabase, path };
 
     // 3. Insert into client_batch_candidates. The source_type column is
     //    NOT NULL with a CHECK ('application' | 'talent'); a fresh CV
@@ -238,11 +266,14 @@ export async function POST(request: NextRequest) {
       .single();
 
     if (insertError || !row) {
+      await rollbackUpload(supabase, path);
+      uploaded = null;
       return NextResponse.json(
         { error: insertError?.message ?? "Failed to insert candidate." },
         { status: 500 },
       );
     }
+    uploaded = null;
 
     return NextResponse.json({
       success: true,
@@ -254,6 +285,7 @@ export async function POST(request: NextRequest) {
       cv_text: boundedCvText,
     });
   } catch (err) {
+    if (uploaded) await rollbackUpload(uploaded.supabase, uploaded.path);
     const message = err instanceof Error ? err.message : "Unexpected error.";
     return NextResponse.json({ error: message }, { status: 500 });
   }
