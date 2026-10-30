@@ -29,8 +29,9 @@ import type {
  *   role                    -> speaker (interviewer | candidate)
  *   turn_type               -> kind: base_question, follow_up, clarification
  *                              and procedural as they are; acknowledgment,
- *                              greeting, user_interrupted and silence_reminder
- *                              -> procedural; answer and interruption -> null
+ *                              greeting, closing, user_interrupted and
+ *                              silence_reminder -> procedural; answer and
+ *                              interruption -> null
  *                              (candidate turns carry no kind, as
  *                              interview_turns requires). A candidate
  *                              "interruption" is marked candidate_interruption.
@@ -164,6 +165,8 @@ const INTERVIEWER_KINDS: Readonly<Record<string, LiveTurnKind>> = {
   procedural: "procedural",
   acknowledgment: "procedural",
   greeting: "procedural",
+  // The interviewer's last line (F16, 30 Oct 2026): like the greeting, never a question or scored.
+  closing: "procedural",
   user_interrupted: "procedural",
   repeat: "procedural",
   // "Take your time." and the like (F15b): never a question, a follow-up or scored.
