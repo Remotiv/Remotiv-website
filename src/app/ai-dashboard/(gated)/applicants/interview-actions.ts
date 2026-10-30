@@ -21,6 +21,7 @@ import {
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
 import { REMINDER_LEAD_MS } from "@/lib/interviews/reminder";
 import { liveInterviewsAvailableFor } from "@/lib/interviews/live-availability";
+import { type LiveCallFields, liveCallBegan } from "@/lib/interviews/live-call";
 import { gateLiveInterviewInvite } from "@/lib/interviews/live-settings";
 import {
   interviewUrl,
@@ -39,7 +40,7 @@ import type {
 
 type MutationResult<T = undefined> =
   | { success: true; data: T }
-  | { success: false; error: string };
+  | { success: false; error: string; code?: "live_call_started" };
 
 /** Same message for not-found and not-yours, as everywhere else. */
 const NOT_YOURS = "Applicant not found in your workspace.";
@@ -350,7 +351,9 @@ export async function sendLiveInterviewInvite(
     kind: "live",
     submittedError: "They've already completed this AI Video Interview.",
   });
-  if (!superseded.ok) return { success: false, error: superseded.error };
+  if (!superseded.ok) {
+    return { success: false, error: superseded.error, code: superseded.code };
+  }
 
   const { rawToken, tokenHash } = mintSessionToken();
   const dates = inviteDates();
@@ -577,6 +580,13 @@ async function loadScoringSnapshot(service: Service, jobId: string, companyId: s
  * A SUBMITTED session is never superseded — submitted is final, and the
  * caller is told so rather than silently issuing a link that would let
  * someone re-record answers already with the hiring team.
+ *
+ * Nor is a live interview whose call has begun, finished, running or crashed
+ * (liveCallBegan, F10 C1): nothing is cancelled and nothing is sent, and a
+ * restart comes only through the restart decision. The cancel itself repeats
+ * that check, so a candidate who joins between the read and the write is not
+ * cancelled either. An async session, and a live invite nobody joined, are
+ * superseded exactly as before.
  */
 async function supersedeOpenSession(
   service: Service,
@@ -586,10 +596,10 @@ async function supersedeOpenSession(
     kind: InterviewKind;
     submittedError: string;
   },
-): Promise<{ ok: true } | { ok: false; error: string }> {
+): Promise<{ ok: true } | { ok: false; error: string; code?: "live_call_started" }> {
   const { data: existingData } = await service
     .from("interview_sessions")
-    .select("id, status, submitted_at")
+    .select("id, status, submitted_at, kind, started_at, provider_session_id, live_ended_at")
     .eq("application_id", input.applicationId)
     .eq("company_id", input.companyId)
     .eq("kind", input.kind)
@@ -597,14 +607,32 @@ async function supersedeOpenSession(
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const existing = ((existingData ?? []) as {
+  const existing = ((existingData ?? []) as ({
     id: string;
     status: string;
     submitted_at: string | null;
-  }[])[0];
+  } & LiveCallFields)[])[0];
 
   if (existing?.status === "submitted") {
     return { ok: false, error: input.submittedError };
+  }
+
+  if (existing && input.kind === "live") {
+    if (liveCallBegan(existing)) return LIVE_CALL_REFUSED;
+    const { data: cancelled, error } = await service
+      .from("interview_sessions")
+      .update({ status: "cancelled" })
+      .eq("id", existing.id)
+      .eq("company_id", input.companyId)
+      .eq("kind", "live")
+      .is("provider_session_id", null)
+      .is("started_at", null)
+      .is("live_ended_at", null)
+      .select("id");
+    if (error) return { ok: false, error: SEND_FAILED };
+    // Nothing cancelled: the candidate joined since the read, or the row changed. Either way, stop.
+    if ((cancelled ?? []).length === 0) return LIVE_CALL_REFUSED;
+    return { ok: true };
   }
 
   if (existing) {
@@ -616,6 +644,15 @@ async function supersedeOpenSession(
   }
   return { ok: true };
 }
+
+// TODO-COPY: placeholder - Waleed writes the final line.
+const LIVE_CALL_REFUSED = {
+  ok: false,
+  error: "This AI Video Interview has already started, so a new link can't be sent.",
+  code: "live_call_started",
+} as const;
+
+const SEND_FAILED = "Couldn't send - please try again.";
 
 /** The link's deadline and the retention date, both from one `now`. */
 function inviteDates(): { expiresAt: string; expiresAtMs: number; deleteAfter: string } {

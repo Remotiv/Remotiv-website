@@ -10,6 +10,7 @@ import {
   type ScoreBand,
   scoreBand,
 } from "@/app/ai-dashboard/lib/score-bands";
+import { liveSummaryCallBegan } from "@/lib/interviews/live-call";
 import { INTERVIEW_KIND_LABELS } from "@/lib/interviews/types";
 import { FinalInterviewCard } from "./_final-interview-card";
 import {
@@ -685,6 +686,8 @@ function LiveInterviewSection({
 
   const badge = session ? (STATE[session.status] ?? STATE.invited) : null;
   const waiting = session?.status === "invited" || session?.status === "started";
+  // Once the candidate's call has begun, no new link: the server refuses it too (F10 C1).
+  const callBegan = session !== null && liveSummaryCallBegan(session);
 
   return (
     <section>
@@ -755,9 +758,17 @@ function LiveInterviewSection({
         </div>
       )}
 
+      {canSend && waiting && session && callBegan && (
+        // TODO-COPY: placeholder - Waleed writes the final line.
+        <p className="m-0 mt-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]">
+          This interview has started, so a new link can&apos;t be sent.
+        </p>
+      )}
+
       {canSend &&
         waiting &&
         session &&
+        !callBegan &&
         (reissuing ? (
           <div className="mt-2.5 rounded-xl border border-[var(--ai-line)] bg-[var(--ai-inset)] px-3.5 py-3">
             <p className="m-0 text-[12.5px] leading-relaxed text-[var(--ai-t2)]">

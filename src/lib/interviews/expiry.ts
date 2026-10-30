@@ -1,4 +1,5 @@
 import "server-only";
+import { liveCallBegan } from "@/lib/interviews/live-call";
 import { skipJob } from "@/lib/job-skip";
 import { notifyCompany } from "@/lib/notifications/company";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -65,14 +66,9 @@ const EXPIRABLE_STATUSES = ["invited", "started"];
  * and the session is still never expired. Expiring it would tell the
  * recruiters a finished interview missed its deadline, and 044's trigger would
  * end the video window of a call still running. Only a live invite nobody
- * joined still expires (F10 C0, 30 Oct 2026).
+ * joined still expires (F10 C0, 30 Oct 2026). liveCallBegan is shared with
+ * the re-send check (live-call.ts).
  */
-function liveCallBegan(s: SessionRow): boolean {
-  return (
-    s.kind === "live" &&
-    (s.live_ended_at !== null || s.provider_session_id !== null || s.started_at !== null)
-  );
-}
 
 /**
  * What the sweep reads, one pass each: every session that is not live, then
