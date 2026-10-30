@@ -1,4 +1,5 @@
 import "server-only";
+import { describeCvOrphanSweep, runCvOrphanSweep } from "@/lib/cv-orphan-sweep";
 import { findSharedPaths } from "@/lib/shared-storage-refs";
 import { removeObjects } from "@/lib/storage-objects";
 import { createServiceClient } from "@/lib/supabase/server";
@@ -174,6 +175,16 @@ export async function handleCvPurge(job: {
   payload: Record<string, unknown>;
 }): Promise<void> {
   await runCvPurge(job);
+  // Last phase: CV files no row names any more (cv-orphan-sweep.ts). A dry run
+  // unless CV_ORPHAN_SWEEP_LIVE is "true"; never fails the purge above.
+  try {
+    const sweep = await runCvOrphanSweep(createServiceClient());
+    const line = describeCvOrphanSweep(job.id, sweep);
+    if (sweep.stopped && sweep.stopped !== "cap" && sweep.stopped !== "budget") console.error(line);
+    else console.log(line);
+  } catch {
+    console.error(`[cv-orphan-sweep] job ${job.id}: the sweep threw; nothing more was deleted`);
+  }
 }
 
 /**

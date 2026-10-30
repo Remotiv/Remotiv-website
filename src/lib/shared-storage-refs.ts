@@ -1,4 +1,5 @@
 import "server-only";
+import { deriveCvPathFromUrl } from "@/lib/cv-path";
 import type { createServiceClient } from "@/lib/supabase/server";
 
 /**
@@ -117,4 +118,68 @@ export async function findSharedPaths(
   }
 
   return shared;
+}
+
+/** Rows read per page when a whole table's keys are read. */
+const KEY_PAGE = 1000;
+
+/**
+ * Every `cvs` key one table names: through `cv_path`, or through a legacy
+ * public `cv_url` (deriveCvPathFromUrl). Paged by id. THROWS on a failed read.
+ */
+async function cvKeysOf(
+  service: Service,
+  table: string,
+  rows: "all" | "legacy_url_only",
+): Promise<Set<string>> {
+  const keys = new Set<string>();
+  let after: string | null = null;
+  for (;;) {
+    let q = service.from(table).select("id, cv_path, cv_url");
+    if (rows === "legacy_url_only") q = q.not("cv_url", "is", null);
+    if (after !== null) q = q.gt("id", after);
+    const { data, error } = await q.order("id", { ascending: true }).limit(KEY_PAGE);
+    if (error) throw new Error(`cv key read ${table}: ${error.message}`);
+    const page = (data ?? []) as unknown as {
+      id: string;
+      cv_path: string | null;
+      cv_url: string | null;
+    }[];
+    for (const r of page) {
+      if (rows === "all" && r.cv_path?.trim()) keys.add(r.cv_path.trim());
+      const legacy = deriveCvPathFromUrl(r.cv_url);
+      if (legacy) keys.add(legacy);
+    }
+    if (page.length < KEY_PAGE) return keys;
+    after = page[page.length - 1].id;
+  }
+}
+
+/**
+ * Every `cvs` key any row of TABLES_BY_COLUMN.cv_path still names, through
+ * `cv_path` or a legacy public `cv_url`. For a sweep of the whole bucket.
+ * THROWS on any failed read: an incomplete answer would read as "unreferenced".
+ */
+export async function allCvReferences(service: Service): Promise<Set<string>> {
+  const all = new Set<string>();
+  for (const table of TABLES_BY_COLUMN.cv_path) {
+    for (const k of await cvKeysOf(service, table, "all")) all.add(k);
+  }
+  return all;
+}
+
+/**
+ * The subset of `paths` any row still names, read fresh: `cv_path` on every
+ * table (findSharedPaths, no row excluded), and every legacy public `cv_url`.
+ * THROWS on any failed read.
+ */
+export async function referencedCvPaths(service: Service, paths: string[]): Promise<Set<string>> {
+  const named = await findSharedPaths(service, "cv_path", paths, { table: "", ids: new Set() });
+  const wanted = new Set(paths);
+  for (const table of TABLES_BY_COLUMN.cv_path) {
+    for (const k of await cvKeysOf(service, table, "legacy_url_only")) {
+      if (wanted.has(k)) named.add(k);
+    }
+  }
+  return named;
 }

@@ -611,6 +611,7 @@ export function fakeLiveDb(initial = {}, options = {}) {
       calls.every((c) => {
         if (c[0] === "eq") return get(row, c[1]) === c[2];
         if (c[0] === "neq") return get(row, c[1]) !== c[2];
+        if (c[0] === "gt") return get(row, c[1]) !== null && get(row, c[1]) > c[2];
         if (c[0] === "in") return c[2].includes(get(row, c[1]));
         if (c[0] === "is") return get(row, c[1]) === c[2];
         if (c[0] === "lte") return get(row, c[1]) !== null && get(row, c[1]) <= c[2];
@@ -761,7 +762,10 @@ export function fakeLiveDb(initial = {}, options = {}) {
                   name: k.slice(prefix.length + 1),
                   id: k,
                   metadata: { size: o.bytes.length, mimetype: o.contentType ?? null },
-                  created_at: new Date(o.createdAt).toISOString(),
+                  created_at:
+                    o.createdAt == null || Number.isNaN(o.createdAt)
+                      ? null
+                      : new Date(o.createdAt).toISOString(),
                 });
               }
             }
