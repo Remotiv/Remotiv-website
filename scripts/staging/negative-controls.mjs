@@ -74,6 +74,7 @@ const JOBS_QUEUE = "src/lib/jobs-queue.ts";
 const MIGRATION_051 = "src/lib/supabase/migrations/051_interview_sessions_purged_at.sql";
 const PAGING = "src/lib/supabase/paging.ts";
 const MESSAGES_ACTIONS = "src/app/ai-dashboard/(gated)/messages/actions.ts";
+const NUMBER_OWNERS = "src/lib/whatsapp/number-owners.ts";
 
 const ASSERT_TEST = "scripts/staging/assertions.test.mjs";
 const GUARD_TEST = "scripts/staging/guard-checks.test.mjs";
@@ -94,6 +95,9 @@ const CV_PURGE_TEST = "src/lib/cv-purge.test.ts";
 const INTERVIEW_PURGE_TEST = "src/lib/interview-purge-decay.test.ts";
 const PURGE_ALARM_TEST = "src/lib/queue/interview-purge-alarm.test.ts";
 const PAGING_TEST = "src/lib/supabase/paging.test.ts";
+const INBOUND_TEST = "src/app/ai-dashboard/(gated)/messages/inbound-ownership.test.ts";
+const NUMBER_OWNERS_TEST = "src/lib/whatsapp/number-owners.test.ts";
+const TENANT_ISOLATION_TEST = "src/lib/tenant-isolation.test.ts";
 
 const UNIFORM_JOBS = `  ${Array.from({ length: 20 }, () => 500).join(", ")},`;
 
@@ -1269,6 +1273,104 @@ const REVERSIONS = [
     to: "return NextResponse.json({ scoped: false, jobCount: null, ids: [] });",
     test: PROBE_TEST,
     expect: "an unscoped member gets ids: null, the function's own answer for unrestricted",
+  },
+  /* ── #64: inbound WhatsApp renders only for one person at one company ── */
+  {
+    name: "#64: the one-company rule is removed, so a candidate's replies to company B render in company A",
+    file: NUMBER_OWNERS,
+    from: "  if (!owners.every((o) => o.company_id_snapshot === companyId)) return false;\n",
+    to: "  if (false) return false;\n",
+    test: INBOUND_TEST,
+    expect:
+      "#64: one candidate at two companies: each company sees a note, never the other's replies",
+  },
+  {
+    name: "#64: the one-person rule is removed, so two people on one phone see each other's replies",
+    file: NUMBER_OWNERS,
+    from: "  return owners.length === 1 || isOnePerson(owners);\n",
+    to: "  return true;\n",
+    test: INBOUND_TEST,
+    expect: "#64: two different people on one number: both see a note, neither sees the rows",
+  },
+  {
+    name: "#64: the full-number confirmation accepts any prefilter hit, so a colliding number's replies render",
+    file: MESSAGES_ACTIONS,
+    from: "        toWhatsAppDigits(r.from_phone) === digits &&\n",
+    to: "        toWhatsAppDigits(r.from_phone) !== null &&\n",
+    test: INBOUND_TEST,
+    expect: "#64: an ordinary single-company candidate sees their own replies exactly as before",
+  },
+  {
+    name: "#64: the inbound walk stops after one page, so a colliding number's rows push the candidate's out",
+    file: MESSAGES_ACTIONS,
+    from: "const INBOUND_MAX_PAGES = 10;\n",
+    to: "const INBOUND_MAX_PAGES = 1;\n",
+    test: INBOUND_TEST,
+    expect:
+      "#64: a prefilter collision cannot consume the cap and truncate the candidate's own replies",
+  },
+  {
+    name: "#64: a full owner-lookup page is trusted instead of refused",
+    file: MESSAGES_ACTIONS,
+    from: '  if (prefiltered.length >= OWNER_LOOKUP_LIMIT) return empty("number-not-unique");\n',
+    to: '  if (prefiltered.length > Number.MAX_SAFE_INTEGER) return empty("number-not-unique");\n',
+    test: INBOUND_TEST,
+    expect: "#64: an owner lookup that failed or may be incomplete shows nothing",
+  },
+  {
+    name: "#64: the load-bearing soleOwnerAt guard is deleted after the cross-company read, and the SCANNER itself must notice",
+    file: MESSAGES_ACTIONS,
+    from: '  if (!soleOwnerAt(confirmedOwners(prefiltered, digits), applicationId, ctx.companyId)) {\n    return empty("number-not-unique");\n  }\n',
+    to: "  void confirmedOwners(prefiltered, digits);\n",
+    test: TENANT_ISOLATION_TEST,
+    expect: "every declared guard and scoped-read dependency still holds",
+  },
+  /* ── #64: isOnePerson requires the same non-empty normalised email, and nothing else ── */
+  {
+    name: "#64: a blank email no longer refuses - only the emails that are present are compared",
+    file: NUMBER_OWNERS,
+    from: "  return emails.every((e) => e.length > 0) && new Set(emails).size === 1;\n",
+    to: "  return new Set(emails.filter((e) => e.length > 0)).size === 1;\n",
+    test: NUMBER_OWNERS_TEST,
+    expect: "#64: a blank email on any match refuses, even when every name is identical",
+  },
+  {
+    name: "#64: emails are required but never compared, so two people with different addresses merge",
+    file: NUMBER_OWNERS,
+    from: "  return emails.every((e) => e.length > 0) && new Set(emails).size === 1;\n",
+    to: "  return emails.every((e) => e.length > 0);\n",
+    test: NUMBER_OWNERS_TEST,
+    expect: "#64: two matches with different emails are two people",
+  },
+  {
+    name: "#64: a name fallback is reintroduced, so the same name with different emails merges again",
+    file: NUMBER_OWNERS,
+    from: "  return emails.every((e) => e.length > 0) && new Set(emails).size === 1;\n",
+    to:
+      "  if (emails.every((e) => e.length > 0) && new Set(emails).size === 1) return true;\n" +
+      "  return new Set(matches.map((r) => `${r.first_name} ${r.last_name}`)).size === 1;\n",
+    test: NUMBER_OWNERS_TEST,
+    expect: "#64: the same name with different emails is two people: the name is not evidence",
+  },
+  {
+    name: "#64: emails are compared raw instead of normalised, so a capitalised address reads as a stranger",
+    file: NUMBER_OWNERS,
+    from: '  const emails = matches.map((r) => normalizeEmail(r.email ?? ""));\n',
+    to: '  const emails = matches.map((r) => (r.email ?? "").trim());\n',
+    test: NUMBER_OWNERS_TEST,
+    expect:
+      "#64: identical emails differing only in case and surrounding whitespace are one person",
+  },
+  {
+    name: "#64: a name requirement is reintroduced, so a re-applicant whose name was typed differently is refused",
+    file: NUMBER_OWNERS,
+    from: "  return emails.every((e) => e.length > 0) && new Set(emails).size === 1;\n",
+    to:
+      "  if (!emails.every((e) => e.length > 0) || new Set(emails).size !== 1) return false;\n" +
+      "  return new Set(matches.map((r) => `${r.first_name} ${r.last_name}`)).size === 1;\n",
+    test: NUMBER_OWNERS_TEST,
+    expect:
+      "#64: the same email with a different or blank name is one person: the name is not consulted",
   },
 ];
 

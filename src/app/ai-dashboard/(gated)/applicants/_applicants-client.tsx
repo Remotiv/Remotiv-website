@@ -2854,6 +2854,12 @@ const INBOUND_BASIS_NOTE: Record<InboundMatchBasis, string> = {
   "phone-not-normalisable":
     "This candidate's phone number isn't in a shape we can match on, so any WhatsApp reply from " +
     "them is in the admin inbox rather than here.",
+  // Deliberately says nothing about WHY the number is not unique: naming a
+  // second company or a second person would itself disclose what this note
+  // exists to protect.
+  "number-not-unique":
+    "WhatsApp replies from this number can't be attributed to this candidate with certainty, so " +
+    "they aren't shown here. They remain in the admin inbox.",
 };
 
 type CommEntry =

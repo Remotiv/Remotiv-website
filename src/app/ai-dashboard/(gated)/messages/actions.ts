@@ -29,6 +29,13 @@ import {
 import { toWhatsAppDigits } from "@/lib/normalize";
 import { isIdentifierChange } from "@/lib/whatsapp/inbound-display";
 import {
+  confirmedOwners,
+  type MatchRow,
+  OWNER_LOOKUP_LIMIT,
+  phonePrefilterPattern,
+  soleOwnerAt,
+} from "@/lib/whatsapp/number-owners";
+import {
   APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
   type ApplicationInboundRead,
@@ -46,6 +53,14 @@ import {
   type MessageRow,
   type MessageTab,
 } from "./types";
+
+/**
+ * The inbound walk: rows per prefilter page, and how many pages before the
+ * read gives up and reports the list as possibly incomplete. Ten pages of a
+ * hundred is far past one candidate's replies plus any tail-sharing number's.
+ */
+const INBOUND_PAGE = 100;
+const INBOUND_MAX_PAGES = 10;
 
 // NB: a "use server" module may only export async functions — every export is
 // compiled into a server action. Shapes live in ./types.ts.
@@ -633,37 +648,78 @@ export async function fetchApplicationMessages(
 }
 
 /**
- * This candidate's inbound WhatsApp, for the drawer. Ownership-checked.
+ * This candidate's inbound WhatsApp, for the drawer. Ownership-checked twice:
+ * once for the viewer, once for the number.
  *
  * ── Why this matches on the phone and not on `application_id` ──
  *
- * `whatsapp_inbound.application_id` is written once, by the webhook, and
- * refused outright whenever a number matches several applications. So it is
- * null on every row the table holds and will stay null — reading it here would
- * show nobody anything, for ever.
+ * `whatsapp_inbound.application_id` and `.company_id` are written once, by the
+ * webhook's resolveTenancy, and only when the sender's number maps to one
+ * person: a single application, or several that `isOnePerson` accepts. For a
+ * candidate who applied to two companies from one phone, that rule attaches
+ * the message to the NEWEST application's company - not to the company whose
+ * message they were answering, which nothing in the row records: every tenant
+ * sends from the one business number, and no reply context is parsed. So the
+ * stored company_id is wrong by construction for exactly the candidates a
+ * company filter would be protecting, and filtering on it would look correct
+ * while being wrong. It is deliberately not consulted here.
  *
- * The ambiguity it refuses is a WRITE-time one. "Which of three applications
- * does this message belong to?" has no answer when the webhook asks it. The
- * drawer already knows which applicant is open, so it asks a different
- * question — "is this message from THIS applicant's number?" — and that one
- * does have an answer.
+ * The drawer already knows which applicant is open, so it asks "is this
+ * message from THIS applicant's number?" - `toWhatsAppDigits` on both sides,
+ * the same function the webhook normalises with, so the two agree by
+ * construction.
  *
- * `toWhatsAppDigits` normalises both sides, and it is the same function
- * resolveTenancy() in the webhook normalises with, so the two agree by
- * construction rather than by coincidence.
+ * ── The rule that decides whether to show anything (#64) ──
  *
- * ── The cost, measured and accepted ──
+ * Rows render only when the applicant's number maps to exactly ONE person at
+ * exactly ONE company, and that company is the viewer's - `soleOwnerAt`, the
+ * decision resolveTenancy already makes for attachment, applied at read time.
+ * The owner lookup is the webhook's own prefilter run across ALL companies'
+ * applications: it has to be, because "does anyone else, at any company, hold
+ * this number" cannot be answered inside one company's rows. Those rows are
+ * never rendered; they are compared, then dropped.
  *
- * Eight numbers are shared by genuinely different people. Measured over the
- * 3,396 applications on record: 2,675 distinct normalisable numbers, 364 of
- * them shared by the same person applying twice, and 8 shared across different
- * names AND different emails. Those candidates will each see the other's
- * replies in this tab.
+ * Anything else renders the `number-not-unique` basis note instead of rows:
+ * the same person at a second company, two different people on one phone, an
+ * owner lookup that failed, or one whose page came back full and may be
+ * incomplete. Fail closed on every one of them. The note says the replies
+ * cannot be attributed with certainty and nothing more, because "this
+ * candidate also applied elsewhere" is itself a fact the viewer must not learn
+ * here.
  *
- * That is the price of showing anyone anything, and it was taken deliberately.
- * Do NOT "tighten" this back to application_id: the tighter query is not more
- * correct, it is empty. Replacing the webhook's matcher is the only thing that
- * would earn the change.
+ * ── The cost, stated ──
+ *
+ * Measured on 2026-09-30 over 3,396 applications: 2,675 distinct normalisable
+ * numbers, 364 shared by one person applying twice (still shown), and 8 shared
+ * by different people. Those 8, and every candidate with applications at more
+ * than one company, now see a note where they used to see replies. The
+ * recruiter LOSES information they could read before. That is the trade and
+ * it is the right way round - a stranger's private messages under another
+ * candidate's name, or company B's conversation inside company A's drawer, is
+ * worse than a missing tab - and it is written here so it is not rediscovered
+ * later as a regression.
+ *
+ * ── Why this is the interim and not the answer ──
+ *
+ * The permanent fix is attribution at ingest. Meta sends `context.id` on a
+ * reply - the id of the message being answered - and `communication_logs`
+ * already stores every outbound WhatsApp id in `provider_message_id` beside
+ * its company_id and application_id. Capturing context.id in the webhook and
+ * joining it would attribute a reply to the company that was written to, with
+ * no guessing from the phone at all. That changes the webhook and what the
+ * row records, so it is a separate pass; this read-time rule is what stops the
+ * leak until then, at the cost above.
+ *
+ * ── Why the inbound read pages instead of taking one capped slice ──
+ *
+ * The nine-digit prefilter on `from_phone` can match a DIFFERENT number that
+ * shares the tail. A single `.limit(cap + 1)` taken before the exact match
+ * could be filled entirely by that other number's rows, and the candidate's
+ * own replies would then be cut off silently. So the read walks the prefilter
+ * in ordered pages - newest first, id as the tiebreaker, so the sequence is
+ * total - confirms each page by exact number, and stops once the cap is
+ * exceeded or the prefilter runs out. Bounded by INBOUND_MAX_PAGES; a walk
+ * that hits the bound reports `truncated` rather than claiming completeness.
  */
 export async function fetchApplicationInbound(
   applicationId: string,
@@ -674,6 +730,7 @@ export async function fetchApplicationInbound(
     basis,
     truncated: false,
   });
+  const failed: ApplicationInboundRead = { ok: false, rows: [], basis: "phone", truncated: false };
 
   const ctx = await getCompanyContext();
   const service = createServiceClient();
@@ -688,7 +745,7 @@ export async function fetchApplicationInbound(
 
   if (appError) {
     console.error("[whatsapp] applicant phone read failed:", appError.message);
-    return { ok: false, rows: [], basis: "phone", truncated: false };
+    return failed;
   }
 
   const stored = ((appData as { phone: string | null } | null)?.phone ?? "").trim();
@@ -701,20 +758,27 @@ export async function fetchApplicationInbound(
   const digits = toWhatsAppDigits(stored);
   if (!digits) return empty("phone-not-normalisable");
 
-  // Same prefilter the webhook uses: the nine trailing digits, each allowed to
-  // be followed by a separator run. Built only from toWhatsAppDigits output,
-  // which is digits by construction, so nothing in it is a regex metacharacter.
-  const pattern = digits.slice(-9).split("").join("[^0-9]*");
-  const { data, error } = await service
-    .from("whatsapp_inbound")
-    .select("id, from_phone, body, message_type, received_at")
-    .filter("from_phone", "imatch", pattern)
-    .order("received_at", { ascending: false })
-    .limit(APPLICATION_INBOUND_CAP + 1);
+  const pattern = phonePrefilterPattern(digits);
 
-  if (error) {
-    console.error("[whatsapp] fetchApplicationInbound failed:", error.message);
-    return { ok: false, rows: [], basis: "phone", truncated: false };
+  // Who holds this number, at ANY company. Deliberately unscoped - see the
+  // docblock - and never rendered: compared, then dropped.
+  const { data: ownerRows, error: ownerError } = await service
+    .from("job_applications")
+    .select("id, phone, email, first_name, last_name, company_id_snapshot")
+    .filter("phone", "imatch", pattern)
+    .order("created_at", { ascending: false })
+    .limit(OWNER_LOOKUP_LIMIT);
+
+  if (ownerError) {
+    console.error("[whatsapp] number ownership lookup failed:", ownerError.message);
+    return failed;
+  }
+  const prefiltered = (ownerRows ?? []) as MatchRow[];
+  // A full page may be an incomplete one, and an incomplete set of owners
+  // cannot prove the number is unique. Refused, not trusted.
+  if (prefiltered.length >= OWNER_LOOKUP_LIMIT) return empty("number-not-unique");
+  if (!soleOwnerAt(confirmedOwners(prefiltered, digits), applicationId, ctx.companyId)) {
+    return empty("number-not-unique");
   }
 
   type InboundDbRow = {
@@ -729,13 +793,46 @@ export async function fetchApplicationInbound(
   // Identifier changes are dropped here rather than rendered: they are account
   // events, not something the candidate said, and /admin/whatsapp already
   // carries them where there is room to explain what they mean.
-  const matched = ((data ?? []) as InboundDbRow[]).filter(
-    (r) =>
-      toWhatsAppDigits(r.from_phone) === digits && !isIdentifierChange(r.message_type ?? "unknown"),
-  );
+  const matched: InboundDbRow[] = [];
+  let exhausted = false;
+  for (
+    let page = 0;
+    page < INBOUND_MAX_PAGES && matched.length <= APPLICATION_INBOUND_CAP;
+    page += 1
+  ) {
+    const from = page * INBOUND_PAGE;
+    const { data, error } = await service
+      .from("whatsapp_inbound")
+      .select("id, from_phone, body, message_type, received_at")
+      .filter("from_phone", "imatch", pattern)
+      .order("received_at", { ascending: false })
+      .order("id", { ascending: false })
+      .range(from, from + INBOUND_PAGE - 1);
 
-  const truncated = matched.length > APPLICATION_INBOUND_CAP;
-  const kept = truncated ? matched.slice(0, APPLICATION_INBOUND_CAP) : matched;
+    if (error) {
+      console.error("[whatsapp] fetchApplicationInbound failed:", error.message);
+      return failed;
+    }
+
+    const rows = (data ?? []) as InboundDbRow[];
+    for (const r of rows) {
+      if (
+        toWhatsAppDigits(r.from_phone) === digits &&
+        !isIdentifierChange(r.message_type ?? "unknown")
+      ) {
+        matched.push(r);
+      }
+    }
+    if (rows.length < INBOUND_PAGE) {
+      exhausted = true;
+      break;
+    }
+  }
+
+  // Over the cap, or the walk stopped before the prefilter ran out: either
+  // way the list is not known to be complete.
+  const truncated = matched.length > APPLICATION_INBOUND_CAP || !exhausted;
+  const kept = matched.slice(0, APPLICATION_INBOUND_CAP);
 
   return {
     ok: true,

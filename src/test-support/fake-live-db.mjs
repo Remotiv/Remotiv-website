@@ -617,6 +617,14 @@ export function fakeLiveDb(initial = {}, options = {}) {
         if (c[0] === "lte") return get(row, c[1]) !== null && get(row, c[1]) <= c[2];
         if (c[0] === "not" && c[2] === "is") return get(row, c[1]) !== c[3];
         if (c[0] === "or") return orMatches(row, c[1]);
+        if (c[0] === "filter") {
+          // PostgREST's `imatch` is a case-insensitive POSIX regex over the
+          // column's text; a null column matches nothing. Any other operator is
+          // refused rather than silently passing every row.
+          if (c[2] !== "imatch") throw new Error(`fake-live-db: filter(${c[2]}) is not modelled`);
+          const v = get(row, c[1]);
+          return v !== null && v !== undefined && new RegExp(c[3], "i").test(String(v));
+        }
         return true;
       });
     const pick = (row) => structuredClone(row);
@@ -712,13 +720,25 @@ export function fakeLiveDb(initial = {}, options = {}) {
       // select(cols, { count: "exact", head }), order(col, { ascending }) and limit(n), as PostgREST.
       const counted = calls.find((c) => c[0] === "select")?.[2]?.count === "exact";
       const head = calls.find((c) => c[0] === "select")?.[2]?.head === true;
-      const order = calls.find((c) => c[0] === "order");
-      if (order) {
-        const dir = order[2]?.ascending === false ? -1 : 1;
-        hit.sort((a, b) => (get(a, order[1]) < get(b, order[1]) ? -dir : dir));
+      // Several `order` calls apply in sequence, later ones breaking ties, as
+      // PostgREST does; `range(from, to)` is inclusive on both ends.
+      const orders = calls.filter((c) => c[0] === "order");
+      if (orders.length > 0) {
+        hit.sort((a, b) => {
+          for (const o of orders) {
+            const dir = o[2]?.ascending === false ? -1 : 1;
+            const x = get(a, o[1]);
+            const y = get(b, o[1]);
+            if (x < y) return -dir;
+            if (x > y) return dir;
+          }
+          return 0;
+        });
       }
+      const range = calls.find((c) => c[0] === "range");
+      const windowed = range ? hit.slice(range[1], range[2] + 1) : hit;
       const limit = calls.find((c) => c[0] === "limit");
-      const page = limit ? hit.slice(0, limit[1]) : hit;
+      const page = limit ? windowed.slice(0, limit[1]) : windowed;
       if (counted) return { data: head ? null : page.map(pick), count: hit.length, error: null };
       if (calls.some((c) => c[0] === "maybeSingle"))
         return { data: page[0] ? pick(page[0]) : null, error: null };

@@ -291,6 +291,45 @@ const ALLOWLIST = [
       "549 load-bearing: deleting it turns this into a cross-company phone-number read with no " +
       "other check in the way. Reported as a finding.",
   },
+  {
+    file: `${DASH}/messages/actions.ts`,
+    fn: "fetchApplicationInbound",
+    query:
+      '.select("id, phone, email, first_name, last_name, company_id_snapshot").filter("phone", "imatch", pattern).order("created_at", { ascending: false }).limit(OWNER_LOOKUP_LIMIT)',
+    // #64. Granted narrowly: this read must cross companies to detect that a
+    // number SPANS companies, so the missing filter is the requirement and the
+    // refusal is the protection. Two checked dependencies, so that deleting
+    // either turns this scan red and not only the unit test:
+    //   gate       - canSeeApplication runs before it (existence and order;
+    //                its polarity is asserted by the sibling entry above, on
+    //                the same call in the same function). Not `guard`, which
+    //                also demands .eq("id", applicationId), and this read is
+    //                keyed on the phone by design.
+    //   consumedBy - soleOwnerAt() is called AFTER the read and its negation
+    //                returns before any row is rendered. That call is the
+    //                load-bearing guard; without it this is a cross-company
+    //                read whose result reaches the drawer unexamined.
+    gate: { call: "canSeeApplication" },
+    consumedBy: { call: "soleOwnerAt" },
+    unprovable: [
+      "That soleOwnerAt() is deciding on THIS read's rows. consumedBy asserts the call, its order " +
+        "and its short-circuit, not that `prefiltered` is what was passed - a data-flow claim the " +
+        "AST walk does not make. inbound-ownership.test.ts pins the behaviour end to end.",
+      "That `pattern` is digits-only. It is built by phonePrefilterPattern() from toWhatsAppDigits " +
+        "output in a different module; a regression there would widen the prefilter unnoticed here.",
+      "That a FULL page fails closed (prefiltered.length >= OWNER_LOOKUP_LIMIT returns the " +
+        "number-not-unique basis). inbound-ownership.test.ts pins it; this scan cannot.",
+    ],
+    why:
+      "The #64 ownership check. This read deliberately spans EVERY company: it asks whether the " +
+      "open applicant's phone number is held by anyone else, at any company, and that question " +
+      "cannot be answered inside one company's rows; a company filter here would make the check " +
+      "vacuous. Controls in place of a filter: canSeeApplication(ctx, applicationId) runs first on " +
+      "the same client-supplied id; the rows are reduced by confirmedOwners() and soleOwnerAt() to a " +
+      "boolean and never returned; a lookup error returns ok:false and a full page returns no rows; " +
+      "and the boolean only ever REMOVES the same applicant's inbound messages from a response the " +
+      "viewer could already see. The read removes information, never adds it.",
+  },
 
   /* ── a different trust boundary, named ─────────────────────── */
   {
@@ -1346,6 +1385,33 @@ function verifyGuard(entry, site) {
     }
   }
 
+  if (entry.consumedBy) {
+    // The post-read guard shape: the read is unfiltered BY DESIGN and a call
+    // AFTER it decides, from the rows, whether anything may proceed. Checkable:
+    // the call exists in this function, it follows the read (a consumer that
+    // precedes the read is deciding on some other rows), and its result is
+    // consumed as `if (!call(...)) return`. Deleting the call, moving it before
+    // the read, or ignoring its answer each fails here. What is NOT checked is
+    // that the call's argument is this read's data - that is a data-flow claim
+    // the entry must state under `unprovable`.
+    const { call, polarity = "negated-return" } = entry.consumedBy;
+    const calls = callsTo(site.ownerNode, call);
+    if (calls.length === 0) {
+      fail.push(`${where}: declared consumer ${call}() is NOT called in this function`);
+    } else {
+      const after = calls.filter((c) => dominates(site.node, c, site.ownerNode));
+      if (after.length === 0) {
+        fail.push(`${where}: ${call}() does not provably run after the read`);
+      }
+      for (const c of after) {
+        const shape = guardShape(c);
+        if (shape !== polarity) {
+          fail.push(`${where}: ${call}() result is consumed as "${shape}", declared "${polarity}"`);
+        }
+      }
+    }
+  }
+
   return fail;
 }
 
@@ -1799,6 +1865,39 @@ test("a declared guard is checked, not taken on faith", () => {
     assert.ok(verifyGuard(fv, site(src)).length > 0, `not reported: ${name}`);
   }
 
+  // consumedBy: the post-read guard must exist, FOLLOW the read, and
+  // short-circuit on its negation. Each way of breaking it must be reported.
+  const cb = { file: "x.ts", fn: "f", query: "", consumedBy: { call: "soleOwner" } };
+  const consumed = `async function f(service, ctx, applicationId) {
+      const { data } = await service.from("job_applications").select("id, phone").filter("phone", "imatch", p).limit(25);
+      if (!soleOwner(data, applicationId, ctx.companyId)) { return []; }
+      return rows(data);
+    }`;
+  assert.deepEqual(verifyGuard(cb, site(consumed)), [], "a real post-read guard must verify");
+  for (const [name, src] of Object.entries({
+    "consumer deleted": `async function f(service, ctx, applicationId) {
+        const { data } = await service.from("job_applications").select("id, phone").filter("phone", "imatch", p).limit(25);
+        return rows(data);
+      }`,
+    "consumer result ignored": `async function f(service, ctx, applicationId) {
+        const { data } = await service.from("job_applications").select("id, phone").filter("phone", "imatch", p).limit(25);
+        soleOwner(data, applicationId, ctx.companyId);
+        return rows(data);
+      }`,
+    "consumer does not short-circuit": `async function f(service, ctx, applicationId) {
+        const { data } = await service.from("job_applications").select("id, phone").filter("phone", "imatch", p).limit(25);
+        if (!soleOwner(data, applicationId, ctx.companyId)) console.warn("nope");
+        return rows(data);
+      }`,
+    "consumer runs before the read": `async function f(service, ctx, applicationId) {
+        if (!soleOwner(prior, applicationId, ctx.companyId)) { return []; }
+        const { data } = await service.from("job_applications").select("id, phone").filter("phone", "imatch", p).limit(25);
+        return rows(data);
+      }`,
+  })) {
+    assert.ok(verifyGuard(cb, site(src)).length > 0, `not reported: ${name}`);
+  }
+
   // A declared same-file source call must exist, precede the read, hand over
   // the binding the read uses, AND itself be company-filtered.
   const via = {
@@ -1903,10 +2002,19 @@ test("every declared guard and scoped-read dependency still holds", () => {
 
   // Not vacuous: if every declaration were dropped the assertion above would
   // still pass, so the declarations themselves are counted.
-  const DECLS = ["guard", "gate", "verifyAfter", "scopedRead", "viaCall", "derivesTenancy"];
+  const DECLS = [
+    "guard",
+    "gate",
+    "verifyAfter",
+    "scopedRead",
+    "viaCall",
+    "derivesTenancy",
+    "consumedBy",
+  ];
   const declares = (a) => DECLS.some((d) => a[d]);
   const declared = ALLOWLIST.filter(declares);
-  assert.equal(declared.length, 14, "the number of entries declaring a dependency changed");
+  // 15 since #64: fetchApplicationInbound's ownership read declares consumedBy.
+  assert.equal(declared.length, 15, "the number of entries declaring a dependency changed");
   assert.ok(
     ALLOWLIST.some((a) => a.guard),
     "at least one entry must declare an authorization guard",

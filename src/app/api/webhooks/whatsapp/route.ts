@@ -1,7 +1,8 @@
 import { NextResponse } from "next/server";
-import { normalizeEmail, toWhatsAppDigits } from "@/lib/normalize";
+import { toWhatsAppDigits } from "@/lib/normalize";
 import { createServiceClient } from "@/lib/supabase/server";
 import { recordUsage } from "@/lib/usage";
+import { isOnePerson, type MatchRow, phonePrefilterPattern } from "@/lib/whatsapp/number-owners";
 import {
   constantTimeEquals,
   verifyMetaSignature,
@@ -551,8 +552,7 @@ async function resolveTenancy(
   if (!digits) return none;
 
   // Last nine digits, each allowed to be followed by a run of non-digits.
-  const tail = digits.slice(-9);
-  const pattern = tail.split("").join("[^0-9]*");
+  const pattern = phonePrefilterPattern(digits);
   const { data, error } = await service
     .from("job_applications")
     .select("id, phone, email, first_name, last_name, company_id_snapshot, created_at")
@@ -586,61 +586,6 @@ async function resolveTenancy(
     companyId: matches[0].company_id_snapshot,
     applicationId: matches[0].id,
   };
-}
-
-type MatchRow = {
-  id: string;
-  phone: string | null;
-  email: string | null;
-  first_name: string | null;
-  last_name: string | null;
-  company_id_snapshot: string | null;
-};
-
-/** Lowercased, whitespace-collapsed "first last", or "" if neither is set. */
-function fullName(row: MatchRow): string {
-  return `${row.first_name ?? ""} ${row.last_name ?? ""}`.toLowerCase().replace(/\s+/g, " ").trim();
-}
-
-/**
- * Are all of these applications the same person?
- *
- * ── The rule, exactly ──
- *
- * True on either of two grounds, in this order:
- *
- *   1. EVERY match carries a non-empty email and all of them are equal once
- *      lowercased and trimmed.
- *   2. EVERY match carries a non-empty "first last" name and all of them are
- *      equal once lowercased and whitespace-collapsed.
- *
- * Anything else is false.
- *
- * ── Why "every", and not "all the ones that have it" ──
- *
- * This is the whole difference between a rule that merges and a rule that
- * refuses. Comparing only the values that happen to be present would treat a
- * missing email as agreement, so an application with no email would be folded
- * into whoever else shares the number — silently, and on no evidence at all.
- * Absent evidence is not matching evidence. A row that cannot prove it is the
- * same person makes the whole group ambiguous, and an ambiguous group is
- * refused.
- *
- * Ground 2 accepts one person holding two email addresses, which is the common
- * real case — somebody applying twice months apart with a work address and a
- * personal one. It does mean two different people who share BOTH a phone and
- * an identical name would be merged. That is a real residual, accepted
- * knowingly: it needs two coincidences at once, and the alternative refuses
- * hundreds of genuine re-applications to avoid it.
- */
-function isOnePerson(matches: MatchRow[]): boolean {
-  const emails = matches.map((r) => normalizeEmail(r.email ?? "")).filter((e) => e.length > 0);
-  if (emails.length === matches.length && new Set(emails).size === 1) return true;
-
-  const names = matches.map(fullName).filter((n) => n.length > 0);
-  if (names.length === matches.length && new Set(names).size === 1) return true;
-
-  return false;
 }
 
 /**

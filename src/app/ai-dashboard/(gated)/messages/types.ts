@@ -139,8 +139,18 @@ export type InboundMessageRow = {
  *
  * The tab claims to show the conversation, so "we found nothing" and "we could
  * never have found anything" must not render as the same silence.
+ *
+ * `number-not-unique` (#64): the number is on file for more than one person,
+ * or for this person at more than one company, or the lookup that decides
+ * that could not be completed - so replies cannot be attributed to THIS
+ * applicant with certainty and none are shown. The note never says which of
+ * those it was; "also applied elsewhere" is itself not the viewer's to know.
  */
-export type InboundMatchBasis = "phone" | "no-phone-on-file" | "phone-not-normalisable";
+export type InboundMatchBasis =
+  | "phone"
+  | "no-phone-on-file"
+  | "phone-not-normalisable"
+  | "number-not-unique";
 
 /** One applicant's inbound WhatsApp, and what is known about how complete it is. */
 export type ApplicationInboundRead = {
