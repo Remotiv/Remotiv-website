@@ -264,12 +264,21 @@ export async function settleLiveOutcome(
   for (let i = 0; i < SETTLE_TRIES; i++) {
     const { data: session, error: sErr } = await service
       .from("interview_sessions")
-      .select("id, attempt, live_outcome")
+      .select("id, attempt, status, live_outcome")
       .eq("id", sessionId)
       .maybeSingle();
     if (sErr) throw new Error(`live transcribe: session read failed (${sErr.code ?? "db"})`);
-    const s = session as { attempt: number | null; live_outcome: LiveOutcome | null } | null;
+    const s = session as {
+      attempt: number | null;
+      status: string | null;
+      live_outcome: LiveOutcome | null;
+    } | null;
     if (!s?.live_outcome) return null;
+    // A restarted first attempt (F10): its outcome stays as the restart was decided on.
+    if (s.status === "abandoned") {
+      console.log(`[live-transcribe] session ${sessionId}: restarted; outcome kept, not settled`);
+      return s.live_outcome;
+    }
 
     const { data: actionRows, error: aErr } = await service
       .from("live_interview_actions")
@@ -307,10 +316,12 @@ export async function settleLiveOutcome(
     );
     const before = s.live_outcome;
     const next = settleOutcome(before, candidates, s.attempt ?? 1, excluded);
+    // Never onto a restarted attempt: one restarted since the read loses here and reads again.
     let write = service
       .from("interview_sessions")
       .update({ live_outcome: next })
-      .eq("id", sessionId);
+      .eq("id", sessionId)
+      .neq("status", "abandoned");
     // Lands only on the outcome this settle read; an outcome saved before
     // settle_rev existed has none.
     write =
@@ -557,15 +568,22 @@ export async function handleLiveTurnTranscribe(
     typeof job.attempts === "number" && typeof job.max_attempts === "number"
       ? job.attempts + 1 >= job.max_attempts
       : false;
-  // Past retention, or the application being deleted (B7): never transcribed now.
-  const { data: owner } = await service
+  const { data: owner, error: oErr } = await service
     .from("interview_sessions")
-    .select("delete_after")
+    .select("delete_after, status")
     .eq("id", turn.session_id)
     .maybeSingle();
-  if (
-    retentionPassed((owner as { delete_after: string | null } | null)?.delete_after, Date.now())
-  ) {
+  if (oErr) throw new Error(`live transcribe: session read failed (${oErr.code ?? "db"})`);
+  const session = owner as { delete_after: string | null; status: string } | null;
+  // A restarted first attempt (F10): its audio is never sent to Whisper. A
+  // restart landing after this read lets the call below finish: that transcript
+  // is stored for audit only, and settleLiveOutcome never lets it touch the outcome.
+  if (session?.status === "abandoned") {
+    console.log(`[live-transcribe] turn ${turnId}: session restarted; not transcribed`);
+    return;
+  }
+  // Past retention, or the application being deleted (B7): never transcribed now.
+  if (retentionPassed(session?.delete_after, Date.now())) {
     console.warn(`[live-transcribe] turn ${turnId}: session past retention; not transcribed`);
     return;
   }

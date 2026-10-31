@@ -946,10 +946,32 @@ export type TranscriptionQueued = { transcriptionQueued: boolean };
 /**
  * What a save did. `notFinal`: the export is a snapshot of an interview still
  * in progress, and nothing was read or written (see saveLiveExport).
+ * `restarted`: the session is a restarted first attempt (status 'abandoned',
+ * F10); its outcome is kept as it was, no transcription is asked for, and the
+ * save is done, never to be retried. `saved` there says whether this call
+ * stored the export's turns, for audit.
  */
 export type IngestResult =
-  | ({ outcome: LiveOutcome; saved: boolean; notFinal?: undefined } & TranscriptionQueued)
-  | { outcome: null; saved: false; notFinal: true; retryable: true };
+  | ({
+      outcome: LiveOutcome;
+      saved: boolean;
+      notFinal?: undefined;
+      restarted?: undefined;
+    } & TranscriptionQueued)
+  | { outcome: null; saved: false; notFinal: true; retryable: true; restarted?: undefined }
+  | { outcome: LiveOutcome | null; saved: boolean; restarted: true; notFinal?: undefined };
+
+/** A save for a restarted first attempt: done, nothing more asked for. Counts only in the log. */
+function restartedSave(
+  sessionId: string,
+  outcome: LiveOutcome | null,
+  turnsStored: number,
+): IngestResult {
+  console.log(
+    `[live-ingest] session ${sessionId}: restarted; outcome kept, ${turnsStored} turns stored for audit, no transcription`,
+  );
+  return { outcome, saved: turnsStored > 0, restarted: true };
+}
 
 const queueTranscription = async (
   service: Service,
@@ -1003,6 +1025,7 @@ export function isNotFinalExport(status: ParsedExport["status"]): boolean {
 type SessionRow = {
   id: string;
   kind: string;
+  status: string;
   company_id: string | null;
   application_id: string | null;
   attempt: number | null;
@@ -1015,7 +1038,7 @@ type SessionRow = {
 };
 
 const SESSION_COLUMNS =
-  "id, kind, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome, delete_after";
+  "id, kind, status, company_id, application_id, attempt, provider_session_id, live_settings, questions_snapshot, scoring_snapshot, live_outcome, delete_after";
 
 /** A stable uuid for one provider turn of one session, so a re-save finds the same row. */
 export function turnRowId(sessionId: string, providerTurnId: string): string {
@@ -1183,9 +1206,12 @@ function storedFor(row: SessionRow, hash: string): LiveOutcome | null {
  * (isNotFinalExport) is a snapshot, not the session's record. Saving it would
  * write turns and an outcome once, and the real, final export could then
  * never be saved (it would be another export's). So it is checked FIRST,
- * before the session is read or anything is written or stamped (no audio, no
- * turns, no outcome, no live_ended_at), and answers
+ * before anything is written or stamped (no audio, no turns, no outcome, no
+ * live_ended_at), and answers
  * { notFinal: true, retryable: true, saved: false, outcome: null }.
+ * The one thing read is the session: a restarted first attempt (status
+ * 'abandoned', F10) is done whatever the export says, so it answers
+ * `restarted`, never retry later. A failed read answers retry later, as before.
  *
  * ── Transcription, queued once saved (B2) ────────────────────
  *
@@ -1207,6 +1233,10 @@ export async function saveLiveExport(
   deps: IngestDeps,
 ): Promise<IngestResult> {
   if (isNotFinalExport(parsed.status)) {
+    const current = await readSession(deps.service, sessionId).catch(() => null);
+    if (current?.kind === "live" && current.status === "abandoned") {
+      return restartedSave(sessionId, (current.live_outcome as LiveOutcome | null) ?? null, 0);
+    }
     console.log(`[live-ingest] session ${sessionId}: export not final yet; nothing saved`);
     return { outcome: null, saved: false, notFinal: true, retryable: true };
   }
@@ -1221,6 +1251,11 @@ export async function saveLiveExport(
   if (!frozen) throw new LiveIngestError("not_frozen", sessionId);
   if (row.provider_session_id && row.provider_session_id !== parsed.provider_session_id) {
     throw new LiveIngestError("wrong_session", "the export is another provider session's");
+  }
+
+  // A restarted first attempt with an outcome (F10): nothing new is written, whichever export this is.
+  if (row.status === "abandoned" && row.live_outcome) {
+    return restartedSave(sessionId, row.live_outcome as LiveOutcome, 0);
   }
 
   const hash = exportHash(parsed);
@@ -1250,6 +1285,7 @@ export async function saveLiveExport(
   // A save of this export may already have landed its turns (and stopped
   // before the outcome). Anything else in the table is another export's.
   let have = await readTurns(deps.service, sessionId);
+  let inserted = 0;
   if (have.length === 0) {
     // 3. Audio, at this export's own paths; a retry writes the same bytes again.
     for (const a of audio) {
@@ -1266,10 +1302,14 @@ export async function saveLiveExport(
     // A unique-key refusal with nothing stored is this export clashing with
     // itself, not a race lost to another save.
     if (have.length === 0) throw new LiveIngestError("db_error", "turn insert");
+    if (!error) inserted = rows.length;
   }
   if (!turnsAreThese(have, rows)) {
+    if (row.status === "abandoned") return restartedSave(sessionId, null, inserted);
     throw new LiveIngestError("different_export", "the session holds another export's turns");
   }
+  // A restarted first attempt with no outcome: its turns are kept for audit, and nothing else.
+  if (row.status === "abandoned") return restartedSave(sessionId, null, inserted);
 
   // 5. The outcome, once.
   const outcome: LiveOutcome = {
@@ -1277,16 +1317,21 @@ export async function saveLiveExport(
     saved_at: new Date(deps.now()).toISOString(),
     export_hash: hash,
   };
+  // Never onto a restarted attempt, even one restarted since the read above.
   const { data: landed, error: oErr } = await deps.service
     .from("interview_sessions")
     .update({ live_outcome: outcome })
     .eq("id", sessionId)
     .eq("kind", "live")
     .is("live_outcome", null)
+    .neq("status", "abandoned")
     .select("id");
   if (oErr) throw new LiveIngestError("db_error", "outcome write");
   if (((landed ?? []) as unknown[]).length === 0) {
     const now = await readSession(deps.service, sessionId);
+    if (now?.status === "abandoned") {
+      return restartedSave(sessionId, (now.live_outcome as LiveOutcome | null) ?? null, inserted);
+    }
     const theirs = now ? storedFor(now, hash) : null;
     if (theirs) {
       return {

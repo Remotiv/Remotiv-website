@@ -8,7 +8,8 @@
  *   silence_reminder      procedural: no question, no follow-up
  *   disconnected          ending_unconfirmed with its own end_check, needs a
  *                         person, never completed (D10 unchanged)
- *   in_progress           notFinal: nothing read or written, retry later;
+ *   in_progress           notFinal: only the session read, nothing written,
+ *                         retry later;
  *                         the final export of the same session then saves
  *
  *   node --test src/lib/interviews/live-ingest-f15b.test.ts
@@ -287,7 +288,7 @@ async function save(db, raw) {
   );
 }
 
-test("in_progress, in status or end_reason or both, any case: notFinal and retryable, before anything is read or written", async () => {
+test("in_progress, in status or end_reason or both, any case: notFinal and retryable, before anything is written", async () => {
   const variants = [
     {},
     { status: "completed", end_reason: "in_progress", completed_gracefully: true },
@@ -304,7 +305,11 @@ test("in_progress, in status or end_reason or both, any case: notFinal and retry
       { outcome: null, saved: false, notFinal: true, retryable: true },
       JSON.stringify(over),
     );
-    assert.equal(db.service.queries.length, 0, "not even a read");
+    assert.deepEqual(
+      db.service.queries.map((q) => [q.table, q.calls.map((c) => c[0])]),
+      [["interview_sessions", ["select", "eq", "maybeSingle"]]],
+      "one read of the session, nothing written",
+    );
     assert.equal(db.objects.size, 0, "no audio stored");
     assert.equal(db.counts.uploads, 0);
     assert.equal(db.tables.interview_turns.length, 0, "no turns");

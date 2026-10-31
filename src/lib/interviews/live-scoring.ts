@@ -369,10 +369,27 @@ type SessionRow = {
   application_id: string | null;
   job_id: string | null;
   kind: string | null;
+  status: string | null;
   live_outcome: LiveOutcome | null;
   live_settings: unknown;
   questions_snapshot: unknown;
   scoring_snapshot: unknown;
+};
+
+/** A restarted first attempt (F10, status 'abandoned'): never scored. */
+async function restarted(service: Service, sessionId: string): Promise<boolean> {
+  const { data, error } = await service
+    .from("interview_sessions")
+    .select("status")
+    .eq("id", sessionId)
+    .maybeSingle();
+  if (error) throw new LiveScoringError("db_error", sessionId);
+  return (data as { status: string | null } | null)?.status === "abandoned";
+}
+
+const notScored = (sessionId: string): null => {
+  console.log(`[live-scoring] session ${sessionId}: restarted; not scored`);
+  return null;
 };
 
 export class LiveScoringError extends Error {
@@ -399,7 +416,7 @@ export async function scoreLiveSession(
   const { data: sData, error: sErr } = await service
     .from("interview_sessions")
     .select(
-      "id, company_id, application_id, job_id, kind, live_outcome, live_settings, questions_snapshot, scoring_snapshot",
+      "id, company_id, application_id, job_id, kind, status, live_outcome, live_settings, questions_snapshot, scoring_snapshot",
     )
     .eq("id", sessionId)
     .maybeSingle();
@@ -407,6 +424,7 @@ export async function scoreLiveSession(
   const session = sData as SessionRow | null;
   if (!session) throw new LiveScoringError("not_found", sessionId);
   if (session.kind !== "live") throw new LiveScoringError("not_live", sessionId);
+  if (session.status === "abandoned") return notScored(sessionId);
   if (!(deps.enabled ?? liveScoringEnabled())) {
     console.log(
       `[live-scoring] session ${sessionId}: scoring is off (LIVE_INTERVIEW_SCORING_ENABLED)`,
@@ -649,6 +667,8 @@ export async function scoreLiveSession(
       updated_at: stamp,
     };
 
+    // Read again just before the write: a restart that landed while this scored is respected.
+    if (await restarted(service, sessionId)) return notScored(sessionId);
     const write = stored
       ? service
           .from("live_interview_scores")
