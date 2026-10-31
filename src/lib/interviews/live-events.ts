@@ -178,7 +178,8 @@ export async function stampOverdueLiveEnds(
   service: Service,
   now: () => number = Date.now,
 ): Promise<number> {
-  // Coarse by the grace alone, then each session against its own limit.
+  // Coarse by the grace alone, then each session against its own limit. Oldest first, so
+  // calls still running can never fill the batch ahead of one that is due.
   const { data, error } = await service
     .from("interview_sessions")
     .select("id, started_at, live_settings")
@@ -186,6 +187,8 @@ export async function stampOverdueLiveEnds(
     .is("live_ended_at", null)
     .not("provider_session_id", "is", null)
     .lte("started_at", new Date(now() - END_GRACE_MS).toISOString())
+    .order("started_at", { ascending: true })
+    .order("id", { ascending: true })
     .limit(BACKSTOP_BATCH);
   if (error) {
     console.error(`[live-events] backstop read failed (${error.code ?? "error"})`);
