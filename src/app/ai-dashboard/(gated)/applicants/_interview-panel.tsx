@@ -606,6 +606,27 @@ function ErrorNote({ children }: { children: React.ReactNode }) {
 /* ───────────────────── 2. AI video interview ───────────────── */
 
 /**
+ * What the drawer may offer for this AI Video Interview. A restarted one, or
+ * one whose restart was decided, offers no send of its own: it is managed on
+ * the latest attempt's interview page (F10 C5), and the server refuses a send
+ * here too (live_restarted). `restartHref` is that page.
+ */
+export function liveSendControls(
+  session: InterviewSessionSummary | null,
+  canSend: boolean,
+): { allowSend: boolean; restartHref: string | null; restarted: boolean } {
+  const restart = session?.restart;
+  if (restart) {
+    return {
+      allowSend: false,
+      restartHref: `/ai-dashboard/interviews/${restart.latestSessionId}`,
+      restarted: restart.restarted,
+    };
+  }
+  return { allowSend: canSend, restartHref: null, restarted: false };
+}
+
+/**
  * The AI Video Interview section — three states, as the design has them: not
  * sent, waiting, completed.
  *
@@ -656,7 +677,11 @@ function LiveInterviewSection({
   }, [load]);
 
   const session = state?.session ?? null;
-  const canSend = Boolean(state?.liveAvailable && state.liveEnabled);
+  const {
+    allowSend: canSend,
+    restartHref,
+    restarted,
+  } = liveSendControls(session, Boolean(state?.liveAvailable && state.liveEnabled));
   const shown = Boolean(session) || canSend;
 
   async function handleSend(reissue = false) {
@@ -756,6 +781,22 @@ function LiveInterviewSection({
             )}
           </div>
         </div>
+      )}
+
+      {restartHref && (
+        // TODO-COPY: placeholder - Waleed writes the final line.
+        <p
+          className="m-0 mt-2.5 text-[12.5px] leading-relaxed text-[var(--ai-t3)]"
+          data-live-restarted
+        >
+          {restarted
+            ? "This interview was restarted - manage it from the "
+            : "A restart decision was made for this interview - manage it from the "}
+          <Link className="font-semibold underline" href={restartHref}>
+            interview page
+          </Link>
+          .
+        </p>
       )}
 
       {canSend && waiting && session && callBegan && (

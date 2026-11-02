@@ -34,7 +34,7 @@ import type {
 
 type MutationResult<T = undefined> =
   | { success: true; data: T }
-  | { success: false; error: string; code?: "live_call_started" };
+  | { success: false; error: string; code?: "live_call_started" | "live_restarted" };
 
 /** Same message for not-found and not-yours, as everywhere else. */
 const NOT_YOURS = "Applicant not found in your workspace.";
@@ -332,6 +332,17 @@ export async function sendLiveInterviewInvite(
   const gate = await gateLiveInterviewInvite(service, { jobId, companyId: ctx.companyId });
   if (!gate.ok) return { success: false, error: gate.error };
 
+  /*
+   * A restarted interview, or one whose restart was decided, is managed only
+   * on its interview page (F10 C5): never cancelled, replaced or re-sent from
+   * here. Refused before anything is written.
+   */
+  const restart = await liveRestartOf(service, applicationId, ctx.companyId);
+  if (!restart.ok) return { success: false, error: SEND_FAILED };
+  if (restart.latestSessionId) {
+    return { ...LIVE_RESTARTED, error: restart.restarted ? RESTARTED_TEXT : DECIDED_TEXT };
+  }
+
   const questionsSnapshot = await loadQuestionsSnapshot(service, jobId, ctx.companyId);
   const scoringSnapshot = await loadScoringSnapshot(service, jobId, ctx.companyId);
   if (questionsSnapshot.length === 0) {
@@ -613,6 +624,11 @@ async function supersedeOpenSession(
       .is("provider_session_id", null)
       .is("started_at", null)
       .is("live_ended_at", null)
+      // Never a restart, and never a first attempt that has one, in this update's own filter:
+      // attempt is 1 or 2 (migration 020), and a first attempt gets a restart only once it is
+      // 'abandoned', which is final (053). A row that changed since the read matches nothing.
+      .neq("attempt", 2)
+      .neq("status", "abandoned")
       .select("id");
     if (error) return { ok: false, error: SEND_FAILED };
     // Nothing cancelled: the candidate joined since the read, or the row changed. Either way, stop.
@@ -638,6 +654,50 @@ const LIVE_CALL_REFUSED = {
 } as const;
 
 const SEND_FAILED = "Couldn't send - please try again.";
+
+// TODO-COPY: placeholders - Waleed writes the final lines.
+const RESTARTED_TEXT = "This interview was restarted - manage it from the interview page.";
+const DECIDED_TEXT =
+  "A restart decision was made for this interview - manage it from the interview page.";
+const LIVE_RESTARTED = { success: false, code: "live_restarted" } as const;
+
+/**
+ * Whether this application's AI Video Interview was restarted, or its restart
+ * decided (F10): the latest attempt to manage it from, or null, and whether a
+ * restart exists (rather than only a decision on attempt 1). Company-scoped
+ * at every read; a decision on another application's or company's session is
+ * never found. ok:false when it could not be read: callers fail closed.
+ */
+async function liveRestartOf(
+  service: Service,
+  applicationId: string,
+  companyId: string,
+): Promise<{ ok: true; latestSessionId: string | null; restarted: boolean } | { ok: false }> {
+  const { data, error } = await service
+    .from("interview_sessions")
+    .select("id, attempt")
+    .eq("application_id", applicationId)
+    .eq("company_id", companyId)
+    .eq("kind", "live");
+  if (error) return { ok: false };
+  const sessions = (data ?? []) as { id: string; attempt: number | null }[];
+  const restart = sessions.find((s) => s.attempt === 2);
+  if (restart) return { ok: true, latestSessionId: restart.id, restarted: true };
+  if (sessions.length === 0) return { ok: true, latestSessionId: null, restarted: false };
+  const { data: decided, error: dErr } = await service
+    .from("live_interview_actions")
+    .select("session_id")
+    .eq("company_id", companyId)
+    .eq("action", "decide_restart")
+    .in(
+      "session_id",
+      sessions.map((s) => s.id),
+    )
+    .limit(1);
+  if (dErr) return { ok: false };
+  const row = ((decided ?? []) as { session_id: string }[])[0];
+  return { ok: true, latestSessionId: row?.session_id ?? null, restarted: false };
+}
 
 /** The link's deadline and the retention date, both from one `now`. */
 function inviteDates(): { expiresAt: string; expiresAtMs: number; deleteAfter: string } {
@@ -856,6 +916,13 @@ export async function fetchInterviewPanel(
     verdict: sc?.verdict ?? null,
     summary: sc?.summary ?? null,
   };
+  if (kind === "live") {
+    const restart = await liveRestartOf(service, applicationId, ctx.companyId);
+    session.restart =
+      restart.ok && restart.latestSessionId
+        ? { latestSessionId: restart.latestSessionId, restarted: restart.restarted }
+        : null;
+  }
 
   return { ...base, session };
 }

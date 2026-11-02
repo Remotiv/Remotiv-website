@@ -31,6 +31,12 @@ export type InterviewSessionSummary = {
   /** Answers recorded so far, against the job's question count. */
   answered: number;
   total: number;
+  /**
+   * AI Video Interview only: set once it was restarted or its restart decided
+   * (F10). The drawer then offers no send of its own and links to the latest
+   * attempt's interview page, where restarts are managed.
+   */
+  restart?: { latestSessionId: string; restarted: boolean } | null;
 };
 
 /**
