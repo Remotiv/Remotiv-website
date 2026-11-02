@@ -3,6 +3,7 @@ import { notFound } from "next/navigation";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canActOnLiveReview, loadLiveReview } from "@/lib/interviews/live-review";
 import { loadInterviewSession } from "@/lib/interviews/review";
+import { decideRestartAction, resendRestartLinkAction } from "../live-actions";
 import { LiveReviewClient } from "./_live-review-client";
 import { ReviewClient } from "./_review-client";
 
@@ -36,6 +37,7 @@ export default async function InterviewReviewPage({
         candidateName={session.candidateName}
         jobTitle={session.jobTitle}
         canAct={canActOnLiveReview(ctx.role)}
+        restartActions={{ decide: decideRestartAction, resend: resendRestartLinkAction }}
       />
     );
   }

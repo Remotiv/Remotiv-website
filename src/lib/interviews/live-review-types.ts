@@ -118,7 +118,134 @@ export type LiveReviewView = {
   questions: LiveReviewQuestion[];
   /** The candidate's camera video: confirmed pieces, gaps, and whether it is complete. */
   video: LiveReviewVideo;
+  /**
+   * The restart decision and its link (F10 C5), on the company's own review
+   * only. Absent on the platform review and on views built without it.
+   */
+  restart?: LiveRestartView | null;
 };
+
+/** A recorded restart decision. The note is sent only to an owner or admin; null otherwise. */
+export type LiveRestartDecision = {
+  decision: "restart" | "no_restart";
+  byName: string | null;
+  byRole: string;
+  at: string;
+  note: string | null;
+};
+
+/** Why a first attempt cannot be decided yet, as migration 053 and live-restart.ts say it. */
+export type LiveRestartReason =
+  | "not_live"
+  | "not_first_attempt"
+  | "not_started"
+  | "not_ended"
+  | "too_soon"
+  | "not_final"
+  | "not_eligible_outcome"
+  | "already_decided";
+
+export type LiveRestartView =
+  | {
+      kind: "first_attempt";
+      eligible: boolean;
+      /** Null when eligible. */
+      reason: LiveRestartReason | null;
+      /** For too_soon: when it can be decided. */
+      availableAt: string | null;
+      decision: LiveRestartDecision | null;
+    }
+  | { kind: "earlier_restarted"; decision: LiveRestartDecision | null }
+  | {
+      kind: "restart_attempt";
+      status: string;
+      /** The deadline as the database holds it now. */
+      deadline: string | null;
+      expired: boolean;
+    };
+
+/** The codes a restart action returns. Never a database message. */
+export type LiveRestartCode =
+  | "signed_out"
+  | "not_found"
+  | "role_not_allowed"
+  | "not_latest"
+  | "not_eligible"
+  | "too_soon"
+  | "not_final"
+  | "not_eligible_outcome"
+  | "already_decided"
+  | "note_invalid"
+  | "past_retention"
+  | "expired"
+  | "not_invited"
+  | "email_failed"
+  | "deadline_not_extended"
+  | "db_error";
+
+/**
+ * The email went out and its quoted deadline stands, but the deadline was not
+ * extended after delivery: it may be slightly less than 72 hours after the
+ * actual delivery. Never reported as kept.
+ */
+export type LiveRestartWarning = "not_extended_after_delivery";
+
+/** What sending (or re-sending) a restart link did. The session is never cancelled. */
+export type LiveRestartSend =
+  | { emailFailed: false; deadline: string; warning: LiveRestartWarning | null }
+  | { emailFailed: true; code: "email_failed" | "not_found" | "db_error" };
+
+export type LiveRestartDecideResult =
+  | { ok: true; decision: "no_restart" }
+  | ({ ok: true; decision: "restart"; restarted: true; restartSessionId: string } & LiveRestartSend)
+  | { ok: false; code: LiveRestartCode };
+
+export type LiveRestartResendResult =
+  | ({ ok: true; restartSessionId: string } & LiveRestartSend)
+  | { ok: false; code: LiveRestartCode };
+
+/** The restart panel the review page shows, from the view, the viewer and who is looking. */
+export type LiveRestartPanel =
+  | { panel: "none" }
+  | { panel: "decide" }
+  | { panel: "awaiting_decision" }
+  | { panel: "not_yet"; reason: "too_soon" | "not_final" | "not_ended"; availableAt: string | null }
+  | { panel: "decided"; decision: LiveRestartDecision }
+  | { panel: "earlier_restarted"; decision: LiveRestartDecision | null }
+  | { panel: "restart_invited"; deadline: string | null; canResend: boolean }
+  | { panel: "restart_expired" };
+
+const NOT_YET = ["too_soon", "not_final", "not_ended"] as const;
+
+/**
+ * Which restart panel to show. Pure, so the page and its tests agree. Only an
+ * owner or admin (`canAct`) decides or re-sends; everyone else sees status.
+ * A Remotiv super admin (`platform`) sees none of it. A first attempt that can
+ * never be restarted (completed, partial, never started) shows nothing; a
+ * started or finished restart shows nothing beyond the attempt banner. An
+ * invited restart shows its database deadline and, for an owner or admin, the
+ * re-send: whether its email arrived is never claimed (fail closed).
+ */
+export function restartPanelFor(
+  restart: LiveRestartView | null | undefined,
+  viewer: { canAct: boolean; platform: boolean },
+): LiveRestartPanel {
+  if (!restart || viewer.platform) return { panel: "none" };
+  if (restart.kind === "earlier_restarted") {
+    return { panel: "earlier_restarted", decision: restart.decision };
+  }
+  if (restart.kind === "restart_attempt") {
+    if (restart.status !== "invited") return { panel: "none" };
+    if (restart.expired) return { panel: "restart_expired" };
+    return { panel: "restart_invited", deadline: restart.deadline, canResend: viewer.canAct };
+  }
+  if (restart.decision) return { panel: "decided", decision: restart.decision };
+  if (restart.eligible) return viewer.canAct ? { panel: "decide" } : { panel: "awaiting_decision" };
+  const reason = NOT_YET.find((r) => r === restart.reason);
+  return reason
+    ? { panel: "not_yet", reason, availableAt: restart.availableAt }
+    : { panel: "none" };
+}
 
 export type LiveActionResult = { ok: true } | { ok: false; error: string };
 export type LiveAudioResult = { ok: true; url: string } | { ok: false; error: string };

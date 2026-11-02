@@ -9,12 +9,19 @@ import {
   getAdminLiveVideoPieceUrl,
 } from "@/app/admin/interviews/actions";
 import { BAND_TEXT, scoreBand } from "@/app/ai-dashboard/lib/score-bands";
-import type {
-  LiveRecoveryRequest,
-  LiveReviewFlag,
-  LiveReviewQuestion,
-  LiveReviewTurn,
-  LiveReviewView,
+import {
+  type LiveRecoveryRequest,
+  type LiveRestartCode,
+  type LiveRestartDecideResult,
+  type LiveRestartDecision,
+  type LiveRestartPanel,
+  type LiveRestartResendResult,
+  type LiveRestartSend,
+  type LiveReviewFlag,
+  type LiveReviewQuestion,
+  type LiveReviewTurn,
+  type LiveReviewView,
+  restartPanelFor,
 } from "@/lib/interviews/live-review-types";
 import {
   clock,
@@ -118,6 +125,7 @@ export function LiveReviewClient({
   jobTitle,
   canAct,
   mode = "company",
+  restartActions,
 }: {
   view: LiveReviewView;
   candidateName: string;
@@ -125,6 +133,8 @@ export function LiveReviewClient({
   /** Owner or admin. Combined with the attempt being the latest before anything renders. */
   canAct: boolean;
   mode?: LiveReviewMode;
+  /** The restart decision's server actions, passed by the company's review page only. */
+  restartActions?: RestartActions;
 }) {
   const [audio, setAudio] = useState<AudioState>(null);
   const [audioError, setAudioError] = useState<string | null>(null);
@@ -232,6 +242,12 @@ export function LiveReviewClient({
         </p>
       )}
 
+      <RestartPanel
+        sessionId={view.sessionId}
+        panel={restartPanelFor(view.restart, { canAct, platform: mode === "platform" })}
+        actions={restartActions}
+      />
+
       {(header.reviewReasons.length > 0 || header.restartNote) && (
         <section className={CARD} aria-label="Needs review" data-needs-review>
           <h2 className="m-0 text-sm font-bold text-[var(--ai-t1)]">Needs review</h2>
@@ -301,6 +317,296 @@ export function LiveReviewClient({
         />
       ))}
     </div>
+  );
+}
+
+/* ── the restart decision (F10 C5) ──────────────────────────────── */
+
+export type RestartActions = {
+  decide: (
+    sessionId: string,
+    decision: "restart" | "no_restart",
+    note: string,
+  ) => Promise<LiveRestartDecideResult>;
+  resend: (restartSessionId: string) => Promise<LiveRestartResendResult>;
+};
+
+const NOTE_MAX = 2000;
+
+/** A time as the page shows it: UTC, so the server and the browser agree. */
+function when(iso: string): string {
+  const d = new Date(iso);
+  const date = d.toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+  const time = d.toLocaleTimeString("en-GB", {
+    hour: "2-digit",
+    minute: "2-digit",
+    timeZone: "UTC",
+  });
+  return `${date}, ${time} UTC`;
+}
+
+// TODO-COPY: every string in RESTART_TEXT and RESTART_CODE_TEXT is a placeholder - Waleed writes the final copy.
+const RESTART_TEXT = {
+  title: "Restart decision",
+  intro: "The first attempt did not finish cleanly. Decide whether the candidate takes it again.",
+  restart: "Restart",
+  noRestart: "No restart",
+  noteLabel: "Note (required)",
+  continue: "Continue",
+  back: "Back",
+  confirmRestart:
+    "Confirm restart: a new link is emailed to the candidate, with at least 72 hours to take it.",
+  confirmNoRestart: "Confirm no restart: this attempt stays as it is. This can't be changed later.",
+  confirm: "Confirm",
+  working: "Saving...",
+  awaiting: "A restart decision is waiting for an owner or admin.",
+  tooSoon: (at: string | null) =>
+    at ? `A restart can be decided from ${when(at)}.` : "A restart can be decided soon.",
+  notFinal: "A restart can be decided once every answer has been transcribed.",
+  notEnded: "A restart can be decided after the interview has ended.",
+  decided: (d: LiveRestartDecision) =>
+    `Restart decision: ${d.decision === "restart" ? "restart" : "no restart"}, by ${d.byName ?? "a team member"} (${d.byRole}), ${when(d.at)}.`,
+  noteShown: (note: string) => `Note: ${note}`,
+  earlier: "Earlier attempt - restarted. Kept for audit only.",
+  invitedDeadline: (deadline: string | null) =>
+    deadline ? `Restart link deadline: ${when(deadline)}.` : "Restart link sent.",
+  unconfirmed:
+    "Delivery can't be confirmed here - send the link again if the candidate didn't receive it.",
+  resend: "Send the link again",
+  expired: "The restart link expired before it was used.",
+  saved: "Decision saved.",
+  sent: (deadline: string) => `Restart link sent - deadline ${when(deadline)}.`,
+} as const;
+
+const RESTART_CODE_TEXT: Record<LiveRestartCode, string> = {
+  signed_out: "Sign in to your workspace first.",
+  not_found: "That interview isn't in your workspace.",
+  role_not_allowed: "Only an owner or admin can decide a restart.",
+  not_latest: "This is an earlier attempt, kept for audit only.",
+  not_eligible: "This interview can't be restarted.",
+  too_soon: "It's too soon to decide - try again in a little while.",
+  not_final: "Wait until every answer has been transcribed.",
+  not_eligible_outcome: "This interview's outcome is never restarted.",
+  already_decided: "A restart decision has already been made.",
+  note_invalid: "Write a note of up to 2000 characters.",
+  past_retention: "A restart would end after the recording's deletion date, so it can't be sent.",
+  expired: "The restart link has expired.",
+  not_invited: "The candidate has already started the restarted interview.",
+  email_failed: "The email was not delivered. Send the link again.",
+  deadline_not_extended:
+    "The link wasn't sent: its deadline couldn't be extended. The candidate's current link still works - try again.",
+  db_error: "Something went wrong. Please try again.",
+};
+
+function notYetText(panel: Extract<LiveRestartPanel, { panel: "not_yet" }>): string {
+  if (panel.reason === "too_soon") return RESTART_TEXT.tooSoon(panel.availableAt);
+  if (panel.reason === "not_final") return RESTART_TEXT.notFinal;
+  return RESTART_TEXT.notEnded;
+}
+
+/**
+ * What a send or re-send did, as the panel says it right after the click. The
+ * deadline is the one the email quoted and the database holds; a deadline not
+ * extended after delivery still stands, so it reads as sent.
+ */
+export function restartSendText(sent: LiveRestartSend): string {
+  if (sent.emailFailed) return RESTART_CODE_TEXT[sent.code];
+  return RESTART_TEXT.sent(sent.deadline);
+}
+
+/** A send worth retrying from here: the email was not delivered. */
+function retryable(sent: LiveRestartSend): boolean {
+  return sent.emailFailed && sent.code === "email_failed";
+}
+
+function RestartPanel({
+  sessionId,
+  panel,
+  actions,
+}: {
+  sessionId: string;
+  panel: LiveRestartPanel;
+  actions?: RestartActions;
+}) {
+  const router = useRouter();
+  const [choice, setChoice] = useState<"restart" | "no_restart" | null>(null);
+  const [note, setNote] = useState("");
+  const [confirming, setConfirming] = useState(false);
+  const [busy, setBusy] = useState(false);
+  const [message, setMessage] = useState<string | null>(null);
+  // The restart to send again from here, after a decision whose link needs it.
+  const [retryId, setRetryId] = useState<string | null>(null);
+
+  if (panel.panel === "none") return null;
+  const clean = note.trim();
+  const noteOk = clean.length >= 1 && clean.length <= NOTE_MAX;
+
+  const decide = async () => {
+    if (!actions || !choice) return;
+    setBusy(true);
+    setMessage(null);
+    const r = await actions.decide(sessionId, choice, note);
+    setBusy(false);
+    if (!r.ok) {
+      setMessage(RESTART_CODE_TEXT[r.code]);
+      return;
+    }
+    if (r.decision === "no_restart") {
+      setMessage(RESTART_TEXT.saved);
+    } else {
+      setMessage(restartSendText(r));
+      setRetryId(retryable(r) ? r.restartSessionId : null);
+    }
+    router.refresh();
+  };
+
+  const resend = async (restartSessionId: string) => {
+    if (!actions) return;
+    setBusy(true);
+    setMessage(null);
+    const r = await actions.resend(restartSessionId);
+    setBusy(false);
+    setMessage(r.ok ? restartSendText(r) : RESTART_CODE_TEXT[r.code]);
+    setRetryId(r.ok && retryable(r) && restartSessionId !== sessionId ? restartSessionId : null);
+    if (r.ok) router.refresh();
+  };
+
+  return (
+    <section className={CARD} aria-label={RESTART_TEXT.title} data-restart-panel={panel.panel}>
+      <h2 className="m-0 text-sm font-bold text-[var(--ai-t1)]">{RESTART_TEXT.title}</h2>
+      {panel.panel === "decide" && !actions && (
+        <p className={`m-0 mt-2 ${MUTED}`}>{RESTART_TEXT.awaiting}</p>
+      )}
+      {panel.panel === "decide" && actions && (
+        <div className="mt-2 flex flex-col gap-3" data-restart-form>
+          <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.intro}</p>
+          {!confirming ? (
+            <>
+              <div className="flex gap-2">
+                {(["restart", "no_restart"] as const).map((c) => (
+                  <button
+                    key={c}
+                    type="button"
+                    className={BUTTON}
+                    aria-pressed={choice === c}
+                    onClick={() => setChoice(c)}
+                    data-restart-choice={c}
+                  >
+                    {c === "restart" ? RESTART_TEXT.restart : RESTART_TEXT.noRestart}
+                  </button>
+                ))}
+              </div>
+              <label className="flex flex-col gap-1 text-xs font-semibold text-[var(--ai-t2)]">
+                {RESTART_TEXT.noteLabel}
+                <textarea
+                  className="rounded-lg border border-[var(--ai-line)] bg-transparent p-2 text-sm text-[var(--ai-t1)]"
+                  rows={3}
+                  maxLength={NOTE_MAX}
+                  value={note}
+                  onChange={(e) => setNote(e.target.value)}
+                />
+              </label>
+              <div>
+                <button
+                  type="button"
+                  className={BUTTON}
+                  disabled={!choice || !noteOk}
+                  onClick={() => setConfirming(true)}
+                >
+                  {RESTART_TEXT.continue}
+                </button>
+              </div>
+            </>
+          ) : (
+            <>
+              <p className="m-0 text-sm text-[var(--ai-t1)]" data-restart-confirm>
+                {choice === "restart" ? RESTART_TEXT.confirmRestart : RESTART_TEXT.confirmNoRestart}
+              </p>
+              <div className="flex gap-2">
+                <button type="button" className={BUTTON} disabled={busy} onClick={decide}>
+                  {busy ? RESTART_TEXT.working : RESTART_TEXT.confirm}
+                </button>
+                <button
+                  type="button"
+                  className={BUTTON}
+                  disabled={busy}
+                  onClick={() => setConfirming(false)}
+                >
+                  {RESTART_TEXT.back}
+                </button>
+              </div>
+            </>
+          )}
+        </div>
+      )}
+      {panel.panel === "awaiting_decision" && (
+        <p className={`m-0 mt-2 ${MUTED}`}>{RESTART_TEXT.awaiting}</p>
+      )}
+      {panel.panel === "not_yet" && (
+        <p className={`m-0 mt-2 ${MUTED}`} data-restart-not-yet={panel.reason}>
+          {notYetText(panel)}
+        </p>
+      )}
+      {(panel.panel === "decided" || panel.panel === "earlier_restarted") && (
+        <div className="mt-2 flex flex-col gap-1">
+          {panel.panel === "earlier_restarted" && (
+            <p className="m-0 text-sm font-semibold text-[var(--ai-t1)]" data-restart-earlier>
+              {RESTART_TEXT.earlier}
+            </p>
+          )}
+          {panel.decision && (
+            <p className={`m-0 ${MUTED}`} data-restart-decision={panel.decision.decision}>
+              {RESTART_TEXT.decided(panel.decision)}
+            </p>
+          )}
+          {panel.decision?.note && (
+            <p className={`m-0 ${MUTED}`} data-restart-note-text>
+              {RESTART_TEXT.noteShown(panel.decision.note)}
+            </p>
+          )}
+        </div>
+      )}
+      {panel.panel === "restart_invited" && (
+        <div className="mt-2 flex flex-col gap-2" data-restart-invited>
+          <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.invitedDeadline(panel.deadline)}</p>
+          <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.unconfirmed}</p>
+          {panel.canResend && actions && (
+            <div>
+              <button
+                type="button"
+                className={BUTTON}
+                disabled={busy}
+                onClick={() => resend(sessionId)}
+                data-restart-resend
+              >
+                {busy ? RESTART_TEXT.working : RESTART_TEXT.resend}
+              </button>
+            </div>
+          )}
+        </div>
+      )}
+      {panel.panel === "restart_expired" && (
+        <p className={`m-0 mt-2 ${MUTED}`}>{RESTART_TEXT.expired}</p>
+      )}
+      {message && (
+        <p role="status" className="m-0 mt-2 text-sm text-[var(--ai-t1)]" data-restart-message>
+          {message}
+        </p>
+      )}
+      {retryId && actions && (
+        <div className="mt-2">
+          <button
+            type="button"
+            className={BUTTON}
+            disabled={busy}
+            onClick={() => resend(retryId)}
+            data-restart-retry
+          >
+            {busy ? RESTART_TEXT.working : RESTART_TEXT.resend}
+          </button>
+        </div>
+      )}
+    </section>
   );
 }
 

@@ -34,11 +34,14 @@ import {
   styleCheckDecisions,
   wordingCheckDecisions,
 } from "@/lib/interviews/live-resolutions";
+import { restartEligibility } from "@/lib/interviews/live-restart";
 import type {
   LiveActionResult,
   LiveAudioResult,
   LiveQuestionStatus,
   LiveRecoveryRequest,
+  LiveRestartDecision,
+  LiveRestartView,
   LiveReviewFlag,
   LiveReviewHeader,
   LiveReviewQuestion,
@@ -107,7 +110,7 @@ export function canActOnLiveReview(role: string): boolean {
   return role === "owner" || role === "admin";
 }
 
-type SessionRow = {
+export type SessionRow = {
   id: string;
   company_id: string;
   application_id: string | null;
@@ -119,13 +122,21 @@ type SessionRow = {
   live_settings: unknown;
   questions_snapshot: unknown;
   scoring_snapshot: unknown;
+  status: string | null;
+  live_ended_at: string | null;
+  expires_at: string | null;
+  delete_after: string | null;
+  created_at: string | null;
 };
 
 const SESSION_COLUMNS =
-  "id, company_id, application_id, job_id, kind, attempt, previous_attempt_id, live_outcome, live_settings, questions_snapshot, scoring_snapshot";
+  "id, company_id, application_id, job_id, kind, attempt, previous_attempt_id, live_outcome, live_settings, questions_snapshot, scoring_snapshot, status, live_ended_at, expires_at, delete_after, created_at";
 
-/** The live session, if this viewer may see it: their company, their hiring team. */
-async function gateLiveSession(
+/**
+ * The live session, if this viewer may see it: their company, their hiring
+ * team. Also the first gate of every restart action (live-restart-flow.ts).
+ */
+export async function gateLiveSession(
   ctx: CompanyContext,
   sessionId: string,
   deps: LiveReviewDeps,
@@ -656,7 +667,96 @@ export async function loadLiveReview(
 ): Promise<LiveReviewView | null> {
   const session = await gateLiveSession(ctx, sessionId, deps);
   if (!session) return null;
-  return reviewFor(deps.service, session, ctx.companyId);
+  const view = await reviewFor(deps.service, session, ctx.companyId);
+  if (!view) return null;
+  const restart = await restartViewFor(deps.service, session, ctx.companyId, {
+    isLatest: view.attempt.isLatest,
+    canSeeNote: canActOnLiveReview(ctx.role),
+    nowMs: Date.now(),
+  });
+  return { ...view, restart };
+}
+
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * The restart state for the company's review (F10 C5): a first attempt's
+ * eligibility and decision, an earlier attempt that was restarted, or a
+ * restart's status and its deadline as the database holds it. The decision's
+ * note only for an owner or admin. Whether the link's email arrived is not
+ * claimed: no record ties an email to this restart, so the page offers a
+ * re-send instead (fail closed).
+ */
+async function restartViewFor(
+  service: Service,
+  session: SessionRow,
+  companyId: string,
+  viewer: { isLatest: boolean; canSeeNote: boolean; nowMs: number },
+): Promise<LiveRestartView | null> {
+  if (session.attempt === 2) {
+    if (!viewer.isLatest) return null;
+    const expiresMs = session.expires_at ? Date.parse(session.expires_at) : null;
+    return {
+      kind: "restart_attempt",
+      status: session.status ?? "",
+      deadline: session.expires_at,
+      expired: expiresMs === null || expiresMs <= viewer.nowMs,
+    };
+  }
+  if (session.attempt !== 1) return null;
+  const decision = await restartDecisionFor(service, session.id, companyId, viewer.canSeeNote);
+  if (!viewer.isLatest) return { kind: "earlier_restarted", decision };
+  const verdict = restartEligibility(
+    {
+      kind: session.kind,
+      attempt: session.attempt,
+      status: session.status ?? "",
+      live_ended_at: session.live_ended_at,
+      live_outcome: session.live_outcome,
+      decided: decision !== null,
+    },
+    viewer.nowMs,
+  );
+  if (verdict.eligible) {
+    return { kind: "first_attempt", eligible: true, reason: null, availableAt: null, decision };
+  }
+  const availableAt =
+    verdict.code === "too_soon" && session.live_ended_at
+      ? new Date(Date.parse(session.live_ended_at) + HOUR_MS).toISOString()
+      : null;
+  return { kind: "first_attempt", eligible: false, reason: verdict.code, availableAt, decision };
+}
+
+async function restartDecisionFor(
+  service: Service,
+  sessionId: string,
+  companyId: string,
+  canSeeNote: boolean,
+): Promise<LiveRestartDecision | null> {
+  const { data } = await service
+    .from("live_interview_actions")
+    .select("decision, note, actor_name, actor_role, created_at")
+    .eq("session_id", sessionId)
+    .eq("company_id", companyId)
+    .eq("action", "decide_restart")
+    .limit(1);
+  const row = (
+    (data ?? []) as {
+      decision: "restart" | "no_restart";
+      note: string | null;
+      actor_name: string | null;
+      actor_role: string;
+      created_at: string;
+    }[]
+  )[0];
+  if (!row) return null;
+  return {
+    decision: row.decision,
+    byName: row.actor_name,
+    byRole: row.actor_role,
+    at: row.created_at,
+    note: canSeeNote ? row.note : null,
+  };
 }
 
 /**

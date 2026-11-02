@@ -1,0 +1,1020 @@
+/**
+ * The restart decision on the live review page and its link (F10 C5,
+ * live-restart-flow.ts): the gates, no restart, restart with the email, the
+ * 72-hour deadline after delivery, a failed email that cancels nothing, the
+ * re-send of the same attempt 2, the expiry scheduled once, and the panel the
+ * page shows for each state.
+ *
+ *   node --test src/lib/interviews/live-restart-flow.test.ts
+ *
+ * The flow, live-restart.ts, invite-delivery.ts (sendInviteEmail and
+ * scheduleInterviewJobs) and the review gate are the shipped code. The email
+ * provider and the queue are stubbed below; the database is this file's own
+ * small store, with migration 053's two functions written out from the SQL
+ * (fake-live-db.mjs predates 053). Synthetic data only.
+ */
+// @ts-nocheck - same reason as paging.test.ts: Node's `.ts` specifier vs this tsconfig.
+import assert from "node:assert/strict";
+import { createHash } from "node:crypto";
+import { register } from "node:module";
+import { mock, test } from "node:test";
+
+register(new URL("../../test-support/node-resolve.mjs", import.meta.url));
+register(new URL("../../test-support/tsx-load.mjs", import.meta.url));
+register(
+  `data:text/javascript,${encodeURIComponent(`
+const STUBS = {
+  "server-only": "",
+  "@/lib/supabase/server": "export function createServiceClient() { throw new Error('test: pass a service'); }",
+  "@/app/ai-dashboard/lib/job-scope": [
+    "export async function getJobScope() { throw new Error('test: pass a scope'); }",
+    "export function isEmptyScope(s) { return s.scoped && s.jobIds.length === 0; }",
+    "export function scopeJobIds(s) { return s.scoped ? s.jobIds : null; }",
+  ].join("\\n"),
+  "@/lib/email/candidate/deliver": [
+    "export function buildCandidateHtml(body) { return body; }",
+    "export async function deliverEmail(service, input) { return globalThis.__restartDeliver(input); }",
+  ].join("\\n"),
+  "@/lib/jobs-queue": [
+    "export const JOB_TYPES = { SEND_MESSAGE: 'send_message', INTERVIEW_REMINDER: 'interview_reminder', INTERVIEW_EXPIRY: 'interview_expiry' };",
+    "export async function enqueue(job) { return globalThis.__restartEnqueue(job); }",
+  ].join("\\n"),
+  "@/lib/interviews/reminder": "export const REMINDER_LEAD_MS = 24 * 60 * 60 * 1000;",
+  "@/app/admin/lib/role-guards": "export async function requireSuperAdmin() { throw new Error('test'); }",
+  "next/navigation": "export function useRouter() { return { refresh() {} }; } export function notFound() { throw new Error('NEXT_NOT_FOUND'); }",
+  "next/link": "export default function Link({ href, children, ...rest }) { return globalThis.__h('a', { href, ...rest }, children); }",
+  "../live-actions": "export async function getLiveTurnAudioUrl() { return { ok: false, error: 'test' }; } export async function runLiveReviewAction() { return { ok: true }; } export async function getLiveVideoPieceUrl() { return { ok: false, error: 'test' }; }",
+};
+export async function resolve(specifier, context, next) {
+  if (specifier in STUBS) return { url: "data:text/javascript," + encodeURIComponent(STUBS[specifier]), shortCircuit: true };
+  return next(specifier, context);
+}`)}`,
+);
+
+const { createElement } = await import("react");
+const { renderToStaticMarkup } = await import("react-dom/server");
+globalThis.__h = createElement;
+const { decideRestart, resendRestartLink } = await import("./live-restart-flow.ts");
+const { sendInviteEmail, scheduleInterviewJobs } = await import("./invite-delivery.ts");
+const { restartPanelFor } = await import("./live-review-types.ts");
+const { loadLiveReview } = await import("./live-review.ts");
+const { LiveReviewClient, restartSendText } = await import(
+  "../../app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client.tsx"
+);
+const { fakeService } = await import("../../test-support/fake-postgrest.mjs");
+
+const NOW = Date.parse("2026-11-03T12:00:00.000Z");
+const HOUR = 60 * 60 * 1000;
+const iso = (ms) => new Date(ms).toISOString();
+const sha256 = (s) => createHash("sha256").update(s).digest("hex");
+const day = (ms) =>
+  new Date(ms).toLocaleDateString("en-GB", { day: "numeric", month: "long", timeZone: "UTC" });
+/** A time as the review page prints it (the client's when()). */
+const whenText = (ms) =>
+  `${day(ms)}, ${new Date(ms).toLocaleTimeString("en-GB", { hour: "2-digit", minute: "2-digit", timeZone: "UTC" })} UTC`;
+
+const CO = "7aad434d-0000-4000-8000-0000000000c5";
+const OTHER_CO = "7aad434d-0000-4000-8000-0000000000c6";
+const JOB = "2d4a8cde-0000-4000-8000-0000000000c5";
+const OTHER_JOB = "2d4a8cde-0000-4000-8000-0000000000c6";
+const APP = "03e4863f-0000-4000-8000-0000000000c5";
+const FIRST = "5b0f2c1e-0000-4000-8000-0000000000c5";
+const SECOND = "5b0f2c1e-0000-4000-8000-0000000000c6";
+const NOTE = "Synthetic note: the call dropped on the candidate's side.";
+const CANDIDATE_EMAIL = "candidate.c5@example.test";
+const MEMBER_NAME = "Synthetic Owner";
+
+function firstAttempt(over = {}) {
+  return {
+    id: FIRST,
+    company_id: CO,
+    application_id: APP,
+    job_id: JOB,
+    kind: "live",
+    attempt: 1,
+    previous_attempt_id: null,
+    status: "started",
+    token_hash: "1".repeat(64),
+    live_ended_at: iso(NOW - 2 * HOUR),
+    live_outcome: { v: 6, outcome: "technical_failure", final: true },
+    live_settings: { v: 2 },
+    questions_snapshot: [{ position: 1 }],
+    scoring_snapshot: [{ position: 1 }],
+    expires_at: iso(NOW + 24 * HOUR),
+    delete_after: iso(NOW + 180 * 24 * HOUR),
+    created_at: iso(NOW - 48 * HOUR),
+    ...over,
+  };
+}
+
+const secondAttempt = (over = {}) => ({
+  ...firstAttempt(),
+  id: SECOND,
+  attempt: 2,
+  previous_attempt_id: FIRST,
+  status: "invited",
+  token_hash: "2".repeat(64),
+  live_ended_at: null,
+  live_outcome: null,
+  expires_at: iso(NOW + 60 * HOUR),
+  created_at: iso(NOW - HOUR),
+  ...over,
+});
+
+const ctx = (role, over = {}) => ({
+  user: { id: "u0000000-0000-4000-8000-0000000000c5", email: "owner@example.test" },
+  companyId: CO,
+  role,
+  memberName: MEMBER_NAME,
+  memberId: "m0000000-0000-4000-8000-0000000000c5",
+  ...over,
+});
+
+const err = (code, message) => ({ code, message });
+
+/** 053's decision trigger, in its order (see live-restart.test.ts). */
+function decisionRefusal(tables, s, dbNow) {
+  if (s.kind !== "live" || s.attempt !== 1) return err("23514", "first attempt");
+  if (s.status !== "started") return err("23514", "not started");
+  if (!s.live_ended_at) return err("23514", "no end");
+  if (s.live_outcome === null) {
+    if (Date.parse(s.live_ended_at) > dbNow - HOUR) return err("23514", "too soon");
+  } else if (String(s.live_outcome.final) !== "true") return err("23514", "not final");
+  else if (
+    !["ending_unconfirmed", "technical_failure", "abandoned"].includes(s.live_outcome.outcome)
+  )
+    return err("23514", "never restarted");
+  if (
+    tables.live_interview_actions.some(
+      (a) => a.session_id === s.id && a.action === "decide_restart",
+    )
+  )
+    return err("23505", "already decided");
+  return null;
+}
+
+/** The store: tables with eq/in/is/gt/gte/contains/limit/maybeSingle, insert, update, and 053's functions. */
+function world({ sessions = [firstAttempt()], jobs = [], dbClockMs = 0, emailOk = true } = {}) {
+  const tables = {
+    interview_sessions: structuredClone(sessions),
+    live_interview_actions: [],
+    live_interview_scores: [],
+    job_applications: [
+      {
+        id: APP,
+        company_id_snapshot: CO,
+        first_name: "Alex",
+        last_name: "Synthetic",
+        email: CANDIDATE_EMAIL,
+        job_id: JOB,
+        job_title_snapshot: "Synthetic role",
+      },
+    ],
+    background_jobs: structuredClone(jobs),
+    communication_logs: [],
+    companies: [{ id: CO, name: "Synthetic Co", candidate_reply_email: null }],
+  };
+  const steps = [];
+  // The database's clock: NOW (shifted by dbClockMs) unless a test sets it.
+  let dbAt = null;
+  const dbNow = () => dbAt ?? NOW + dbClockMs;
+  let extendFailures = 0;
+  let extendSkips = 0;
+  const RPC = {
+    live_restart_session(a) {
+      const prev = tables.interview_sessions.find(
+        (s) => s.id === a.p_session_id && s.company_id === a.p_company_id,
+      );
+      if (!prev) return { data: null, error: err("P0002", "not found") };
+      const refusal = decisionRefusal(tables, prev, dbNow());
+      if (refusal) return { data: null, error: refusal };
+      const deadline = Math.max(Date.parse(prev.expires_at), dbNow() + 72 * HOUR);
+      if (deadline >= Date.parse(prev.delete_after))
+        return { data: null, error: err("23514", "retention") };
+      tables.live_interview_actions.push({
+        session_id: prev.id,
+        company_id: prev.company_id,
+        action: "decide_restart",
+        decision: "restart",
+        note: a.p_note,
+        actor_user_id: a.p_actor_user_id,
+        actor_name: a.p_actor_name,
+        actor_role: a.p_actor_role,
+        created_at: iso(dbNow()),
+      });
+      prev.status = "abandoned";
+      tables.interview_sessions.push({
+        ...structuredClone(prev),
+        id: a.p_new_session_id,
+        token_hash: a.p_token_hash,
+        status: "invited",
+        attempt: 2,
+        previous_attempt_id: prev.id,
+        live_ended_at: null,
+        live_outcome: null,
+        expires_at: iso(deadline),
+        created_at: iso(dbNow()),
+        invited_by: a.p_invited_by,
+      });
+      return { data: iso(deadline), error: null };
+    },
+    live_restart_extend_deadline(a) {
+      if (extendSkips > 0) extendSkips -= 1;
+      else if (extendFailures > 0) {
+        extendFailures -= 1;
+        return { data: null, error: err("XX000", "RAW-SQL-DETAIL extension failed") };
+      }
+      const s = tables.interview_sessions.find(
+        (x) => x.id === a.p_session_id && x.company_id === a.p_company_id,
+      );
+      if (s?.attempt !== 2) return { data: null, error: err("P0002", "no restart") };
+      if (s.status !== "invited") return { data: null, error: err("23514", "not invited") };
+      const deadline = Math.max(Date.parse(s.expires_at), dbNow() + 72 * HOUR);
+      if (deadline >= Date.parse(s.delete_after))
+        return { data: null, error: err("23514", "retention") };
+      s.expires_at = iso(deadline);
+      return { data: iso(deadline), error: null };
+    },
+  };
+  const service = fakeService((table, calls) => {
+    if (table.startsWith("rpc:")) {
+      const name = table.slice(4);
+      steps.push({ step: "rpc", name });
+      return RPC[name](calls[0][1]);
+    }
+    const rows = tables[table] ?? [];
+    const match = (r) =>
+      calls.every((c) => {
+        if (c[0] === "eq") return r[c[1]] === c[2];
+        if (c[0] === "in") return c[2].includes(r[c[1]]);
+        if (c[0] === "is") return (r[c[1]] ?? null) === c[2];
+        if (c[0] === "gt") return r[c[1]] != null && r[c[1]] > c[2];
+        if (c[0] === "gte") return r[c[1]] != null && r[c[1]] >= c[2];
+        if (c[0] === "contains") return Object.entries(c[2]).every(([k, v]) => r[c[1]]?.[k] === v);
+        return true;
+      });
+    const insert = calls.find((c) => c[0] === "insert");
+    const update = calls.find((c) => c[0] === "update");
+    if (insert) {
+      steps.push({ step: "insert", table });
+      const row = structuredClone(insert[1]);
+      if (table === "live_interview_actions") {
+        const s = tables.interview_sessions.find((x) => x.id === row.session_id);
+        const refusal = decisionRefusal(tables, s, dbNow());
+        if (refusal) return { data: null, error: refusal };
+        row.created_at = iso(dbNow());
+      }
+      rows.push(row);
+      return { data: null, error: null };
+    }
+    const hit = rows.filter(match);
+    if (update) {
+      steps.push({ step: "update", table, value: update[1] });
+      for (const r of hit) Object.assign(r, structuredClone(update[1]));
+      return { data: hit.map((r) => ({ id: r.id })), error: null };
+    }
+    if (calls.some((c) => c[0] === "maybeSingle")) {
+      return { data: hit[0] ? structuredClone(hit[0]) : null, error: null };
+    }
+    const limit = calls.find((c) => c[0] === "limit");
+    return { data: structuredClone(limit ? hit.slice(0, limit[1]) : hit), error: null };
+  });
+  const emails = [];
+  globalThis.__restartDeliver = (input) => {
+    steps.push({ step: "email" });
+    emails.push(input);
+    tables.communication_logs.push({
+      company_id: input.companyId,
+      application_id: input.applicationId,
+      event: input.event,
+      channel: "email",
+      status: emailOk ? "sent" : "failed",
+      created_at: iso(NOW),
+    });
+    return emailOk
+      ? { ok: true, logId: "log", providerId: "re" }
+      : { ok: false, kind: "provider", message: "rejected", logId: "log" };
+  };
+  globalThis.__restartEnqueue = (job) => {
+    steps.push({ step: "job" });
+    tables.background_jobs.push({
+      id: crypto.randomUUID(),
+      type: job.type,
+      payload: job.payload,
+      company_id: job.companyId,
+      status: "queued",
+      run_after: job.runAfter?.toISOString() ?? null,
+    });
+    return { ok: true, id: "job" };
+  };
+  const scope = { scoped: false, jobIds: [] };
+  return {
+    tables,
+    service,
+    steps,
+    emails,
+    scope,
+    setEmailOk: (v) => {
+      emailOk = v;
+    },
+    setDbNow: (ms) => {
+      dbAt = ms;
+    },
+    /** The next `n` extensions fail, after `skip` that succeed. */
+    failExtend: (n = 1, skip = 0) => {
+      extendFailures = n;
+      extendSkips = skip;
+    },
+  };
+}
+
+const deps = (w, over = {}) => ({
+  service: w.service,
+  scope: async () => w.scope,
+  now: () => NOW,
+  ...over,
+});
+
+async function captured(fn) {
+  const lines = [];
+  const orig = { log: console.log, warn: console.warn, error: console.error };
+  console.log = console.warn = console.error = (...a) => lines.push(a.join(" "));
+  try {
+    return { result: await fn(), lines };
+  } finally {
+    Object.assign(console, orig);
+  }
+}
+const quiet = async (fn) => (await captured(fn)).result;
+
+const decide = (w, over = {}, viewer = ctx("owner")) =>
+  quiet(() =>
+    decideRestart(viewer, { sessionId: FIRST, decision: "restart", note: NOTE, ...over }, deps(w)),
+  );
+const resend = (w, id = SECOND, viewer = ctx("owner"), d = {}) =>
+  quiet(() => resendRestartLink(viewer, id, deps(w, d)));
+
+const writes = (w) =>
+  w.steps.filter((s) => ["insert", "update", "rpc", "email", "job"].includes(s.step));
+const expiryJobs = (w, id) =>
+  w.tables.background_jobs.filter(
+    (j) => j.type === "interview_expiry" && j.payload.sessionId === id,
+  );
+const restartRow = (w) => w.tables.interview_sessions.find((x) => x.attempt === 2);
+/** sendInviteEmail, recording what each email quoted and what the database held then. */
+const spyEmail =
+  (quoted, w, during = () => {}) =>
+  (service, input) => {
+    quoted.push({ emailed: input.expiresAt, held: restartRow(w).expires_at });
+    during();
+    return sendInviteEmail(service, input);
+  };
+const gateReadOnly = (w) => w.service.queries.map((q) => q.table);
+const tokenOf = (email) => email.html.match(/\/interview\/([A-Za-z0-9_-]+)/)[1];
+
+// ── a, b: gates ─────────────────────────────────────────────
+
+test("a: another company, off the hiring team, recruiter, hiring manager and super admin are refused before any write", async () => {
+  const cases = [
+    ["other company", ctx("owner", { companyId: OTHER_CO }), null, "not_found"],
+    ["not on the hiring team", ctx("admin"), { scoped: true, jobIds: [OTHER_JOB] }, "not_found"],
+    ["recruiter", ctx("recruiter"), { scoped: true, jobIds: [JOB] }, "role_not_allowed"],
+    ["hiring manager", ctx("hiring_manager"), { scoped: true, jobIds: [JOB] }, "role_not_allowed"],
+    ["super admin", ctx("super_admin"), null, "role_not_allowed"],
+  ];
+  for (const [name, viewer, scope, code] of cases) {
+    for (const decision of ["restart", "no_restart"]) {
+      const w = world();
+      if (scope) w.scope = scope;
+      assert.deepEqual(
+        await decide(w, { decision }, viewer),
+        { ok: false, code },
+        `${name} ${decision}`,
+      );
+      assert.deepEqual(writes(w), [], `${name}: nothing written, sent or called`);
+      // Refused at this flow's own gate: the review gate's one read, nothing after it.
+      assert.deepEqual(gateReadOnly(w), ["interview_sessions"], `${name}: stopped at the gate`);
+    }
+    const r = world({ sessions: [firstAttempt({ status: "abandoned" }), secondAttempt()] });
+    if (scope) r.scope = scope;
+    assert.deepEqual(await resend(r, SECOND, viewer), { ok: false, code }, `${name} re-send`);
+    assert.deepEqual(writes(r), []);
+    assert.deepEqual(
+      gateReadOnly(r),
+      ["interview_sessions"],
+      `${name} re-send: stopped at the gate`,
+    );
+  }
+  for (const role of ["owner", "admin"]) {
+    const w = world();
+    assert.deepEqual(await decide(w, { decision: "no_restart" }, ctx(role)), {
+      ok: true,
+      decision: "no_restart",
+    });
+    assert.equal(w.tables.live_interview_actions[0].actor_role, role);
+  }
+});
+
+test("b: an attempt that is not the latest is refused, before any write", async () => {
+  const w = world({ sessions: [firstAttempt(), secondAttempt()] });
+  assert.deepEqual(await decide(w), { ok: false, code: "not_latest" });
+  assert.deepEqual(writes(w), []);
+});
+
+// ── c, d, e: the decision ───────────────────────────────────
+
+test("c: no restart is one decision, and no email, no session, no job", async () => {
+  const w = world();
+  assert.deepEqual(await decide(w, { decision: "no_restart" }), {
+    ok: true,
+    decision: "no_restart",
+  });
+  assert.deepEqual(
+    w.tables.live_interview_actions.map((a) => [a.action, a.decision, a.note]),
+    [["decide_restart", "no_restart", NOTE]],
+  );
+  assert.deepEqual(w.emails, []);
+  assert.equal(w.tables.interview_sessions.length, 1);
+  assert.deepEqual(w.tables.background_jobs, []);
+  assert.deepEqual(await decide(w), { ok: false, code: "already_decided" });
+});
+
+test("d: restart, email delivered: decision, attempt 2, the email at the promised date, then the extension, then the expiry for attempt 2", async () => {
+  const w = world();
+  const result = await decide(w);
+  const second = w.tables.interview_sessions[1];
+  assert.deepEqual(result, {
+    ok: true,
+    decision: "restart",
+    restarted: true,
+    restartSessionId: second.id,
+    emailFailed: false,
+    deadline: second.expires_at,
+    warning: null,
+  });
+  assert.deepEqual(
+    [second.attempt, second.status, second.previous_attempt_id],
+    [2, "invited", FIRST],
+  );
+  assert.equal(w.tables.interview_sessions[0].status, "abandoned");
+  const [email] = w.emails;
+  assert.equal(email.to, CANDIDATE_EMAIL);
+  assert.equal(email.event, "interview");
+  assert.equal(sha256(tokenOf(email)), second.token_hash, "the link is attempt 2's");
+  const promised = NOW + 72 * HOUR;
+  assert.ok(
+    email.html.includes(`<strong>${day(promised)}</strong>`),
+    "the email shows the promised date",
+  );
+  assert.deepEqual(
+    writes(w).map((s) => s.name ?? s.step),
+    ["live_restart_session", "email", "live_restart_extend_deadline", "job"],
+    "the extension only after the email, the job last",
+  );
+  const [job] = expiryJobs(w, second.id);
+  assert.deepEqual([job.run_after, job.company_id], [second.expires_at, CO]);
+  assert.deepEqual(
+    w.tables.background_jobs.map((j) => j.type),
+    ["interview_expiry"],
+    "the expiry only: no reminder for a live interview",
+  );
+});
+
+test("e: restart, email fails: attempt 2 invited, nothing cancelled, extended or scheduled; emailFailed returned", async () => {
+  const w = world({ emailOk: false });
+  const result = await decide(w);
+  const second = w.tables.interview_sessions[1];
+  assert.deepEqual(result, {
+    ok: true,
+    decision: "restart",
+    restarted: true,
+    restartSessionId: second.id,
+    emailFailed: true,
+    code: "email_failed",
+  });
+  assert.equal(second.status, "invited", "never cancelled");
+  assert.equal(second.expires_at, iso(NOW + 72 * HOUR), "its deadline from the restart");
+  assert.ok(!w.steps.some((s) => s.step === "update"), "no session written");
+  assert.ok(!w.steps.some((s) => s.name === "live_restart_extend_deadline"), "not extended");
+  assert.deepEqual(w.tables.background_jobs, [], "nothing scheduled");
+});
+
+// ── f, g: re-sending the same attempt 2 ─────────────────────
+
+test("f: re-send after a failed email: the same attempt 2, a new token, the email, the extension and the expiry; no new session", async () => {
+  const w = world({ emailOk: false });
+  await decide(w);
+  const second = structuredClone(w.tables.interview_sessions[1]);
+  w.setEmailOk(true);
+  const later = NOW + HOUR;
+  const result = await resend(w, second.id, ctx("owner"), { now: () => later });
+  assert.equal(result.ok, true);
+  assert.equal(result.emailFailed, false);
+  assert.equal(result.restartSessionId, second.id);
+  assert.equal(w.tables.interview_sessions.length, 2, "no new session");
+  const now2 = w.tables.interview_sessions[1];
+  assert.notEqual(now2.token_hash, second.token_hash, "a new token");
+  assert.equal(sha256(tokenOf(w.emails.at(-1))), now2.token_hash, "emailed");
+  assert.equal(now2.status, "invited");
+  assert.equal(expiryJobs(w, second.id).length, 1);
+  assert.deepEqual(
+    writes(w)
+      .slice(-5)
+      .map((s) => s.name ?? s.step),
+    ["live_restart_extend_deadline", "update", "email", "live_restart_extend_deadline", "job"],
+    "the extension first, then the token, the email, the extension after delivery, the job",
+  );
+});
+
+test("g: re-sending twice after a delivered link adds no second expiry job; the queued one re-arms", async () => {
+  const w = world();
+  await decide(w);
+  const id = w.tables.interview_sessions[1].id;
+  assert.equal(expiryJobs(w, id).length, 1);
+  for (const n of [1, 2]) {
+    const r = await resend(w, id, ctx("admin"), { now: () => NOW + n * HOUR });
+    assert.equal(r.ok, true);
+    assert.equal(r.emailFailed, false);
+  }
+  assert.equal(w.emails.length, 3, "three emails");
+  assert.equal(expiryJobs(w, id).length, 1, "one expiry job, not three");
+  // Without the check, scheduleInterviewJobs alone would add one per call.
+  await quiet(() =>
+    scheduleInterviewJobs({
+      sessionId: id,
+      companyId: CO,
+      expiresAt: iso(NOW),
+      expiresAtMs: NOW,
+      deadline: "x",
+      reminder: false,
+    }),
+  );
+  assert.equal(expiryJobs(w, id).length, 2, "scheduleInterviewJobs itself is not idempotent");
+});
+
+// ── h, i: refusals ──────────────────────────────────────────
+
+test("h: a promised deadline at or past the retention date is refused before any email or new token", async () => {
+  const decided = world({ sessions: [firstAttempt({ delete_after: iso(NOW + 72 * HOUR) })] });
+  assert.deepEqual(await decide(decided), { ok: false, code: "past_retention" });
+  assert.deepEqual(decided.emails, []);
+  assert.equal(decided.tables.interview_sessions.length, 1);
+
+  const w = world({
+    sessions: [
+      firstAttempt({ status: "abandoned" }),
+      secondAttempt({ expires_at: iso(NOW + 30 * HOUR), delete_after: iso(NOW + 72 * HOUR) }),
+    ],
+  });
+  const before = structuredClone(w.tables.interview_sessions);
+  assert.deepEqual(await resend(w), { ok: false, code: "past_retention" });
+  assert.deepEqual(w.emails, [], "no email");
+  assert.deepEqual(w.tables.interview_sessions, before, "the link it has still works");
+  assert.deepEqual(w.tables.background_jobs, []);
+});
+
+test("i: re-send on a started, expired or first attempt is refused, nothing changed", async () => {
+  const cases = [
+    [
+      [firstAttempt({ status: "abandoned" }), secondAttempt({ status: "started" })],
+      SECOND,
+      "not_invited",
+    ],
+    [
+      [firstAttempt({ status: "abandoned" }), secondAttempt({ expires_at: iso(NOW - 1) })],
+      SECOND,
+      "expired",
+    ],
+    [[firstAttempt()], FIRST, "not_eligible"],
+  ];
+  for (const [sessions, id, code] of cases) {
+    const w = world({ sessions });
+    const before = structuredClone(w.tables.interview_sessions);
+    assert.deepEqual(await resend(w, id), { ok: false, code }, code);
+    assert.deepEqual(w.tables.interview_sessions, before);
+    assert.deepEqual(w.emails, []);
+  }
+});
+
+// ── j: the emailed date ─────────────────────────────────────
+
+test("j: the email quotes only a deadline the database already holds, whatever the clocks say", async () => {
+  for (const dbClockMs of [0, 5 * 60_000, -10 * 60_000]) {
+    const w = world({ dbClockMs });
+    const quoted = [];
+    const r = await quiet(() =>
+      decideRestart(
+        ctx("owner"),
+        { sessionId: FIRST, decision: "restart", note: NOTE },
+        deps(w, { sendEmail: spyEmail(quoted, w) }),
+      ),
+    );
+    assert.equal(r.warning, null);
+    const [{ emailed, held }] = quoted;
+    assert.equal(emailed, held, `${dbClockMs}: the email quotes the database's deadline`);
+    assert.ok(
+      Date.parse(restartRow(w).expires_at) >= Date.parse(emailed),
+      "and it only moves later",
+    );
+  }
+});
+
+// ── k: the panel ────────────────────────────────────────────
+
+const first = (over = {}) => ({
+  kind: "first_attempt",
+  eligible: true,
+  reason: null,
+  availableAt: null,
+  decision: null,
+  ...over,
+});
+const DECISION = { decision: "no_restart", byName: "M", byRole: "owner", at: iso(NOW), note: "n" };
+
+test("k: the panel per role and state", () => {
+  const owner = { canAct: true, platform: false };
+  const recruiter = { canAct: false, platform: false };
+  const platform = { canAct: false, platform: true };
+  const cases = [
+    [first(), owner, { panel: "decide" }],
+    [first(), recruiter, { panel: "awaiting_decision" }],
+    [first(), platform, { panel: "none" }],
+    [
+      first({ eligible: false, reason: "too_soon", availableAt: "t" }),
+      owner,
+      { panel: "not_yet", reason: "too_soon", availableAt: "t" },
+    ],
+    [
+      first({ eligible: false, reason: "not_final" }),
+      recruiter,
+      { panel: "not_yet", reason: "not_final", availableAt: null },
+    ],
+    [first({ eligible: false, reason: "not_eligible_outcome" }), owner, { panel: "none" }],
+    [first({ eligible: false, reason: "not_started" }), owner, { panel: "none" }],
+    [
+      first({ eligible: false, reason: "already_decided", decision: DECISION }),
+      owner,
+      { panel: "decided", decision: DECISION },
+    ],
+    [
+      { kind: "earlier_restarted", decision: DECISION },
+      recruiter,
+      { panel: "earlier_restarted", decision: DECISION },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "invited",
+        deadline: "d",
+        expired: false,
+      },
+      owner,
+      { panel: "restart_invited", deadline: "d", canResend: true },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "invited",
+        deadline: "d",
+        expired: false,
+      },
+      owner,
+      { panel: "restart_invited", deadline: "d", canResend: true },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "invited",
+        deadline: "d",
+        expired: false,
+      },
+      recruiter,
+      { panel: "restart_invited", deadline: "d", canResend: false },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "invited",
+        deadline: "d",
+        expired: true,
+      },
+      owner,
+      { panel: "restart_expired" },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "started",
+        deadline: "d",
+        expired: false,
+      },
+      owner,
+      { panel: "none" },
+    ],
+    [
+      {
+        kind: "restart_attempt",
+        status: "submitted",
+        deadline: "d",
+        expired: false,
+      },
+      owner,
+      { panel: "none" },
+    ],
+    [null, owner, { panel: "none" }],
+    [undefined, owner, { panel: "none" }],
+  ];
+  for (const [restart, viewer, expected] of cases) {
+    assert.deepEqual(restartPanelFor(restart, viewer), expected, JSON.stringify([restart, viewer]));
+  }
+});
+
+test("k: the page renders the form and the re-send button for an owner with the actions, never for anyone else", () => {
+  const view = (restart, isLatest = true) => ({
+    sessionId: FIRST,
+    interviewerName: "Sarah",
+    attempt: {
+      number: 1,
+      of: isLatest ? 1 : 2,
+      isLatest,
+      latestSessionId: isLatest ? FIRST : SECOND,
+      earlierSessionIds: [],
+    },
+    header: {
+      state: "ending_unconfirmed",
+      label: "Ending not confirmed",
+      answered: 1,
+      total: 8,
+      skipped: 0,
+      completionPercent: 12,
+      overall: null,
+      partial: true,
+      partialNote: null,
+      reviewReasons: [],
+      restartNote: null,
+      scoreStatus: "not_scored",
+      scoreNote: null,
+    },
+    questions: [],
+    video: { pieces: [], complete: true, missing: 0, totalMs: 0 },
+    restart,
+  });
+  const actions = { decide: async () => ({ ok: true }), resend: async () => ({ ok: true }) };
+  const render = (restart, canAct, extra = {}) =>
+    renderToStaticMarkup(
+      createElement(LiveReviewClient, {
+        view: view(restart, extra.isLatest),
+        candidateName: "C",
+        jobTitle: "J",
+        canAct,
+        restartActions: extra.noActions ? undefined : actions,
+        mode: extra.mode,
+      }),
+    );
+  assert.match(render(first(), true), /data-restart-form/);
+  assert.doesNotMatch(render(first(), false), /data-restart-form/);
+  assert.match(render(first(), false), /data-restart-panel="awaiting_decision"/);
+  assert.doesNotMatch(render(first(), true, { noActions: true }), /data-restart-form/);
+  assert.doesNotMatch(render(first(), true, { mode: "platform" }), /data-restart-panel/);
+  const failed = {
+    kind: "restart_attempt",
+    status: "invited",
+    deadline: iso(NOW),
+    expired: false,
+  };
+  const invited = render(failed, true);
+  assert.match(invited, /data-restart-resend/);
+  assert.ok(invited.includes(`Restart link deadline: ${whenText(NOW)}.`), "the database deadline");
+  assert.ok(invited.includes("Delivery can&#x27;t be confirmed here"), "never claims delivery");
+  assert.doesNotMatch(invited, /delivered|Restart link sent/i);
+  assert.doesNotMatch(render(failed, false), /data-restart-resend/);
+  assert.match(render(failed, false), /data-restart-invited/);
+  const earlier = render(
+    { kind: "earlier_restarted", decision: { ...DECISION, decision: "restart" } },
+    true,
+    { isLatest: false },
+  );
+  assert.match(earlier, /data-restart-earlier/);
+  assert.doesNotMatch(earlier, /data-restart-form|data-restart-resend/);
+  assert.doesNotMatch(
+    render(
+      first({ eligible: false, reason: "already_decided", decision: { ...DECISION, note: null } }),
+      false,
+    ),
+    /data-restart-note-text/,
+    "no note for someone who cannot act",
+  );
+});
+
+// ── m, n, o, p: the deadline the email quotes ───────────────
+
+/** The page's restart state as loadLiveReview builds it from the database, at `atMs`. */
+async function pageState(w, sessionId, atMs) {
+  mock.timers.enable({ apis: ["Date"], now: atMs });
+  try {
+    const view = await quiet(() =>
+      loadLiveReview(ctx("owner"), sessionId, { service: w.service, scope: async () => w.scope }),
+    );
+    return {
+      restart: view.restart,
+      panel: restartPanelFor(view.restart, { canAct: true, platform: false }),
+    };
+  } finally {
+    mock.timers.reset();
+  }
+}
+
+test("m: first send, extension after delivery fails: the emailed date is the database deadline, the expiry at it, no mismatch", async () => {
+  const w = world();
+  w.failExtend(1);
+  const quoted = [];
+  const { result, lines } = await captured(() =>
+    decideRestart(
+      ctx("owner"),
+      { sessionId: FIRST, decision: "restart", note: NOTE },
+      deps(w, { sendEmail: spyEmail(quoted, w) }),
+    ),
+  );
+  const second = restartRow(w);
+  const atRestart = iso(NOW + 72 * HOUR);
+  assert.deepEqual(result, {
+    ok: true,
+    decision: "restart",
+    restarted: true,
+    restartSessionId: second.id,
+    emailFailed: false,
+    deadline: atRestart,
+    warning: "not_extended_after_delivery",
+  });
+  assert.deepEqual(
+    quoted,
+    [{ emailed: atRestart, held: atRestart }],
+    "quoted: the restart's own deadline",
+  );
+  assert.ok(w.emails[0].html.includes(`<strong>${day(NOW + 72 * HOUR)}</strong>`));
+  assert.equal(second.expires_at, atRestart);
+  assert.deepEqual(
+    expiryJobs(w, second.id).map((j) => j.run_after),
+    [atRestart],
+    "the expiry at it",
+  );
+  assert.deepEqual(await pageState(w, second.id, NOW), {
+    restart: { kind: "restart_attempt", status: "invited", deadline: atRestart, expired: false },
+    panel: { panel: "restart_invited", deadline: atRestart, canResend: true },
+  });
+  assert.equal(
+    restartSendText(result),
+    `Restart link sent - deadline ${whenText(NOW + 72 * HOUR)}.`,
+    "the page says the date the email said",
+  );
+  assert.ok(
+    lines.some((l) =>
+      /extension after delivery failed; the emailed deadline stands, \d+s short/.test(l),
+    ),
+  );
+});
+
+test("n: re-send 48 hours later, the extension before sending fails: no email, the token and the old link unchanged", async () => {
+  const w = world();
+  await decide(w);
+  const second = restartRow(w);
+  const before = structuredClone(w.tables.interview_sessions);
+  const jobs = structuredClone(w.tables.background_jobs);
+  const later = NOW + 48 * HOUR;
+  w.setDbNow(later);
+  w.failExtend(1);
+  assert.deepEqual(await resend(w, second.id, ctx("owner"), { now: () => later }), {
+    ok: false,
+    code: "deadline_not_extended",
+  });
+  assert.equal(w.emails.length, 1, "no email beyond the first");
+  assert.equal(
+    restartRow(w).token_hash,
+    before[1].token_hash,
+    "the persisted token hash unchanged",
+  );
+  assert.equal(
+    sha256(tokenOf(w.emails[0])),
+    restartRow(w).token_hash,
+    "the link already emailed still opens it",
+  );
+  assert.deepEqual(w.tables.interview_sessions, before, "nothing about the sessions changed");
+  assert.deepEqual(w.tables.background_jobs, jobs);
+});
+
+test("o: re-send 48 hours later, all well: the email quotes the database's deadline at send time; the final one is not earlier", async () => {
+  const w = world();
+  await decide(w);
+  const id = restartRow(w).id;
+  const later = NOW + 48 * HOUR;
+  const dbAt = later + 5 * 60_000;
+  w.setDbNow(dbAt);
+  const quoted = [];
+  const result = await resend(w, id, ctx("owner"), {
+    now: () => later,
+    sendEmail: spyEmail(quoted, w),
+  });
+  const held = iso(dbAt + 72 * HOUR);
+  assert.deepEqual(
+    quoted,
+    [{ emailed: held, held }],
+    "the database's deadline, as it held it when sending",
+  );
+  assert.ok(
+    Date.parse(quoted[0].emailed) >= later + 72 * HOUR,
+    "at least 72 hours after the re-send",
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    restartSessionId: id,
+    emailFailed: false,
+    deadline: held,
+    warning: null,
+  });
+  assert.ok(Date.parse(restartRow(w).expires_at) >= Date.parse(quoted[0].emailed));
+  assert.equal(sha256(tokenOf(w.emails.at(-1))), restartRow(w).token_hash, "the new link");
+  assert.deepEqual(
+    writes(w)
+      .slice(-4)
+      .map((s) => s.name ?? s.step),
+    ["live_restart_extend_deadline", "update", "email", "live_restart_extend_deadline"],
+  );
+  assert.equal(expiryJobs(w, id).length, 1, "the queued expiry re-arms");
+});
+
+test("p: re-send, extension after delivery fails: the quoted database deadline is honoured; a counts-only line says how short", async () => {
+  const w = world();
+  await decide(w);
+  const id = restartRow(w).id;
+  const later = NOW + 48 * HOUR;
+  const dbAt = later + 5 * 60_000;
+  w.setDbNow(dbAt);
+  w.failExtend(1, 1);
+  // The email takes ten minutes to go out: delivery is after the deadline was set.
+  let appNow = later;
+  const quoted = [];
+  const slow = spyEmail(quoted, w, () => {
+    appNow = later + 10 * 60_000;
+  });
+  const { result, lines } = await captured(() =>
+    resendRestartLink(ctx("owner"), id, deps(w, { now: () => appNow, sendEmail: slow })),
+  );
+  const held = iso(dbAt + 72 * HOUR);
+  assert.deepEqual(quoted, [{ emailed: held, held }]);
+  assert.deepEqual(result, {
+    ok: true,
+    restartSessionId: id,
+    emailFailed: false,
+    deadline: held,
+    warning: "not_extended_after_delivery",
+  });
+  assert.equal(restartRow(w).expires_at, held, "the quoted deadline, still held");
+  assert.equal(
+    restartSendText(result),
+    `Restart link sent - deadline ${whenText(dbAt + 72 * HOUR)}.`,
+  );
+  const short = lines.filter((l) => l.includes("extension after delivery failed"));
+  assert.deepEqual(short, [
+    `[live-restart-flow] restart ${id}: extension after delivery failed; the emailed deadline stands, 300s short of 72 hours after delivery`,
+  ]);
+});
+
+// ── l: logs ─────────────────────────────────────────────────
+
+test("l: no token, note, email or name in any log line", async () => {
+  const lines = [];
+  const run = async (fn) => {
+    const r = await captured(fn);
+    lines.push(...r.lines);
+    return r.result;
+  };
+  const w = world({ emailOk: false });
+  await run(() =>
+    decideRestart(ctx("owner"), { sessionId: FIRST, decision: "restart", note: NOTE }, deps(w)),
+  );
+  const id = w.tables.interview_sessions[1].id;
+  w.setEmailOk(true);
+  await run(() => resendRestartLink(ctx("owner"), id, deps(w)));
+  await run(() => resendRestartLink(ctx("owner"), id, deps(w)));
+  await run(() =>
+    decideRestart(
+      ctx("recruiter"),
+      { sessionId: FIRST, decision: "no_restart", note: NOTE },
+      deps(w),
+    ),
+  );
+  const n = world();
+  await run(() =>
+    decideRestart(ctx("admin"), { sessionId: FIRST, decision: "no_restart", note: NOTE }, deps(n)),
+  );
+  assert.ok(lines.length >= 5);
+  const text = lines.join("\n");
+  for (const email of w.emails) {
+    const token = tokenOf(email);
+    assert.ok(!text.includes(token), "no token");
+    assert.ok(!text.includes(sha256(token)), "no token hash");
+  }
+  for (const secret of [NOTE, CANDIDATE_EMAIL, MEMBER_NAME, "Alex", "Synthetic Co"]) {
+    assert.ok(!text.includes(secret), `no ${secret}`);
+  }
+});
