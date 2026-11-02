@@ -163,11 +163,15 @@ test("the reminder and the queue never touch the allowance", () => {
     );
   }
   // The reminder is scheduled by the send, after the credit is spent, and scheduling spends nothing.
+  // Moved with the email delivery to lib/interviews/invite-delivery.ts (F10 C4).
   const schedule = body(
-    file(ACTIONS).text,
-    "async function scheduleInterviewJobs(",
-    "async function readJobInterviewSettings(",
+    file("src/lib/interviews/invite-delivery.ts").text,
+    "export async function scheduleInterviewJobs(",
+    "\n}\n",
   );
+  // The real body, not an empty or delegating slice: a future move cannot pass silently.
+  assert.match(schedule, /type: JOB_TYPES\.INTERVIEW_REMINDER,/);
+  assert.match(schedule, /type: JOB_TYPES\.INTERVIEW_EXPIRY,/);
   assert.doesNotMatch(schedule, /Allowance|rpc\(/);
 });
 

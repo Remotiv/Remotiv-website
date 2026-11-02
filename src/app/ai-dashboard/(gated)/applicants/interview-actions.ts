@@ -12,23 +12,17 @@ import {
 import { createServiceClient } from "@/lib/supabase/server";
 import { getCompanyContext } from "@/app/ai-dashboard/lib/company-guards";
 import { canAccessJob } from "@/app/ai-dashboard/lib/job-scope";
-import { buildCandidateHtml, deliverEmail } from "@/lib/email/candidate/deliver";
-import {
-  buildPlaceholders,
-  escapeHtml,
-  renderCopy,
-} from "@/lib/email/candidate/render";
+import { escapeHtml } from "@/lib/email/candidate/render";
 import { enqueue, JOB_TYPES } from "@/lib/jobs-queue";
-import { REMINDER_LEAD_MS } from "@/lib/interviews/reminder";
+import {
+  deliverInvite,
+  type InviteApplication,
+  scheduleInterviewJobs,
+} from "@/lib/interviews/invite-delivery";
 import { liveInterviewsAvailableFor } from "@/lib/interviews/live-availability";
 import { type LiveCallFields, liveCallBegan } from "@/lib/interviews/live-call";
 import { gateLiveInterviewInvite } from "@/lib/interviews/live-settings";
-import {
-  interviewUrl,
-  mintSessionToken,
-  RETENTION_MONTHS,
-  SESSION_EXPIRY_DAYS,
-} from "@/lib/interviews/tokens";
+import { mintSessionToken, RETENTION_MONTHS, SESSION_EXPIRY_DAYS } from "@/lib/interviews/tokens";
 import { type InterviewKind, readInterviewKind } from "@/lib/interviews/types";
 import type {
   InterviewPanelState,
@@ -60,8 +54,9 @@ const DAY_MS = 24 * 60 * 60 * 1000;
  * ── Shared with sendLiveInterviewInvite ──────────────────────
  *
  * The two send paths are built from the same private helpers below — the
- * application guards, the question snapshot, the supersede rule, the dates,
- * the email delivery and the scheduling — so a fix to one reaches the other.
+ * application guards, the question snapshot, the supersede rule, the dates —
+ * and the same email delivery and scheduling (lib/interviews/invite-delivery),
+ * so a fix to one reaches the other.
  * What stays per kind is the session row, the email copy, and WhatsApp (async
  * only). The order of steps here is the order this action has always run in.
  */
@@ -450,16 +445,6 @@ export async function sendLiveInterviewInvite(
 type Service = ReturnType<typeof createServiceClient>;
 type CompanyCtx = Awaited<ReturnType<typeof getCompanyContext>>;
 
-type InviteApplication = {
-  id: string;
-  first_name: string | null;
-  last_name: string | null;
-  email: string | null;
-  job_id: string | null;
-  job_title_snapshot: string | null;
-  jobs?: { title: string | null } | null;
-};
-
 const NO_QUESTIONS = "Add interview questions to this job first — there's nothing to ask yet.";
 
 /**
@@ -662,165 +647,6 @@ function inviteDates(): { expiresAt: string; expiresAtMs: number; deleteAfter: s
     new Date(now).setMonth(new Date(now).getMonth() + RETENTION_MONTHS),
   ).toISOString();
   return { expiresAt, expiresAtMs: now + SESSION_EXPIRY_DAYS * DAY_MS, deleteAfter };
-}
-
-/**
- * Email the invitation, and cancel the session if it cannot be delivered.
- *
- * The invite goes out through the SAME path as every other candidate email —
- * renderCopy for substitution, buildCandidateHtml for the shell and the
- * unsubscribe footer, deliverEmail for sender identity, reply-to, the daily
- * cap and the log-before-send row. Nothing here talks to Resend directly.
- *
- * Event 'interview' rather than 'manual': it IS the lifecycle event, so it
- * lands in the Messages page's Automatic tab and shares the idempotency and
- * opt-out semantics of the rest of the lifecycle.
- *
- * Returns the deadline exactly as the email rendered it, so every later
- * message about this session can quote the same wording.
- */
-async function deliverInvite(
-  service: Service,
-  input: {
-    ctx: CompanyCtx;
-    applicationId: string;
-    app: InviteApplication;
-    sessionId: string;
-    rawToken: string;
-    expiresAt: string;
-    copy: (link: string, deadline: string) => { subject: string; body: string };
-  },
-): Promise<{ ok: true; deadline: string } | { ok: false; error: string }> {
-  const { ctx, app } = input;
-  const to = (app.email ?? "").trim().toLowerCase();
-  const jobTitle =
-    (app.jobs?.title ?? "").trim() || (app.job_title_snapshot ?? "").trim() || "the role";
-
-  const { data: companyData } = await service
-    .from("companies")
-    .select("name, candidate_reply_email")
-    .eq("id", ctx.companyId)
-    .maybeSingle();
-  const company = companyData as {
-    name: string | null;
-    candidate_reply_email: string | null;
-  } | null;
-  const companyName = (company?.name ?? "").trim();
-
-  const values = buildPlaceholders({
-    firstName: app.first_name,
-    lastName: app.last_name,
-    jobTitle,
-    companyName,
-  });
-
-  const link = interviewUrl(input.rawToken);
-  const deadline = new Date(input.expiresAt).toLocaleDateString("en-GB", {
-    day: "numeric",
-    month: "long",
-    timeZone: "UTC",
-  });
-
-  const rendered = renderCopy(input.copy(link, deadline), values);
-
-  const html = buildCandidateHtml(rendered.body, companyName, ctx.companyId, to);
-
-  const outcome = await deliverEmail(service, {
-    companyId: ctx.companyId,
-    applicationId: input.applicationId,
-    event: "interview",
-    to,
-    subject: rendered.subject,
-    html,
-    companyName,
-    replyTo: (company?.candidate_reply_email ?? "").trim() || null,
-    sentByName: ctx.memberName,
-  });
-
-  if (!outcome.ok) {
-    /*
-     * The session exists but nobody can reach it, so it is cancelled rather
-     * than left as a live token with no delivered link. Re-sending mints a
-     * fresh one; leaving this open would accumulate dead sessions that the
-     * one-open-session rule would then have to reason about.
-     */
-    await service
-      .from("interview_sessions")
-      .update({ status: "cancelled" })
-      .eq("id", input.sessionId);
-    return { ok: false, error: outcome.message };
-  }
-  return { ok: true, deadline };
-}
-
-/**
- * Queue the reminder and the expiry for one freshly sent session.
- *
- * Not exported — a "use server" module compiles every export into a server
- * action, and scheduling background work is not something a browser may ask
- * for. Callable only from the two send actions, which have already done the
- * company and hiring-team checks.
- *
- * `reminder` is explicit, not defaulted: the reminder's copy describes an
- * async interview, so the live send passes false and the async send true.
- *
- * ── When the reminder is skipped entirely ──
- *
- * If the window is 24 hours or less, `run_after` would land at or before now
- * and the reminder would fire within one worker tick of the invitation — "your
- * interview closes tomorrow" arriving minutes after "here is your interview".
- * That is worse than no reminder, so none is queued and the reason is logged.
- *
- * Unreachable today: SESSION_EXPIRY_DAYS is 5, so the lead is always four days.
- * It is a guard against the value being lowered, or being made per-job, without
- * anyone re-deriving what that does to the reminder.
- */
-async function scheduleInterviewJobs(input: {
-  sessionId: string;
-  companyId: string;
-  expiresAt: string;
-  expiresAtMs: number;
-  deadline: string;
-  reminder: boolean;
-}): Promise<void> {
-  const { sessionId, companyId, expiresAt, expiresAtMs, deadline } = input;
-
-  try {
-    const reminderAtMs = expiresAtMs - REMINDER_LEAD_MS;
-    if (input.reminder && reminderAtMs <= Date.now()) {
-      console.log(
-        `[interview] no reminder for session ${sessionId} — the window is shorter than the ${
-          REMINDER_LEAD_MS / (60 * 60 * 1000)
-        }h reminder lead`,
-      );
-    } else if (input.reminder) {
-      const queued = await enqueue({
-        type: JOB_TYPES.INTERVIEW_REMINDER,
-        // `deadline` is the invitation email's exact wording, so the reminder
-        // cannot quote a different date to the same candidate; `expiresAt` is
-        // the instant it was derived from, which is what lets the handler
-        // notice that the deadline has since moved.
-        payload: { sessionId, deadline, expiresAt },
-        companyId,
-        runAfter: new Date(reminderAtMs),
-      });
-      if (!queued.ok) {
-        console.error("[interview] reminder enqueue failed (non-fatal):", queued.error);
-      }
-    }
-
-    const expired = await enqueue({
-      type: JOB_TYPES.INTERVIEW_EXPIRY,
-      payload: { sessionId },
-      companyId,
-      runAfter: new Date(expiresAtMs),
-    });
-    if (!expired.ok) {
-      console.error("[interview] expiry enqueue failed (non-fatal):", expired.error);
-    }
-  } catch (err) {
-    console.error("[interview] scheduling enqueue threw (non-fatal):", err);
-  }
 }
 
 /**
