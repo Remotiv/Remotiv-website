@@ -116,6 +116,15 @@ script can invoke. Those need an integration run on staging with the worker
 executing the real code while a second connection issues a guarded write.
 Read every result below with that limit in view.
 
+**Order of this stage, and why it must not be re-sorted.** P1 to P4 first:
+they are cheap, single-connection, and a failure there means the guard is
+not firing or blocks legitimate writes. Then P7, P8a and P8b: they carry the
+ONLY outcome that could block 054 from production, a `40P01` deadlock
+between a guarded write and the cascade delete. Then P5 and P6 last: they
+reproduce a residual that has already been examined and accepted, they are
+documentation rather than a gate, and they are the most fiddly to restore.
+The blocking question comes before the documentation.
+
 **Locking, corrected.** The guard's own read (`054:278`) is a plain SELECT:
 table-level ACCESS SHARE, no row lock, never waits. That settles the no-cycle
 conclusion for a transcript-only UPDATE whose `session_id` is unchanged: the
@@ -124,9 +133,9 @@ INSERTs, nor any UPDATE that changes `session_id`: foreign-key enforcement
 makes PostgreSQL take FOR KEY SHARE on the parent `interview_sessions` row for
 those, which IS a row lock and DOES conflict with a DELETE of that row. The
 cascade delete (`DELETE FROM interview_sessions`, one statement, session row
-first, then children through the two cascading keys Check C listed) takes
-locks in the opposite order. Whether that is a cycle is settled empirically by
-P7, P8a and P8b, not by argument.
+first, then children through the cascading keys) takes locks in the opposite
+order. Whether that is a cycle is settled empirically by P7, P8a and P8b, not
+by argument.
 
 Each single-connection proof (P1 to P4) in its own `begin; ... rollback;`.
 Candidate turns only (021 refuses a transcript on an interviewer turn). The
@@ -142,12 +151,177 @@ expected result is the pass condition; anything else is a STOP.
 14. **P4 the purge's clear passes.** Due unstamped turn, the full `words`
     shape with `content_purged_at = now()`: `UPDATE n`.
 
+**Cascade-delete concurrency proofs P7, P8a, P8b.** Different fixture
+discipline from every other proof: these DESTROY their fixture, so each
+CREATES its own disposable live session and child turns with explicit,
+minimal INSERTs, and borrows nothing seeded. A seeded session may carry
+`live_interview_actions` rows (deletable only through the cascade, 042) or a
+restart pointing at it, and either would make the DELETE measure something
+other than the guard. The expected outcome of each proof is stated BEFORE its
+steps so a result confirms or refutes it. The guard must PASS in all three,
+so every fixture has `delete_after` 30 days out and `purged_at` null; an
+`RT063` anywhere here is a fixture bug, not a finding.
+
+Five signals that all look like "it errored", and must be told apart in the
+write-up:
+
+| Signal | SQLSTATE | Meaning here |
+|---|---|---|
+| ordinary block | none; the prompt does not return until the other connection commits | a row lock wait, expected in all three |
+| deadlock | `40P01` `deadlock_detected` | the finding these proofs exist to detect; refutes the no-cycle expectation |
+| guard refusal | `RT063` | fixture bug: the session was past retention or stamped |
+| foreign-key violation | `23503` `foreign_key_violation` | expected in P8a after the delete commits; anywhere else, read the constraint name in the message |
+| cancelled by timeout | `57014` `query_canceled` | the block outlived the safety timeout; record it, do not call it a deadlock |
+
+Conn 2 in every proof runs `set statement_timeout = '60s';` first so an
+unresolved block ends as `57014` instead of hanging, and `\timing on` so the
+wait is recorded.
+
+**Fixture: one disposable live session plus turns, by explicit INSERT.** The
+shape comes from `scripts/backfills/054-fixture-catalog.sql`, run on staging
+2026-11-02 (columns, CHECKs, uniques, foreign keys and triggers for both
+tables). What the catalog requires of a session row: `company_id` (a real
+company; `ON DELETE CASCADE` from companies), `token_hash` (UNIQUE),
+`expires_at`, and for a live session `kind = 'live'` with `live_settings` a
+non-null JSON object (`interview_sessions_live_settings_kind`); `provider`
+and `provider_session_id` both null; `attempt` 1 with `previous_attempt_id`
+null (`interview_sessions_attempt_link`). The `interview_sessions_live_ended`
+trigger stamps `live_ended_at` for a `submitted` live session itself. Of a
+turn row: an interviewer turn needs `kind`, `question_position` and non-empty
+`text`; a candidate turn needs `kind` null, `text` null, `responds_to_turn_id`
+pointing at a turn of the same session (`interview_turns_responds_to_fk` on
+`(responds_to_turn_id, session_id)`), and a non-null `transcript_status`
+(`interview_turns_transcript_status`, the candidate-only CHECK); both need
+`media_path` matching `{session}/t{sequence}.%`, `media_bytes > 0`, a 64-hex
+`media_sha256`, non-empty `media_mime_type`, `offset_ms >= 0`,
+`duration_ms > 0`, `ended_at >= started_at`. Nothing is cloned.
+
+```sql
+-- a real company to own the fixture (read-only pick)
+select id as company from public.companies limit 1 \gset
+insert into public.interview_sessions
+  (company_id, token_hash, status, expires_at, kind, live_settings, attempt, delete_after)
+values
+  (:'company', encode(sha256(gen_random_uuid()::text::bytea), 'hex'), 'submitted',
+   now() + interval '7 days', 'live', '{}'::jsonb, 1, now() + interval '30 days')
+returning id \gset fx_
+-- :fx_id is S (or S2, S3). Pre-flight, loud: no restart may point at it.
+-- (The column is previous_attempt_id, migration 020, not previous_attempt.)
+select (count(*) = 0) as ok from public.interview_sessions where previous_attempt_id = :'fx_id' \gset
+\if :ok
+\else
+\echo STOP: a restart points at the fixture; interview_sessions_previous_attempt_fk would fail the DELETE (#69)
+\quit
+\endif
+-- interviewer turn (text is a word column: the guard fires and must pass)
+insert into public.interview_turns
+  (session_id, session_kind, provider_turn_id, sequence, speaker, kind, question_position, text,
+   media_path, media_mime_type, media_bytes, media_sha256, offset_ms, duration_ms, started_at, ended_at)
+values
+  (:'fx_id', 'live', 'fx-i1', 1, 'interviewer', 'base_question', 1, 'fixture question',
+   :'fx_id' || '/t1.wav', 'audio/wav', 1, repeat('0', 64), 0, 1000, now(), now())
+returning id \gset fx_q_
+```
+
+The candidate turn, inserted where each proof says (P8b inserts it with
+`transcript` null and `transcript_status = 'pending'` during fixture setup
+and later UPDATEs it; P7 and P8a insert it, with words, inside the proof):
+
+```sql
+insert into public.interview_turns
+  (session_id, session_kind, provider_turn_id, sequence, speaker, responds_to_turn_id,
+   transcript, transcript_status,
+   media_path, media_mime_type, media_bytes, media_sha256, offset_ms, duration_ms, started_at, ended_at)
+values
+  (:'fx_id', 'live', 'fx-c2', 2, 'candidate', :'fx_q_id',
+   'probe-054 words', 'done',
+   :'fx_id' || '/t2.wav', 'audio/wav', 1, repeat('0', 64), 1000, 1000, now(), now())
+returning id \gset fx_c_
+```
+
+15. **P7, guarded INSERT first, then the delete.** Fixture S with its
+    interviewer turn committed; no candidate turn yet.
+    Expected before running: Conn 2's DELETE BLOCKS (ordinary block), because
+    Conn 1's uncommitted INSERT holds FOR KEY SHARE on S's session row (and on
+    the interviewer turn row, through `interview_turns_responds_to_fk`) and
+    the DELETE needs those rows exclusively. No deadlock: Conn 1 waits for
+    nothing. On Conn 1's commit, Conn 2's DELETE completes with `DELETE 1`
+    and the cascade removes both turns. Final state: no session row, no turn
+    rows.
+    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
+    2. Conn 1: `begin;` then the candidate-turn INSERT above (words present,
+       guard must pass). Expect `INSERT 0 1`. Hold open.
+    3. Conn 2: `delete from public.interview_sessions where id = :'S';`
+       Record: blocks / errors (which SQLSTATE) / completes at once.
+    4. Conn 1: `commit;` Record what Conn 2 then prints and how long it waited.
+    5. Record final state: `select count(*) from interview_sessions where id
+       = :'S'` and `... from interview_turns where session_id = :'S'`.
+       Expected 0 and 0.
+    Refuted by: `40P01` on either connection; Conn 2 completing in step 3
+    while Conn 1 still holds the INSERT (the FK lock did not conflict as
+    stated); turn rows surviving step 5.
+16. **P8a, delete first, then a concurrent INSERT.** Fresh fixture S2 with
+    its interviewer turn committed; no candidate turn.
+    Expected before running: Conn 2's INSERT BLOCKS on a foreign-key check
+    (FOR KEY SHARE waits behind the uncommitted DELETE). The guard's BEFORE
+    trigger runs first and passes, because its snapshot still sees S2. No
+    deadlock: Conn 1 waits for nothing. On Conn 1's commit, Conn 2's INSERT
+    fails with `23503`. Two keys are violated at that moment,
+    `interview_turns_session_fk` (the session is gone) and
+    `interview_turns_responds_to_fk` (the interviewer turn went with it);
+    the message names whichever RI trigger fires first, expected
+    `interview_turns_session_fk`. Record the name. Final state: no session
+    row, no turn rows.
+    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
+    2. Conn 1: `begin; delete from public.interview_sessions where id =
+       :'S2';` Expect `DELETE 1`. Hold open.
+    3. Conn 2: the candidate-turn INSERT for S2. Record: blocks / errors /
+       completes.
+    4. Conn 1: `commit;` Record what Conn 2 then prints, SQLSTATE and
+       constraint name.
+    5. Final state as in P7 step 5. Expected 0 and 0.
+    Refuted by: `40P01`; `INSERT 0 1` succeeding after the commit (a child
+    row with no parent); `RT063` (fixture bug, not a finding).
+17. **P8b, delete first, then a concurrent UPDATE.** Its OWN fresh fixture
+    S3, with BOTH turns committed beforehand, the candidate turn T3 inserted
+    with `transcript` null and `transcript_status = 'pending'`. Separate from
+    P8a because a connection blocked on the INSERT cannot issue the UPDATE.
+    Expected before running: Conn 1's DELETE has already cascaded and holds
+    the turn rows deleted-but-uncommitted, so Conn 2's UPDATE BLOCKS on the
+    turn row itself before the guard ever runs. No deadlock. On Conn 1's
+    commit the row is gone and Conn 2 reports `UPDATE 0` with no error.
+    Final state: no session row, no turn rows.
+    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
+    2. Conn 1: `begin; delete from public.interview_sessions where id =
+       :'S3';` Expect `DELETE 1`. Hold open.
+    3. Conn 2: `update public.interview_turns set transcript = 'probe-054
+       words', transcript_status = 'done' where id = :'T3';` Record: blocks /
+       errors / completes.
+    4. Conn 1: `commit;` Record what Conn 2 then prints.
+    5. Final state as in P7 step 5. Expected 0 and 0.
+    Refuted by: `40P01`; `UPDATE 1` (the write landed on a row the committed
+    delete should have removed); any `RT063`.
+18. **Scope of P7 to P8b.** Staging's cascade runs through NINE foreign keys
+    into `interview_sessions`; production's runs through TEN, because
+    `live_session_events` does not exist on staging (#68). That table has no
+    word columns and no trigger, so it does not change the lock ordering, but
+    the honest record of a pass is "proven against staging's cascade", never
+    "the production cascade". The catalog run of 2026-11-02 also shows
+    staging's `interview_sessions` triggers are not production's:
+    `interview_sessions_attempt_rules` is migration 020's body, not 053's,
+    and 017's `interview_sessions_kind_immutable` is absent. Neither touches
+    an INSERT with `previous_attempt_id` null or a DELETE, so the fixtures and
+    the proofs are unaffected, but staging is not a faithful copy of
+    production's trigger set and a result here is a staging result. And, as
+    the top of this stage says: these interleavings only, nothing about the
+    real `runInterviewPurge` or `deleteSessions`.
+
 Concurrent proofs P5 and P6 borrow seeded sessions and RESTORE them. Staging
 already holds seeded due and stamped sessions, so every Check G and Check D
 expectation below is a DELTA against a baseline recorded in the same sitting,
-never an absolute.
+never an absolute. They reproduce the accepted residual; they gate nothing.
 
-15. **P5 ordering (b), the accepted residual, reproduced.** Two psql
+19. **P5 ordering (b), the accepted residual, reproduced.** Two psql
     connections to staging; seed session S with `delete_after` a day or more
     out, `purged_at` null, candidate turn T with transcript null; record S, T
     and their original values.
@@ -169,7 +343,7 @@ never an absolute.
        clock_timestamp() where id = :S; commit;` then Conn 2 the same write
        as step 3: expect `RT063`. Check G: still G0 (nothing landed).
        Restore `purged_at = null`.
-16. **P6 ordering (a) closes itself.** Same shape on a second seed session S2
+20. **P6 ordering (a) closes itself.** Same shape on a second seed session S2
     (`delete_after` in the future, `purged_at` null, candidate turn T2 with
     transcript null); record originals.
     1. Baseline: Check G as G0, Check D as D0.
@@ -185,162 +359,13 @@ never an absolute.
        Check G: back to G0.
     7. Restore S2's original `delete_after`; restore T2 (`transcript_status
        = 'pending'`, `content_purged_at = null`). Check D: back to D0.
-
-**Cascade-delete concurrency proofs P7, P8a, P8b.** Different fixture
-discipline: these DESTROY their fixture, so each CREATES its own disposable
-live session and child turns and borrows nothing seeded. A seeded session may
-carry `live_interview_actions` rows (deletable only through the cascade, 042)
-or a restart pointing at it, and either would make the DELETE measure
-something other than the guard. The expected outcome of each proof is stated
-BEFORE its steps so a result confirms or refutes it. The guard must PASS in
-all three, so every fixture has `delete_after` 30 days out and `purged_at`
-null; an `RT063` anywhere here is a fixture bug, not a finding.
-
-Four signals that all look like "it errored", and must be told apart in the
-write-up:
-
-| Signal | SQLSTATE | Meaning here |
-|---|---|---|
-| ordinary block | none; the prompt does not return until the other connection commits | a row lock wait, expected in all three |
-| deadlock | `40P01` `deadlock_detected` | the finding these proofs exist to detect; refutes the no-cycle expectation |
-| guard refusal | `RT063` | fixture bug: the session was past retention or stamped |
-| foreign-key violation | `23503` `foreign_key_violation` | expected in P8a after the delete commits; anywhere else, read the constraint name in the message |
-| cancelled by timeout | `57014` `query_canceled` | the block outlived the safety timeout; record it, do not call it a deadlock |
-
-Conn 2 in every proof runs `set statement_timeout = '60s';` first so an
-unresolved block ends as `57014` instead of hanging, and `\timing on` so the
-wait is recorded.
-
-**Fixture: one disposable live session plus two turns.** Clone a seeded LIVE
-session row (the turns' foreign key requires `kind = 'live'`), overriding
-every identity, uniqueness, retention and restart column. If the INSERT fails
-with `23505`, the message names the constraint; add that column to the
-overrides and retry. If it fails with a CHECK or trigger message, read it;
-the clone is itself the first probe of the fixture.
-
-```sql
--- pick any seeded live session as the template
-select id as seed from public.interview_sessions where kind = 'live' limit 1 \gset
-insert into public.interview_sessions
-select (jsonb_populate_record(null::public.interview_sessions,
-          to_jsonb(src)
-          || jsonb_build_object(
-               'id', gen_random_uuid(),
-               'attempt', 1,
-               'previous_attempt_id', null,
-               'status', 'submitted',
-               'live_outcome', null,
-               'live_ended_at', null,
-               'provider_session_id', null,
-               'token_hash', encode(sha256(gen_random_uuid()::text::bytea), 'hex'),
-               'delete_after', now() + interval '30 days',
-               'purged_at', null,
-               'created_at', now()))).*
-from public.interview_sessions src where src.id = :'seed'
-returning id \gset fx_
--- :fx_id is S (or S2, S3). Pre-flight, loud: no restart may point at it.
-select (count(*) = 0) as ok from public.interview_sessions where previous_attempt_id = :'fx_id' \gset
-\if :ok
-\else
-\echo STOP: a restart points at the fixture; interview_sessions_previous_attempt_fk would fail the DELETE (#69)
-\quit
-\endif
--- interviewer turn (text is a word column: the guard fires and must pass)
-insert into public.interview_turns
-  (id, session_id, session_kind, provider_turn_id, sequence, speaker, kind, question_position, text,
-   media_path, media_mime_type, media_bytes, media_sha256, offset_ms, duration_ms, started_at, ended_at)
-values
-  (gen_random_uuid(), :'fx_id', 'live', 'fx-i1', 1, 'interviewer', 'base_question', 1, 'fixture question',
-   :'fx_id' || '/t1.wav', 'audio/wav', 1, repeat('0', 64), 0, 1000, now(), now())
-returning id \gset fx_q_
-```
-
-The candidate turn, inserted inside the proof where the proof says so:
-
-```sql
-insert into public.interview_turns
-  (id, session_id, session_kind, provider_turn_id, sequence, speaker, responds_to_turn_id,
-   transcript, transcript_status,
-   media_path, media_mime_type, media_bytes, media_sha256, offset_ms, duration_ms, started_at, ended_at)
-values
-  (gen_random_uuid(), :'fx_id', 'live', 'fx-c2', 2, 'candidate', :'fx_q_id',
-   'probe-054 words', 'done',
-   :'fx_id' || '/t2.wav', 'audio/wav', 1, repeat('0', 64), 1000, 1000, now(), now());
-```
-
-The pre-flight column is `previous_attempt_id` (migration 020), not
-`previous_attempt`.
-
-17. **P7, guarded INSERT first, then the delete.** Fixture S with its
-    interviewer turn committed; no candidate turn yet.
-    Expected before running: Conn 2's DELETE BLOCKS (ordinary block), because
-    Conn 1's uncommitted INSERT holds FOR KEY SHARE on S's session row and the
-    DELETE needs that row exclusively. No deadlock: Conn 1 waits for nothing.
-    On Conn 1's commit, Conn 2's DELETE completes with `DELETE 1` and the
-    cascade removes both turns. Final state: no session row, no turn rows.
-    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
-    2. Conn 1: `begin;` then the candidate-turn INSERT above (words present,
-       guard must pass). Expect `INSERT 0 1`. Hold open.
-    3. Conn 2: `delete from public.interview_sessions where id = :'S';`
-       Record: blocks / errors (which SQLSTATE) / completes at once.
-    4. Conn 1: `commit;` Record what Conn 2 then prints and how long it waited.
-    5. Record final state: `select count(*) from interview_sessions where id
-       = :'S'` and `... from interview_turns where session_id = :'S'`.
-       Expected 0 and 0.
-    Refuted by: `40P01` on either connection; Conn 2 completing in step 3
-    while Conn 1 still holds the INSERT (the FK lock did not conflict as
-    stated); turn rows surviving step 5.
-18. **P8a, delete first, then a concurrent INSERT.** Fresh fixture S2 with
-    its interviewer turn committed; no candidate turn.
-    Expected before running: Conn 2's INSERT BLOCKS on the foreign-key check
-    (FOR KEY SHARE waits behind the uncommitted DELETE). The guard's BEFORE
-    trigger runs first and passes, because its snapshot still sees S2. No
-    deadlock: Conn 1 waits for nothing. On Conn 1's commit, Conn 2's INSERT
-    fails with `23503` naming `interview_turns_session_fk`: the parent is
-    gone. Final state: no session row, no turn rows.
-    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
-    2. Conn 1: `begin; delete from public.interview_sessions where id =
-       :'S2';` Expect `DELETE 1`. Hold open.
-    3. Conn 2: the candidate-turn INSERT for S2. Record: blocks / errors /
-       completes.
-    4. Conn 1: `commit;` Record what Conn 2 then prints.
-    5. Final state as in P7 step 5. Expected 0 and 0.
-    Refuted by: `40P01`; `INSERT 0 1` succeeding after the commit (a child
-    row with no parent); `RT063` (fixture bug, not a finding).
-19. **P8b, delete first, then a concurrent UPDATE.** Its OWN fresh fixture
-    S3, with BOTH turns committed beforehand, the candidate turn's
-    `transcript` null and `transcript_status = 'pending'`. Separate from P8a
-    because a connection blocked on the INSERT cannot issue the UPDATE.
-    Expected before running: Conn 1's DELETE has already cascaded and holds
-    the turn rows deleted-but-uncommitted, so Conn 2's UPDATE BLOCKS on the
-    turn row itself before the guard ever runs. No deadlock. On Conn 1's
-    commit the row is gone and Conn 2 reports `UPDATE 0` with no error.
-    Final state: no session row, no turn rows.
-    1. Conn 2: `set statement_timeout = '60s'; \timing on`.
-    2. Conn 1: `begin; delete from public.interview_sessions where id =
-       :'S3';` Expect `DELETE 1`. Hold open.
-    3. Conn 2: `update public.interview_turns set transcript = 'probe-054
-       words', transcript_status = 'done' where id = :'T3';` Record: blocks /
-       errors / completes.
-    4. Conn 1: `commit;` Record what Conn 2 then prints.
-    5. Final state as in P7 step 5. Expected 0 and 0.
-    Refuted by: `40P01`; `UPDATE 1` (the write landed on a row the committed
-    delete should have removed); any `RT063`.
-20. **Scope of P7 to P8b.** Staging's cascade runs through NINE foreign keys
-    into `interview_sessions`; production's runs through TEN, because
-    `live_session_events` does not exist on staging (#68). That table has no
-    word columns and no trigger, so it does not change the lock ordering, but
-    the honest record of a pass is "proven against staging's cascade", never
-    "the production cascade". And, as the top of this stage says: these
-    results establish these interleavings only, and nothing about the real
-    `runInterviewPurge` or `deleteSessions`.
 21. STOP conditions for this stage: P1 or P5 step 8 does not raise `RT063`
     (the guard is not firing); P2, P3 or P4 raises (the guard blocks a
-    legitimate write, the outage shape); P5 step 5 or P6 step 5 moves any
-    line other than the named one, or moves it by other than exactly one;
-    any `40P01` in P7, P8a or P8b; any `RT063` in P7, P8a or P8b (fixture
-    bug: stop and fix the fixture before reading the result); a final state
-    in P7, P8a or P8b with rows left.
+    legitimate write, the outage shape); any `40P01` in P7, P8a or P8b; any
+    `RT063` in P7, P8a or P8b (fixture bug: stop and fix the fixture before
+    reading the result); a final state in P7, P8a or P8b with rows left; P5
+    step 5 or P6 step 5 moves any line other than the named one, or moves it
+    by other than exactly one.
 
 ## Stage 4. Production, apply 054
 
