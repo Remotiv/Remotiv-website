@@ -23,11 +23,14 @@ const { loadApplicantsUsage, loadOverviewUsage, loadSettingsUsage } = await impo
   "./company-usage-view.ts"
 );
 
-/** Run a loader as `role` of `company`, at a fixed instant, against `service`. */
+/** The fixed instant every loader runs at: mid-October, so the usage month is October 2026. */
+const NOW = new Date("2026-10-15T09:00:00.000Z");
+
+/** Run a loader as `role` of `company`, at NOW, against `service`. */
 async function as(role, loader, { service = usageWorld(), company = COMPANY } = {}) {
   globalThis.__usageServiceForTests = () => service;
   globalThis.__usageCtxForTests = { companyId: company, role, memberId: "m-1" };
-  mock.timers.enable({ apis: ["Date"], now: new Date("2026-10-15T09:00:00.000Z") });
+  mock.timers.enable({ apis: ["Date"], now: NOW });
   const logged = [];
   const orig = console.error;
   console.error = (...a) => logged.push(a.map((x) => JSON.stringify(x) ?? String(x)).join(" "));
@@ -200,11 +203,13 @@ test("the company is the session's: no loader takes one, and an argument is igno
   const service = usageWorld();
   globalThis.__usageServiceForTests = () => service;
   globalThis.__usageCtxForTests = { companyId: COMPANY, role: "owner", memberId: "m-1" };
+  mock.timers.enable({ apis: ["Date"], now: NOW });
   try {
     const view = await loadSettingsUsage(OTHER);
     assert.equal(view.planName, "Growth");
     assert.equal(view.metrics[0].used, 82);
   } finally {
+    mock.timers.reset();
     delete globalThis.__usageServiceForTests;
     delete globalThis.__usageCtxForTests;
   }
