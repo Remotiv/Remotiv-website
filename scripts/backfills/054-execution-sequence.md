@@ -4,13 +4,26 @@ Nothing here is run by the design session. 054b stays on hold until the
 live-scoring retention fix (scoreLiveSession returns notScored past
 delete_after) is deployed.
 
+**Authority.** `scripts/backfills/054-prechecks-A-G.sql` is the authority for
+checks A to G, their expected results and their STOP conditions. This
+document narrates that script and must agree with it; where they differ, the
+script wins and this document is corrected.
+
 ## Stage 1. Production, read-only pre-checks
 
-Run A to G in the Supabase SQL editor. Record every result in the migration
-note before continuing.
+Run A to G from the script, in the Supabase SQL editor block by block or via
+psql with the service file. Record every result in the migration note before
+continuing.
 
-1. **A, column inventory.** Expect exactly 21 rows. STOP if fewer: a column
-   name in the guard is wrong, and the guard would raise on its first fire.
+1. **A, column inventory.** 23 expected (table, column) pairs, LEFT JOINed so
+   an absent column prints `MISSING` rather than shortening the count. Expect
+   23 rows, all `present`. STOP on any `MISSING`: a guarded column name is
+   wrong and the guard would raise RT063 on its first fire. The status column
+   is `transcript_status` on both transcript tables; its value set in code is
+   `pending`, `done`, `failed`, `skipped` (types.ts), enforced by migration
+   021 on `interview_turns` only. **A2** prints the database CHECKs that
+   mention it on both tables; for `interview_answers` the repo has no
+   authority, so whatever A2 returns is the record. No STOP on A2.
 2. **B, existing triggers** on the five tables. Expect no
    `interview_words_guard`. STOP if any listed BEFORE trigger rewrites a word
    column; none is known.
@@ -20,15 +33,30 @@ note before continuing.
 4. **D, gated sessions.** Expect `purged = 0`, `due_unpurged = 0`,
    `never_expire` whatever it is. Record it. No STOP condition; this is the
    baseline Check G is read against.
-5. **E, pending transcripts under gated sessions.** Expect 0 and 0. Non-zero
-   is not a STOP: the handlers already skip those; note the count.
-6. **F, queued or running jobs aimed at gated sessions.** Expect no rows.
-   STOP if any: a job is live against a session being deleted or purged; let
-   it drain or fail it (B7's own step 2 does this), then re-run F.
-7. **G, the two transcript arms only** (the score arms need 054's functions).
-   Expect 0 and 0. STOP if non-zero: the race has already happened on
-   production; run the cleanup procedure first and understand the writer
-   before adding a guard whose first reading would be ambiguous.
+5. **E, transcription still pending under gated sessions.** The predicate is
+   `transcript_status = 'pending'`, never `transcript is null`, which also
+   matches failed rows and rows that never had media. Expect 0 and 0. No
+   STOP: the handlers already skip those at job start; note the count. On
+   staging this is how the seeded sessions are read correctly.
+6. **F, queued or running jobs aimed at gated sessions.** Derivable from D
+   (no gated sessions means no gated jobs), but it MUST BE RUN immediately
+   before the production apply (Stage 4, step 18): a job can be in flight at
+   that moment. Expect no rows. STOP if any: let it drain or fail it (B7's
+   own step 2 does this), then re-run F.
+7. **G, words on sessions past retention, two arms, transcript tables only.**
+   The score arms are added only after 054b.
+   - **purged arm**, `purged_at is not null` and words present: THE STOP.
+     Phase 1 commits every transcript clear as its own PostgREST statement
+     and only then issues the `purged_at` stamp, excluding any session with
+     something left to retry (purge.ts `markable`), so words on a stamped
+     session can only have been written after the clear. No benign window,
+     no time qualifier. Non-zero: the race has already happened; run the
+     cleanup and identify the writer before installing a guard whose first
+     reading would be ambiguous.
+   - **backlog arm**, `purged_at is null and delete_after <= now()` and words
+     present: RECORD ONLY, no STOP. The daily purge has not reached these.
+     On staging this is the seeded due sessions and is large by construction.
+   Expect production: 0 on all four lines.
 
 ## Stage 2. Staging, apply Part A
 
@@ -81,7 +109,9 @@ result is the pass condition; anything else is a STOP.
 
 ## Stage 4. Production, apply 054
 
-18. Re-run F on production immediately before applying. Expect no rows. STOP
+18. Run F on production immediately before applying, even when D was all
+    zeros: F is derivable from D at rest, but a transcribe or ai_scorecard
+    job can be in flight at the moment of the apply. Expect no rows. STOP
     otherwise.
 19. Run `054_interview_words_retention_guard.sql` top to bottom. Expect no
     errors. It is re-runnable; a partial failure is fixed by correcting and
@@ -96,34 +126,54 @@ result is the pass condition; anything else is a STOP.
     company deletion, or a purge run that touched sessions; and when the
     first six-month expiries begin. Not on a calendar. Phase 1b transcript
     re-checking is the permanent closure.
-23. Interpretation: 0 on both arms means no guarded write got through. A
-    non-zero transcript arm after 054 is either residual (b) or the trigger
+23. Interpretation: 0 on the purged arm means no guarded write got through.
+    A non-zero purged arm after 054 is either residual (b) or the trigger
     off: run the trigger-exists check first, then the cleanup procedure,
-    then step 5 of the cleanup to identify the writer. A non-zero score arm
-    before 054b may be a privacy issue to clear, but is not a guard failure:
-    no guard is installed there yet.
+    then step 5 of the cleanup to identify the writer. A non-zero backlog
+    arm is the daily purge not having run yet; record it and read it again
+    after the next run. A non-zero score arm before 054b may be a privacy
+    issue to clear, but is not a guard failure: no guard is installed there
+    yet.
 
 ## Check G
 
+The authoritative text is in `054-prechecks-A-G.sql`; this copy is for
+reading alongside the interpretation above.
+
 ```sql
--- Scoped to purged_at IS NOT NULL on purpose. A stamped session is one the
--- purge FINISHED and will never read again, so words there are the race,
--- proven, and persist until cleared by hand. A due-but-unpurged session
--- holding words is pending cleanup on the next run, not evidence; Check D
--- counts those. Widening this to delete_after <= now() manufactures false
--- positives. Do not "fix" the scope.
---
--- Rollout: before 054 and after Part A, run the first two arms only. After
--- 054b, add the three score arms (they need 054's helper functions).
-select 'answers' as t, count(*) from public.interview_answers a
+-- Two arms, transcript tables only, reported separately.
+-- purged arm   purged_at IS NOT NULL and words present: THE STOP. Phase 1
+--              commits every transcript clear and only then stamps, excluding
+--              sessions with anything left to retry, so words here were
+--              written AFTER the clear: the race, no benign window.
+-- backlog arm  purged_at IS NULL and delete_after <= now() and words present:
+--              RECORD ONLY. The daily purge has not reached these yet. Folding
+--              it into the STOP arm would false-STOP on staging's seeded due
+--              sessions. Do not "fix" the split.
+-- Rollout: before 054 and after Part A, these four lines only. After 054b,
+-- add the three score arms below (they need 054's helper functions).
+select 'purged'  as arm, 'answers' as t, count(*) from public.interview_answers a
   join public.interview_sessions s on s.id = a.session_id
- where s.purged_at is not null and (a.transcript is not null or a.transcript_segments is not null)
+ where s.purged_at is not null
+   and (a.transcript is not null or a.transcript_segments is not null)
 union all
-select 'turns', count(*) from public.interview_turns t
+select 'purged', 'turns', count(*) from public.interview_turns t
   join public.interview_sessions s on s.id = t.session_id
  where s.purged_at is not null
    and (t.transcript is not null or t.transcript_segments is not null
-        or t.text is not null or t.follow_up_reason is not null);
+        or t.text is not null or t.follow_up_reason is not null)
+union all
+select 'backlog', 'answers', count(*) from public.interview_answers a
+  join public.interview_sessions s on s.id = a.session_id
+ where s.purged_at is null and s.delete_after <= now()
+   and (a.transcript is not null or a.transcript_segments is not null)
+union all
+select 'backlog', 'turns', count(*) from public.interview_turns t
+  join public.interview_sessions s on s.id = t.session_id
+ where s.purged_at is null and s.delete_after <= now()
+   and (t.transcript is not null or t.transcript_segments is not null
+        or t.text is not null or t.follow_up_reason is not null)
+order by 1 desc, 2;
 
 -- After 054b only:
 select 'answer_scores' as t, count(*) from public.interview_answer_scores x
