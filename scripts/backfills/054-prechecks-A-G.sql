@@ -135,37 +135,71 @@ where j.type = 'transcribe' and j.status in ('queued','running')
   and (s.purged_at is not null or s.delete_after <= now())
 group by 1, 2;
 
--- ── G. Words on sessions past retention, two arms, transcript tables only ──
--- purged arm   purged_at IS NOT NULL and words present. THE STOP. Phase 1
---              commits every transcript clear (separate PostgREST statements)
---              and only then issues the purged_at stamp, excluding any session
---              with something left to retry (purge.ts: `markable`), so words
---              on a stamped session can only have been written AFTER the
---              clear: the race, with no benign window and no time qualifier.
--- backlog arm  purged_at IS NULL and delete_after <= now() and words present.
---              RECORD ONLY, no STOP: the daily purge has not reached these
---              yet. On staging this is the seeded due sessions and is large by
---              construction; folding it into the STOP arm would false-STOP.
--- Expect production: 0 on all four lines.
-select 'purged'  as arm, 'answers' as t, count(*) from public.interview_answers a
-  join public.interview_sessions s on s.id = a.session_id
- where s.purged_at is not null
-   and (a.transcript is not null or a.transcript_segments is not null)
-union all
-select 'purged', 'turns', count(*) from public.interview_turns t
-  join public.interview_sessions s on s.id = t.session_id
- where s.purged_at is not null
-   and (t.transcript is not null or t.transcript_segments is not null
-        or t.text is not null or t.follow_up_reason is not null)
-union all
-select 'backlog', 'answers', count(*) from public.interview_answers a
-  join public.interview_sessions s on s.id = a.session_id
- where s.purged_at is null and s.delete_after <= now()
-   and (a.transcript is not null or a.transcript_segments is not null)
-union all
-select 'backlog', 'turns', count(*) from public.interview_turns t
-  join public.interview_sessions s on s.id = t.session_id
- where s.purged_at is null and s.delete_after <= now()
-   and (t.transcript is not null or t.transcript_segments is not null
-        or t.text is not null or t.follow_up_reason is not null)
-order by 1 desc, 2;
+-- ── G. Words on sessions past retention, per column (corrected 2026-11-02) ──
+-- Mirrors scripts/backfills/054-check-G.sql; that file is the runnable copy.
+-- Two arms, twelve fixed rows, transcript tables only (the score arms come with 054b).
+--   purged arm   purged_at IS NOT NULL. Phase 1 commits every clear before it stamps, so
+--                content here was written AFTER the clear, or was never cleared.
+--   backlog arm  purged_at IS NULL and delete_after <= now(): the purge has not run yet.
+-- The finding column says what a non-zero count means:
+--   STOP  candidate-bearing columns after purge (answers.transcript, answers.transcript_segments,
+--         turns.transcript, turns.transcript_segments): a possible candidate-data retention
+--         violation. Investigate before anything else.
+--   WARN  other word columns after purge (turns.text, turns.follow_up_reason): the purge did
+--         not finish its clear. Interviewer-owned by constraint, but their content comes from
+--         the provider's generated interviewer and MAY quote candidate speech, so this is a
+--         purge-completeness warning requiring investigation, not proof of a transcript leak
+--         and not proof of its absence.
+--   record  any backlog-arm count: pending cleanup on the next purge run. Not a STOP.
+-- Rows exist for every column even when the arm has no sessions, so a 0 is a counted zero,
+-- never a missing row. A counted zero is non-detection in these six columns, not proof that
+-- no late write occurred: a session deleted since the write took its rows with it.
+with s as (
+  select id,
+         case when purged_at is not null then 'purged' else 'backlog' end as arm
+    from public.interview_sessions
+   where purged_at is not null or delete_after <= now()
+),
+a as (
+  select s.arm,
+         count(*) filter (where x.transcript is not null) as transcript,
+         count(*) filter (where x.transcript_segments is not null) as transcript_segments
+    from s join public.interview_answers x on x.session_id = s.id
+   group by s.arm
+),
+t as (
+  select s.arm,
+         count(*) filter (where x.transcript is not null) as transcript,
+         count(*) filter (where x.transcript_segments is not null) as transcript_segments,
+         count(*) filter (where x.text is not null) as text,
+         count(*) filter (where x.follow_up_reason is not null) as follow_up_reason
+    from s join public.interview_turns x on x.session_id = s.id
+   group by s.arm
+),
+shape(arm, tbl, col, finding) as (values
+  ('purged', 'interview_answers', 'transcript', 'STOP: candidate words after purge'),
+  ('purged', 'interview_answers', 'transcript_segments', 'STOP: candidate words after purge'),
+  ('purged', 'interview_turns', 'transcript', 'STOP: candidate words after purge'),
+  ('purged', 'interview_turns', 'transcript_segments', 'STOP: candidate words after purge'),
+  ('purged', 'interview_turns', 'text', 'WARN: purge incomplete; may quote candidate'),
+  ('purged', 'interview_turns', 'follow_up_reason', 'WARN: purge incomplete; may quote candidate'),
+  ('backlog', 'interview_answers', 'transcript', 'record: purge not yet run'),
+  ('backlog', 'interview_answers', 'transcript_segments', 'record: purge not yet run'),
+  ('backlog', 'interview_turns', 'transcript', 'record: purge not yet run'),
+  ('backlog', 'interview_turns', 'transcript_segments', 'record: purge not yet run'),
+  ('backlog', 'interview_turns', 'text', 'record: purge not yet run'),
+  ('backlog', 'interview_turns', 'follow_up_reason', 'record: purge not yet run'))
+select sh.arm, sh.tbl, sh.col,
+       coalesce(case sh.tbl || '.' || sh.col
+                  when 'interview_answers.transcript' then a.transcript
+                  when 'interview_answers.transcript_segments' then a.transcript_segments
+                  when 'interview_turns.transcript' then t.transcript
+                  when 'interview_turns.transcript_segments' then t.transcript_segments
+                  when 'interview_turns.text' then t.text
+                  when 'interview_turns.follow_up_reason' then t.follow_up_reason
+                end, 0) as rows_with_content,
+       sh.finding
+  from shape sh
+  left join a on a.arm = sh.arm
+  left join t on t.arm = sh.arm
+ order by sh.arm desc, sh.tbl, sh.col;
