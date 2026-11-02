@@ -606,6 +606,16 @@ function ErrorNote({ children }: { children: React.ReactNode }) {
 /* ───────────────────── 2. AI video interview ───────────────── */
 
 /**
+ * The review page for this AI Video Interview: the latest attempt's, never a
+ * superseded first attempt. Shown whatever its stage, because a live interview
+ * records no answers to count (F10 C6b). Null unless the viewer can open it.
+ */
+export function liveReviewHref(session: InterviewSessionSummary | null): string | null {
+  if (session?.kind !== "live" || session.reviewable !== true) return null;
+  return `/ai-dashboard/interviews/${session.restart?.latestSessionId ?? session.id}`;
+}
+
+/**
  * What the drawer may offer for this AI Video Interview. A restarted one, or
  * one whose restart was decided, offers no send of its own: it is managed on
  * the latest attempt's interview page (F10 C5), and the server refuses a send
@@ -683,6 +693,7 @@ function LiveInterviewSection({
     restarted,
   } = liveSendControls(session, Boolean(state?.liveAvailable && state.liveEnabled));
   const shown = Boolean(session) || canSend;
+  const reviewHref = liveReviewHref(session);
 
   async function handleSend(reissue = false) {
     setBusy(true);
@@ -783,6 +794,17 @@ function LiveInterviewSection({
         </div>
       )}
 
+      {reviewHref && !restartHref && (
+        // TODO-COPY: placeholder - Waleed writes the final line.
+        <Link
+          href={reviewHref}
+          className="mt-2.5 self-start text-[12.5px] font-semibold text-remotiv-purple underline"
+          data-live-review-link
+        >
+          Open the interview page
+        </Link>
+      )}
+
       {restartHref && (
         // TODO-COPY: placeholder - Waleed writes the final line.
         <p
@@ -792,9 +814,14 @@ function LiveInterviewSection({
           {restarted
             ? "This interview was restarted - manage it from the "
             : "A restart decision was made for this interview - manage it from the "}
-          <Link className="font-semibold underline" href={restartHref}>
-            interview page
-          </Link>
+          {/* The latest attempt's page, linked only where the viewer can open it. */}
+          {reviewHref ? (
+            <Link className="font-semibold underline" href={reviewHref}>
+              interview page
+            </Link>
+          ) : (
+            "interview page"
+          )}
           .
         </p>
       )}

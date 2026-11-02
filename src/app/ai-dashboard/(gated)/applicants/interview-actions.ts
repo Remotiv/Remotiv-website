@@ -829,7 +829,7 @@ export async function fetchInterviewPanel(
   const { data } = await service
     .from("interview_sessions")
     .select(
-      "id, kind, status, expires_at, submitted_at, started_at, invited_by_name, created_at, questions_snapshot",
+      "id, kind, status, expires_at, submitted_at, started_at, invited_by_name, created_at, questions_snapshot, job_id",
     )
     .eq("application_id", applicationId)
     .eq("company_id", ctx.companyId)
@@ -840,17 +840,20 @@ export async function fetchInterviewPanel(
     .order("created_at", { ascending: false })
     .limit(1);
 
-  const row = ((data ?? []) as {
-    id: string;
-    kind: string;
-    status: string;
-    expires_at: string;
-    submitted_at: string | null;
-    started_at: string | null;
-    invited_by_name: string | null;
-    created_at: string;
-    questions_snapshot: unknown;
-  }[])[0];
+  const row = (
+    (data ?? []) as {
+      id: string;
+      kind: string;
+      status: string;
+      expires_at: string;
+      submitted_at: string | null;
+      started_at: string | null;
+      invited_by_name: string | null;
+      created_at: string;
+      questions_snapshot: unknown;
+      job_id: string | null;
+    }[]
+  )[0];
   if (!row) return { ...base, session: null };
 
   // The interview score, if one exists. Company-gated on its own column.
@@ -922,6 +925,9 @@ export async function fetchInterviewPanel(
       restart.ok && restart.latestSessionId
         ? { latestSessionId: restart.latestSessionId, restarted: restart.restarted }
         : null;
+    // The review page gates on the session's own job (live-review.ts gateLiveSession):
+    // offer its link only where that gate opens. A restart keeps its first attempt's job.
+    session.reviewable = row.job_id === app.job_id || (await canAccessJob(ctx, row.job_id ?? ""));
   }
 
   return { ...base, session };

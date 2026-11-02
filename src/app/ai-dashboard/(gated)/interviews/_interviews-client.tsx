@@ -592,17 +592,30 @@ function HeroCell({
   );
 }
 
-/** One interview. Rows for candidates who have recorded nothing are not links —
- *  there is no review to open, and a dead link that lands on an empty page is
- *  worse than a row that plainly is not clickable. */
+/**
+ * Whether a row links to its review.
+ *
+ * An AI Video Interview always does: it records turns, never interview_answers,
+ * so its answer count is always 0, and its review page (live-review.ts) has a
+ * state for every stage, from invited to finished (F10 C6b).
+ *
+ * An async row with nothing recorded does not: there is no review to open, and
+ * a dead link that lands on an empty page is worse than a row that plainly is
+ * not clickable. An UNKNOWN answer count stays openable. The link is only
+ * withheld when we know there is nothing to watch; withholding it because the
+ * answer read failed would put a reviewer one failed query away from being
+ * unable to reach a recording that is sitting there. The review page re-reads
+ * the session anyway and has its own empty state.
+ */
+export function rowOpenable(row: Pick<InterviewRow, "kind" | "progress">): boolean {
+  if (row.kind === "live") return true;
+  return row.progress === null || row.progress.answered > 0;
+}
+
+/** One interview. */
 function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void }) {
   const [bg, fg] = getTint(row.id);
-  /* An UNKNOWN answer count stays openable. The link is only withheld when we
-     know there is nothing to watch; withholding it because the answer read
-     failed would put a reviewer one failed query away from being unable to
-     reach a recording that is sitting there. The review page re-reads the
-     session anyway and has its own empty state. */
-  const openable = row.progress === null || row.progress.answered > 0;
+  const openable = rowOpenable(row);
   const archived = row.archivedAt !== null;
 
   const inner = (

@@ -37,6 +37,11 @@ export type InterviewSessionSummary = {
    * attempt's interview page, where restarts are managed.
    */
   restart?: { latestSessionId: string; restarted: boolean } | null;
+  /**
+   * AI Video Interview only: the viewer can open its review page (the session's
+   * own job is within their hiring team). The drawer links it only when true.
+   */
+  reviewable?: boolean;
 };
 
 /**
