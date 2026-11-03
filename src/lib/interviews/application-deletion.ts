@@ -103,7 +103,6 @@ async function deleteSessions(
   applicationId: string | null,
   deps: ApplicationInterviewsDeps,
 ): Promise<ApplicationInterviewsResult> {
-  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
   const whose =
     applicationId === null
       ? `company ${companyId} (no application)`
@@ -119,6 +118,35 @@ async function deleteSessions(
   if (error) return { ok: false, error: NOT_DONE };
   const sessions = (data ?? []) as InterviewSessionRef[];
   if (sessions.length === 0) return { ok: true, sessions: 0 };
+  const done = await deleteInterviewSessions(service, companyId, sessions, deps, whose);
+  return done.ok ? done : { ok: false, error: done.error };
+}
+
+/** Why deleteInterviewSessions stopped, with what its caller may say about the files. */
+export type InterviewSessionsResult =
+  | { ok: true; sessions: number }
+  | { ok: false; error: string; objectsLeft: number; storageUnreachable: boolean };
+
+/**
+ * Close, fail the queued jobs of, empty the folders of, and delete these
+ * sessions of one company, in that order, as described above. Shared by B7 and
+ * by deleteInterview for a restart chain (F10 C6c). `whose` names them in the
+ * log, ids only.
+ */
+export async function deleteInterviewSessions(
+  service: Service,
+  companyId: string,
+  sessions: InterviewSessionRef[],
+  deps: ApplicationInterviewsDeps,
+  whose: string,
+): Promise<InterviewSessionsResult> {
+  const nowIso = new Date((deps.now ?? Date.now)()).toISOString();
+  const notDone = {
+    ok: false as const,
+    error: NOT_DONE,
+    objectsLeft: 0,
+    storageUnreachable: false,
+  };
   const ids = sessions.map((s) => s.id);
 
   // 1. Closed, with existing states only.
@@ -127,21 +155,21 @@ async function deleteSessions(
     .update({ delete_after: nowIso })
     .in("id", ids)
     .eq("company_id", companyId);
-  if (closed.error) return { ok: false, error: NOT_DONE };
+  if (closed.error) return notDone;
   const cancelled = await service
     .from("interview_sessions")
     .update({ status: "cancelled" })
     .in("id", ids)
     .eq("company_id", companyId)
     .in("status", OPEN_STATUSES);
-  if (cancelled.error) return { ok: false, error: NOT_DONE };
+  if (cancelled.error) return notDone;
 
   // 2. Their queued jobs, failed: by session (live turns, scorecards) and by answer (async).
   const { data: answers, error: aErr } = await service
     .from("interview_answers")
     .select("id")
     .in("session_id", ids);
-  if (aErr) return { ok: false, error: NOT_DONE };
+  if (aErr) return notDone;
   const answerIds = ((answers ?? []) as { id: string }[]).map((a) => a.id);
   const failQueued = (type: string, key: string, values: string[]) =>
     service
@@ -157,7 +185,7 @@ async function deleteSessions(
   ] as const) {
     if (values.length === 0) continue;
     const { error: jErr } = await failQueued(type, key, values);
-    if (jErr) return { ok: false, error: NOT_DONE };
+    if (jErr) return notDone;
   }
 
   // 3. B1/B6: the provider's copy of each live session (no provider call today).
@@ -169,18 +197,25 @@ async function deleteSessions(
 
   // 4. Every file, or nothing else.
   let left = 0;
+  let objectsLeft = 0;
+  let storageUnreachable = false;
   for (const id of ids) {
     try {
-      if (!(await removeSessionObjects(service, id)).complete) left += 1;
+      const sweep = await removeSessionObjects(service, id);
+      if (!sweep.complete) {
+        left += 1;
+        objectsLeft += sweep.present.length - sweep.removed.size;
+      }
     } catch {
       left += 1;
+      storageUnreachable = true;
     }
   }
   if (left > 0) {
     console.error(
       `[application-deletion] ${whose}: files left in ${left} session folder(s); rows kept for a retry`,
     );
-    return { ok: false, error: FILES_LEFT };
+    return { ok: false, error: FILES_LEFT, objectsLeft, storageUnreachable };
   }
 
   // 5. The sessions, in one statement; the cascades take the rest.
@@ -189,7 +224,7 @@ async function deleteSessions(
     .delete()
     .in("id", ids)
     .eq("company_id", companyId);
-  if (dErr) return { ok: false, error: NOT_DONE };
+  if (dErr) return notDone;
   console.log(`[application-deletion] ${whose}: ${ids.length} interview session(s) deleted`);
   return { ok: true, sessions: ids.length };
 }

@@ -12,6 +12,10 @@ import {
 import { scoringEnabled } from "@/lib/ai/interview-scoring";
 import type { Read } from "@/lib/supabase/read";
 import { INTERVIEW_BUCKET } from "@/lib/interviews/session";
+import {
+  deleteInterviewSessions,
+  type InterviewSessionRef,
+} from "@/lib/interviews/application-deletion";
 import { removeSessionObjects } from "@/lib/interviews/purge";
 import { listInterviewSessions, readNotes } from "@/lib/interviews/review";
 import {
@@ -485,6 +489,18 @@ export async function setInterviewArchived(
  * Answers and notes go with the session by FK cascade — nothing here deletes
  * them individually, so a future child table is covered by the schema rather
  * than by remembering to add a line.
+ *
+ * ── A restarted AI Video Interview goes whole (F10 C6c) ──────
+ *
+ * Its first attempt and its restart are one interview: either id deletes
+ * both, or nothing. A restart points at its first attempt (migration 020's
+ * previous_attempt_id, no ON DELETE), so the first attempt cannot go alone and
+ * the restart going alone would leave the first attempt behind, counted as the
+ * result. Both are found inside the company, each passes the same checks as
+ * the one asked for, and they are deleted the way an applicant's interviews
+ * are (application-deletion.ts): closed, their queued jobs failed, every
+ * folder emptied, and only then both rows in one statement. A session with no
+ * restart is deleted exactly as before.
  */
 export async function deleteInterview(
   sessionId: string,
@@ -501,13 +517,19 @@ export async function deleteInterview(
    * the destructive act, not three calls upstream.
    */
   if (!(await canAccessJob(ctx, session.job_id ?? ""))) {
-    return {
-      ok: false,
-      error: "Only an owner, admin, or someone on this job's hiring team can delete an interview.",
-    };
+    return { ok: false, error: CANNOT_DELETE };
   }
 
   const service = createServiceClient();
+
+  const chain = await restartChain(service, ctx.companyId, session.id);
+  if (!chain) {
+    return {
+      ok: false,
+      error: "Couldn't read the interview. Nothing was deleted - please try again.",
+    };
+  }
+  if (chain.length > 1) return deleteRestartChain(service, ctx, session.id, chain);
 
   // ── 1. Media first ──
   let sweep: Awaited<ReturnType<typeof removeSessionObjects>>;
@@ -547,6 +569,93 @@ export async function deleteInterview(
       ok: false,
       error: "The recordings were deleted but the interview record wasn't. Please try again.",
     };
+  }
+
+  revalidatePath("/ai-dashboard/interviews");
+  return { ok: true };
+}
+
+const CANNOT_DELETE =
+  "Only an owner, admin, or someone on this job's hiring team can delete an interview.";
+
+type ChainSession = InterviewSessionRef & {
+  job_id: string | null;
+  previous_attempt_id: string | null;
+};
+const CHAIN_COLUMNS = "id, kind, provider, provider_session_id, job_id, previous_attempt_id";
+
+/**
+ * The session's restart chain inside the company: its first attempt and the
+ * restart that points at it (at most one, migration 020), oldest first. Just
+ * the session for an async one or a live one never restarted. Null when it
+ * cannot be read.
+ */
+async function restartChain(
+  service: ReturnType<typeof createServiceClient>,
+  companyId: string,
+  sessionId: string,
+): Promise<ChainSession[] | null> {
+  const read = (column: "id" | "previous_attempt_id", value: string) =>
+    service
+      .from("interview_sessions")
+      .select(CHAIN_COLUMNS)
+      .eq(column, value)
+      .eq("company_id", companyId)
+      .maybeSingle();
+  const { data, error } = await read("id", sessionId);
+  if (error || !data) return null;
+  const self = data as ChainSession;
+  if (self.kind !== "live") return [self];
+  const firstId = self.previous_attempt_id ?? self.id;
+  const first = firstId === self.id ? { data: self, error: null } : await read("id", firstId);
+  const next = await read("previous_attempt_id", firstId);
+  if (first.error || next.error || !first.data) return null;
+  return [first.data as ChainSession, ...(next.data ? [next.data as ChainSession] : [])];
+}
+
+/** Both attempts of a restarted interview, or neither. */
+async function deleteRestartChain(
+  service: ReturnType<typeof createServiceClient>,
+  ctx: Awaited<ReturnType<typeof getCompanyContext>>,
+  askedId: string,
+  chain: ChainSession[],
+): Promise<SessionMutation> {
+  // Every attempt passes the checks the one asked for passed: company and hiring team, then this job's team.
+  for (const attempt of chain) {
+    if (attempt.id !== askedId) {
+      const gate = await gateSession(attempt.id);
+      if (!gate.ok) return gate;
+    }
+    if (!(await canAccessJob(ctx, attempt.job_id ?? ""))) {
+      return { ok: false, error: CANNOT_DELETE };
+    }
+  }
+
+  const done = await deleteInterviewSessions(
+    service,
+    ctx.companyId,
+    chain,
+    {},
+    `restart chain ${chain[0].id}`,
+  );
+  if (!done.ok) {
+    if (done.storageUnreachable) {
+      return {
+        ok: false,
+        error: "Couldn't reach the recording storage. Nothing was deleted - please try again.",
+      };
+    }
+    if (done.objectsLeft > 0) {
+      // B7-style retryable cleanup: when this returns, the sessions may already be closed
+      // and some files removed, but every row is kept; a retry finishes it.
+      // TODO-COPY: placeholder - Waleed writes the final line.
+      return {
+        ok: false,
+        error:
+          "Some recordings couldn't be deleted. The interview records were kept - please try again.",
+      };
+    }
+    return { ok: false, error: done.error };
   }
 
   revalidatePath("/ai-dashboard/interviews");
