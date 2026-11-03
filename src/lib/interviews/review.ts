@@ -431,18 +431,26 @@ async function fetchAnswerStats(
 ): Promise<Read<Map<string, { answered: number; total: number; withVideo: number }>>> {
   const out = new Map<string, { answered: number; total: number; withVideo: number }>();
   for (let i = 0; i < sessionIds.length; i += 100) {
-    const { data, error } = await service
-      .from("interview_answers")
-      .select("session_id, video_path")
-      .in("session_id", sessionIds.slice(i, i + 100));
-    if (error) {
-      console.error("[interviews] answer stats read failed:", error);
+    const chunk = sessionIds.slice(i, i + 100);
+    let rows: { session_id: string; video_path: string | null }[];
+    try {
+      // Paged, ordered by id: a hundred sessions can hold more answers than one
+      // response's row limit (1,000), which would otherwise cut the count silently.
+      rows = await pageAll<{ session_id: string; video_path: string | null }>(
+        (from, to) =>
+          service
+            .from("interview_answers")
+            .select("session_id, video_path")
+            .in("session_id", chunk)
+            .order("id")
+            .range(from, to),
+        { scope: "interviews", label: "answer stats" },
+      );
+    } catch (err) {
+      console.error("[interviews] answer stats read failed:", err);
       return unavailable();
     }
-    for (const r of (data ?? []) as {
-      session_id: string;
-      video_path: string | null;
-    }[]) {
+    for (const r of rows) {
       const cur = out.get(r.session_id) ?? { answered: 0, total: 0, withVideo: 0 };
       cur.answered += 1;
       cur.total += 1;
