@@ -149,6 +149,14 @@ function problems(text) {
   }
   if (/grant\s+[^;]*\bto\s+[^;]*\b(anon|authenticated)\b/i.test(code(text)))
     out.push("something is granted to anon or authenticated");
+  // Never re-run after 055: it would put back the lock-free functions 055 replaced.
+  const collapsed = code(text).replace(/\s+/g, " ");
+  const guardAt = collapsed.indexOf(
+    "if to_regclass('public.live_restart_link_events') is not null then raise exception '053 must not be re-run after 055",
+  );
+  if (guardAt < 0) out.push("053 no longer refuses to run after 055");
+  else if (guardAt > collapsed.indexOf("alter table"))
+    out.push("053's re-run guard comes after a change");
   return out;
 }
 
@@ -158,6 +166,13 @@ test("053 still holds every restart guard: the decision, decided once, the 1-hou
 
 test("each check fails on a broken copy", () => {
   const broken = [
+    [
+      "re-run guard",
+      sql.replace(
+        "  if to_regclass('public.live_restart_link_events') is not null then",
+        "  if false then",
+      ),
+    ],
     [
       "action",
       sql.replace(

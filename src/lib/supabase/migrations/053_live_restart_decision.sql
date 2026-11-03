@@ -71,6 +71,11 @@ begin;
 
 do $$
 begin
+  -- 055 replaces two of this file's functions with versions that take a lock;
+  -- re-running this file after 055 would silently put the lock-free ones back.
+  if to_regclass('public.live_restart_link_events') is not null then
+    raise exception '053 must not be re-run after 055 - it would remove 055''s lock. Not proceeding.';
+  end if;
   if to_regprocedure('public.interview_sessions_attempt_rules()') is null then
     raise exception '053: public.interview_sessions_attempt_rules() is missing. Apply 020 first. Not proceeding.';
   end if;
