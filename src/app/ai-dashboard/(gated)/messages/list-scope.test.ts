@@ -198,7 +198,7 @@ const PLAIN = PLAIN_OWNERS.map((application_id, i) => {
     id: `P${String(i + 1).padStart(2, "0")}`,
     company_id: CO,
     application_id,
-    event: i % 2 === 0 ? "interview_invite" : "manual",
+    event: i % 2 === 0 ? "interview" : "manual",
     status: "sent",
     to_address: "stored@example.test",
     subject: i % 3 === 0 ? "Interview invitation" : "Your application",
@@ -214,7 +214,7 @@ const special = (id, over) => ({
   id,
   company_id: CO,
   application_id: "app-a1",
-  event: "rejection",
+  event: "rejected",
   status: "sent",
   to_address: "stored@example.test",
   subject: GRACE,
@@ -296,6 +296,9 @@ const SPECIALS = [
 const LOGS = [...SPECIALS, ...PLAIN];
 
 /* ── the join evaluator ──────────────────────────────────────── */
+
+/** The scoping .in() calls. Every tab's status list is an .in() too (#44), and is not scope. */
+const scopeIns = (q) => q.calls.filter((c) => c[0] === "in" && c[1] !== "status");
 
 function toFilter(method, args) {
   if (method === "eq") return { op: "eq", col: args[0], val: args[1] };
@@ -653,7 +656,7 @@ test("CORRECTNESS: every field of a row survives the embed", async () => {
     jobTitle: "Backend Engineer",
     subject: "Interview invitation",
     body: "hello",
-    event: "interview_invite",
+    event: "interview",
     status: "sent",
     kind: "automatic",
     sentByName: null,
@@ -855,7 +858,7 @@ test("SEARCH: the name search keeps its own application-id list, beside the join
     assert.ok(or, "the search must still be an or()");
     assert.match(or[1], /^subject\.ilike\.%grace%,application_id\.in\.\(app-b1\)$/);
 
-    const scopeIn = q.calls.filter((c) => c[0] === "in");
+    const scopeIn = scopeIns(q);
     assert.deepEqual(
       scopeIn.map((c) => c[1]),
       ["job_applications.job_id"],
@@ -898,7 +901,7 @@ test("JOB FILTER: it travels as an embedded predicate, not an application-id lis
       "the chosen job must be an embedded eq on the builder",
     );
     assert.deepEqual(
-      q.calls.filter((c) => c[0] === "in").map((c) => c[1]),
+      scopeIns(q).map((c) => c[1]),
       [],
       "no application-id list may survive on the job-only path",
     );
@@ -1112,7 +1115,7 @@ test("SCALE: scoping is over job ids, never over an application-id list", async 
   const qs = logQueries(service);
   assert.equal(qs.length, 2, "one count and one page");
   for (const q of qs) {
-    const ins = q.calls.filter((c) => c[0] === "in");
+    const ins = scopeIns(q);
     assert.equal(
       ins.length,
       1,
@@ -1147,9 +1150,10 @@ test("SCALE: scopedApplicationIds is not called from this site at all", async ()
 test("SCALE: an unscoped role carries no job filter at all, not an empty one", async () => {
   const { service } = await listFor("owner");
   for (const q of logQueries(service)) {
-    assert.ok(
-      !q.calls.some((c) => c[0] === "in"),
-      "an owner must not be narrowed by an `.in()` of any kind",
+    assert.deepEqual(
+      scopeIns(q),
+      [],
+      "an owner must not be narrowed by an `.in()` of any kind but the tab's status list",
     );
   }
 });
@@ -1163,7 +1167,7 @@ test("SCALE: the request count is two, independent of how many jobs are in scope
     "one count and one page — chunking an id list would have multiplied them",
   );
   for (const q of logQueries(service)) {
-    const ins = q.calls.filter((c) => c[0] === "in");
+    const ins = scopeIns(q);
     assert.equal(ins[0][1], "job_applications.job_id");
     assert.equal(ins[0][2].length, 40, "the job ids go in one bounded list");
   }

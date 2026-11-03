@@ -36,6 +36,15 @@ import {
   soleOwnerAt,
 } from "@/lib/whatsapp/number-owners";
 import {
+  AUTOMATIC_EVENT_FILTER,
+  FAILED_STATUS,
+  KNOWN_STATUSES,
+  SCHEDULED_STATUS,
+  SENT_STATUSES,
+  SPLIT_STATUSES,
+  VISIBLE_STATUSES,
+} from "./message-status";
+import {
   APPLICATION_INBOUND_CAP,
   APPLICATION_MESSAGE_CAP,
   type ApplicationInboundRead,
@@ -124,8 +133,11 @@ const ORPHAN_COLUMN = "application_id";
  * Order matters: a queued row is Scheduled whatever its event, and a failed
  * row is Failed even though it was written by a person — the recruiter needs
  * to see that it did not arrive before they see who wrote it.
+ *
+ * Takes the STORED event. A NULL event is automatic, as AUTOMATIC_EVENT_FILTER
+ * counts it, so the pill and the Automatic tab agree about the same row.
  */
-function kindOf(event: string, status: string): MessageKind {
+function kindOf(event: string | null, status: string): MessageKind {
   if (status === "queued") return "scheduled";
   if (status === "failed") return "failed";
   return event === "manual" ? "written" : "automatic";
@@ -282,7 +294,6 @@ async function hydrate(
     // visibleOnly() hides these, and correct if they are ever surfaced.
     const deleted = l.application_id === null || app === undefined;
     const status = l.status ?? "sent";
-    const event = l.event ?? "manual";
     return {
       id: l.id,
       applicationId: l.application_id,
@@ -294,9 +305,11 @@ async function hydrate(
       jobTitle: roleOf(app, "—"),
       subject: l.subject ?? "",
       body: htmlToPlain(l.body ?? ""),
-      event,
+      // Raw, never defaulted. A NULL read as 'manual' would file the row under
+      // Written while every count files it under Automatic.
+      event: l.event,
       status,
-      kind: kindOf(event, status),
+      kind: kindOf(l.event, status),
       sentByName: (l.sent_by_name ?? "").trim() || null,
       sentAt: l.sent_at,
       scheduledFor: l.scheduled_for,
@@ -306,22 +319,31 @@ async function hydrate(
 }
 
 /** Narrow a base query to one tab. Kept in one place so the list and the
- *  count can never disagree about what a tab means. */
-function applyTab<T extends { eq: (c: string, v: unknown) => T; neq: (c: string, v: unknown) => T }>(
-  q: T,
-  tab: MessageTab,
-): T {
-  if (tab === "scheduled") return q.eq("status", "queued");
-  if (tab === "written") return q.eq("event", "manual").neq("status", "queued");
-  if (tab === "automatic") return q.neq("event", "manual").neq("status", "queued");
-  return q;
+ *  count can never disagree about what a tab means.
+ *
+ *  Every branch names its statuses (message-status.ts). Written and Automatic
+ *  are the two halves of SPLIT_STATUSES, which is what the hero's shares are
+ *  shares of. Failed cuts across both, under the same scope as every tab. */
+function applyTab<
+  T extends {
+    eq: (c: string, v: unknown) => T;
+    in: (c: string, v: readonly string[]) => T;
+    or: (filters: string) => T;
+  },
+>(q: T, tab: MessageTab): T {
+  if (tab === "scheduled") return q.eq("status", SCHEDULED_STATUS);
+  if (tab === "written") return q.in("status", SPLIT_STATUSES).eq("event", "manual");
+  if (tab === "automatic") return q.in("status", SPLIT_STATUSES).or(AUTOMATIC_EVENT_FILTER);
+  if (tab === "failed") return q.eq("status", FAILED_STATUS);
+  return q.in("status", VISIBLE_STATUSES);
 }
 
 /**
  * Workspace counts for the tabs, the hero and the footer total.
  *
- * Six HEAD counts, company-scoped, so nothing depends on which page the user
- * happens to be looking at. all = written + automatic + scheduled exactly.
+ * HEAD counts, company-scoped, so nothing depends on which page the user
+ * happens to be looking at. all = written + automatic + scheduled exactly, and
+ * written + automatic = population, because each names its statuses.
  */
 export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>> {
   const ctx = await getCompanyContext();
@@ -352,7 +374,7 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
   if (isEmptyScope(scope)) {
     return answered({
       all: 0, written: 0, automatic: 0, scheduled: 0,
-      sent: 0, failed: 0, sentThisWeek: 0,
+      failed: 0, population: 0, sent: 0, sentThisWeek: 0,
     });
   }
 
@@ -376,6 +398,10 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
    * `job_applications.`-prefixed filters below reach the embed. Verified
    * read-only against production: `status=eq.new` is impossible on a log and
    * common on an application, and counts 0 through the embed.
+   *
+   * No status filter here. Each count below names its own statuses, and the
+   * unrecognised-status count has to see rows that neq('cancelled') would
+   * drop, a NULL status among them.
    */
   const base = () => {
     const q = service
@@ -385,7 +411,6 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
         head: true,
       })
       .eq("company_id", ctx.companyId)
-      .neq("status", HIDDEN_STATUS)
       // Unconditional, not inside the scoped branch below. The job-id filter is
       // what narrows a recruiter; THIS is the tenant boundary on the joined
       // side, and every role needs it. It also has to be unconditional to be
@@ -400,23 +425,40 @@ export async function fetchMessageAggregates(): Promise<Read<MessageAggregates>>
 
   const weekAgo = new Date(Date.now() - WEEK_MS).toISOString();
 
-  const [all, written, automatic, scheduled, sent, failed, thisWeek] = await Promise.all([
-    base(),
-    applyTab(base(), "written"),
-    applyTab(base(), "automatic"),
-    applyTab(base(), "scheduled"),
-    base().eq("status", "sent"),
-    base().eq("status", "failed"),
-    base().eq("status", "sent").gte("sent_at", weekAgo),
-  ]);
+  const [all, written, automatic, scheduled, failed, population, sent, thisWeek, unrecognised] =
+    await Promise.all([
+      applyTab(base(), "all"),
+      applyTab(base(), "written"),
+      applyTab(base(), "automatic"),
+      applyTab(base(), "scheduled"),
+      applyTab(base(), "failed"),
+      base().in("status", SPLIT_STATUSES),
+      base().in("status", SENT_STATUSES),
+      base().in("status", SENT_STATUSES).gte("sent_at", weekAgo),
+      // The one negation, and only to find what the lists above leave out.
+      base().or(`status.is.null,status.not.in.(${KNOWN_STATUSES.join(",")})`),
+    ]);
+
+  // Not shown on the page. A status nobody listed is excluded from every
+  // number above, so the only sign of one is here.
+  if (unrecognised.error || unrecognised.count === null) {
+    console.error("[messages] unrecognised-status count failed:", unrecognised.error?.message);
+  } else if (unrecognised.count > 0) {
+    // A LOG, not an alert. It lands in Vercel function logs that nobody
+    // reads; if this ever needs to wake someone, it needs a real channel.
+    console.warn(
+      `[messages] ${unrecognised.count} in-scope communication_logs row(s) have a status outside KNOWN_STATUSES and are excluded from every count (company ${ctx.companyId})`,
+    );
+  }
 
   return answered({
     all: all.count ?? 0,
     written: written.count ?? 0,
     automatic: automatic.count ?? 0,
     scheduled: scheduled.count ?? 0,
-    sent: sent.count ?? 0,
     failed: failed.count ?? 0,
+    population: population.count ?? 0,
+    sent: sent.count ?? 0,
     sentThisWeek: thisWeek.count ?? 0,
   });
 }

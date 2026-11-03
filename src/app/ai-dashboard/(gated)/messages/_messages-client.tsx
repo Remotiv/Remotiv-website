@@ -31,6 +31,7 @@ import {
 } from "./actions";
 import { useModalFocus } from "@/hooks/use-modal-focus";
 import { Composer, initialsOf, tintFor } from "./_composer";
+import { splitPercents } from "./message-status";
 import {
   MESSAGES_PAGE_SIZE,
   MESSAGE_KIND_LABELS,
@@ -57,6 +58,7 @@ const TABS: ReadonlyArray<{ key: MessageTab; label: string }> = [
   { key: "written", label: "Written" },
   { key: "automatic", label: "Automatic" },
   { key: "scheduled", label: "Scheduled" },
+  { key: "failed", label: "Failed" },
 ];
 
 /** "in 2 days" / "6h ago" — the relative half of the When column. */
@@ -92,11 +94,6 @@ function exact(iso: string | null): string {
 function whenOf(row: MessageRow): { rel: string; exact: string } {
   const stamp = row.kind === "scheduled" ? (row.scheduledFor ?? row.createdAt) : (row.sentAt ?? row.createdAt);
   return { rel: relative(stamp), exact: exact(stamp) };
-}
-
-function pct(part: number, whole: number): string {
-  if (whole <= 0) return "0% of all sent";
-  return `${Math.round((part / whole) * 100)}% of all sent`;
 }
 
 export function MessagesClient({
@@ -220,6 +217,8 @@ export function MessagesClient({
   const rangeStart = matching === 0 ? 0 : page * MESSAGES_PAGE_SIZE + 1;
   const rangeEnd = Math.min(matching, page * MESSAGES_PAGE_SIZE + rows.length);
 
+  const split = splitPercents(agg.written, agg.population);
+
   const heroSub = useMemo(
     () =>
       `To ${applicantCount} applicant${applicantCount === 1 ? "" : "s"} across ${roleCount} role${roleCount === 1 ? "" : "s"}`,
@@ -338,7 +337,7 @@ export function MessagesClient({
       </div>
 
       <DashboardHero
-        eyebrow="Emails sent"
+        eyebrow="Messages sent"
         value={agg.sent}
         delta={
           agg.sentThisWeek > 0 ? (
@@ -349,19 +348,19 @@ export function MessagesClient({
       >
         <div className="grid grid-cols-2 gap-y-5 min-[720px]:grid-cols-4 min-[720px]:gap-y-0">
           <HeroCell
-            label="Written by you"
+            label="Manual messages"
             dot="var(--ai-purple-soft, #9886FE)"
             value={agg.written}
-            width={agg.sent ? (agg.written / agg.sent) * 100 : 0}
-            caption={pct(agg.written, agg.sent)}
+            width={split.manual}
+            caption={`${split.manual}%`}
             first
           />
           <HeroCell
-            label="Automatic"
+            label="Automatic messages"
             dot="#B0AAB8"
             value={agg.automatic}
-            width={agg.sent ? (agg.automatic / agg.sent) * 100 : 0}
-            caption={pct(agg.automatic, agg.sent)}
+            width={split.automatic}
+            caption={`${split.automatic}%`}
           />
           <HeroCell
             label="Scheduled"

@@ -20,6 +20,7 @@ const EMPTY_AGGREGATES = {
   scheduled: 0,
   sent: 0,
   failed: 0,
+  population: 0,
   sentThisWeek: 0,
 };
 

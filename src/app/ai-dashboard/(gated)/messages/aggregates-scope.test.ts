@@ -105,7 +105,7 @@ const LOGS = [
     id: "L1",
     company_id: CO,
     application_id: "app-a1",
-    event: "interview_invite",
+    event: "interview",
     status: "sent",
     sent_at: RECENT,
   },
@@ -113,7 +113,7 @@ const LOGS = [
     id: "L2",
     company_id: CO,
     application_id: "app-a1",
-    event: "interview_invite",
+    event: "interview",
     status: "sent",
     sent_at: OLD,
   },
@@ -129,7 +129,7 @@ const LOGS = [
     id: "L4",
     company_id: CO,
     application_id: "app-b1",
-    event: "rejection",
+    event: "rejected",
     status: "failed",
     sent_at: null,
   },
@@ -145,7 +145,7 @@ const LOGS = [
     id: "L6",
     company_id: CO,
     application_id: "app-c1",
-    event: "rejection",
+    event: "rejected",
     status: "sent",
     sent_at: RECENT,
   },
@@ -154,7 +154,7 @@ const LOGS = [
     id: "L7",
     company_id: CO,
     application_id: null,
-    event: "rejection",
+    event: "rejected",
     status: "sent",
     sent_at: RECENT,
   },
@@ -163,7 +163,7 @@ const LOGS = [
     id: "L8",
     company_id: CO,
     application_id: "app-a1",
-    event: "rejection",
+    event: "rejected",
     status: "cancelled",
     sent_at: null,
   },
@@ -173,7 +173,7 @@ const LOGS = [
     id: "L9",
     company_id: CO,
     application_id: "app-drift",
-    event: "rejection",
+    event: "rejected",
     status: "sent",
     sent_at: RECENT,
   },
@@ -182,7 +182,7 @@ const LOGS = [
     id: "L10",
     company_id: OTHER_CO,
     application_id: "app-foreign",
-    event: "rejection",
+    event: "rejected",
     status: "sent",
     sent_at: RECENT,
   },
@@ -194,13 +194,54 @@ const LOGS = [
     id: "L11",
     company_id: OTHER_CO,
     application_id: "app-a1",
-    event: "rejection",
+    event: "rejected",
     status: "sent",
     sent_at: RECENT,
   },
 ];
 
 /* ── the join evaluator ──────────────────────────────────────── */
+
+/**
+ * One term of an `.or()` on a top-level column. Only the shapes the action
+ * writes: `event.is.null`, `event.neq.manual`, `status.not.in.(a,b)`. NULL
+ * fails neq and not.in, as in SQL, which is the whole reason the event filter
+ * carries an explicit `is.null`.
+ */
+function orTerm(raw) {
+  const m = /^(\w+)\.(not\.in|in|is|neq|eq)\.(.*)$/.exec(raw.trim());
+  if (!m) throw new Error(`test: evaluator does not model or() term ${raw}`);
+  const [, col, op, val] = m;
+  if (op === "is" && val === "null") return { op: "isnull", col };
+  if (op === "in" || op === "not.in") {
+    const list = val
+      .replace(/^\(|\)$/g, "")
+      .split(",")
+      .filter(Boolean);
+    return { op: op === "in" ? "in" : "notin", col, val: list };
+  }
+  if (op === "neq" || op === "eq") return { op, col, val };
+  throw new Error(`test: evaluator does not model or() term ${raw}`);
+}
+
+/** Commas inside `in.(a,b)` do not separate terms. */
+function splitTerms(expression) {
+  const out = [];
+  let depth = 0;
+  let cur = "";
+  for (const ch of expression) {
+    if (ch === "(") depth += 1;
+    if (ch === ")") depth -= 1;
+    if (ch === "," && depth === 0) {
+      out.push(cur);
+      cur = "";
+      continue;
+    }
+    cur += ch;
+  }
+  out.push(cur);
+  return out;
+}
 
 function toFilter(method, args) {
   if (method === "eq") return { op: "eq", col: args[0], val: args[1] };
@@ -209,6 +250,10 @@ function toFilter(method, args) {
   if (method === "in") return { op: "in", col: args[0], val: args[1] };
   if (method === "not" && args[1] === "is" && args[2] === null) {
     return { op: "notnull", col: args[0] };
+  }
+  if (method === "or") {
+    const terms = splitTerms(String(args[0])).map(orTerm);
+    return { op: "or", col: "", terms };
   }
   throw new Error(`test: evaluator does not model .${method}(${args.join(", ")})`);
 }
@@ -231,11 +276,16 @@ function parseFilters(calls) {
 }
 
 function matches(row, f) {
+  if (f.op === "or") return f.terms.some((t) => matches(row, t));
   const v = row[f.col];
+  const isNull = v === null || v === undefined;
   if (f.op === "eq") return v === f.val;
-  if (f.op === "neq") return v !== f.val;
-  if (f.op === "in") return f.val.includes(v);
-  if (f.op === "notnull") return v !== null && v !== undefined;
+  // SQL: NULL <> 'x' is not true, so neq and not-in never match a NULL.
+  if (f.op === "neq") return !isNull && v !== f.val;
+  if (f.op === "in") return !isNull && f.val.includes(v);
+  if (f.op === "notin") return !isNull && !f.val.includes(v);
+  if (f.op === "isnull") return isNull;
+  if (f.op === "notnull") return !isNull;
   // A null timestamp is not >= anything, as in SQL.
   if (f.op === "gte") return v !== null && v !== undefined && String(v) >= String(f.val);
   throw new Error(`test: unhandled op ${f.op}`);
@@ -348,6 +398,7 @@ const UNSCOPED = {
   scheduled: 1,
   sent: 4,
   failed: 1,
+  population: 5,
   sentThisWeek: 3,
 };
 
@@ -371,6 +422,7 @@ test("CORRECTNESS: a recruiter on a strict subset of jobs sees only those", asyn
     scheduled: 0,
     sent: 3,
     failed: 0,
+    population: 3,
     sentThisWeek: 2,
   });
 });
@@ -384,6 +436,7 @@ test("CORRECTNESS: a recruiter on several jobs sees the union, not a chunk of it
     scheduled: 1,
     sent: 3,
     failed: 1,
+    population: 4,
     sentThisWeek: 2,
   });
 });
@@ -397,6 +450,7 @@ test("CORRECTNESS: a hiring manager is scoped the same way", async () => {
     scheduled: 1,
     sent: 0,
     failed: 1,
+    population: 1,
     sentThisWeek: 0,
   });
 });
@@ -448,6 +502,7 @@ test("CORRECTNESS: a scoped role with no assignments reads zero without querying
     scheduled: 0,
     sent: 0,
     failed: 0,
+    population: 0,
     sentThisWeek: 0,
   });
   // Fails closed BEFORE the database. `.in(col, [])` would match nothing
@@ -463,14 +518,16 @@ test("CORRECTNESS: a scoped role with no assignments reads zero without querying
 
 const logQueries = (service) => service.queries.filter((q) => q.table === "communication_logs");
 const flat = (q) => q.calls.map((c) => c[0]);
+/** The scoping .in() calls. The status lists are .in() too (#44), and are not scope. */
+const scopeIns = (q) => q.calls.filter((c) => c[0] === "in" && c[1] !== "status");
 
 test("SCALE: scoping is over job ids, never over an application-id list", async () => {
   const { service } = await aggregatesFor("recruiter", [JOB_A, JOB_B]);
   const qs = logQueries(service);
-  assert.equal(qs.length, 7, "all seven counts must still be issued");
+  assert.equal(qs.length, 9, "all nine counts must still be issued");
 
   for (const q of qs) {
-    const ins = q.calls.filter((c) => c[0] === "in");
+    const ins = scopeIns(q);
     assert.equal(ins.length, 1, `expected exactly one .in(), saw ${JSON.stringify(flat(q))}`);
     assert.equal(ins[0][1], "job_applications.job_id", "the .in() must be over job ids");
     assert.deepEqual(ins[0][2], [JOB_A, JOB_B]);
@@ -502,20 +559,21 @@ test("SCALE: scopedApplicationIds is not called from this site at all", async ()
 test("SCALE: an unscoped role carries no job filter at all, not an empty one", async () => {
   const { service } = await aggregatesFor("owner");
   for (const q of logQueries(service)) {
-    assert.ok(
-      !q.calls.some((c) => c[0] === "in"),
-      "an owner must not be narrowed by an `.in()` of any kind",
+    assert.deepEqual(
+      scopeIns(q),
+      [],
+      "an owner must not be narrowed by an `.in()` of any kind but a status list",
     );
   }
 });
 
-test("SCALE: the request count is seven, independent of how many jobs are in scope", async () => {
+test("SCALE: the request count is nine, independent of how many jobs are in scope", async () => {
   const many = Array.from({ length: 40 }, (_, i) => `job-${i}`);
   const { service } = await aggregatesFor("recruiter", many);
   assert.equal(
     logQueries(service).length,
-    7,
-    "seven counts stay seven requests — chunking would have multiplied them",
+    9,
+    "nine counts stay nine requests; chunking would have multiplied them",
   );
   assert.equal(
     service.queries.find((q) => q.table === "job_applications"),

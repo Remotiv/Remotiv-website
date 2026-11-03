@@ -9,7 +9,7 @@
 /** How a message reads in the UI. Derived, never stored. */
 export type MessageKind = "written" | "automatic" | "scheduled" | "failed";
 
-export const MESSAGE_TAB_KEYS = ["all", "written", "automatic", "scheduled"] as const;
+export const MESSAGE_TAB_KEYS = ["all", "written", "automatic", "scheduled", "failed"] as const;
 export type MessageTab = (typeof MESSAGE_TAB_KEYS)[number];
 
 export const MESSAGE_KIND_LABELS: Record<MessageKind, string> = {
@@ -30,7 +30,12 @@ export type MessageRow = {
   subject: string;
   /** Plain text, already stripped of the HTML shell for reading on screen. */
   body: string;
-  event: string;
+  /**
+   * communication_logs.event exactly as stored, NULL included. `kind` is the
+   * derived view (a NULL event reads as automatic there). Nothing currently
+   * reads `event`, so the two cannot disagree anywhere a person can see.
+   */
+  event: string | null;
   status: string;
   kind: MessageKind;
   /**
@@ -53,16 +58,24 @@ export type MessageRow = {
  * These come from HEAD count queries over the whole company, NOT from the page
  * of rows on screen — a tab that said "8" because eight rows happened to be
  * rendered was the first build's bug. `all` is the footer total and the All
- * tab; the three below it partition it exactly.
+ * tab; written, automatic and scheduled partition it exactly. `failed` is a
+ * cut across written and automatic, not a fourth part.
  */
 export type MessageAggregates = {
   all: number;
   written: number;
   automatic: number;
   scheduled: number;
-  /** Hero only: delivered vs. attempted. */
-  sent: number;
   failed: number;
+  /**
+   * What the hero's manual and automatic shares are shares OF: every
+   * attempted message (message-status.ts SPLIT_STATUSES). Counted on its own
+   * rather than as written + automatic, so a test can prove those two
+   * partition it.
+   */
+  population: number;
+  /** Hero only: "Messages sent", sent + delivered + read. */
+  sent: number;
   sentThisWeek: number;
 };
 
