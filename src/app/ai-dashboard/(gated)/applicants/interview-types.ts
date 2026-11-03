@@ -42,7 +42,23 @@ export type InterviewSessionSummary = {
    * own job is within their hiring team). The drawer links it only when true.
    */
   reviewable?: boolean;
+  /**
+   * AI Video Interview only: where its restart stands, from its latest attempt
+   * (F10 C6e). Null when a restart has nothing to do with it. Never carries the
+   * decision's note.
+   */
+  restartStatus?: LiveRestartStatus | null;
 };
+
+export type LiveRestartStatus =
+  /** The first attempt can be decided now, or from `availableAt` (an hour after its end). */
+  | { kind: "decision_needed"; availableAt: string | null }
+  | { kind: "no_restart" }
+  | { kind: "restart_sent"; deadline: string }
+  | { kind: "restart_expired" }
+  | { kind: "restart_in_progress" }
+  /** `outcome` is the restart's own final outcome code, when it has one. */
+  | { kind: "restart_finished"; outcome: string | null };
 
 /**
  * Everything the drawer's interview section needs in one round trip.

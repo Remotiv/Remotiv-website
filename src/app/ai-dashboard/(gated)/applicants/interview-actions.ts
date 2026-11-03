@@ -21,12 +21,14 @@ import {
 } from "@/lib/interviews/invite-delivery";
 import { liveInterviewsAvailableFor } from "@/lib/interviews/live-availability";
 import { type LiveCallFields, liveCallBegan } from "@/lib/interviews/live-call";
+import { restartEligibility } from "@/lib/interviews/live-restart";
 import { gateLiveInterviewInvite } from "@/lib/interviews/live-settings";
 import { mintSessionToken, RETENTION_MONTHS, SESSION_EXPIRY_DAYS } from "@/lib/interviews/tokens";
 import { type InterviewKind, readInterviewKind } from "@/lib/interviews/types";
 import type {
   InterviewPanelState,
   InterviewSessionSummary,
+  LiveRestartStatus,
 } from "./interview-types";
 
 // NB: a "use server" module may only export async functions — every export is
@@ -699,6 +701,101 @@ async function liveRestartOf(
   return { ok: true, latestSessionId: row?.session_id ?? null, restarted: false };
 }
 
+const HOUR_MS = 60 * 60 * 1000;
+
+/**
+ * Where this AI Video Interview's restart stands, read from its latest attempt
+ * (F10 C6e), never a superseded first attempt. In this order: a restart
+ * (attempt 2) first; then the stored decision on the first attempt, read as
+ * recorded (a no_restart row), never inferred from a status; then whether the
+ * first attempt can be decided, by live-restart.ts's own rule
+ * (restartEligibility, migration 053); otherwise null, and the drawer shows the
+ * interview as it always has. The decision's note is never read.
+ *
+ * Not shown, and left to the drawer's usual states: a restart that is
+ * cancelled (only on its way to deletion) and a 'restart' decision with no
+ * restart (the database creates both together, migration 053).
+ */
+async function liveRestartStatus(
+  service: Service,
+  companyId: string,
+  subjectId: string,
+  restart: { latestSessionId: string | null; restarted: boolean },
+): Promise<LiveRestartStatus | null> {
+  const { data, error } = await service
+    .from("interview_sessions")
+    .select(
+      "id, kind, attempt, status, expires_at, started_at, provider_session_id, live_ended_at, live_outcome",
+    )
+    .eq("id", subjectId)
+    .eq("company_id", companyId)
+    .maybeSingle();
+  if (error || !data) return null;
+  const s = data as {
+    kind: string | null;
+    attempt: number | null;
+    status: string;
+    expires_at: string | null;
+    started_at: string | null;
+    provider_session_id: string | null;
+    live_ended_at: string | null;
+    live_outcome: { outcome?: unknown; final?: unknown } | null;
+  };
+  const nowMs = Date.now();
+
+  if (restart.restarted) {
+    if (s.live_ended_at || s.status === "submitted") {
+      const final = s.live_outcome?.final === true && typeof s.live_outcome.outcome === "string";
+      return {
+        kind: "restart_finished",
+        outcome: final ? (s.live_outcome?.outcome as string) : null,
+      };
+    }
+    if (s.status === "started" || s.started_at || s.provider_session_id) {
+      return { kind: "restart_in_progress" };
+    }
+    if (s.status === "invited" && s.expires_at && Date.parse(s.expires_at) > nowMs) {
+      return { kind: "restart_sent", deadline: s.expires_at };
+    }
+    if (s.status === "invited" || s.status === "expired") return { kind: "restart_expired" };
+    return null;
+  }
+
+  // The decision as recorded, when there is one: its value only, never its note.
+  if (restart.latestSessionId) {
+    const { data: decided, error: dErr } = await service
+      .from("live_interview_actions")
+      .select("decision")
+      .eq("session_id", subjectId)
+      .eq("company_id", companyId)
+      .eq("action", "decide_restart")
+      .limit(1);
+    if (dErr) return null;
+    const decision = ((decided ?? []) as { decision: string }[])[0]?.decision;
+    return decision === "no_restart" ? { kind: "no_restart" } : null;
+  }
+
+  const verdict = restartEligibility(
+    {
+      kind: s.kind,
+      attempt: s.attempt,
+      status: s.status,
+      live_ended_at: s.live_ended_at,
+      live_outcome: s.live_outcome,
+      decided: false,
+    },
+    nowMs,
+  );
+  if (verdict.eligible) return { kind: "decision_needed", availableAt: null };
+  if (verdict.code === "too_soon" && s.live_ended_at) {
+    return {
+      kind: "decision_needed",
+      availableAt: new Date(Date.parse(s.live_ended_at) + HOUR_MS).toISOString(),
+    };
+  }
+  return null;
+}
+
 /** The link's deadline and the retention date, both from one `now`. */
 function inviteDates(): { expiresAt: string; expiresAtMs: number; deleteAfter: string } {
   const now = Date.now();
@@ -928,6 +1025,11 @@ export async function fetchInterviewPanel(
     // The review page gates on the session's own job (live-review.ts gateLiveSession):
     // offer its link only where that gate opens. A restart keeps its first attempt's job.
     session.reviewable = row.job_id === app.job_id || (await canAccessJob(ctx, row.job_id ?? ""));
+    // Set only when there is one, so an interview a restart has nothing to do with reads as before.
+    const restartStatus = restart.ok
+      ? await liveRestartStatus(service, ctx.companyId, restart.latestSessionId ?? row.id, restart)
+      : null;
+    if (restartStatus) session.restartStatus = restartStatus;
   }
 
   return { ...base, session };

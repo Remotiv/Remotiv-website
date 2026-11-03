@@ -24,7 +24,11 @@ import {
   sendInterviewInvite,
   sendLiveInterviewInvite,
 } from "./interview-actions";
-import type { InterviewPanelState, InterviewSessionSummary } from "./interview-types";
+import type {
+  InterviewPanelState,
+  InterviewSessionSummary,
+  LiveRestartStatus,
+} from "./interview-types";
 
 /**
  * The drawer's Interviews pane — three sections, as the design has them:
@@ -606,6 +610,82 @@ function ErrorNote({ children }: { children: React.ReactNode }) {
 /* ───────────────────── 2. AI video interview ───────────────── */
 
 /**
+ * The review's own outcome labels, word for word (live-review.ts OUTCOME_LABEL,
+ * which is not exported). A finished restart reads "finished" only when it
+ * completed or partly completed; anything else "ended", never as a success.
+ */
+const RESTART_OUTCOME: Record<string, { label: string; finished: boolean }> = {
+  completed: { label: "Completed", finished: true },
+  partial: { label: "Partial", finished: true },
+  abandoned: { label: "Abandoned", finished: false },
+  technical_failure: { label: "Technical failure", finished: false },
+  ending_unconfirmed: { label: "Ending not confirmed - needs review", finished: false },
+};
+
+// TODO-COPY: every string in liveRestartText is a placeholder - Waleed writes the final copy.
+
+/** The badge and the one line for a restart's status. Never the decision's note. */
+export function liveRestartText(status: LiveRestartStatus): { badge: string; line: string } {
+  switch (status.kind) {
+    case "decision_needed":
+      return {
+        badge: "Needs a restart decision",
+        line: status.availableAt
+          ? `Needs a restart decision - available from ${fmtStamp(status.availableAt, "UTC")} UTC.`
+          : "Needs a restart decision.",
+      };
+    case "no_restart":
+      return { badge: "No restart", line: "No restart - decided." };
+    case "restart_sent":
+      return {
+        badge: "Restart sent",
+        line: `Restart sent - not started, deadline ${fmt(status.deadline)}.`,
+      };
+    case "restart_expired":
+      return { badge: "Restart expired", line: "Restart expired." };
+    case "restart_in_progress":
+      return { badge: "Restart in progress", line: "Restart in progress." };
+    case "restart_finished": {
+      const outcome = status.outcome ? RESTART_OUTCOME[status.outcome] : undefined;
+      if (!outcome) return { badge: "Restart ended", line: "Restart ended - no final result yet." };
+      const word = outcome.finished ? "finished" : "ended";
+      return {
+        badge: `Restart ${word}`,
+        line: `Restart ${word} - ${outcome.label}.`,
+      };
+    }
+  }
+}
+
+const RESTART_BADGE_CLS = "bg-[var(--ai-amber-tint)] text-[var(--ai-amber-ink)]";
+
+/**
+ * What the AI Video Interview section shows: its badge and which card. A
+ * restarted or decision-pending interview shows its restart status instead of
+ * the generic invite states, so a restart never reads as "Sent - not started"
+ * or "Cancelled" (F10 C6e).
+ */
+export function liveSectionView(session: InterviewSessionSummary | null): {
+  badge: { label: string; cls: string; icon: typeof Check } | null;
+  card: "restart" | "result" | "waiting" | "empty";
+  restartLine: string | null;
+} {
+  if (!session) return { badge: null, card: "empty", restartLine: null };
+  if (session.restartStatus) {
+    const text = liveRestartText(session.restartStatus);
+    return {
+      badge: { label: text.badge, cls: RESTART_BADGE_CLS, icon: Clock },
+      card: "restart",
+      restartLine: text.line,
+    };
+  }
+  const badge = STATE[session.status] ?? STATE.invited;
+  if (session.answered > 0) return { badge, card: "result", restartLine: null };
+  const waiting = session.status === "invited" || session.status === "started";
+  return { badge, card: waiting ? "waiting" : "empty", restartLine: null };
+}
+
+/**
  * The review page for this AI Video Interview: the latest attempt's, never a
  * superseded first attempt. Shown whatever its stage, because a live interview
  * records no answers to count (F10 C6b). Null unless the viewer can open it.
@@ -720,7 +800,8 @@ function LiveInterviewSection({
 
   if (!shown) return null;
 
-  const badge = session ? (STATE[session.status] ?? STATE.invited) : null;
+  const view = liveSectionView(session);
+  const badge = view.badge;
   const waiting = session?.status === "invited" || session?.status === "started";
   // Once the candidate's call has begun, no new link: the server refuses it too (F10 C1).
   const callBegan = session !== null && liveSummaryCallBegan(session);
@@ -732,7 +813,14 @@ function LiveInterviewSection({
         badge={badge ? <StatusBadge {...badge} /> : undefined}
       />
 
-      {session && session.answered > 0 ? (
+      {view.card === "restart" ? (
+        <div
+          className={`${CARD} ${CARD_PAD}`}
+          data-live-restart-status={session?.restartStatus?.kind}
+        >
+          <b className="block text-[13px] font-bold text-[var(--ai-t1)]">{view.restartLine}</b>
+        </div>
+      ) : session && session.answered > 0 ? (
         <ResultStrip session={session} action={<ReviewLink session={session} />} />
       ) : waiting && session ? (
         <div className={`${CARD} ${CARD_PAD}`}>
