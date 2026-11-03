@@ -522,7 +522,7 @@ const UNREADABLE_SELECTS = [
   },
   {
     ref:
-      `${DASH}/jobs/actions.ts:849 assertOwned(): ` +
+      `${DASH}/jobs/actions.ts:860 assertOwned(): ` +
       `.select(\`id, company_id, criteria_version, \${SCORING_RELEVANT_COLUMNS.join(", ")}, ` +
       `\${CV_WEIGHT_DIMENSIONS.map((d) => d.key).join(", ")}\`) — interpolates a CallExpression, ` +
       "which no static reading covers",

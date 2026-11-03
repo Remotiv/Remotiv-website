@@ -23,6 +23,7 @@ export default async function JobsPage() {
       jobs={jobs.ok ? jobs.value : []}
       deletedJobs={deletedJobs.ok ? deletedJobs.value : []}
       loadFailed={!jobs.ok}
+      deletedLoadFailed={!deletedJobs.ok}
     />
   );
 }

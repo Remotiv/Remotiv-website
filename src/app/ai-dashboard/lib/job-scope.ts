@@ -63,7 +63,7 @@ export function isEmptyScope(scope: JobScope): boolean {
  * failed to produce, and a zero nobody doubts is worse than an error.
  *
  * So the distinction is made available here, and `getJobScope` keeps the
- * fail-closed collapse for the nineteen callers whose only use of the scope is
+ * fail-closed collapse for the callers whose only use of the scope is
  * to narrow a query. One implementation, two entry points — the alternative
  * was changing a signature with twenty-one call sites, which is how the two
  * behaviours drift apart.

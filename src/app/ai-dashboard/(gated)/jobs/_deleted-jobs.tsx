@@ -31,12 +31,15 @@ function deletedAgo(iso: string): string {
  */
 export function DeletedJobsPanel({
   jobs,
+  loadFailed,
   canRestore,
   busyId,
   onRestore,
   onBack,
 }: {
   jobs: DeletedCompanyJobRow[];
+  /** The tombstones could not be read: say so, never "Nothing deleted". */
+  loadFailed: boolean;
   canRestore: boolean;
   busyId: string | null;
   onRestore: (job: DeletedCompanyJobRow) => void;
@@ -71,10 +74,12 @@ export function DeletedJobsPanel({
               <Trash className="size-7" strokeWidth={1.7} />
             </div>
             <h3 className="font-heading text-[19px] font-extrabold tracking-[-0.02em]">
-              Nothing deleted
+              {loadFailed ? "We couldn't load your deleted jobs" : "Nothing deleted"}
             </h3>
             <p className="mt-1.5 max-w-[340px] text-[13.5px] leading-relaxed text-[var(--ai-t3)]">
-              Jobs you delete land here, so a role removed by mistake can be put back.
+              {loadFailed
+                ? "This is a problem on our side. Reload the page to try again."
+                : "Jobs you delete land here, so a role removed by mistake can be put back."}
             </p>
           </div>
         )}

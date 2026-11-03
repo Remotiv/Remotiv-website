@@ -8,27 +8,11 @@ import {
   getCompanyContext,
   loginRedirectFor,
 } from "../lib/company-guards";
-import { getJobScope } from "../lib/job-scope";
+import { readJobScope } from "../lib/job-scope";
 import { COMPANY_LOGO_BUCKET } from "./settings/constants";
 import { SessionRefresh } from "./_session-refresh";
+import { badgeCount, scopeBadges } from "./scope-badges";
 import type { CompanyContext } from "../lib/company-roles";
-
-/**
- * A badge number the sidebar can stand behind, or nothing at all.
- *
- * `count ?? 0` turned a query that FAILED into a confident zero. A recruiter
- * reads "0" beside Applicants, believes it, and stops looking — while the page
- * itself would have listed eighty-seven. A wrong answer presented as a right
- * one is worse than no answer, and the sidebar already knows how to show no
- * answer: an undefined count renders no badge.
- *
- * A real zero survives. The noJobs short-circuit passes `error: null`, and a
- * genuinely empty workspace still counts nothing and still shows 0 — which is
- * the entire point, since those two cases used to be indistinguishable.
- */
-function badgeCount(result: { count: number | null; error: unknown }): number | undefined {
-  return result.error ? undefined : (result.count ?? 0);
-}
 
 export default async function GatedCompanyLayout({
   children,
@@ -103,18 +87,13 @@ export default async function GatedCompanyLayout({
   // The badges must count exactly what each page will list. A scoped member
   // seeing "128" beside an Applicants page showing 4 is the same class of bug
   // as a tab count disagreeing with its rows.
-  const scope = await getJobScope(ctx);
-  const noJobs = scope.scoped && scope.jobIds.length === 0;
-
-  const [jobs, applicants, messages, interviews] =
-    noJobs
-      ? [
-          { count: 0, error: null },
-          { count: 0, error: null },
-          { count: 0, error: null },
-          { count: 0, error: null },
-        ]
-      : await Promise.all([
+  //
+  // readJobScope, not getJobScope (#24): a failed hiring-team read must show
+  // no badges, not four confident zeros. scopeBadges decides both short cuts,
+  // and `scope` exists only inside the count it runs on a successful read.
+  const scopeRead = await readJobScope(ctx);
+  const [jobs, applicants, messages, interviews] = await scopeBadges(scopeRead, (scope) =>
+    Promise.all([
           (() => {
             const q = service
               .from("jobs")
@@ -180,7 +159,8 @@ export default async function GatedCompanyLayout({
               .eq("company_id", ctx.companyId);
             return scope.scoped ? q.in("job_id", scope.jobIds) : q;
           })(),
-        ]);
+        ]),
+  );
 
   // Public URL — a logo appears on every public job post, so it is served
   // straight from the public bucket rather than signed per render.

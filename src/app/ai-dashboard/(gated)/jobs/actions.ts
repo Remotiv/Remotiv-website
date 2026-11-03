@@ -16,6 +16,7 @@ import {
   canAccessJob,
   getJobScope,
   isEmptyScope,
+  readJobScope,
   scopeJobIds,
 } from "@/app/ai-dashboard/lib/job-scope";
 import {
@@ -452,7 +453,13 @@ export async function fetchCompanyJobs(): Promise<Read<CompanyJobRow[]>> {
    * empty IN list is both a malformed request and, if a builder ever dropped
    * it, an unfiltered query. Returning [] is the same answer, safely.
    */
-  const scope = await getJobScope(ctx);
+  // readJobScope, not getJobScope (#24): getJobScope turns a failed
+  // hiring-team read into "assigned to no roles", and the page then tells a
+  // hiring manager to ask for an assignment they already have. A failed read
+  // is reported as one, so the page shows its own load-failed state.
+  const scopeRead = await readJobScope(ctx);
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
   // An answer: assigned to no roles means no roles to list.
   if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 
@@ -537,7 +544,11 @@ export async function fetchDeletedCompanyJobs(): Promise<Read<DeletedCompanyJobR
   const ctx = await getCompanyContext();
   const service = createServiceClient();
 
-  const scope = await getJobScope(ctx);
+  // readJobScope for the same reason as fetchCompanyJobs (#24): a failed
+  // hiring-team read would otherwise say "you have deleted nothing".
+  const scopeRead = await readJobScope(ctx);
+  if (!scopeRead.ok) return unavailable();
+  const scope = scopeRead.value;
   if (scope.scoped && scope.jobIds.length === 0) return answered([]);
 
   let q = service

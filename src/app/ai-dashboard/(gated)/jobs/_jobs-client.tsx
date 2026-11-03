@@ -645,6 +645,7 @@ export function JobsClient({
   jobs: initialJobs,
   deletedJobs: initialDeletedJobs,
   loadFailed,
+  deletedLoadFailed,
 }: {
   viewerRole: CompanyRole;
   jobs: CompanyJobRow[];
@@ -652,6 +653,8 @@ export function JobsClient({
   deletedJobs: DeletedCompanyJobRow[];
   /** The roles could not be READ. Distinct from "this company has no roles". */
   loadFailed: boolean;
+  /** The tombstones could not be READ. Distinct from "nothing deleted". */
+  deletedLoadFailed: boolean;
 }) {
   const router = useRouter();
   const canManage = canCreateJobs(viewerRole);
@@ -1071,7 +1074,7 @@ export function JobsClient({
     if (loadFailed) {
       return {
         title: "We couldn't load your roles",
-        text: "Your jobs are still there — this is a problem on our side. Reload the page to try again.",
+        text: "This is a problem on our side. Reload the page to try again.",
       };
     }
     if (search.trim()) {
@@ -1116,6 +1119,7 @@ export function JobsClient({
       <PageContainer>
         <DeletedJobsPanel
           jobs={deletedJobs}
+          loadFailed={deletedLoadFailed}
           canRestore={canManage}
           busyId={restoringId}
           onRestore={handleRestore}
