@@ -767,8 +767,23 @@ function Row({ row, onArchived }: { row: InterviewRow; onArchived: () => void })
  *
  * A hyphen, never an em dash — which the "0 of n" arm was using until now.
  */
-function AnswerCount({ row }: { row: InterviewRow }) {
+export function AnswerCount({ row }: { row: InterviewRow }) {
   const total = row.totalQuestions;
+
+  // An AI Video Interview records a conversation, not answers: "0/8" would read
+  // as nothing said. Its review page has the conversation (F10 C6d).
+  if (row.kind === "live") {
+    return (
+      <span
+        className="text-[12.5px] font-semibold tabular-nums text-[var(--ai-t4)]"
+        // TODO-COPY: placeholder - Waleed writes the final line.
+        title="AI Video Interviews have no recorded answers to count. Open it to see the conversation."
+        data-live-answers
+      >
+        -
+      </span>
+    );
+  }
 
   if (row.progress === null) {
     return (

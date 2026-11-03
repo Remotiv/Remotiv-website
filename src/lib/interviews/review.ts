@@ -61,6 +61,9 @@ const PAGE_SIZE = 20;
 
 /** The statuses the UI groups by, derived rather than trusted from the row. */
 function deriveStatus(stored: string, expiresAt: string | null): InterviewStatus {
+  // A restarted first attempt (F10). The list shows its restart instead and
+  // never this row; anywhere one is shown alone, it is not a pending invite.
+  if (stored === "abandoned") return "cancelled";
   if (stored === "cancelled") return "cancelled";
   if (stored === "submitted") return "submitted";
   if (stored === "expired") return "expired";
@@ -90,6 +93,8 @@ type SessionRow = {
   scoring_snapshot?: unknown;
   archived_at: string | null;
   created_at: string;
+  /** Read by the list only: a restart's first attempt (migration 020). */
+  previous_attempt_id?: string | null;
 };
 
 /**
@@ -181,7 +186,7 @@ export async function listInterviewSessions(
         let q = service
           .from("interview_sessions")
           .select(
-            "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at",
+            "id, application_id, job_id, kind, status, started_at, submitted_at, expires_at, delete_after, invited_by_name, questions_snapshot, archived_at, created_at, previous_attempt_id",
           )
           .eq("company_id", ctx.companyId)
           .order("created_at", { ascending: false })
@@ -195,6 +200,33 @@ export async function listInterviewSessions(
     console.error("[interviews] session read failed:", err);
     return unavailable();
   }
+
+  /*
+   * ── One interview per restart (F10 C6d) ──
+   *
+   * A restarted AI Video Interview is one interview: its restart (attempt 2)
+   * stands for it, and the first attempt it points back to is dropped here,
+   * from the whole scoped read, before any row, count, tab filter or page is
+   * built. So the first attempt stays hidden whichever tab or page its restart
+   * lands on; it is reached only from the review page's audit link. Grouped by
+   * the restart's own link, never by application: ordinary re-sends are
+   * separate first attempts and stay separate rows, as before. A restart keeps
+   * its first attempt's job (053), so this never reveals or hides another
+   * job's session; it only drops one that is in the scoped read already.
+   *
+   * The chain was sent when its first attempt was: a restart is not a new send.
+   */
+  const restarted = new Set(sessions.map((s) => s.previous_attempt_id).filter(Boolean));
+  const firstSentAt = new Map(
+    sessions.filter((s) => restarted.has(s.id)).map((s) => [s.id, s.created_at]),
+  );
+  sessions = sessions.filter((s) => !restarted.has(s.id));
+  const chainSentAt = new Map(
+    sessions.map((s) => [
+      s.id,
+      (s.previous_attempt_id && firstSentAt.get(s.previous_attempt_id)) || s.created_at,
+    ]),
+  );
   if (sessions.length === 0) return answered(empty);
 
   // ── Candidate + job names, one round trip each ──
@@ -282,7 +314,9 @@ export async function listInterviewSessions(
   };
 
   const weekAgo = Date.now() - 7 * 24 * 60 * 60 * 1000;
-  const sentThisWeek = live.filter((r) => new Date(r.sentAt).getTime() >= weekAgo).length;
+  const sentThisWeek = live.filter(
+    (r) => new Date(chainSentAt.get(r.id) ?? r.sentAt).getTime() >= weekAgo,
+  ).length;
 
   const jobList = [...jobs.entries()]
     .map(([id, title]) => ({ id, title }))
