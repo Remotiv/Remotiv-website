@@ -59,6 +59,26 @@ import { JOB_TYPES } from "@/lib/jobs-queue";
  * A failed email cancels nothing, extends nothing and schedules nothing:
  * attempt 2 stays invited and its link can be sent again (F10 decision 6).
  *
+ * ── The link's record (F10-LOG, migration 055) ───────────────
+ *
+ * Each step that happened leaves one row in live_restart_link_events, written
+ * with the gated actor (ctx.user.id, ctx.role, after gateForAction), never
+ * anything the request carries:
+ *
+ *   reissued  right after a re-send replaced the token, before its email
+ *   sent      right after the email provider accepted the email
+ *   failed    right after it did not
+ *
+ * The C5 order is unchanged; the rows sit between its steps. A row that cannot
+ * be written undoes nothing and holds nothing back (the email may already have
+ * gone): one line of ids and codes, and recordWarning on the result. The page
+ * then has no record of this send and says delivery can't be confirmed.
+ *
+ * Accepted: if a re-send's 'reissued' row AND its 'sent' or 'failed' row both
+ * fail to be written, the latest row is an earlier 'sent', and the page shows
+ * that earlier acceptance although its link was replaced. Two failed writes in
+ * one action; the action's own result carries the warning.
+ *
  * ── Never logged ─────────────────────────────────────────────
  *
  * Tokens, notes, email addresses and names. Ids and codes only.
@@ -206,8 +226,43 @@ export async function resendRestartLink(
   if (!reissued.ok) {
     return refused(session.id, "re-send", CODE[reissued.code] ?? "not_eligible");
   }
+  const recorded = await recordLinkEvent(deps.service, ctx, session.id, "reissued");
   const sent = await sendRestartLink(ctx, session.id, reissued.token, ahead.deadline, deps);
-  return { ok: true, restartSessionId: session.id, ...sent };
+  return { ok: true, restartSessionId: session.id, ...sent, ...notRecorded(recorded) };
+}
+
+type LinkEvent = "reissued" | "sent" | "failed";
+
+/**
+ * One row of the restart's link record, as the gated actor. Never throws: a
+ * row that cannot be written is one line of ids and codes, and false.
+ */
+async function recordLinkEvent(
+  service: Service,
+  ctx: CompanyContext,
+  restartSessionId: string,
+  event: LinkEvent,
+): Promise<boolean> {
+  try {
+    const { error } = await service.from("live_restart_link_events").insert({
+      session_id: restartSessionId,
+      company_id: ctx.companyId,
+      event,
+      actor_user_id: ctx.user.id,
+      actor_role: ctx.role,
+    });
+    if (!error) return true;
+  } catch {
+    // Reported below, as for an error the database returned.
+  }
+  console.warn(
+    `[live-restart-flow] restart ${restartSessionId}: link event not recorded (${event})`,
+  );
+  return false;
+}
+
+function notRecorded(recorded: boolean) {
+  return recorded ? {} : { recordWarning: "event_not_recorded" as const };
 }
 
 /** The deadline a re-send's extension sets: at least 72 hours from now, never earlier than it is. */
@@ -267,11 +322,14 @@ async function sendRestartLink(
     expiresAt: quoted,
     copy: restartEmail,
   });
+  const record = notRecorded(
+    await recordLinkEvent(service, ctx, restartSessionId, sent.ok ? "sent" : "failed"),
+  );
   if (!sent.ok) {
     console.warn(
       `[live-restart-flow] restart ${restartSessionId}: email not delivered (${sent.code})`,
     );
-    return failed("email_failed");
+    return { ...failed("email_failed"), ...record };
   }
 
   // Delivered: 72 hours after delivery, in the database. It only ever moves later, so the
@@ -298,7 +356,7 @@ async function sendRestartLink(
 
   await scheduleExpiryOnce(service, ctx.companyId, restartSessionId, deadline, sent.deadline, deps);
   console.log(`[live-restart-flow] restart ${restartSessionId}: link sent`);
-  return { emailFailed: false, deadline, warning };
+  return { emailFailed: false, deadline, warning, ...record };
 }
 
 /** The restart's deadline as the database holds it now, or null when it cannot be read. */

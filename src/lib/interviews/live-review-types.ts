@@ -162,7 +162,21 @@ export type LiveRestartView =
       /** The deadline as the database holds it now. */
       deadline: string | null;
       expired: boolean;
+      /** The latest record of its link (migration 055). Absent: unconfirmed. */
+      link?: LiveRestartLink;
     };
+
+/**
+ * What the page may say about a restart's link email, from its latest record
+ * (F10-LOG, migration 055): the email provider accepted it, or did not.
+ * Neither ever means the candidate received it. A re-issued token with no
+ * later record, no record at all, or records that cannot be ordered are
+ * unconfirmed.
+ */
+export type LiveRestartLink =
+  | { status: "sent"; at: string }
+  | { status: "failed"; at: string }
+  | { status: "unconfirmed" };
 
 /** The codes a restart action returns. Never a database message. */
 export type LiveRestartCode =
@@ -190,10 +204,25 @@ export type LiveRestartCode =
  */
 export type LiveRestartWarning = "not_extended_after_delivery";
 
+/**
+ * A link event (reissued, sent or failed) was not recorded. Nothing was undone
+ * or held back for it; the page cannot confirm this send later and says so.
+ */
+export type LiveRestartRecordWarning = "event_not_recorded";
+
 /** What sending (or re-sending) a restart link did. The session is never cancelled. */
 export type LiveRestartSend =
-  | { emailFailed: false; deadline: string; warning: LiveRestartWarning | null }
-  | { emailFailed: true; code: "email_failed" | "not_found" | "db_error" };
+  | {
+      emailFailed: false;
+      deadline: string;
+      warning: LiveRestartWarning | null;
+      recordWarning?: LiveRestartRecordWarning;
+    }
+  | {
+      emailFailed: true;
+      code: "email_failed" | "not_found" | "db_error";
+      recordWarning?: LiveRestartRecordWarning;
+    };
 
 export type LiveRestartDecideResult =
   | { ok: true; decision: "no_restart" }
@@ -213,6 +242,8 @@ export type LiveRestartPanel =
   | { panel: "decided"; decision: LiveRestartDecision }
   | { panel: "earlier_restarted"; decision: LiveRestartDecision | null }
   | { panel: "restart_invited"; deadline: string | null; canResend: boolean }
+  | { panel: "restart_sent"; deadline: string | null; sentAt: string; canResend: boolean }
+  | { panel: "restart_failed"; deadline: string | null; canResend: boolean }
   | { panel: "restart_expired" };
 
 const NOT_YET = ["too_soon", "not_final", "not_ended"] as const;
@@ -223,8 +254,10 @@ const NOT_YET = ["too_soon", "not_final", "not_ended"] as const;
  * A Remotiv super admin (`platform`) sees none of it. A first attempt that can
  * never be restarted (completed, partial, never started) shows nothing; a
  * started or finished restart shows nothing beyond the attempt banner. An
- * invited restart shows its database deadline and, for an owner or admin, the
- * re-send: whether its email arrived is never claimed (fail closed).
+ * invited restart shows its database deadline, its link's latest record (the
+ * email provider accepted it, or did not; anything else is unconfirmed) and,
+ * for an owner or admin, the re-send. That the candidate received it is never
+ * claimed.
  */
 export function restartPanelFor(
   restart: LiveRestartView | null | undefined,
@@ -237,7 +270,13 @@ export function restartPanelFor(
   if (restart.kind === "restart_attempt") {
     if (restart.status !== "invited") return { panel: "none" };
     if (restart.expired) return { panel: "restart_expired" };
-    return { panel: "restart_invited", deadline: restart.deadline, canResend: viewer.canAct };
+    const { deadline } = restart;
+    const canResend = viewer.canAct;
+    if (restart.link?.status === "sent") {
+      return { panel: "restart_sent", deadline, sentAt: restart.link.at, canResend };
+    }
+    if (restart.link?.status === "failed") return { panel: "restart_failed", deadline, canResend };
+    return { panel: "restart_invited", deadline, canResend };
   }
   if (restart.decision) return { panel: "decided", decision: restart.decision };
   if (restart.eligible) return viewer.canAct ? { panel: "decide" } : { panel: "awaiting_decision" };

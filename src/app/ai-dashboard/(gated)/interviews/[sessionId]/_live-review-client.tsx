@@ -372,6 +372,10 @@ const RESTART_TEXT = {
     deadline ? `Restart link deadline: ${when(deadline)}.` : "Restart link sent.",
   unconfirmed:
     "Delivery can't be confirmed here - send the link again if the candidate didn't receive it.",
+  linkSent: (at: string, deadline: string | null) =>
+    `Restart link sent - accepted by the email provider on ${when(at)}.${deadline ? ` Deadline ${when(deadline)}.` : ""}`,
+  linkFailed: "The restart email was not accepted - send the link again.",
+  notRecorded: "This send couldn't be recorded, so the page can't confirm it later.",
   resend: "Send the link again",
   expired: "The restart link expired before it was used.",
   saved: "Decision saved.",
@@ -407,11 +411,32 @@ function notYetText(panel: Extract<LiveRestartPanel, { panel: "not_yet" }>): str
 /**
  * What a send or re-send did, as the panel says it right after the click. The
  * deadline is the one the email quoted and the database holds; a deadline not
- * extended after delivery still stands, so it reads as sent.
+ * extended after delivery still stands, so it reads as sent. A send whose
+ * record was not written says so: the panel will not confirm it after a reload.
  */
 export function restartSendText(sent: LiveRestartSend): string {
-  if (sent.emailFailed) return RESTART_CODE_TEXT[sent.code];
-  return RESTART_TEXT.sent(sent.deadline);
+  const text = sent.emailFailed ? RESTART_CODE_TEXT[sent.code] : RESTART_TEXT.sent(sent.deadline);
+  return sent.recordWarning ? `${text} ${RESTART_TEXT.notRecorded}` : text;
+}
+
+type InvitedPanel = Extract<
+  LiveRestartPanel,
+  { panel: "restart_invited" | "restart_sent" | "restart_failed" }
+>;
+
+/** An invited restart's panel, by what its link's latest record says. */
+const LINK_STATE = {
+  restart_invited: "unconfirmed",
+  restart_sent: "sent",
+  restart_failed: "failed",
+} as const;
+
+function isInvited(panel: LiveRestartPanel): panel is InvitedPanel {
+  return panel.panel in LINK_STATE;
+}
+
+function linkState(panel: InvitedPanel) {
+  return LINK_STATE[panel.panel];
 }
 
 /** A send worth retrying from here: the email was not delivered. */
@@ -566,10 +591,22 @@ function RestartPanel({
           )}
         </div>
       )}
-      {panel.panel === "restart_invited" && (
-        <div className="mt-2 flex flex-col gap-2" data-restart-invited>
-          <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.invitedDeadline(panel.deadline)}</p>
-          <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.unconfirmed}</p>
+      {isInvited(panel) && (
+        <div className="mt-2 flex flex-col gap-2" data-restart-invited={linkState(panel)}>
+          {panel.panel === "restart_sent" ? (
+            <p className={`m-0 ${MUTED}`} data-restart-link="sent">
+              {RESTART_TEXT.linkSent(panel.sentAt, panel.deadline)}
+            </p>
+          ) : (
+            <>
+              <p className={`m-0 ${MUTED}`}>{RESTART_TEXT.invitedDeadline(panel.deadline)}</p>
+              <p className={`m-0 ${MUTED}`} data-restart-link={linkState(panel)}>
+                {panel.panel === "restart_failed"
+                  ? RESTART_TEXT.linkFailed
+                  : RESTART_TEXT.unconfirmed}
+              </p>
+            </>
+          )}
           {panel.canResend && actions && (
             <div>
               <button

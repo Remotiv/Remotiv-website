@@ -41,6 +41,7 @@ import type {
   LiveQuestionStatus,
   LiveRecoveryRequest,
   LiveRestartDecision,
+  LiveRestartLink,
   LiveRestartView,
   LiveReviewFlag,
   LiveReviewHeader,
@@ -682,10 +683,9 @@ const HOUR_MS = 60 * 60 * 1000;
 /**
  * The restart state for the company's review (F10 C5): a first attempt's
  * eligibility and decision, an earlier attempt that was restarted, or a
- * restart's status and its deadline as the database holds it. The decision's
- * note only for an owner or admin. Whether the link's email arrived is not
- * claimed: no record ties an email to this restart, so the page offers a
- * re-send instead (fail closed).
+ * restart's status, its deadline as the database holds it and, while invited,
+ * its link's latest record (restartLinkFor). The decision's note only for an
+ * owner or admin. That the candidate received the email is never claimed.
  */
 async function restartViewFor(
   service: Service,
@@ -701,6 +701,10 @@ async function restartViewFor(
       status: session.status ?? "",
       deadline: session.expires_at,
       expired: expiresMs === null || expiresMs <= viewer.nowMs,
+      link:
+        session.status === "invited"
+          ? await restartLinkFor(service, session.id, companyId)
+          : UNCONFIRMED,
     };
   }
   if (session.attempt !== 1) return null;
@@ -725,6 +729,37 @@ async function restartViewFor(
       ? new Date(Date.parse(session.live_ended_at) + HOUR_MS).toISOString()
       : null;
   return { kind: "first_attempt", eligible: false, reason: verdict.code, availableAt, decision };
+}
+
+const UNCONFIRMED: LiveRestartLink = { status: "unconfirmed" };
+
+/**
+ * The latest record of a restart's link (F10-LOG, migration 055), this company's
+ * only. 'sent' or 'failed' as recorded; a re-issued token with no later record,
+ * no record, a failed read, or two different records at the same instant (no
+ * order between them) are unconfirmed.
+ */
+async function restartLinkFor(
+  service: Service,
+  sessionId: string,
+  companyId: string,
+): Promise<LiveRestartLink> {
+  const { data, error } = await service
+    .from("live_restart_link_events")
+    .select("event, created_at")
+    .eq("session_id", sessionId)
+    .eq("company_id", companyId)
+    .order("created_at", { ascending: false })
+    .limit(2);
+  if (error) return UNCONFIRMED;
+  const [latest, before] = (data ?? []) as { event: string; created_at: string }[];
+  if (!latest) return UNCONFIRMED;
+  if (before && before.created_at === latest.created_at && before.event !== latest.event) {
+    return UNCONFIRMED;
+  }
+  if (latest.event === "sent") return { status: "sent", at: latest.created_at };
+  if (latest.event === "failed") return { status: "failed", at: latest.created_at };
+  return UNCONFIRMED;
 }
 
 async function restartDecisionFor(

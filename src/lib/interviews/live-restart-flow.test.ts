@@ -3,7 +3,9 @@
  * live-restart-flow.ts): the gates, no restart, restart with the email, the
  * 72-hour deadline after delivery, a failed email that cancels nothing, the
  * re-send of the same attempt 2, the expiry scheduled once, and the panel the
- * page shows for each state.
+ * page shows for each state. F10-LOG (migration 055): the link's record
+ * written as the gated actor between C5's steps, and the status the page reads
+ * from it (tests "F10-LOG a" to "F10-LOG f").
  *
  *   node --test src/lib/interviews/live-restart-flow.test.ts
  *
@@ -57,7 +59,7 @@ globalThis.__h = createElement;
 const { decideRestart, resendRestartLink } = await import("./live-restart-flow.ts");
 const { sendInviteEmail, scheduleInterviewJobs } = await import("./invite-delivery.ts");
 const { restartPanelFor } = await import("./live-review-types.ts");
-const { loadLiveReview } = await import("./live-review.ts");
+const { canActOnLiveReview, loadLiveReview } = await import("./live-review.ts");
 const { LiveReviewClient, restartSendText } = await import(
   "../../app/ai-dashboard/(gated)/interviews/[sessionId]/_live-review-client.tsx"
 );
@@ -153,11 +155,25 @@ function decisionRefusal(tables, s, dbNow) {
   return null;
 }
 
-/** The store: tables with eq/in/is/gt/gte/contains/limit/maybeSingle, insert, update, and 053's functions. */
-function world({ sessions = [firstAttempt()], jobs = [], dbClockMs = 0, emailOk = true } = {}) {
+/**
+ * The store: tables with eq/in/is/gt/gte/contains/order/limit/maybeSingle,
+ * insert, update, and 053's functions. live_restart_link_events stamps each
+ * row as 055's trigger does, one tick apart (each insert is its own
+ * transaction); `events` makes its inserts fail ("error" or "throw"), all of
+ * them or, as { sent: "error" }, one kind only.
+ */
+function world({
+  sessions = [firstAttempt()],
+  jobs = [],
+  dbClockMs = 0,
+  emailOk = true,
+  events = "ok",
+  linkEvents = [],
+} = {}) {
   const tables = {
     interview_sessions: structuredClone(sessions),
     live_interview_actions: [],
+    live_restart_link_events: structuredClone(linkEvents),
     live_interview_scores: [],
     job_applications: [
       {
@@ -180,6 +196,7 @@ function world({ sessions = [firstAttempt()], jobs = [], dbClockMs = 0, emailOk 
   const dbNow = () => dbAt ?? NOW + dbClockMs;
   let extendFailures = 0;
   let extendSkips = 0;
+  let eventTick = 0;
   const RPC = {
     live_restart_session(a) {
       const prev = tables.interview_sessions.find(
@@ -256,8 +273,16 @@ function world({ sessions = [firstAttempt()], jobs = [], dbClockMs = 0, emailOk 
     const insert = calls.find((c) => c[0] === "insert");
     const update = calls.find((c) => c[0] === "update");
     if (insert) {
-      steps.push({ step: "insert", table });
       const row = structuredClone(insert[1]);
+      const isEvent = table === "live_restart_link_events";
+      steps.push({ step: "insert", table, ...(isEvent && { name: `event:${row.event}` }) });
+      if (isEvent) {
+        const mode = typeof events === "string" ? events : (events[row.event] ?? "ok");
+        if (mode === "throw") throw new Error("RAW-SQL-DETAIL connection reset");
+        if (mode === "error") return { data: null, error: err("XX000", "RAW-SQL-DETAIL") };
+        eventTick += 1;
+        row.created_at = iso(dbNow() + eventTick);
+      }
       if (table === "live_interview_actions") {
         const s = tables.interview_sessions.find((x) => x.id === row.session_id);
         const refusal = decisionRefusal(tables, s, dbNow());
@@ -275,6 +300,11 @@ function world({ sessions = [firstAttempt()], jobs = [], dbClockMs = 0, emailOk 
     }
     if (calls.some((c) => c[0] === "maybeSingle")) {
       return { data: hit[0] ? structuredClone(hit[0]) : null, error: null };
+    }
+    const order = calls.find((c) => c[0] === "order");
+    if (order) {
+      const dir = order[2]?.ascending === false ? -1 : 1;
+      hit.sort((a, b) => dir * String(a[order[1]]).localeCompare(String(b[order[1]])));
     }
     const limit = calls.find((c) => c[0] === "limit");
     return { data: structuredClone(limit ? hit.slice(0, limit[1]) : hit), error: null };
@@ -468,8 +498,8 @@ test("d: restart, email delivered: decision, attempt 2, the email at the promise
   );
   assert.deepEqual(
     writes(w).map((s) => s.name ?? s.step),
-    ["live_restart_session", "email", "live_restart_extend_deadline", "job"],
-    "the extension only after the email, the job last",
+    ["live_restart_session", "email", "event:sent", "live_restart_extend_deadline", "job"],
+    "the extension only after the email, the job last; the record right after the email",
   );
   const [job] = expiryJobs(w, second.id);
   assert.deepEqual([job.run_after, job.company_id], [second.expires_at, CO]);
@@ -519,10 +549,18 @@ test("f: re-send after a failed email: the same attempt 2, a new token, the emai
   assert.equal(expiryJobs(w, second.id).length, 1);
   assert.deepEqual(
     writes(w)
-      .slice(-5)
+      .slice(-7)
       .map((s) => s.name ?? s.step),
-    ["live_restart_extend_deadline", "update", "email", "live_restart_extend_deadline", "job"],
-    "the extension first, then the token, the email, the extension after delivery, the job",
+    [
+      "live_restart_extend_deadline",
+      "update",
+      "event:reissued",
+      "email",
+      "event:sent",
+      "live_restart_extend_deadline",
+      "job",
+    ],
+    "the extension first, then the token, the email, the extension after delivery, the job; each record right after its step",
   );
 });
 
@@ -858,9 +896,16 @@ test("m: first send, extension after delivery fails: the emailed date is the dat
     [atRestart],
     "the expiry at it",
   );
+  const sentAt = w.tables.live_restart_link_events[0].created_at;
   assert.deepEqual(await pageState(w, second.id, NOW), {
-    restart: { kind: "restart_attempt", status: "invited", deadline: atRestart, expired: false },
-    panel: { panel: "restart_invited", deadline: atRestart, canResend: true },
+    restart: {
+      kind: "restart_attempt",
+      status: "invited",
+      deadline: atRestart,
+      expired: false,
+      link: { status: "sent", at: sentAt },
+    },
+    panel: { panel: "restart_sent", deadline: atRestart, sentAt, canResend: true },
   });
   assert.equal(
     restartSendText(result),
@@ -935,9 +980,16 @@ test("o: re-send 48 hours later, all well: the email quotes the database's deadl
   assert.equal(sha256(tokenOf(w.emails.at(-1))), restartRow(w).token_hash, "the new link");
   assert.deepEqual(
     writes(w)
-      .slice(-4)
+      .slice(-6)
       .map((s) => s.name ?? s.step),
-    ["live_restart_extend_deadline", "update", "email", "live_restart_extend_deadline"],
+    [
+      "live_restart_extend_deadline",
+      "update",
+      "event:reissued",
+      "email",
+      "event:sent",
+      "live_restart_extend_deadline",
+    ],
   );
   assert.equal(expiryJobs(w, id).length, 1, "the queued expiry re-arms");
 });
@@ -977,6 +1029,396 @@ test("p: re-send, extension after delivery fails: the quoted database deadline i
   assert.deepEqual(short, [
     `[live-restart-flow] restart ${id}: extension after delivery failed; the emailed deadline stands, 300s short of 72 hours after delivery`,
   ]);
+});
+
+// ── F10-LOG: the link's record and the status the page reads ─
+
+const RESTART_ACTIONS = { decide: async () => ({ ok: true }), resend: async () => ({ ok: true }) };
+const UNCONFIRMED_TEXT = "Delivery can&#x27;t be confirmed here";
+const FAILED_TEXT = "The restart email was not accepted - send the link again.";
+const sentText = (atMs, deadlineMs) =>
+  `Restart link sent - accepted by the email provider on ${whenText(atMs)}. Deadline ${whenText(deadlineMs)}.`;
+const events = (w) =>
+  w.tables.live_restart_link_events.map((e) => [
+    e.event,
+    e.session_id,
+    e.company_id,
+    e.actor_user_id,
+    e.actor_role,
+  ]);
+/** The review page for `role`, rendered from what loadLiveReview reads. */
+async function pageHtml(w, sessionId, role = "owner", atMs = NOW) {
+  mock.timers.enable({ apis: ["Date"], now: atMs });
+  try {
+    const view = await quiet(() =>
+      loadLiveReview(ctx(role), sessionId, { service: w.service, scope: async () => w.scope }),
+    );
+    const canAct = canActOnLiveReview(role);
+    return renderToStaticMarkup(
+      createElement(LiveReviewClient, {
+        view,
+        candidateName: "C",
+        jobTitle: "J",
+        canAct,
+        restartActions: canAct ? RESTART_ACTIONS : undefined,
+      }),
+    );
+  } finally {
+    mock.timers.reset();
+  }
+}
+const neverClaimsReceipt = (html) =>
+  assert.doesNotMatch(html, /received it|was delivered|delivered to|opened/i);
+const restarted = () => [firstAttempt({ status: "abandoned" }), secondAttempt()];
+const event = (name, atMs, over = {}) => ({
+  session_id: SECOND,
+  company_id: CO,
+  event: name,
+  actor_user_id: "u-seed",
+  actor_role: "owner",
+  created_at: iso(atMs),
+  ...over,
+});
+
+test("F10-LOG a: restart, email accepted: one 'sent' row as the gated actor, after the email; the page says accepted, never received", async () => {
+  const w = world();
+  const admin = ctx("admin");
+  const r = await decide(w, {}, admin);
+  assert.equal(r.emailFailed, false);
+  assert.equal("recordWarning" in r, false);
+  const second = restartRow(w);
+  assert.deepEqual(events(w), [["sent", second.id, CO, admin.user.id, "admin"]]);
+  const steps = writes(w).map((s) => s.name ?? s.step);
+  assert.ok(steps.indexOf("email") < steps.indexOf("event:sent"), "written after the email");
+  const html = await pageHtml(w, second.id);
+  const sentAt = Date.parse(w.tables.live_restart_link_events[0].created_at);
+  assert.ok(
+    html.includes(sentText(sentAt, Date.parse(second.expires_at))),
+    "accepted, with the deadline",
+  );
+  assert.match(html, /data-restart-link="sent"/);
+  assert.ok(!html.includes(UNCONFIRMED_TEXT));
+  assert.match(html, /data-restart-resend/, "an owner can still send it again");
+  neverClaimsReceipt(html);
+});
+
+test("F10-LOG b: restart, email not accepted: one 'failed' row; the page says so and offers the re-send to an owner or admin only", async () => {
+  const w = world({ emailOk: false });
+  const r = await decide(w);
+  assert.deepEqual([r.emailFailed, r.code, "recordWarning" in r], [true, "email_failed", false]);
+  const second = restartRow(w);
+  assert.deepEqual(events(w), [["failed", second.id, CO, ctx("owner").user.id, "owner"]]);
+  const steps = writes(w).map((s) => s.name ?? s.step);
+  assert.ok(steps.indexOf("email") < steps.indexOf("event:failed"), "written after the email");
+  assert.equal(second.status, "invited", "never cancelled");
+  for (const role of ["owner", "admin"]) {
+    const html = await pageHtml(w, second.id, role);
+    assert.ok(html.includes(FAILED_TEXT), role);
+    assert.match(html, /data-restart-link="failed"/);
+    assert.match(html, /data-restart-resend/, `${role}: the re-send`);
+    assert.doesNotMatch(html, /Restart link sent/);
+  }
+  for (const role of ["recruiter", "hiring_manager"]) {
+    const html = await pageHtml(w, second.id, role);
+    assert.ok(html.includes(FAILED_TEXT), role);
+    assert.doesNotMatch(html, /data-restart-resend/, `${role}: no re-send`);
+  }
+});
+
+test("F10-LOG c: re-send: 'reissued' then 'sent', each right after its step; the page shows the latest acceptance", async () => {
+  const w = world({ emailOk: false });
+  await decide(w);
+  const id = restartRow(w).id;
+  w.setEmailOk(true);
+  const r = await resend(w, id, ctx("admin"), { now: () => NOW + HOUR });
+  assert.deepEqual([r.ok, r.emailFailed, "recordWarning" in r], [true, false, false]);
+  assert.deepEqual(
+    events(w).map((e) => [e[0], e[4]]),
+    [
+      ["failed", "owner"],
+      ["reissued", "admin"],
+      ["sent", "admin"],
+    ],
+  );
+  assert.deepEqual(
+    writes(w)
+      .slice(-7)
+      .map((s) => s.name ?? s.step),
+    [
+      "live_restart_extend_deadline",
+      "update",
+      "event:reissued",
+      "email",
+      "event:sent",
+      "live_restart_extend_deadline",
+      "job",
+    ],
+    "C5's order, each record right after its step",
+  );
+  let html = await pageHtml(w, id);
+  const lastSent = Date.parse(w.tables.live_restart_link_events.at(-1).created_at);
+  assert.ok(html.includes(sentText(lastSent, Date.parse(restartRow(w).expires_at))));
+  // A second re-send, delivered: the newest acceptance is the one shown.
+  await resend(w, id, ctx("owner"), { now: () => NOW + 2 * HOUR });
+  const newest = w.tables.live_restart_link_events.at(-1);
+  assert.deepEqual(
+    events(w)
+      .slice(-2)
+      .map((e) => e[0]),
+    ["reissued", "sent"],
+  );
+  html = await pageHtml(w, id);
+  assert.ok(
+    html.includes(`accepted by the email provider on ${whenText(Date.parse(newest.created_at))}`),
+  );
+  neverClaimsReceipt(html);
+});
+
+test("F10-LOG c: re-send, email not accepted: 'reissued' then 'failed'; the page shows the failure, not the earlier acceptance", async () => {
+  const w = world();
+  await decide(w);
+  const id = restartRow(w).id;
+  w.setEmailOk(false);
+  const r = await resend(w, id, ctx("admin"), { now: () => NOW + HOUR });
+  assert.deepEqual(r, { ok: true, restartSessionId: id, emailFailed: true, code: "email_failed" });
+  assert.deepEqual(
+    events(w).map((e) => [e[0], e[4]]),
+    [
+      ["sent", "owner"],
+      ["reissued", "admin"],
+      ["failed", "admin"],
+    ],
+  );
+  assert.deepEqual(
+    writes(w)
+      .slice(-5)
+      .map((s) => s.name ?? s.step),
+    ["live_restart_extend_deadline", "update", "event:reissued", "email", "event:failed"],
+    "no extension or job after a failed email; each record right after its step",
+  );
+  assert.equal(restartRow(w).status, "invited", "never cancelled");
+  const html = await pageHtml(w, id);
+  assert.match(html, /data-restart-link="failed"/);
+  assert.ok(html.includes(FAILED_TEXT));
+  assert.match(html, /data-restart-resend/);
+  assert.doesNotMatch(html, /Restart link sent/, "the earlier acceptance is not shown");
+});
+
+test("F10-LOG d: re-send, the email accepted but its 'sent' row not written: the email stands, warning returned, the page shows unconfirmed (not the earlier 'sent')", async () => {
+  const w = world({ events: { sent: "error" } });
+  await decide(w);
+  const id = restartRow(w).id;
+  // Pretend the first send's 'sent' row was written: an earlier acceptance exists.
+  w.tables.live_restart_link_events.push(event("sent", NOW - 30 * 60_000, { session_id: id }));
+  const { result, lines } = await captured(() =>
+    resendRestartLink(ctx("owner"), id, deps(w, { now: () => NOW + HOUR })),
+  );
+  assert.deepEqual(result, {
+    ok: true,
+    restartSessionId: id,
+    emailFailed: false,
+    deadline: restartRow(w).expires_at,
+    warning: null,
+    recordWarning: "event_not_recorded",
+  });
+  assert.equal(w.emails.length, 2, "the re-send's email went");
+  assert.equal(sha256(tokenOf(w.emails[1])), restartRow(w).token_hash, "with the new link");
+  assert.equal(restartRow(w).status, "invited");
+  assert.deepEqual(
+    w.tables.live_restart_link_events.map((e) => e.event),
+    ["sent", "reissued"],
+    "the reissued row written; the sent row not",
+  );
+  assert.deepEqual(
+    writes(w)
+      .slice(-6)
+      .map((s) => s.name ?? s.step),
+    [
+      "live_restart_extend_deadline",
+      "update",
+      "event:reissued",
+      "email",
+      "event:sent",
+      "live_restart_extend_deadline",
+    ],
+    "C5's steps all ran after the failed write",
+  );
+  assert.deepEqual(
+    lines.filter((l) => l.includes("link event not recorded")),
+    [`[live-restart-flow] restart ${id}: link event not recorded (sent)`],
+  );
+  const html = await pageHtml(w, id);
+  assert.match(html, /data-restart-link="unconfirmed"/, "the reissued row is the latest");
+  assert.ok(html.includes(UNCONFIRMED_TEXT));
+  assert.doesNotMatch(html, /Restart link sent/);
+});
+
+test("F10-LOG c: the page's status per latest record: sent, failed, or unconfirmed (re-issued, none, or unordered)", async () => {
+  const cases = [
+    ["no record", [], "unconfirmed"],
+    ["sent", [event("sent", NOW - HOUR)], "sent"],
+    ["failed", [event("failed", NOW - 3 * HOUR)], "failed"],
+    [
+      "sent, then re-issued",
+      [event("sent", NOW - 3 * HOUR), event("reissued", NOW - HOUR)],
+      "unconfirmed",
+    ],
+    [
+      "re-issued, then failed",
+      [event("reissued", NOW - 3 * HOUR), event("failed", NOW - HOUR)],
+      "failed",
+    ],
+    [
+      "failed, re-issued, sent",
+      [
+        event("failed", NOW - 3 * HOUR),
+        event("reissued", NOW - 2 * HOUR),
+        event("sent", NOW - HOUR),
+      ],
+      "sent",
+    ],
+    // Stored newest first: the read orders them, it does not trust storage order.
+    [
+      "sent stored before an older failed",
+      [event("sent", NOW - HOUR), event("failed", NOW - 3 * HOUR)],
+      "sent",
+    ],
+    [
+      "sent and re-issued at the same instant",
+      [event("sent", NOW - HOUR), event("reissued", NOW - HOUR)],
+      "unconfirmed",
+    ],
+  ];
+  for (const [name, linkEvents, expected] of cases) {
+    const w = world({ sessions: restarted(), linkEvents });
+    const html = await pageHtml(w, SECOND);
+    assert.match(html, new RegExp(`data-restart-link="${expected}"`), name);
+    if (expected === "unconfirmed") assert.ok(html.includes(UNCONFIRMED_TEXT), name);
+    if (expected === "failed") assert.ok(html.includes(FAILED_TEXT), name);
+    if (expected === "sent") {
+      assert.ok(html.includes(sentText(NOW - HOUR, NOW + 60 * HOUR)), name);
+    }
+    neverClaimsReceipt(html);
+  }
+});
+
+test("F10-LOG d: a record that cannot be written: the email still goes, nothing cancelled or undone, a warning returned, the page falls back", async () => {
+  for (const mode of ["error", "throw"]) {
+    const w = world({ events: mode });
+    const { result, lines } = await captured(() =>
+      decideRestart(ctx("owner"), { sessionId: FIRST, decision: "restart", note: NOTE }, deps(w)),
+    );
+    const second = restartRow(w);
+    assert.deepEqual(
+      result,
+      {
+        ok: true,
+        decision: "restart",
+        restarted: true,
+        restartSessionId: second.id,
+        emailFailed: false,
+        deadline: second.expires_at,
+        warning: null,
+        recordWarning: "event_not_recorded",
+      },
+      mode,
+    );
+    assert.equal(w.emails.length, 1, `${mode}: the email went`);
+    assert.equal(second.status, "invited", `${mode}: never cancelled`);
+    assert.deepEqual(
+      writes(w).map((s) => s.name ?? s.step),
+      ["live_restart_session", "email", "event:sent", "live_restart_extend_deadline", "job"],
+      `${mode}: C5's steps all ran, in order`,
+    );
+    assert.deepEqual(w.tables.live_restart_link_events, []);
+    const notRecorded = lines.filter((l) => l.includes("link event not recorded"));
+    assert.deepEqual(notRecorded, [
+      `[live-restart-flow] restart ${second.id}: link event not recorded (sent)`,
+    ]);
+    assert.ok(!lines.join("\n").includes("RAW-SQL-DETAIL"), "no database text logged");
+    assert.match(restartSendText(result), /couldn't be recorded/);
+    const html = await pageHtml(w, second.id);
+    assert.match(html, /data-restart-link="unconfirmed"/, `${mode}: the page falls back`);
+    assert.ok(html.includes(UNCONFIRMED_TEXT));
+
+    // A re-send: the token replaced, the email sent, the warning returned.
+    const r = await resend(w, second.id, ctx("owner"), { now: () => NOW + HOUR });
+    assert.deepEqual([r.ok, r.emailFailed, r.recordWarning], [true, false, "event_not_recorded"]);
+    assert.equal(w.emails.length, 2, `${mode}: the re-send's email went`);
+    assert.equal(sha256(tokenOf(w.emails[1])), restartRow(w).token_hash);
+
+    // The email not accepted either: the failure and the warning, nothing else changed.
+    const f = world({ emailOk: false, events: mode });
+    const failed = await decide(f);
+    assert.deepEqual(failed, {
+      ok: true,
+      decision: "restart",
+      restarted: true,
+      restartSessionId: restartRow(f).id,
+      emailFailed: true,
+      code: "email_failed",
+      recordWarning: "event_not_recorded",
+    });
+    assert.equal(restartRow(f).status, "invited");
+  }
+});
+
+test("F10-LOG e: the actor is the gated viewer, never the request; recruiters and hiring managers never reach the write", async () => {
+  const w = world();
+  const admin = ctx("admin", { user: { id: "u0000000-0000-4000-8000-0000000000e5" } });
+  const forged = {
+    actorUserId: "u-forged",
+    actor_user_id: "u-forged",
+    actorRole: "owner",
+    actor_role: "owner",
+    role: "owner",
+    companyId: OTHER_CO,
+    company_id: OTHER_CO,
+  };
+  await quiet(() =>
+    decideRestart(admin, { sessionId: FIRST, decision: "restart", note: NOTE, ...forged }, deps(w)),
+  );
+  const id = restartRow(w).id;
+  assert.deepEqual(events(w), [["sent", id, CO, admin.user.id, "admin"]]);
+  for (const role of ["recruiter", "hiring_manager", "super_admin"]) {
+    const refused = { ok: false, code: "role_not_allowed" };
+    const d = world();
+    assert.deepEqual(await decide(d, {}, ctx(role)), refused, role);
+    const s = world({ sessions: restarted() });
+    assert.deepEqual(await resend(s, SECOND, ctx(role)), refused, role);
+    for (const x of [d, s]) {
+      assert.deepEqual(x.tables.live_restart_link_events, [], `${role}: no record`);
+      assert.ok(!x.service.queries.some((q) => q.table === "live_restart_link_events"), role);
+    }
+  }
+});
+
+test("F10-LOG f: another company's records are never read", async () => {
+  const theirs = { company_id: OTHER_CO, actor_user_id: "u-other" };
+  const cases = [
+    [
+      "ours failed, theirs sent later",
+      [event("failed", NOW - 3 * HOUR), event("sent", NOW - HOUR, theirs)],
+      "failed",
+    ],
+    ["only theirs", [event("sent", NOW - HOUR, theirs)], "unconfirmed"],
+    [
+      "ours sent, theirs failed later",
+      [event("sent", NOW - 3 * HOUR), event("failed", NOW - HOUR, theirs)],
+      "sent",
+    ],
+  ];
+  for (const [name, linkEvents, expected] of cases) {
+    const w = world({ sessions: restarted(), linkEvents });
+    const html = await pageHtml(w, SECOND);
+    assert.match(html, new RegExp(`data-restart-link="${expected}"`), name);
+    const reads = w.service.queries.filter((q) => q.table === "live_restart_link_events");
+    assert.equal(reads.length, 1, name);
+    assert.ok(
+      reads[0].calls.some((c) => c[0] === "eq" && c[1] === "company_id" && c[2] === CO),
+      `${name}: filtered to the viewer's company`,
+    );
+  }
 });
 
 // ── l: logs ─────────────────────────────────────────────────
